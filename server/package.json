@@ -1,0 +1,23 @@
+{
+  "name": "whatsapp-sender-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Express backend for WhatsApp Sender: transports, queue, rate limiting, retries, history.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "multer": "^2.0.0",
+    "qrcode": "^1.5.4",
+    "whatsapp-web.js": "^1.34.0",
+    "xlsx": "^0.18.5"
+  }
+}

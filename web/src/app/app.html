@@ -1,0 +1,48 @@
+<div class="shell">
+  <header class="app-header">
+    <img class="brand" src="logo.png" alt="WhatsApp Sender" width="48" height="48" />
+    <div class="titles">
+      <h1>WhatsApp Sender</h1>
+      <p class="muted">{{ subtitle() }}</p>
+    </div>
+
+    <div class="modes" role="group" aria-label="Colour theme">
+      @for (mode of themes; track mode.value) {
+        <button
+          type="button"
+          class="mode"
+          [class.active]="store.theme() === mode.value"
+          [attr.aria-pressed]="store.theme() === mode.value"
+          (click)="store.setTheme(mode.value)"
+        >
+          {{ mode.label }}
+        </button>
+      }
+    </div>
+  </header>
+
+  <nav class="rail" aria-label="Sections">
+    @for (item of navigation; track item.path) {
+      <a class="nav" [routerLink]="item.path" routerLinkActive="active">
+        <span class="nav-icon" [innerHTML]="item.icon"></span>
+        {{ item.label }}
+      </a>
+    }
+
+    <div class="rail-foot card">
+      <span
+        class="dot"
+        [class.live-dot]="store.connection().connected"
+        [style.background]="toneColor()"
+      ></span>
+      <div>
+        <strong>{{ store.statusLine() }}</strong>
+        <small class="muted">WhatsApp Sender v1.0</small>
+      </div>
+    </div>
+  </nav>
+
+  <main class="content">
+    <router-outlet />
+  </main>
+</div>

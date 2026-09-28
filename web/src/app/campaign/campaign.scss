@@ -1,0 +1,176 @@
+:host {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.notice {
+  margin: 0;
+  padding: var(--space-md) var(--space-lg);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-lg) var(--space-md);
+
+  h3 {
+    font-size: 15px;
+  }
+
+  p {
+    margin: 0;
+    font-size: 12px;
+  }
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  flex: none;
+
+  &.accent {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  &.primary {
+    background: var(--primary-soft);
+    color: var(--primary);
+  }
+}
+
+.single {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--space-md);
+  padding: 0 var(--space-lg) var(--space-lg);
+  align-items: end;
+
+  .message {
+    grid-column: 1 / -1;
+  }
+
+  textarea {
+    resize: vertical;
+  }
+
+  .btn {
+    height: 42px;
+  }
+}
+
+.bulk {
+  display: grid;
+  gap: var(--space-md);
+  padding: 0 var(--space-lg) var(--space-lg);
+}
+
+.import {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+
+  .btn {
+    margin: 0;
+  }
+}
+
+.import-errors {
+  font-size: 12px;
+  color: var(--text-muted);
+
+  p {
+    margin: 2px 0;
+  }
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 13px;
+
+  input {
+    width: auto;
+  }
+}
+
+.controls {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+
+  .danger {
+    margin-left: auto;
+  }
+}
+
+.progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-alt);
+  overflow: hidden;
+
+  .bar {
+    height: 100%;
+    background: var(--primary);
+    border-radius: inherit;
+    /* Eased, so a one-per-second campaign advances instead of jumping. */
+    transition: width var(--base) var(--ease);
+  }
+}
+
+.stats {
+  display: flex;
+  gap: var(--space-xl);
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.preview {
+  margin: 0;
+  font-size: 12px;
+}
+
+@media (max-width: 800px) {
+  .single {
+    grid-template-columns: 1fr;
+  }
+}
+
+.plan {
+  display: grid;
+  gap: 4px;
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  font-size: 12px;
+
+  &.warn {
+    border-color: var(--warning);
+    background: var(--warning-soft);
+  }
+
+  .over {
+    color: var(--warning);
+    font-weight: 600;
+  }
+}
+
+.pacing-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
