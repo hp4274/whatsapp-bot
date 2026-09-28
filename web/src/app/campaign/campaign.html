@@ -1,0 +1,129 @@
+@let stats = store.stats();
+
+@if (notice()) {
+  <p class="notice card enter" role="alert">{{ notice() }}</p>
+}
+
+<section class="card enter">
+  <header class="card-head">
+    <span class="badge primary">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4Z" />
+      </svg>
+    </span>
+    <div>
+      <h3>Send a Single Message</h3>
+      <p class="muted">One number, one message - same queue, limits and retries</p>
+    </div>
+  </header>
+
+  <div class="single">
+    <div class="field">
+      <label for="recipient">Recipient number</label>
+      <input id="recipient" [ngModel]="recipient()" (ngModelChange)="recipient.set($event)"
+             placeholder="+919876543210" />
+    </div>
+    <div class="field">
+      <label for="recipient-name">Recipient name</label>
+      <input id="recipient-name" [ngModel]="recipientName()"
+             (ngModelChange)="recipientName.set($event)" placeholder="fills {name}" />
+    </div>
+    <div class="field message">
+      <label for="message">Message</label>
+      <textarea id="message" rows="3" [ngModel]="message()"
+                (ngModelChange)="message.set($event)"></textarea>
+    </div>
+    <button type="button" class="btn primary" (click)="sendSingle()"
+            [disabled]="busy() || !recipient() || !message()">
+      @if (busy()) { <span class="spinner"></span> }
+      Send message
+    </button>
+  </div>
+</section>
+
+<section class="card enter">
+  <header class="card-head">
+    <span class="badge accent">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l2-4.9A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5Z" />
+      </svg>
+    </span>
+    <div>
+      <h3>Bulk Campaign</h3>
+      <p class="muted">Import contacts, personalise, then send at a controlled rate</p>
+    </div>
+  </header>
+
+  <div class="bulk">
+    <div class="import">
+      <label class="btn" for="contacts-file">Import CSV / XLSX</label>
+      <input id="contacts-file" type="file" accept=".csv,.xlsx,.xlsm" (change)="onFile($event)" hidden />
+      <span><strong>Contacts: {{ contacts().length }}</strong></span>
+      <span class="muted">{{ fileName() || 'No file loaded' }}</span>
+    </div>
+
+    @if (importErrors().length) {
+      <details class="import-errors">
+        <summary>{{ importErrors().length }} row(s) rejected</summary>
+        @for (error of importErrors(); track error) { <p>{{ error }}</p> }
+      </details>
+    }
+
+    <label class="check">
+      <input type="checkbox" [ngModel]="onePerNumber()" (ngModelChange)="onePerNumber.set($event)" />
+      One message per number (skip repeats and numbers already messaged)
+    </label>
+
+    @if (plan(); as plan) {
+      <div class="plan" [class.warn]="overQuota() > 0">
+        <span>
+          <strong>Daily budget:</strong>
+          {{ plan.remaining === null ? 'no limit' : plan.remaining + ' left of ' + plan.limit }}
+          ({{ plan.used }} sent today)
+        </span>
+        @if (estimate()) { <span><strong>This batch:</strong> {{ estimate() }}</span> }
+        @if (overQuota() > 0) {
+          <span class="over">
+            {{ overQuota() }} message(s) exceed today's limit - they stay queued until the
+            budget resets.
+          </span>
+        }
+      </div>
+    }
+
+    @if (store.pacing(); as pacing) {
+      <p class="pacing-note">
+        <span class="spinner"></span>
+        {{ pacing.resting ? 'Resting between batches' : 'Spacing messages' }} -
+        next send in about {{ pacing.seconds }}s
+      </p>
+    }
+
+    <div class="controls">
+      <button type="button" class="btn primary" (click)="start()"
+              [disabled]="busy() || !contacts().length">Start campaign</button>
+      <button type="button" class="btn" (click)="control('pause')"
+              [disabled]="stats.state !== 'RUNNING'">Pause</button>
+      <button type="button" class="btn" (click)="control('resume')"
+              [disabled]="stats.state !== 'PAUSED'">Resume</button>
+      <button type="button" class="btn danger" (click)="control('stop')"
+              [disabled]="stats.pending === 0">Stop</button>
+    </div>
+
+    <div class="progress" role="progressbar" [attr.aria-valuenow]="percent()"
+         aria-valuemin="0" aria-valuemax="100">
+      <div class="bar" [style.width.%]="percent()"></div>
+    </div>
+
+    <div class="stats">
+      <span class="status-SENT"><strong>Successful:</strong> {{ stats.successful }}</span>
+      <span class="status-FAILED"><strong>Failed:</strong> {{ stats.failed }}</span>
+      <span class="muted">Pending: {{ stats.pending }}</span>
+      <span class="muted">State: {{ stats.state.toLowerCase() }}</span>
+    </div>
+
+    @if (preview()) { <p class="preview muted">{{ preview() }}</p> }
+  </div>
+</section>
