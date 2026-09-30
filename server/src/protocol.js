@@ -1,10 +1,12 @@
 /**
  * Shared domain vocabulary: message status, phone rules, personalisation.
  *
- * Deliberately dependency-free so the transports, the campaign engine, the
- * importers and the tests all agree on the same words.  Ported 1:1 from the
- * Python application's protocol module.
+ * Kept small so the transports, the campaign engine, the importers and the
+ * tests all agree on the same words.  Ported 1:1 from the Python application's
+ * protocol module, with campaign spintax applied before variable substitution.
  */
+
+import { parseSpintax } from './campaign/spintax.js';
 
 /**
  * Transport states.  SENT/DELIVERED/READ are only ever written when a
@@ -95,11 +97,17 @@ export function isValidPhone(raw, defaultCountryCode = '') {
  */
 export function personalize(template, context = {}) {
     if (!template) return '';
-    return String(template).replace(/\{(\w+)\}/g, (match, key) => {
+    const fallbackResolved = String(template).replace(/\{(\w+)\|([^{}]*)\}/g, (match, key, fallback) => {
+        if (!Object.prototype.hasOwnProperty.call(context, key)) return match;
+        const value = context[key];
+        if (value === undefined || value === null || String(value) === '') return fallback;
+        return String(value);
+    });
+    return parseSpintax(fallbackResolved).replace(/\{(\w+)\}/g, (match, key) => {
         const value = context[key];
         if (value === undefined || value === null) return match;
         return String(value);
-    });
+    }).trim();
 }
 
 export function contactContext(contact) {

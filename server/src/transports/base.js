@@ -28,6 +28,8 @@ export class TransportSendError extends TransportError {
 }
 
 /**
+ * @typedef {{mediaId?: string, filename: string, mimetype: string, size: number,
+ *            filePath?: string, buffer?: Buffer}} MediaPayload
  * @typedef {{providerId: string, status: string, detail?: string}} SendResult
  * @typedef {{connected: boolean, account?: string, detail?: string,
  *            realDelivery?: boolean}} ConnectionInfo
@@ -54,7 +56,8 @@ export class Transport {
     async disconnect() {}
 
     /** Send one message. Throws TransportSendError on failure. */
-    async sendMessage() {
+    async sendMessage(_recipient, _message, { media = null } = {}) {
+        void media;
         throw new Error('not implemented');
     }
 

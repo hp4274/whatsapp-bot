@@ -47,7 +47,7 @@ export class SandboxTransport extends Transport {
         return this.connected;
     }
 
-    async sendMessage(recipient, message) {
+    async sendMessage(recipient, message, { media = null } = {}) {
         if (!this.connected) {
             throw new TransportConnectionError('Sandbox transport is not connected',
                 { retryable: false });
@@ -59,8 +59,14 @@ export class SandboxTransport extends Transport {
         const providerId = `sandbox.${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
         try {
             fs.mkdirSync(path.dirname(this.outboxPath), { recursive: true });
+            const mediaPayload = media ? {
+                mediaId: media.mediaId ?? null,
+                filename: media.filename,
+                mimetype: media.mimetype,
+                size: media.size,
+            } : null;
             fs.appendFileSync(this.outboxPath,
-                `${utcNow()}\t${providerId}\t${recipient}\t${JSON.stringify(message)}\n`, 'utf8');
+                `${utcNow()}\t${providerId}\t${recipient}\t${JSON.stringify(message)}\t${JSON.stringify(mediaPayload)}\n`, 'utf8');
         } catch (err) {
             throw new TransportSendError(`Could not write sandbox outbox: ${err.message}`);
         }

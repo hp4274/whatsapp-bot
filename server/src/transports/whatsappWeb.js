@@ -261,7 +261,7 @@ export class WhatsAppWebTransport extends Transport {
         await this.disconnect();
     }
 
-    async sendMessage(recipient, message) {
+    async sendMessage(recipient, message, { media = null } = {}) {
         if (!this.connected || !this.client) {
             throw new TransportConnectionError('Transport is not connected', { retryable: false });
         }
@@ -281,7 +281,14 @@ export class WhatsAppWebTransport extends Transport {
         let providerId = null;
         let sendError = null;
         try {
-            providerId = serializedId(await this.client.sendMessage(chatId, message));
+            if (media) {
+                const pkg = await import('whatsapp-web.js');
+                const { MessageMedia } = pkg.default ?? pkg;
+                const attachment = MessageMedia.fromFilePath(media.filePath);
+                providerId = serializedId(await this.client.sendMessage(chatId, attachment, { caption: message }));
+            } else {
+                providerId = serializedId(await this.client.sendMessage(chatId, message));
+            }
         } catch (err) {
             sendError = String(err.message ?? err);
         }

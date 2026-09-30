@@ -107,6 +107,34 @@ describe('sending', () => {
             'sandbox sends land as SANDBOX, never SENT');
     });
 
+    it('returns multiple preview renders for spintax templates', async () => {
+        const { body } = await api('POST', '/api/contacts/preview', {
+            template: '{Hi|Hello} {name}, plan {plan|standard}',
+            contact: { name: 'Rahul', extra: { plan: '' } },
+        });
+        assert.equal(body.previews.length, 3);
+        assert.ok(body.previews.every((preview) =>
+            /^(Hi|Hello) Rahul, plan standard$/.test(preview)));
+    });
+
+    it('uploads media and sends campaign attachments through sandbox', async () => {
+        const form = new FormData();
+        form.set('file', new Blob(['%PDF-1.4 test'], { type: 'application/pdf' }), 'Brochure.pdf');
+        const uploadRes = await fetch(`${base}/api/media/upload`, { method: 'POST', body: form });
+        assert.equal(uploadRes.status, 201);
+        const media = await uploadRes.json();
+        assert.match(media.mediaId, /^med_/);
+        assert.equal(media.filename, 'Brochure.pdf');
+
+        const { body } = await api('POST', '/api/campaign/start', {
+            contacts: [{ name: 'Media', phone: '919700000011' }],
+            template: 'Here is your brochure, {name}',
+            onePerNumber: true,
+            mediaId: media.mediaId,
+        });
+        assert.equal(body.queued, 1);
+    });
+
     it('runs a campaign and skips a number it already messaged', async () => {
         const contacts = [
             { name: 'Rahul', phone: '919876543210' },   // messaged above (SANDBOX)
@@ -202,6 +230,40 @@ describe('transports', () => {
         assert.equal(info.realDelivery, true);
         const result = await transport.sendMessage('919876543210', 'hi');
         assert.deepEqual([result.providerId, result.status], ['wamid.X', Status.SENT]);
+    });
+
+    it('cloud API uploads media then sends a document payload', async () => {
+        const bodies = [];
+        const transport = new CloudApiTransport(
+            { ...DEFAULTS, phoneNumberId: '1', accessToken: 'good', requestTimeout: 5 },
+            { fetchImpl: async (url, init) => {
+                if (String(url).endsWith('/media')) {
+                    bodies.push({ url: String(url), body: init.body });
+                    return new Response(JSON.stringify({ id: 'media.1' }), { status: 200 });
+                }
+                if (init?.method === 'POST') {
+                    bodies.push({ url: String(url), body: JSON.parse(init.body) });
+                    return new Response(JSON.stringify({ messages: [{ id: 'wamid.MEDIA' }] }), { status: 200 });
+                }
+                return new Response(JSON.stringify({ display_phone_number: '15550783881',
+                    verified_name: 'Acme', quality_rating: 'GREEN' }), { status: 200 });
+            } });
+        await transport.connect();
+        const result = await transport.sendMessage('919876543210', 'caption', {
+            media: {
+                filename: 'Brochure.pdf',
+                mimetype: 'application/pdf',
+                size: 12,
+                buffer: Buffer.from('%PDF-1.4'),
+            },
+        });
+        assert.equal(result.providerId, 'wamid.MEDIA');
+        assert.equal(bodies[1].body.type, 'document');
+        assert.deepEqual(bodies[1].body.document, {
+            id: 'media.1',
+            caption: 'caption',
+            filename: 'Brochure.pdf',
+        });
     });
 
     it('reads DELIVERED and READ out of a Meta webhook body', () => {

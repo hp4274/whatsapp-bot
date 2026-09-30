@@ -7,6 +7,9 @@
  * same machine.  Put it behind a real auth proxy before exposing the port.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import multer from 'multer';
 
@@ -36,6 +39,18 @@ const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 12 * 1024 * 1024 },
 });
+const mediaUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 16 * 1024 * 1024 },
+});
+const UPLOAD_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'uploads');
+const ALLOWED_MEDIA_TYPES = new Set([
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'image/jpeg',
+    'image/png',
+]);
 
 export function createTransport(config, deps = {}) {
     switch (config.transport) {
@@ -63,6 +78,7 @@ export function createApp({ db = new Database(), config = loadConfig(), deps = {
         connecting: false,
         manager: null,
         clients: new Set(), // SSE subscribers
+        media: new Map(),
     };
 
     const manager = new CampaignManager(db, new NullTransport(), config);
@@ -218,7 +234,7 @@ export function createApp({ db = new Database(), config = loadConfig(), deps = {
 
     // ----------------------------------------------------------- messages --
     app.post('/api/messages', (req, res) => {
-        const { recipient, message, name = '' } = req.body ?? {};
+        const { recipient, message, name = '', mediaId = null } = req.body ?? {};
         if (!message) return res.status(400).json({ errors: ['message is required'] });
         let normalized;
         try {
@@ -239,7 +255,9 @@ export function createApp({ db = new Database(), config = loadConfig(), deps = {
             });
         }
         const body = personalize(message, { name, phone: normalized });
-        const messageId = manager.enqueueSingle(normalized, body, name);
+        const media = mediaId ? state.media.get(mediaId) : null;
+        if (mediaId && !media) return res.status(404).json({ errors: ['media not found'] });
+        const messageId = manager.enqueueSingle(normalized, body, name, { media });
         if (!messageId) {
             return res.status(409).json({
                 errors: ['That exact message is already queued for this number.'],
@@ -263,16 +281,53 @@ export function createApp({ db = new Database(), config = loadConfig(), deps = {
 
     app.post('/api/contacts/preview', (req, res) => {
         const { template = '', contact = {} } = req.body ?? {};
+        const context = {
+            name: contact.name ?? '', phone: contact.phone ?? '', ...(contact.extra ?? {}),
+        };
         res.json({
-            preview: personalize(template, {
-                name: contact.name ?? '', phone: contact.phone ?? '', ...(contact.extra ?? {}),
-            }),
+            preview: personalize(template, context),
+            previews: Array.from({ length: 3 }, () => personalize(template, context)),
         });
+    });
+
+    // -------------------------------------------------------------- media --
+    app.post('/api/media/upload', mediaUpload.single('file'), async (req, res) => {
+        if (!req.file) return res.status(400).json({ errors: ['no file uploaded'] });
+        if (!ALLOWED_MEDIA_TYPES.has(req.file.mimetype)) {
+            return res.status(400).json({ errors: [`unsupported media type: ${req.file.mimetype}`] });
+        }
+        const mediaId = `med_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+        const filename = path.basename(req.file.originalname).replace(/[^\w.\- ]+/g, '_');
+        const storedName = `${mediaId}_${filename}`;
+        const filePath = path.join(UPLOAD_DIR, storedName);
+        try {
+            await fs.promises.mkdir(UPLOAD_DIR, { recursive: true });
+            await fs.promises.writeFile(filePath, req.file.buffer);
+        } catch (err) {
+            return res.status(500).json({ errors: [`Media upload failed: ${err.message}`] });
+        }
+        const media = {
+            mediaId,
+            filename,
+            mimetype: req.file.mimetype,
+            size: req.file.size,
+            filePath,
+            buffer: req.file.buffer,
+            url: `/api/media/${mediaId}`,
+        };
+        state.media.set(mediaId, media);
+        return res.status(201).json(mediaMetadata(media));
+    });
+
+    app.get('/api/media/:mediaId', (req, res) => {
+        const media = state.media.get(req.params.mediaId);
+        if (!media) return res.status(404).json({ errors: ['media not found'] });
+        return res.type(media.mimetype).download(media.filePath, media.filename);
     });
 
     // ----------------------------------------------------------- campaign --
     app.post('/api/campaign/start', (req, res) => {
-        const { contacts = [], template = '', onePerNumber = true } = req.body ?? {};
+        const { contacts = [], template = '', onePerNumber = true, mediaId = null } = req.body ?? {};
         if (!contacts.length) return res.status(400).json({ errors: ['no contacts'] });
         if (!template) return res.status(400).json({ errors: ['message is required'] });
         if (!state.transport?.isConnected?.()) {
@@ -281,7 +336,9 @@ export function createApp({ db = new Database(), config = loadConfig(), deps = {
         manager.resetStats();
         manager.queue.reset();
         manager.pausedByQuota = false;
-        const result = manager.enqueueContacts(contacts, template, { onePerNumber });
+        const media = mediaId ? state.media.get(mediaId) : null;
+        if (mediaId && !media) return res.status(404).json({ errors: ['media not found'] });
+        const result = manager.enqueueContacts(contacts, template, { onePerNumber, media });
         manager.start();
         return res.json(result);
     });
@@ -565,6 +622,16 @@ function broadcast(state, event) {
             state.clients.delete(client);
         }
     }
+}
+
+function mediaMetadata(media) {
+    return {
+        mediaId: media.mediaId,
+        filename: media.filename,
+        mimetype: media.mimetype,
+        size: media.size,
+        url: media.url,
+    };
 }
 
 async function toQrDataUrl(qr) {

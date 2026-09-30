@@ -58,11 +58,19 @@ export class CloudApiTransport extends Transport {
         return `${graphBaseUrl(this.config)}/${this.config.phoneNumberId}/messages`;
     }
 
+    get mediaUrl() {
+        return `${graphBaseUrl(this.config)}/${this.config.phoneNumberId}/media`;
+    }
+
     headers() {
         return {
             Authorization: `Bearer ${this.config.accessToken}`,
             'Content-Type': 'application/json',
         };
+    }
+
+    authHeaders() {
+        return { Authorization: `Bearer ${this.config.accessToken}` };
     }
 
     async connect() {
@@ -102,7 +110,21 @@ export class CloudApiTransport extends Transport {
         return this.connected;
     }
 
-    payload(recipient, message) {
+    payload(recipient, message, { uploadedMedia = null } = {}) {
+        if (uploadedMedia) {
+            const type = uploadedMedia.mimetype?.startsWith('image/') ? 'image' : 'document';
+            return {
+                messaging_product: 'whatsapp',
+                recipient_type: 'individual',
+                to: recipient,
+                type,
+                [type]: {
+                    id: uploadedMedia.id,
+                    caption: message,
+                    ...(type === 'document' ? { filename: uploadedMedia.filename } : {}),
+                },
+            };
+        }
         if (this.config.useTemplate) {
             return {
                 messaging_product: 'whatsapp',
@@ -125,16 +147,17 @@ export class CloudApiTransport extends Transport {
         };
     }
 
-    async sendMessage(recipient, message) {
+    async sendMessage(recipient, message, { media = null } = {}) {
         if (!this.connected) {
             throw new TransportConnectionError('Transport is not connected', { retryable: false });
         }
+        const uploadedMedia = media ? await this.uploadMedia(media) : null;
         let response;
         try {
             response = await this.fetch(this.messagesUrl, {
                 method: 'POST',
                 headers: this.headers(),
-                body: JSON.stringify(this.payload(recipient, message)),
+                body: JSON.stringify(this.payload(recipient, message, { uploadedMedia })),
                 signal: AbortSignal.timeout(this.config.requestTimeout * 1000),
             });
         } catch (err) {
@@ -166,6 +189,35 @@ export class CloudApiTransport extends Transport {
         // The API only confirms it accepted the message for delivery: that is
         // SENT.  DELIVERED / READ arrive later on the webhook, or not at all.
         return { providerId, status: Status.SENT, detail: 'accepted' };
+    }
+
+    async uploadMedia(media) {
+        const form = new FormData();
+        form.set('messaging_product', 'whatsapp');
+        form.set('file', new Blob([media.buffer], { type: media.mimetype }), media.filename);
+        let response;
+        try {
+            response = await this.fetch(this.mediaUrl, {
+                method: 'POST',
+                headers: this.authHeaders(),
+                body: form,
+                signal: AbortSignal.timeout(this.config.requestTimeout * 1000),
+            });
+        } catch (err) {
+            const timedOut = err.name === 'TimeoutError' || err.name === 'AbortError';
+            throw new TransportSendError(
+                timedOut ? `Media upload timed out: ${err.message}` : `Media upload network error: ${err.message}`,
+                { retryable: true });
+        }
+        if (response.status >= 400) {
+            const { code, message } = await parseError(response);
+            throw new TransportSendError(
+                `Cloud API media upload error ${response.status}/${code}: ${message}`,
+                { retryable: response.status >= 500 || RETRYABLE_ERROR_CODES.has(code), code });
+        }
+        const body = await response.json();
+        if (!body.id) throw new TransportSendError('Unexpected Cloud API media upload response', { retryable: false });
+        return { id: body.id, filename: media.filename, mimetype: media.mimetype };
     }
 
     getStatus(providerId) {

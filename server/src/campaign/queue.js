@@ -8,16 +8,17 @@ export const QueueState = Object.freeze({
     STOPPED: 'STOPPED',
 });
 
-export function queueItem({ recipient, message, name = '', campaignId = '' }) {
+export function queueItem({ recipient, message, name = '', campaignId = '', media = null }) {
     return {
         recipient,
         message,
         name,
         campaignId,
+        media,
         messageId: newMessageId(),
         attempt: 0,
         get key() {
-            return dedupeKey(this.recipient, this.message);
+            return dedupeKey(this.recipient, `${this.message}|${this.media?.mediaId ?? ''}`);
         },
     };
 }

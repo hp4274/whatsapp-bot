@@ -6,3 +6,5 @@ __pycache__/
 .venv/
 .playwright-mcp/
 .codebase-memory/
+server/uploads/
+server/server/
