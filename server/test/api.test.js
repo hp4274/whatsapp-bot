@@ -4,19 +4,20 @@
  */
 
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
 import { closeApp, createApp } from '../src/app.js';
-import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_SANDBOX, TRANSPORT_WEB_JS } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { Status } from '../src/protocol.js';
 import { CloudApiTransport, parseStatusPayload } from '../src/transports/cloudApi.js';
 import { SandboxTransport } from '../src/transports/sandbox.js';
-import { TransportSendError } from '../src/transports/base.js';
-import { ackStatus } from '../src/transports/whatsappWeb.js';
+import { TransportConnectionError, TransportSendError } from '../src/transports/base.js';
+import { WhatsAppWebTransport, ackStatus } from '../src/transports/whatsappWeb.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-api-'));
 let server;
@@ -217,6 +218,64 @@ describe('transports', () => {
             assert.equal(err.retryable, false, 'a bad token is not worth retrying');
             return true;
         });
+    });
+
+    it('WhatsApp Web reports profile locks as controlled connection failures', async () => {
+        class LockedClient extends EventEmitter {
+            async initialize() {
+                throw new Error('The browser is already running for C:\\Users\\harsh\\.whatsapp_sender_web\\wwebjs_auth\\session. Use a different userDataDir or stop the running browser first.');
+            }
+
+            async destroy() {}
+        }
+
+        const transport = new WhatsAppWebTransport(
+            { ...DEFAULTS },
+            { createClient: async () => new LockedClient() });
+
+        await assert.rejects(() => transport.connect(), (err) => {
+            assert.ok(err instanceof TransportConnectionError);
+            assert.equal(err.code, 'WHATSAPP_WEB_PROFILE_LOCKED');
+            assert.equal(err.retryable, false);
+            assert.match(err.message, /profile is already in use/);
+            return true;
+        });
+        assert.equal(transport.isConnected(), false);
+    });
+
+    it('connection API stays alive and exposes WhatsApp Web profile lock state', async () => {
+        class LockedClient extends EventEmitter {
+            async initialize() {
+                throw new Error('The browser is already running for C:\\Users\\harsh\\.whatsapp_sender_web\\wwebjs_auth\\session. Use a different userDataDir or stop the running browser first.');
+            }
+
+            async destroy() {}
+        }
+
+        const lockedDb = new Database(path.join(tmp, 'locked.db'));
+        const lockedApp = createApp({
+            db: lockedDb,
+            config: { ...DEFAULTS, transport: TRANSPORT_WEB_JS },
+            deps: { createClient: async () => new LockedClient() },
+        });
+        const lockedServer = lockedApp.listen(0, '127.0.0.1');
+        await new Promise((resolve) => lockedServer.once('listening', resolve));
+        const lockedBase = `http://127.0.0.1:${lockedServer.address().port}`;
+        try {
+            const connectRes = await fetch(`${lockedBase}/api/connection/connect`, { method: 'POST' });
+            assert.equal(connectRes.status, 409);
+            const healthRes = await fetch(`${lockedBase}/api/health`);
+            assert.equal(healthRes.status, 200);
+            const stateRes = await fetch(`${lockedBase}/api/connection`);
+            const state = await stateRes.json();
+            assert.equal(state.connected, false);
+            assert.equal(state.code, 'WHATSAPP_WEB_PROFILE_LOCKED');
+            assert.match(state.error, /profile is already in use/);
+        } finally {
+            await closeApp(lockedApp);
+            await new Promise((resolve) => lockedServer.close(resolve));
+            lockedDb.close();
+        }
     });
 
     it('cloud API reports accepted sends as SENT', async () => {
