@@ -9,9 +9,10 @@ import { after, describe, it } from 'node:test';
 import { Database } from '../src/db.js';
 import { AutoReplyEngine } from '../src/autoreply/engine.js';
 import { processOptOut } from '../src/autoreply/optout.js';
+import { parseSpintax } from '../src/campaign/spintax.js';
 import { MessageQueue, queueItem } from '../src/campaign/queue.js';
 import { RateLimiter, RetryPolicy } from '../src/campaign/limits.js';
-import { importCsv, parseCsv, rowsToContacts } from '../src/contacts.js';
+import { importCsv, importXlsx, normalizeHeader, parseCsv, rowsToContacts } from '../src/contacts.js';
 import {
     PhoneError,
     Status,
@@ -42,11 +43,22 @@ describe('phone numbers', () => {
 });
 
 describe('personalisation', () => {
+    it('resolves spintax with deterministic randomness and nesting', () => {
+        assert.equal(parseSpintax('{Hi|Hello}', () => 0), 'Hi');
+        assert.equal(parseSpintax('{Hi|Hello}', () => 0.99), 'Hello');
+        assert.match(parseSpintax('{A|{B|C}}', () => 0.99), /^[BC]$/);
+        assert.equal(parseSpintax('{A|} tail', () => 0.99), 'tail');
+        assert.equal(parseSpintax('\\{literal\\} \\| {A|B}', () => 0), '{literal} | A');
+    });
+
     it('substitutes known variables and keeps unknown ones verbatim', () => {
         assert.equal(personalize('Hi {name}', { name: 'Rahul' }), 'Hi Rahul');
         assert.equal(personalize('Hi {name}, order {id}', { name: 'A' }), 'Hi A, order {id}');
         assert.equal(personalize('', { name: 'A' }), '');
         assert.equal(personalize('no vars', {}), 'no vars');
+        assert.match(personalize('{Hi|Hello} {name}, your balance is {balance}',
+            { name: 'John', balance: '$50' }), /^(Hi|Hello) John, your balance is \$50$/);
+        assert.equal(personalize('Plan {plan|standard}', { plan: '' }), 'Plan standard');
     });
 
     it('keys duplicates on number plus body', () => {
@@ -290,7 +302,7 @@ describe('contacts', () => {
 
     it('imports, validates and de-duplicates', () => {
         const result = importCsv([
-            'name,phone,city',
+            'name,phone,city,Invoice #',
             'Rahul,+919876543210,Pune',
             'Rahul again,919876543210,Pune',   // duplicate number
             'Broken,not-a-number,X',
@@ -300,11 +312,27 @@ describe('contacts', () => {
         assert.equal(result.duplicates, 1);
         assert.equal(result.errors.length, 1);
         assert.equal(result.contacts[0].extra.city, 'Pune');
+        assert.deepEqual(result.detectedVariables, ['name', 'phone', 'city', 'invoice']);
     });
 
     it('accepts the alternative header names', () => {
         const result = rowsToContacts([{ 'Full Name': 'Priya', Mobile: '+91 98123 45678' }]);
         assert.equal(result.contacts[0].name, 'Priya');
         assert.equal(result.contacts[0].phone, '919812345678');
+    });
+
+    it('normalizes headers and imports XLSX custom columns', async () => {
+        assert.equal(normalizeHeader('Expiry Date'), 'expiry_date');
+        const XLSX = await import('xlsx');
+        const book = XLSX.utils.book_new();
+        const sheet = XLSX.utils.json_to_sheet([
+            { Phone: '+919876543210', Name: 'Rahul', Plan: 'Pro', 'Expiry Date': 'Oct 15' },
+        ]);
+        XLSX.utils.book_append_sheet(book, sheet, 'Contacts');
+        const buffer = XLSX.write(book, { type: 'buffer', bookType: 'xlsx' });
+        const result = await importXlsx(buffer);
+        assert.deepEqual(result.detectedVariables, ['name', 'phone', 'plan', 'expiry_date']);
+        assert.equal(result.contacts[0].extra.plan, 'Pro');
+        assert.equal(result.contacts[0].extra.expiry_date, 'Oct 15');
     });
 });

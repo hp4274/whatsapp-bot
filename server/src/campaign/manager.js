@@ -97,7 +97,7 @@ export class CampaignManager extends EventEmitter {
      * received a real message in an earlier run are skipped too (the database,
      * not the queue, is what remembers those).
      */
-    enqueueContacts(contacts, template, { campaignId = null, onePerNumber = false } = {}) {
+    enqueueContacts(contacts, template, { campaignId = null, onePerNumber = false, media = null } = {}) {
         this.campaignId = campaignId ?? crypto.randomUUID().replace(/-/g, '').slice(0, 12);
         const alreadySent = onePerNumber ? this.db.sentRecipients() : new Set();
         const batch = Array.isArray(contacts) ? contacts.length : 0;
@@ -128,6 +128,7 @@ export class CampaignManager extends EventEmitter {
                     message: personalize(template, contactContext(contact)),
                     name: contact.name ?? '',
                     campaignId: this.campaignId,
+                    media,
                 });
                 if (this.#enqueueItem(item)) queued += 1;
                 else skipped += 1;
@@ -151,12 +152,13 @@ export class CampaignManager extends EventEmitter {
         };
     }
 
-    enqueueSingle(recipient, message, name = '') {
+    enqueueSingle(recipient, message, name = '', { media = null } = {}) {
         const item = queueItem({
             recipient,
             message,
             name,
             campaignId: this.campaignId || 'single',
+            media,
         });
         if (!this.#enqueueItem(item)) return null;
         this.stats.total += 1;
@@ -327,7 +329,7 @@ export class CampaignManager extends EventEmitter {
             let retryable = false;
             let errorText = '';
             try {
-                const result = await this.transport.sendMessage(item.recipient, item.message);
+                const result = await this.transport.sendMessage(item.recipient, item.message, { media: item.media });
                 if (this.transport?.realDelivery) this.sentInRun += 1;
                 this.db.updateStatus(item.messageId, result.status, {
                     attempt: item.attempt,
