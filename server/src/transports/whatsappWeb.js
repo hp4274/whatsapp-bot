@@ -94,6 +94,23 @@ export class WhatsAppWebTransport extends Transport {
         client.on('message_create', (msg) => {
             if (msg?.fromMe) this.#recordOutgoing(msg.to, msg.body, serializedId(msg));
         });
+        client.on('message', (msg) => {
+            if (msg?.fromMe) return;
+            if (msg?.isStatus || msg?.from === 'status@broadcast') return;
+            if (msg?.isGroup || String(msg?.from ?? '').endsWith('@g.us')) return;
+            const sender = String(msg?.from ?? '').replace(/@c\.us$/, '');
+            if (!sender) return;
+            this.events.emit('inbound', {
+                messageId: serializedId(msg),
+                sender,
+                senderName: msg?._data?.notifyName ?? msg?.notifyName ?? '',
+                body: msg?.body ?? '',
+                mediaType: msg?.hasMedia ? msg?.type ?? null : null,
+                timestamp: msg?.timestamp
+                    ? new Date(Number(msg.timestamp) * 1000).toISOString()
+                    : new Date().toISOString(),
+            });
+        });
         client.on('message_ack', (msg, ack) => {
             const status = ackStatus(ack);
             const providerId = serializedId(msg);

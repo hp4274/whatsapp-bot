@@ -209,3 +209,47 @@ export function parseStatusPayload(payload) {
     }
     return receipts;
 }
+
+export function parseInboundPayload(payload) {
+    const inbounds = [];
+    for (const entry of payload?.entry ?? []) {
+        for (const change of entry.changes ?? []) {
+            const value = change.value ?? {};
+            const contacts = value.contacts ?? [];
+            const namesByWaId = new Map(contacts.map((contact) => [
+                contact.wa_id,
+                contact.profile?.name ?? '',
+            ]));
+            for (const msg of value.messages ?? []) {
+                if (!msg.id || !msg.from) continue;
+                inbounds.push({
+                    messageId: msg.id,
+                    sender: msg.from,
+                    senderName: namesByWaId.get(msg.from) ?? contacts[0]?.profile?.name ?? '',
+                    body: inboundBody(msg),
+                    mediaUrl: inboundMediaUrl(msg),
+                    mediaType: msg.type !== 'text' ? msg.type : null,
+                    timestamp: msg.timestamp
+                        ? new Date(Number(msg.timestamp) * 1000).toISOString()
+                        : new Date().toISOString(),
+                });
+            }
+        }
+    }
+    return inbounds;
+}
+
+function inboundBody(msg) {
+    if (msg.text?.body) return msg.text.body;
+    if (msg.button?.text) return msg.button.text;
+    if (msg.interactive?.button_reply?.title) return msg.interactive.button_reply.title;
+    if (msg.interactive?.list_reply?.title) return msg.interactive.list_reply.title;
+    if (msg.image?.caption) return msg.image.caption;
+    if (msg.document?.caption) return msg.document.caption;
+    return '';
+}
+
+function inboundMediaUrl(msg) {
+    const media = msg.image ?? msg.document ?? msg.audio ?? msg.video ?? msg.sticker;
+    return media?.id ?? null;
+}

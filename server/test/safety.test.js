@@ -184,6 +184,23 @@ describe('the engine under the cap', () => {
         assert.ok(queued.length >= 1, 'unsent rows stay QUEUED, not FAILED');
     });
 
+    it('skips opted-out contacts before queueing a campaign', () => {
+        const db = new Database(path.join(tmp, 'optout-campaign.db'));
+        try {
+            db.addOptOut('919811111111', 'test');
+            const manager = new CampaignManager(db, new FakeLive(), config());
+            const result = manager.enqueueContacts(
+                [{ name: 'A', phone: '919811111111' }, { name: 'B', phone: '919822222222' }],
+                'Hi {name}');
+            assert.equal(result.queued, 1);
+            assert.equal(result.skipped, 1);
+            assert.equal(result.skippedOptOut, 1);
+            assert.equal(db.history({ limit: 10 }).length, 1);
+        } finally {
+            db.close();
+        }
+    });
+
     it('refuses to resume into an exhausted budget', () => {
         const manager = new CampaignManager(db, new FakeLive(), config({ dailyLimit: 1 }));
         manager.pausedByQuota = true;

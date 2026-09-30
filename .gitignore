@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 .venv/
 .playwright-mcp/
+.codebase-memory/
