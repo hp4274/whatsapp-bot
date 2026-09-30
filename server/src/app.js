@@ -172,11 +172,20 @@ export function createApp({ db = new Database(), config = loadConfig(), deps = {
             state.info = await transport.connect();
         } catch (err) {
             state.connecting = false;
-            state.transport = null;
-            state.info = null;
+            state.transport = transport;
+            state.info = {
+                connected: false,
+                account: '',
+                detail: err.message,
+                error: err.message,
+                code: err.code ?? null,
+                realDelivery: Boolean(transport.realDelivery),
+            };
             state.qr = null;
-            const status = err instanceof TransportError ? 502 : 500;
-            broadcast(state, { type: 'connection', connected: false, error: err.message });
+            const status = err.code === 'WHATSAPP_WEB_PROFILE_LOCKED'
+                ? 409
+                : (err instanceof TransportError ? 502 : 500);
+            broadcast(state, { type: 'connection', ...connectionState(state) });
             return res.status(status).json({ errors: [err.message] });
         }
 
@@ -597,10 +606,13 @@ function connectionState(state) {
     const connected = Boolean(transport?.isConnected?.());
     return {
         connected,
+        connecting: Boolean(state.connecting),
         transport: state.config.transport,
         name: transport?.name ?? null,
         account: state.info?.account ?? '',
         detail: state.info?.detail ?? '',
+        error: state.info?.error ?? null,
+        code: state.info?.code ?? null,
         realDelivery: Boolean(state.info?.realDelivery),
         supportsReceipts: Boolean(transport?.supportsReceipts),
         qr: state.qr,

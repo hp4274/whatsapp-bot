@@ -49,10 +49,13 @@ export interface AppConfig {
 
 export interface ConnectionState {
   connected: boolean;
+  connecting?: boolean;
   transport: string;
   name: string | null;
   account: string;
   detail: string;
+  error?: string | null;
+  code?: string | null;
   realDelivery: boolean;
   supportsReceipts: boolean;
   qr: string | null;

@@ -40,6 +40,18 @@ export function ackStatus(ack) {
 
 const OUTGOING_TTL_MS = 5 * 60 * 1000;
 const CONFIRM_TIMEOUT_MS = 5000;
+const PROFILE_LOCK_CODE = 'WHATSAPP_WEB_PROFILE_LOCKED';
+
+function isProfileLockError(err) {
+    const message = String(err?.message ?? err);
+    return message.includes('The browser is already running')
+        && message.includes('Use a different userDataDir or stop the running browser first');
+}
+
+function profileLockMessage(message) {
+    return 'WhatsApp Web profile is already in use. Close the other Chrome/Chromium window '
+        + `using this session, then connect again. Original error: ${message}`;
+}
 
 export class WhatsAppWebTransport extends Transport {
     static name_ = 'WhatsApp Web via whatsapp-web.js (QR login, no access token)';
@@ -125,6 +137,13 @@ export class WhatsAppWebTransport extends Transport {
         client.on('disconnected', (reason) => {
             this.connected = false;
             this.events.emit('state', { state: 'disconnected', detail: String(reason) });
+        });
+        client.on('error', (err) => {
+            this.connected = false;
+            this.events.emit('state', {
+                state: 'error',
+                detail: String(err?.message ?? err),
+            });
         });
 
         client.on('ready', () => {
@@ -219,19 +238,35 @@ export class WhatsAppWebTransport extends Transport {
                 return;
             } catch (err) {
                 if (this.connected || this.qr) return; // already usable
+                if (isProfileLockError(err)) {
+                    const detail = profileLockMessage(String(err.message ?? err));
+                    this.events.emit('state', { state: 'auth_failure', detail });
+                    await this.#destroyClient(client);
+                    throw new TransportConnectionError(detail, {
+                        retryable: false,
+                        code: PROFILE_LOCK_CODE,
+                    });
+                }
                 if (attempt === attempts) {
-                    this.events.emit('state', { state: 'auth_failure', detail: String(err.message ?? err) });
+                    const detail = String(err.message ?? err);
+                    this.events.emit('state', { state: 'auth_failure', detail });
+                    await this.#destroyClient(client);
                     throw new TransportConnectionError(
-                        `Failed to initialize WhatsApp Web: ${err.message ?? err}`, { retryable: false }
+                        `Failed to initialize WhatsApp Web: ${detail}`, { retryable: false }
                     );
                 }
-                try {
-                    await client.destroy();
-                } catch {
-                    // already dead
-                }
+                await this.#destroyClient(client);
                 await new Promise((resolve) => setTimeout(resolve, 3000));
             }
+        }
+    }
+
+    async #destroyClient(client) {
+        if (this.client === client) this.client = null;
+        try {
+            await client.destroy();
+        } catch {
+            // already dead
         }
     }
 
