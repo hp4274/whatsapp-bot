@@ -4,13 +4,15 @@ This project was generated using [Angular CLI](https://github.com/angular/angula
 
 ## Development server
 
-To start a local development server, run:
+This app needs the Express API on `http://127.0.0.1:3000` while Angular runs on
+`http://localhost:4200/`. Start both from the repository root:
 
 ```bash
-ng serve
+npm run dev
 ```
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+Once the servers are running, open `http://localhost:4200/`. Angular proxies
+`/api/*` requests to the Express API.
 
 ## Code scaffolding
 
