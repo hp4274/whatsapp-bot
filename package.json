@@ -5,6 +5,7 @@
   "description": "Angular + Express edition of WhatsApp Sender. See WEB.md.",
   "scripts": {
     "install:all": "npm --prefix server install && npm --prefix web install",
+    "dev": "node scripts/dev.mjs",
     "dev:server": "npm --prefix server run dev",
     "dev:web": "npm --prefix web start",
     "build": "npm --prefix web run build",
