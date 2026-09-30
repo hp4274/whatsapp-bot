@@ -10,6 +10,8 @@
 import express from 'express';
 import multer from 'multer';
 
+import { AutoReplyEngine } from './autoreply/engine.js';
+import { processOptOut } from './autoreply/optout.js';
 import { CampaignManager } from './campaign/manager.js';
 import {
     TRANSPORTS,
@@ -26,7 +28,7 @@ import { Database } from './db.js';
 import { importContacts } from './contacts.js';
 import { PhoneError, Status, normalizePhone, personalize } from './protocol.js';
 import { TransportError } from './transports/base.js';
-import { CloudApiTransport, parseStatusPayload } from './transports/cloudApi.js';
+import { CloudApiTransport, parseInboundPayload, parseStatusPayload } from './transports/cloudApi.js';
 import { SandboxTransport } from './transports/sandbox.js';
 import { TOS_WARNING, WhatsAppWebTransport } from './transports/whatsappWeb.js';
 
@@ -64,7 +66,9 @@ export function createApp({ db = new Database(), config = loadConfig(), deps = {
     };
 
     const manager = new CampaignManager(db, new NullTransport(), config);
+    const autoReply = new AutoReplyEngine(db, new NullTransport());
     state.manager = manager;
+    state.autoReply = autoReply;
     manager.on('event', (event) => broadcast(state, event));
     manager.start();
 
@@ -126,6 +130,7 @@ export function createApp({ db = new Database(), config = loadConfig(), deps = {
             state.qr = null;
             state.connecting = false;
             manager.setTransport(transport);
+            autoReply.setTransport(transport);
             manager.start();
             broadcast(state, { type: 'connection', ...connectionState(state) });
         });
@@ -135,10 +140,14 @@ export function createApp({ db = new Database(), config = loadConfig(), deps = {
             state.qr = null;
             state.connecting = false;
             manager.setTransport(new NullTransport());
+            autoReply.setTransport(new NullTransport());
             broadcast(state, { type: 'connection', connected: false, detail });
         });
         transport.events?.on('receipt', ({ providerId, status, error }) => {
             manager.handleReceipt(providerId, status, error);
+        });
+        transport.events?.on('inbound', (message) => {
+            void handleInbound(state, message);
         });
 
         state.connecting = true;
@@ -159,6 +168,7 @@ export function createApp({ db = new Database(), config = loadConfig(), deps = {
             state.connecting = false;
             state.qr = null;
             manager.setTransport(transport);
+            autoReply.setTransport(transport);
             manager.start();
         } else if (state.info?.qr) {
             state.qr = await toQrDataUrl(state.info.qr);
@@ -181,6 +191,7 @@ export function createApp({ db = new Database(), config = loadConfig(), deps = {
         state.info = null;
         state.qr = null;
         manager.setTransport(new NullTransport());
+        autoReply.setTransport(new NullTransport());
         broadcast(state, { type: 'connection', connected: false, qr: null });
         res.json(connectionState(state));
     });
@@ -200,6 +211,7 @@ export function createApp({ db = new Database(), config = loadConfig(), deps = {
         state.info = null;
         state.qr = null;
         manager.setTransport(new NullTransport());
+        autoReply.setTransport(new NullTransport());
         broadcast(state, { type: 'connection', connected: false, qr: null });
         res.json(connectionState(state));
     });
@@ -291,6 +303,83 @@ export function createApp({ db = new Database(), config = loadConfig(), deps = {
 
     app.get('/api/campaign/stats', (req, res) => res.json({ stats: manager.statsSnapshot() }));
 
+    // ------------------------------------------------------------- inbox --
+    app.get('/api/inbox/messages', (req, res) => {
+        res.json({ messages: db.getInboundMessages({
+            sender: req.query.sender || null,
+            limit: Number(req.query.limit) || 100,
+        }) });
+    });
+
+    app.get('/api/inbox/conversations', (req, res) => {
+        res.json({ conversations: db.getConversations() });
+    });
+
+    app.post('/api/inbox/mark-read', (req, res) => {
+        const { sender } = req.body ?? {};
+        if (!sender) return res.status(400).json({ errors: ['sender is required'] });
+        return res.json({ updated: db.markInboundRead(sender) });
+    });
+
+    // ------------------------------------------------------ auto-replies --
+    app.get('/api/auto-replies', (req, res) => {
+        res.json({ rules: db.getAutoReplies() });
+    });
+
+    app.post('/api/auto-replies', (req, res) => {
+        const rule = validateAutoReply(req.body);
+        if (rule.errors) return res.status(400).json({ errors: rule.errors });
+        return res.status(201).json({ rule: db.saveAutoReply(rule) });
+    });
+
+    app.put('/api/auto-replies/:id', (req, res) => {
+        const current = db.getAutoReplies().find((rule) => rule.id === Number(req.params.id));
+        if (!current) return res.status(404).json({ errors: ['rule not found'] });
+        const rule = validateAutoReply({ ...current, ...req.body, id: current.id });
+        if (rule.errors) return res.status(400).json({ errors: rule.errors });
+        return res.json({ rule: db.saveAutoReply(rule) });
+    });
+
+    app.delete('/api/auto-replies/:id', (req, res) => {
+        return res.json({ deleted: db.deleteAutoReply(Number(req.params.id)) });
+    });
+
+    app.post('/api/auto-replies/preview', (req, res) => {
+        const { template = '', sender = '15551234567', senderName = 'Valued Customer' } = req.body ?? {};
+        res.json({
+            preview: autoReply.formatResponse(template, { sender, senderName, body: '' }),
+        });
+    });
+
+    // ---------------------------------------------------------- opt-outs --
+    app.get('/api/optouts', (req, res) => {
+        res.json({ optouts: db.getOptOuts() });
+    });
+
+    app.post('/api/optouts', (req, res) => {
+        const { phone, reason = 'manual' } = req.body ?? {};
+        if (!phone) return res.status(400).json({ errors: ['phone is required'] });
+        let normalized;
+        try {
+            normalized = normalizePhone(phone, state.config.defaultCountryCode);
+        } catch (err) {
+            if (!(err instanceof PhoneError)) throw err;
+            return res.status(400).json({ errors: [err.message] });
+        }
+        return res.status(201).json({ optout: db.addOptOut(normalized, reason) });
+    });
+
+    app.delete('/api/optouts/:phone', (req, res) => {
+        let normalized;
+        try {
+            normalized = normalizePhone(req.params.phone, state.config.defaultCountryCode);
+        } catch (err) {
+            if (!(err instanceof PhoneError)) throw err;
+            return res.status(400).json({ errors: [err.message] });
+        }
+        return res.json({ deleted: db.removeOptOut(normalized) });
+    });
+
     // ------------------------------------------------------------- safety --
     app.get('/api/safety', (req, res) => {
         const batch = Number(req.query.contacts) || 0;
@@ -331,6 +420,9 @@ export function createApp({ db = new Database(), config = loadConfig(), deps = {
             }
             manager.handleReceipt(receipt.providerId, receipt.status, receipt.error);
         }
+        for (const inbound of parseInboundPayload(req.body)) {
+            void handleInbound(state, inbound);
+        }
         res.sendStatus(200);
     });
 
@@ -370,6 +462,52 @@ export function createApp({ db = new Database(), config = loadConfig(), deps = {
 
     app.locals.state = state;
     return app;
+}
+
+async function handleInbound(state, message) {
+    const saved = state.db.insertInbound(message);
+    broadcast(state, { type: 'inbound_message', message: saved });
+    try {
+        const optOut = await processOptOut(state.db, state.transport, saved);
+        if (optOut.handled) {
+            broadcast(state, { type: 'optout', sender: saved.sender, action: optOut.action });
+            return saved;
+        }
+        const reply = await state.autoReply.handleInbound(saved);
+        if (reply?.rule) {
+            state.db.markInboundReplied(saved.messageId, reply.rule.keyword);
+            broadcast(state, {
+                type: 'auto_reply',
+                sender: saved.sender,
+                rule: reply.rule.keyword,
+                providerId: reply.result?.providerId ?? null,
+            });
+        }
+    } catch (err) {
+        broadcast(state, { type: 'inbound_error', sender: saved.sender, error: err.message ?? String(err) });
+    }
+    return saved;
+}
+
+function validateAutoReply(input = {}) {
+    const rule = {
+        id: input.id,
+        keyword: String(input.keyword ?? '').trim(),
+        matchType: String(input.matchType ?? input.match_type ?? '').trim().toUpperCase(),
+        replyBody: String(input.replyBody ?? input.reply_body ?? '').trim(),
+        isActive: input.isActive ?? input.is_active ?? true,
+        cooldownSec: Number(input.cooldownSec ?? input.cooldown_sec ?? 300),
+    };
+    const errors = [];
+    if (!rule.keyword && rule.matchType !== 'FALLBACK') errors.push('keyword is required');
+    if (!['EXACT', 'CONTAINS', 'REGEX', 'FALLBACK'].includes(rule.matchType)) {
+        errors.push('matchType must be EXACT, CONTAINS, REGEX, or FALLBACK');
+    }
+    if (!rule.replyBody) errors.push('replyBody is required');
+    if (!Number.isFinite(rule.cooldownSec) || rule.cooldownSec < 0) {
+        errors.push('cooldownSec must be zero or greater');
+    }
+    return errors.length ? { errors } : rule;
 }
 
 /**

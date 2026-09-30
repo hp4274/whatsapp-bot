@@ -7,6 +7,8 @@ import path from 'node:path';
 import { after, describe, it } from 'node:test';
 
 import { Database } from '../src/db.js';
+import { AutoReplyEngine } from '../src/autoreply/engine.js';
+import { processOptOut } from '../src/autoreply/optout.js';
 import { MessageQueue, queueItem } from '../src/campaign/queue.js';
 import { RateLimiter, RetryPolicy } from '../src/campaign/limits.js';
 import { importCsv, parseCsv, rowsToContacts } from '../src/contacts.js';
@@ -18,6 +20,7 @@ import {
     normalizePhone,
     personalize,
 } from '../src/protocol.js';
+import { parseInboundPayload } from '../src/transports/cloudApi.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-test-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
@@ -87,6 +90,121 @@ describe('database', () => {
         const after_ = db.historySignature();
         assert.notDeepEqual(before, after_);
         assert.equal(after_.count, 3);
+    });
+
+    it('stores inbound messages and groups conversations', () => {
+        db.insertInbound({
+            messageId: 'inbound-1',
+            sender: '919700000001',
+            senderName: 'Asha',
+            body: 'Hello',
+            timestamp: '2026-09-30T10:00:00.000Z',
+        });
+        db.insertInbound({
+            messageId: 'inbound-2',
+            sender: '919700000001',
+            body: 'Pricing?',
+            timestamp: '2026-09-30T10:05:00.000Z',
+        });
+        const messages = db.getInboundMessages({ sender: '919700000001' });
+        assert.equal(messages.length, 2);
+        assert.equal(messages[0].body, 'Pricing?');
+        const conversations = db.getConversations();
+        const found = conversations.find((item) => item.sender === '919700000001');
+        assert.equal(found.unreadCount, 2);
+        assert.equal(found.lastBody, 'Pricing?');
+    });
+});
+
+describe('inbound parsing and automation', () => {
+    it('extracts incoming Cloud API messages', () => {
+        const messages = parseInboundPayload({
+            entry: [{ changes: [{ value: {
+                contacts: [{ wa_id: '15551234567', profile: { name: 'Mira' } }],
+                messages: [{ id: 'wamid.in.1', from: '15551234567', timestamp: '1790771400',
+                    type: 'text', text: { body: 'Hi' } }],
+            } }] }],
+        });
+        assert.equal(messages.length, 1);
+        assert.deepEqual(messages[0], {
+            messageId: 'wamid.in.1',
+            sender: '15551234567',
+            senderName: 'Mira',
+            body: 'Hi',
+            mediaUrl: null,
+            mediaType: null,
+            timestamp: '2026-09-30T12:30:00.000Z',
+        });
+    });
+
+    it('matches exact, contains, regex, and trims punctuation', async () => {
+        const sent = [];
+        const transport = {
+            isConnected: () => true,
+            sendMessage: async (recipient, message) => {
+                sent.push({ recipient, message });
+                return { providerId: `p${sent.length}`, status: Status.SENT };
+            },
+        };
+        const db = new Database(path.join(tmp, 'autoreply.db'));
+        const engine = new AutoReplyEngine(db, transport, { delayRangeMs: [0, 0] });
+        try {
+            const exact = await engine.handleInbound({ sender: '15551234567', senderName: '',
+                body: 'Hi!' });
+            assert.equal(exact.rule.keyword, 'hi');
+            db.saveAutoReply({ keyword: 'invoice \\d+', matchType: 'REGEX',
+                replyBody: 'Invoice received', cooldownSec: 0 });
+            assert.equal(engine.matchRule('need pricing please', db.getActiveAutoReplies()).keyword, 'pricing');
+            assert.equal(engine.matchRule('invoice 123', db.getActiveAutoReplies()).keyword, 'invoice \\d+');
+        } finally {
+            db.close();
+        }
+        assert.match(sent[0].message, /Valued Customer/);
+    });
+
+    it('suppresses repeated replies during cooldown', async () => {
+        const sent = [];
+        const transport = {
+            isConnected: () => true,
+            sendMessage: async () => {
+                sent.push(Date.now());
+                return { providerId: `p${sent.length}`, status: Status.SENT };
+            },
+        };
+        const db = new Database(path.join(tmp, 'cooldown.db'));
+        const engine = new AutoReplyEngine(db, transport, { delayRangeMs: [0, 0] });
+        try {
+            await engine.handleInbound({ sender: '15551230000', senderName: '', body: 'Hi' });
+            const second = await engine.handleInbound({ sender: '15551230000', senderName: '', body: 'Hi' });
+            assert.equal(second, null);
+            assert.equal(sent.length, 1);
+        } finally {
+            db.close();
+        }
+    });
+
+    it('handles STOP and START before general auto-replies', async () => {
+        const sent = [];
+        const transport = {
+            isConnected: () => true,
+            sendMessage: async (recipient, message) => {
+                sent.push({ recipient, message });
+                return { providerId: `p${sent.length}`, status: Status.SENT };
+            },
+        };
+        const db = new Database(path.join(tmp, 'optout.db'));
+        try {
+            const stop = await processOptOut(db, transport, { sender: '15551230001', body: 'STOP' });
+            assert.deepEqual(stop, { handled: true, action: 'opted_out' });
+            assert.deepEqual(db.getAllOptOuts(), ['15551230001']);
+            const start = await processOptOut(db, transport, { sender: '15551230001', body: 'START' });
+            assert.deepEqual(start, { handled: true, action: 'opted_in' });
+            assert.deepEqual(db.getAllOptOuts(), []);
+        } finally {
+            db.close();
+        }
+        assert.match(sent[0].message, /unsubscribed/);
+        assert.match(sent[1].message, /re-subscribed/);
     });
 });
 

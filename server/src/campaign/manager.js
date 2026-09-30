@@ -30,7 +30,7 @@ export class CampaignManager extends EventEmitter {
         this.rateLimiter = new RateLimiter(config.rateLimitPerSecond, config.rateLimitBurst);
         this.retryPolicy = RetryPolicy.fromConfig(config);
         this.campaignId = '';
-        this.stats = { total: 0, successful: 0, failed: 0, processed: 0 };
+        this.stats = { total: 0, successful: 0, failed: 0, processed: 0, skippedOptOut: 0 };
         this.worker = null;
         this.shuttingDown = false;
 
@@ -105,6 +105,8 @@ export class CampaignManager extends EventEmitter {
         this.sentInRun = 0;
         let queued = 0;
         let skipped = 0;
+        let skippedOptOut = 0;
+        const optedOut = new Set(this.db.getAllOptOuts?.() ?? []);
 
         // The flag only governs this batch: a later single send to one of these
         // numbers is a deliberate act, not a duplicate.
@@ -112,6 +114,11 @@ export class CampaignManager extends EventEmitter {
         this.queue.onePerRecipient = onePerNumber;
         try {
             for (const contact of contacts) {
+                if (optedOut.has(contact.phone)) {
+                    skipped += 1;
+                    skippedOptOut += 1;
+                    continue;
+                }
                 if (alreadySent.has(contact.phone)) {
                     skipped += 1;
                     continue;
@@ -130,12 +137,14 @@ export class CampaignManager extends EventEmitter {
         }
 
         this.stats.total += queued;
+        this.stats.skippedOptOut += skippedOptOut;
         this.#emitStats();
         // Say up front how much of this batch today's budget actually covers.
         const remaining = this.quota.remaining();
         return {
             queued,
             skipped,
+            skippedOptOut,
             campaignId: this.campaignId,
             safety: this.safetyStatus(queued),
             overQuota: Number.isFinite(remaining) ? Math.max(0, queued - remaining) : 0,
@@ -216,7 +225,7 @@ export class CampaignManager extends EventEmitter {
     }
 
     resetStats() {
-        this.stats = { total: 0, successful: 0, failed: 0, processed: 0 };
+        this.stats = { total: 0, successful: 0, failed: 0, processed: 0, skippedOptOut: 0 };
         this.#emitStats();
     }
 
