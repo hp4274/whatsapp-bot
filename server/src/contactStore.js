@@ -42,9 +42,12 @@ export class ContactStore {
      * top, which is what a second import of a partial sheet should do.
      */
     upsert({
-        phone, name = '', email = '', tags, customFields,
-        source = 'manual', status, optInStatus, normalized: isNormalized = false,
+        phone, name, email, tags, customFields,
+        source, status, optInStatus, normalized: isNormalized = false,
     }, { merge = true } = {}) {
+        // No destructuring defaults on the updatable fields: `undefined` has to
+        // stay meaningful so an update that only sets tags does not blank the
+        // name. The insert path below supplies the real defaults.
         const normalized = this.#phone(phone, isNormalized);
         const existing = this.getByPhone(normalized);
         const now = utcNow();
@@ -59,7 +62,7 @@ export class ContactStore {
                     pick(status, CONTACT_STATUSES, 'active'),
                     pick(optInStatus, OPT_IN_STATUSES, 'unknown'),
                     JSON.stringify(cleanFields(customFields)), JSON.stringify(cleanTags(tags)),
-                    String(source), now, now,
+                    String(source ?? 'manual'), now, now,
                 );
             return this.get(Number(info.lastInsertRowid));
         }

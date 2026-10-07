@@ -8,6 +8,10 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 import { DB_PATH } from './config.js';
+// Feature modules own their own tables. Each exports a plain SQL string that is
+// applied after the core schema, so a new feature never means editing the giant
+// template literal below - and two features can be built without colliding.
+import { MODULE_SCHEMAS } from './schema.js';
 import { STATUS_RANK, SUCCESS_STATUSES, Status, utcNow } from './protocol.js';
 
 const SCHEMA = `
@@ -266,6 +270,7 @@ export class Database {
         // Before SCHEMA: its indexes reference channel_id on tables that predate it.
         addChannelColumns(this.db);
         this.db.exec(SCHEMA);
+        for (const fragment of MODULE_SCHEMAS) this.db.exec(fragment);
         if (old.length) finishLegacy(this.db, old);
         this.db.prepare(`INSERT OR IGNORE INTO tenants (id, name, slug, status, created_at)
                          VALUES (?, 'Default', 'default', 'active', ?)`).run(DEFAULT_TENANT_ID, utcNow());

@@ -47,6 +47,12 @@ import {
     withinSendingWindow,
 } from './channels.js';
 import { ContactError, ContactStore } from './contactStore.js';
+import { JobStore } from './scheduler/store.js';
+import { SchedulerWorker } from './scheduler/worker.js';
+import { TemplateError, TemplateStore, validate as validateTemplate } from './templates/store.js';
+import { WorkflowEngine } from './workflows/engine.js';
+import { WorkflowError } from './workflows/definition.js';
+import { WorkflowStore, dueRuns } from './workflows/store.js';
 import { MessageJobError, messageJob } from './messaging/job.js';
 import { MessageService } from './messaging/service.js';
 import { ROLES, Tenancy, TenancyError, roleRank } from './tenancy.js';
@@ -152,11 +158,34 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     // Contacts belong to the tenant, not to one number, but the store needs the
     // channel's country code to normalise what people type.
     const contacts = new ContactStore(db, config.defaultCountryCode);
+    const templates = new TemplateStore(db);
+    const workflows = new WorkflowStore(db);
+    const jobs = new JobStore(db);
+    // The engine takes its collaborators injected, which is what keeps it
+    // testable and keeps templates/workflows from importing each other.
+    const engine = new WorkflowEngine({
+        store: workflows,
+        messages,
+        contacts,
+        channels: new Channels(db),
+        renderTemplate: ({ template, context }) => {
+            const found = Number.isInteger(Number(template))
+                ? templates.get(template) : templates.getByName(template);
+            if (!found) throw new Error(`template not found: ${template}`);
+            const rendered = templates.render(found.id, context);
+            templates.recordUse(found.id);
+            return { text: rendered.body, templateId: found.id };
+        },
+    });
     autoReply.setService(messages);
     state.manager = manager;
     state.autoReply = autoReply;
     state.messages = messages;
     state.contacts = contacts;
+    state.templates = templates;
+    state.workflows = workflows;
+    state.engine = engine;
+    state.jobs = jobs;
     manager.on('event', (event) => broadcast(state, event));
     manager.start();
 
@@ -536,6 +565,166 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         } catch (err) {
             return contactFail(res, err);
         }
+    });
+
+    // ------------------------------------------------------------ templates --
+    const templateFail = (res, err) => {
+        if (err instanceof TemplateError) return res.status(err.status).json({ errors: [err.message] });
+        throw err;
+    };
+
+    app.get('/templates', (req, res) => res.json({
+        templates: templates.list({ type: req.query.type, channelId: req.query.channel }),
+    }));
+
+    app.post('/templates', (req, res) => {
+        // The store saves half-written drafts on purpose; the API is the gate.
+        const problems = validateTemplate(req.body ?? {});
+        if (problems.length && req.query.draft !== 'true') return res.status(400).json({ errors: problems });
+        try {
+            return res.status(201).json({ template: templates.create(req.body ?? {}), warnings: problems });
+        } catch (err) {
+            return templateFail(res, err);
+        }
+    });
+
+    app.get('/templates/:id', (req, res) => {
+        const template = templates.get(req.params.id);
+        if (!template) return res.status(404).json({ errors: ['template not found'] });
+        return res.json({
+            template,
+            versions: templates.versions(template.id),
+            compatibility: templates.compatibility(template, state.channel),
+        });
+    });
+
+    app.put('/templates/:id', (req, res) => {
+        const problems = validateTemplate({ ...templates.get(req.params.id), ...req.body });
+        if (problems.length && req.query.draft !== 'true') return res.status(400).json({ errors: problems });
+        try {
+            return res.json({ template: templates.update(req.params.id, req.body ?? {}) });
+        } catch (err) {
+            return templateFail(res, err);
+        }
+    });
+
+    app.delete('/templates/:id', (req, res) => {
+        try {
+            templates.remove(req.params.id);
+            return res.json({ deleted: Number(req.params.id) });
+        } catch (err) {
+            return templateFail(res, err);
+        }
+    });
+
+    app.post('/templates/:id/revert', (req, res) => {
+        try {
+            return res.json({ template: templates.revert(req.params.id, req.body?.version) });
+        } catch (err) {
+            return templateFail(res, err);
+        }
+    });
+
+    app.post('/templates/:id/preview', (req, res) => {
+        try {
+            return res.json(templates.preview(req.params.id, req.body?.context ?? {}));
+        } catch (err) {
+            return templateFail(res, err);
+        }
+    });
+
+    // ------------------------------------------------------------ workflows --
+    const workflowFail = (res, err) => {
+        if (err instanceof WorkflowError) return res.status(err.status ?? 400).json({ errors: [err.message] });
+        throw err;
+    };
+
+    app.get('/workflows', (req, res) => res.json({ workflows: workflows.list({ status: req.query.status }) }));
+
+    app.post('/workflows', (req, res) => {
+        try {
+            return res.status(201).json({ workflow: workflows.create(req.body ?? {}) });
+        } catch (err) {
+            return workflowFail(res, err);
+        }
+    });
+
+    app.get('/workflows/:id', (req, res) => {
+        const workflow = workflows.get(req.params.id);
+        if (!workflow) return res.status(404).json({ errors: ['workflow not found'] });
+        return res.json({ workflow, versions: workflows.versions(workflow.id) });
+    });
+
+    app.put('/workflows/:id', (req, res) => {
+        try {
+            return res.json({ workflow: workflows.update(req.params.id, req.body ?? {}) });
+        } catch (err) {
+            return workflowFail(res, err);
+        }
+    });
+
+    app.delete('/workflows/:id', (req, res) => {
+        try {
+            workflows.remove(req.params.id);
+            return res.json({ deleted: Number(req.params.id) });
+        } catch (err) {
+            return workflowFail(res, err);
+        }
+    });
+
+    app.get('/workflows/:id/runs', (req, res) => res.json({
+        runs: workflows.listRuns({ workflowId: Number(req.params.id), status: req.query.status, limit: 200 }),
+    }));
+
+    app.get('/workflow-runs/:runId', (req, res) => {
+        const run = workflows.getRun(req.params.runId);
+        if (!run) return res.status(404).json({ errors: ['run not found'] });
+        return res.json({ run, steps: workflows.runSteps(run.runId ?? req.params.runId) });
+    });
+
+    app.post('/workflow-runs/:runId/retry', async (req, res) => {
+        try {
+            return res.json({ run: await engine.retry(req.params.runId) });
+        } catch (err) {
+            return workflowFail(res, err);
+        }
+    });
+
+    app.post('/workflow-runs/:runId/stop', (req, res) => {
+        try {
+            return res.json({ run: engine.stop(req.params.runId) });
+        } catch (err) {
+            return workflowFail(res, err);
+        }
+    });
+
+    /** The external event entry point: this is what starts a workflow. */
+    app.post('/events', async (req, res) => {
+        try {
+            const runs = await engine.dispatch({ ...req.body, tenantId: db.tenantId, channelId: state.channel.id });
+            return res.status(202).json({ runs: runs.map((r) => r.runId ?? r.run?.runId ?? null) });
+        } catch (err) {
+            return workflowFail(res, err);
+        }
+    });
+
+    // ------------------------------------------------------------- jobs ------
+    app.get('/jobs', (req, res) => res.json({
+        jobs: jobs.list({ status: req.query.status, kind: req.query.kind, limit: 200 }),
+        dead: jobs.listDead({ limit: 50 }),
+        stats: jobs.stats(),
+    }));
+
+    app.post('/jobs/:id/retry', (req, res) => {
+        const job = jobs.retryDead(req.params.id);
+        if (!job) return res.status(404).json({ errors: ['job not found'] });
+        return res.json({ job });
+    });
+
+    app.delete('/jobs/:id', (req, res) => {
+        const job = jobs.cancel(req.params.id);
+        if (!job) return res.status(404).json({ errors: ['job not found'] });
+        return res.json({ cancelled: job.id });
     });
 
     app.post('/contacts/preview', (req, res) => {
@@ -1019,6 +1208,9 @@ const AGENT_WRITES = new Set(['/messages', '/inbox/mark-read']);
 
 export function createApp({
     db = new Database(), config = loadConfig(), deps = {}, dataDir = APP_DIR,
+    // Off by default: a test that builds an app should not start a timer it
+    // never asked for. `index.js` turns it on for the real server.
+    scheduler = false, sweepMs = 5000,
 } = {}) {
     const app = express();
     app.use(express.json({ limit: '1mb' }));
@@ -1216,6 +1408,47 @@ export function createApp({
         return runtimeFor(req.tenantId).router(req, res, next);
     });
 
+    /**
+     * The bridge between a waiting workflow run and the clock.
+     *
+     * The engine deliberately holds no timer: hitting a `wait` writes
+     * `resume_at` to the run row and returns, so a 24-hour wait survives a
+     * restart. Something has to come back for it, and this is that something -
+     * one sweep across every tenant, resolving each run's own engine.
+     *
+     * ponytail: a single in-process sweeper, so no lease is needed on resume.
+     * Running two app processes against one database would double-execute a
+     * run; the upgrade is a claim (`UPDATE ... WHERE status = 'waiting'`)
+     * inside resume before that becomes possible.
+     */
+    const sweep = async () => {
+        let due = [];
+        try {
+            due = dueRuns(db, new Date());
+        } catch (err) {
+            console.error('[workflows] sweep failed:', err.message);
+            return;
+        }
+        for (const { runId, tenantId } of due) {
+            try {
+                const tenant = runtimeFor(tenantId);
+                const channel = tenant.channels.getDefault();
+                if (!channel) continue;
+                await tenant.runtimeFor(channel).state.engine.resume(runId);
+            } catch (err) {
+                // One bad run must not stop the sweep for every other tenant.
+                console.error(`[workflows] run ${runId} failed to resume:`, err.message);
+            }
+        }
+    };
+
+    if (scheduler) {
+        const timer = setInterval(() => { void sweep(); }, sweepMs);
+        timer.unref();
+        app.locals.stopScheduler = () => clearInterval(timer);
+    }
+    app.locals.sweep = sweep;
+
     app.locals.runtimes = runtimes;
     app.locals.tenancy = tenancy;
     app.locals.runtimeFor = runtimeFor;
@@ -1318,6 +1551,7 @@ function validateAutoReply(input = {}) {
  * closed HTTP server otherwise, and then writes to a closed database.
  */
 export async function closeApp(app) {
+    app.locals.stopScheduler?.();
     for (const tenant of app.locals.runtimes?.values() ?? []) {
         for (const { state } of tenant.runtimes.values()) await closeState(state);
     }

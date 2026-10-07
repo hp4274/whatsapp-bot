@@ -134,6 +134,20 @@ describe('the contact book', () => {
         assert.deepEqual(replaced.customFields, { city: 'Mumbai' });
     });
 
+    it('leaves fields it was not given alone', () => {
+        const contacts = store();
+        contacts.upsert({ phone: '+919812345077', name: 'Keep Me', email: 'keep@example.com', source: 'import' });
+        // A tag-only upsert must not blank the name: `undefined` means "leave
+        // it", which is what a partial update from a workflow or a tag edit is.
+        const after = contacts.upsert({ phone: '+919812345077', tags: ['vip'] });
+        assert.equal(after.name, 'Keep Me');
+        assert.equal(after.email, 'keep@example.com');
+        assert.equal(after.source, 'import');
+        assert.deepEqual(after.tags, ['vip']);
+        // An explicit empty string still clears it.
+        assert.equal(contacts.upsert({ phone: '+919812345077', name: '' }).name, '');
+    });
+
     it('counts the tags in use', () => {
         const tags = store().tags();
         const names = tags.map((t) => t.tag);
