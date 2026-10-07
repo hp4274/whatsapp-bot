@@ -1,0 +1,173 @@
+<header class="page-head">
+  <div>
+    <h2>Contacts</h2>
+    <p class="muted">{{ total() }} in this workspace. Tags and custom fields are yours to define.</p>
+  </div>
+  <div class="head-actions">
+    <label class="btn" for="import">Import sheet</label>
+    <input id="import" type="file" accept=".csv,.xlsx,.xls" hidden (change)="upload($event)" />
+    <button class="btn primary" type="button" (click)="showForm.set(!showForm())">
+      {{ showForm() ? 'Cancel' : 'Add contact' }}
+    </button>
+  </div>
+</header>
+
+@if (error()) {
+  <p class="error" role="alert">{{ error() }}</p>
+}
+
+@if (showForm()) {
+  <form class="card new" (submit)="create($event)" novalidate>
+    <h3>Add a contact</h3>
+    <div class="grid">
+      <div class="field">
+        <label for="n-phone">Phone</label>
+        <input id="n-phone" name="phone" required [ngModel]="draft().phone"
+               (ngModelChange)="draft.set({ ...draft(), phone: $event })" />
+      </div>
+      <div class="field">
+        <label for="n-name">Name</label>
+        <input id="n-name" name="name" [ngModel]="draft().name"
+               (ngModelChange)="draft.set({ ...draft(), name: $event })" />
+      </div>
+      <div class="field">
+        <label for="n-email">Email</label>
+        <input id="n-email" name="email" type="email" [ngModel]="draft().email"
+               (ngModelChange)="draft.set({ ...draft(), email: $event })" />
+      </div>
+      <div class="field">
+        <label for="n-tags">Tags <small class="muted">comma separated</small></label>
+        <input id="n-tags" name="tags" [ngModel]="draft().tags"
+               (ngModelChange)="draft.set({ ...draft(), tags: $event })" />
+      </div>
+    </div>
+    <div class="field">
+      <label for="n-fields">Custom fields <small class="muted">one key=value per line</small></label>
+      <textarea id="n-fields" name="fields" rows="3" placeholder="patient_id=P-104&#10;doctor=Mehta"
+                [ngModel]="draft().fields"
+                (ngModelChange)="draft.set({ ...draft(), fields: $event })"></textarea>
+    </div>
+    <button class="btn primary" type="submit" [disabled]="busy()">
+      {{ busy() ? 'Saving...' : 'Save contact' }}
+    </button>
+  </form>
+}
+
+<div class="board">
+  <aside class="card side">
+    <div class="field">
+      <label for="q">Search</label>
+      <input id="q" [ngModel]="search()" (ngModelChange)="search.set($event)"
+             (keyup.enter)="refresh()" placeholder="name, number or email" />
+    </div>
+
+    <label class="check">
+      <input type="checkbox" [checked]="hideOptedOut()"
+             (change)="hideOptedOut.set(!hideOptedOut()); refresh()" />
+      <span>Only who we may message</span>
+    </label>
+
+    <h4>Tags</h4>
+    <div class="tagcloud">
+      @for (tag of tags(); track tag.tag) {
+        <button type="button" class="tag" [class.on]="activeTags().includes(tag.tag)"
+                [attr.aria-pressed]="activeTags().includes(tag.tag)" (click)="toggleTag(tag.tag)">
+          {{ tag.tag }} <em>{{ tag.count }}</em>
+        </button>
+      } @empty {
+        <p class="muted small">No tags yet.</p>
+      }
+    </div>
+
+    <button class="btn small" type="button" (click)="clearFilters()">Clear filters</button>
+
+    <h4>Segments</h4>
+    <div class="segments">
+      @for (segment of segments(); track segment.id) {
+        <div class="segment">
+          <button type="button" class="link" (click)="applySegment(segment)">
+            {{ segment.name }} <em>{{ segment.count }}</em>
+          </button>
+          <button type="button" class="x" aria-label="Delete segment" (click)="deleteSegment(segment)">&times;</button>
+        </div>
+      } @empty {
+        <p class="muted small">Filter the list, then save it as a segment.</p>
+      }
+    </div>
+    <div class="row">
+      <input #segName placeholder="Name this filter" aria-label="Segment name" />
+      <button class="btn small" type="button" (click)="saveSegment(segName.value); segName.value = ''">Save</button>
+    </div>
+  </aside>
+
+  <section class="card list">
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Number</th><th>Tags</th><th>State</th><th></th></tr>
+      </thead>
+      <tbody>
+        @for (contact of contacts(); track contact.id) {
+          <tr [class.out]="!contact.messageable" [class.open]="openId() === contact.id">
+            <td>
+              <button type="button" class="link" (click)="inspect(contact)">{{ contact.name || '(no name)' }}</button>
+            </td>
+            <td class="mono">{{ contact.phone }}</td>
+            <td>
+              <span class="chips">
+                @for (tag of contact.tags; track tag) {
+                  <button type="button" class="chip" (click)="dropTag(contact, tag)"
+                          [attr.aria-label]="'Remove tag ' + tag">{{ tag }}</button>
+                }
+              </span>
+            </td>
+            <td>
+              @if (contact.optedOut) { <span class="pill warn">opted out</span> }
+              @else if (contact.status !== 'active') { <span class="pill">{{ contact.status }}</span> }
+              @else { <span class="pill live">active</span> }
+            </td>
+            <td class="right">
+              <button class="btn small danger" type="button" (click)="remove(contact)">Delete</button>
+            </td>
+          </tr>
+
+          @if (openId() === contact.id) {
+            <tr class="drawer-row">
+              <td colspan="5">
+                <div class="drawer">
+                  <div class="facts">
+                    <h4>Custom fields</h4>
+                    @for (entry of fieldEntries(contact); track entry[0]) {
+                      <div class="fact"><dt>{{ entry[0] }}</dt><dd>{{ entry[1] }}</dd></div>
+                    } @empty {
+                      <p class="muted small">None recorded.</p>
+                    }
+                    <div class="row">
+                      <input #newTag placeholder="Add a tag" aria-label="Add a tag" />
+                      <button class="btn small" type="button"
+                              (click)="addTag(contact, newTag.value); newTag.value = ''">Add</button>
+                    </div>
+                  </div>
+
+                  <div class="history">
+                    <h4>Timeline</h4>
+                    @for (entry of timeline(); track entry.messageId) {
+                      <div class="entry" [class.in]="entry.direction === 'inbound'">
+                        <span class="when mono">{{ entry.at }}</span>
+                        <span class="kind">{{ entry.kind }}</span>
+                        <span class="body">{{ entry.body }}</span>
+                      </div>
+                    } @empty {
+                      <p class="muted small">Nothing yet.</p>
+                    }
+                  </div>
+                </div>
+              </td>
+            </tr>
+          }
+        } @empty {
+          <tr><td colspan="5" class="muted">No contacts match.</td></tr>
+        }
+      </tbody>
+    </table>
+  </section>
+</div>

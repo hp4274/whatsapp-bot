@@ -22,6 +22,7 @@ const ICONS = {
   team: icon('<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.5a3 3 0 0 1 0 5"/><path d="M18 20a5.5 5.5 0 0 0-3-4.9"/>'),
   tenants: icon('<path d="M4 20V8l6-4 6 4v12"/><path d="M10 20v-5h4v5"/><path d="M20 20V11l-4-2.7"/>'),
   channels: icon('<rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10 5.5h4"/><path d="M11 18.5h2"/>'),
+  contacts: icon('<circle cx="12" cy="8" r="3.2"/><path d="M5 20a7 7 0 0 1 14 0"/>'),
 };
 
 @Component({
@@ -55,6 +56,7 @@ export class App {
     { path: '/admin/tenants', label: 'Tenants', icon: this.trust(ICONS.tenants), min: 'super_admin' },
     { path: '/connection', label: 'Connection', icon: this.trust(ICONS.connection) },
     { path: '/channels', label: 'WhatsApp Numbers', icon: this.trust(ICONS.channels) },
+    { path: '/contacts', label: 'Contacts', icon: this.trust(ICONS.contacts) },
     { path: '/campaign', label: 'Messaging & Campaign', icon: this.trust(ICONS.campaign) },
     { path: '/auto-replies', label: 'Auto-Replies', icon: this.trust(ICONS.replies) },
     { path: '/payment-reminder', label: 'Payment Reminder', icon: this.trust(ICONS.payment) },

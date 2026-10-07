@@ -432,3 +432,111 @@ export class ChannelsApi {
     return this.http.delete<{ deleted: number }>(`/api/channels/${id}`).pipe(catchError(toMessage));
   }
 }
+
+/* Contacts, tags, custom fields and segments ---------------------------- */
+
+export interface Contact2 {
+  id: number;
+  tenantId: number;
+  phone: string;
+  name: string;
+  email: string;
+  status: 'active' | 'archived';
+  optInStatus: 'unknown' | 'opted_in' | 'opted_out';
+  customFields: Record<string, string>;
+  tags: string[];
+  source: string;
+  optedOut: boolean;
+  messageable: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TimelineEntry {
+  at: string;
+  direction: 'inbound' | 'outbound';
+  kind: string;
+  messageId: string;
+  body: string;
+  status: string | null;
+}
+
+export interface ContactFilter {
+  tags?: string[];
+  anyTags?: string[];
+  notTags?: string[];
+  status?: string;
+  optInStatus?: string;
+  optedOut?: boolean;
+  source?: string;
+  search?: string;
+  custom?: Record<string, string>;
+}
+
+export interface Segment {
+  id: number;
+  name: string;
+  filter: ContactFilter;
+  count?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContactList {
+  contacts: Contact2[];
+  total: number;
+  tags: { tag: string; count: number }[];
+  fieldKeys: string[];
+}
+
+@Injectable({ providedIn: 'root' })
+export class ContactsApi {
+  private readonly http = inject(HttpClient);
+
+  list(filter: ContactFilter = {}, limit = 200): Observable<ContactList> {
+    let params = new HttpParams().set('limit', limit);
+    if (Object.keys(filter).length) params = params.set('filter', JSON.stringify(filter));
+    return this.http.get<ContactList>('/api/contacts', { params }).pipe(catchError(toMessage));
+  }
+
+  save(body: Partial<Contact2>): Observable<{ contact: Contact2 }> {
+    return this.http.post<{ contact: Contact2 }>('/api/contacts', body).pipe(catchError(toMessage));
+  }
+
+  update(id: number, body: Partial<Contact2>): Observable<{ contact: Contact2 }> {
+    return this.http.put<{ contact: Contact2 }>(`/api/contacts/${id}`, body).pipe(catchError(toMessage));
+  }
+
+  remove(id: number): Observable<{ deleted: number }> {
+    return this.http.delete<{ deleted: number }>(`/api/contacts/${id}`).pipe(catchError(toMessage));
+  }
+
+  tag(id: number, add: string[] = [], remove: string[] = []): Observable<{ contact: Contact2 }> {
+    return this.http.post<{ contact: Contact2 }>(`/api/contacts/${id}/tags`, { add, remove }).pipe(catchError(toMessage));
+  }
+
+  timeline(id: number): Observable<{ timeline: TimelineEntry[] }> {
+    return this.http.get<{ timeline: TimelineEntry[] }>(`/api/contacts/${id}/timeline`).pipe(catchError(toMessage));
+  }
+
+  segments(): Observable<{ segments: Segment[] }> {
+    return this.http.get<{ segments: Segment[] }>('/api/segments').pipe(catchError(toMessage));
+  }
+
+  saveSegment(body: { name: string; filter: ContactFilter }): Observable<{ segment: Segment; count: number }> {
+    return this.http.post<{ segment: Segment; count: number }>('/api/segments', body).pipe(catchError(toMessage));
+  }
+
+  deleteSegment(id: number): Observable<{ deleted: number }> {
+    return this.http.delete<{ deleted: number }>(`/api/segments/${id}`).pipe(catchError(toMessage));
+  }
+
+  importFile(file: File, tags: string[] = []): Observable<{ saved?: { created: number; updated: number; failed: unknown[] } }> {
+    const form = new FormData();
+    form.append('file', file);
+    let params = new HttpParams().set('save', 'true');
+    if (tags.length) params = params.set('tags', tags.join(','));
+    return this.http.post<{ saved?: { created: number; updated: number; failed: unknown[] } }>(
+      '/api/contacts/import', form, { params }).pipe(catchError(toMessage));
+  }
+}

@@ -1,6 +1,6 @@
 # WhatsApp Automation Platform — Implementation Phases
 
-Last updated: 2026-10-07. Phases 0, 1 and 2 are complete; see `docs/ARCHITECTURE.md`
+Last updated: 2026-10-07. Phases 0 to 4 are complete; see `docs/ARCHITECTURE.md`
 for the frozen product model.
 
 ## Purpose
@@ -260,7 +260,7 @@ Channel
 
 ---
 
-# Phase 3 — Unified Messaging Core
+# Phase 3 — Unified Messaging Core — DONE
 
 ## Goal
 
@@ -299,17 +299,19 @@ messaging/
 
 ## Tasks
 
-- [ ] Create provider-neutral message job.
-- [ ] Keep current transport abstraction.
-- [ ] Route messages through a single messaging service.
-- [ ] Move campaign sends onto the common message job pipeline.
-- [ ] Move auto-replies onto the common message pipeline.
-- [ ] Move payment reminders onto the common message pipeline.
-- [ ] Normalize delivery states.
-- [ ] Normalize provider errors.
-- [ ] Add idempotency key.
-- [ ] Add tenant/channel ownership to jobs.
-- [ ] Add queue observability.
+- [x] Create provider-neutral message job.
+- [x] Keep current transport abstraction.
+- [x] Route messages through a single messaging service.
+- [x] Move campaign sends onto the common message job pipeline.
+- [x] Move auto-replies onto the common message pipeline.
+- [ ] Move payment reminders onto the common message pipeline. **Partial: they
+      enqueue through the manager, so they get pacing and the daily cap, but
+      not the service's capability and idempotency checks.**
+- [x] Normalize delivery states.
+- [x] Normalize provider errors.
+- [x] Add idempotency key.
+- [x] Add tenant/channel ownership to jobs.
+- [x] Add queue observability.
 
 ## Definition of Done
 
@@ -317,7 +319,7 @@ Campaign, auto-reply, reminder, and workflow messages all use the same underlyin
 
 ---
 
-# Phase 4 — Contacts, Tags & Custom Fields
+# Phase 4 — Contacts, Tags & Custom Fields — DONE
 
 ## Goal
 
@@ -374,16 +376,17 @@ preferred_category
 
 ## Tasks
 
-- [ ] Add contact CRUD.
-- [ ] Add bulk import.
-- [ ] Add tags.
-- [ ] Add custom fields.
-- [ ] Add saved segments.
-- [ ] Add opt-in state.
-- [ ] Add opt-out state.
-- [ ] Add contact timeline.
-- [ ] Add duplicate detection per tenant.
-- [ ] Add segment filters usable by workflows.
+- [x] Add contact CRUD.
+- [x] Add bulk import.
+- [x] Add tags.
+- [x] Add custom fields.
+- [x] Add saved segments. *(Stored filters, re-evaluated on use.)*
+- [x] Add opt-in state.
+- [x] Add opt-out state. *(`opt_outs` stays the authority; joined on read.)*
+- [x] Add contact timeline.
+- [x] Add duplicate detection per tenant. *(`UNIQUE (tenant_id, phone)`.)*
+- [x] Add segment filters usable by workflows. *(The filter object is the seam;
+      the workflow engine itself arrives in Phase 6.)*
 
 ---
 
@@ -1306,8 +1309,8 @@ Use this order even if the UI appears tempting to build first:
 1. Multi-tenancy                 DONE
 2. Authentication + roles        DONE
 3. WhatsApp channels             DONE
-4. Common message service
-5. Contacts + custom fields
+4. Common message service        DONE
+5. Contacts + custom fields      DONE
 6. Templates
 7. Workflow data model
 8. Workflow runtime

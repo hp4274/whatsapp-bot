@@ -1,6 +1,6 @@
 # WhatsApp Sender — Project Memory
 
-Last updated: 2026-10-07. Multi-tenant WhatsApp automation platform: Express backend + Angular dashboard. Rewritten from an earlier Python desktop app (archived outside this repo). Phases 0-2 of `phases/README.md` turned it from a single-operator local tool into a multi-tenant SaaS foundation; see `docs/ARCHITECTURE.md` for the frozen product model.
+Last updated: 2026-10-07. Multi-tenant WhatsApp automation platform: Express backend + Angular dashboard. Rewritten from an earlier Python desktop app (archived outside this repo). Phases 0-4 of `phases/README.md` turned it from a single-operator local tool into a multi-tenant SaaS foundation; see `docs/ARCHITECTURE.md` for the frozen product model.
 
 ## 1. Tech stack
 
@@ -59,6 +59,10 @@ web/src/app/
 
 **Channels.** A `whatsapp_channel` is one registered number. The tenant runtime is only a dispatcher: it owns the channel list (`src/channels.js`) and hands each request to that channel's own runtime, which holds its transport, `CampaignManager`, `AutoReplyEngine`, SSE clients and WhatsApp Web profile dir. A request picks a channel with `X-Channel-Id` (or `?channel=`); without one it gets the tenant's default. The channel's `settings` JSON *is* the old config object, so `GET`/`PUT /api/config` became per-channel for free and no existing route changed. `db.forChannel(id)` stamps `messages.channel_id` and `inbound_messages.channel_id`; the daily cap counts per channel, history reads stay tenant-wide unless asked. One gate (`SEND_ROUTES`) enforces Rule 2 on every send: channel active, capability enabled, inside its sending window, else 409. Capabilities default to all ten on; opt-out is not one of them, so STOP is honoured even with `auto_replies` off. Business hours are evaluated in the channel's own timezone via `Intl.DateTimeFormat`. A tenant always keeps at least one channel, exactly one of which is the default.
 
+**Messaging core (Phase 3).** Everything that sends builds a message job (`messaging/job.js`, tenant and channel required, no defaults) and hands it to the message service (`messaging/service.js`), the one way out. The service owns the unskippable checks - channel active, capability enabled, not opted out, idempotency key unused - then enqueues on the channel's `CampaignManager`, which already owned the queue, pacing, rate limit, retries and daily cap. Auto-replies used to call `transport.sendMessage` directly and skipped all of it; they no longer do. The queue is priority-ordered (`auto_reply` < `transactional` < `workflow` < `reminder` < `campaign`), FIFO within a priority. Idempotency is a partial unique index on `messages(tenant_id, idempotency_key)`; a retry returns the original message id. `messaging/errors.js` normalizes every transport's failures to one set with a retryable flag. `GET /api/queue` reports depth, in-flight, by-type, counts and the status histogram.
+
+**Contacts (Phase 4).** `contactStore.js`, one row per number per tenant, `UNIQUE (tenant_id, phone)` as the duplicate detection. `custom_fields` (flat string map) and `tags` (array) are JSON, filtered with SQLite JSON1, so a new industry needs no migration. A segment is a stored *filter*, re-evaluated on use, so it cannot go stale; `POST /api/campaign/start` accepts `segmentId` and resolves the audience at send time, dropping anyone not messageable. Opt-out stays in `opt_outs` (the send path's authority) and is joined on read as `optedOut`/`messageable`; `opt_in_status` separately records the consent basis. Timelines are derived from `messages` + `inbound_messages`, not stored.
+
 **Auth.** scrypt password hashes, random 32-byte bearer tokens stored as sha256, 7-day sessions, in-memory login throttle (5 fails per 10 min). Role ladder `agent < admin < owner < super_admin` is a code constant, not a table. Agents may only write `/messages` and `/inbox/mark-read`. Nobody may create or disable a user at or above their own rank. Suspending a tenant deletes its sessions immediately and makes its webhook 404. Every admin action lands in `audit_logs`. First run creates a super admin from `SUPER_ADMIN_EMAIL`/`SUPER_ADMIN_PASSWORD`, or prints a generated password once.
 
 **Transport abstraction.** Everything sends through one interface (`base.js`): `connect`, `sendMessage(to, text, media?)`, `isConnected`, inbound callback. Three implementations: `cloud_api`, `whatsapp_web`, `sandbox`. Errors are classified (retryable vs permanent) so the retry policy knows what to do.
@@ -75,7 +79,7 @@ web/src/app/
 
 **WhatsApp Web specifics.** QR is rendered in the UI via SSE/state. Session persists in `wwebjs_auth/` (`LocalAuth`). A Chrome profile-lock error is detected (`isProfileLockError`) and surfaced as a clear message instead of crashing the API.
 
-**Frontend.** Routes: `login`, `connection`, `channels`, `campaign`, `auto-replies`, `payment-reminder`, `history`, `team` (admin+), `admin/tenants` (super admin). All but `login` are behind `authGuard`/`roleGuard`. `core/auth.ts` holds the token (localStorage), user, tenant, the super admin's acting tenant and the active channel; its `authInterceptor` adds `Authorization`, `X-Tenant-Id` and `X-Channel-Id` (never on `/api/channels` itself, which is tenant-level) and signs you out on 401. The `channels` view lists every number with live health, capability toggles, sending window and "Work on this"; picking one re-opens the SSE stream against it. `provideAppInitializer` restores the session before the first route resolves. The signal store no longer auto-starts: `store.start()` opens the SSE stream after sign-in, `store.stop()` closes it on sign-out or when leaving a tenant. Light/dark themes.
+**Frontend.** Routes: `login`, `connection`, `channels`, `contacts`, `campaign`, `auto-replies`, `payment-reminder`, `history`, `team` (admin+), `admin/tenants` (super admin). All but `login` are behind `authGuard`/`roleGuard`. `core/auth.ts` holds the token (localStorage), user, tenant, the super admin's acting tenant and the active channel; its `authInterceptor` adds `Authorization`, `X-Tenant-Id` and `X-Channel-Id` (never on `/api/channels` itself, which is tenant-level) and signs you out on 401. The `channels` view lists every number with live health, capability toggles, sending window and "Work on this"; picking one re-opens the SSE stream against it. `provideAppInitializer` restores the session before the first route resolves. The signal store no longer auto-starts: `store.start()` opens the SSE stream after sign-in, `store.stop()` closes it on sign-out or when leaving a tenant. Light/dark themes.
 
 ## 4. REST API (all under `/api`)
 
@@ -89,13 +93,16 @@ web/src/app/
 - Webhook (Cloud API, public, per tenant): `GET/POST webhook/:tenantId`, and `GET/POST webhook` for tenant 1
 - Auth: `POST auth/login`, `GET auth/me`, `POST auth/logout`
 - Channels: `GET/POST channels`, `GET/PATCH/DELETE channels/:id`, `POST channels/:id/default`
+- Contacts: `GET/POST contacts`, `GET/PUT/DELETE contacts/:id`, `POST contacts/:id/tags`, `GET contacts/:id/timeline`, `POST contacts/import?save=true&tags=`
+- Segments: `GET/POST segments`, `PUT/DELETE segments/:id`, `GET segments/:id/contacts`
+- Queue: `GET queue`
 - Platform (super admin): `GET/POST admin/tenants`, `PATCH admin/tenants/:id`, `GET admin/audit-logs`
 - Team (admin+): `GET/POST users`, `PATCH users/:id`
 - Realtime: `GET events` (SSE)
 
 ## 5. DB tables
 
-Tenant-owned, all carrying `tenant_id`: `messages` and `inbound_messages` (both also carry `channel_id`), `opt_outs`, `auto_replies`, `whatsapp_channels`. Control plane: `tenants`, `users`, `sessions`, `audit_logs`.
+Tenant-owned, all carrying `tenant_id`: `messages` and `inbound_messages` (both also carry `channel_id`; `messages` also carries `message_type`, `direction`, `idempotency_key`), `opt_outs`, `auto_replies`, `whatsapp_channels`, `contacts`, `segments`. Control plane: `tenants`, `users`, `sessions`, `audit_logs`.
 
 ## 6. Implemented so far
 
@@ -112,6 +119,8 @@ Git history: initial import -> remove zip -> `feat(phase-a)` inbound automation 
 - **Phase 0** architecture freeze: `docs/ARCHITECTURE.md` (isolation boundary, request lifecycle, roles, channel model, event/workflow/message-job formats, platform-vs-tenant config split, provider and compliance rules).
 - **Phase 1** multi-tenant foundation: tenancy control plane (`src/tenancy.js`), scoped DB handles, per-tenant runtimes, auth + roles + audit log, legacy migration to tenant 1, 18 cross-tenant tests in `server/test/tenancy.test.js` (88/88 suite green).
 - Angular auth layer: login page, interceptor, guards, super admin tenant console, team management, role-gated nav.
+- **Phase 3** unified messaging core: message job, message service, priority queue, idempotency, normalized provider errors, `GET /api/queue`. 14 tests in `server/test/messaging.test.js`.
+- **Phase 4** contacts, tags, custom fields, segments and timelines: `src/contactStore.js`, Angular `contacts` view with tag cloud, saved segments and a per-contact timeline. 17 tests in `server/test/contacts-store.test.js` (133/133 suite green).
 - **Phase 2** WhatsApp channels: `src/channels.js`, per-channel runtimes, capability and sending-window gates, channel audit log, credential redaction, Angular `channels` view. 14 tests in `server/test/channels.test.js` (102/102 suite green).
 
 **Uncommitted at time of writing:** payment reminders (`paymentReminders.js`, `payment-reminder/` view, `/api/payment-reminders/*`), auto-replies view, `phases/`, plus edits to `app.js`, `db.js`, `whatsappWeb.js`, `api.test.js`, `api.ts`, routes.
@@ -122,7 +131,7 @@ From `phase.md` (the SaaS roadmap):
 
 - **PostgreSQL** — deferred. Still SQLite; `db.forTenant` is the seam that makes it a driver swap.
 - **Permissions table** — deferred. Roles stay a code constant until a customer needs a custom role.
-- Phase 3 unified message-job pipeline; Phase 4-5 contacts/custom fields and templates
+- Phase 5 templates with versioning and provider approval state
 - Phase 6-7 workflow engine and durable scheduler; Phase 8-10 inbox, tickets, FAQ
 - Phase 14-15 full super admin console, plans and usage metering
 
@@ -138,6 +147,8 @@ From `phases/`:
 - WhatsApp Web automation is unofficial and can get a number banned; safety pacing reduces but does not remove that risk. Cloud API is the compliant path and the production default.
 - The webhook POST has **no signature check** (`X-Hub-Signature-256`). Pre-existing, tracked for Phase 18.
 - Channel credentials sit in plaintext JSON in `whatsapp_channels.settings`. Redacted on read, not encrypted at rest. Phase 18.
+- `normalizePhone(raw, cc)` is **not idempotent**: a bare `919876543210` under cc `91` becomes `91919876543210`. It takes what a human typed. Callers holding an already-normalized number must pass `{ normalized: true }` to the contact store.
+- Payment reminders still enqueue through the campaign manager directly, not through the message service, so they skip the capability and idempotency checks (they do get pacing and the daily cap).
 - Inbound still resolves to the tenant's **default** channel: the webhook path carries `:tenantId` but not `:channelId`. A tenant with two Cloud API numbers will attribute both to the default until that lands.
 - SSE carries the bearer token as `?token=` because `EventSource` cannot set headers. Swap for a short-lived stream ticket before these URLs reach a proxy log.
 - The login throttle is in-memory and per process; it resets on restart and does not survive clustering.
