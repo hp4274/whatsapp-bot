@@ -28,13 +28,20 @@ export class WorkflowEngine {
      * @param {() => Date} [deps.now]
      * @param {typeof fetch} [deps.fetch]
      */
-    constructor({ store, messages, contacts, channels = null, renderTemplate = null, now = () => new Date(), fetch = globalThis.fetch }) {
+    constructor({
+        store, messages, contacts, channels = null, renderTemplate = null,
+        // Phase 9. Injected like everything else, so the engine still runs
+        // without a ticket store and its own tests need no ticket tables.
+        tickets = null,
+        now = () => new Date(), fetch = globalThis.fetch,
+    }) {
         this.store = store;
         this.tenantId = store.tenantId;
         this.messages = messages;
         this.contacts = contacts;
         this.channels = channels;
         this.renderTemplate = renderTemplate;
+        this.tickets = tickets;
         this.now = now;
         this.fetch = fetch;
     }
@@ -160,10 +167,51 @@ export class WorkflowEngine {
     }
 
     // ------------------------------------------------------------ actions --
+    /** A ticket step may name the row by id or by its human reference. */
+    #findTicket(params) {
+        const found = params.ticketId
+            ? this.tickets.get(params.ticketId)
+            : this.tickets.getByReference(params.reference);
+        if (!found) throw new WorkflowError(`ticket not found: ${params.ticketId ?? params.reference}`);
+        return found;
+    }
+
     async #execute(step, params, run, ctx) {
         switch (step.action) {
             case 'send_message':
                 return { output: this.#send(run, step, { text: params.text ?? '', media: params.media ?? null }) };
+
+            case 'create_ticket': {
+                if (!this.tickets) throw new WorkflowError('no ticket store is configured');
+                // A definition does not get to claim the ticket came from a
+                // person: the source is what this path actually is.
+                const ticket = this.tickets.create({
+                    subject: params.subject ?? '',
+                    category: params.category ?? '',
+                    priority: params.priority ?? 'normal',
+                    assignedTo: params.assignedTo ?? null,
+                    contactId: params.contactId ?? run.contactId ?? null,
+                    conversationId: params.conversationId ?? null,
+                    metadata: params.metadata ?? null,
+                    source: 'workflow',
+                    userId: null,
+                });
+                return { output: { ticketId: ticket.id, reference: ticket.reference, ...ticket } };
+            }
+
+            case 'update_ticket': {
+                if (!this.tickets) throw new WorkflowError('no ticket store is configured');
+                const found = this.#findTicket(params);
+                const { ticketId, reference, note, notify, ...patch } = params;
+                void ticketId; void reference; void notify;
+                return { output: this.tickets.update(found.id, patch, { userId: null, note }) };
+            }
+
+            case 'assign_agent': {
+                if (!this.tickets) throw new WorkflowError('no ticket store is configured');
+                const found = this.#findTicket(params);
+                return { output: this.tickets.assign(found.id, params.assignedTo, { userId: null, note: params.note }) };
+            }
 
             case 'send_template': {
                 if (!this.renderTemplate) throw new WorkflowError('no template renderer is configured');

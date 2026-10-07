@@ -47,6 +47,13 @@ import {
     withinSendingWindow,
 } from './channels.js';
 import { ContactError, ContactStore } from './contactStore.js';
+import { createInboxRouter } from './inbox/routes.js';
+import { ConversationStore } from './inbox/store.js';
+import { createKnowledgeRouter } from './knowledge/routes.js';
+import { KnowledgeStore } from './knowledge/store.js';
+import { createObjectRouter } from './objects/routes.js';
+import { createTicketRouter } from './tickets/routes.js';
+import { TicketStore } from './tickets/store.js';
 import { JobStore } from './scheduler/store.js';
 import { SchedulerWorker } from './scheduler/worker.js';
 import { TemplateError, TemplateStore, validate as validateTemplate } from './templates/store.js';
@@ -91,6 +98,17 @@ export function createTransport(config, deps = {}) {
     }
 }
 
+/**
+ * Routers contributed by feature modules, mounted into every channel runtime.
+ * Each entry is `({ db, state }) => express.Router`.
+ */
+const FEATURE_ROUTERS = [
+    createInboxRouter,
+    createTicketRouter,
+    createKnowledgeRouter,
+    createObjectRouter,
+];
+
 /** Which capability each sending route needs. Everything else is read or admin. */
 const SEND_ROUTES = Object.freeze({
     '/messages': 'transactional_messages',
@@ -124,6 +142,9 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         media: new Map(),
         webhookConnect: null,
     };
+    // Feature routers push to the browser through this rather than importing
+    // `broadcast` and the client set.
+    state.broadcast = (event) => broadcast(state, event);
 
     /**
      * Rule 2 enforcement.  A send is refused unless this channel is active, is
@@ -154,11 +175,16 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     // Phase 3: one way out. Everything that sends goes through the service,
     // which reads the live channel row so a capability switched off mid-flight
     // takes effect on the next job rather than the next restart.
-    const messages = new MessageService(db, manager, () => state.channel);
+    const messages = new MessageService(db, manager, () => state.channel, {
+        isBotPaused: (phone, channelId) => conversations.isBotPaused(phone, channelId),
+    });
     // Contacts belong to the tenant, not to one number, but the store needs the
     // channel's country code to normalise what people type.
     const contacts = new ContactStore(db, config.defaultCountryCode);
     const templates = new TemplateStore(db);
+    const conversations = new ConversationStore(db);
+    const tickets = new TicketStore(db);
+    const knowledge = new KnowledgeStore(db);
     const workflows = new WorkflowStore(db);
     const jobs = new JobStore(db);
     // The engine takes its collaborators injected, which is what keeps it
@@ -167,6 +193,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         store: workflows,
         messages,
         contacts,
+        tickets,
         channels: new Channels(db),
         renderTemplate: ({ template, context }) => {
             const found = Number.isInteger(Number(template))
@@ -183,6 +210,9 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     state.messages = messages;
     state.contacts = contacts;
     state.templates = templates;
+    state.conversations = conversations;
+    state.tickets = tickets;
+    state.knowledge = knowledge;
     state.workflows = workflows;
     state.engine = engine;
     state.jobs = jobs;
@@ -727,6 +757,11 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         return res.json({ cancelled: job.id });
     });
 
+    // Feature routers. Each module owns its own routes and is mounted here, so
+    // adding a feature is one import and one line rather than another thousand
+    // lines in this file.
+    for (const mount of FEATURE_ROUTERS) app.use(mount({ db, state }));
+
     app.post('/contacts/preview', (req, res) => {
         const { template = '', contact = {} } = req.body ?? {};
         const context = {
@@ -1205,6 +1240,11 @@ const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_MAX_FAILS = 5;
 // Agents may send and triage, but not change how the account behaves.
 const AGENT_WRITES = new Set(['/messages', '/inbox/mark-read']);
+/**
+ * An agent talks to customers and works the queue, so inbox and ticket writes
+ * are theirs. Anything that changes how the account behaves still is not.
+ */
+const AGENT_WRITE_PREFIXES = ['/conversations', '/tickets'];
 
 export function createApp({
     db = new Database(), config = loadConfig(), deps = {}, dataDir = APP_DIR,
@@ -1396,7 +1436,9 @@ export function createApp({
     // ------------------------------------------------- tenant routes --
     app.use('/api', withTenant, (req, res, next) => {
         const write = req.method !== 'GET' && req.method !== 'HEAD';
-        if (write && roleRank(req.user.role) < roleRank('admin') && !AGENT_WRITES.has(req.path)) {
+        const agentMayWrite = AGENT_WRITES.has(req.path)
+            || AGENT_WRITE_PREFIXES.some((prefix) => req.path.startsWith(prefix));
+        if (write && roleRank(req.user.role) < roleRank('admin') && !agentMayWrite) {
             return res.status(403).json({ errors: ['You do not have permission to do that.'] });
         }
         if (write) {
@@ -1457,7 +1499,13 @@ export function createApp({
 
 async function handleInbound(state, message) {
     const saved = state.db.insertInbound(message);
-    broadcast(state, { type: 'inbound_message', message: saved });
+    // Every inbound message belongs to a conversation, whether or not anyone is
+    // watching the inbox. Created here because this is the one place every
+    // transport's inbound converges.
+    const conversation = state.conversations?.upsertForInbound({
+        phone: saved.sender, channelId: state.channel.id, at: saved.receivedAt,
+    });
+    broadcast(state, { type: 'inbound_message', message: saved, conversationId: conversation?.id ?? null });
     try {
         const optOut = await processOptOut(state.db, state.transport, saved);
         if (optOut.handled) {
@@ -1467,6 +1515,30 @@ async function handleInbound(state, message) {
         // Opt-out is always honoured; auto-replies are a capability the
         // channel can be switched out of without going dark on STOP.
         if (!state.channel.capabilities.includes('auto_replies')) return saved;
+        // A human has the conversation: the bot does not talk over them. The
+        // message service enforces this too, but returning early also skips the
+        // typing delay and the FAQ lookup.
+        if (state.conversations?.isBotPaused(saved.sender, state.channel.id)) return saved;
+
+        // The knowledge base answers first and the keyword engine is the
+        // fallback, so an operator migrates at their own pace: with no FAQ
+        // items the match is always null and behaviour is unchanged.
+        const hit = state.knowledge?.answer(saved.body, { channel: state.channel });
+        if (hit?.item) {
+            const outcome = state.messages.send({
+                messageType: 'auto_reply',
+                recipient: saved.sender,
+                text: hit.item.answer,
+                idempotencyKey: `faq.${saved.messageId}.${hit.item.id}`,
+            });
+            if (outcome.accepted) {
+                state.db.markInboundReplied(saved.messageId, `faq:${hit.item.id}`);
+                broadcast(state, {
+                    type: 'faq_reply', sender: saved.sender, itemId: hit.item.id, level: hit.level,
+                });
+                return saved;
+            }
+        }
         const reply = await state.autoReply.handleInbound(saved);
         if (reply?.rule) {
             state.db.markInboundReplied(saved.messageId, reply.rule.keyword);

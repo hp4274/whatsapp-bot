@@ -14,16 +14,23 @@
 import { Status } from '../protocol.js';
 import { MessageJobError, messageJob } from './job.js';
 
+/** Traffic a human takeover silences. Everything else is a person acting. */
+const AUTOMATIC_TYPES = new Set(['auto_reply', 'workflow', 'campaign', 'reminder']);
+
 export class MessageService {
     /**
      * @param {object} db     a channel-scoped database handle
      * @param {object} manager the channel's CampaignManager
      * @param {() => object} channel reads the live channel row
      */
-    constructor(db, manager, channel) {
+    constructor(db, manager, channel, { isBotPaused = null } = {}) {
         this.db = db;
         this.manager = manager;
         this.readChannel = typeof channel === 'function' ? channel : () => channel;
+        // Human takeover (Phase 8). Guarding here rather than in the auto-reply
+        // engine and again in the workflow engine means every automatic path is
+        // covered by one check, and a new automatic path cannot forget it.
+        this.isBotPaused = isBotPaused;
         this.counts = { accepted: 0, duplicate: 0, suppressed: 0, rejected: 0 };
     }
 
@@ -62,6 +69,14 @@ export class MessageService {
         if (this.db.isOptedOut?.(job.recipient)) {
             this.counts.suppressed += 1;
             return { accepted: false, messageId: null, reason: 'opted_out', duplicateOf: null };
+        }
+
+        // While a human has taken the conversation, the bot stays quiet. Only
+        // automatic traffic is muted: a human replying from the inbox sends
+        // `transactional`, which is the whole point of taking over.
+        if (AUTOMATIC_TYPES.has(job.messageType) && this.isBotPaused?.(job.recipient, channel.id)) {
+            this.counts.suppressed += 1;
+            return { accepted: false, messageId: null, reason: 'bot_paused', duplicateOf: null };
         }
 
         const messageId = this.manager.enqueueJob(job);

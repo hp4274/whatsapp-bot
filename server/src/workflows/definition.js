@@ -12,6 +12,10 @@ export const WORKFLOW_STATUSES = Object.freeze(['draft', 'active', 'paused']);
 
 /** Every action the engine executes. Anything else is rejected on save. */
 export const ACTIONS = Object.freeze([
+    // Phase 9: a workflow can file and move a ticket.
+    'create_ticket',
+    'update_ticket',
+    'assign_agent',
     'send_message',
     'send_template',
     'wait',
@@ -167,6 +171,18 @@ function validateParams(action, params, id) {
         case 'remove_tag': need(params.tag || (Array.isArray(params.tags) && params.tags.length), 'a tag'); break;
         case 'call_webhook': need(params.url, 'a url'); break;
         case 'start_workflow': need(params.workflowId, 'a workflowId'); break;
+        case 'create_ticket':
+            need(params.subject || params.category, 'a subject or a category');
+            break;
+        case 'update_ticket':
+            need(params.ticketId || params.reference, 'a ticketId or a reference');
+            need(params.status || params.priority || params.category || params.subject
+                || params.assignedTo != null || params.metadata, 'a field to change');
+            break;
+        case 'assign_agent':
+            need(params.ticketId || params.reference, 'a ticketId or a reference');
+            need(params.assignedTo != null, 'an assignedTo');
+            break;
         default: break;
     }
     return params;
