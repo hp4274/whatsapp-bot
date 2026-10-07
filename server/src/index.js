@@ -26,7 +26,8 @@ const HOST = process.env.HOST || '127.0.0.1';
 ensureAppDir();
 const config = loadConfig();
 const db = new Database();
-const app = createApp({ db, config });
+// The real server runs the workflow sweeper; tests opt in explicitly.
+const app = createApp({ db, config, scheduler: true });
 
 // Serve the built frontend when it exists, so `npm start` is the whole app.
 const webDist = path.join(HERE, '..', '..', 'web', 'dist', 'web', 'browser');

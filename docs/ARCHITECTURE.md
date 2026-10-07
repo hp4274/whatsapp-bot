@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Phases 0-4 implemented. Last updated 2026-10-07.
+Status: Phases 0-7 implemented. Last updated 2026-10-08.
 
 This document is the contract the rest of the roadmap builds against. If a new
 feature cannot say which tenant and which channel it belongs to, it does not
@@ -303,6 +303,119 @@ the store to guess from the digits.
 
 ---
 
+## 5b. Templates
+
+`TemplateStore` (`src/templates/`), tenant-scoped like every other store. A
+template declares its variables; `personalize()` from `protocol.js` still does
+the substituting, because a second templating language would be a second set of
+bugs.
+
+**History is append-only.** Editing the body or the declared variables writes a
+new immutable `template_versions` row and bumps `current_version`. A rename, a
+channel pin or an approval flip does not. `revert(id, v)` writes the old body
+*forward* as a new version rather than deleting history. There is no `UPDATE`
+anywhere against `template_versions`, and `UNIQUE (template_id, version)` makes
+that enforceable rather than a convention.
+
+`template_versions` carries no `tenant_id`: it is only reachable through a
+template already resolved under the tenant, so cross-tenant reads 404. One owner
+per fact beats two columns that can disagree.
+
+**`validate()` is advice, not a gate.** The store saves half-written drafts on
+purpose; the HTTP route is where a non-empty problem list becomes a 400, and
+`?draft=true` opts out. Keeping the gate in the route means a workflow or an
+import can stage something incomplete without fighting the store.
+
+`compatibility(template, channel)` is a pure function: a `provider_template` is
+Cloud-API-only and must be `approved`; `whatsapp_web` cannot send one at all;
+`interactive` is Cloud-API-only. A template pinned to a `channel_id` refuses
+every other channel.
+
+**Known sharp edge, inherited:** `personalize` also runs spintax, so `{a|b}` is
+a variable fallback when the context has `a` and a random pick otherwise.
+
+---
+
+## 5c. Workflows
+
+`src/workflows/` is the engine from §7's format. The store owns definitions and
+runs; the engine executes them. Both are tenant-scoped.
+
+**A run pins the version it started on.** Editing a workflow never changes a run
+already in flight — the single most important constraint here, and the reason
+`workflow_versions` exists.
+
+**The run row is the state. There is no closure and no timer.** `advance()`
+executes steps until it hits a `wait`, a terminal state or an error, then writes
+`status = 'waiting'` and `resume_at` and returns. That is what makes "wait 24
+hours" survive a restart, which is the whole point of Phase 7.
+
+Something has to come back for a parked run. `createApp({ scheduler: true })`
+starts one in-process sweeper that calls `dueRuns(db, now)` across every tenant
+and resumes each through its own tenant's engine. It is off by default so a test
+never starts a timer it did not ask for; `index.js` turns it on.
+
+> ponytail: one in-process sweeper, so `resume` needs no lease. Two app
+> processes against one database would double-execute a run; the upgrade is a
+> claim (`UPDATE ... WHERE status = 'waiting'`) inside `resume`.
+
+**Dependency injection, not imports.** The engine takes
+`{ store, messages, contacts, channels, renderTemplate, now, fetch }`. That is
+what lets it be tested without standing up the app, and what keeps templates and
+workflows from importing each other.
+
+Steps are `{ id, action, params, next, onError }`. Conditions are a declarative
+`{ field, op, value }` — no expression evaluator, no `eval`. The validator
+rejects at save time what would otherwise fail at 3am: an unknown action, a jump
+to a step that does not exist, a missing required param, and any cycle that does
+not pass through a `wait`.
+
+Implemented actions: `send_message`, `send_template`, `wait`, `condition`,
+`branch`, `update_contact`, `set_field`, `add_tag`, `remove_tag`,
+`stop_workflow`, `start_workflow`, `call_webhook`. Anything else is *rejected by
+the validator*, not silently skipped — a workflow that claims to create a ticket
+must not save until Phase 9 exists.
+
+**Every step is logged** to `workflow_run_steps`, which is both a Phase 6
+definition-of-done item and the only way Phase 18's tracing will work.
+
+Sends go through `MessageService` like everything else, with
+`messageType: 'workflow'` and `idempotencyKey: wf.<runId>.<stepId>`, so a
+retried step gets the original message id back instead of sending twice. A run
+is keyed on `(workflow, contact, event id)`, so the same event cannot start two
+runs.
+
+---
+
+## 5d. The scheduler
+
+`src/scheduler/` is a **generic** durable job runner. It does not know what a
+workflow is: jobs carry an opaque `kind` and a JSON `payload`, and a handler is
+registered per kind. That separation is the phase, not an accident of layering —
+payment reminders become a second handler without touching it.
+
+**The atomic claim is the correctness core.** Two workers must never get one
+job, so claiming is a single `UPDATE ... WHERE id IN (SELECT ... WHERE status =
+'pending' ...) RETURNING *`, never a `SELECT` followed by an `UPDATE`. The
+loser's subquery no longer sees the row as pending, so overlap is structurally
+impossible rather than merely unlikely.
+
+**A lease is a timestamp, not a lock object.** A worker that dies holds nothing;
+`reclaimExpiredLeases` flips expired leases back to `pending` once the lease
+runs out, or straight to `dead` when the crash burned the last attempt, so a
+repeatedly-crashing job cannot loop forever. A graceful release refunds the
+attempt, because that job never ran.
+
+Backoff reuses `RetryPolicy` from `campaign/limits.js`. Its `shouldRetry()` is
+deliberately *not* used: that checks one global `maxRetries`, while the ceiling
+here is per job (`scheduled_jobs.max_attempts`).
+
+**A timed-out handler is failed and retried, but the abandoned promise keeps
+running** — the scheduler cannot kill it. Handlers that must not double-execute
+need their own idempotency.
+
+---
+
 ## 6. Event format
 
 Two kinds of event exist, and they should not be confused.
@@ -516,5 +629,37 @@ Phase 4:
 - [x] Contact timeline derived from the message tables
 - [x] Duplicate detection per tenant, by database constraint
 - [x] Cross-tenant contact and segment tests
-- [ ] Segment filters are not yet readable by the workflow engine, which does
-      not exist until Phase 6. The filter object is the seam.
+- [x] Segment filters readable by the workflow engine (Phase 6 landed)
+
+Phase 5:
+
+- [x] Template CRUD, immutable versioning, revert
+- [x] Preview rendering and variable validation
+- [x] Tenant-level templates, channel pinning
+- [x] Provider compatibility checks and approval state
+- [x] Usage statistics (`use_count`, `last_used_at`)
+
+Phase 6:
+
+- [x] Workflow definition store with immutable versions; a run pins its version
+- [x] Validator rejecting unknown actions, bad jumps and waitless cycles
+- [x] Trigger matching with declarative conditions
+- [x] Runtime: 12 action types, every step logged, tenant-isolated, idempotent
+- [x] Durable waits: the run row is the state, no timer
+- [ ] Actions deferred to their own phases, rejected by the validator until
+      then: `create_ticket`/`update_ticket`/`assign_agent` (Phase 9),
+      `add_to_campaign`/`remove_from_campaign` (Phase 13), `notify_team`,
+      `send_media`.
+- [ ] No workflow builder UI. Form-based editor is Phase 19.
+
+Phase 7:
+
+- [x] Persistent scheduled jobs, generic over `kind`
+- [x] Atomic claim proven against concurrent owners
+- [x] Lease expiry and crash recovery
+- [x] Retry with backoff, max attempts, dead-letter and `retryDead`
+- [x] Cancel, pause/resume by kind, graceful shutdown, per-job timeout
+- [x] Execution metrics (`stats()`)
+- [ ] The workflow sweeper currently polls `dueRuns` directly rather than
+      enqueuing scheduler jobs. Both are durable; unifying them is worth doing
+      when a second job kind arrives.

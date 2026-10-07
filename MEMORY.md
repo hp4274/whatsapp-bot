@@ -1,6 +1,6 @@
 # WhatsApp Sender — Project Memory
 
-Last updated: 2026-10-07. Multi-tenant WhatsApp automation platform: Express backend + Angular dashboard. Rewritten from an earlier Python desktop app (archived outside this repo). Phases 0-4 of `phases/README.md` turned it from a single-operator local tool into a multi-tenant SaaS foundation; see `docs/ARCHITECTURE.md` for the frozen product model.
+Last updated: 2026-10-07. Multi-tenant WhatsApp automation platform: Express backend + Angular dashboard. Rewritten from an earlier Python desktop app (archived outside this repo). Phases 0-7 of `phases/README.md` turned it from a single-operator local tool into a multi-tenant SaaS foundation; see `docs/ARCHITECTURE.md` for the frozen product model.
 
 ## 1. Tech stack
 
@@ -63,6 +63,14 @@ web/src/app/
 
 **Contacts (Phase 4).** `contactStore.js`, one row per number per tenant, `UNIQUE (tenant_id, phone)` as the duplicate detection. `custom_fields` (flat string map) and `tags` (array) are JSON, filtered with SQLite JSON1, so a new industry needs no migration. A segment is a stored *filter*, re-evaluated on use, so it cannot go stale; `POST /api/campaign/start` accepts `segmentId` and resolves the audience at send time, dropping anyone not messageable. Opt-out stays in `opt_outs` (the send path's authority) and is joined on read as `optedOut`/`messageable`; `opt_in_status` separately records the consent basis. Timelines are derived from `messages` + `inbound_messages`, not stored.
 
+**Templates (Phase 5).** `src/templates/` — tenant-scoped store, append-only `template_versions` (editing body/variables bumps a version; rename/approval does not; `revert` writes the old body forward, never deletes). No `tenant_id` on versions: reachable only through a template already resolved under the tenant. `validate()` returns advice and the *route* is the 400 gate (`?draft=true` opts out). `compatibility()` is pure: provider templates are Cloud-API-only and must be approved. Rendering reuses `personalize` — no second template language. Caveat: `personalize` also runs spintax, so `{a|b}` is a fallback when the context has `a`, random otherwise.
+
+**Workflows (Phase 6).** `src/workflows/` — store + validator + engine. A run pins its workflow version, so editing a live workflow never changes a run in flight. **The run row is the state: no closure, no timer.** `advance()` runs to a wait/terminal/error, writes `status='waiting'` + `resume_at`, returns. Engine takes everything injected (`store, messages, contacts, channels, renderTemplate, now, fetch`) which is why templates and workflows don't import each other. Conditions are declarative `{field, op, value}` — no eval. Validator rejects unknown actions, jumps to nonexistent steps and waitless cycles *at save time*. 12 actions implemented; ticket/campaign actions are rejected until Phases 9/13 exist. Every step logged to `workflow_run_steps`. Sends go through `MessageService` with `messageType:'workflow'` and `idempotencyKey: wf.<runId>.<stepId>`.
+
+**Scheduler (Phase 7).** `src/scheduler/` — **generic**: opaque `kind` + JSON payload, handler registered per kind, knows nothing about workflows. Atomic claim is one `UPDATE ... WHERE id IN (SELECT ...) RETURNING *`, never SELECT-then-UPDATE, so two workers structurally cannot share a job. Lease is a timestamp not a lock; `reclaimExpiredLeases` recovers crashes, dead-letters when the crash burned the last attempt. Reuses `RetryPolicy` for backoff but not `shouldRetry()` (that has one global ceiling; here it's per job). A timed-out handler's promise keeps running — handlers need their own idempotency.
+
+**The sweeper.** `createApp({ scheduler: true })` starts one in-process loop calling `dueRuns(db, now)` across all tenants and resuming each through its own engine. Off by default so tests don't start timers; `index.js` turns it on. ponytail: single process, so `resume` needs no lease — two app processes on one DB would double-execute.
+
 **Auth.** scrypt password hashes, random 32-byte bearer tokens stored as sha256, 7-day sessions, in-memory login throttle (5 fails per 10 min). Role ladder `agent < admin < owner < super_admin` is a code constant, not a table. Agents may only write `/messages` and `/inbox/mark-read`. Nobody may create or disable a user at or above their own rank. Suspending a tenant deletes its sessions immediately and makes its webhook 404. Every admin action lands in `audit_logs`. First run creates a super admin from `SUPER_ADMIN_EMAIL`/`SUPER_ADMIN_PASSWORD`, or prints a generated password once.
 
 **Transport abstraction.** Everything sends through one interface (`base.js`): `connect`, `sendMessage(to, text, media?)`, `isConnected`, inbound callback. Three implementations: `cloud_api`, `whatsapp_web`, `sandbox`. Errors are classified (retryable vs permanent) so the retry policy knows what to do.
@@ -96,13 +104,16 @@ web/src/app/
 - Contacts: `GET/POST contacts`, `GET/PUT/DELETE contacts/:id`, `POST contacts/:id/tags`, `GET contacts/:id/timeline`, `POST contacts/import?save=true&tags=`
 - Segments: `GET/POST segments`, `PUT/DELETE segments/:id`, `GET segments/:id/contacts`
 - Queue: `GET queue`
+- Templates: `GET/POST templates`, `GET/PUT/DELETE templates/:id`, `POST templates/:id/revert`, `POST templates/:id/preview`
+- Workflows: `GET/POST workflows`, `GET/PUT/DELETE workflows/:id`, `GET workflows/:id/runs`, `GET workflow-runs/:runId`, `POST workflow-runs/:runId/retry|stop`, `POST events`
+- Jobs: `GET jobs`, `POST jobs/:id/retry`, `DELETE jobs/:id`
 - Platform (super admin): `GET/POST admin/tenants`, `PATCH admin/tenants/:id`, `GET admin/audit-logs`
 - Team (admin+): `GET/POST users`, `PATCH users/:id`
 - Realtime: `GET events` (SSE)
 
 ## 5. DB tables
 
-Tenant-owned, all carrying `tenant_id`: `messages` and `inbound_messages` (both also carry `channel_id`; `messages` also carries `message_type`, `direction`, `idempotency_key`), `opt_outs`, `auto_replies`, `whatsapp_channels`, `contacts`, `segments`. Control plane: `tenants`, `users`, `sessions`, `audit_logs`.
+Tenant-owned, all carrying `tenant_id`: `messages` and `inbound_messages` (both also carry `channel_id`; `messages` also carries `message_type`, `direction`, `idempotency_key`), `opt_outs`, `auto_replies`, `whatsapp_channels`, `contacts`, `segments`, `templates`, `template_versions`, `workflows`, `workflow_versions`, `workflow_runs`, `workflow_run_steps`, `workflow_events`, `scheduled_jobs`, `scheduler_pauses`. Feature tables are registered in `src/schema.js` rather than in `db.js`'s core literal, so two features can be built without colliding. Control plane: `tenants`, `users`, `sessions`, `audit_logs`.
 
 ## 6. Implemented so far
 
@@ -119,6 +130,7 @@ Git history: initial import -> remove zip -> `feat(phase-a)` inbound automation 
 - **Phase 0** architecture freeze: `docs/ARCHITECTURE.md` (isolation boundary, request lifecycle, roles, channel model, event/workflow/message-job formats, platform-vs-tenant config split, provider and compliance rules).
 - **Phase 1** multi-tenant foundation: tenancy control plane (`src/tenancy.js`), scoped DB handles, per-tenant runtimes, auth + roles + audit log, legacy migration to tenant 1, 18 cross-tenant tests in `server/test/tenancy.test.js` (88/88 suite green).
 - Angular auth layer: login page, interceptor, guards, super admin tenant console, team management, role-gated nav.
+- **Phases 5-7** templates, workflow engine and durable scheduler, built by three parallel agents (opus/fable/opus) and integrated in the main thread. 65 new tests, 199/199 suite green.
 - **Phase 3** unified messaging core: message job, message service, priority queue, idempotency, normalized provider errors, `GET /api/queue`. 14 tests in `server/test/messaging.test.js`.
 - **Phase 4** contacts, tags, custom fields, segments and timelines: `src/contactStore.js`, Angular `contacts` view with tag cloud, saved segments and a per-contact timeline. 17 tests in `server/test/contacts-store.test.js` (133/133 suite green).
 - **Phase 2** WhatsApp channels: `src/channels.js`, per-channel runtimes, capability and sending-window gates, channel audit log, credential redaction, Angular `channels` view. 14 tests in `server/test/channels.test.js` (102/102 suite green).
@@ -131,8 +143,7 @@ From `phase.md` (the SaaS roadmap):
 
 - **PostgreSQL** — deferred. Still SQLite; `db.forTenant` is the seam that makes it a driver swap.
 - **Permissions table** — deferred. Roles stay a code constant until a customer needs a custom role.
-- Phase 5 templates with versioning and provider approval state
-- Phase 6-7 workflow engine and durable scheduler; Phase 8-10 inbox, tickets, FAQ
+- Phase 8-10 inbox, tickets, FAQ
 - Phase 14-15 full super admin console, plans and usage metering
 
 From `phases/`:
@@ -148,6 +159,8 @@ From `phases/`:
 - The webhook POST has **no signature check** (`X-Hub-Signature-256`). Pre-existing, tracked for Phase 18.
 - Channel credentials sit in plaintext JSON in `whatsapp_channels.settings`. Redacted on read, not encrypted at rest. Phase 18.
 - `normalizePhone(raw, cc)` is **not idempotent**: a bare `919876543210` under cc `91` becomes `91919876543210`. It takes what a human typed. Callers holding an already-normalized number must pass `{ normalized: true }` to the contact store.
+- The workflow sweeper polls `dueRuns` directly instead of enqueuing scheduler jobs. Both durable; unify when a second job kind lands.
+- `SchedulerWorker` is wired but nothing registers a handler yet — it runs no jobs until a feature uses it.
 - Payment reminders still enqueue through the campaign manager directly, not through the message service, so they skip the capability and idempotency checks (they do get pacing and the daily cap).
 - Inbound still resolves to the tenant's **default** channel: the webhook path carries `:tenantId` but not `:channelId`. A tenant with two Cloud API numbers will attribute both to the default until that lands.
 - SSE carries the bearer token as `?token=` because `EventSource` cannot set headers. Swap for a short-lived stream ticket before these URLs reach a proxy log.

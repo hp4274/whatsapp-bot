@@ -1,6 +1,6 @@
 # WhatsApp Automation Platform — Implementation Phases
 
-Last updated: 2026-10-07. Phases 0 to 4 are complete; see `docs/ARCHITECTURE.md`
+Last updated: 2026-10-08. Phases 0 to 7 are complete; see `docs/ARCHITECTURE.md`
 for the frozen product model.
 
 ## Purpose
@@ -390,7 +390,7 @@ preferred_category
 
 ---
 
-# Phase 5 — Templates & Message Variables
+# Phase 5 — Templates & Message Variables — DONE
 
 ## Goal
 
@@ -422,18 +422,18 @@ notification
 
 ## Tasks
 
-- [ ] Create template CRUD.
-- [ ] Add template versioning.
-- [ ] Add preview rendering.
-- [ ] Add variable validation.
-- [ ] Add tenant-level templates.
-- [ ] Add channel/provider compatibility checks.
-- [ ] Add template usage statistics.
-- [ ] Add template approval/status state where provider rules require it.
+- [x] Create template CRUD.
+- [x] Add template versioning. *(Append-only; revert writes forward.)*
+- [x] Add preview rendering.
+- [x] Add variable validation. *(Advice from the store; the route is the gate.)*
+- [x] Add tenant-level templates.
+- [x] Add channel/provider compatibility checks.
+- [x] Add template usage statistics.
+- [x] Add template approval/status state where provider rules require it.
 
 ---
 
-# Phase 6 — Workflow Engine Foundation
+# Phase 6 — Workflow Engine Foundation — DONE
 
 ## Goal
 
@@ -553,20 +553,21 @@ context
 
 ## Definition of Done
 
-- [ ] A workflow can be created without coding.
-- [ ] A workflow can be triggered by an event.
-- [ ] A workflow can wait.
-- [ ] A workflow can branch.
-- [ ] A workflow can send a message.
-- [ ] A workflow can update data.
-- [ ] A workflow can fail and retry safely.
-- [ ] Workflow execution is tenant-isolated.
-- [ ] Workflow execution is idempotent.
-- [ ] Every step is logged.
+- [x] A workflow can be created without coding. *(JSON definition over the API;
+      the form-based builder UI is Phase 19.)*
+- [x] A workflow can be triggered by an event.
+- [x] A workflow can wait. *(Durably: the run row is the state, not a timer.)*
+- [x] A workflow can branch.
+- [x] A workflow can send a message.
+- [x] A workflow can update data.
+- [x] A workflow can fail and retry safely.
+- [x] Workflow execution is tenant-isolated.
+- [x] Workflow execution is idempotent.
+- [x] Every step is logged.
 
 ---
 
-# Phase 7 — Workflow Scheduler & Reliability
+# Phase 7 — Workflow Scheduler & Reliability — DONE
 
 ## Goal
 
@@ -597,16 +598,16 @@ lock/lease
 
 ## Tasks
 
-- [ ] Build persistent scheduled jobs.
-- [ ] Recover scheduled jobs after restart.
-- [ ] Add job locking.
-- [ ] Add retry policy.
-- [ ] Add maximum attempts.
-- [ ] Add dead-letter state.
-- [ ] Add cancellation.
-- [ ] Add pause/resume.
-- [ ] Add workflow timeout.
-- [ ] Add execution metrics.
+- [x] Build persistent scheduled jobs. *(Generic over `kind`.)*
+- [x] Recover scheduled jobs after restart. *(Lease expiry, not a lock object.)*
+- [x] Add job locking. *(Atomic claim; two workers structurally cannot share.)*
+- [x] Add retry policy. *(Reuses `RetryPolicy` from `campaign/limits.js`.)*
+- [x] Add maximum attempts.
+- [x] Add dead-letter state.
+- [x] Add cancellation.
+- [x] Add pause/resume.
+- [x] Add workflow timeout.
+- [x] Add execution metrics.
 
 ---
 
@@ -1311,10 +1312,10 @@ Use this order even if the UI appears tempting to build first:
 3. WhatsApp channels             DONE
 4. Common message service        DONE
 5. Contacts + custom fields      DONE
-6. Templates
-7. Workflow data model
-8. Workflow runtime
-9. Scheduler
+6. Templates                     DONE
+7. Workflow data model           DONE
+8. Workflow runtime              DONE
+9. Scheduler                     DONE
 10. Unified inbox
 11. Tickets
 12. FAQ / knowledge base
