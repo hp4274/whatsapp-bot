@@ -33,6 +33,7 @@ export class CampaignManager extends EventEmitter {
         this.stats = { total: 0, successful: 0, failed: 0, processed: 0, skippedOptOut: 0 };
         this.worker = null;
         this.shuttingDown = false;
+        this.inFlight = 0;
 
         // Sending safety: a daily ceiling, and a gap between messages that
         // varies with how many are going out.
@@ -166,6 +167,35 @@ export class CampaignManager extends EventEmitter {
         return item.messageId;
     }
 
+    /**
+     * Queue a message job (Phase 3).  This is the entry point the message
+     * service uses, so campaigns, auto-replies, reminders and workflows all
+     * land in the same queue under the same pacing, retries and daily cap.
+     *
+     * @returns {string|null} the message id, or null if the queue deduped it
+     */
+    enqueueJob(job) {
+        const item = queueItem({
+            recipient: job.recipient,
+            message: job.text,
+            name: job.name,
+            campaignId: job.campaignId || this.campaignId || job.messageType,
+            media: job.media,
+            messageType: job.messageType,
+            priority: job.priority,
+            idempotencyKey: job.idempotencyKey,
+        });
+        if (!this.#enqueueItem(item)) return null;
+        this.stats.total += 1;
+        this.#emitStats();
+        return item.messageId;
+    }
+
+    /** Queue depth broken down by what produced each item. */
+    pendingByType() {
+        return this.queue.pendingByType();
+    }
+
     #enqueueItem(item) {
         if (!this.queue.put(item)) return false;
         const record = this.db.insert({
@@ -175,6 +205,8 @@ export class CampaignManager extends EventEmitter {
             status: Status.QUEUED,
             name: item.name,
             campaignId: item.campaignId,
+            messageType: item.messageType,
+            idempotencyKey: item.idempotencyKey,
         });
         this.emit('event', { type: 'message', record });
         return true;
@@ -303,6 +335,15 @@ export class CampaignManager extends EventEmitter {
     }
 
     async #process(item) {
+        this.inFlight += 1;
+        try {
+            await this.#attempt(item);
+        } finally {
+            this.inFlight -= 1;
+        }
+    }
+
+    async #attempt(item) {
         for (;;) {
             if (this.#stopped()) {
                 this.#finish(item, Status.FAILED, { error: 'Stopped by operator' });

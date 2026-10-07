@@ -46,6 +46,8 @@ import {
     publicChannel,
     withinSendingWindow,
 } from './channels.js';
+import { MessageJobError, messageJob } from './messaging/job.js';
+import { MessageService } from './messaging/service.js';
 import { ROLES, Tenancy, TenancyError, roleRank } from './tenancy.js';
 import { TransportError } from './transports/base.js';
 import { CloudApiTransport, parseInboundPayload, parseStatusPayload } from './transports/cloudApi.js';
@@ -142,8 +144,14 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
 
     const manager = new CampaignManager(db, new NullTransport(), config);
     const autoReply = new AutoReplyEngine(db, new NullTransport());
+    // Phase 3: one way out. Everything that sends goes through the service,
+    // which reads the live channel row so a capability switched off mid-flight
+    // takes effect on the next job rather than the next restart.
+    const messages = new MessageService(db, manager, () => state.channel);
+    autoReply.setService(messages);
     state.manager = manager;
     state.autoReply = autoReply;
+    state.messages = messages;
     manager.on('event', (event) => broadcast(state, event));
     manager.start();
 
@@ -346,14 +354,31 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         const body = personalize(message, { name, phone: normalized });
         const media = mediaId ? state.media.get(mediaId) : null;
         if (mediaId && !media) return res.status(404).json({ errors: ['media not found'] });
-        const messageId = manager.enqueueSingle(normalized, body, name, { media });
-        if (!messageId) {
-            return res.status(409).json({
-                errors: ['That exact message is already queued for this number.'],
+
+        let outcome;
+        try {
+            outcome = messages.send({
+                messageType: 'transactional',
+                recipient: normalized,
+                text: body,
+                name,
+                media,
+                // A caller retrying a timed-out POST sends the same key and
+                // gets the original message id back, not a second message.
+                idempotencyKey: req.get('idempotency-key') || undefined,
             });
+        } catch (err) {
+            if (err instanceof MessageJobError) return res.status(err.status).json({ errors: [err.message] });
+            throw err;
+        }
+        if (!outcome.accepted) {
+            const reason = outcome.reason === 'opted_out'
+                ? 'That number has opted out.'
+                : 'That exact message is already queued for this number.';
+            return res.status(409).json({ errors: [reason], messageId: outcome.messageId, reason: outcome.reason });
         }
         manager.start();
-        return res.json({ messageId, recipient: normalized, message: body });
+        return res.json({ messageId: outcome.messageId, recipient: normalized, message: body });
     });
 
     // ----------------------------------------------------------- contacts --
@@ -513,6 +538,9 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     });
 
     app.get('/campaign/stats', (req, res) => res.json({ stats: manager.statsSnapshot() }));
+
+    /** Phase 3 queue observability: depth, what is in it, and how it is going. */
+    app.get('/queue', (req, res) => res.json({ queue: messages.snapshot() }));
 
     // ------------------------------------------------------------- inbox --
     app.get('/inbox/messages', (req, res) => {

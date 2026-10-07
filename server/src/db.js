@@ -68,6 +68,9 @@ CREATE TABLE IF NOT EXISTS messages (
     tenant_id    INTEGER NOT NULL DEFAULT 1,
     channel_id   INTEGER,
     message_id   TEXT PRIMARY KEY,
+    message_type TEXT NOT NULL DEFAULT 'campaign',
+    direction    TEXT NOT NULL DEFAULT 'outbound',
+    idempotency_key TEXT,
     recipient    TEXT NOT NULL,
     message      TEXT NOT NULL,
     status       TEXT NOT NULL,
@@ -86,6 +89,9 @@ CREATE INDEX IF NOT EXISTS idx_messages_provider_id ON messages(provider_id);
 CREATE INDEX IF NOT EXISTS idx_messages_campaign_id ON messages(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_messages_tenant      ON messages(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_messages_channel     ON messages(channel_id);
+-- One accepted job per key per tenant: the retry-safety guarantee.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_idempotency
+    ON messages(tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS inbound_messages (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,6 +146,20 @@ function addChannelColumns(db) {
         const cols = columnsOf(db, table);
         if (cols.length && !cols.includes('channel_id')) {
             db.exec(`ALTER TABLE ${table} ADD COLUMN channel_id INTEGER`);
+        }
+    }
+    // Message-job columns (Phase 3). Older rows read as outbound campaigns,
+    // which is what they were.
+    const cols = columnsOf(db, 'messages');
+    if (cols.length) {
+        if (!cols.includes('message_type')) {
+            db.exec("ALTER TABLE messages ADD COLUMN message_type TEXT NOT NULL DEFAULT 'campaign'");
+        }
+        if (!cols.includes('direction')) {
+            db.exec("ALTER TABLE messages ADD COLUMN direction TEXT NOT NULL DEFAULT 'outbound'");
+        }
+        if (!cols.includes('idempotency_key')) {
+            db.exec('ALTER TABLE messages ADD COLUMN idempotency_key TEXT');
         }
     }
 }
@@ -252,6 +272,9 @@ export class Database {
             tenant_id: this.tenantId,
             channel_id: this.channelId ?? null,
             message_id: record.messageId,
+            message_type: record.messageType ?? 'campaign',
+            direction: record.direction ?? 'outbound',
+            idempotency_key: record.idempotencyKey ?? null,
             recipient: record.recipient,
             message: record.message,
             status: record.status,
@@ -264,9 +287,11 @@ export class Database {
             updated_at: record.updatedAt ?? now,
         };
         this.db.prepare(`
-            INSERT INTO messages (tenant_id, channel_id, message_id, recipient, message, status, attempt,
+            INSERT INTO messages (tenant_id, channel_id, message_id, message_type, direction,
+                                  idempotency_key, recipient, message, status, attempt,
                                   provider_id, error, name, campaign_id, created_at, updated_at)
-            VALUES (:tenant_id, :channel_id, :message_id, :recipient, :message, :status, :attempt,
+            VALUES (:tenant_id, :channel_id, :message_id, :message_type, :direction,
+                    :idempotency_key, :recipient, :message, :status, :attempt,
                     :provider_id, :error, :name, :campaign_id, :created_at, :updated_at)
         `).run(row);
         return toRecord(row);
@@ -312,6 +337,20 @@ export class Database {
         const row = this.db.prepare('SELECT * FROM messages WHERE message_id = ? AND tenant_id = ?')
             .get(messageId, this.tenantId);
         return row ? toRecord(row) : null;
+    }
+
+    /** The row a previous caller created under this key, or null. */
+    findByIdempotencyKey(key) {
+        if (!key) return null;
+        const row = this.db.prepare(
+            'SELECT * FROM messages WHERE tenant_id = ? AND idempotency_key = ?').get(this.tenantId, key);
+        return row ? toRecord(row) : null;
+    }
+
+    /** Is this number opted out of this tenant? The send path asks on every job. */
+    isOptedOut(phone) {
+        return Boolean(this.db.prepare('SELECT 1 FROM opt_outs WHERE tenant_id = ? AND phone = ?')
+            .get(this.tenantId, String(phone)));
     }
 
     getByProviderId(providerId) {
@@ -582,6 +621,10 @@ export class Database {
 function toRecord(row) {
     return {
         messageId: row.message_id,
+        messageType: row.message_type ?? 'campaign',
+        direction: row.direction ?? 'outbound',
+        idempotencyKey: row.idempotency_key ?? null,
+        channelId: row.channel_id ?? null,
         recipient: row.recipient,
         message: row.message,
         status: row.status,

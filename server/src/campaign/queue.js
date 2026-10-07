@@ -8,13 +8,19 @@ export const QueueState = Object.freeze({
     STOPPED: 'STOPPED',
 });
 
-export function queueItem({ recipient, message, name = '', campaignId = '', media = null }) {
+export function queueItem({
+    recipient, message, name = '', campaignId = '', media = null,
+    messageType = 'campaign', priority = 4, idempotencyKey = null,
+}) {
     return {
         recipient,
         message,
         name,
         campaignId,
         media,
+        messageType,
+        priority,
+        idempotencyKey,
         messageId: newMessageId(),
         attempt: 0,
         get key() {
@@ -70,7 +76,14 @@ export class MessageQueue {
         this.state = QueueState.RUNNING;
     }
 
-    /** Append an item. Returns false when it was rejected as a duplicate. */
+    /**
+     * Insert an item by priority. Returns false when it was rejected as a
+     * duplicate.
+     *
+     * Lower `priority` goes first, and items of equal priority keep FIFO order,
+     * so a reply never waits behind a campaign backlog while two campaigns
+     * still drain in the order they were queued.
+     */
     put(item) {
         if (this.isStopped) return false;
         if (this.dedupe) {
@@ -81,8 +94,23 @@ export class MessageQueue {
             }
             this.seen.add(key);
         }
-        this.items.push(item);
+        const priority = item.priority ?? 4;
+        // ponytail: linear scan from the back. The queue is a few thousand
+        // items at worst; a heap only pays off well past that.
+        let at = this.items.length;
+        while (at > 0 && (this.items[at - 1].priority ?? 4) > priority) at -= 1;
+        this.items.splice(at, 0, item);
         return true;
+    }
+
+    /** How many items of each message type are waiting. */
+    pendingByType() {
+        const counts = {};
+        for (const item of this.items) {
+            const type = item.messageType ?? 'campaign';
+            counts[type] = (counts[type] ?? 0) + 1;
+        }
+        return counts;
     }
 
     /** Put an item back at the head (used when a retry is deferred). */

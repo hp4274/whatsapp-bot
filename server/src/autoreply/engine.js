@@ -7,10 +7,19 @@ export class AutoReplyEngine {
         this.defaultCooldownSec = options.cooldownSec ?? 300;
         this.delayRangeMs = options.delayRangeMs ?? [2500, 4500];
         this.recentReplies = new Map();
+        // Phase 3: when a message service is attached, replies go down the
+        // common pipeline (pacing, retries, daily cap) instead of straight at
+        // the transport.  Without one the engine still works on its own, which
+        // is what the unit tests use.
+        this.service = options.service ?? null;
     }
 
     setTransport(transport) {
         this.transport = transport;
+    }
+
+    setService(service) {
+        this.service = service;
     }
 
     async handleInbound(msg) {
@@ -30,6 +39,21 @@ export class AutoReplyEngine {
         this.recentReplies.set(key, now);
         await this.#delay();
         const responseText = this.formatResponse(matchedRule.replyBody, msg);
+
+        if (this.service) {
+            const outcome = this.service.send({
+                messageType: 'auto_reply',
+                recipient: msg.sender,
+                text: responseText,
+                name: msg.senderName ?? '',
+                // One reply per inbound message, however often the webhook
+                // redelivers it.
+                idempotencyKey: `reply.${msg.messageId}.${matchedRule.id}`,
+            });
+            if (!outcome.accepted) return null;
+            return { rule: matchedRule, responseText, result: { messageId: outcome.messageId, queued: true } };
+        }
+
         const result = await this.transport.sendMessage(msg.sender, responseText);
         return { rule: matchedRule, responseText, result };
     }
