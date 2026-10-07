@@ -1,0 +1,96 @@
+<header class="page-head">
+  <div>
+    <h2>Tenants</h2>
+    <p class="muted">Every business on this platform, and the audit trail behind them.</p>
+  </div>
+  <button class="btn primary" type="button" (click)="showForm.set(!showForm())">
+    {{ showForm() ? 'Cancel' : 'New tenant' }}
+  </button>
+</header>
+
+@if (error()) {
+  <p class="error" role="alert">{{ error() }}</p>
+}
+
+@if (showForm()) {
+  <form class="card new" (submit)="create($event)" novalidate>
+    <h3>New tenant</h3>
+    <div class="grid">
+      <div class="field">
+        <label for="t-name">Business name</label>
+        <input id="t-name" name="name" required [ngModel]="draft().name"
+               (ngModelChange)="draft.set({ ...draft(), name: $event })" />
+      </div>
+      <div class="field">
+        <label for="t-slug">Slug <small class="muted">optional</small></label>
+        <input id="t-slug" name="slug" [ngModel]="draft().slug"
+               (ngModelChange)="draft.set({ ...draft(), slug: $event })" />
+      </div>
+      <div class="field">
+        <label for="t-owner">Owner name</label>
+        <input id="t-owner" name="ownerName" [ngModel]="draft().ownerName"
+               (ngModelChange)="draft.set({ ...draft(), ownerName: $event })" />
+      </div>
+      <div class="field">
+        <label for="t-email">Owner email</label>
+        <input id="t-email" name="email" type="email" required [ngModel]="draft().email"
+               (ngModelChange)="draft.set({ ...draft(), email: $event })" />
+      </div>
+      <div class="field">
+        <label for="t-pass">Owner password <small class="muted">8+ characters</small></label>
+        <input id="t-pass" name="password" type="password" required [ngModel]="draft().password"
+               (ngModelChange)="draft.set({ ...draft(), password: $event })" />
+      </div>
+    </div>
+    <button class="btn primary" type="submit" [disabled]="busy()">
+      {{ busy() ? 'Creating...' : 'Create tenant' }}
+    </button>
+  </form>
+}
+
+<div class="tenants">
+  @for (tenant of tenants(); track tenant.id) {
+    <article class="card tenant" [class.suspended]="tenant.status === 'suspended'"
+             [class.acting]="actingId() === tenant.id">
+      <div class="face">
+        <span class="mono muted">#{{ tenant.id }}</span>
+        <h3>{{ tenant.name }}</h3>
+        <p class="muted">{{ tenant.slug }} &middot; {{ tenant.users }} user(s)</p>
+        <span class="pill" [class.live]="tenant.status === 'active'">{{ tenant.status }}</span>
+      </div>
+      <div class="actions">
+        <button class="btn" type="button" (click)="open(tenant)" [disabled]="tenant.status !== 'active'">
+          Open as tenant
+        </button>
+        <button class="btn" [class.danger]="tenant.status === 'active'" type="button"
+                (click)="toggleStatus(tenant)">
+          {{ tenant.status === 'active' ? 'Suspend' : 'Reactivate' }}
+        </button>
+      </div>
+    </article>
+  } @empty {
+    <p class="muted">No tenants yet.</p>
+  }
+</div>
+
+<section class="card audit">
+  <h3>Audit log</h3>
+  <table>
+    <thead>
+      <tr><th>When</th><th>Tenant</th><th>User</th><th>Action</th><th>Detail</th></tr>
+    </thead>
+    <tbody>
+      @for (log of logs(); track log.id) {
+        <tr>
+          <td class="mono">{{ log.createdAt }}</td>
+          <td>{{ log.tenantId ?? '-' }}</td>
+          <td>{{ log.userId ?? '-' }}</td>
+          <td class="mono">{{ log.action }}</td>
+          <td class="muted">{{ log.detail }}</td>
+        </tr>
+      } @empty {
+        <tr><td colspan="5" class="muted">Nothing recorded yet.</td></tr>
+      }
+    </tbody>
+  </table>
+</section>

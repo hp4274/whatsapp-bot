@@ -1,0 +1,238 @@
+:host {
+  display: grid;
+  gap: var(--space-xl);
+  align-content: start;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-lg);
+
+  h2 {
+    font-size: 24px;
+    letter-spacing: -0.01em;
+  }
+
+  p {
+    margin: 4px 0 0;
+  }
+}
+
+.error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+
+  &.small {
+    font-size: 12px;
+  }
+}
+
+.new {
+  display: grid;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--space-lg);
+  }
+
+  .hint {
+    margin: 0;
+    font-size: 12px;
+  }
+
+  button {
+    justify-self: start;
+  }
+}
+
+/* Each number is a card standing on the stack; the one you are working on
+ * stays lifted so it is obvious which number an edit will hit. */
+.rack {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: var(--space-lg);
+  perspective: 1000px;
+}
+
+.channel {
+  display: grid;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+  align-content: start;
+  transform-style: preserve-3d;
+  transition: transform var(--base) var(--ease), box-shadow var(--base) var(--ease),
+    border-color var(--fast) var(--ease), opacity var(--fast) var(--ease);
+
+  &:hover {
+    transform: translateY(-3px) rotateX(2.5deg);
+    box-shadow: 0 20px 44px rgba(13, 27, 36, 0.2);
+  }
+
+  &.active {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 1px var(--primary), 0 16px 36px rgba(13, 27, 36, 0.18);
+    transform: translateY(-3px);
+  }
+
+  &.off {
+    opacity: 0.68;
+  }
+
+  h3 {
+    font-size: 18px;
+  }
+
+  h4 {
+    margin: 0;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+  }
+}
+
+.top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+
+  p {
+    margin: 3px 0 0;
+    font-size: 12px;
+  }
+}
+
+.badges {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+}
+
+.pill {
+  background: var(--surface-alt);
+  color: var(--text-muted);
+
+  &.live {
+    background: var(--primary-soft);
+    color: var(--primary);
+  }
+
+  &.warn {
+    background: var(--warning-soft);
+    color: var(--warning);
+  }
+
+  &.tag {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm) var(--space-md);
+  margin: 0;
+  font-size: 13px;
+
+  dt {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+  }
+
+  dd {
+    margin: 2px 0 0;
+  }
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-sm);
+
+  .btn {
+    flex: 1;
+  }
+}
+
+.drawer {
+  display: grid;
+  gap: var(--space-md);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border);
+}
+
+.caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* A capability reads as off until you switch it on, so an accidental
+ * all-enabled channel is visible at a glance. */
+.cap {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease), transform var(--fast) var(--ease);
+
+  &:hover {
+    border-color: var(--primary);
+  }
+
+  &:active {
+    transform: scale(0.96);
+  }
+
+  &.on {
+    background: var(--primary-soft);
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+}
+
+.window {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+
+  input {
+    width: auto;
+  }
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.btn.small {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .channel:hover {
+    transform: none;
+  }
+}

@@ -11,7 +11,62 @@ import { DB_PATH } from './config.js';
 import { STATUS_RANK, SUCCESS_STATUSES, Status, utcNow } from './protocol.js';
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS tenants (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    slug        TEXT NOT NULL UNIQUE,
+    status      TEXT NOT NULL DEFAULT 'active',
+    created_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS users (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id      INTEGER REFERENCES tenants(id),
+    email          TEXT NOT NULL UNIQUE,
+    name           TEXT NOT NULL DEFAULT '',
+    password_hash  TEXT NOT NULL,
+    role           TEXT NOT NULL,
+    disabled       INTEGER NOT NULL DEFAULT 0,
+    created_at     TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash  TEXT PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    expires_at  TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id   INTEGER,
+    user_id     INTEGER,
+    action      TEXT NOT NULL,
+    target      TEXT DEFAULT '',
+    detail      TEXT DEFAULT '',
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_logs(tenant_id, id);
+
+CREATE TABLE IF NOT EXISTS whatsapp_channels (
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id                INTEGER NOT NULL REFERENCES tenants(id),
+    provider                 TEXT NOT NULL,
+    phone_number             TEXT NOT NULL DEFAULT '',
+    provider_account_id      TEXT NOT NULL DEFAULT '',
+    provider_phone_number_id TEXT NOT NULL DEFAULT '',
+    status                   TEXT NOT NULL DEFAULT 'active',
+    display_name             TEXT NOT NULL,
+    settings                 TEXT NOT NULL DEFAULT '{}',
+    capabilities             TEXT NOT NULL DEFAULT '[]',
+    timezone                 TEXT NOT NULL DEFAULT 'UTC',
+    business_hours           TEXT,
+    is_default               INTEGER NOT NULL DEFAULT 0,
+    created_at               TEXT NOT NULL,
+    updated_at               TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_channels_tenant ON whatsapp_channels(tenant_id, is_default DESC, id);
+
 CREATE TABLE IF NOT EXISTS messages (
+    tenant_id    INTEGER NOT NULL DEFAULT 1,
+    channel_id   INTEGER,
     message_id   TEXT PRIMARY KEY,
     recipient    TEXT NOT NULL,
     message      TEXT NOT NULL,
@@ -29,10 +84,14 @@ CREATE INDEX IF NOT EXISTS idx_messages_status      ON messages(status);
 CREATE INDEX IF NOT EXISTS idx_messages_created_at  ON messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_provider_id ON messages(provider_id);
 CREATE INDEX IF NOT EXISTS idx_messages_campaign_id ON messages(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_messages_tenant      ON messages(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_messages_channel     ON messages(channel_id);
 
 CREATE TABLE IF NOT EXISTS inbound_messages (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    message_id    TEXT UNIQUE,
+    tenant_id     INTEGER NOT NULL DEFAULT 1,
+    channel_id    INTEGER,
+    message_id    TEXT,
     sender        TEXT NOT NULL,
     sender_name   TEXT DEFAULT '',
     body          TEXT NOT NULL,
@@ -40,19 +99,23 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
     media_type    TEXT,
     replied_rule  TEXT DEFAULT NULL,
     is_read       INTEGER DEFAULT 0,
-    received_at   TEXT NOT NULL
+    received_at   TEXT NOT NULL,
+    UNIQUE (tenant_id, message_id)
 );
 CREATE INDEX IF NOT EXISTS idx_inbound_sender ON inbound_messages(sender);
 CREATE INDEX IF NOT EXISTS idx_inbound_received_at ON inbound_messages(received_at);
 
 CREATE TABLE IF NOT EXISTS opt_outs (
-    phone         TEXT PRIMARY KEY,
+    tenant_id     INTEGER NOT NULL DEFAULT 1,
+    phone         TEXT NOT NULL,
     reason        TEXT DEFAULT 'user_requested',
-    opted_out_at  TEXT NOT NULL
+    opted_out_at  TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, phone)
 );
 
 CREATE TABLE IF NOT EXISTS auto_replies (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id     INTEGER NOT NULL DEFAULT 1,
     keyword       TEXT NOT NULL,
     match_type    TEXT NOT NULL,
     reply_body    TEXT NOT NULL,
@@ -61,7 +124,63 @@ CREATE TABLE IF NOT EXISTS auto_replies (
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_auto_replies_tenant ON auto_replies(tenant_id);
 `;
+
+const DEFAULT_TENANT_ID = 1;
+
+function columnsOf(db, table) {
+    return db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+}
+
+/** Adds channel_id to tables that predate channels. Existing rows keep NULL
+ *  until the tenant's default channel adopts them (see adoptOrphanRows). */
+function addChannelColumns(db) {
+    for (const table of ['messages', 'inbound_messages']) {
+        const cols = columnsOf(db, table);
+        if (cols.length && !cols.includes('channel_id')) {
+            db.exec(`ALTER TABLE ${table} ADD COLUMN channel_id INTEGER`);
+        }
+    }
+}
+
+/** Tables that predate tenancy. Their rows all become tenant 1. */
+function legacyTables(db) {
+    const old = [];
+    for (const table of ['messages', 'auto_replies', 'inbound_messages', 'opt_outs']) {
+        const cols = columnsOf(db, table);
+        if (cols.length && !cols.includes('tenant_id')) old.push(table);
+    }
+    return old;
+}
+
+/** Runs before SCHEMA. inbound/opt_outs change keys, so they are rebuilt. */
+function prepareLegacy(db, old) {
+    for (const table of ['messages', 'auto_replies']) {
+        if (old.includes(table)) {
+            db.exec(`ALTER TABLE ${table} ADD COLUMN tenant_id INTEGER NOT NULL DEFAULT 1`);
+        }
+    }
+    if (old.includes('inbound_messages')) {
+        db.exec('DROP INDEX IF EXISTS idx_inbound_sender; DROP INDEX IF EXISTS idx_inbound_received_at;'
+            + ' ALTER TABLE inbound_messages RENAME TO inbound_old');
+    }
+    if (old.includes('opt_outs')) db.exec('ALTER TABLE opt_outs RENAME TO opt_outs_old');
+}
+
+/** Runs after SCHEMA: copy the rebuilt tables across. */
+function finishLegacy(db, old) {
+    if (old.includes('inbound_messages')) {
+        db.exec(`INSERT INTO inbound_messages
+                 (id, message_id, sender, sender_name, body, media_url, media_type, replied_rule, is_read, received_at)
+                 SELECT id, message_id, sender, sender_name, body, media_url, media_type, replied_rule, is_read, received_at
+                 FROM inbound_old; DROP TABLE inbound_old`);
+    }
+    if (old.includes('opt_outs')) {
+        db.exec(`INSERT INTO opt_outs (phone, reason, opted_out_at)
+                 SELECT phone, reason, opted_out_at FROM opt_outs_old; DROP TABLE opt_outs_old`);
+    }
+}
 
 const DEFAULT_AUTO_REPLIES = Object.freeze([
     {
@@ -81,6 +200,8 @@ const DEFAULT_AUTO_REPLIES = Object.freeze([
     },
 ]);
 
+export { DEFAULT_TENANT_ID };
+
 export class Database {
     constructor(dbPath = DB_PATH) {
         fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -88,8 +209,37 @@ export class Database {
         this.db = new DatabaseSync(dbPath);
         this.db.exec('PRAGMA journal_mode = WAL');
         this.db.exec('PRAGMA synchronous = NORMAL');
+        const old = legacyTables(this.db);
+        if (old.length) prepareLegacy(this.db, old);
+        // Before SCHEMA: its indexes reference channel_id on tables that predate it.
+        addChannelColumns(this.db);
         this.db.exec(SCHEMA);
-        this.#seedAutoReplies();
+        if (old.length) finishLegacy(this.db, old);
+        this.db.prepare(`INSERT OR IGNORE INTO tenants (id, name, slug, status, created_at)
+                         VALUES (?, 'Default', 'default', 'active', ?)`).run(DEFAULT_TENANT_ID, utcNow());
+        // The root handle is tenant 1, so single-tenant code and tests are unchanged.
+        this.tenantId = DEFAULT_TENANT_ID;
+        this.channelId = null;
+        this.seedAutoReplies();
+    }
+
+    /** A view of the same connection with every query pinned to one tenant. */
+    forTenant(tenantId) {
+        const scoped = Object.create(this);
+        scoped.tenantId = Number(tenantId);
+        return scoped;
+    }
+
+    /**
+     * Narrow a tenant handle to one channel.  Writes are stamped with the
+     * channel id; reads stay tenant-wide unless the caller asks for
+     * `{ channelId: this.channelId }`, because an operator looking at history
+     * wants the whole business, not one number.
+     */
+    forChannel(channelId) {
+        const scoped = Object.create(this);
+        scoped.channelId = channelId == null ? null : Number(channelId);
+        return scoped;
     }
 
     close() {
@@ -99,6 +249,8 @@ export class Database {
     insert(record) {
         const now = utcNow();
         const row = {
+            tenant_id: this.tenantId,
+            channel_id: this.channelId ?? null,
             message_id: record.messageId,
             recipient: record.recipient,
             message: record.message,
@@ -112,10 +264,10 @@ export class Database {
             updated_at: record.updatedAt ?? now,
         };
         this.db.prepare(`
-            INSERT INTO messages (message_id, recipient, message, status, attempt, provider_id,
-                                  error, name, campaign_id, created_at, updated_at)
-            VALUES (:message_id, :recipient, :message, :status, :attempt, :provider_id,
-                    :error, :name, :campaign_id, :created_at, :updated_at)
+            INSERT INTO messages (tenant_id, channel_id, message_id, recipient, message, status, attempt,
+                                  provider_id, error, name, campaign_id, created_at, updated_at)
+            VALUES (:tenant_id, :channel_id, :message_id, :recipient, :message, :status, :attempt,
+                    :provider_id, :error, :name, :campaign_id, :created_at, :updated_at)
         `).run(row);
         return toRecord(row);
     }
@@ -134,8 +286,9 @@ export class Database {
         // `error` is set even when null: a successful retry must clear it.
         sets.push('error = ?');
         args.push(error ?? null);
-        args.push(messageId);
-        this.db.prepare(`UPDATE messages SET ${sets.join(', ')} WHERE message_id = ?`).run(...args);
+        args.push(messageId, this.tenantId);
+        this.db.prepare(`UPDATE messages SET ${sets.join(', ')} WHERE message_id = ? AND tenant_id = ?`)
+            .run(...args);
     }
 
     /**
@@ -144,29 +297,36 @@ export class Database {
      */
     applyReceipt(providerId, status, error = null) {
         const row = this.db.prepare(
-            'SELECT message_id, status FROM messages WHERE provider_id = ?').get(providerId);
+            'SELECT message_id, status FROM messages WHERE provider_id = ? AND tenant_id = ?')
+            .get(providerId, this.tenantId);
         if (!row) return false;
         const current = STATUS_RANK[row.status] ?? 0;
         const incoming = STATUS_RANK[status] ?? 0;
         if (incoming <= current && status !== Status.FAILED) return false;
-        this.db.prepare('UPDATE messages SET status = ?, error = ?, updated_at = ? WHERE message_id = ?')
-            .run(status, error, utcNow(), row.message_id);
+        this.db.prepare('UPDATE messages SET status = ?, error = ?, updated_at = ? WHERE message_id = ? AND tenant_id = ?')
+            .run(status, error, utcNow(), row.message_id, this.tenantId);
         return true;
     }
 
     get(messageId) {
-        const row = this.db.prepare('SELECT * FROM messages WHERE message_id = ?').get(messageId);
+        const row = this.db.prepare('SELECT * FROM messages WHERE message_id = ? AND tenant_id = ?')
+            .get(messageId, this.tenantId);
         return row ? toRecord(row) : null;
     }
 
     getByProviderId(providerId) {
-        const row = this.db.prepare('SELECT * FROM messages WHERE provider_id = ?').get(providerId);
+        const row = this.db.prepare('SELECT * FROM messages WHERE provider_id = ? AND tenant_id = ?')
+            .get(providerId, this.tenantId);
         return row ? toRecord(row) : null;
     }
 
-    history({ limit = 1000, status = null, recipient = null, campaignId = null } = {}) {
-        const clauses = [];
-        const args = [];
+    history({ limit = 1000, status = null, recipient = null, campaignId = null, channelId = null } = {}) {
+        const clauses = ['tenant_id = ?'];
+        const args = [this.tenantId];
+        if (channelId) {
+            clauses.push('channel_id = ?');
+            args.push(Number(channelId));
+        }
         if (status) {
             clauses.push('status = ?');
             args.push(status);
@@ -180,7 +340,7 @@ export class Database {
             args.push(campaignId);
         }
         let sql = 'SELECT * FROM messages';
-        if (clauses.length) sql += ` WHERE ${clauses.join(' AND ')}`;
+        sql += ` WHERE ${clauses.join(' AND ')}`;
         sql += ' ORDER BY created_at DESC, rowid DESC LIMIT ?';
         args.push(limit);
         return this.db.prepare(sql).all(...args).map(toRecord);
@@ -191,8 +351,8 @@ export class Database {
      * change?" question, so a client never re-fetches rows it already has.
      */
     historySignature({ status = null, recipient = null } = {}) {
-        const clauses = [];
-        const args = [];
+        const clauses = ['tenant_id = ?'];
+        const args = [this.tenantId];
         if (status) {
             clauses.push('status = ?');
             args.push(status);
@@ -202,16 +362,20 @@ export class Database {
             args.push(`%${recipient}%`);
         }
         let sql = "SELECT COUNT(*) AS n, COALESCE(MAX(updated_at), '') AS last FROM messages";
-        if (clauses.length) sql += ` WHERE ${clauses.join(' AND ')}`;
+        sql += ` WHERE ${clauses.join(' AND ')}`;
         const row = this.db.prepare(sql).get(...args);
         return { count: row.n, last: row.last };
     }
 
-    countsByStatus(campaignId = null) {
-        let sql = 'SELECT status, COUNT(*) AS n FROM messages';
-        const args = [];
+    countsByStatus(campaignId = null, channelId = null) {
+        let sql = 'SELECT status, COUNT(*) AS n FROM messages WHERE tenant_id = ?';
+        const args = [this.tenantId];
+        if (channelId) {
+            sql += ' AND channel_id = ?';
+            args.push(Number(channelId));
+        }
         if (campaignId) {
-            sql += ' WHERE campaign_id = ?';
+            sql += ' AND campaign_id = ?';
             args.push(campaignId);
         }
         sql += ' GROUP BY status';
@@ -224,10 +388,17 @@ export class Database {
      */
     countSentBetween(startIso, endIso) {
         const placeholders = SUCCESS_STATUSES.map(() => '?').join(',');
+        if (this.channelId != null) {
+            return this.db.prepare(
+                `SELECT COUNT(*) AS n FROM messages
+                 WHERE tenant_id = ? AND channel_id = ? AND status IN (${placeholders})
+                   AND created_at >= ? AND created_at < ?`,
+            ).get(this.tenantId, this.channelId, ...SUCCESS_STATUSES, startIso, endIso).n;
+        }
         const row = this.db.prepare(
             `SELECT COUNT(*) AS n FROM messages
-             WHERE status IN (${placeholders}) AND created_at >= ? AND created_at < ?`
-        ).get(...SUCCESS_STATUSES, startIso, endIso);
+             WHERE tenant_id = ? AND status IN (${placeholders}) AND created_at >= ? AND created_at < ?`
+        ).get(this.tenantId, ...SUCCESS_STATUSES, startIso, endIso);
         return row.n;
     }
 
@@ -238,14 +409,16 @@ export class Database {
     sentRecipients() {
         const placeholders = SUCCESS_STATUSES.map(() => '?').join(',');
         const rows = this.db.prepare(
-            `SELECT DISTINCT recipient FROM messages WHERE status IN (${placeholders})`
-        ).all(...SUCCESS_STATUSES);
+            `SELECT DISTINCT recipient FROM messages WHERE tenant_id = ? AND status IN (${placeholders})`
+        ).all(this.tenantId, ...SUCCESS_STATUSES);
         return new Set(rows.map((r) => r.recipient));
     }
 
     insertInbound(record) {
         const now = utcNow();
         const row = {
+            tenant_id: this.tenantId,
+            channel_id: this.channelId ?? null,
             message_id: record.messageId ?? `inbound.${crypto.randomUUID()}`,
             sender: record.sender,
             sender_name: record.senderName ?? '',
@@ -257,24 +430,25 @@ export class Database {
         };
         this.db.prepare(`
             INSERT OR IGNORE INTO inbound_messages
-                (message_id, sender, sender_name, body, media_url, media_type, replied_rule, received_at)
+                (tenant_id, channel_id, message_id, sender, sender_name, body, media_url, media_type, replied_rule, received_at)
             VALUES
-                (:message_id, :sender, :sender_name, :body, :media_url, :media_type, :replied_rule, :received_at)
+                (:tenant_id, :channel_id, :message_id, :sender, :sender_name, :body, :media_url, :media_type, :replied_rule, :received_at)
         `).run(row);
-        const saved = this.db.prepare('SELECT * FROM inbound_messages WHERE message_id = ?').get(row.message_id);
+        const saved = this.db.prepare('SELECT * FROM inbound_messages WHERE message_id = ? AND tenant_id = ?')
+            .get(row.message_id, this.tenantId);
         return toInboundRecord(saved);
     }
 
     markInboundReplied(messageId, ruleKeyword) {
-        this.db.prepare('UPDATE inbound_messages SET replied_rule = ? WHERE message_id = ?')
-            .run(ruleKeyword, messageId);
+        this.db.prepare('UPDATE inbound_messages SET replied_rule = ? WHERE message_id = ? AND tenant_id = ?')
+            .run(ruleKeyword, messageId, this.tenantId);
     }
 
     getInboundMessages({ sender = null, limit = 100 } = {}) {
-        const args = [];
-        let sql = 'SELECT * FROM inbound_messages';
+        const args = [this.tenantId];
+        let sql = 'SELECT * FROM inbound_messages WHERE tenant_id = ?';
         if (sender) {
-            sql += ' WHERE sender = ?';
+            sql += ' AND sender = ?';
             args.push(sender);
         }
         sql += ' ORDER BY received_at DESC, id DESC LIMIT ?';
@@ -290,11 +464,13 @@ export class Database {
                    MAX(received_at) AS last_received_at,
                    (SELECT body FROM inbound_messages latest
                     WHERE latest.sender = inbound_messages.sender
+                      AND latest.tenant_id = inbound_messages.tenant_id
                     ORDER BY latest.received_at DESC, latest.id DESC LIMIT 1) AS last_body
             FROM inbound_messages
+            WHERE tenant_id = ?
             GROUP BY sender
             ORDER BY last_received_at DESC
-        `).all().map((row) => ({
+        `).all(this.tenantId).map((row) => ({
             sender: row.sender,
             senderName: row.sender_name ?? '',
             messageCount: row.message_count,
@@ -305,15 +481,15 @@ export class Database {
     }
 
     markInboundRead(sender) {
-        const result = this.db.prepare('UPDATE inbound_messages SET is_read = 1 WHERE sender = ?')
-            .run(sender);
+        const result = this.db.prepare('UPDATE inbound_messages SET is_read = 1 WHERE sender = ? AND tenant_id = ?')
+            .run(sender, this.tenantId);
         return result.changes;
     }
 
     getActiveAutoReplies() {
         return this.db.prepare(`
             SELECT * FROM auto_replies
-            WHERE is_active = 1
+            WHERE is_active = 1 AND tenant_id = ?
             ORDER BY CASE match_type
                 WHEN 'EXACT' THEN 1
                 WHEN 'CONTAINS' THEN 2
@@ -321,11 +497,12 @@ export class Database {
                 WHEN 'FALLBACK' THEN 4
                 ELSE 5
             END, id ASC
-        `).all().map(toAutoReply);
+        `).all(this.tenantId).map(toAutoReply);
     }
 
     getAutoReplies() {
-        return this.db.prepare('SELECT * FROM auto_replies ORDER BY id ASC').all().map(toAutoReply);
+        return this.db.prepare('SELECT * FROM auto_replies WHERE tenant_id = ? ORDER BY id ASC')
+            .all(this.tenantId).map(toAutoReply);
     }
 
     saveAutoReply(rule) {
@@ -344,52 +521,59 @@ export class Database {
             this.db.prepare(`
                 UPDATE auto_replies
                 SET keyword = :keyword, match_type = :match_type, reply_body = :reply_body,
-                    is_active = :is_active, cooldown_sec = :cooldown_sec, updated_at = :updated_at
-                WHERE id = :id
-            `).run({ ...row, id });
-            return toAutoReply(this.db.prepare('SELECT * FROM auto_replies WHERE id = ?').get(id));
+                    is_active = :is_active, cooldown_sec = :cooldown_sec,
+                    created_at = :created_at, updated_at = :updated_at
+                WHERE id = :id AND tenant_id = :tenant_id
+            `).run({ ...row, id, tenant_id: this.tenantId });
+            return toAutoReply(this.db.prepare('SELECT * FROM auto_replies WHERE id = ? AND tenant_id = ?')
+                .get(id, this.tenantId));
         }
         const result = this.db.prepare(`
             INSERT INTO auto_replies
-                (keyword, match_type, reply_body, is_active, cooldown_sec, created_at, updated_at)
+                (tenant_id, keyword, match_type, reply_body, is_active, cooldown_sec, created_at, updated_at)
             VALUES
-                (:keyword, :match_type, :reply_body, :is_active, :cooldown_sec, :created_at, :updated_at)
-        `).run(row);
+                (:tenant_id, :keyword, :match_type, :reply_body, :is_active, :cooldown_sec, :created_at, :updated_at)
+        `).run({ ...row, tenant_id: this.tenantId });
         return toAutoReply(this.db.prepare('SELECT * FROM auto_replies WHERE id = ?').get(result.lastInsertRowid));
     }
 
     deleteAutoReply(id) {
-        return this.db.prepare('DELETE FROM auto_replies WHERE id = ?').run(id).changes;
+        return this.db.prepare('DELETE FROM auto_replies WHERE id = ? AND tenant_id = ?')
+            .run(id, this.tenantId).changes;
     }
 
     addOptOut(phone, reason = 'user_requested') {
         const row = { phone, reason, opted_out_at: utcNow() };
         this.db.prepare(`
-            INSERT INTO opt_outs (phone, reason, opted_out_at)
-            VALUES (:phone, :reason, :opted_out_at)
-            ON CONFLICT(phone) DO UPDATE SET reason = excluded.reason, opted_out_at = excluded.opted_out_at
-        `).run(row);
+            INSERT INTO opt_outs (tenant_id, phone, reason, opted_out_at)
+            VALUES (:tenant_id, :phone, :reason, :opted_out_at)
+            ON CONFLICT(tenant_id, phone) DO UPDATE SET reason = excluded.reason, opted_out_at = excluded.opted_out_at
+        `).run({ ...row, tenant_id: this.tenantId });
         return row;
     }
 
     removeOptOut(phone) {
-        return this.db.prepare('DELETE FROM opt_outs WHERE phone = ?').run(phone).changes;
+        return this.db.prepare('DELETE FROM opt_outs WHERE phone = ? AND tenant_id = ?')
+            .run(phone, this.tenantId).changes;
     }
 
     getAllOptOuts() {
-        return this.db.prepare('SELECT phone FROM opt_outs ORDER BY phone ASC').all().map((row) => row.phone);
+        return this.db.prepare('SELECT phone FROM opt_outs WHERE tenant_id = ? ORDER BY phone ASC')
+            .all(this.tenantId).map((row) => row.phone);
     }
 
     getOptOuts() {
-        return this.db.prepare('SELECT * FROM opt_outs ORDER BY opted_out_at DESC').all().map((row) => ({
+        return this.db.prepare('SELECT * FROM opt_outs WHERE tenant_id = ? ORDER BY opted_out_at DESC')
+            .all(this.tenantId).map((row) => ({
             phone: row.phone,
             reason: row.reason,
             optedOutAt: row.opted_out_at,
         }));
     }
 
-    #seedAutoReplies() {
-        const count = this.db.prepare('SELECT COUNT(*) AS n FROM auto_replies').get().n;
+    seedAutoReplies() {
+        const count = this.db.prepare('SELECT COUNT(*) AS n FROM auto_replies WHERE tenant_id = ?')
+            .get(this.tenantId).n;
         if (count > 0) return;
         for (const rule of DEFAULT_AUTO_REPLIES) this.saveAutoReply(rule);
     }

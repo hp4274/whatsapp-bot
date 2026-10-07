@@ -1,0 +1,222 @@
+/* The one full-bleed screen in the app: no rail, no header, so it can carry
+ * more depth than the working surfaces behind it. */
+
+:host {
+  display: block;
+  min-height: 100vh;
+}
+
+.login {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: var(--space-xl);
+  overflow: hidden;
+  background: var(--canvas);
+  perspective: 1400px;
+}
+
+/* Background --------------------------------------------------------- */
+.aurora {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.5;
+  will-change: transform;
+
+  &.a {
+    width: 46vmax;
+    height: 46vmax;
+    top: -16vmax;
+    left: -10vmax;
+    background: radial-gradient(circle, var(--primary), transparent 65%);
+    animation: drift-a 26s var(--ease) infinite alternate;
+  }
+
+  &.b {
+    width: 38vmax;
+    height: 38vmax;
+    right: -12vmax;
+    bottom: -14vmax;
+    background: radial-gradient(circle, var(--accent), transparent 65%);
+    animation: drift-b 32s var(--ease) infinite alternate;
+  }
+}
+
+/* A floor plane under the card, which is what sells the perspective. */
+.grid {
+  position: absolute;
+  inset: 48% -40% -30% -40%;
+  background:
+    linear-gradient(to right, color-mix(in srgb, var(--border) 85%, transparent) 1px, transparent 1px) 0 0 / 64px 64px,
+    linear-gradient(to bottom, color-mix(in srgb, var(--border) 85%, transparent) 1px, transparent 1px) 0 0 / 64px 64px;
+  transform: rotateX(72deg);
+  transform-origin: top center;
+  mask-image: linear-gradient(to bottom, #000, transparent 72%);
+}
+
+@keyframes drift-a {
+  to {
+    transform: translate3d(8vmax, 5vmax, 0) scale(1.15);
+  }
+}
+
+@keyframes drift-b {
+  to {
+    transform: translate3d(-7vmax, -4vmax, 0) scale(1.1);
+  }
+}
+
+/* Layout ------------------------------------------------------------- */
+.stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 420px);
+  gap: clamp(var(--space-xl), 6vw, 72px);
+  align-items: center;
+  width: min(1120px, 100%);
+  transform-style: preserve-3d;
+}
+
+.pitch {
+  max-width: 34ch;
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-md);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(40px, 6vw, 68px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+
+  em {
+    font-style: normal;
+    background: linear-gradient(100deg, var(--primary), var(--accent));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+.lede {
+  margin: var(--space-lg) 0 0;
+  font-size: 16px;
+}
+
+.facts {
+  display: grid;
+  gap: var(--space-sm);
+  margin: var(--space-xl) 0 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: grid;
+    grid-template-columns: 148px 1fr;
+    gap: var(--space-md);
+    align-items: baseline;
+    padding: 10px 0;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+  }
+
+  span {
+    color: var(--text-muted);
+  }
+}
+
+/* Card --------------------------------------------------------------- */
+.panel {
+  --tilt-x: 0deg;
+  --tilt-y: 0deg;
+  --gleam-x: 50%;
+  --gleam-y: 0%;
+
+  position: relative;
+  display: grid;
+  gap: var(--space-lg);
+  padding: clamp(var(--space-xl), 4vw, 36px);
+  overflow: hidden;
+  transform: rotateX(var(--tilt-x)) rotateY(var(--tilt-y)) translateZ(0);
+  transition: transform var(--base) var(--ease);
+  will-change: transform;
+
+  h2 {
+    font-size: 24px;
+    letter-spacing: -0.01em;
+  }
+
+  p {
+    margin: -8px 0 0;
+  }
+}
+
+/* Specular highlight that follows the pointer across the card face. */
+.gleam {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    420px circle at var(--gleam-x) var(--gleam-y),
+    color-mix(in srgb, var(--primary) 16%, transparent),
+    transparent 60%
+  );
+}
+
+.panel > :not(.gleam) {
+  position: relative;
+}
+
+.big {
+  padding: 13px 16px;
+  font-size: 15px;
+}
+
+.error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 13px;
+}
+
+@media (max-width: 880px) {
+  .stage {
+    grid-template-columns: 1fr;
+  }
+
+  .pitch {
+    max-width: none;
+  }
+
+  .facts {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orb {
+    animation: none;
+  }
+
+  .panel {
+    transform: none;
+    transition: none;
+  }
+}

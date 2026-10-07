@@ -1,0 +1,63 @@
+<div class="login" (pointermove)="tilt($event)" (pointerleave)="level()">
+  <div class="aurora" aria-hidden="true">
+    <span class="orb a"></span>
+    <span class="orb b"></span>
+    <span class="grid"></span>
+  </div>
+
+  <section class="stage">
+    <div class="pitch">
+      <p class="eyebrow">WhatsApp automation platform</p>
+      <h1>One engine.<br /><em>Every business.</em></h1>
+      <p class="muted lede">
+        Campaigns, auto-replies and reminders for each tenant, on its own number, with its own
+        data. Sign in to your workspace.
+      </p>
+      <ul class="facts">
+        <li><b>Isolated</b><span>Per-tenant data and sessions</span></li>
+        <li><b>Paced</b><span>Adaptive sending and daily caps</span></li>
+        <li><b>Audited</b><span>Every admin action logged</span></li>
+      </ul>
+    </div>
+
+    <form #card class="card panel" (submit)="submit($event)" novalidate>
+      <span class="gleam" aria-hidden="true"></span>
+      <h2>Sign in</h2>
+      <p class="muted">Use the credentials your administrator issued.</p>
+
+      <div class="field">
+        <label for="email">Email</label>
+        <input
+          id="email"
+          name="email"
+          type="email"
+          autocomplete="username"
+          required
+          [ngModel]="email()"
+          (ngModelChange)="email.set($event)"
+        />
+      </div>
+
+      <div class="field">
+        <label for="password">Password</label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          autocomplete="current-password"
+          required
+          [ngModel]="password()"
+          (ngModelChange)="password.set($event)"
+        />
+      </div>
+
+      @if (error()) {
+        <p class="error" role="alert">{{ error() }}</p>
+      }
+
+      <button class="btn primary big" type="submit" [disabled]="busy()">
+        {{ busy() ? 'Signing in...' : 'Sign in' }}
+      </button>
+    </form>
+  </section>
+</div>

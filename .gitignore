@@ -8,3 +8,8 @@ __pycache__/
 .codebase-memory/
 server/uploads/
 server/server/
+server/.wwebjs_cache/
+
+# Stray tool logs and superseded specs
+.reticle-setup-crash.log
+.trash-phases/

@@ -9,6 +9,7 @@
 import { Injectable, NgZone, computed, inject, signal } from '@angular/core';
 
 import { Api, CampaignStats, ConnectionState, MessageStatus, SafetyStatus } from './api';
+import { Auth } from './auth';
 
 export type ThemeMode = 'auto' | 'light' | 'dark';
 
@@ -31,6 +32,7 @@ const EMPTY_STATS: CampaignStats = {
 export class Store {
   private readonly api = inject(Api);
   private readonly zone = inject(NgZone);
+  private readonly auth = inject(Auth);
 
   readonly connection = signal<ConnectionState>({
     connected: false,
@@ -54,6 +56,8 @@ export class Store {
   /** Bumped whenever the server says the history table changed. */
   readonly historyRevision = signal(0);
   readonly theme = signal<ThemeMode>(readStoredTheme());
+  /** Which WhatsApp number the UI is working on; owned by Auth, mirrored here. */
+  readonly channelId = this.auth.channelId;
 
   readonly progress = computed(() => {
     const { total, processed } = this.stats();
@@ -64,6 +68,15 @@ export class Store {
 
   constructor() {
     this.applyTheme(this.theme());
+  }
+
+  /**
+   * Open the stream for the signed-in user.  Nothing talks to the API before
+   * this: an anonymous visitor would only get 401s, and a super admin has no
+   * tenant to stream until they pick one.
+   */
+  start() {
+    if (this.source) return;
     this.api.connection().subscribe({
       next: (state) => {
         this.connection.set(state);
@@ -72,6 +85,23 @@ export class Store {
       error: () => this.setStatus('Backend not reachable', 'danger'),
     });
     this.listen();
+  }
+
+  /** Switch the number every later request acts on, and re-open the stream. */
+  useChannel(channelId: number | null) {
+    if (this.channelId() === channelId) return;
+    this.auth.useChannel(channelId);
+    const live = Boolean(this.source);
+    this.stop();
+    if (live) this.start();
+  }
+
+  /** Close the stream on sign-out, or when switching tenant. */
+  stop() {
+    this.source?.close();
+    this.source = null;
+    this.streamOnline.set(false);
+    this.setStatus('Ready.');
   }
 
   setStatus(text: string, tone: 'muted' | 'primary' | 'warning' | 'danger' = 'muted') {
@@ -93,7 +123,14 @@ export class Store {
 
   /** Subscribe to the server's event stream, reconnecting if it drops. */
   private listen() {
-    const source = new EventSource('/api/events');
+    const params = new URLSearchParams({ token: this.auth.token() ?? '' });
+    const tenantId = this.auth.isSuperAdmin() ? this.auth.actingTenantId() : null;
+    if (tenantId !== null) params.set('tenant', String(tenantId));
+    const channelId = this.channelId();
+    if (channelId !== null) params.set('channel', String(channelId));
+    // ponytail: the token rides in the URL because EventSource takes no headers.
+    // Swap for a short-lived stream ticket if these URLs ever reach a log.
+    const source = new EventSource(`/api/events?${params}`);
     this.source = source;
 
     source.addEventListener('hello', (event) => {
