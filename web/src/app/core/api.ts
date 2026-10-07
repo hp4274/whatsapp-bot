@@ -3,6 +3,8 @@
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, throwError } from 'rxjs';
+
+import { Role, Tenant, User } from './auth';
 import { catchError } from 'rxjs/operators';
 
 export type MessageStatus =
@@ -73,6 +75,23 @@ export interface ImportResult {
   duplicates: number;
 }
 
+export interface PaymentReminder {
+  rowNumber: number;
+  name: string;
+  phone: string;
+  remaining: string;
+  remainingValue: number;
+  dueDate: string;
+  message: string;
+  finalMessage: string;
+}
+
+export interface PaymentReminderImportResult {
+  reminders: PaymentReminder[];
+  errors: string[];
+  duplicates: number;
+}
+
 export interface SafetyStatus {
   enabled: boolean;
   limit: number;
@@ -120,6 +139,23 @@ export interface HistoryPage {
   counts: Record<string, number>;
   signature: string;
 }
+
+export type AutoReplyMatchType = 'EXACT' | 'CONTAINS' | 'REGEX' | 'FALLBACK';
+
+export interface AutoReplyRule {
+  id: number;
+  keyword: string;
+  matchType: AutoReplyMatchType;
+  replyBody: string;
+  isActive: boolean;
+  cooldownSec: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AutoReplyRulePayload = Omit<AutoReplyRule, 'id' | 'createdAt' | 'updatedAt'> & {
+  id?: number;
+};
 
 @Injectable({ providedIn: 'root' })
 export class Api {
@@ -172,6 +208,24 @@ export class Api {
     return this.http.post<ImportResult>('/api/contacts/import', form).pipe(catchError(toMessage));
   }
 
+  importPaymentReminders(file: File): Observable<PaymentReminderImportResult> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http
+      .post<PaymentReminderImportResult>('/api/payment-reminders/import', form)
+      .pipe(catchError(toMessage));
+  }
+
+  sendPaymentReminders(
+    reminders: PaymentReminder[],
+  ): Observable<{ queued: number; skipped: number; campaignId: string; overQuota: number;
+    safety: SafetyStatus }> {
+    return this.http
+      .post<{ queued: number; skipped: number; campaignId: string; overQuota: number;
+        safety: SafetyStatus }>('/api/payment-reminders/send', { reminders })
+      .pipe(catchError(toMessage));
+  }
+
   startCampaign(
     contacts: Contact[],
     template: string,
@@ -206,6 +260,30 @@ export class Api {
     return this.http.get<{ stats: CampaignStats }>('/api/campaign/stats').pipe(catchError(toMessage));
   }
 
+  autoReplies(): Observable<{ rules: AutoReplyRule[] }> {
+    return this.http.get<{ rules: AutoReplyRule[] }>('/api/auto-replies').pipe(catchError(toMessage));
+  }
+
+  createAutoReply(rule: AutoReplyRulePayload): Observable<{ rule: AutoReplyRule }> {
+    return this.http.post<{ rule: AutoReplyRule }>('/api/auto-replies', rule).pipe(catchError(toMessage));
+  }
+
+  updateAutoReply(id: number, rule: Partial<AutoReplyRulePayload>): Observable<{ rule: AutoReplyRule }> {
+    return this.http
+      .put<{ rule: AutoReplyRule }>(`/api/auto-replies/${id}`, rule)
+      .pipe(catchError(toMessage));
+  }
+
+  deleteAutoReply(id: number): Observable<{ deleted: number }> {
+    return this.http.delete<{ deleted: number }>(`/api/auto-replies/${id}`).pipe(catchError(toMessage));
+  }
+
+  previewAutoReply(template: string, sender: string, senderName: string): Observable<{ preview: string }> {
+    return this.http
+      .post<{ preview: string }>('/api/auto-replies/preview', { template, sender, senderName })
+      .pipe(catchError(toMessage));
+  }
+
   /**
    * History, with the signature the browser already holds: the server answers
    * 204 when nothing changed, so unchanged rows never travel.
@@ -228,4 +306,129 @@ function toMessage(error: HttpErrorResponse) {
     ? errors.join('\n')
     : error.error?.message || error.message || 'Request failed';
   return throwError(() => new Error(message));
+}
+
+/* Tenancy ------------------------------------------------------------- */
+
+export interface AuditLog {
+  id: number;
+  tenantId: number | null;
+  userId: number | null;
+  action: string;
+  target: string;
+  detail: string;
+  createdAt: string;
+}
+
+@Injectable({ providedIn: 'root' })
+export class TenancyApi {
+  private readonly http = inject(HttpClient);
+
+  tenants(): Observable<{ tenants: Tenant[] }> {
+    return this.http.get<{ tenants: Tenant[] }>('/api/admin/tenants').pipe(catchError(toMessage));
+  }
+
+  createTenant(body: {
+    name: string;
+    slug?: string;
+    owner: { email: string; name?: string; password: string };
+  }): Observable<{ tenant: Tenant; owner: User }> {
+    return this.http.post<{ tenant: Tenant; owner: User }>('/api/admin/tenants', body).pipe(catchError(toMessage));
+  }
+
+  setTenantStatus(id: number, status: Tenant['status']): Observable<{ tenant: Tenant }> {
+    return this.http.patch<{ tenant: Tenant }>(`/api/admin/tenants/${id}`, { status }).pipe(catchError(toMessage));
+  }
+
+  auditLogs(tenantId?: number | null): Observable<{ logs: AuditLog[] }> {
+    const params = tenantId ? new HttpParams().set('tenant', tenantId) : undefined;
+    return this.http.get<{ logs: AuditLog[] }>('/api/admin/audit-logs', { params }).pipe(catchError(toMessage));
+  }
+
+  users(): Observable<{ users: User[]; roles: Role[] }> {
+    return this.http.get<{ users: User[]; roles: Role[] }>('/api/users').pipe(catchError(toMessage));
+  }
+
+  createUser(body: { email: string; name?: string; password: string; role: Role }): Observable<{ user: User }> {
+    return this.http.post<{ user: User }>('/api/users', body).pipe(catchError(toMessage));
+  }
+
+  setUserDisabled(id: number, disabled: boolean): Observable<{ user: User }> {
+    return this.http.patch<{ user: User }>(`/api/users/${id}`, { disabled }).pipe(catchError(toMessage));
+  }
+}
+
+/* Channels ------------------------------------------------------------ */
+
+export interface BusinessHours {
+  start: string;
+  end: string;
+  days?: string[];
+}
+
+export interface ChannelHealth {
+  connected: boolean;
+  connecting: boolean;
+  running: boolean;
+  account: string;
+  detail: string;
+  error: string | null;
+  withinSendingWindow: boolean;
+}
+
+export interface Channel {
+  id: number;
+  tenantId: number;
+  provider: AppConfig['transport'];
+  phoneNumber: string;
+  providerAccountId: string;
+  providerPhoneNumberId: string;
+  status: 'active' | 'disabled';
+  displayName: string;
+  settings: AppConfig;
+  capabilities: string[];
+  timezone: string;
+  businessHours: BusinessHours | null;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+  health?: ChannelHealth;
+}
+
+export type ChannelPatch = Partial<{
+  displayName: string;
+  phoneNumber: string;
+  status: Channel['status'];
+  capabilities: string[];
+  timezone: string;
+  businessHours: BusinessHours | null;
+  settings: Partial<AppConfig>;
+  isDefault: boolean;
+}>;
+
+@Injectable({ providedIn: 'root' })
+export class ChannelsApi {
+  private readonly http = inject(HttpClient);
+
+  list(): Observable<{ channels: Channel[]; capabilities: string[]; transports: string[] }> {
+    return this.http
+      .get<{ channels: Channel[]; capabilities: string[]; transports: string[] }>('/api/channels')
+      .pipe(catchError(toMessage));
+  }
+
+  create(body: ChannelPatch): Observable<{ channel: Channel }> {
+    return this.http.post<{ channel: Channel }>('/api/channels', body).pipe(catchError(toMessage));
+  }
+
+  update(id: number, patch: ChannelPatch): Observable<{ channel: Channel }> {
+    return this.http.patch<{ channel: Channel }>(`/api/channels/${id}`, patch).pipe(catchError(toMessage));
+  }
+
+  makeDefault(id: number): Observable<{ channel: Channel }> {
+    return this.http.post<{ channel: Channel }>(`/api/channels/${id}/default`, {}).pipe(catchError(toMessage));
+  }
+
+  remove(id: number): Observable<{ deleted: number }> {
+    return this.http.delete<{ deleted: number }>(`/api/channels/${id}`).pipe(catchError(toMessage));
+  }
 }

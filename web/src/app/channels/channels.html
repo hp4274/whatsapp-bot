@@ -1,0 +1,150 @@
+<header class="page-head">
+  <div>
+    <h2>WhatsApp numbers</h2>
+    <p class="muted">Each number runs on its own connection, limits and hours.</p>
+  </div>
+  <button class="btn primary" type="button" (click)="showForm.set(!showForm())">
+    {{ showForm() ? 'Cancel' : 'Add number' }}
+  </button>
+</header>
+
+@if (error()) {
+  <p class="error" role="alert">{{ error() }}</p>
+}
+
+@if (showForm()) {
+  <form class="card new" (submit)="create($event)" novalidate>
+    <h3>Add a number</h3>
+    <div class="grid">
+      <div class="field">
+        <label for="c-name">Label</label>
+        <input id="c-name" name="displayName" required [ngModel]="draft().displayName"
+               (ngModelChange)="draft.set({ ...draft(), displayName: $event })" />
+      </div>
+      <div class="field">
+        <label for="c-phone">Phone number <small class="muted">optional</small></label>
+        <input id="c-phone" name="phoneNumber" [ngModel]="draft().phoneNumber"
+               (ngModelChange)="draft.set({ ...draft(), phoneNumber: $event })" />
+      </div>
+      <div class="field">
+        <label for="c-transport">Provider</label>
+        <select id="c-transport" name="transport" [ngModel]="draft().transport"
+                (ngModelChange)="draft.set({ ...draft(), transport: $event })">
+          @for (t of transports(); track t) {
+            <option [value]="t">{{ t }}</option>
+          }
+        </select>
+      </div>
+      <div class="field">
+        <label for="c-tz">Timezone</label>
+        <input id="c-tz" name="timezone" [ngModel]="draft().timezone"
+               (ngModelChange)="draft.set({ ...draft(), timezone: $event })" />
+      </div>
+    </div>
+    <p class="muted hint">
+      Credentials and pacing are set per number on the Connection page once you pick it.
+    </p>
+    <button class="btn primary" type="submit" [disabled]="busy()">
+      {{ busy() ? 'Adding...' : 'Add number' }}
+    </button>
+  </form>
+}
+
+<div class="rack">
+  @for (channel of channels(); track channel.id) {
+    <article class="card channel" [class.off]="channel.status !== 'active'"
+             [class.active]="activeId() === channel.id">
+      <div class="top">
+        <div class="id">
+          <h3>{{ channel.displayName }}</h3>
+          <p class="muted mono">{{ channel.phoneNumber || 'no number yet' }} &middot; {{ channel.provider }}</p>
+        </div>
+        <div class="badges">
+          @if (channel.isDefault) { <span class="pill tag">default</span> }
+          <span class="pill" [class.live]="channel.health?.connected"
+                [class.warn]="channel.status !== 'active'">
+            {{ channel.status !== 'active' ? 'disabled'
+               : channel.health?.connected ? 'connected'
+               : channel.health?.connecting ? 'connecting' : 'offline' }}
+          </span>
+        </div>
+      </div>
+
+      <dl class="facts">
+        <div><dt>Account</dt><dd>{{ channel.health?.account || '-' }}</dd></div>
+        <div><dt>Timezone</dt><dd>{{ channel.timezone }}</dd></div>
+        <div>
+          <dt>Hours</dt>
+          <dd>
+            {{ channel.businessHours
+               ? channel.businessHours.start + ' - ' + channel.businessHours.end
+               : 'always open' }}
+            @if (channel.businessHours && !channel.health?.withinSendingWindow) {
+              <span class="muted">(closed now)</span>
+            }
+          </dd>
+        </div>
+        <div><dt>Daily cap</dt><dd>{{ channel.settings.dailyLimit }}</dd></div>
+      </dl>
+
+      @if (channel.health?.error) {
+        <p class="error small">{{ channel.health?.error }}</p>
+      }
+
+      <div class="actions">
+        <button class="btn" type="button" (click)="use(channel)" [disabled]="activeId() === channel.id">
+          {{ activeId() === channel.id ? 'In use' : 'Work on this' }}
+        </button>
+        <button class="btn" type="button" (click)="openId.set(openId() === channel.id ? null : channel.id)">
+          {{ openId() === channel.id ? 'Close' : 'Settings' }}
+        </button>
+      </div>
+
+      @if (openId() === channel.id) {
+        <div class="drawer">
+          <h4>Allowed traffic</h4>
+          <div class="caps">
+            @for (capability of capabilities(); track capability) {
+              <button
+                type="button"
+                class="cap"
+                [class.on]="channel.capabilities.includes(capability)"
+                [attr.aria-pressed]="channel.capabilities.includes(capability)"
+                (click)="toggleCapability(channel, capability)"
+              >
+                {{ capability.split('_').join(' ') }}
+              </button>
+            }
+          </div>
+
+          <h4>Sending window</h4>
+          <div class="window">
+            <input type="time" #start [value]="channel.businessHours?.start ?? '09:00'" aria-label="Window opens" />
+            <span class="muted">to</span>
+            <input type="time" #end [value]="channel.businessHours?.end ?? '18:00'" aria-label="Window closes" />
+            <button class="btn small" type="button" (click)="setWindow(channel, start.value, end.value)">Save</button>
+            @if (channel.businessHours) {
+              <button class="btn small" type="button" (click)="clearWindow(channel)">Always open</button>
+            }
+          </div>
+
+          <h4>Number</h4>
+          <div class="row">
+            @if (!channel.isDefault) {
+              <button class="btn small" type="button" (click)="makeDefault(channel)">Make default</button>
+            }
+            <button class="btn small" [class.danger]="channel.status === 'active'" type="button"
+                    (click)="toggleStatus(channel)">
+              {{ channel.status === 'active' ? 'Disable' : 'Enable' }}
+            </button>
+            @if (channels().length > 1) {
+              <button class="btn small danger" type="button" (click)="remove(channel)">Remove</button>
+            }
+          </div>
+        </div>
+      }
+    </article>
+  } @empty {
+    <p class="muted">No numbers yet.</p>
+  }
+</div>

@@ -9,7 +9,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
-import { closeApp, createApp } from '../src/app.js';
+import { closeApp } from '../src/app.js';
+import { createTestApp as createApp } from './helpers.js';
 import { CampaignManager } from '../src/campaign/manager.js';
 import {
     DailyQuota,

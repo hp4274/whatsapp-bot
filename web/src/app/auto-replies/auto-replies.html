@@ -1,0 +1,200 @@
+@let connection = store.connection();
+
+<section class="summary card enter" [class.off]="allDisabled()">
+  <div class="summary-main">
+    <span class="badge primary">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 5h16v10H7l-3 3Z" /><path d="M8 9h8" /><path d="M8 12h5" />
+      </svg>
+    </span>
+    <div>
+      <h2>Keyword Auto-Replies</h2>
+      <p class="muted">
+        {{ activeCount() }} active, {{ inactiveCount() }} disabled
+        @if (connection.transport) { <span>on {{ connection.transport }}</span> }
+      </p>
+    </div>
+  </div>
+
+  <div class="connection-state">
+    <span class="dot" [class.live-dot]="connected()"></span>
+    <span>{{ connected() ? 'Connected' : 'Disconnected' }}</span>
+  </div>
+
+  <div class="summary-actions">
+    <button type="button" class="btn" (click)="setAll(true)"
+            [disabled]="bulkSaving() || !rules().length || activeCount() === rules().length">
+      Enable all
+    </button>
+    <button type="button" class="btn danger" (click)="setAll(false)"
+            [disabled]="bulkSaving() || !activeCount()">
+      Disable all
+    </button>
+  </div>
+</section>
+
+@if (errors().length) {
+  <section class="card errors enter" role="alert">
+    @for (error of errors(); track error) { <p>{{ error }}</p> }
+  </section>
+}
+
+<div class="workspace">
+  <section class="card rules enter">
+    <header class="card-head">
+      <div>
+        <h3>Rules</h3>
+        <p class="muted">{{ rules().length }} configured</p>
+      </div>
+      <button type="button" class="btn primary" (click)="createNew()">New rule</button>
+    </header>
+
+    @if (loading()) {
+      <div class="empty muted"><span class="spinner"></span> Loading rules</div>
+    } @else if (!rules().length) {
+      <div class="empty muted">No keyword replies configured.</div>
+    } @else {
+      <div class="rule-list">
+        @for (rule of rules(); track rule.id) {
+          <article class="rule"
+                   [class.selected]="form().id === rule.id"
+                   [class.disabled]="!rule.isActive">
+            <button type="button" class="rule-main" (click)="edit(rule)">
+              <span class="rule-title">
+                <strong>{{ ruleLabel(rule) }}</strong>
+                <small>{{ rule.matchType.toLowerCase() }} &middot; {{ rule.cooldownSec }}s cooldown</small>
+              </span>
+              <span class="pill" [class.active]="rule.isActive">
+                {{ rule.isActive ? 'On' : 'Off' }}
+              </span>
+            </button>
+            <div class="rule-actions">
+              <button type="button" class="icon-btn" [attr.aria-label]="rule.isActive ? 'Disable rule' : 'Enable rule'"
+                      [title]="rule.isActive ? 'Disable rule' : 'Enable rule'" (click)="toggle(rule)">
+                @if (rule.isActive) {
+                  <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+                       stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+                  </svg>
+                } @else {
+                  <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+                       stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                }
+              </button>
+              <button type="button" class="icon-btn danger" aria-label="Delete rule" title="Delete rule"
+                      (click)="delete(rule)">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" />
+                </svg>
+              </button>
+            </div>
+          </article>
+        }
+      </div>
+    }
+  </section>
+
+  <section class="card editor enter">
+    <header class="card-head">
+      <div>
+        <h3>{{ formTitle() }}</h3>
+        <p class="muted">Template variables: &#123;name&#125;, &#123;sender&#125;, &#123;time_greeting&#125;</p>
+      </div>
+      <label class="switch">
+        <input type="checkbox" [ngModel]="form().isActive"
+               (ngModelChange)="update('isActive', $event)" />
+        Enabled
+      </label>
+    </header>
+
+    <div class="form-grid">
+      <div class="field">
+        <label for="match-type">Match</label>
+        <select id="match-type" [ngModel]="form().matchType"
+                (ngModelChange)="update('matchType', $event)">
+          @for (type of matchTypes; track type.value) {
+            <option [value]="type.value">{{ type.label }} - {{ type.hint }}</option>
+          }
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="keyword">Keyword</label>
+        <input id="keyword" [disabled]="form().matchType === 'FALLBACK'"
+               [ngModel]="form().keyword" (ngModelChange)="update('keyword', $event)"
+               placeholder="hi, pricing, invoice \\d+" />
+      </div>
+
+      <div class="field">
+        <label for="cooldown">Cooldown seconds</label>
+        <input id="cooldown" type="number" min="0" [ngModel]="form().cooldownSec"
+               (ngModelChange)="update('cooldownSec', +$event)" />
+      </div>
+
+      <div class="field reply">
+        <label for="reply">Reply body</label>
+        <textarea id="reply" rows="8" [ngModel]="form().replyBody"
+                  (ngModelChange)="update('replyBody', $event)"></textarea>
+      </div>
+    </div>
+
+    <footer class="editor-actions">
+      <button type="button" class="btn" (click)="renderPreview()" [disabled]="previewing() || !form().replyBody">
+        @if (previewing()) { <span class="spinner"></span> }
+        Preview
+      </button>
+      <button type="button" class="btn primary" (click)="save()"
+              [disabled]="saving() || !form().replyBody || (form().matchType !== 'FALLBACK' && !form().keyword)">
+        @if (saving()) { <span class="spinner"></span> }
+        Save rule
+      </button>
+    </footer>
+
+    @if (preview()) {
+      <div class="preview">
+        <span class="muted">Rendered reply</span>
+        <p>{{ preview() }}</p>
+      </div>
+    }
+  </section>
+</div>
+
+<section class="card tester enter">
+  <header class="card-head">
+    <div>
+      <h3>Match Test</h3>
+      <p class="muted">Uses the active rule order shown above</p>
+    </div>
+  </header>
+
+  <div class="tester-grid">
+    <div class="field">
+      <label for="test-text">Incoming text</label>
+      <input id="test-text" [ngModel]="testText()" (ngModelChange)="testText.set($event)" />
+    </div>
+    <div class="field">
+      <label for="test-name">Sender name</label>
+      <input id="test-name" [ngModel]="testName()" (ngModelChange)="testName.set($event)" />
+    </div>
+    <div class="field">
+      <label for="test-sender">Sender number</label>
+      <input id="test-sender" [ngModel]="testSender()" (ngModelChange)="testSender.set($event)" />
+    </div>
+  </div>
+
+  <div class="match-result" [class.matched]="matchedRule()">
+    @if (matchedRule(); as rule) {
+      <div>
+        <span class="muted">Matched rule</span>
+        <strong>{{ ruleLabel(rule) }}</strong>
+      </div>
+      <button type="button" class="btn" (click)="renderPreview(rule)">Render matched reply</button>
+    } @else {
+      <span class="muted">No active rule matches this text.</span>
+    }
+  </div>
+</section>

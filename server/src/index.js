@@ -8,6 +8,7 @@
  * thing is one origin and one process.
  */
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,6 +33,18 @@ const webDist = path.join(HERE, '..', '..', 'web', 'dist', 'web', 'browser');
 if (fs.existsSync(webDist)) {
     app.use(express.static(webDist));
     app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(webDist, 'index.html')));
+}
+
+// First run: there is nobody to sign in as, so create the platform admin.
+// Set SUPER_ADMIN_EMAIL / SUPER_ADMIN_PASSWORD, or take the generated password
+// printed once below.
+const tenancy = app.locals.tenancy;
+if (tenancy.userCount() === 0) {
+    const email = process.env.SUPER_ADMIN_EMAIL || 'admin@whatsapp.local';
+    const password = process.env.SUPER_ADMIN_PASSWORD || crypto.randomBytes(9).toString('base64url');
+    await tenancy.createUser({ email, name: 'Platform admin', password, role: 'super_admin' });
+    console.log(`[whatsapp-sender] created super admin ${email}`
+        + (process.env.SUPER_ADMIN_PASSWORD ? '' : ` with password ${password}  (shown once)`));
 }
 
 const server = app.listen(PORT, HOST, () => {

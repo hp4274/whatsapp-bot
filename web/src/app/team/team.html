@@ -1,0 +1,70 @@
+<header class="page-head">
+  <div>
+    <h2>Team</h2>
+    <p class="muted">Who can sign in to this workspace, and what they may do.</p>
+  </div>
+</header>
+
+@if (error()) {
+  <p class="error" role="alert">{{ error() }}</p>
+}
+
+<div class="split">
+  <section class="card people">
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody>
+        @for (user of users(); track user.id) {
+          <tr [class.off]="user.disabled">
+            <td>{{ user.name || '-' }}</td>
+            <td class="mono">{{ user.email }}</td>
+            <td><span class="pill role">{{ user.role }}</span></td>
+            <td>{{ user.disabled ? 'Disabled' : 'Active' }}</td>
+            <td class="right">
+              @if (canManage(user)) {
+                <button class="btn small" [class.danger]="!user.disabled" type="button" (click)="toggle(user)">
+                  {{ user.disabled ? 'Enable' : 'Disable' }}
+                </button>
+              }
+            </td>
+          </tr>
+        } @empty {
+          <tr><td colspan="5" class="muted">No users yet.</td></tr>
+        }
+      </tbody>
+    </table>
+  </section>
+
+  <form class="card invite" (submit)="add($event)" novalidate>
+    <h3>Add a user</h3>
+    <div class="field">
+      <label for="u-name">Name</label>
+      <input id="u-name" name="name" [ngModel]="draft().name"
+             (ngModelChange)="draft.set({ ...draft(), name: $event })" />
+    </div>
+    <div class="field">
+      <label for="u-email">Email</label>
+      <input id="u-email" name="email" type="email" required [ngModel]="draft().email"
+             (ngModelChange)="draft.set({ ...draft(), email: $event })" />
+    </div>
+    <div class="field">
+      <label for="u-pass">Password <small class="muted">8+ characters</small></label>
+      <input id="u-pass" name="password" type="password" required [ngModel]="draft().password"
+             (ngModelChange)="draft.set({ ...draft(), password: $event })" />
+    </div>
+    <div class="field">
+      <label for="u-role">Role</label>
+      <select id="u-role" name="role" [ngModel]="draft().role"
+              (ngModelChange)="draft.set({ ...draft(), role: $event })">
+        @for (role of assignable(); track role) {
+          <option [value]="role">{{ role }}</option>
+        }
+      </select>
+    </div>
+    <button class="btn primary" type="submit" [disabled]="busy()">
+      {{ busy() ? 'Adding...' : 'Add user' }}
+    </button>
+  </form>
+</div>

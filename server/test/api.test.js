@@ -10,9 +10,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
-import { closeApp, createApp } from '../src/app.js';
-import { DEFAULTS, TRANSPORT_SANDBOX, TRANSPORT_WEB_JS } from '../src/config.js';
+import { closeApp } from '../src/app.js';
+import { createTestApp as createApp } from './helpers.js';
+import { DEFAULTS, TRANSPORT_CLOUD_API, TRANSPORT_SANDBOX, TRANSPORT_WEB_JS } from '../src/config.js';
 import { Database } from '../src/db.js';
+import { rowsToPaymentReminders } from '../src/paymentReminders.js';
 import { Status } from '../src/protocol.js';
 import { CloudApiTransport, parseStatusPayload } from '../src/transports/cloudApi.js';
 import { SandboxTransport } from '../src/transports/sandbox.js';
@@ -53,7 +55,9 @@ const api = async (method, url, body) => {
     return { status: res.status, body: text ? JSON.parse(text) : null };
 };
 
-const waitFor = async (predicate, timeoutMs = 4000) => {
+// The auto-reply engine waits a human-like 2500-4500ms before replying, so a
+// 4s default raced it and flaked roughly one run in three.
+const waitFor = async (predicate, timeoutMs = 6000) => {
     const end = Date.now() + timeoutMs;
     while (Date.now() < end) {
         if (await predicate()) return true;
@@ -153,6 +157,67 @@ describe('sending', () => {
             return stats.stats.processed >= 2;
         }));
     });
+
+    it('imports payment reminder rows with common Excel headers', () => {
+        const result = rowsToPaymentReminders([
+            {
+                'Full Name': 'Anika',
+                Mobile: '9876543210',
+                'Due Amount': 'Rs. 1,250',
+                'Due Date': '2026-10-30',
+                Message: 'Hi {name}, your balance is {remaining} by {due_date}.',
+            },
+            {
+                Name: 'Broken',
+                Mobile: '123',
+                Remaining: '',
+            },
+        ], '91');
+        assert.equal(result.reminders.length, 1);
+        assert.equal(result.reminders[0].phone, '919876543210');
+        assert.equal(result.reminders[0].remaining, 'Rs. 1,250');
+        assert.equal(result.reminders[0].finalMessage, 'Hi Anika, your balance is Rs. 1,250 by 2026-10-30.');
+        assert.match(result.errors[0], /remaining payment amount/);
+    });
+
+    it('uploads an Excel payment sheet and queues individualized reminders', async () => {
+        const XLSX = await import('xlsx');
+        const workbook = XLSX.utils.book_new();
+        const sheet = XLSX.utils.json_to_sheet([
+            { Name: 'Isha', Phone: '9988776655', Remaining: '2500' },
+            {
+                Name: 'Dev',
+                Phone: '9988776644',
+                Remaining: '3100',
+                Message: 'Hello {name}, please pay {remaining}.',
+            },
+        ]);
+        XLSX.utils.book_append_sheet(workbook, sheet, 'Payments');
+        const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+        const form = new FormData();
+        form.set('file', new Blob([buffer], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        }), 'payments.xlsx');
+        const uploadRes = await fetch(`${base}/api/payment-reminders/import`, {
+            method: 'POST',
+            body: form,
+        });
+        assert.equal(uploadRes.status, 200);
+        const imported = await uploadRes.json();
+        assert.equal(imported.reminders.length, 2);
+        assert.match(imported.reminders[0].finalMessage, /Isha/);
+
+        const { status, body } = await api('POST', '/api/payment-reminders/send', {
+            reminders: imported.reminders,
+        });
+        assert.equal(status, 200);
+        assert.equal(body.queued, 2);
+        assert.ok(await waitFor(() => db.history({ campaignId: body.campaignId }).length === 2));
+        const records = db.history({ campaignId: body.campaignId });
+        assert.ok(records.some((record) => record.message === 'Hello Dev, please pay 3100.'));
+        assert.ok(records.some((record) => /Isha/.test(record.message) && /2500/.test(record.message)));
+    });
 });
 
 describe('history API', () => {
@@ -188,6 +253,164 @@ describe('server-sent events', () => {
         }
         controller.abort();
         assert.match(seen, /"type":"(message|stats|status)"/);
+    });
+});
+
+describe('inbound webhook auto-replies', () => {
+    const inboundPayload = (body = 'hi') => ({
+        entry: [{ changes: [{ value: {
+            contacts: [{ wa_id: '15551234567', profile: { name: 'Mira' } }],
+            messages: [{ id: `wamid.in.${Date.now()}`, from: '15551234567',
+                timestamp: '1790771400', type: 'text', text: { body } }],
+        } }] }],
+    });
+
+    const startCloudApp = async ({ dbName, fetchImpl }) => {
+        const cloudDb = new Database(path.join(tmp, dbName));
+        const cloudApp = createApp({
+            db: cloudDb,
+            config: {
+                ...DEFAULTS,
+                transport: TRANSPORT_CLOUD_API,
+                phoneNumberId: '1',
+                accessToken: 'good',
+                requestTimeout: 5,
+            },
+            deps: { fetchImpl },
+        });
+        const cloudServer = cloudApp.listen(0, '127.0.0.1');
+        await new Promise((resolve) => cloudServer.once('listening', resolve));
+        const cloudBase = `http://127.0.0.1:${cloudServer.address().port}`;
+        return { cloudDb, cloudApp, cloudServer, cloudBase };
+    };
+
+    it('sends the default hi reply through the Cloud API transport send path', async () => {
+        const sends = [];
+        const fetchImpl = async (url, init) => {
+            if (init?.method === 'POST') {
+                sends.push(JSON.parse(init.body));
+                return new Response(JSON.stringify({ messages: [{ id: 'wamid.reply.1' }] }), { status: 200 });
+            }
+            return new Response(JSON.stringify({
+                display_phone_number: '15550783881',
+                verified_name: 'Acme',
+                quality_rating: 'GREEN',
+            }), { status: 200 });
+        };
+        const { cloudDb, cloudApp, cloudServer, cloudBase } = await startCloudApp({
+            dbName: 'webhook-hi.db',
+            fetchImpl,
+        });
+        try {
+            const res = await fetch(`${cloudBase}/api/webhook`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(inboundPayload('hi')),
+            });
+            assert.equal(res.status, 200);
+            assert.ok(await waitFor(() => sends.length === 1), 'default hi rule should send one reply');
+            assert.equal(sends[0].to, '15551234567');
+            assert.equal(sends[0].type, 'text');
+            assert.match(sends[0].text.body, /thank you for contacting us/);
+            assert.equal(cloudDb.getInboundMessages({ sender: '15551234567' })[0].repliedRule, 'hi');
+        } finally {
+            await closeApp(cloudApp);
+            await new Promise((resolve) => cloudServer.close(resolve));
+            cloudDb.close();
+        }
+    });
+
+    it('uses a keyword reply created through the auto-replies API', async () => {
+        const sends = [];
+        const fetchImpl = async (url, init) => {
+            if (init?.method === 'POST') {
+                sends.push(JSON.parse(init.body));
+                return new Response(JSON.stringify({ messages: [{ id: 'wamid.reply.dynamic' }] }), { status: 200 });
+            }
+            return new Response(JSON.stringify({
+                display_phone_number: '15550783881',
+                verified_name: 'Acme',
+                quality_rating: 'GREEN',
+            }), { status: 200 });
+        };
+        const { cloudDb, cloudApp, cloudServer, cloudBase } = await startCloudApp({
+            dbName: 'webhook-dynamic.db',
+            fetchImpl,
+        });
+        try {
+            const createRes = await fetch(`${cloudBase}/api/auto-replies`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    keyword: 'catalog',
+                    matchType: 'CONTAINS',
+                    replyBody: 'Here is the catalog link, {name}.',
+                    cooldownSec: 0,
+                }),
+            });
+            assert.equal(createRes.status, 201);
+            const created = await createRes.json();
+            assert.equal(created.rule.keyword, 'catalog');
+
+            const webhookRes = await fetch(`${cloudBase}/api/webhook`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(inboundPayload('Can you send catalog?')),
+            });
+            assert.equal(webhookRes.status, 200);
+            assert.ok(await waitFor(() => sends.length === 1), 'created keyword rule should send one reply');
+            assert.equal(sends[0].to, '15551234567');
+            assert.equal(sends[0].text.body, 'Here is the catalog link, Mira.');
+            assert.equal(cloudDb.getInboundMessages({ sender: '15551234567' })[0].repliedRule, 'catalog');
+        } finally {
+            await closeApp(cloudApp);
+            await new Promise((resolve) => cloudServer.close(resolve));
+            cloudDb.close();
+        }
+    });
+
+    it('does not send when the matching default rule is inactive', async () => {
+        const sends = [];
+        const fetchImpl = async (url, init) => {
+            if (init?.method === 'POST') {
+                sends.push(JSON.parse(init.body));
+                return new Response(JSON.stringify({ messages: [{ id: 'wamid.reply.2' }] }), { status: 200 });
+            }
+            return new Response(JSON.stringify({
+                display_phone_number: '15550783881',
+                verified_name: 'Acme',
+                quality_rating: 'GREEN',
+            }), { status: 200 });
+        };
+        const { cloudDb, cloudApp, cloudServer, cloudBase } = await startCloudApp({
+            dbName: 'webhook-inactive.db',
+            fetchImpl,
+        });
+        try {
+            const hi = cloudDb.getAutoReplies().find((rule) => rule.keyword === 'hi');
+            cloudDb.saveAutoReply({
+                id: hi.id,
+                keyword: hi.keyword,
+                matchType: hi.matchType,
+                replyBody: hi.replyBody,
+                isActive: false,
+                cooldownSec: 0,
+            });
+            const res = await fetch(`${cloudBase}/api/webhook`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(inboundPayload('hi')),
+            });
+            assert.equal(res.status, 200);
+            assert.ok(await waitFor(() => cloudDb.getInboundMessages({ sender: '15551234567' }).length === 1));
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            assert.equal(sends.length, 0);
+            assert.equal(cloudDb.getInboundMessages({ sender: '15551234567' })[0].repliedRule, null);
+        } finally {
+            await closeApp(cloudApp);
+            await new Promise((resolve) => cloudServer.close(resolve));
+            cloudDb.close();
+        }
     });
 });
 
@@ -243,6 +466,97 @@ describe('transports', () => {
         assert.equal(transport.isConnected(), false);
     });
 
+    it('WhatsApp Web reconnects after an unexpected disconnect without duplicate timers', async () => {
+        const clients = [];
+        const timers = [];
+        let clearCalls = 0;
+
+        class ReconnectClient extends EventEmitter {
+            info = { wid: { user: `1555000000${clients.length + 1}` } };
+            destroyed = false;
+
+            async initialize() {
+                setImmediate(() => this.emit('ready'));
+            }
+
+            async destroy() {
+                this.destroyed = true;
+            }
+        }
+
+        const transport = new WhatsAppWebTransport(
+            { ...DEFAULTS },
+            {
+                createClient: async () => {
+                    const client = new ReconnectClient();
+                    clients.push(client);
+                    return client;
+                },
+                setTimeoutFn: (fn, ms) => {
+                    const timer = { fn, ms, cleared: false };
+                    timers.push(timer);
+                    return timer;
+                },
+                clearTimeoutFn: (timer) => {
+                    clearCalls += 1;
+                    timer.cleared = true;
+                },
+                randomFn: () => 0,
+                reconnectBaseMs: 10,
+                reconnectMaxMs: 50,
+            });
+
+        await transport.connect();
+        assert.equal(transport.isConnected(), true);
+        clients[0].emit('disconnected', 'NAVIGATION');
+        clients[0].emit('disconnected', 'NAVIGATION');
+        assert.equal(timers.length, 1, 'only one reconnect timer should be active');
+        assert.equal(timers[0].ms, 10);
+
+        timers[0].fn();
+        assert.ok(await waitFor(() => clients.length === 2 && transport.isConnected()));
+        assert.equal(clients[0].destroyed, true, 'the stale client should be destroyed before reconnect');
+        assert.equal(transport.account, '15550000002');
+        assert.equal(clearCalls, 0, 'firing the timer should not need manual clearing');
+    });
+
+    it('WhatsApp Web does not reconnect after auth/session invalidation', async () => {
+        const timers = [];
+        const states = [];
+
+        class LogoutClient extends EventEmitter {
+            info = { wid: { user: '15550000001' } };
+
+            async initialize() {
+                setImmediate(() => this.emit('ready'));
+            }
+
+            async destroy() {}
+        }
+
+        const client = new LogoutClient();
+        const transport = new WhatsAppWebTransport(
+            { ...DEFAULTS },
+            {
+                createClient: async () => client,
+                setTimeoutFn: (fn, ms) => {
+                    timers.push({ fn, ms });
+                    return timers.at(-1);
+                },
+                reconnectBaseMs: 10,
+                reconnectMaxMs: 50,
+            });
+        transport.events.on('state', (payload) => states.push(payload));
+
+        await transport.connect();
+        client.emit('disconnected', 'LOGOUT');
+
+        assert.equal(transport.isConnected(), false);
+        assert.equal(timers.length, 0, 'logout means the cached session is no longer reusable');
+        assert.equal(states.at(-1).state, 'auth_failure');
+        assert.match(states.at(-1).detail, /LOGOUT/);
+    });
+
     it('connection API stays alive and exposes WhatsApp Web profile lock state', async () => {
         class LockedClient extends EventEmitter {
             async initialize() {
@@ -275,6 +589,135 @@ describe('transports', () => {
             await closeApp(lockedApp);
             await new Promise((resolve) => lockedServer.close(resolve));
             lockedDb.close();
+        }
+    });
+
+    it('auto-replies to WhatsApp Web LID inbound chats without number lookup', async () => {
+        const sends = [];
+        let getNumberIdCalls = 0;
+        class LidClient extends EventEmitter {
+            info = { wid: { user: '15550783881' } };
+
+            async initialize() {
+                setImmediate(() => this.emit('ready'));
+            }
+
+            async destroy() {}
+
+            async getNumberId() {
+                getNumberIdCalls += 1;
+                return null;
+            }
+
+            async sendMessage(chatId, message) {
+                sends.push({ chatId, message });
+                return { id: { _serialized: 'web.reply.lid.1' } };
+            }
+        }
+
+        const lidDb = new Database(path.join(tmp, 'web-lid-autoreply.db'));
+        const client = new LidClient();
+        const lidApp = createApp({
+            db: lidDb,
+            config: { ...DEFAULTS, transport: TRANSPORT_WEB_JS },
+            deps: { createClient: async () => client },
+        });
+        const lidServer = lidApp.listen(0, '127.0.0.1');
+        await new Promise((resolve) => lidServer.once('listening', resolve));
+        const lidBase = `http://127.0.0.1:${lidServer.address().port}`;
+        try {
+            const connectRes = await fetch(`${lidBase}/api/connection/connect`, { method: 'POST' });
+            assert.equal(connectRes.status, 200);
+
+            client.emit('message', {
+                id: { _serialized: 'web.in.lid.1' },
+                from: '123456789012345@lid',
+                body: 'hi',
+                timestamp: '1790771400',
+                _data: { notifyName: 'Mira' },
+            });
+
+            assert.ok(await waitFor(() => sends.length === 1, 6000),
+                'LID inbound sender should receive the auto-reply');
+            assert.equal(sends[0].chatId, '123456789012345@lid');
+            assert.match(sends[0].message, /thank you for contacting us/);
+            assert.equal(getNumberIdCalls, 0, 'direct chat ids must not go through getNumberId');
+            assert.equal(lidDb.getInboundMessages({ sender: '123456789012345@lid' })[0].repliedRule, 'hi');
+        } finally {
+            await closeApp(lidApp);
+            await new Promise((resolve) => lidServer.close(resolve));
+            lidDb.close();
+        }
+    });
+
+    it('auto-replies to own WhatsApp Web messages in a friend chat without recursion', async () => {
+        const sends = [];
+        class OwnMessageClient extends EventEmitter {
+            info = { wid: { user: '15550783881' } };
+
+            async initialize() {
+                setImmediate(() => this.emit('ready'));
+            }
+
+            async destroy() {}
+
+            async getNumberId(recipient) {
+                assert.equal(recipient, '15551234567');
+                return { _serialized: '15551234567@c.us' };
+            }
+
+            async sendMessage(chatId, message) {
+                sends.push({ chatId, message });
+                this.emit('message_create', {
+                    id: { _serialized: `web.bot.${sends.length}` },
+                    fromMe: true,
+                    from: '15550783881@c.us',
+                    to: chatId,
+                    body: message,
+                    timestamp: '1790771401',
+                });
+                return { id: { _serialized: `web.reply.${sends.length}` } };
+            }
+        }
+
+        const ownDb = new Database(path.join(tmp, 'web-own-message-autoreply.db'));
+        const client = new OwnMessageClient();
+        const ownApp = createApp({
+            db: ownDb,
+            config: { ...DEFAULTS, transport: TRANSPORT_WEB_JS },
+            deps: { createClient: async () => client },
+        });
+        const ownServer = ownApp.listen(0, '127.0.0.1');
+        await new Promise((resolve) => ownServer.once('listening', resolve));
+        const ownBase = `http://127.0.0.1:${ownServer.address().port}`;
+        try {
+            const connectRes = await fetch(`${ownBase}/api/connection/connect`, { method: 'POST' });
+            assert.equal(connectRes.status, 200);
+
+            client.emit('message_create', {
+                id: { _serialized: 'web.own.1' },
+                fromMe: true,
+                from: '15550783881@c.us',
+                to: '15551234567@c.us',
+                body: 'hello',
+                timestamp: '1790771400',
+                _data: { notifyName: 'Mira' },
+            });
+
+            assert.ok(await waitFor(() => sends.length === 1, 6000),
+                'own message in a friend chat should trigger one auto-reply');
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            assert.equal(sends.length, 1, 'bot-sent message_create echo must not recurse');
+            assert.equal(sends[0].chatId, '15551234567@c.us');
+            assert.match(sends[0].message, /thank you for contacting us/);
+            const messages = ownDb.getInboundMessages({ sender: '15551234567' });
+            assert.equal(messages.length, 1);
+            assert.equal(messages[0].body, 'hello');
+            assert.equal(messages[0].repliedRule, 'hello');
+        } finally {
+            await closeApp(ownApp);
+            await new Promise((resolve) => ownServer.close(resolve));
+            ownDb.close();
         }
     });
 
