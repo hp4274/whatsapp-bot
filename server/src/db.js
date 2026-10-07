@@ -131,6 +131,38 @@ CREATE TABLE IF NOT EXISTS auto_replies (
     updated_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_auto_replies_tenant ON auto_replies(tenant_id);
+
+CREATE TABLE IF NOT EXISTS contacts (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id      INTEGER NOT NULL,
+    phone          TEXT NOT NULL,
+    name           TEXT NOT NULL DEFAULT '',
+    email          TEXT NOT NULL DEFAULT '',
+    status         TEXT NOT NULL DEFAULT 'active',
+    opt_in_status  TEXT NOT NULL DEFAULT 'unknown',
+    custom_fields  TEXT NOT NULL DEFAULT '{}',
+    tags           TEXT NOT NULL DEFAULT '[]',
+    source         TEXT NOT NULL DEFAULT 'manual',
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL,
+    -- The number is the identity: duplicate detection is the constraint, not a
+    -- nightly job.
+    UNIQUE (tenant_id, phone)
+);
+CREATE INDEX IF NOT EXISTS idx_contacts_tenant ON contacts(tenant_id, id);
+CREATE INDEX IF NOT EXISTS idx_contacts_name   ON contacts(tenant_id, name);
+
+CREATE TABLE IF NOT EXISTS segments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id   INTEGER NOT NULL,
+    name        TEXT NOT NULL,
+    -- A stored filter, not a stored list: re-evaluated on every use, so a
+    -- segment cannot go stale.
+    filter      TEXT NOT NULL DEFAULT '{}',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_segments_tenant ON segments(tenant_id, id);
 `;
 
 const DEFAULT_TENANT_ID = 1;

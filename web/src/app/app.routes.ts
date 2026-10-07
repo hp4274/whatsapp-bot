@@ -16,6 +16,12 @@ export const routes: Routes = [
     loadComponent: () => import('./connection/connection').then((m) => m.ConnectionView),
   },
   {
+    path: 'contacts',
+    title: 'Contacts - WhatsApp Sender',
+    canActivate: [authGuard],
+    loadComponent: () => import('./contacts/contacts').then((m) => m.ContactsView),
+  },
+  {
     path: 'campaign',
     title: 'Messaging & Campaign - WhatsApp Sender',
     canActivate: [authGuard],

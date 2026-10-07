@@ -46,6 +46,7 @@ import {
     publicChannel,
     withinSendingWindow,
 } from './channels.js';
+import { ContactError, ContactStore } from './contactStore.js';
 import { MessageJobError, messageJob } from './messaging/job.js';
 import { MessageService } from './messaging/service.js';
 import { ROLES, Tenancy, TenancyError, roleRank } from './tenancy.js';
@@ -148,10 +149,14 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     // which reads the live channel row so a capability switched off mid-flight
     // takes effect on the next job rather than the next restart.
     const messages = new MessageService(db, manager, () => state.channel);
+    // Contacts belong to the tenant, not to one number, but the store needs the
+    // channel's country code to normalise what people type.
+    const contacts = new ContactStore(db, config.defaultCountryCode);
     autoReply.setService(messages);
     state.manager = manager;
     state.autoReply = autoReply;
     state.messages = messages;
+    state.contacts = contacts;
     manager.on('event', (event) => broadcast(state, event));
     manager.start();
 
@@ -170,6 +175,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         if (problems.length) return res.status(400).json({ errors: problems });
         state.config = state.save(merged);
         manager.applyConfig(state.config);
+        contacts.defaultCountryCode = state.config.defaultCountryCode;
         return res.json({ config: publicConfig(state.config) });
     });
 
@@ -387,9 +393,148 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         try {
             const result = await importContacts(
                 req.file.originalname, req.file.buffer, state.config.defaultCountryCode);
+            // Campaign preview just wants the parsed rows, so saving is opt-in
+            // and the existing contract is unchanged.
+            if (req.query.save === 'true' || req.body?.save === 'true') {
+                const tags = String(req.query.tags ?? '').split(',').filter(Boolean);
+                // importContacts already normalised every number.
+                result.saved = contacts.importMany(result.contacts, { source: 'import', tags, normalized: true });
+            }
             return res.json(result);
         } catch (err) {
             return res.status(400).json({ errors: [`Import failed: ${err.message}`] });
+        }
+    });
+
+    // ------------------------------------------------------- contact book --
+    const contactFail = (res, err) => {
+        if (err instanceof ContactError) return res.status(err.status).json({ errors: [err.message] });
+        throw err;
+    };
+
+    /** A filter can arrive as query params or, for anything structured, as JSON. */
+    const filterFromQuery = (query) => {
+        const filter = {};
+        if (query.tags) filter.tags = String(query.tags).split(',').filter(Boolean);
+        if (query.anyTags) filter.anyTags = String(query.anyTags).split(',').filter(Boolean);
+        if (query.notTags) filter.notTags = String(query.notTags).split(',').filter(Boolean);
+        if (query.status) filter.status = query.status;
+        if (query.optInStatus) filter.optInStatus = query.optInStatus;
+        if (query.source) filter.source = query.source;
+        if (query.search) filter.search = query.search;
+        if (query.optedOut !== undefined) filter.optedOut = query.optedOut === 'true';
+        if (query.filter) {
+            try {
+                Object.assign(filter, JSON.parse(query.filter));
+            } catch {
+                // A malformed filter narrows nothing rather than failing the read.
+            }
+        }
+        return filter;
+    };
+
+    app.get('/contacts', (req, res) => {
+        const filter = filterFromQuery(req.query);
+        res.json({
+            contacts: contacts.find(filter, { limit: req.query.limit, offset: req.query.offset }),
+            total: contacts.count(filter),
+            tags: contacts.tags(),
+            fieldKeys: contacts.fieldKeys(),
+        });
+    });
+
+    app.post('/contacts', (req, res) => {
+        try {
+            // Look up by the stored form, not by whatever the caller typed.
+            const existed = req.body?.phone ? contacts.getByPhone(contacts.normalize(req.body.phone)) : null;
+            const contact = contacts.upsert(req.body ?? {});
+            return res.status(existed ? 200 : 201).json({ contact });
+        } catch (err) {
+            return contactFail(res, err);
+        }
+    });
+
+    app.get('/contacts/:id', (req, res) => {
+        const contact = contacts.get(req.params.id);
+        if (!contact) return res.status(404).json({ errors: ['contact not found'] });
+        return res.json({ contact });
+    });
+
+    app.put('/contacts/:id', (req, res) => {
+        const existing = contacts.get(req.params.id);
+        if (!existing) return res.status(404).json({ errors: ['contact not found'] });
+        try {
+            // Replace rather than merge: a PUT from an edit form means "this is
+            // the contact now", including any tag the user removed.
+            return res.json({ contact: contacts.upsert({ ...req.body, phone: existing.phone }, { merge: false }) });
+        } catch (err) {
+            return contactFail(res, err);
+        }
+    });
+
+    app.delete('/contacts/:id', (req, res) => {
+        try {
+            return res.json({ deleted: contacts.remove(req.params.id).id });
+        } catch (err) {
+            return contactFail(res, err);
+        }
+    });
+
+    app.post('/contacts/:id/tags', (req, res) => {
+        try {
+            const { add = [], remove = [] } = req.body ?? {};
+            let contact = add.length ? contacts.addTags(req.params.id, add) : contacts.get(req.params.id);
+            if (!contact) return res.status(404).json({ errors: ['contact not found'] });
+            if (remove.length) contact = contacts.removeTags(req.params.id, remove);
+            return res.json({ contact });
+        } catch (err) {
+            return contactFail(res, err);
+        }
+    });
+
+    app.get('/contacts/:id/timeline', (req, res) => {
+        try {
+            return res.json({ timeline: contacts.timeline(req.params.id, { limit: Number(req.query.limit) || 100 }) });
+        } catch (err) {
+            return contactFail(res, err);
+        }
+    });
+
+    // ------------------------------------------------------------ segments --
+    app.get('/segments', (req, res) => res.json({ segments: contacts.listSegments() }));
+
+    app.post('/segments', (req, res) => {
+        try {
+            const segment = contacts.saveSegment(req.body ?? {});
+            return res.status(201).json({ segment, count: contacts.count(segment.filter) });
+        } catch (err) {
+            return contactFail(res, err);
+        }
+    });
+
+    app.put('/segments/:id', (req, res) => {
+        try {
+            const segment = contacts.saveSegment({ ...req.body, id: req.params.id });
+            return res.json({ segment, count: contacts.count(segment.filter) });
+        } catch (err) {
+            return contactFail(res, err);
+        }
+    });
+
+    app.delete('/segments/:id', (req, res) => {
+        try {
+            contacts.deleteSegment(req.params.id);
+            return res.json({ deleted: Number(req.params.id) });
+        } catch (err) {
+            return contactFail(res, err);
+        }
+    });
+
+    app.get('/segments/:id/contacts', (req, res) => {
+        try {
+            return res.json({ contacts: contacts.segmentContacts(req.params.id, { limit: req.query.limit }) });
+        } catch (err) {
+            return contactFail(res, err);
         }
     });
 
@@ -506,9 +651,28 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
 
     // ----------------------------------------------------------- campaign --
     app.post('/campaign/start', (req, res) => {
-        const { contacts = [], template = '', onePerNumber = true, mediaId = null } = req.body ?? {};
-        if (!contacts.length) return res.status(400).json({ errors: ['no contacts'] });
+        // `audience` is the request's contact list; `contacts` is the store.
+        const {
+            contacts: audience = [], segmentId = null, template = '',
+            onePerNumber = true, mediaId = null,
+        } = req.body ?? {};
         if (!template) return res.status(400).json({ errors: ['message is required'] });
+
+        // A segment is resolved at send time, so the audience is whoever
+        // matches now rather than whoever matched when it was saved.
+        let list = audience;
+        if (segmentId) {
+            try {
+                list = contacts.segmentContacts(segmentId, { limit: 5000 })
+                    .filter((contact) => contact.messageable)
+                    .map((contact) => ({ name: contact.name, phone: contact.phone, extra: contact.customFields }));
+            } catch (err) {
+                return contactFail(res, err);
+            }
+        }
+        if (!list.length) {
+            return res.status(400).json({ errors: [segmentId ? 'that segment is empty' : 'no contacts'] });
+        }
         if (!state.transport?.isConnected?.()) {
             return res.status(409).json({ errors: ['Connect a transport first.'] });
         }
@@ -517,9 +681,9 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         manager.pausedByQuota = false;
         const media = mediaId ? state.media.get(mediaId) : null;
         if (mediaId && !media) return res.status(404).json({ errors: ['media not found'] });
-        const result = manager.enqueueContacts(contacts, template, { onePerNumber, media });
+        const result = manager.enqueueContacts(list, template, { onePerNumber, media });
         manager.start();
-        return res.json(result);
+        return res.json({ ...result, segmentId, audience: list.length });
     });
 
     app.post('/campaign/:action', (req, res) => {

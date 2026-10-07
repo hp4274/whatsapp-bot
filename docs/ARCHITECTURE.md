@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Phases 0, 1 and 2 implemented. Last updated 2026-10-07.
+Status: Phases 0-4 implemented. Last updated 2026-10-07.
 
 This document is the contract the rest of the roadmap builds against. If a new
 feature cannot say which tenant and which channel it belongs to, it does not
@@ -186,8 +186,7 @@ transport. Before it does, one gate enforces Rule 2 (`SEND_ROUTES` in
 needs, and must be inside its sending window. Otherwise the request is a 409
 naming which of the three failed.
 
-From Phase 3 onward the send becomes a message job that names both ids
-explicitly:
+Since Phase 3 the send *is* a message job naming both ids:
 
 ```js
 { tenantId, channelId, conversationId, contactId, direction, messageType,
@@ -195,7 +194,41 @@ explicitly:
 ```
 
 No message may be dispatched without both ids resolved. There is no "default
-tenant" fallback in the dispatch path.
+tenant" fallback in the dispatch path; `messageJob()` rejects a job missing
+either id rather than guessing.
+
+Every producer hands its job to the **message service**
+(`src/messaging/service.js`), which is the only way out. It owns the checks a
+caller must not be able to route around — channel active, channel enabled for
+that kind of traffic, recipient not opted out, idempotency key not already
+used — and then enqueues on the channel's campaign manager, which owns the
+queue, pacing, rate limit, retries and daily cap.
+
+That manager was already the pipeline for campaigns. Phase 3 did not build a
+second one: auto-replies, transactional sends and reminders now use this one,
+so a reply is paced, retried and counted against the cap exactly like a
+campaign row. The queue is priority-ordered — a reply or a receipt goes ahead
+of a campaign backlog, while equal priorities keep FIFO order.
+
+`messageType` is one of `campaign`, `transactional`, `auto_reply`, `reminder`,
+`workflow`, and it decides both the priority and which channel capability the
+job needs.
+
+**Idempotency.** A caller that supplies a key gets the original message id back
+on a retry rather than a second message. A caller that does not gets a
+content-derived key, which is what makes a redelivered webhook produce one
+reply instead of one per delivery. The guarantee is a partial unique index on
+`messages(tenant_id, idempotency_key)`.
+
+**Normalized errors.** `src/messaging/errors.js` maps a Cloud API numeric code,
+a dropped WhatsApp Web session and a socket timeout onto one small set —
+`DISCONNECTED`, `RATE_LIMITED`, `AUTH`, `INVALID_RECIPIENT`,
+`TEMPLATE_REQUIRED`, `PROVIDER_UNAVAILABLE`, `CANCELLED`, `UNKNOWN` — each
+carrying whether it is worth retrying. Upstream code never branches on which
+transport threw.
+
+`GET /api/queue` reports depth, in-flight count, a breakdown by message type,
+accepted/duplicate/suppressed counts and the delivery-status histogram.
 
 ### Inbound
 
@@ -221,6 +254,52 @@ which is not authentication.
 For WhatsApp Web there is no webhook: the transport holds a live session per
 tenant in its own profile directory, and inbound messages arrive on that
 session's event emitter, already inside the right runtime.
+
+---
+
+## 5a. Contacts
+
+One row per number per tenant. `UNIQUE (tenant_id, phone)` is the duplicate
+detection: importing the same sheet twice updates rather than duplicating, and
+the same number can exist in two tenants' books independently.
+
+```
+contacts
+  id, tenant_id, phone, name, email, status, opt_in_status,
+  custom_fields, tags, source, created_at, updated_at
+```
+
+**What a business actually tracks lives in JSON, not in columns.** A clinic
+stores `patient_id` and `doctor`; a school stores `class` and `parent_name`; a
+shop stores `last_order_id`. `custom_fields` is a flat string map and `tags` is
+an array, both filterable through SQLite's JSON1 functions, so a new industry
+needs no migration.
+
+**A segment is a stored filter, not a stored list.** `segments.filter` holds the
+same object `ContactStore.find` takes, so a segment is re-evaluated every time
+it is used and cannot go stale. A campaign started with `segmentId` resolves its
+audience at send time and drops anyone who is not messageable.
+
+Supported filter keys: `tags` (all of), `anyTags` (any of), `notTags`, `status`,
+`optInStatus`, `optedOut`, `source`, `search`, `custom` (`{key: value}`),
+`createdAfter`, `createdBefore`.
+
+**Opt-out is deliberately not a column here.** `opt_outs` stays the one
+authority the send path consults; `opt_in_status` records the consent basis we
+hold. They are different facts, so there is nothing to keep in sync — a read
+joins `opt_outs` and reports `optedOut` and `messageable` alongside.
+
+**A timeline is derived, not stored.** `GET /api/contacts/:id/timeline` merges
+`messages` and `inbound_messages` for that number. A third table could disagree
+with the two that already hold the truth.
+
+**Phone normalization is a trust boundary with a sharp edge.**
+`normalizePhone(raw, countryCode)` takes what a human typed, so it is *not*
+idempotent: a bare `919876543210` under country code `91` becomes
+`91919876543210`, because the function cannot tell an E.164 number from a
+national one that happens to start with the country code. Callers that have
+already normalized — the sheet importer — say so explicitly rather than leaving
+the store to guess from the digits.
 
 ---
 
@@ -414,3 +493,28 @@ Phase 2:
 - [ ] Per-channel webhook paths (`/api/webhook/:tenantId/:channelId`) and
       cross-checking the provider's phone number id against the channel row.
       Inbound still resolves to the tenant's default channel.
+
+Phase 3:
+
+- [x] Provider-neutral message job, with tenant and channel required
+- [x] One message service every producer goes through
+- [x] Campaigns, auto-replies and transactional sends on the same queue
+- [x] Priority ordering, so a reply does not wait behind a campaign
+- [x] Idempotency keys, enforced by a unique index
+- [x] Normalized delivery states and provider errors
+- [x] Queue observability (`GET /api/queue`)
+- [ ] Payment reminders still enqueue through the manager directly rather than
+      through the service. They inherit pacing and the cap, but not the
+      capability and idempotency checks.
+- [ ] `scheduledAt` is carried on the job but nothing reads it yet. Phase 7.
+
+Phase 4:
+
+- [x] Contact CRUD, bulk import, tags and custom fields
+- [x] Saved segments as stored filters, usable as campaign audiences
+- [x] Opt-in state recorded, opt-out derived from the send path's authority
+- [x] Contact timeline derived from the message tables
+- [x] Duplicate detection per tenant, by database constraint
+- [x] Cross-tenant contact and segment tests
+- [ ] Segment filters are not yet readable by the workflow engine, which does
+      not exist until Phase 6. The filter object is the seam.
