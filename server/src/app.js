@@ -38,7 +38,7 @@ import {
     remindersToContacts,
 } from './paymentReminders.js';
 import { importContacts } from './contacts.js';
-import { PhoneError, normalizePhone, personalize } from './protocol.js';
+import { PhoneError, contactContext, normalizePhone, personalize } from './protocol.js';
 import {
     CAPABILITIES,
     ChannelError,
@@ -62,6 +62,16 @@ import { WorkflowError } from './workflows/definition.js';
 import { WorkflowStore, dueRuns } from './workflows/store.js';
 import { MessageJobError, messageJob } from './messaging/job.js';
 import { MessageService } from './messaging/service.js';
+import { createBillingRouter } from './billing/routes.js';
+import { createCampaignRouter } from './campaigns/routes.js';
+import { dueCampaigns } from './campaigns/store.js';
+import { BillingStore } from './billing/store.js';
+import { bindContext, requestContext } from './observability/logger.js';
+import { registerQueue, snapshot, unregisterQueue } from './observability/metrics.js';
+import { ApiKeyStore } from './publicapi/keys.js';
+import { createPublicApiRouter } from './publicapi/routes.js';
+import { WEBHOOK_JOB_KIND, createWebhookDeliveryHandler } from './publicapi/webhooks.js';
+import { rateLimit, webhookSignatureGuard } from './security/signature.js';
 import { ROLES, Tenancy, TenancyError, roleRank } from './tenancy.js';
 import { TransportError } from './transports/base.js';
 import { CloudApiTransport, parseInboundPayload, parseStatusPayload } from './transports/cloudApi.js';
@@ -107,6 +117,9 @@ const FEATURE_ROUTERS = [
     createTicketRouter,
     createKnowledgeRouter,
     createObjectRouter,
+    createBillingRouter,
+    createPublicApiRouter,
+    createCampaignRouter,
 ];
 
 /** Which capability each sending route needs. Everything else is read or admin. */
@@ -115,6 +128,24 @@ const SEND_ROUTES = Object.freeze({
     '/campaign/start': 'campaigns',
     '/payment-reminders/send': 'transactional_messages',
 });
+
+/**
+ * Sending routes that carry an id, so an exact-path lookup can never match
+ * them. `/campaigns/7/start` is a send and must pass the same gate as
+ * `/campaign/start`; keying only on the literal path silently exempted it.
+ */
+const SEND_ROUTE_PATTERNS = Object.freeze([
+    [/^\/campaigns\/[^/]+\/start$/, 'campaigns'],
+]);
+
+/** The capability a write needs, by path. Null when the route does not send. */
+function capabilityForPath(path) {
+    if (SEND_ROUTES[path]) return SEND_ROUTES[path];
+    for (const [pattern, capability] of SEND_ROUTE_PATTERNS) {
+        if (pattern.test(path)) return capability;
+    }
+    return null;
+}
 
 /**
  * One channel's engine and routes: its transport, campaign manager, auto-reply
@@ -153,7 +184,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
      * gate rather than a lookup.
      */
     app.use((req, res, next) => {
-        const capability = SEND_ROUTES[req.path];
+        const capability = capabilityForPath(req.path);
         if (!capability || req.method === 'GET' || req.method === 'HEAD') return next();
         const channel = state.channel;
         if (channel.status !== 'active') {
@@ -185,6 +216,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     const conversations = new ConversationStore(db);
     const tickets = new TicketStore(db);
     const knowledge = new KnowledgeStore(db);
+    const billing = new BillingStore(db);
     const workflows = new WorkflowStore(db);
     const jobs = new JobStore(db);
     // The engine takes its collaborators injected, which is what keeps it
@@ -195,11 +227,20 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         contacts,
         tickets,
         channels: new Channels(db),
-        renderTemplate: ({ template, context }) => {
+        renderTemplate: ({ template, variables, context }) => {
             const found = Number.isInteger(Number(template))
                 ? templates.get(template) : templates.getByName(template);
             if (!found) throw new Error(`template not found: ${template}`);
-            const rendered = templates.render(found.id, context);
+            // `personalize` reads flat keys, but a run context is nested
+            // ({ event, contact, vars }). Flatten it, or every {name} in a
+            // template survives into the message as literal text.
+            const contact = context?.contact ?? {};
+            const rendered = templates.render(found.id, {
+                ...contactContext(contact),
+                ...(contact.customFields ?? {}),
+                ...(context?.event?.data ?? {}),
+                ...(variables ?? {}),
+            });
             templates.recordUse(found.id);
             return { text: rendered.body, templateId: found.id };
         },
@@ -213,6 +254,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     state.conversations = conversations;
     state.tickets = tickets;
     state.knowledge = knowledge;
+    state.billing = billing;
     state.workflows = workflows;
     state.engine = engine;
     state.jobs = jobs;
@@ -1040,7 +1082,10 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         return res.status(403).send('verification failed');
     });
 
-    app.post('/webhook', (req, res) => {
+    // Verified against the channel's app secret when one is configured; see
+    // `webhookSignatureGuard` for why "none configured" lets the request in.
+    const webhookSecret = () => state.channel?.settings?.appSecret || state.config.appSecret;
+    app.post('/webhook', webhookSignatureGuard(webhookSecret), (req, res) => {
         for (const receipt of parseStatusPayload(req.body)) {
             if (state.transport instanceof CloudApiTransport) {
                 state.transport.recordReceipt(receipt.providerId, receipt.status);
@@ -1085,6 +1130,9 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
             });
         }, 25000);
     });
+
+    // Phase 18: the gauge reads the live queue rather than being pushed to.
+    registerQueue(channel.id, () => manager.queue.pending);
 
     return { router: app, state };
 }
@@ -1213,6 +1261,7 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit })
                 ? channels.route({})
                 : channels.route({ channelId: Number(named) });
             req.channel = channel;
+            bindContext({ channelId: channel.id });
             return runtimeFor(channel).router(req, res, next);
         } catch (err) {
             return fail(res, err);
@@ -1253,7 +1302,16 @@ export function createApp({
     scheduler = false, sweepMs = 5000,
 } = {}) {
     const app = express();
-    app.use(express.json({ limit: '1mb' }));
+    // Before the body parser, so a malformed body is still logged with an id.
+    app.use(requestContext());
+    app.use(express.json({
+        limit: '1mb',
+        // The webhook signature is over the raw bytes, which the parser
+        // consumes; keep them for that route only.
+        verify: (req, res, buf) => {
+            if (req.url.startsWith('/api/webhook')) req.rawBody = buf;
+        },
+    }));
 
     const tenancy = new Tenancy(db);
     const runtimes = new Map();
@@ -1318,6 +1376,22 @@ export function createApp({
         return res.json({ token: tenancy.createSession(user.id), user, tenant });
     });
 
+    /**
+     * The public API authenticates with an API key, so it must sit above the
+     * session middleware below - that one 401s anything without a bearer
+     * *session*. The key selects the tenant, exactly as the webhook path does.
+     */
+    app.all('/api/v1/*splat', (req, res, next) => {
+        const header = req.get('authorization') ?? '';
+        const presented = header.startsWith('Bearer ') ? header.slice(7) : req.get('x-api-key');
+        const key = new ApiKeyStore(db).verify(presented);
+        if (!key) return res.status(401).json({ error: 'invalid_api_key' });
+        if (tenancy.getTenant(key.tenantId)?.status !== 'active') return res.sendStatus(404);
+        bindContext({ tenantId: key.tenantId });
+        req.url = req.url.slice('/api'.length);
+        return runtimeFor(key.tenantId).router(req, res, next);
+    });
+
     // ----------------------------------------------------------- auth --
     app.use('/api', (req, res, next) => {
         const header = req.get('authorization') ?? '';
@@ -1330,6 +1404,10 @@ export function createApp({
         req.token = token;
         return next();
     });
+
+    // After auth so a bucket is per user/tenant rather than per IP, and after
+    // login, which has its own throttle.
+    app.use('/api', rateLimit({ ratePerSecond: 20, burst: 40 }));
 
     const requireRole = (min) => (req, res, next) => (roleRank(req.user.role) >= roleRank(min)
         ? next() : res.status(403).json({ errors: ['You do not have permission to do that.'] }));
@@ -1344,8 +1422,13 @@ export function createApp({
             }
         }
         req.tenantId = id;
+        bindContext({ tenantId: id });
         return next();
     };
+
+    app.get('/api/metrics', (req, res) => (roleRank(req.user.role) >= roleRank('super_admin')
+        ? res.json(snapshot())
+        : res.status(403).json({ errors: ['You do not have permission to do that.'] })));
 
     app.get('/api/auth/me', (req, res) => res.json({
         user: req.user,
@@ -1471,6 +1554,24 @@ export function createApp({
             console.error('[workflows] sweep failed:', err.message);
             return;
         }
+        // A campaign with `scheduled_at` holds no timer either, for the same
+        // reason: the row is the state and must survive a restart.
+        try {
+            for (const { id, tenantId } of dueCampaigns(db, new Date())) {
+                try {
+                    const tenant = runtimeFor(tenantId);
+                    const channel = tenant.channels.getDefault();
+                    if (channel) tenant.runtimeFor(channel).state.campaigns?.start(id);
+                } catch (err) {
+                    // An empty audience or a deleted template must not stop the
+                    // sweep for every other tenant.
+                    console.error(`[campaigns] ${id} failed to start:`, err.message);
+                }
+            }
+        } catch (err) {
+            console.error('[campaigns] sweep failed:', err.message);
+        }
+
         for (const { runId, tenantId } of due) {
             try {
                 const tenant = runtimeFor(tenantId);
@@ -1487,7 +1588,18 @@ export function createApp({
     if (scheduler) {
         const timer = setInterval(() => { void sweep(); }, sweepMs);
         timer.unref();
-        app.locals.stopScheduler = () => clearInterval(timer);
+
+        // Outbound webhooks are durable jobs, not a second retry loop.
+        const jobs = new JobStore(db);
+        const worker = new SchedulerWorker(jobs, { allTenants: true });
+        worker.register(WEBHOOK_JOB_KIND, createWebhookDeliveryHandler({ db }));
+        worker.start();
+        app.locals.worker = worker;
+
+        app.locals.stopScheduler = async () => {
+            clearInterval(timer);
+            await worker.shutdown();
+        };
     }
     app.locals.sweep = sweep;
 
@@ -1623,13 +1735,14 @@ function validateAutoReply(input = {}) {
  * closed HTTP server otherwise, and then writes to a closed database.
  */
 export async function closeApp(app) {
-    app.locals.stopScheduler?.();
+    await app.locals.stopScheduler?.();
     for (const tenant of app.locals.runtimes?.values() ?? []) {
         for (const { state } of tenant.runtimes.values()) await closeState(state);
     }
 }
 
 async function closeState(state) {
+    unregisterQueue(state.channel?.id);
     await state.manager.shutdown();
     if (state.transport) {
         try {
