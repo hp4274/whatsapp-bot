@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Phases 0-7 implemented. Last updated 2026-10-08.
+Status: Phases 0-11 implemented. Last updated 2026-10-08.
 
 This document is the contract the rest of the roadmap builds against. If a new
 feature cannot say which tenant and which channel it belongs to, it does not
@@ -416,6 +416,109 @@ need their own idempotency.
 
 ---
 
+## 5e. Conversations and human handoff
+
+`src/inbox/` turns a stream of inbound messages into conversation state: one row
+per `(tenant, channel, phone)`, created in `handleInbound` because that is where
+every transport's inbound converges.
+
+**`bot_paused` is the point of the phase.** While a human has the conversation,
+automatic traffic is silenced. That guard lives in **one place** —
+`MessageService.send` refuses `auto_reply`, `workflow`, `campaign` and
+`reminder` when the conversation is paused, and lets `transactional` through,
+because a human replying from the inbox *is* the takeover. Guarding there rather
+than in the auto-reply engine and again in the workflow engine means a new
+automatic path cannot forget to check. `handleInbound` also returns early, which
+skips the typing delay and the FAQ lookup.
+
+`unread_count` is a counter, not a computed value: `inbound_messages.is_read`
+remains the per-message authority, and `markRead` zeroes the counter *and* marks
+the messages in the same call, so the two cannot drift. The thread itself is
+derived from `messages` + `inbound_messages`, keyed by phone and channel rather
+than by contact, because a conversation can exist before a contact row does.
+
+`channel_id` is `NOT NULL DEFAULT 0` rather than nullable: SQLite treats NULLs
+as distinct in a UNIQUE index, so a nullable column would quietly defeat
+`UNIQUE (tenant_id, channel_id, phone)`.
+
+---
+
+## 5f. Tickets
+
+`src/tickets/`. `ticket_events` is append-only and `update()` is the only writer,
+so **every field change leaves a row** with its from/to value. That is the audit
+trail, not a nicety — and a no-op patch writes nothing and does not bump
+`updated_at`.
+
+SLA is one exported constant keyed by priority (`urgent` 2h … `low` 72h),
+recomputed from `created_at` whenever priority changes rather than frozen at
+creation.
+
+**Notifying a customer is opt-in and close-out-only.** `notify: true` on a PATCH
+sends, but only when the resulting status is `RESOLVED` or `CLOSED`. An agent
+with a stale `notify: true` in their client payload cannot spam a customer by
+editing a subject line. The send goes through `MessageService` with
+`idempotencyKey: ticket:<id>:<STATUS>`, so a double PATCH is one message. The
+store itself never sends anything.
+
+A workflow can file one: `create_ticket`, `update_ticket` and `assign_agent` are
+now real actions. The engine forces `source: 'workflow'` rather than letting a
+definition claim it came from a person.
+
+---
+
+## 5g. The knowledge base
+
+`src/knowledge/` supersedes the keyword engine without replacing it.
+`matchFaq(text, items, opts)` is pure — no database — and tries, in order:
+business-hours override → `exact` → `contains` → `regex` → `similarity` → an AI
+seam → `fallback`.
+
+Two deliberate improvements over `AutoReplyEngine.matchRule`: levels are tried
+in order, so an EXACT item beats a CONTAINS item listed before it (list order
+used to decide that); and within a level, higher `priority` wins instead of
+whatever SQL returned first.
+
+**Similarity is Sørensen-Dice over token sets, threshold 0.6, no dependency.**
+Below threshold returns `null`, which means *escalate*, not "answer anyway":
+a logged miss gets picked up by a human, a confidently wrong answer gets
+believed. `faq_misses` — the questions nothing matched — is the most valuable
+table here, because it tells an operator what to write next.
+
+Wiring is fall-through: the FAQ answers first and the keyword engine is the
+fallback, so with no FAQ items behaviour is byte-identical and an operator
+migrates at their own pace.
+
+**Phase 17 (AI) is cancelled, so the matcher is complete without it.** The
+`aiFallback` option is a documented seam consulted only after `similarity`
+misses; nothing in the repo supplies one.
+
+---
+
+## 5h. Business objects
+
+`src/objects/`. Phase 11 lists eight object types, and eight tables of
+near-identical CRUD would contradict the roadmap's own Rule 9. So: **one
+`business_objects` table with a `type` discriminator and a JSON `data` column,
+plus a declarative registry** in `types.js` giving each type its fields,
+statuses and the events it emits. Adding "Invoice" is one registry entry. There
+is no `if (type === ...)` outside the registry.
+
+`occurs_at` is the one field promoted out of JSON to a column, because `due()`
+range-queries it and `json_extract` ranges cannot use an index. That column is
+what "24 hours before the appointment" and "payment overdue" read.
+
+**Emission is awaited, not fire-and-forget.** Order: write the object, write the
+log row, then `await emit(event)`. If dispatch fails the write is already
+durable, an `emit_failed` row joins the trail, and the route answers `502` with
+the object attached — because "the order saved but its confirmation workflow
+never started" is otherwise an undiagnosable support ticket.
+
+The store takes `emit` injected and never imports the workflow engine; the app
+wires it to `engine.dispatch`.
+
+---
+
 ## 6. Event format
 
 Two kinds of event exist, and they should not be confused.
@@ -651,6 +754,24 @@ Phase 6:
       `add_to_campaign`/`remove_from_campaign` (Phase 13), `notify_team`,
       `send_media`.
 - [ ] No workflow builder UI. Form-based editor is Phase 19.
+- [x] `create_ticket` / `update_ticket` / `assign_agent` now implemented
+      (Phase 9 landed)
+
+Phases 8-11:
+
+- [x] Conversations, assignment, internal notes, human takeover and handback
+- [x] Tickets with an append-only event trail, SLA, CSAT and opt-in notification
+- [x] FAQ with deterministic matching, versioned answers and a miss log
+- [x] Business objects as one table plus a registry, emitting workflow events
+- [ ] Trigger a workflow *on* a ticket state change. The hook point is the end
+      of `TicketStore.update`; the inverse direction (a workflow filing a
+      ticket) is done.
+- [ ] `sweepDue` for `payment.due` / `subscription.expiring` / appointment
+      reminders is implemented and idempotent, but no scheduler job calls it
+      yet. One handler registration away.
+- [ ] Knowledge-base per-category permissions. The role middleware already
+      gates the whole runtime router; a second permission model with one
+      tenant-wide scope would be an abstraction with one implementation.
 
 Phase 7:
 

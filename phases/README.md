@@ -1,6 +1,6 @@
 # WhatsApp Automation Platform — Implementation Phases
 
-Last updated: 2026-10-08. Phases 0 to 7 are complete; see `docs/ARCHITECTURE.md`
+Last updated: 2026-10-08. Phases 0 to 11 are complete; see `docs/ARCHITECTURE.md`
 for the frozen product model.
 
 ## Purpose
@@ -611,7 +611,7 @@ lock/lease
 
 ---
 
-# Phase 8 — Unified Inbox & Human Handoff
+# Phase 8 — Unified Inbox & Human Handoff — DONE (backend)
 
 ## Goal
 
@@ -652,20 +652,20 @@ Customer message
 
 ## Tasks
 
-- [ ] Build Angular inbox.
-- [ ] Conversation list.
-- [ ] Message thread.
-- [ ] Search.
-- [ ] Filters.
-- [ ] Assignment.
-- [ ] Internal notes.
-- [ ] Human takeover.
-- [ ] Return-to-bot control.
-- [ ] Realtime updates through SSE/WebSocket as appropriate.
+- [ ] Build Angular inbox. **Phase 19.**
+- [x] Conversation list. *(API)*
+- [x] Message thread. *(API)*
+- [x] Search.
+- [x] Filters.
+- [x] Assignment.
+- [x] Internal notes.
+- [x] Human takeover. *(Guarded once, in `MessageService.send`.)*
+- [x] Return-to-bot control.
+- [x] Realtime updates through SSE.
 
 ---
 
-# Phase 9 — Ticket / Complaint Engine
+# Phase 9 — Ticket / Complaint Engine — DONE (backend)
 
 ## Goal
 
@@ -702,19 +702,20 @@ CLOSED
 
 ## Tasks
 
-- [ ] Create tickets manually.
-- [ ] Create tickets from workflow.
-- [ ] Create tickets from message intent/keyword.
-- [ ] Assign agents.
-- [ ] Add SLA fields.
-- [ ] Add ticket history.
-- [ ] Trigger workflows on ticket state changes.
-- [ ] Notify customer on major status changes.
-- [ ] Collect satisfaction feedback after resolution.
+- [x] Create tickets manually.
+- [x] Create tickets from workflow.
+- [x] Create tickets from message intent/keyword. *(`source: 'keyword'`.)*
+- [x] Assign agents.
+- [x] Add SLA fields.
+- [x] Add ticket history. *(Append-only; `update()` is the only writer.)*
+- [ ] Trigger workflows on ticket state changes. **Not built** — hook point is
+      the end of `TicketStore.update`. The inverse direction works.
+- [x] Notify customer on major status changes. *(Opt-in and close-out-only.)*
+- [x] Collect satisfaction feedback after resolution.
 
 ---
 
-# Phase 10 — Knowledge Base & FAQ Engine
+# Phase 10 — Knowledge Base & FAQ Engine — DONE (backend)
 
 ## Goal
 
@@ -744,18 +745,19 @@ Do not make AI mandatory for basic FAQ operation.
 
 ## Tasks
 
-- [ ] FAQ CRUD.
-- [ ] Categories.
-- [ ] Multiple answers/versions.
-- [ ] Business-hours fallback.
-- [ ] Human escalation.
-- [ ] FAQ analytics.
-- [ ] Optional AI fallback.
-- [ ] Knowledge base permissions.
+- [x] FAQ CRUD.
+- [x] Categories.
+- [x] Multiple answers/versions. *(Append-only; revert writes forward.)*
+- [x] Business-hours fallback. *(Reuses `withinSendingWindow`.)*
+- [x] Human escalation. *(A sub-threshold match is `null`, which means escalate.)*
+- [x] FAQ analytics. *(Hits, misses, coverage, and the miss log.)*
+- [x] Optional AI fallback. *(Seam only — Phase 17 cancelled by request.)*
+- [ ] Knowledge base permissions. Deferred: the role middleware already gates
+      the runtime router, and a second model with one scope earns nothing.
 
 ---
 
-# Phase 11 — Business Object Layer
+# Phase 11 — Business Object Layer — DONE (backend)
 
 ## Goal
 
@@ -804,11 +806,13 @@ metadata
 
 ## Tasks
 
-- [ ] Create generic object/event interfaces.
-- [ ] Create API endpoints.
-- [ ] Allow workflows to read object fields.
-- [ ] Allow workflows to update object state.
-- [ ] Create webhook event emission when objects change.
+- [x] Create generic object/event interfaces. *(One table + a registry.)*
+- [x] Create API endpoints.
+- [x] Allow workflows to read object fields. *(Flattened onto `event.data`.)*
+- [ ] Allow workflows to *update* object state. An `update_object` action is
+      not in `ACTIONS` yet; reading and triggering work.
+- [x] Create webhook event emission when objects change. *(Internal dispatch;
+      outbound HTTP webhooks are Phase 16.)*
 
 ---
 
@@ -1316,10 +1320,10 @@ Use this order even if the UI appears tempting to build first:
 7. Workflow data model           DONE
 8. Workflow runtime              DONE
 9. Scheduler                     DONE
-10. Unified inbox
-11. Tickets
-12. FAQ / knowledge base
-13. Business objects
+10. Unified inbox                DONE (backend)
+11. Tickets                      DONE
+12. FAQ / knowledge base         DONE
+13. Business objects             DONE
 14. Ready-made automation modules
 15. Super Admin controls
 16. Plans + usage
