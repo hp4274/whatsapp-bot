@@ -18,6 +18,7 @@
 
 import { DEFAULTS, TRANSPORTS, mergeConfig } from './config.js';
 import { utcNow } from './protocol.js';
+import { SECRET_SETTING_KEYS, openSettings, sealSettings } from './security/crypto.js';
 
 /** What a channel is allowed to be used for. All on by default. */
 export const CAPABILITIES = Object.freeze([
@@ -35,8 +36,12 @@ export const CAPABILITIES = Object.freeze([
 
 export const CHANNEL_STATUSES = Object.freeze(['active', 'disabled']);
 
-/** Credentials never leave the process in a GET. */
-const SECRET_KEYS = Object.freeze(['accessToken', 'webhookVerifyToken']);
+/**
+ * Credentials never leave the process in a GET, and never hit the row in
+ * plaintext when `WHATSAPP_ENCRYPTION_KEY` is set: `sealSettings` on write,
+ * `openSettings` on read. One key list drives redaction and encryption.
+ */
+const SECRET_KEYS = SECRET_SETTING_KEYS;
 
 export class ChannelError extends Error {
     constructor(message, status = 400) {
@@ -102,7 +107,7 @@ export class Channels {
              VALUES (?, ?, ?, '', ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)`)
             .run(
                 this.tenantId, merged.transport, String(phoneNumber).trim(), merged.phoneNumberId,
-                name, JSON.stringify(merged), JSON.stringify(cleanCapabilities(capabilities)),
+                name, JSON.stringify(sealSettings(merged)), JSON.stringify(cleanCapabilities(capabilities)),
                 String(timezone), businessHours ? JSON.stringify(businessHours) : null,
                 first || isDefault ? 1 : 0, now, now,
             );
@@ -136,7 +141,7 @@ export class Channels {
                 patch.providerAccountId === undefined ? channel.providerAccountId : String(patch.providerAccountId),
                 patch.status ?? channel.status,
                 patch.displayName === undefined ? channel.displayName : String(patch.displayName).trim(),
-                JSON.stringify(settings),
+                JSON.stringify(sealSettings(settings)),
                 JSON.stringify(patch.capabilities === undefined ? channel.capabilities : cleanCapabilities(patch.capabilities)),
                 patch.timezone === undefined ? channel.timezone : String(patch.timezone),
                 patch.businessHours === undefined
@@ -220,7 +225,7 @@ function toChannel(row) {
         providerPhoneNumberId: row.provider_phone_number_id ?? '',
         status: row.status,
         displayName: row.display_name,
-        settings: parse(row.settings, DEFAULTS),
+        settings: openSettings(parse(row.settings, DEFAULTS)),
         capabilities: parse(row.capabilities, [...CAPABILITIES]),
         timezone: row.timezone || 'UTC',
         businessHours: parse(row.business_hours, null),

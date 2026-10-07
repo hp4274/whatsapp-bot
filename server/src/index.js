@@ -18,6 +18,7 @@ import express from 'express';
 import { closeApp, createApp } from './app.js';
 import { APP_DIR, ensureAppDir, loadConfig } from './config.js';
 import { Database } from './db.js';
+import { migrateChannelSettings } from './security/crypto.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -26,6 +27,9 @@ const HOST = process.env.HOST || '127.0.0.1';
 ensureAppDir();
 const config = loadConfig();
 const db = new Database();
+// Seal any credentials written before encryption existed. A no-op without a
+// key, and idempotent, so it is safe on every boot.
+migrateChannelSettings(db.db);
 // The real server runs the workflow sweeper; tests opt in explicitly.
 const app = createApp({ db, config, scheduler: true });
 

@@ -10,9 +10,12 @@
  * references.
  */
 
+import { BILLING_SCHEMA } from './billing/schema.js';
+import { CAMPAIGNS_SCHEMA } from './campaigns/schema.js';
 import { INBOX_SCHEMA } from './inbox/schema.js';
 import { KNOWLEDGE_SCHEMA } from './knowledge/schema.js';
 import { OBJECTS_SCHEMA } from './objects/schema.js';
+import { PUBLIC_API_SCHEMA } from './publicapi/schema.js';
 import { SCHEDULER_SCHEMA } from './scheduler/schema.js';
 import { TEMPLATES_SCHEMA } from './templates/schema.js';
 import { TICKETS_SCHEMA } from './tickets/schema.js';
@@ -26,4 +29,7 @@ export const MODULE_SCHEMAS = [
     TICKETS_SCHEMA,
     KNOWLEDGE_SCHEMA,
     OBJECTS_SCHEMA,
+    BILLING_SCHEMA,
+    PUBLIC_API_SCHEMA,
+    CAMPAIGNS_SCHEMA,
 ];

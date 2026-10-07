@@ -47,6 +47,10 @@ export const DEFAULTS = Object.freeze({
     webhookEnabled: false,
     webhookPath: '/api/webhook',
     webhookVerifyToken: 'change-me',
+    // Meta app secret, used to verify X-Hub-Signature-256 on the webhook.
+    // Per channel like the token; empty means the webhook is unverified (see
+    // security/signature.js for why that is the default).
+    appSecret: '',
 
     // WhatsApp Web
     chromePath: '',
@@ -79,6 +83,7 @@ function applyEnvOverrides(config) {
     if (process.env.WHATSAPP_PHONE_NUMBER_ID) {
         config.phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
     }
+    if (process.env.WHATSAPP_APP_SECRET) config.appSecret = process.env.WHATSAPP_APP_SECRET;
     return config;
 }
 
@@ -102,9 +107,13 @@ export function saveConfig(config, configPath = CONFIG_PATH) {
     return config;
 }
 
-/** Never send the token to the browser. */
+/** Never send the token or the app secret to the browser. */
 export function publicConfig(config) {
-    return { ...config, accessToken: config.accessToken ? '__set__' : '' };
+    return {
+        ...config,
+        accessToken: config.accessToken ? '__set__' : '',
+        appSecret: config.appSecret ? '__set__' : '',
+    };
 }
 
 /** Merge an update from the client, keeping a token the client did not resend. */
@@ -112,7 +121,7 @@ export function mergeConfig(current, update) {
     const merged = { ...current };
     for (const [key, value] of Object.entries(update ?? {})) {
         if (!(key in DEFAULTS)) continue;
-        if (key === 'accessToken' && value === '__set__') continue; // unchanged
+        if ((key === 'accessToken' || key === 'appSecret') && value === '__set__') continue; // unchanged
         merged[key] = value;
     }
     return merged;
