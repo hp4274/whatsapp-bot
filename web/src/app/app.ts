@@ -1,9 +1,11 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter, map } from 'rxjs';
 
-import { Auth, Role } from './core/auth';
+import { TenancyApi } from './core/api';
+import { Auth, Role, Tenant } from './core/auth';
+import { SendIsland } from './core/send-island';
 import { Store, ThemeMode } from './core/store';
 import { SERVICE_META } from './admin/service-meta';
 
@@ -49,7 +51,7 @@ const SERVICE_GROUPS = [
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, SendIsland],
   templateUrl: './app.html',
   styleUrl: './app.scss',
 })
@@ -57,6 +59,24 @@ export class App {
   protected readonly store = inject(Store);
   protected readonly auth = inject(Auth);
   private readonly router = inject(Router);
+  private readonly tenancy = inject(TenancyApi);
+
+  /** The tenant a super admin has opened, so the rail can show what that tenant sees. */
+  private readonly acting = signal<Tenant | null>(null);
+
+  constructor() {
+    effect(() => {
+      const id = this.auth.actingTenantId();
+      if (!this.auth.isSuperAdmin() || id === null) {
+        this.acting.set(null);
+        return;
+      }
+      this.tenancy.tenants().subscribe({
+        next: ({ tenants }) => this.acting.set(tenants.find((t) => t.id === id) ?? null),
+        error: () => this.acting.set(null),
+      });
+    });
+  }
 
   /** The sign-in screen is full-bleed: no header, no rail. */
   protected readonly bare = toSignal(
@@ -113,12 +133,13 @@ export class App {
         })),
       ];
     }
-    const owned = this.auth.tenant()?.services;
+    // Inside a tenant a super admin sees the tenant's own rail: its services, owner-level.
+    const inTenant = superAdmin;
+    const owned = inTenant ? this.acting()?.services : this.auth.tenant()?.services;
     return this.allNav.filter((item) => {
-      if (item.min === 'super_admin') return superAdmin;
-      if (superAdmin) return true;
+      if (item.min === 'super_admin') return false;
       if (item.service && owned && !owned.includes(item.service)) return false;
-      return !item.min || this.auth.atLeast(item.min);
+      return inTenant || !item.min || this.auth.atLeast(item.min);
     });
   });
 
@@ -128,7 +149,7 @@ export class App {
     if (!user) return 'WhatsApp Sender';
     if (user.role !== 'super_admin') return this.auth.tenant()?.name ?? 'WhatsApp Sender';
     const acting = this.auth.actingTenantId();
-    return acting === null ? 'Platform admin' : `Tenant #${acting}`;
+    return acting === null ? 'Platform admin' : (this.acting()?.name ?? `Tenant ${acting}`);
   });
 
   protected readonly subtitle = computed(() => {

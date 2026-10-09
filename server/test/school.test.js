@@ -145,6 +145,19 @@ describe('school assistant', () => {
         assert.equal((await call(owner, 'POST', `/api/school/leave/${id}/decision`, { decision: 'reject' })).status, 409);
     });
 
+    it('matches a parent on the last ten digits and explains an unlinked number', async () => {
+        const stranger = '919000000099';
+        await inbound(stranger, 'ATTENDANCE');
+        await wait();
+        assert.ok(sentTo(stranger).some((t) => /could not find a student/i.test(t)), 'unlinked reply');
+
+        // WhatsApp sends the country code; the roster row may not have had one.
+        db.db.prepare("UPDATE contacts SET phone = ? WHERE phone = ?").run('9876512012', '919876512012');
+        await inbound('919876512012', 'ATTENDANCE');
+        await wait();
+        assert.ok(sentTo('919876512012').some((t) => /present over/.test(t)), 'matched by last ten digits');
+    });
+
     it('gates staff by title and class', async () => {
         const teacher = sessionFor(app, { tenantId: 1, role: 'agent' });
         const accounts = sessionFor(app, { tenantId: 1, role: 'agent' });

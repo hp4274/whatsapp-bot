@@ -110,7 +110,7 @@
 .rule-list {
   display: grid;
   gap: var(--space-sm);
-  padding: 0 var(--space-lg);
+  padding: 0 var(--space-lg) var(--space-lg);
 }
 
 .rule {
@@ -217,7 +217,7 @@
 }
 
 .form-grid {
-  grid-template-columns: minmax(160px, 1fr) minmax(180px, 1fr) minmax(120px, 0.6fr);
+  grid-template-columns: minmax(220px, 1.3fr) minmax(160px, 1fr) minmax(110px, 0.5fr);
 
   .reply {
     grid-column: 1 / -1;

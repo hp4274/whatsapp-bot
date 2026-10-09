@@ -74,4 +74,6 @@
       <router-outlet />
     </main>
   </div>
+  @if (auth.user()) { <app-send-island /> }
+
 }

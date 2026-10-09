@@ -15,20 +15,22 @@
   --surface-alt: #eef3f8;
   --border: #dce5ec;
   --text: #0d1b24;
-  --text-muted: #5c7285;
+  --text-muted: #4d6174;
 
-  --primary: #12a150;
-  --primary-hover: #0e8b44;
+  --primary: #08793a;
+  --primary-hover: #066430;
   --primary-soft: #dcfce7;
   --on-primary: #ffffff;
 
-  --accent: #2563eb;
+  --accent: #1d4ed8;
+  --accent-fill: #2563eb;
   --accent-soft: #dbeafe;
 
   --warning: #b45309;
   --warning-soft: #fef3c7;
-  --danger: #dc2626;
-  --danger-hover: #b91c1c;
+  --danger: #c62828;
+  --danger-fill: #c62828;
+  --danger-hover: #a51c1c;
   --danger-soft: #fee2e2;
 
   --radius: 12px;
@@ -65,13 +67,15 @@
   --primary-soft: #10331f;
   --on-primary: #04150b;
 
-  --accent: #3b82f6;
+  --accent: #6aa5ff;
+  --accent-fill: #2563eb;
   --accent-soft: #132a46;
 
   --warning: #fbbf24;
   --warning-soft: #2e2410;
-  --danger: #f05252;
-  --danger-hover: #dc2626;
+  --danger: #f87171;
+  --danger-fill: #c62828;
+  --danger-hover: #b71c1c;
   --danger-soft: #33171a;
 
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.35);
@@ -203,8 +207,8 @@ textarea {
   }
 
   &.danger {
-    background: var(--danger);
-    border-color: var(--danger);
+    background: var(--danger-fill);
+    border-color: var(--danger-fill);
     color: #fff;
 
     &:hover:not(:disabled) {

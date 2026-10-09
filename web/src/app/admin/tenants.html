@@ -167,8 +167,7 @@
           <span class="ms" aria-hidden="true">settings</span>
         </button>
         <button class="btn square danger-ghost" type="button" (click)="deleteTenant(tenant)"
-                [disabled]="savingId() === tenant.id || tenant.id === 1" aria-label="Delete tenant"
-                [attr.title]="tenant.id === 1 ? 'The default tenant cannot be deleted' : 'Delete tenant'">
+                [disabled]="savingId() === tenant.id" aria-label="Delete tenant" title="Delete tenant">
           <span class="ms" aria-hidden="true">delete</span>
         </button>
       </div>

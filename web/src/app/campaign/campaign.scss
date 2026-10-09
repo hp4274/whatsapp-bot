@@ -48,7 +48,7 @@
 
 .single {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--space-md);
   padding: 0 var(--space-lg) var(--space-lg);
   align-items: end;
@@ -63,6 +63,8 @@
 
   .btn {
     height: 42px;
+    justify-self: start;
+    padding-inline: var(--space-xl);
   }
 }
 
@@ -174,3 +176,37 @@
   font-size: 12px;
   color: var(--text-muted);
 }
+
+.own {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+
+  summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .count { font-size: 12px; font-weight: 500; color: var(--text-muted); }
+}
+
+.own-table {
+  max-height: 320px;
+  overflow: auto;
+  padding: 0 var(--space-md) var(--space-md);
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { padding: 6px 8px; text-align: left; font-size: 12px; color: var(--text-muted); border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface-alt); }
+  td { padding: 6px 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); white-space: nowrap; }
+  td input { min-width: 240px; padding: 7px 10px; }
+  .mono { font-family: var(--mono); }
+  .more { margin: var(--space-sm) 0 0; font-size: 12px; }
+}
+
+.hint { color: var(--text-muted); font-size: 12px; code { font-family: var(--mono); }}
