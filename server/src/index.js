@@ -71,12 +71,16 @@ if (tenancy.userCount() === 0) {
     console.log(`[whatsapp-sender] created super admin ${email}`
         + (process.env.SUPER_ADMIN_PASSWORD ? '' : ` with password ${password}  (shown once)`));
 } else if (process.env.SUPER_ADMIN_PASSWORD) {
-    const email = (process.env.SUPER_ADMIN_EMAIL || 'admin@whatsapp.local').trim().toLowerCase();
-    const adminUser = tenancy.db.prepare('SELECT * FROM users WHERE email = ? AND role = "super_admin"').get(email);
-    if (adminUser) {
-        const hash = await hashPassword(process.env.SUPER_ADMIN_PASSWORD);
-        tenancy.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, adminUser.id);
-        console.log(`[whatsapp-sender] synced super admin password for ${email} from environment`);
+    try {
+        const email = (process.env.SUPER_ADMIN_EMAIL || 'admin@whatsapp.local').trim().toLowerCase();
+        const adminUser = tenancy.db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+        if (adminUser) {
+            const hash = await hashPassword(process.env.SUPER_ADMIN_PASSWORD);
+            tenancy.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, adminUser.id);
+            console.log(`[whatsapp-sender] synced super admin password for ${email} from environment`);
+        }
+    } catch (err) {
+        console.error('[whatsapp-sender] warning: failed to sync admin password from env:', err.message);
     }
 }
 
