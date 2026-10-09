@@ -34,10 +34,58 @@ export const routes: Routes = [
     loadComponent: () => import('./auto-replies/auto-replies').then((m) => m.AutoRepliesView),
   },
   {
+    path: 'templates',
+    title: 'Templates - WhatsApp Sender',
+    canActivate: [authGuard],
+    loadComponent: () => import('./templates/templates').then((m) => m.TemplatesView),
+  },
+  {
+    path: 'inbox',
+    title: 'Inbox - WhatsApp Sender',
+    canActivate: [authGuard],
+    loadComponent: () => import('./inbox/inbox').then((m) => m.InboxView),
+  },
+  {
+    path: 'tickets',
+    title: 'Tickets - WhatsApp Sender',
+    canActivate: [authGuard],
+    loadComponent: () => import('./tickets/tickets').then((m) => m.TicketsView),
+  },
+  {
+    path: 'knowledge',
+    title: 'FAQ - WhatsApp Sender',
+    canActivate: [authGuard],
+    loadComponent: () => import('./knowledge/knowledge').then((m) => m.KnowledgeView),
+  },
+  {
     path: 'payment-reminder',
     title: 'Payment Reminder - WhatsApp Sender',
     canActivate: [authGuard],
     loadComponent: () => import('./payment-reminder/payment-reminder').then((m) => m.PaymentReminderView),
+  },
+  {
+    path: 'records/:type',
+    title: 'Records - WhatsApp Sender',
+    canActivate: [authGuard],
+    loadComponent: () => import('./records/records').then((m) => m.RecordsView),
+  },
+  {
+    path: 'workflows',
+    title: 'Workflows - WhatsApp Sender',
+    canActivate: [authGuard],
+    loadComponent: () => import('./workflows/workflows').then((m) => m.WorkflowsView),
+  },
+  {
+    path: 'developer',
+    title: 'API & Webhooks - WhatsApp Sender',
+    canActivate: [authGuard],
+    loadComponent: () => import('./developer/developer').then((m) => m.DeveloperView),
+  },
+  {
+    path: 'analytics',
+    title: 'Analytics - WhatsApp Sender',
+    canActivate: [authGuard],
+    loadComponent: () => import('./analytics/analytics').then((m) => m.AnalyticsView),
   },
   {
     path: 'history',

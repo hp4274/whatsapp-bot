@@ -202,6 +202,14 @@ export class Api {
       .pipe(catchError(toMessage));
   }
 
+  uploadMedia(file: File): Observable<{ mediaId: string; filename: string; mimetype: string; size: number; url: string }> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http
+      .post<{ mediaId: string; filename: string; mimetype: string; size: number; url: string }>('/api/media/upload', form)
+      .pipe(catchError(toMessage));
+  }
+
   importContacts(file: File): Observable<ImportResult> {
     const form = new FormData();
     form.append('file', file);
@@ -230,6 +238,7 @@ export class Api {
     contacts: Contact[],
     template: string,
     onePerNumber: boolean,
+    mediaId: string | null = null,
   ): Observable<{ queued: number; skipped: number; campaignId: string; overQuota: number;
     safety: SafetyStatus }> {
     return this.http
@@ -238,6 +247,7 @@ export class Api {
         contacts,
         template,
         onePerNumber,
+        ...(mediaId ? { mediaId } : {}),
       })
       .pipe(catchError(toMessage));
   }
@@ -350,6 +360,11 @@ export interface SafetyPolicy {
   retryMaxDelay: number;
   retryJitter: number;
   failureStopPercent: number;
+  warmupDays: number;
+  recipientDailyCap: number;
+  requireVariationAbove: number;
+  quietHoursStart: number;
+  quietHoursEnd: number;
 }
 
 /** Plan limits the platform admin sets per tenant. 0 means no limit. */

@@ -64,6 +64,7 @@ import { WorkflowError } from './workflows/definition.js';
 import { WorkflowStore, dueRuns } from './workflows/store.js';
 import { MessageJobError, messageJob } from './messaging/job.js';
 import { MessageService } from './messaging/service.js';
+import { MediaStore } from './mediaStore.js';
 import { createBillingRouter } from './billing/routes.js';
 import { createCampaignRouter } from './campaigns/routes.js';
 import { dueCampaigns } from './campaigns/store.js';
@@ -78,7 +79,10 @@ import { SCHOOL_TEMPLATES, STUDENT_CSV_COLUMNS } from './school/templates.js';
 import { handleSchoolCommand } from './school/commands.js';
 import { helpText, isHelp } from './help.js';
 import { createSchoolRouter, schoolSweep } from './school/routes.js';
-import { rateLimit, webhookSignatureGuard } from './security/signature.js';
+import { rateLimit, safeEqual, webhookSignatureGuard } from './security/signature.js';
+import { checkImport, fileTypeError } from './security/filetype.js';
+import { securityHeaders } from './security/headers.js';
+import { bulkWindowOpen } from './campaign/safety.js';
 import { ROLES, TENANT_SERVICES, Tenancy, TenancyError, blockedWordIn, roleRank } from './tenancy.js';
 import { TransportError } from './transports/base.js';
 import { CloudApiTransport, parseInboundPayload, parseStatusPayload } from './transports/cloudApi.js';
@@ -93,6 +97,10 @@ const mediaUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 16 * 1024 * 1024 },
 });
+
+/** Media: the bytes must be the type the browser claimed (jpeg/png/pdf/doc/docx). */
+const mediaContentError = (file) => fileTypeError(file.buffer, { mimetype: file.mimetype, filename: file.originalname });
+
 const UPLOAD_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'uploads');
 const ALLOWED_MEDIA_TYPES = new Set([
     'application/pdf',
@@ -161,15 +169,21 @@ const SERVICE_ROUTE_PREFIXES = Object.freeze([
     ['/workflows', 'workflows'],
     ['/tickets', 'tickets'],
     ['/knowledge', 'faq'],
-    ['/objects/appointments', 'appointments'],
-    ['/objects/orders', 'orders'],
-    ['/objects/leads', 'leads'],
-    ['/objects/payments', 'payment_reminders'],
-    ['/objects/subscriptions', 'subscriptions'],
-    ['/objects/events', 'events'],
-    ['/objects/students', 'school_whatsapp_bot'],
+    ['/faq', 'faq'],
+    // The objects router takes the singular type name: /objects/order/:id.
+    ['/objects/appointment', 'appointments'],
+    ['/objects/order', 'orders'],
+    ['/objects/lead', 'leads'],
+    ['/objects/payment', 'payment_reminders'],
+    ['/objects/subscription', 'subscriptions'],
+    ['/objects/event', 'events'],
+    ['/objects/student', 'school_whatsapp_bot'],
     ['/school', 'school_whatsapp_bot'],
     ['/objects', 'workflows'],
+    ['/workflow-runs', 'workflows'],
+    ['/recipes', 'workflows'],
+    ['/api-keys', 'api'],
+    ['/webhook-endpoints', 'api'],
     ['/billing', 'analytics'],
 ]);
 
@@ -184,6 +198,7 @@ function capabilityForPath(path) {
 
 function serviceForPath(path) {
     if (path === '/messages') return 'bulk_messages';
+    path = path.toLowerCase(); // Express matches routes case-insensitively; the gate must too.
     return SERVICE_ROUTE_PREFIXES.find(([prefix]) => path === prefix || path.startsWith(`${prefix}/`))?.[1] ?? null;
 }
 
@@ -226,7 +241,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         connecting: false,
         manager: null,
         clients: new Set(), // SSE subscribers
-        media: new Map(),
+        media: new MediaStore(UPLOAD_DIR),
         webhookConnect: null,
         tenancy: deps.tenancy ?? null,
     };
@@ -272,6 +287,8 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     });
 
     const manager = new CampaignManager(db, new NullTransport(), config);
+    // Bulk waits out the sending window / quiet hours instead of failing.
+    manager.bulkWindowOpen = () => bulkWindowOpen(state.channel, state.config);
     const autoReply = new AutoReplyEngine(db, new NullTransport());
     // Phase 3: one way out. Everything that sends goes through the service,
     // which reads the live channel row so a capability switched off mid-flight
@@ -587,7 +604,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     });
 
     // ----------------------------------------------------------- contacts --
-    app.post('/contacts/import', upload.single('file'), async (req, res) => {
+    app.post('/contacts/import', upload.single('file'), checkImport, async (req, res) => {
         if (!req.file) return res.status(400).json({ errors: ['no file uploaded'] });
         try {
             const result = await importContacts(
@@ -777,7 +794,9 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     app.put('/templates/:id', (req, res) => {
         const banned = bannedIn(`${req.body?.name ?? ''} ${req.body?.body ?? ''}`);
         if (banned) return res.status(400).json({ errors: [banned] });
-        const problems = validateTemplate({ ...templates.get(req.params.id), ...req.body });
+        // Variables follow the body unless the caller sends them: an edit that adds a
+        // placeholder must not be checked against the old declared list.
+        const problems = validateTemplate({ ...templates.get(req.params.id), ...req.body, variables: req.body?.variables });
         if (problems.length && req.query.draft !== 'true') return res.status(400).json({ errors: problems });
         try {
             return res.json({ template: templates.update(req.params.id, req.body ?? {}) });
@@ -922,7 +941,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     });
 
     // --------------------------------------------------- payment reminders --
-    app.post('/payment-reminders/import', upload.single('file'), async (req, res) => {
+    app.post('/payment-reminders/import', upload.single('file'), checkImport, async (req, res) => {
         if (!req.file) return res.status(400).json({ errors: ['no file uploaded'] });
         try {
             const result = await importPaymentReminders(
@@ -989,6 +1008,8 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     // -------------------------------------------------------------- media --
     app.post('/media/upload', mediaUpload.single('file'), async (req, res) => {
         if (!req.file) return res.status(400).json({ errors: ['no file uploaded'] });
+        const badContent = mediaContentError(req.file);
+        if (badContent) return res.status(400).json({ errors: [badContent] });
         const maxMb = limits().maxMediaMb;
         if (maxMb && req.file.size > maxMb * 1024 * 1024) {
             return res.status(413).json({ errors: [`Files can be up to ${maxMb} MB on your plan.`] });
@@ -1195,7 +1216,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     app.get('/webhook', (req, res) => {
         // Meta's verification handshake.
         if (req.query['hub.mode'] === 'subscribe'
-            && req.query['hub.verify_token'] === state.config.webhookVerifyToken) {
+            && safeEqual(req.query['hub.verify_token'], state.config.webhookVerifyToken)) {
             return res.status(200).send(String(req.query['hub.challenge'] ?? ''));
         }
         return res.status(403).send('verification failed');
@@ -1420,6 +1441,7 @@ function channelHealth(channel, runtime) {
 
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_MAX_FAILS = 5;
+const LOGIN_MAX_IP_FAILS = 20;
 // Agents may send and triage, but not change how the account behaves.
 const AGENT_WRITES = new Set(['/messages', '/inbox/mark-read']);
 /**
@@ -1436,8 +1458,10 @@ export function createApp({
     scheduler = false, sweepMs = 5000,
 } = {}) {
     const app = express();
+    app.disable('x-powered-by');
     // Before the body parser, so a malformed body is still logged with an id.
     app.use(requestContext());
+    app.use(securityHeaders());
     app.use(express.json({
         limit: '1mb',
         // The webhook signature is over the raw bytes, which the parser
@@ -1539,14 +1563,22 @@ export function createApp({
     app.post('/api/auth/login', async (req, res) => {
         const { email = '', password = '' } = req.body ?? {};
         const key = String(email).trim().toLowerCase();
-        const entry = logins.get(key);
-        if (entry && entry.fails >= LOGIN_MAX_FAILS && entry.until > Date.now()) {
+        // Two throttles: per account (stops guessing one password) and per
+        // address (stops one client spraying many accounts).
+        const ipKey = `ip:${req.ip}`;
+        const now = Date.now();
+        const locked = (k, max) => (logins.get(k)?.until > now && logins.get(k).fails >= max);
+        if (locked(key, LOGIN_MAX_FAILS) || locked(ipKey, LOGIN_MAX_IP_FAILS)) {
             return res.status(429).json({ errors: ['Too many failed attempts. Try again in a few minutes.'] });
         }
         const user = await tenancy.authenticate(email, password);
         const tenant = user?.tenantId == null ? null : tenancy.getTenant(user.tenantId);
         if (!user || (tenant && tenant.status !== 'active')) {
-            logins.set(key, { fails: (entry?.until > Date.now() ? entry.fails : 0) + 1, until: Date.now() + LOGIN_WINDOW_MS });
+            if (logins.size > 10000) for (const [k, v] of logins) if (v.until <= now) logins.delete(k);
+            for (const k of [key, ipKey]) {
+                const entry = logins.get(k);
+                logins.set(k, { fails: (entry?.until > now ? entry.fails : 0) + 1, until: now + LOGIN_WINDOW_MS });
+            }
             return res.status(401).json({ errors: ['Wrong email or password.'] });
         }
         logins.delete(key);
@@ -1621,6 +1653,11 @@ export function createApp({
     // ---------------------------------------------------- super admin --
     const admin = express.Router();
     admin.use(requireRole('super_admin'));
+    // Platform actions on a tenant land in that tenant's audit trail, not under "no tenant".
+    admin.param('id', (req, res, next, id) => {
+        if (Number.isInteger(Number(id))) req.tenantId = Number(id);
+        next();
+    });
     app.use('/api/admin', admin);
 
     admin.get('/tenants', (req, res) => res.json({
@@ -1944,7 +1981,9 @@ export function createApp({
     // shows the cause instead of "500 Internal Server Error".
     app.use((err, req, res, next) => {
         if (res.headersSent) return next(err);
-        const status = Number(err.status ?? err.statusCode) || 500;
+        // Multer errors carry a code, not a status: too big is 413, the rest the caller's fault.
+        const multerStatus = err.name === 'MulterError' ? (err.code === 'LIMIT_FILE_SIZE' ? 413 : 400) : null;
+        const status = multerStatus ?? (Number(err.status ?? err.statusCode) || 500);
         if (status >= 500) logger.error('unhandled error', { path: req.path, error: err.message, stack: err.stack });
         return res.status(status).json({ errors: [status >= 500 ? `Server error: ${err.message}` : err.message] });
     });

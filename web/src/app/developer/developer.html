@@ -1,0 +1,237 @@
+<section class="dev">
+  <header class="dev-head">
+    <h1>API &amp; Webhooks</h1>
+    <p class="muted">Connect your own systems: push events in with API keys, hear about activity with signed webhooks.</p>
+  </header>
+
+  @if (error()) {
+    <div class="banner err" role="alert">
+      <span class="ms" aria-hidden="true">error</span>
+      <span>{{ error() }}</span>
+      <button type="button" class="btn ghost sm" (click)="error.set('')">Dismiss</button>
+    </div>
+  }
+
+  @if (loading()) {
+    <div class="card muted" role="status">Loading…</div>
+  } @else {
+    <!-- ============================================================ keys -->
+    <div class="card">
+      <h2><span class="ms" aria-hidden="true">key</span> API keys</h2>
+
+      <form class="form" (ngSubmit)="createKey()">
+        <label class="field">
+          <span>Name</span>
+          <input name="keyName" [ngModel]="keyName()" (ngModelChange)="keyName.set($event)" placeholder="e.g. ERP integration" maxlength="80" />
+        </label>
+        <fieldset class="checks">
+          <legend>Scopes</legend>
+          @for (s of scopes(); track s) {
+            <label class="chk">
+              <input type="checkbox" [checked]="keyScopes().includes(s)" (change)="toggle(keyScopes, s)" />
+              <code>{{ s }}</code>
+            </label>
+          }
+        </fieldset>
+        <button type="submit" class="btn primary" [disabled]="creatingKey() || !keyScopes().length">
+          {{ creatingKey() ? 'Creating…' : 'Create key' }}
+        </button>
+      </form>
+
+      @if (newKey(); as nk) {
+        <div class="secret" role="status">
+          <div class="secret-top">
+            <strong>New key: {{ nk.name || nk.prefix }}</strong>
+            <button type="button" class="btn ghost sm" (click)="newKey.set(null)">Done</button>
+          </div>
+          <div class="secret-row">
+            <code class="mono-box">{{ nk.key }}</code>
+            <button type="button" class="btn sm" (click)="copy('key', nk.key)">
+              <span class="ms" aria-hidden="true">{{ copied() === 'key' ? 'check' : 'content_copy' }}</span>
+              {{ copied() === 'key' ? 'Copied' : 'Copy' }}
+            </button>
+          </div>
+          <p class="warn"><span class="ms" aria-hidden="true">warning</span> You won't see this again. Store it somewhere safe now.</p>
+        </div>
+      }
+
+      @if (!keys().length) {
+        <p class="empty">No API keys yet. Create one above to start calling /v1.</p>
+      } @else {
+        <ul class="rows">
+          @for (k of keys(); track k.id) {
+            <li class="row" [class.dim]="k.revokedAt">
+              <div class="row-main">
+                <div class="row-title">
+                  <strong>{{ k.name || 'Unnamed key' }}</strong>
+                  <code>{{ k.prefix }}…</code>
+                  @if (k.revokedAt) { <span class="pill bad">Revoked</span> }
+                </div>
+                <div class="chips">
+                  @for (s of k.scopes; track s) { <span class="chip">{{ s }}</span> }
+                </div>
+                <div class="meta">
+                  Created {{ fmt(k.createdAt) }}
+                  @if (k.lastUsedAt) { · Last used {{ fmt(k.lastUsedAt) }} } @else { · Never used }
+                  @if (k.revokedAt) { · Revoked {{ fmt(k.revokedAt) }} }
+                </div>
+              </div>
+              @if (!k.revokedAt) {
+                <div class="row-actions">
+                  @if (confirmRevoke() === k.id) {
+                    <span class="muted sm-text">Revoke permanently?</span>
+                    <button type="button" class="btn danger sm" [disabled]="busy() === k.id" (click)="revoke(k)">Yes, revoke</button>
+                    <button type="button" class="btn ghost sm" (click)="confirmRevoke.set(null)">Cancel</button>
+                  } @else {
+                    <button type="button" class="btn ghost sm" (click)="revoke(k)">Revoke</button>
+                  }
+                </div>
+              }
+            </li>
+          }
+        </ul>
+      }
+    </div>
+
+    <!-- ======================================================== webhooks -->
+    <div class="card">
+      <h2><span class="ms" aria-hidden="true">webhook</span> Webhooks</h2>
+
+      <form class="form" (ngSubmit)="createHook()">
+        <label class="field">
+          <span>Endpoint URL</span>
+          <input name="hookUrl" type="url" [ngModel]="hookUrl()" (ngModelChange)="hookUrl.set($event)" placeholder="https://example.com/hooks/whatsapp" />
+        </label>
+        <fieldset class="checks">
+          <legend>Events</legend>
+          @for (ev of events(); track ev) {
+            <label class="chk">
+              <input type="checkbox" [checked]="hookEvents().includes(ev)" (change)="toggle(hookEvents, ev)" />
+              <code>{{ ev }}</code>
+            </label>
+          }
+        </fieldset>
+        <button type="submit" class="btn primary" [disabled]="creatingHook() || !hookUrl().trim() || !hookEvents().length">
+          {{ creatingHook() ? 'Adding…' : 'Add endpoint' }}
+        </button>
+      </form>
+
+      @if (newHook(); as nh) {
+        <div class="secret" role="status">
+          <div class="secret-top">
+            <strong>Signing secret for {{ nh.url }}</strong>
+            <button type="button" class="btn ghost sm" (click)="newHook.set(null)">Done</button>
+          </div>
+          <div class="secret-row">
+            <code class="mono-box">{{ nh.secret }}</code>
+            <button type="button" class="btn sm" (click)="copy('secret', nh.secret)">
+              <span class="ms" aria-hidden="true">{{ copied() === 'secret' ? 'check' : 'content_copy' }}</span>
+              {{ copied() === 'secret' ? 'Copied' : 'Copy' }}
+            </button>
+          </div>
+          <p class="warn"><span class="ms" aria-hidden="true">warning</span> You won't see this again. Use it to verify the <code>X-Webhook-Signature</code> header.</p>
+        </div>
+      }
+
+      @if (!endpoints().length) {
+        <p class="empty">No webhook endpoints yet. Add a URL to receive events.</p>
+      } @else {
+        <ul class="rows">
+          @for (e of endpoints(); track e.id) {
+            <li class="row col" [class.dim]="!e.isActive">
+              <div class="row-line">
+                <div class="row-main">
+                  <div class="row-title">
+                    <strong class="url">{{ e.url }}</strong>
+                    <span class="pill" [class.ok]="e.isActive" [class.bad]="!e.isActive">{{ e.isActive ? 'Active' : 'Paused' }}</span>
+                    @if (e.secretHint) { <code>secret {{ e.secretHint }}</code> }
+                  </div>
+                  @if (editing() !== e.id) {
+                    <div class="chips">
+                      @for (ev of e.events; track ev) { <span class="chip">{{ ev }}</span> }
+                    </div>
+                  }
+                </div>
+                <div class="row-actions">
+                  @if (confirmDelete() === e.id) {
+                    <span class="muted sm-text">Delete endpoint?</span>
+                    <button type="button" class="btn danger sm" [disabled]="busy() === e.id" (click)="remove(e)">Yes, delete</button>
+                    <button type="button" class="btn ghost sm" (click)="confirmDelete.set(null)">Cancel</button>
+                  } @else {
+                    <button type="button" class="btn ghost sm" [disabled]="busy() === e.id" (click)="toggleActive(e)">{{ e.isActive ? 'Pause' : 'Resume' }}</button>
+                    <button type="button" class="btn ghost sm" (click)="startEdit(e)">Edit events</button>
+                    <button type="button" class="btn ghost sm" (click)="remove(e)">Delete</button>
+                  }
+                </div>
+              </div>
+
+              @if (editing() === e.id) {
+                <fieldset class="checks">
+                  <legend>Events for this endpoint</legend>
+                  @for (ev of events(); track ev) {
+                    <label class="chk">
+                      <input type="checkbox" [checked]="editEvents().includes(ev)" (change)="toggle(editEvents, ev)" />
+                      <code>{{ ev }}</code>
+                    </label>
+                  }
+                </fieldset>
+                <div class="row-actions">
+                  <button type="button" class="btn primary sm" [disabled]="busy() === e.id || !editEvents().length" (click)="saveEdit(e)">Save</button>
+                  <button type="button" class="btn ghost sm" (click)="editing.set(null)">Cancel</button>
+                </div>
+              }
+
+              <button type="button" class="link" [attr.aria-expanded]="openDeliveries() === e.id" (click)="toggleDeliveries(e)">
+                <span class="ms" aria-hidden="true">{{ openDeliveries() === e.id ? 'expand_less' : 'expand_more' }}</span>
+                Recent deliveries
+              </button>
+              @if (openDeliveries() === e.id) {
+                <div class="deliveries">
+                  @if (deliveriesLoading()) {
+                    <p class="muted" role="status">Loading…</p>
+                  } @else if (deliveriesError()) {
+                    <p class="err-text" role="alert">{{ deliveriesError() }}</p>
+                  } @else if (!deliveries().length) {
+                    <p class="empty">No deliveries yet.</p>
+                  } @else {
+                    <ul>
+                      @for (d of deliveries(); track d.id) {
+                        <li>
+                          <span class="pill" [class.ok]="d.status === 'delivered'" [class.bad]="d.status === 'failed'" [class.warn-pill]="d.status === 'pending'">
+                            {{ d.responseCode ?? d.status }}
+                          </span>
+                          <code>{{ d.eventType }}</code>
+                          <span class="meta">{{ fmt(d.createdAt) }} · {{ d.attempt }} attempt{{ d.attempt === 1 ? '' : 's' }}</span>
+                          @if (d.error) { <span class="meta err-text">{{ d.error }}</span> }
+                        </li>
+                      }
+                    </ul>
+                  }
+                </div>
+              }
+            </li>
+          }
+        </ul>
+      }
+    </div>
+
+    <!-- ===================================================== quick start -->
+    <div class="card">
+      <h2><span class="ms" aria-hidden="true">terminal</span> Quick start</h2>
+      <p class="muted">Send an event with your key. The key decides which account it lands in; repeat the same <code>Idempotency-Key</code> to safely retry.</p>
+      <div class="code">
+        <button type="button" class="btn sm copy" (click)="copy('curl', curl())">
+          <span class="ms" aria-hidden="true">{{ copied() === 'curl' ? 'check' : 'content_copy' }}</span>
+          {{ copied() === 'curl' ? 'Copied' : 'Copy' }}
+        </button>
+        <pre tabindex="0"><code>{{ curl() }}</code></pre>
+      </div>
+      <h3>Endpoints</h3>
+      <ul class="routes">
+        @for (r of routes; track r[1]) {
+          <li><span class="method">{{ r[0] }}</span><code>{{ r[1] }}</code><span class="muted">{{ r[2] }}</span></li>
+        }
+      </ul>
+    </div>
+  }
+</section>

@@ -358,6 +358,33 @@ describe('the /v1 facade', () => {
 
     after(() => server?.close());
 
+    it('manages keys and webhook endpoints, showing secrets only on create', async () => {
+        const made = await call('POST', '/api-keys', { body: { name: 'ui', scopes: ['objects:read'] } });
+        assert.equal(made.status, 201);
+        assert.match(made.body.key.key, /^wsk_/);
+        const listed = await call('GET', '/api-keys');
+        assert.ok(listed.body.scopes.includes('objects:write'));
+        assert.ok(listed.body.keys.every((k) => !('key' in k)));
+        assert.equal((await call('POST', '/api-keys', { body: { scopes: ['nope'] } })).status, 400);
+        assert.ok((await call('DELETE', `/api-keys/${made.body.key.id}`)).body.key.revokedAt);
+        assert.equal((await call('GET', '/v1/', { key: made.body.key.key })).status, 401);
+        assert.equal((await call('GET', '/b/api-keys')).body.keys.some((k) => k.id === made.body.key.id), false);
+
+        const ep = await call('POST', '/webhook-endpoints', {
+            body: { url: 'https://example.com/hook', events: ['ticket.created'], secret: 'chosen' },
+        });
+        assert.equal(ep.status, 201);
+        assert.ok(ep.body.endpoint.secret && ep.body.endpoint.secret !== 'chosen');
+        const eps = await call('GET', '/webhook-endpoints');
+        assert.ok(eps.body.events.includes('message.received'));
+        assert.equal(eps.body.endpoints.find((e) => e.id === ep.body.endpoint.id).secret, undefined);
+        const paused = await call('PUT', `/webhook-endpoints/${ep.body.endpoint.id}`, { body: { isActive: false } });
+        assert.equal(paused.body.endpoint.isActive, false);
+        assert.deepEqual((await call('GET', `/webhook-endpoints/${ep.body.endpoint.id}/deliveries`)).body, { deliveries: [] });
+        assert.equal((await call('PUT', `/b/webhook-endpoints/${ep.body.endpoint.id}`, { body: {} })).status, 404);
+        assert.equal((await call('DELETE', `/webhook-endpoints/${ep.body.endpoint.id}`)).status, 200);
+    });
+
     it('refuses an absent, unknown or revoked key', async () => {
         assert.equal((await call('GET', '/v1/')).status, 401);
         assert.equal((await call('GET', '/v1/', { key: 'wsk_bogus' })).status, 401);

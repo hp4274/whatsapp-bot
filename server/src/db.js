@@ -220,6 +220,8 @@ function addTenantControlColumns(db) {
     }
     if (!cols.includes('safety')) db.exec("ALTER TABLE tenants ADD COLUMN safety TEXT NOT NULL DEFAULT '{}'");
     if (!cols.includes('limits')) db.exec("ALTER TABLE tenants ADD COLUMN limits TEXT NOT NULL DEFAULT '{}'");
+    // Session idle timeout (see Tenancy.resolveSession).
+    if (!columnsOf(db, 'sessions').includes('last_seen_at')) db.exec('ALTER TABLE sessions ADD COLUMN last_seen_at TEXT');
 }
 
 /** Adds channel_id to tables that predate channels. Existing rows keep NULL
@@ -536,6 +538,28 @@ export class Database {
             `SELECT DISTINCT recipient FROM messages WHERE tenant_id = ? AND status IN (${placeholders})`
         ).all(this.tenantId, ...SUCCESS_STATUSES);
         return new Set(rows.map((r) => r.recipient));
+    }
+
+    /** When this channel (or tenant) first really sent: a number's age for warm-up. */
+    firstSentAt() {
+        const placeholders = SUCCESS_STATUSES.map(() => '?').join(',');
+        const scope = this.channelId != null ? ' AND channel_id = ?' : '';
+        const args = this.channelId != null ? [this.channelId] : [];
+        return this.db.prepare(
+            `SELECT MIN(created_at) AS first FROM messages
+             WHERE tenant_id = ?${scope} AND status IN (${placeholders})`,
+        ).get(this.tenantId, ...args, ...SUCCESS_STATUSES).first ?? null;
+    }
+
+    /** recipient -> bulk (campaign) messages queued or sent to them since `sinceIso`. */
+    bulkCountsSince(sinceIso) {
+        const rows = this.db.prepare(
+            `SELECT recipient, COUNT(*) AS n FROM messages
+             WHERE tenant_id = ? AND message_type = 'campaign' AND created_at >= ?
+               AND status NOT IN ('FAILED', 'SANDBOX')
+             GROUP BY recipient`,
+        ).all(this.tenantId, sinceIso);
+        return new Map(rows.map((r) => [r.recipient, r.n]));
     }
 
     insertInbound(record) {

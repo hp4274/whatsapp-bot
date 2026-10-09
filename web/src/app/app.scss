@@ -154,7 +154,8 @@
 
 .content {
   grid-area: content;
-  padding: var(--space-lg) var(--space-xl) var(--space-xl);
+  /* Bottom room so the floating send-progress card never covers page controls. */
+  padding: var(--space-lg) var(--space-xl) 180px;
   overflow: auto;
 }
 

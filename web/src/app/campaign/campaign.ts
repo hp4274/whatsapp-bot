@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { Api, Contact, SafetyStatus } from '../core/api';
@@ -10,7 +10,7 @@ import { Store } from '../core/store';
   templateUrl: './campaign.html',
   styleUrl: './campaign.scss',
 })
-export class CampaignView {
+export class CampaignView implements OnDestroy {
   private readonly api = inject(Api);
   protected readonly store = inject(Store);
 
@@ -28,6 +28,9 @@ export class CampaignView {
   protected readonly notice = signal('');
   protected readonly plan = signal<SafetyStatus | null>(null);
 
+  protected readonly attachment = signal<{ mediaId: string; filename: string; size: number; image: boolean; previewUrl: string } | null>(null);
+  protected readonly uploading = signal(false);
+
   protected readonly connected = computed(() => this.store.connection().connected);
 
   protected readonly preview = computed(() => {
@@ -38,7 +41,9 @@ export class CampaignView {
       phone: first.phone,
       ...(first.extra ?? {}),
     };
-    return `Preview for ${first.name || first.phone}: ${substitute(this.own(first) || this.bulkMessage(), context)}`;
+    const text = substitute(this.own(first) || this.bulkMessage(), context);
+    const file = this.attachment();
+    return `Preview for ${first.name || first.phone}: ${text}${file ? ` [attached: ${file.filename}]` : ''}`;
   });
 
   protected readonly percent = computed(() => Math.round(this.store.progress() * 100));
@@ -116,6 +121,52 @@ export class CampaignView {
     input.value = ''; // allow re-importing the same file
   }
 
+  protected onAttach(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'application/pdf'].includes(file.type)) {
+      this.notice.set('Attach a JPG, PNG or PDF file.');
+      return;
+    }
+    if (file.size > 16 * 1024 * 1024) {
+      this.notice.set('That file is over 16 MB.');
+      return;
+    }
+    this.uploading.set(true);
+    this.api.uploadMedia(file).subscribe({
+      next: (media) => {
+        this.removeAttachment();
+        const image = file.type.startsWith('image/');
+        this.attachment.set({
+          mediaId: media.mediaId, filename: media.filename, size: media.size, image,
+          previewUrl: image ? URL.createObjectURL(file) : '',
+        });
+        this.uploading.set(false);
+        this.notice.set('');
+      },
+      error: (err: Error) => {
+        this.uploading.set(false);
+        this.notice.set(err.message);
+      },
+    });
+  }
+
+  protected removeAttachment(): void {
+    const current = this.attachment();
+    if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
+    this.attachment.set(null);
+  }
+
+  protected size(bytes: number): string {
+    return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
+  }
+
+  ngOnDestroy(): void {
+    this.removeAttachment();
+  }
+
   protected start(): void {
     if (!this.connected()) {
       this.notice.set('Connect a transport on the Connection page first.');
@@ -126,7 +177,8 @@ export class CampaignView {
       return;
     }
     this.busy.set(true);
-    this.api.startCampaign(this.contacts(), this.bulkMessage(), this.onePerNumber()).subscribe({
+    this.api.startCampaign(this.contacts(), this.bulkMessage(), this.onePerNumber(),
+      this.attachment()?.mediaId ?? null).subscribe({
       next: ({ queued, skipped, safety }) => {
         this.busy.set(false);
         this.notice.set('');
