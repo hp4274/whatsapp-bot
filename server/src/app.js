@@ -342,15 +342,20 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     // --------------------------------------------------------- connection --
     app.get('/connection', (req, res) => res.json(connectionState(state)));
 
-    app.post('/connection/connect', async (req, res) => {
+    /**
+     * Open the transport. A route and the boot/watchdog reconnect both call this,
+     * so a restart brings back every connection a user had up.
+     * @returns {{ status: number, body: object }}
+     */
+    const connectChannel = async () => {
         if (state.connecting) {
-            return res.json(connectionState(state));
+            return { status: 200, body: connectionState(state) };
         }
         if (state.transport?.isConnected?.()) {
-            return res.json(connectionState(state));
+            return { status: 200, body: connectionState(state) };
         }
         const problems = validateConfig(state.config);
-        if (problems.length) return res.status(400).json({ errors: problems });
+        if (problems.length) return { status: 400, body: { errors: problems } };
 
         if (state.transport) {
             try {
@@ -365,7 +370,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         try {
             transport = createTransport(state.config, deps);
         } catch (err) {
-            return res.status(400).json({ errors: [err.message] });
+            return { status: 400, body: { errors: [err.message] } };
         }
         // The WhatsApp Web transport talks back while it connects: QR codes,
         // loading progress, and the ACKs that become DELIVERED / READ.
@@ -440,7 +445,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
                 ? 409
                 : (err instanceof TransportError ? 502 : 500);
             broadcast(state, { type: 'connection', ...connectionState(state) });
-            return res.status(status).json({ errors: [err.message] });
+            return { status: status, body: { errors: [err.message] } };
         }
 
         if (state.info?.connected) {
@@ -454,10 +459,25 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         }
 
         broadcast(state, { type: 'connection', ...connectionState(state) });
-        return res.json(connectionState(state));
+        return { status: 200, body: connectionState(state) };
+    };
+    state.connect = connectChannel;
+
+    app.post('/connection/connect', async (req, res) => {
+        const result = await connectChannel();
+        // Remember that this number should stay up: restarts and the watchdog honour it.
+        if (result.status < 400) setWanted(true);
+        return res.status(result.status).json(result.body);
     });
 
+    /** The user's intent, stored with the channel so it survives a restart. */
+    const setWanted = (wanted) => {
+        if (Boolean(state.config.autoConnect) === wanted) return;
+        state.config = state.save({ ...state.config, autoConnect: wanted });
+    };
+
     app.post('/connection/disconnect', async (req, res) => {
+        setWanted(false);
         state.connecting = false;
         if (state.transport) {
             try {
@@ -476,6 +496,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     });
 
     app.post('/connection/logout', async (req, res) => {
+        setWanted(false);
         state.connecting = false;
         if (state.transport?.logout) {
             try {
@@ -1809,9 +1830,41 @@ export function createApp({
         }
     };
 
+    /**
+     * Bring back every connection a user left up. Runs once at boot and then as a
+     * watchdog, so a restart or a dropped session never leaves a number offline
+     * until someone opens the Connection page.
+     */
+    const reconnectAll = async () => {
+        for (const tenant of tenancy.listTenants()) {
+            if (tenant.status !== 'active') continue;
+            try {
+                const runtime = runtimeFor(tenant.id);
+                for (const channel of runtime.channels.list()) {
+                    if (channel.status !== 'active' || !channel.settings.autoConnect) continue;
+                    const { state } = runtime.runtimeFor(channel);
+                    const t = state.transport;
+                    // A transport mid-reconnect has its own backoff: do not fight it.
+                    if (state.connecting || t?.isConnected?.() || t?.reconnectTimer || t?.connecting) continue;
+                    const result = await state.connect();
+                    if (result.status >= 400) {
+                        logger.warn('auto-reconnect failed', { tenantId: tenant.id, channelId: channel.id, error: result.body?.errors?.[0] });
+                    }
+                }
+            } catch (err) {
+                logger.warn('auto-reconnect error', { tenantId: tenant.id, error: err.message });
+            }
+        }
+    };
+    app.locals.reconnectAll = reconnectAll;
+
     if (scheduler) {
         const timer = setInterval(() => { void sweep(); }, sweepMs);
         timer.unref();
+        const boot = setTimeout(() => { void reconnectAll(); }, 1500);
+        const watchdog = setInterval(() => { void reconnectAll(); }, 30_000);
+        boot.unref();
+        watchdog.unref();
 
         // Outbound webhooks are durable jobs, not a second retry loop.
         const jobs = new JobStore(db);
@@ -1822,6 +1875,8 @@ export function createApp({
 
         app.locals.stopScheduler = async () => {
             clearInterval(timer);
+            clearInterval(watchdog);
+            clearTimeout(boot);
             await worker.shutdown();
         };
     }

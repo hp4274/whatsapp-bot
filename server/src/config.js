@@ -56,6 +56,9 @@ export const DEFAULTS = Object.freeze({
     chromePath: '',
     qrTimeout: 180.0,
 
+    // set when the user connects, cleared when they disconnect: restarts honour it
+    autoConnect: false,
+
     // sending safety (see campaign/safety.js)
     safetyEnabled: true,
     dailyLimit: 250,

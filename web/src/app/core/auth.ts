@@ -10,7 +10,7 @@
 import { HttpClient, HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
-import { Observable, catchError, map, of, tap, throwError } from 'rxjs';
+import { Observable, catchError, map, of, retry, tap, throwError, timer } from 'rxjs';
 
 export type Role = 'agent' | 'admin' | 'owner' | 'super_admin';
 export const ROLE_RANK: Role[] = ['agent', 'admin', 'owner', 'super_admin'];
@@ -126,8 +126,14 @@ export class Auth {
       return of(null);
     }
     return this.http.get<{ user: User; tenant: Tenant | null }>('/api/auth/me').pipe(
-      catchError(() => {
-        this.clear();
+      // A server that is restarting answers 502/503 or not at all. That is not a
+      // revoked session, so wait it out instead of signing everyone out on deploy.
+      retry({
+        count: 20,
+        delay: (error: HttpErrorResponse) => (error.status === 401 || error.status === 403 ? throwError(() => error) : timer(1500)),
+      }),
+      catchError((error: HttpErrorResponse) => {
+        if (error.status === 401 || error.status === 403) this.clear();
         return of({ user: null, tenant: null });
       }),
       map(({ user, tenant }) => {
