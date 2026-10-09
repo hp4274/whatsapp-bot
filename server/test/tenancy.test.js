@@ -275,6 +275,16 @@ describe('tenant lifecycle', () => {
         assert.equal((await call(null, 'GET', `/api/webhook/${tenantId}`)).status, 404);
     });
 
+    it('gates object types by their singular router path, case-insensitively', async () => {
+        const shop = tenancy.createTenant('Shop Gate', 'shop-gate', { services: ['orders'] });
+        const token = sessionFor(app, { tenantId: shop.id, role: 'owner' });
+        assert.equal((await call(token, 'GET', '/api/objects/order')).status, 200);
+        for (const url of ['/api/objects/lead', '/api/objects/LEAD', '/api/objects/appointment/1', '/api/api-keys', '/api/recipes']) {
+            assert.equal((await call(token, 'GET', url)).status, 403, url);
+        }
+        assert.match((await call(token, 'GET', '/api/objects/lead')).body.errors[0], /leads is disabled/);
+    });
+
     it('locks a suspended tenant out immediately, and its webhook goes dark', async () => {
         const victim = tenancy.createTenant('Suspend Me', 'suspend-me');
         const token = sessionFor(app, { tenantId: victim.id, role: 'owner' });

@@ -39,7 +39,8 @@ for (const envPath of envPaths) {
     }
 }
 
-import { hashPassword } from './tenancy.js';
+import { hashPassword, verifyPassword } from './tenancy.js';
+import { trackIndexHashes } from './security/headers.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -56,6 +57,8 @@ const app = createApp({ db, config, scheduler: true });
 // Serve the built frontend when it exists, so `npm start` is the whole app.
 const webDist = path.join(HERE, '..', '..', 'web', 'dist', 'web', 'browser');
 if (fs.existsSync(webDist)) {
+    // The CSP must allow the build's inline bootstrap script by hash (see security/headers.js).
+    trackIndexHashes(app, path.join(webDist, 'index.html'));
     app.use(express.static(webDist));
     app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(webDist, 'index.html')));
 }
@@ -74,9 +77,11 @@ if (tenancy.userCount() === 0) {
     try {
         const email = (process.env.SUPER_ADMIN_EMAIL || 'admin@whatsapp.local').trim().toLowerCase();
         const adminUser = tenancy.db.prepare('SELECT * FROM users WHERE email = ?').get(email);
-        if (adminUser) {
+        // Only when it actually changed: a new password signs the admin out everywhere.
+        if (adminUser && !(await verifyPassword(process.env.SUPER_ADMIN_PASSWORD, adminUser.password_hash))) {
             const hash = await hashPassword(process.env.SUPER_ADMIN_PASSWORD);
             tenancy.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, adminUser.id);
+            tenancy.revokeSessions(adminUser.id);
             console.log(`[whatsapp-sender] synced super admin password for ${email} from environment`);
         }
     } catch (err) {

@@ -18,7 +18,9 @@ import {
 import { TransportConnectionError, TransportError } from '../transports/base.js';
 import { RateLimiter, RetryPolicy, interruptibleSleep } from './limits.js';
 import { MessageQueue, QueueState, queueItem } from './queue.js';
-import { DailyQuota, estimateSeconds, nextDelay, paceFor } from './safety.js';
+import {
+    DailyQuota, SafetyError, estimateSeconds, nextDelay, paceFor, variationError,
+} from './safety.js';
 
 export class CampaignManager extends EventEmitter {
     constructor(db, transport, config) {
@@ -42,6 +44,10 @@ export class CampaignManager extends EventEmitter {
         this.sentInRun = 0;
         this.waitingUntil = null;   // when the next message may go (ms epoch)
         this.pausedByQuota = false;
+        // Set by the channel runtime: () => true while bulk may go out now
+        // (sending window + quiet hours). Bulk outside it waits, it does not fail.
+        this.bulkWindowOpen = null;
+        this.holding = false;
     }
 
     applyConfig(config) {
@@ -82,6 +88,7 @@ export class CampaignManager extends EventEmitter {
                 ? Math.max(0, Math.round((this.waitingUntil - Date.now()) / 1000))
                 : 0,
             pausedByQuota: this.pausedByQuota,
+            heldForQuietHours: this.holding,
         };
     }
 
@@ -99,8 +106,16 @@ export class CampaignManager extends EventEmitter {
      * not the queue, is what remembers those).
      */
     enqueueContacts(contacts, template, { campaignId = null, onePerNumber = false, media = null } = {}) {
+        const unvaried = this.config.safetyEnabled === false ? null : variationError(template, contacts, this.config);
+        if (unvaried) throw new SafetyError(unvaried);
         this.campaignId = campaignId ?? crypto.randomUUID().replace(/-/g, '').slice(0, 12);
         const alreadySent = onePerNumber ? this.db.sentRecipients() : new Set();
+        // Per-recipient frequency cap: bulk only, rolling 24h, counted from the db.
+        const perRecipient = this.config.safetyEnabled === false ? 0 : Number(this.config.recipientDailyCap) || 0;
+        const recent = perRecipient && this.db.bulkCountsSince
+            ? this.db.bulkCountsSince(new Date(Date.now() - 24 * 3600 * 1000).toISOString().replace(/\.\d{3}Z$/, '+00:00'))
+            : new Map();
+        let skippedFrequency = 0;
         const batch = Array.isArray(contacts) ? contacts.length : 0;
         this.pace = paceFor(batch, this.config);
         this.sentInRun = 0;
@@ -124,6 +139,11 @@ export class CampaignManager extends EventEmitter {
                     skipped += 1;
                     continue;
                 }
+                if (perRecipient && (recent.get(contact.phone) ?? 0) >= perRecipient) {
+                    skipped += 1;
+                    skippedFrequency += 1;
+                    continue;
+                }
                 // A `message` column in the sheet gives that number its own text;
                 // everyone else gets the shared template.
                 const own = String(contact.extra?.message ?? contact.extra?.custom_message ?? '').trim();
@@ -134,8 +154,10 @@ export class CampaignManager extends EventEmitter {
                     campaignId: this.campaignId,
                     media,
                 });
-                if (this.#enqueueItem(item)) queued += 1;
-                else skipped += 1;
+                if (this.#enqueueItem(item)) {
+                    queued += 1;
+                    if (perRecipient) recent.set(contact.phone, (recent.get(contact.phone) ?? 0) + 1);
+                } else skipped += 1;
             }
         } finally {
             this.queue.onePerRecipient = previousMode;
@@ -150,6 +172,7 @@ export class CampaignManager extends EventEmitter {
             queued,
             skipped,
             skippedOptOut,
+            skippedFrequency,
             campaignId: this.campaignId,
             safety: this.safetyStatus(queued),
             overQuota: Number.isFinite(remaining) ? Math.max(0, queued - remaining) : 0,
@@ -348,12 +371,32 @@ export class CampaignManager extends EventEmitter {
         }
     }
 
+    /**
+     * Bulk outside the sending window / quiet hours goes back in the queue (by
+     * priority, so replies still overtake it) and the worker naps briefly.
+     * Returns true when the item was held.
+     */
+    async #heldOutsideWindow(item) {
+        const held = item.messageType === 'campaign' && this.config.safetyEnabled
+            && this.transport?.realDelivery && this.bulkWindowOpen?.() === false;
+        if (held !== this.holding) {
+            this.holding = Boolean(held);
+            if (held) this.emit('event', { type: 'pacing', seconds: 0, resting: true, reason: 'quiet hours - bulk sending resumes when the window opens' });
+            this.#emitStats();
+        }
+        if (!held) return false;
+        this.queue.putBack(item);
+        await interruptibleSleep(this.holdPollSeconds ?? 2, () => this.#stopped());
+        return true;
+    }
+
     async #attempt(item) {
         for (;;) {
             if (this.#stopped()) {
                 this.#finish(item, Status.FAILED, { error: 'Stopped by operator' });
                 return;
             }
+            if (await this.#heldOutsideWindow(item)) return;
             if (this.#quotaBlocked(item)) return;
             if (!await this.#paceBeforeSend(item)) {
                 this.queue.putFront(item);   // stopped while pacing: keep the row queued

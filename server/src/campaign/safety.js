@@ -19,7 +19,54 @@
  * difference between messaging contacts and spamming them.
  */
 
+import { withinSendingWindow } from '../channels.js';
 import { SUCCESS_STATUSES } from '../protocol.js';
+
+/** Day-one cap for a new number under warm-up; it doubles each day after. */
+export const WARMUP_START = 30;
+const DAY_MS = 24 * 3600 * 1000;
+
+/** A safety rule refused the request. `status` is what the HTTP layer answers. */
+export class SafetyError extends Error {
+    constructor(message, status = 400) {
+        super(message);
+        this.status = status;
+    }
+}
+
+/**
+ * Identical text to hundreds of people is the strongest spam signal there is.
+ * With `requireVariationAbove` set, a bigger campaign must vary per recipient:
+ * a {a|b} spin or a {name}-style placeholder. Rows carrying their own message
+ * are already varied. Returns the refusal text, or null.
+ */
+export function variationError(template, contacts, config = {}) {
+    const above = Number(config.requireVariationAbove) || 0;
+    const count = Array.isArray(contacts) ? contacts.length : 0;
+    if (!above || count <= above) return null;
+    const text = String(template ?? '');
+    if (/\{[^{}]*\|[^{}]*\}/.test(text) || /\{\s*[\w.]+\s*\}/.test(text)) return null;
+    if (contacts.every((c) => String(c?.extra?.message ?? c?.extra?.custom_message ?? '').trim())) return null;
+    return `Campaigns to more than ${above} people must vary the message: add spintax like {Hi|Hello} `
+        + 'or a placeholder like {name}. Identical bulk text gets numbers reported and blocked.';
+}
+
+/**
+ * Is bulk traffic allowed right now? The channel's own sending window, and the
+ * platform's quiet hours (`quietHoursStart`..`quietHoursEnd`, channel timezone,
+ * may wrap midnight; equal = off). Both reuse `withinSendingWindow`.
+ */
+export function bulkWindowOpen(channel, config = {}, at = new Date()) {
+    if (channel && !withinSendingWindow(channel, at)) return false;
+    const start = Math.floor(Number(config.quietHoursStart) || 0);
+    const end = Math.floor(Number(config.quietHoursEnd) || 0);
+    if (start === end) return true;
+    const window = (from, to) => withinSendingWindow({
+        timezone: channel?.timezone || 'UTC', businessHours: { start: `${from}:00`, end: `${to}:00` },
+    }, at);
+    // 21 -> 9 is quiet overnight, so 9..21 is open; 1 -> 6 is quiet inside one day.
+    return start > end ? window(end, start) : !window(start, end);
+}
 
 /**
  * Gap between messages, by batch size.  Bigger campaign, slower drip.
@@ -115,7 +162,23 @@ export class DailyQuota {
     }
 
     get limit() {
-        return Math.max(0, Number(this.config.dailyLimit) || 0);
+        return this.limitOn(new Date());
+    }
+
+    /**
+     * The cap for the day `now` falls in (0 = none). Under warm-up a number's
+     * first `warmupDays` days, counted from its first real send, start at
+     * WARMUP_START and double daily, never above `dailyLimit` when one is set.
+     */
+    limitOn(now = new Date()) {
+        const base = Math.max(0, Number(this.config.dailyLimit) || 0);
+        const days = Number(this.config.warmupDays) || 0;
+        if (!days) return base;
+        const first = this.db.firstSentAt?.();
+        const age = first ? Math.max(0, Math.round((dayStart(now) - dayStart(new Date(first))) / DAY_MS)) : 0;
+        if (age >= days) return base;
+        const ramp = WARMUP_START * 2 ** age;
+        return base ? Math.min(base, ramp) : ramp;
     }
 
     usedToday(now = new Date()) {
@@ -123,8 +186,9 @@ export class DailyQuota {
     }
 
     remaining(now = new Date()) {
-        if (!this.config.safetyEnabled || this.limit === 0) return Infinity;
-        return Math.max(0, this.limit - this.usedToday(now));
+        const limit = this.limitOn(now);
+        if (!this.config.safetyEnabled || limit === 0) return Infinity;
+        return Math.max(0, limit - this.usedToday(now));
     }
 
     exhausted(now = new Date()) {
@@ -134,12 +198,13 @@ export class DailyQuota {
     /** Everything the UI needs to explain the budget. */
     status(now = new Date()) {
         const used = this.usedToday(now);
-        const limited = Boolean(this.config.safetyEnabled) && this.limit > 0;
+        const limit = this.limitOn(now);
+        const limited = Boolean(this.config.safetyEnabled) && limit > 0;
         return {
             enabled: Boolean(this.config.safetyEnabled),
-            limit: this.limit,
+            limit,
             used,
-            remaining: limited ? Math.max(0, this.limit - used) : null,
+            remaining: limited ? Math.max(0, limit - used) : null,
             resetsAt: dayEnd(now).toISOString(),
         };
     }

@@ -26,6 +26,13 @@ export function verifySignature(rawBody, header, secret) {
     return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 }
 
+/** Constant-time string equality for shared secrets (verify tokens and the like). */
+export function safeEqual(a, b) {
+    const left = crypto.createHash('sha256').update(String(a ?? '')).digest();
+    const right = crypto.createHash('sha256').update(String(b ?? '')).digest();
+    return crypto.timingSafeEqual(left, right);
+}
+
 const warnedChannels = new Set();
 
 /**

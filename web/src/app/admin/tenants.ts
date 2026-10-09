@@ -95,7 +95,23 @@ const SAFETY_GROUPS: { title: string; fields: SafetyField[] }[] = [
     fields: [{
       key: 'failureStopPercent', label: 'Pause a campaign above (% failed)',
       help: 'Checked after 20 sends. 0 = never pause',
+    }, {
+      key: 'warmupDays', label: 'New-number warm-up (days)',
+      help: 'Cap starts at 30/day and doubles daily. 0 = off',
+    }, {
+      key: 'recipientDailyCap', label: 'Bulk per recipient per 24h',
+      help: 'Replies never count. 0 = off',
+    }, {
+      key: 'requireVariationAbove', label: 'Require spintax/{name} above N recipients',
+      help: '0 = off',
     }],
+  },
+  {
+    title: 'Quiet hours (bulk only, channel timezone)',
+    fields: [
+      { key: 'quietHoursStart', label: 'Hold from hour (0-23)', help: 'Bulk waits, never fails' },
+      { key: 'quietHoursEnd', label: 'Resume at hour (0-23)', help: 'Same as start = off' },
+    ],
   },
 ];
 

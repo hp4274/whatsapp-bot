@@ -73,6 +73,32 @@
         <code>message</code> column to the file or type it in the table below.</small>
     </div>
 
+    <div class="attach">
+      <label class="btn" for="attach-file" [class.disabled]="uploading()">
+        @if (uploading()) { <span class="spinner"></span> } @else { <span class="ms" aria-hidden="true">attach_file</span> }
+        Attach image or PDF
+      </label>
+      <input id="attach-file" type="file" accept="image/jpeg,image/png,application/pdf"
+             (change)="onAttach($event)" [disabled]="uploading()" hidden />
+      @if (attachment(); as file) {
+        <div class="chip">
+          @if (file.image) {
+            <img [src]="file.previewUrl" alt="Preview of attached image" />
+          } @else {
+            <span class="ms" aria-hidden="true">picture_as_pdf</span>
+          }
+          <span class="chip-name">{{ file.filename }}</span>
+          <span class="muted">{{ size(file.size) }}</span>
+          <button type="button" class="chip-x" (click)="removeAttachment()"
+                  [attr.aria-label]="'Remove attachment ' + file.filename">
+            <span class="ms" aria-hidden="true">close</span>
+          </button>
+        </div>
+      } @else {
+        <span class="muted">Optional - JPG, PNG or PDF up to 16 MB; your message becomes the caption</span>
+      }
+    </div>
+
     @if (contacts().length) {
       <details class="own" [open]="ownCount() > 0">
         <summary>

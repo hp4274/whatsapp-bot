@@ -103,6 +103,17 @@ export class MessageQueue {
         return true;
     }
 
+    /**
+     * Re-insert an item that was already taken (no dedupe) at the head of its
+     * priority band: it keeps its turn, but a higher-priority reply still wins.
+     */
+    putBack(item) {
+        if (this.isStopped) return;
+        const priority = item.priority ?? 4;
+        const at = this.items.findIndex((other) => (other.priority ?? 4) >= priority);
+        this.items.splice(at === -1 ? this.items.length : at, 0, item);
+    }
+
     /** How many items of each message type are waiting. */
     pendingByType() {
         const counts = {};

@@ -18,6 +18,7 @@
 import express from 'express';
 
 import { API_SCOPES, ApiKeyError, ApiKeyStore } from './keys.js';
+import { WEBHOOK_EVENTS, WebhookError, WebhookStore } from './webhooks.js';
 
 /** Which v1 resource maps to which object type. Adding one is one line. */
 const OBJECT_ROUTES = Object.freeze({
@@ -117,6 +118,61 @@ export function createPublicApiRouter({ db, state }) {
         if (status >= 500) throw err;
         return res.status(status).json({ error: errorCode(status), message: err.message });
     };
+
+    // ---------------------------------------------- tenant key management --
+    // Session routes (behind the bearer middleware, gated on the `api` service);
+    // writes already need admin there. Secrets appear only in the create response.
+    const webhooks = new WebhookStore(db);
+    const manageFail = (res, err) => {
+        if (!(err instanceof ApiKeyError || err instanceof WebhookError)) throw err;
+        return res.status(err.status).json({ errors: [err.message] });
+    };
+    const publicEndpoint = ({ secret, ...endpoint }) => ({ ...endpoint, secretHint: `…${String(secret).slice(-4)}` });
+
+    router.get('/api-keys', (req, res) => res.json({ keys: keys.list(), scopes: API_SCOPES }));
+    router.post('/api-keys', (req, res) => {
+        try {
+            return res.status(201).json({ key: keys.createKey(req.body ?? {}) });
+        } catch (err) {
+            return manageFail(res, err);
+        }
+    });
+    router.delete('/api-keys/:id', (req, res) => {
+        try {
+            return res.json({ key: keys.revoke(req.params.id) });
+        } catch (err) {
+            return manageFail(res, err);
+        }
+    });
+
+    router.get('/webhook-endpoints', (req, res) => res.json({
+        endpoints: webhooks.listEndpoints().map(publicEndpoint), events: WEBHOOK_EVENTS,
+    }));
+    router.post('/webhook-endpoints', (req, res) => {
+        try {
+            return res.status(201).json({ endpoint: webhooks.createEndpoint({ ...req.body, secret: null }) });
+        } catch (err) {
+            return manageFail(res, err);
+        }
+    });
+    router.put('/webhook-endpoints/:id', (req, res) => {
+        try {
+            return res.json({ endpoint: publicEndpoint(webhooks.updateEndpoint(req.params.id, req.body ?? {})) });
+        } catch (err) {
+            return manageFail(res, err);
+        }
+    });
+    router.delete('/webhook-endpoints/:id', (req, res) => {
+        try {
+            return res.json({ deleted: webhooks.removeEndpoint(req.params.id).id });
+        } catch (err) {
+            return manageFail(res, err);
+        }
+    });
+    router.get('/webhook-endpoints/:id/deliveries', (req, res) => {
+        if (!webhooks.getEndpoint(req.params.id)) return res.status(404).json({ errors: ['endpoint not found'] });
+        return res.json({ deliveries: webhooks.listDeliveries({ endpointId: Number(req.params.id), limit: 50 }) });
+    });
 
     const v1 = express.Router();
     router.use('/v1', v1);

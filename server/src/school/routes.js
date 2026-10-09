@@ -23,6 +23,7 @@ import crypto from 'node:crypto';
 
 import express from 'express';
 import multer from 'multer';
+import { checkImport } from '../security/filetype.js';
 
 import { normalizeHeader, parseCsv } from '../contacts.js';
 import { MessageJobError, messageJob } from '../messaging/job.js';
@@ -566,7 +567,7 @@ export function createSchoolRouter({ db, state }) {
         res.json({ deleted: student.id });
     });
 
-    router.post('/school/students/import', gate('students', { write: true }), upload.single('file'), async (req, res) => {
+    router.post('/school/students/import', gate('students', { write: true }), upload.single('file'), checkImport, async (req, res) => {
         if (!req.file) throw new SchoolError('no file uploaded');
         const result = { imported: 0, updated: 0, errors: [] };
         const index = new Map(students(state).map((o) => [`${classKeyOf(o.data)}|${o.data.rollNumber}`, o]));
@@ -641,7 +642,7 @@ export function createSchoolRouter({ db, state }) {
         res.json(sheet(date, key));
     });
 
-    router.post('/school/attendance/import', gate('attendance', { write: true }), upload.single('file'), async (req, res) => {
+    router.post('/school/attendance/import', gate('attendance', { write: true }), upload.single('file'), checkImport, async (req, res) => {
         if (!req.file) throw new SchoolError('no file uploaded');
         const date = req.body?.date;
         if (!isDate(date)) throw new SchoolError('date must be YYYY-MM-DD');
@@ -987,7 +988,7 @@ export function createSchoolRouter({ db, state }) {
         });
     });
 
-    router.post('/school/results/import', gate('results', { write: true }), upload.single('file'), async (req, res) => {
+    router.post('/school/results/import', gate('results', { write: true }), upload.single('file'), checkImport, async (req, res) => {
         if (!req.file) throw new SchoolError('no file uploaded');
         const examName = String(req.body?.examName ?? '').trim();
         const key = normKey(req.body?.classKey);

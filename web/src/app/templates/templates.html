@@ -1,0 +1,202 @@
+<header class="s-head">
+  <div>
+    <h2>Templates</h2>
+    <p>Reusable WhatsApp messages with <code>{{ '{' }}variables{{ '}' }}</code> — every edit is versioned, so you can always roll back.</p>
+  </div>
+  @if (!readOnly()) {
+    <button class="btn primary" type="button" (click)="openNew()"><span class="ms" aria-hidden="true">add</span> New template</button>
+  }
+</header>
+
+@if (readOnly()) {
+  <div class="s-banner tone-info" role="status">
+    <span class="ms" aria-hidden="true">visibility</span> Read-only: only admins can create or change templates.
+  </div>
+}
+
+@if (error()) {
+  <div class="s-banner" role="alert">
+    <span class="ms" aria-hidden="true">error</span> {{ error() }}
+    <button class="btn sm" type="button" (click)="load()">Retry</button>
+  </div>
+}
+
+@if (loading()) {
+  <div class="grid" aria-busy="true" aria-label="Loading templates">
+    @for (k of [0, 1, 2]; track k) {
+      <div class="tcard"><div class="s-skel" style="width: 45%"></div><div class="s-skel" style="height: 64px"></div><div class="s-skel" style="width: 30%"></div></div>
+    }
+  </div>
+} @else if (!error() && templates().length === 0) {
+  <div class="s-empty">
+    <span class="ms" aria-hidden="true">forum</span>
+    <strong>No templates yet</strong>
+    <p>Save the messages you send again and again — greetings, reminders, receipts — and reuse them in campaigns and replies.</p>
+    @if (!readOnly()) {
+      <button class="btn primary" type="button" (click)="openNew()"><span class="ms" aria-hidden="true">add</span> Create your first template</button>
+    }
+  </div>
+} @else if (templates().length) {
+  <div class="bar">
+    <label class="search">
+      <span class="ms" aria-hidden="true">search</span>
+      <span class="sr-only">Search templates</span>
+      <input type="search" placeholder="Search by name or wording" [ngModel]="query()" (ngModelChange)="query.set($event)" />
+    </label>
+    @if (presentTypes().length > 1) {
+      <div class="chips" role="group" aria-label="Filter by type">
+        <button class="s-chip" type="button" [attr.aria-pressed]="typeFilter() === ''" (click)="typeFilter.set('')">All</button>
+        @for (t of presentTypes(); track t) {
+          <button class="s-chip" type="button" [attr.aria-pressed]="typeFilter() === t" (click)="typeFilter.set(t)">{{ meta[t].label }}</button>
+        }
+      </div>
+    }
+  </div>
+
+  @if (filtered().length === 0) {
+    <div class="s-empty">
+      <span class="ms" aria-hidden="true">search_off</span>
+      <strong>Nothing matches</strong>
+      <button class="btn sm" type="button" (click)="query.set(''); typeFilter.set('')">Clear filters</button>
+    </div>
+  }
+
+  <div class="grid">
+    @for (t of filtered(); track t.id; let i = $index) {
+      <article class="tcard s-enter" [class]="meta[t.templateType].tone" [style.--i]="i" [schoolTilt]="4">
+        <div class="top">
+          <span class="ico ms" aria-hidden="true">{{ meta[t.templateType].icon }}</span>
+          <div class="ttl">
+            <h3>{{ t.name }}</h3>
+            <span class="muted">v{{ t.currentVersion }} · used {{ t.useCount }}× · {{ ago(t.updatedAt) }}</span>
+          </div>
+          @if (t.templateType === 'provider_template') {
+            <span class="s-pill" [class]="t.approvalStatus === 'approved' ? 'tone-ok' : t.approvalStatus === 'rejected' ? 'tone-bad' : 'tone-warn'">{{ t.approvalStatus }}</span>
+          }
+        </div>
+        <p class="bubble">{{ t.body || 'Empty body' }}</p>
+        @if (t.variables.length) {
+          <div class="vars">
+            @for (v of t.variables; track v) { <code>{{ '{' + v + '}' }}</code> }
+          </div>
+        }
+        <div class="acts">
+          @if (confirmDelete() === t.id) {
+            <span class="ask" role="alert">Delete “{{ t.name }}” and its history?</span>
+            <button class="btn sm danger" type="button" [disabled]="busy()" (click)="remove(t)">Delete</button>
+            <button class="btn sm ghost" type="button" (click)="confirmDelete.set(null)">Keep</button>
+          } @else {
+            <button class="btn sm ghost" type="button" (click)="openHistory(t)" [attr.aria-label]="'Version history for ' + t.name"><span class="ms" aria-hidden="true">history</span> History</button>
+            @if (!readOnly()) {
+              <button class="btn sm icon" type="button" (click)="openEdit(t)" [attr.aria-label]="'Edit ' + t.name"><span class="ms" aria-hidden="true">edit</span></button>
+              <button class="btn sm icon danger-ghost" type="button" (click)="confirmDelete.set(t.id)" [attr.aria-label]="'Delete ' + t.name"><span class="ms" aria-hidden="true">delete</span></button>
+            }
+          }
+        </div>
+      </article>
+    }
+  </div>
+}
+
+@if (panel(); as p) {
+  <button class="s-scrim" type="button" aria-label="Close panel" (click)="close()"></button>
+  <aside class="s-drawer" role="dialog" aria-modal="true" aria-labelledby="tp-title">
+    <div class="dhead">
+      <h3 id="tp-title">
+        @if (p.mode === 'edit') { {{ p.id == null ? 'New template' : 'Edit template' }} } @else { History · {{ p.template.name }} }
+      </h3>
+      <button class="btn icon ghost" type="button" aria-label="Close" (click)="close()"><span class="ms" aria-hidden="true">close</span></button>
+    </div>
+
+    @if (panelError()) {
+      <div class="s-banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ panelError() }}</div>
+    }
+
+    @if (p.mode === 'edit') {
+      <form class="form" (ngSubmit)="save()">
+        <div class="field">
+          <label for="tp-name">Name</label>
+          <input id="tp-name" name="name" required maxlength="80" [ngModel]="draft().name" (ngModelChange)="patch({ name: $event })" placeholder="e.g. order_shipped" />
+        </div>
+        <div class="field">
+          <label for="tp-type">Type</label>
+          <select id="tp-type" name="type" [ngModel]="draft().templateType" (ngModelChange)="patch({ templateType: $event })">
+            @for (t of types; track t) { <option [value]="t">{{ meta[t].label }}</option> }
+          </select>
+        </div>
+        @if (draft().templateType === 'provider_template') {
+          <div class="row">
+            <div class="field">
+              <label for="tp-pname">Meta template name</label>
+              <input id="tp-pname" name="pname" [ngModel]="draft().providerTemplateName" (ngModelChange)="patch({ providerTemplateName: $event })" />
+            </div>
+            <div class="field">
+              <label for="tp-appr">Approval</label>
+              <select id="tp-appr" name="appr" [ngModel]="draft().approvalStatus" (ngModelChange)="patch({ approvalStatus: $event })">
+                @for (s of statuses; track s) { <option [value]="s">{{ s }}</option> }
+              </select>
+            </div>
+          </div>
+        }
+        <div class="field">
+          <label for="tp-body">Message</label>
+          <textarea #area id="tp-body" name="body" rows="6" [ngModel]="draft().body" (ngModelChange)="patch({ body: $event })"
+                    placeholder="Hi {name}, your order {order_id} is on its way!"></textarea>
+          <span class="hint">Use <code>{{ '{' }}key{{ '}' }}</code> or <code>{{ '{' }}key|fallback{{ '}' }}</code>.
+            <button class="link" type="button" (click)="insertVar(area)">Insert variable</button></span>
+          @for (m of problems(); track m) { <span class="err">{{ m }}</span> }
+        </div>
+
+        @if (vars().length) {
+          <fieldset class="samples">
+            <legend>Sample values</legend>
+            @for (v of vars(); track v) {
+              <div class="field">
+                <label [for]="'tp-s-' + v">{{ v }}</label>
+                <input [id]="'tp-s-' + v" [name]="'s-' + v" [ngModel]="sample()[v] ?? ''" (ngModelChange)="setSample(v, $event)" />
+              </div>
+            }
+          </fieldset>
+        }
+
+        <div class="phone" aria-label="Live preview">
+          <span class="muted">Preview</span>
+          <p class="bubble out" aria-live="polite">{{ preview() || 'Start typing to see your message.' }}</p>
+        </div>
+
+        <div class="foot">
+          <button class="btn ghost" type="button" (click)="close()">Cancel</button>
+          <button class="btn primary" type="submit" [disabled]="busy() || problems().length > 0">
+            @if (busy()) { <span class="spinner"></span> } Save
+          </button>
+        </div>
+      </form>
+    } @else {
+      @for (c of compat(); track c) {
+        <div class="s-banner tone-warn"><span class="ms" aria-hidden="true">warning</span> {{ c }}</div>
+      }
+      @if (versions(); as vs) {
+        <ol class="timeline">
+          @for (v of vs; track v.id) {
+            <li [class.now]="v.version === p.template.currentVersion">
+              <div class="vhead">
+                <b>v{{ v.version }}</b>
+                <span class="muted">{{ ago(v.createdAt) }}</span>
+                @if (v.version === p.template.currentVersion) {
+                  <span class="s-pill tone-ok">current</span>
+                } @else if (!readOnly()) {
+                  <button class="btn sm" type="button" [disabled]="busy()" (click)="revert(p.template, v.version)"><span class="ms" aria-hidden="true">undo</span> Restore</button>
+                }
+              </div>
+              <p class="bubble">{{ v.body || 'Empty body' }}</p>
+            </li>
+          } @empty {
+            <li class="muted">No versions recorded.</li>
+          }
+        </ol>
+      } @else {
+        <div class="s-skel" style="height: 72px"></div><div class="s-skel" style="height: 72px"></div>
+      }
+    }
+  </aside>
+}

@@ -21,6 +21,10 @@ export const ROLES = Object.freeze(['agent', 'admin', 'owner', 'super_admin']);
 export const roleRank = (role) => ROLES.indexOf(role);
 
 const SESSION_TTL_MS = 7 * 24 * 3600 * 1000;
+/** A session unused this long is dead, whatever its absolute expiry says. */
+export const SESSION_IDLE_MS = 12 * 3600 * 1000;
+/** last_seen_at is written at most this often, not on every request. */
+const SESSION_TOUCH_MS = 60 * 1000;
 
 export const TENANT_SERVICES = Object.freeze([
     'school_whatsapp_bot',
@@ -286,22 +290,38 @@ export class Tenancy {
         const token = crypto.randomBytes(32).toString('base64url');
         const now = Date.now();
         this.db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(new Date(now).toISOString());
-        this.db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)')
-            .run(sha256(token), userId, new Date(now + SESSION_TTL_MS).toISOString(), new Date(now).toISOString());
+        const at = new Date(now).toISOString();
+        this.db.prepare(
+            'INSERT INTO sessions (token_hash, user_id, expires_at, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?)')
+            .run(sha256(token), userId, new Date(now + SESSION_TTL_MS).toISOString(), at, at);
         return token;
     }
 
-    /** The live user + tenant behind a token, or null. */
-    resolveSession(token) {
+    /** The live user + tenant behind a token, or null. Expires idle sessions. */
+    resolveSession(token, now = Date.now()) {
         if (!token) return null;
+        const hash = sha256(String(token));
         const row = this.db.prepare(
-            `SELECT u.*, s.expires_at, t.status AS tenant_status
+            `SELECT u.*, s.expires_at, s.created_at AS session_created, s.last_seen_at, t.status AS tenant_status
              FROM sessions s JOIN users u ON u.id = s.user_id
              LEFT JOIN tenants t ON t.id = u.tenant_id
-             WHERE s.token_hash = ?`).get(sha256(token));
-        if (!row || row.disabled || row.expires_at < new Date().toISOString()) return null;
+             WHERE s.token_hash = ?`).get(hash);
+        if (!row || row.disabled || row.expires_at < new Date(now).toISOString()) return null;
         if (row.tenant_id !== null && row.tenant_status !== 'active') return null;
+        const seen = Date.parse(row.last_seen_at ?? row.session_created);
+        if (now - seen > SESSION_IDLE_MS) {
+            this.db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hash);
+            return null;
+        }
+        if (now - seen > SESSION_TOUCH_MS) {
+            this.db.prepare('UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?').run(new Date(now).toISOString(), hash);
+        }
         return toUser(row);
+    }
+
+    /** Sign a user out everywhere (password change, compromise). */
+    revokeSessions(userId) {
+        return this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(Number(userId)).changes;
     }
 
     deleteSession(token) {

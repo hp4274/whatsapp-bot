@@ -1,10 +1,15 @@
 import { normalizeInboundText } from './engine.js';
 
-const OPTOUT_KEYWORDS = new Set(['stop', 'unsubscribe', 'cancel', 'quit', 'optout', 'end']);
-const OPTIN_KEYWORDS = new Set(['start', 'unstop', 'subscribe']);
+// Matched against the whole message after normalising case, punctuation and
+// spacing/hyphens, so "STOP!", "Stop all", "opt-out" and "UNSUBSCRIBE." all count.
+export const OPTOUT_KEYWORDS = new Set([
+    'stop', 'stopall', 'stop all', 'unsubscribe', 'unsub', 'cancel', 'quit', 'optout', 'opt out', 'end',
+    'stop messages', 'remove me', 'do not message', 'dont message',
+]);
+export const OPTIN_KEYWORDS = new Set(['start', 'unstop', 'subscribe', 'optin', 'opt in', 'resubscribe']);
 
 export async function processOptOut(db, transport, msg) {
-    const text = normalizeInboundText(msg.body);
+    const text = normalizeInboundText(msg.body).replace(/['’]/g, '').replace(/[-_\s]+/g, ' ').trim();
 
     if (OPTOUT_KEYWORDS.has(text)) {
         db.addOptOut(msg.sender, 'user_keyword_stop');

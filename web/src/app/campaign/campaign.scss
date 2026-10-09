@@ -210,3 +210,17 @@
 }
 
 .hint { color: var(--text-muted); font-size: 12px; code { font-family: var(--mono); }}
+
+.attach {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  label.disabled { opacity: 0.6; pointer-events: none; }
+}
+.chip {
+  display: inline-flex; align-items: center; gap: 8px; max-width: 100%;
+  padding: 4px 6px 4px 6px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface-alt);
+  img { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; }
+  .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+  .chip-x { display: inline-flex; border: 0; background: transparent; color: inherit; cursor: pointer; padding: 2px; border-radius: 50%; }
+  .chip-x:focus-visible { outline: 2px solid var(--primary); }
+}

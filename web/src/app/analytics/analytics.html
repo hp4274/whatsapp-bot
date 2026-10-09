@@ -1,0 +1,238 @@
+<header class="head">
+  <div>
+    <p class="eyebrow"><span class="ms">insights</span> Analytics</p>
+    <h1>How your messages <em>perform</em></h1>
+    @if (updatedAt(); as at) {
+      <p class="muted sub">Updated {{ at | date: 'shortTime' }}</p>
+    }
+  </div>
+  <button type="button" class="btn" (click)="load()" [disabled]="loading()" aria-label="Refresh analytics">
+    @if (loading()) { <span class="spinner" aria-hidden="true"></span> } @else { <span class="ms" aria-hidden="true">refresh</span> }
+    Refresh
+  </button>
+</header>
+
+<p class="sr-only" aria-live="polite">{{ loading() ? 'Loading analytics' : '' }}</p>
+
+@if (loading()) {
+  <div class="kpis" aria-hidden="true">
+    @for (i of [0, 1, 2, 3, 4, 5]; track i) { <div class="card kpi sk"><i class="shim w40"></i><i class="shim w70 tall"></i><i class="shim w55"></i></div> }
+  </div>
+  <div class="charts" aria-hidden="true">
+    <div class="card panel wide sk"><i class="shim w40"></i><div class="shim chart-sk"></div></div>
+    <div class="card panel sk"><i class="shim w55"></i><div class="shim chart-sk short"></div></div>
+    <div class="card panel sk"><i class="shim w55"></i><div class="shim chart-sk short"></div></div>
+  </div>
+} @else if (allFailed()) {
+  <div class="card banner" role="alert">
+    <span class="ms" aria-hidden="true">cloud_off</span>
+    <div><strong>Analytics could not load.</strong><p class="muted">None of the data sources answered. Check your connection and try again.</p></div>
+    <button type="button" class="btn primary" (click)="load()">Retry</button>
+  </div>
+} @else if (empty()) {
+  <div class="card empty">
+    <div class="empty-art" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <h2>No activity yet</h2>
+    <p class="muted">Charts fill in as soon as your first messages go out.</p>
+    <a class="btn primary" routerLink="/campaign"><span class="ms" aria-hidden="true">send</span> Send your first message</a>
+  </div>
+} @else {
+  <!-- KPI tiles -->
+  <section class="kpis" aria-label="Key figures">
+    @if (monthly(); as m) {
+      <article class="card kpi lead" [schoolTilt]="5" style="--i: 0">
+        <div class="kpi-row">
+          <div>
+            <p class="k-label">Messages this month</p>
+            <p class="k-value">{{ m.used | number }}</p>
+            <p class="k-foot muted">
+              @if (m.limit) { of {{ m.limit | number }} on your plan } @else if (m.fromPlan) { Unlimited plan } @else { From recent history }
+            </p>
+          </div>
+          @if (m.limit) {
+            <svg class="ring" viewBox="0 0 80 80" role="img" [attr.aria-label]="monthlyPct() + '% of monthly limit used'">
+              <circle cx="40" cy="40" r="34" class="track" />
+              <circle cx="40" cy="40" r="34" class="fill" [class.hot]="monthlyPct() >= 90"
+                [attr.stroke-dasharray]="ring" [attr.stroke-dashoffset]="ringOffset(monthlyPct())" />
+              <text x="40" y="45" text-anchor="middle">{{ monthlyPct() | number: '1.0-0' }}%</text>
+            </svg>
+          }
+        </div>
+      </article>
+    }
+    @if (counts()) {
+      <article class="card kpi tone-ok" [schoolTilt]="5" style="--i: 1">
+        <span class="ms k-icon" aria-hidden="true">done_all</span>
+        <p class="k-label">Delivery rate</p>
+        <p class="k-value">{{ deliveryRate() === null ? '—' : deliveryRate() + '%' }}</p>
+        <p class="k-foot muted">Delivered or read, all time</p>
+      </article>
+      <article class="card kpi tone-bad" [schoolTilt]="5" style="--i: 2">
+        <span class="ms k-icon" aria-hidden="true">error</span>
+        <p class="k-label">Failed</p>
+        <p class="k-value">{{ failed() | number }}</p>
+        <p class="k-foot muted">Messages that did not send</p>
+      </article>
+    }
+    @if (openTickets() !== null) {
+      <article class="card kpi tone-warn" [schoolTilt]="5" style="--i: 3">
+        <span class="ms k-icon" aria-hidden="true">confirmation_number</span>
+        <p class="k-label">Open tickets</p>
+        <p class="k-value">{{ openTickets() | number }}</p>
+        <p class="k-foot muted">{{ data().tickets!.overdue }} overdue</p>
+      </article>
+    }
+    @if (data().inbox; as ib) {
+      <article class="card kpi tone-info" [schoolTilt]="5" style="--i: 4">
+        <span class="ms k-icon" aria-hidden="true">mark_chat_unread</span>
+        <p class="k-label">Unread conversations</p>
+        <p class="k-value">{{ ib.unread | number }}</p>
+        <p class="k-foot muted">{{ ib.unassigned }} unassigned</p>
+      </article>
+    }
+    @if (data().objects; as ob) {
+      <article class="card kpi tone-mute" [schoolTilt]="5" style="--i: 5">
+        <span class="ms k-icon" aria-hidden="true">dataset</span>
+        <p class="k-label">Active records</p>
+        <p class="k-value">{{ ob.total | number }}</p>
+        <p class="k-foot muted">Across {{ recordTypes().length }} types</p>
+      </article>
+    }
+  </section>
+
+  <div class="charts">
+    <!-- 14-day stacked bars -->
+    @if (days(); as ds) {
+      <section class="card panel wide" aria-labelledby="t-days">
+        <div class="p-head">
+          <h2 id="t-days">Messages per day</h2>
+          <span class="muted">Last 14 days · {{ dayTotal() | number }} total</span>
+        </div>
+        <div class="vchart" role="img" [attr.aria-label]="daySummary()">
+          <div class="y" aria-hidden="true"><span>{{ dayMax() }}</span><span>{{ dayMax() / 2 }}</span><span>0</span></div>
+          <div class="plot">
+            @for (d of ds; track d.key; let i = $index) {
+              <div class="col" style="--i: {{ i }}">
+                <div class="stack" [title]="d.weekday + ' ' + d.date + ': ' + d.total">
+                  @for (s of d.segs; track s.status) {
+                    <i class="seg s-{{ s.status }}" [style.height.%]="s.pct"></i>
+                  }
+                </div>
+                <span class="x" aria-hidden="true"><b>{{ d.weekday }}</b>{{ d.date }}</span>
+              </div>
+            }
+          </div>
+        </div>
+        @if (dayLegend().length) {
+          <ul class="legend">
+            @for (s of dayLegend(); track s) { <li><i class="sw s-{{ s }}"></i>{{ statusLabel(s) }}</li> }
+          </ul>
+        }
+        @if (truncated()) { <p class="note muted">Based on your latest 1,000 messages.</p> }
+        <table class="sr-only">
+          <caption>Messages per day by status</caption>
+          <thead><tr><th scope="col">Day</th><th scope="col">Total</th>@for (s of statusOrder; track s) { <th scope="col">{{ statusLabel(s) }}</th> }</tr></thead>
+          <tbody>
+            @for (d of ds; track d.key) {
+              <tr>
+                <th scope="row">{{ d.weekday }} {{ d.date }}</th><td>{{ d.total }}</td>
+                @for (s of statusOrder; track s) { <td>{{ segCount(d, s) }}</td> }
+              </tr>
+            }
+          </tbody>
+        </table>
+      </section>
+    }
+
+    <!-- by status -->
+    @if (statusBars().length) {
+      <section class="card panel" aria-labelledby="t-status">
+        <div class="p-head"><h2 id="t-status">By status</h2><span class="muted">All time</span></div>
+        <ul class="hbars">
+          @for (b of statusBars(); track b.label; let i = $index) {
+            <li style="--i: {{ i }}">
+              <span class="h-label">{{ b.label }}</span>
+              <span class="h-track"><i class="h-fill {{ b.tone }}" [style.width.%]="b.pct"></i></span>
+              <span class="h-num">{{ b.n | number }} <small class="muted">{{ b.pct }}%</small></span>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+
+    <!-- 6-month usage -->
+    @if (months(); as mo) {
+      <section class="card panel" aria-labelledby="t-months">
+        <div class="p-head"><h2 id="t-months">Monthly usage</h2><span class="muted">Messages, 6 months</span></div>
+        <div class="mchart" role="img"
+          [attr.aria-label]="mo.summary">
+          @if (mo.limitPct !== null) {
+            <span class="limit" [style.bottom.%]="mo.limitPct"><small>Limit {{ mo.limit | number }}</small></span>
+          }
+          @for (r of mo.rows; track r.period; let i = $index; let last = $last) {
+            <div class="mcol" style="--i: {{ i }}">
+              <small class="m-num">{{ r.n | number }}</small>
+              <div class="m-track"><i class="m-bar" [class.now]="last" [style.height.%]="r.pct"></i></div>
+              <span class="x">{{ r.label }}</span>
+            </div>
+          }
+        </div>
+      </section>
+    }
+
+    <!-- records -->
+    @if (recordTypes().length) {
+      <section class="card panel" aria-labelledby="t-rec">
+        <div class="p-head"><h2 id="t-rec">Records</h2><span class="muted">By type and status</span></div>
+        <ul class="rbars">
+          @for (t of recordTypes(); track t.label; let i = $index) {
+            <li style="--i: {{ i }}">
+              <div class="r-top"><strong>{{ t.label }}</strong><span class="muted">{{ t.total | number }}</span></div>
+              <div class="r-track" [style.width.%]="t.width" role="img"
+                [attr.aria-label]="t.summary">
+                @for (s of t.segs; track s.label) { <i class="r-seg {{ s.tone }}" [style.flex-grow]="s.n" [title]="s.label + ': ' + s.n"></i> }
+              </div>
+              <p class="r-keys muted">
+                @for (s of t.segs; track s.label) { <span><i class="sw {{ s.tone }}"></i>{{ s.label }} {{ s.n }}</span> }
+              </p>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+
+    <!-- tickets + inbox -->
+    @if (supportGroups().length) {
+      <section class="card panel" aria-labelledby="t-support">
+        <div class="p-head"><h2 id="t-support">Support</h2>
+          @if (medianResolve(); as mr) { <span class="muted">Median resolve {{ mr }}</span> }
+        </div>
+        @for (group of supportGroups(); track group.name) {
+          <h3 class="g-name">{{ group.name }}</h3>
+          <ul class="hbars">
+            @for (b of group.rows; track b.label; let i = $index) {
+              <li style="--i: {{ i }}">
+                <span class="h-label">{{ b.label }}</span>
+                <span class="h-track"><i class="h-fill {{ b.tone }}" [style.width.%]="b.pct"></i></span>
+                <span class="h-num">{{ b.n | number }}</span>
+              </li>
+            }
+          </ul>
+        }
+      </section>
+    }
+
+    <!-- campaign queue -->
+    @if (data().campaign; as c) {
+      <section class="card panel strip" aria-labelledby="t-camp">
+        <div class="p-head"><h2 id="t-camp">Sending queue</h2><span class="pill q-{{ c.state }}">{{ statusLabel(c.state) }}</span></div>
+        <dl class="facts">
+          <div><dt>Pending</dt><dd>{{ c.pending | number }}</dd></div>
+          <div><dt>Sent this run</dt><dd>{{ c.successful | number }}</dd></div>
+          <div><dt>Failed this run</dt><dd>{{ c.failed | number }}</dd></div>
+          <div><dt>Today</dt><dd>{{ c.safety.used | number }}@if (c.safety.enabled && c.safety.limit) {<small class="muted"> / {{ c.safety.limit | number }}</small>}</dd></div>
+        </dl>
+      </section>
+    }
+  </div>
+}

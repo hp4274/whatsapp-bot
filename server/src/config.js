@@ -68,6 +68,13 @@ export const DEFAULTS = Object.freeze({
     restEvery: 40,
     restMinMinutes: 2,
     restMaxMinutes: 5,
+    failureStopPercent: 0,
+    // number protection (platform policy, 0 = off; see campaign/safety.js)
+    warmupDays: 0,            // new number: daily cap ramps 30, 60, 120... for this many days
+    recipientDailyCap: 0,     // bulk messages one recipient may get per 24h
+    requireVariationAbove: 0, // campaigns bigger than this need {a|b} or {name} in the text
+    quietHoursStart: 0,       // hour (0-23, channel timezone) bulk sending holds from...
+    quietHoursEnd: 0,         // ...until this hour; equal = off
 
     misc: undefined,
     defaultCountryCode: '',
@@ -95,6 +102,11 @@ export const POLICY_SPEC = Object.freeze({
     retryBackoff: [1, 10],
     retryMaxDelay: [0, 3600],
     retryJitter: [0, 1],
+    warmupDays: [0, 90],
+    recipientDailyCap: [0, 100],
+    requireVariationAbove: [0, 1000000],
+    quietHoursStart: [0, 23],
+    quietHoursEnd: [0, 23],
 });
 export const POLICY_KEYS = Object.keys(POLICY_SPEC);
 

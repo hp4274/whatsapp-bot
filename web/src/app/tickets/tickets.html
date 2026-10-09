@@ -1,0 +1,286 @@
+<header class="s-head">
+  <div>
+    <h2>Tickets</h2>
+    <p>Every customer issue in one queue, with the SLA clock running on each.</p>
+  </div>
+  <button class="btn primary" type="button" (click)="startCreate()" [attr.aria-expanded]="creating()">
+    <span class="ms" aria-hidden="true">add</span> New ticket
+  </button>
+</header>
+
+<!-- Stats strip -->
+<section class="stats" aria-label="Ticket summary">
+  @if (stats(); as s) {
+    <button type="button" class="s-stat tone-info s-enter" style="--i: 0" schoolTilt="4"
+            [attr.aria-pressed]="!filter().overdue && !filter().status" (click)="setFilter({ status: '', overdue: false })">
+      <small>Active</small><b>{{ openCount() }}</b><span class="muted">of {{ s.total }} total</span>
+    </button>
+    <button type="button" class="s-stat tone-bad s-enter" style="--i: 1" schoolTilt="4"
+            [attr.aria-pressed]="filter().overdue" (click)="setFilter({ overdue: !filter().overdue })">
+      <small>Overdue SLA</small><b>{{ s.overdue }}</b><span class="muted">{{ s.overdue ? 'need attention' : 'all on time' }}</span>
+    </button>
+    <button type="button" class="s-stat tone-warn s-enter" style="--i: 2" schoolTilt="4"
+            [attr.aria-pressed]="filter().status === 'WAITING_CUSTOMER'"
+            (click)="setFilter({ status: filter().status === 'WAITING_CUSTOMER' ? '' : 'WAITING_CUSTOMER' })">
+      <small>Waiting on customer</small><b>{{ s.byStatus.WAITING_CUSTOMER }}</b><span class="muted">{{ s.byPriority.urgent }} urgent overall</span>
+    </button>
+    <div class="s-stat tone-ok s-enter" style="--i: 3" schoolTilt="4">
+      <small>Median resolve</small><b>{{ median(s) }}</b><span class="muted">{{ s.resolved }} resolved</span>
+    </div>
+  } @else {
+    @for (k of [0, 1, 2, 3]; track k) {
+      <div class="s-stat" aria-hidden="true"><div class="s-skel" style="width: 45%"></div><div class="s-skel" style="height: 28px; width: 35%"></div></div>
+    }
+  }
+</section>
+
+<!-- New ticket -->
+@if (creating()) {
+  <form class="s-card create" (ngSubmit)="submitCreate()" novalidate aria-labelledby="new-ticket-title">
+    <h3 id="new-ticket-title"><span class="ms" aria-hidden="true">confirmation_number</span> New ticket</h3>
+    <div class="form-grid">
+      <div class="s-field wide">
+        <label for="t-subject">Subject</label>
+        <input id="t-subject" name="subject" maxlength="200" placeholder="e.g. Order #1042 arrived damaged"
+               [ngModel]="draft().subject" (ngModelChange)="setDraft({ subject: $event })"
+               [class.invalid]="submitted() && draftInvalid()" [attr.aria-invalid]="submitted() && draftInvalid()"
+               aria-describedby="t-subject-msg" />
+        @if (submitted() && draftInvalid()) {
+          <span class="err" id="t-subject-msg">Give the ticket a subject or a category.</span>
+        } @else {
+          <span class="hint" id="t-subject-msg">A subject or a category is required.</span>
+        }
+      </div>
+      <div class="s-field">
+        <label for="t-category">Category</label>
+        <input id="t-category" name="category" maxlength="80" placeholder="Delivery, Billing..."
+               [ngModel]="draft().category" (ngModelChange)="setDraft({ category: $event })" />
+      </div>
+      <div class="s-field">
+        <label for="t-priority">Priority</label>
+        <select id="t-priority" name="priority" [ngModel]="draft().priority" (ngModelChange)="setDraft({ priority: $event })">
+          @for (p of priorities; track p) { <option [value]="p">{{ p }} &middot; {{ slaHours[p] }}h SLA</option> }
+        </select>
+      </div>
+      <div class="s-field">
+        <label for="t-assignee">Assignee</label>
+        <select id="t-assignee" name="assignee" [ngModel]="draft().assignedTo ?? ''"
+                (ngModelChange)="setDraft({ assignedTo: $event === '' ? null : +$event })">
+          <option value="">Unassigned</option>
+          @for (u of assignees(); track u.id) { <option [value]="u.id">{{ userName(u.id) }}</option> }
+        </select>
+      </div>
+      <div class="s-field">
+        <label for="t-contact">Contact ID <span class="opt">(optional)</span></label>
+        <input id="t-contact" name="contact" type="number" min="1" inputmode="numeric"
+               [ngModel]="draft().contactId" (ngModelChange)="setDraft({ contactId: $event ? +$event : null })" />
+      </div>
+    </div>
+    @if (createError()) {
+      <p class="s-banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ createError() }}</p>
+    }
+    <div class="actions">
+      <button class="btn ghost" type="button" (click)="creating.set(false)">Cancel</button>
+      <button class="btn primary" type="submit" [disabled]="saving()">
+        @if (saving()) { <span class="spinner" aria-hidden="true"></span> } Create ticket
+      </button>
+    </div>
+  </form>
+}
+
+<!-- Filters -->
+<section class="filters card" aria-label="Filter tickets">
+  <label class="search">
+    <span class="ms" aria-hidden="true">search</span>
+    <input type="search" placeholder="Search reference, subject, category" aria-label="Search tickets"
+           [ngModel]="search()" (ngModelChange)="search.set($event)" />
+  </label>
+  <select aria-label="Status" [ngModel]="filter().status" (ngModelChange)="setFilter({ status: $event })">
+    <option value="">All statuses</option>
+    @for (s of statuses; track s) { <option [value]="s">{{ statusLabel[s] }}</option> }
+  </select>
+  <select aria-label="Priority" [ngModel]="filter().priority" (ngModelChange)="setFilter({ priority: $event })">
+    <option value="">All priorities</option>
+    @for (p of priorities; track p) { <option [value]="p">{{ p }}</option> }
+  </select>
+  <select aria-label="Assignee" [ngModel]="filter().assignedTo" (ngModelChange)="setFilter({ assignedTo: $event })">
+    <option value="">Anyone</option>
+    <option value="unassigned">Unassigned</option>
+    @for (u of assignees(); track u.id) { <option [value]="'' + u.id">{{ userName(u.id) }}</option> }
+  </select>
+  @if (filtered()) {
+    <button class="btn ghost sm" type="button" (click)="clearFilters()">
+      <span class="ms" aria-hidden="true">filter_alt_off</span> Clear
+    </button>
+  }
+</section>
+
+@if (error()) {
+  <div class="s-banner" role="alert">
+    <span class="ms" aria-hidden="true">error</span> {{ error() }}
+    <button class="btn sm" type="button" (click)="load()">Retry</button>
+  </div>
+}
+
+<!-- List -->
+@if (loading()) {
+  <ul class="list" aria-busy="true" aria-label="Loading tickets">
+    @for (k of [0, 1, 2, 3, 4]; track k) {
+      <li class="row skel"><div class="s-skel" style="width: 30%"></div><div class="s-skel" style="width: 70%"></div></li>
+    }
+  </ul>
+} @else if (!error()) {
+  @if (visible().length) {
+    <ul class="list" aria-label="Tickets">
+      @for (t of visible(); track t.id; let i = $index) {
+        @let clock = sla(t);
+        <li class="s-enter" [style.--i]="i < 12 ? i : 12">
+          <button type="button" class="row {{ priorityTone[t.priority] }}" [class.active]="selected()?.id === t.id"
+                  [class.done]="isClosed(t)" (click)="open(t)" [attr.aria-label]="'Open ticket ' + t.reference">
+            <span class="ref">{{ t.reference }}</span>
+            <span class="main">
+              <b>{{ t.subject || t.category || 'Untitled ticket' }}</b>
+              <span class="muted meta">
+                @if (t.category && t.subject) { <span>{{ t.category }}</span> &middot; }
+                <span class="prio">{{ t.priority }}</span> &middot; {{ ago(t.createdAt) }}
+              </span>
+            </span>
+            <span class="s-pill {{ statusTone[t.status] }}">{{ statusLabel[t.status] }}</span>
+            @if (clock) {
+              <span class="sla" [class.over]="clock.overdue">
+                <span class="ms" aria-hidden="true">{{ clock.overdue ? 'alarm' : 'schedule' }}</span> {{ clock.label }}
+              </span>
+            } @else {
+              <span class="sla off muted">{{ t.resolvedAt ? 'Resolved ' + ago(t.resolvedAt) : '-' }}</span>
+            }
+            <span class="avatar" [title]="userName(t.assignedTo)" [class.none]="t.assignedTo == null">{{ initials(t.assignedTo) }}</span>
+          </button>
+        </li>
+      }
+    </ul>
+  } @else if (filtered()) {
+    <div class="s-card s-empty tone-info">
+      <span class="ms" aria-hidden="true">filter_list_off</span>
+      <strong>No tickets match these filters</strong>
+      <p>Try a different status or assignee, or clear the filters to see the whole queue.</p>
+      <button class="btn" type="button" (click)="clearFilters()">Clear filters</button>
+    </div>
+  } @else {
+    <div class="s-card s-empty">
+      <span class="ms" aria-hidden="true">support_agent</span>
+      <strong>No tickets yet</strong>
+      <p>Tickets opened by workflows, keywords or your team land here. Log the first customer issue to get started.</p>
+      <button class="btn primary" type="button" (click)="startCreate()"><span class="ms" aria-hidden="true">add</span> New ticket</button>
+    </div>
+  }
+}
+
+<!-- Detail drawer -->
+@if (selected(); as t) {
+  <button class="s-scrim" type="button" aria-label="Close ticket details" (click)="closeDetail()"></button>
+  <aside class="s-drawer detail" role="dialog" aria-modal="true" [attr.aria-label]="'Ticket ' + t.reference">
+    <header class="d-head">
+      <div>
+        <span class="ref">{{ t.reference }} &middot; {{ t.source }}</span>
+        <h3>{{ t.subject || t.category || 'Untitled ticket' }}</h3>
+        <span class="muted">Opened {{ ago(t.createdAt) }}@if (t.category) { &middot; {{ t.category }} }</span>
+      </div>
+      <button class="btn icon ghost" type="button" aria-label="Close" (click)="closeDetail()"><span class="ms">close</span></button>
+    </header>
+
+    @if (sla(t); as clock) {
+      <div class="sla-bar" [class.over]="clock.overdue">
+        <div><span class="ms" aria-hidden="true">{{ clock.overdue ? 'alarm' : 'timer' }}</span> {{ clock.label }}
+          <span class="muted">&middot; {{ slaHours[t.priority] }}h {{ t.priority }} SLA</span></div>
+        <span class="track" role="progressbar" aria-label="SLA elapsed" aria-valuemin="0" aria-valuemax="100"
+              [attr.aria-valuenow]="clock.pct"><i [style.width.%]="clock.pct"></i></span>
+      </div>
+    }
+
+    @if (detailError()) {
+      <p class="s-banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ detailError() }}</p>
+    }
+
+    <div class="d-grid">
+      <div class="s-field">
+        <label for="d-status">Status</label>
+        <select id="d-status" [ngModel]="pendingStatus() ?? t.status" (ngModelChange)="changeStatus(t, $event)" [disabled]="saving()">
+          @for (s of statuses; track s) { <option [value]="s">{{ statusLabel[s] }}</option> }
+        </select>
+      </div>
+      <div class="s-field">
+        <label for="d-priority">Priority</label>
+        <select id="d-priority" [ngModel]="t.priority" (ngModelChange)="patch(t, { priority: $event })" [disabled]="saving()">
+          @for (p of priorities; track p) { <option [value]="p">{{ p }}</option> }
+        </select>
+      </div>
+      <div class="s-field full">
+        <label for="d-assignee">Assignee</label>
+        <select id="d-assignee" [ngModel]="t.assignedTo == null ? '' : '' + t.assignedTo" (ngModelChange)="assign(t, $event)" [disabled]="saving()">
+          <option value="">Unassigned</option>
+          @if (orphan(t)) {
+            <option [value]="'' + t.assignedTo">{{ userName(t.assignedTo) }}</option>
+          }
+          @for (u of assignees(); track u.id) { <option [value]="'' + u.id">{{ userName(u.id) }}</option> }
+        </select>
+      </div>
+    </div>
+
+    @if (pendingStatus(); as next) {
+      <div class="confirm" role="alertdialog" aria-labelledby="confirm-text">
+        <p id="confirm-text">Mark this ticket <b>{{ statusLabel[next] }}</b>?</p>
+        @if (t.contactId != null) {
+          <label class="check"><input type="checkbox" [ngModel]="notify()" (ngModelChange)="notify.set($event)" /> Tell the customer on WhatsApp</label>
+        }
+        <div class="actions">
+          <button class="btn ghost sm" type="button" (click)="pendingStatus.set(null)">Cancel</button>
+          <button class="btn primary sm" type="button" (click)="confirmStatus(t)">Mark {{ statusLabel[next] }}</button>
+        </div>
+      </div>
+    }
+
+    @if (isClosed(t)) {
+      <div class="csat">
+        <span class="label">Customer satisfaction</span>
+        <div class="stars" role="group" aria-label="Satisfaction score">
+          @for (n of [1, 2, 3, 4, 5]; track n) {
+            <button type="button" [class.on]="(t.satisfactionScore ?? 0) >= n" [attr.aria-label]="n + ' out of 5'"
+                    [attr.aria-pressed]="t.satisfactionScore === n" [disabled]="saving()" (click)="rate(t, n)">
+              <span class="ms" aria-hidden="true">star</span>
+            </button>
+          }
+        </div>
+      </div>
+    }
+
+    <form class="composer" (ngSubmit)="addNote(t)">
+      <label for="d-note" class="label">Internal note</label>
+      <textarea id="d-note" name="note" rows="3" maxlength="4000" placeholder="What happened, what was promised..."
+                [ngModel]="note()" (ngModelChange)="note.set($event)"></textarea>
+      <button class="btn sm" type="submit" [disabled]="saving() || !note().trim()">
+        <span class="ms" aria-hidden="true">send</span> Add note
+      </button>
+    </form>
+
+    <section aria-label="Timeline">
+      <h4 class="label">Timeline</h4>
+      @if (eventsLoading() && !events().length) {
+        <div class="s-skel"></div><div class="s-skel" style="width: 70%"></div>
+      } @else {
+        <ol class="timeline">
+          @for (e of events().slice().reverse(); track e.id) {
+            <li class="ev-{{ e.kind }}">
+              <span class="dot"><span class="ms" aria-hidden="true">{{ eventIcon(e.kind) }}</span></span>
+              <div>
+                <p><b>{{ actor(e) }}</b> {{ describe(e) }} <time class="muted" [attr.datetime]="e.createdAt">{{ ago(e.createdAt) }}</time></p>
+                @if (e.body && (e.kind === 'message' || e.kind === 'status' || (e.kind === 'note' && e.from == null && e.to == null))) {
+                  <blockquote>{{ e.body }}</blockquote>
+                }
+              </div>
+            </li>
+          }
+        </ol>
+      }
+    </section>
+  </aside>
+}

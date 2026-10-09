@@ -1,0 +1,203 @@
+<section class="ib">
+  <header class="ib-head">
+    <div class="ib-title">
+      <span class="ib-mark" aria-hidden="true"><span class="ms">forum</span></span>
+      <div>
+        <h1>Inbox @if (store.streamOnline()) { <span class="pill ib-live" title="Live updates on"><span class="live-dot" aria-hidden="true"></span>Live</span> }</h1>
+        <p class="muted">Every customer chat in one place. Reply as a human, pause the bot, and hand it back when you're done.</p>
+      </div>
+    </div>
+    @if (stats(); as s) {
+      <ul class="ib-stats" aria-label="Inbox summary">
+        <li><b>{{ s.byStatus.open }}</b><span>Open</span></li>
+        <li [class.hot]="s.unread > 0"><b>{{ s.unread }}</b><span>Unread</span></li>
+        <li><b>{{ s.unassigned }}</b><span>Unassigned</span></li>
+        <li><b>{{ waiting(s.oldestUnansweredSeconds) }}</b><span>Oldest wait</span></li>
+      </ul>
+    }
+  </header>
+
+  @if (error() && !loading()) {
+    <div class="ib-error" role="alert">
+      <span class="ms" aria-hidden="true">cloud_off</span>
+      <div><strong>Couldn't load conversations</strong><p>{{ error() }}</p></div>
+      <button type="button" class="btn" (click)="refresh()"><span class="ms" aria-hidden="true">refresh</span>Retry</button>
+    </div>
+  }
+
+  @if (!loading() && !error() && isFirstRun() && filter() === 'all') {
+    <div class="card ib-empty enter">
+      <span class="ib-orb" aria-hidden="true"><span class="ms">mark_chat_unread</span></span>
+      <h2>No conversations yet</h2>
+      <p class="muted">Conversations appear here automatically the moment a customer messages your WhatsApp number. Make sure your number is connected first.</p>
+      <a class="btn primary" routerLink="/connection"><span class="ms" aria-hidden="true">link</span>Check connection</a>
+    </div>
+  } @else {
+    <div class="ib-panes card" [class.has-sel]="selectedId() !== null">
+      <!-- Conversation list -->
+      <aside class="ib-list" aria-label="Conversations">
+        <div class="ib-tools">
+          <label class="ib-search">
+            <span class="ms" aria-hidden="true">search</span>
+            <input type="search" placeholder="Search name, number or message" aria-label="Search conversations"
+              [ngModel]="search()" (ngModelChange)="search.set($event)" />
+          </label>
+          <div class="ib-tabs" role="tablist" aria-label="Filter by status">
+            @for (f of filters; track f.key) {
+              <button type="button" role="tab" [attr.aria-selected]="filter() === f.key" [class.on]="filter() === f.key"
+                (click)="setFilter(f.key)">{{ f.label }}</button>
+            }
+          </div>
+        </div>
+
+        <div class="ib-rows">
+          @if (loading()) {
+            @for (n of [1, 2, 3, 4, 5, 6]; track n) {
+              <div class="ib-row skel" aria-hidden="true"><span class="av"></span><span class="lines"><i></i><i></i></span></div>
+            }
+            <span class="sr-only" aria-live="polite">Loading conversations</span>
+          } @else {
+            @for (r of rows(); track r.id) {
+              <button type="button" class="ib-row" [class.on]="r.id === selectedId()" [class.unread]="r.unreadCount > 0"
+                (click)="open(r)" [attr.aria-current]="r.id === selectedId() ? 'true' : null"
+                [attr.aria-label]="(r.name || r.phone) + (r.unreadCount ? ', ' + r.unreadCount + ' unread' : '')">
+                <span class="av" [style.--h]="hue(r.phone)">{{ initials(r) }}</span>
+                <span class="lines">
+                  <span class="top"><b>{{ r.name || r.phone }}</b><time>{{ rel(r.lastMessageAt) }}</time></span>
+                  <span class="bot">
+                    <span class="pv">{{ r.preview || (r.name ? r.phone : 'No messages yet') }}</span>
+                    @if (r.botPaused) { <span class="ms tiny" title="Bot paused" aria-label="Bot paused">pan_tool</span> }
+                    @if (r.unreadCount > 0) { <span class="badge">{{ r.unreadCount > 99 ? '99+' : r.unreadCount }}</span> }
+                  </span>
+                </span>
+                @if (r.status !== 'open') { <span class="st st-{{ r.status }}">{{ r.status }}</span> }
+              </button>
+            } @empty {
+              <div class="ib-none">
+                <span class="ms" aria-hidden="true">filter_alt_off</span>
+                <p>{{ search() ? 'No conversations match "' + search() + '".' : 'Nothing in ' + filter() + ' right now.' }}</p>
+                <button type="button" class="btn" (click)="search.set(''); setFilter('all')">Show all</button>
+              </div>
+            }
+          }
+        </div>
+      </aside>
+
+      <!-- Thread -->
+      <div class="ib-thread" aria-label="Conversation">
+        @if (selected(); as c) {
+          <div class="th-head">
+            <button type="button" class="icon-btn back" (click)="back()" aria-label="Back to conversations"><span class="ms">arrow_back</span></button>
+            <span class="av" [style.--h]="hue(c.phone)">{{ selectedRow() ? initials(selectedRow()!) : '' }}</span>
+            <div class="who">
+              <strong>{{ selectedRow()?.name || c.phone }}</strong>
+              <span class="muted">{{ selectedRow()?.name ? c.phone : 'WhatsApp' }} · {{ userName(c.assignedTo) }}</span>
+            </div>
+            <button type="button" class="bot-sw" role="switch" [attr.aria-checked]="!c.botPaused" [disabled]="busy() === 'bot'"
+              (click)="toggleBot()" [title]="c.botPaused ? 'You have this chat. Hand it back to the bot.' : 'Bot is replying. Take over to pause it.'">
+              <span class="knob"><span class="ms">{{ c.botPaused ? 'support_agent' : 'smart_toy' }}</span></span>
+              <span class="lbl">{{ c.botPaused ? 'Bot paused' : 'Bot active' }}</span>
+            </button>
+            <button type="button" class="icon-btn" [class.on]="notesOpen()" (click)="notesOpen.set(!notesOpen())"
+              [attr.aria-expanded]="notesOpen()" aria-controls="ib-notes" aria-label="Details and notes">
+              <span class="ms">sticky_note_2</span>
+              @if (notes().length) { <span class="dot">{{ notes().length }}</span> }
+            </button>
+          </div>
+
+          <div class="th-body">
+            <div class="th-scroll" #scroller aria-live="polite">
+              @if (threadLoading()) {
+                <div class="th-center"><span class="spinner"></span> Loading messages...</div>
+              } @else if (threadError()) {
+                <div class="th-center" role="alert">
+                  <span class="ms">error</span> {{ threadError() }}
+                  <button type="button" class="btn" (click)="loadThread(c.id, false)">Retry</button>
+                </div>
+              } @else {
+                @for (e of entries(); track e.item.messageId + e.item.at) {
+                  @if (e.day) { <div class="day"><span>{{ e.day }}</span></div> }
+                  <div class="msg {{ e.who }}">
+                    <div class="bubble">
+                      @if (e.who === 'bot') { <span class="tag"><span class="ms">smart_toy</span>Bot</span> }
+                      <p>{{ e.item.body || '(media)' }}</p>
+                      <span class="meta">
+                        {{ clock(e.item.at) }}
+                        @if (e.item.status) { <span class="status-{{ e.item.status }}">· {{ e.item.status.toLowerCase() }}</span> }
+                      </span>
+                    </div>
+                  </div>
+                } @empty {
+                  <div class="th-center muted"><span class="ms">chat_bubble</span> No messages in this conversation yet.</div>
+                }
+              }
+            </div>
+
+            @if (notesOpen()) {
+              <aside class="th-side" id="ib-notes" aria-label="Details and notes">
+                <div class="field">
+                  <label id="ib-status-l">Status</label>
+                  <div class="seg" role="group" aria-labelledby="ib-status-l">
+                    @for (s of statuses; track s) {
+                      <button type="button" [class.on]="c.status === s" [attr.aria-pressed]="c.status === s"
+                        [disabled]="busy() === 'status'" (click)="setStatus(s)">{{ s }}</button>
+                    }
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="ib-assign">Assigned to</label>
+                  <select id="ib-assign" [disabled]="busy() === 'assign'" (change)="assign($any($event.target).value)">
+                    <option value="" [selected]="c.assignedTo === null">Unassigned</option>
+                    @for (u of assigneeOptions(); track u.id) {
+                      <option [value]="u.id" [selected]="c.assignedTo === u.id">{{ u.id === me()?.id ? 'Me (' + (u.name || u.email) + ')' : (u.name || u.email) }}</option>
+                    }
+                  </select>
+                </div>
+                <div class="notes">
+                  <h3><span class="ms" aria-hidden="true">lock</span>Internal notes</h3>
+                  <p class="hint muted">Only your team sees these. Never sent to the customer.</p>
+                  @for (n of notes(); track n.id) {
+                    <div class="note"><p>{{ n.body }}</p><span>{{ userName(n.userId) }} · {{ noteTime(n.createdAt) }}</span></div>
+                  } @empty {
+                    <p class="muted small">No notes yet.</p>
+                  }
+                  <textarea rows="2" placeholder="Add a note for your team" aria-label="New note"
+                    [ngModel]="noteDraft()" (ngModelChange)="noteDraft.set($event)"></textarea>
+                  <button type="button" class="btn" [disabled]="!noteDraft().trim() || busy() === 'note'" (click)="addNote()">
+                    <span class="ms" aria-hidden="true">add</span>Add note
+                  </button>
+                </div>
+              </aside>
+            }
+          </div>
+
+          @if (actionError()) {
+            <div class="th-err" role="alert">
+              <span class="ms" aria-hidden="true">error</span>{{ actionError() }}
+              <button type="button" class="icon-btn" (click)="actionError.set('')" aria-label="Dismiss"><span class="ms">close</span></button>
+            </div>
+          }
+          <form class="composer" (submit)="$event.preventDefault(); send()">
+            @if (!c.botPaused) {
+              <span class="hint muted">The bot is still active. Take over to stop it replying alongside you.</span>
+            }
+            <div class="row">
+              <textarea [rows]="draftRows()" placeholder="Type a reply - Enter to send, Shift+Enter for a new line" aria-label="Reply"
+                [ngModel]="draft()" (ngModelChange)="draft.set($event)" name="draft" (keydown)="onKey($event)"
+                [disabled]="sending()"></textarea>
+              <button type="submit" class="btn primary send" [disabled]="!draft().trim() || sending()" aria-label="Send reply">
+                @if (sending()) { <span class="spinner"></span> } @else { <span class="ms">send</span> }
+              </button>
+            </div>
+          </form>
+        } @else {
+          <div class="th-placeholder">
+            <span class="ib-orb" aria-hidden="true"><span class="ms">chat</span></span>
+            <strong>Pick a conversation</strong>
+            <p class="muted">Choose a chat on the left to read the thread and reply.</p>
+          </div>
+        }
+      </div>
+    </div>
+  }
+</section>

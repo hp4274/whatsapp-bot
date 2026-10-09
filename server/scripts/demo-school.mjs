@@ -14,6 +14,7 @@ import express from 'express';
 import { createApp } from '../src/app.js';
 import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
+import { trackIndexHashes } from '../src/security/headers.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-demo-'));
@@ -37,6 +38,7 @@ const owner = mint('owner', 1);
 const superAdmin = mint('super_admin', 1);
 
 const webDist = path.join(HERE, '..', '..', 'web', 'dist', 'web', 'browser');
+trackIndexHashes(app, path.join(webDist, 'index.html'));
 app.use(express.static(webDist));
 app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(webDist, 'index.html')));
 const server = app.listen(3100, '127.0.0.1');
