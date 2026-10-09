@@ -366,7 +366,7 @@
   .s-scrim {
     position: fixed;
     inset: 0;
-    z-index: 40;
+    z-index: 70;
     border: 0;
     background: color-mix(in srgb, var(--text) 35%, transparent);
     backdrop-filter: blur(2px);
@@ -377,7 +377,7 @@
     top: 0;
     right: 0;
     bottom: 0;
-    z-index: 41;
+    z-index: 71;
     width: min(440px, 100vw);
     overflow-y: auto;
     display: grid;

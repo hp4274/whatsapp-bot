@@ -206,7 +206,11 @@ export class StudentsTab {
   }
 
   protected downloadTemplate() {
-    const sample = '1,Aarav Mehta,10,A,Rakesh Mehta,Neha Mehta,9876512001,4,No';
+    const sample = [
+      '1,Aarav Mehta,10,A,Rakesh Mehta,Neha Mehta,9876512001,4,No',
+      '2,Diya Sharma,10,A,Anil Sharma,Kavita Sharma,9876512002,2,No',
+      '3,Kabir Rao,10,B,Suresh Rao,Latha Rao,9876512003,4,Yes',
+    ].join('\n');
     const url = URL.createObjectURL(new Blob([`${TEMPLATE_HEADERS}\n${sample}\n`], { type: 'text/csv' }));
     const a = Object.assign(document.createElement('a'), { href: url, download: 'students-template.csv' });
     a.click();

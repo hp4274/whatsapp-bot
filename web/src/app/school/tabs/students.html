@@ -1,3 +1,4 @@
+<input #file class="sr-only" type="file" accept=".csv,.xlsx,.xls" (change)="importFile($event)" tabindex="-1" aria-hidden="true" />
 <header class="s-head">
   <div>
     <span class="eyebrow"><span class="ms" aria-hidden="true">groups</span> Directory</span>
@@ -6,10 +7,9 @@
   </div>
   @if (canEdit()) {
     <div class="head-actions">
-      <button class="btn ghost sm" type="button" (click)="downloadTemplate()"><span class="ms" aria-hidden="true">download</span> CSV template</button>
-      <input #file class="sr-only" type="file" accept=".csv,.xlsx,.xls" (change)="importFile($event)" tabindex="-1" aria-hidden="true" />
+      <button class="btn ghost sm" type="button" (click)="downloadTemplate()"><span class="ms" aria-hidden="true">download</span> Sample CSV</button>
       <button class="btn sm" type="button" (click)="file.click()" [disabled]="importing()">
-        @if (importing()) { <span class="spinner"></span> } @else { <span class="ms" aria-hidden="true">upload_file</span> } Bulk import
+        @if (importing()) { <span class="spinner"></span> } @else { <span class="ms" aria-hidden="true">upload_file</span> } Import CSV
       </button>
       <button class="btn primary sm" type="button" (click)="add()"><span class="ms" aria-hidden="true">person_add</span> Add student</button>
     </div>
@@ -72,7 +72,14 @@
     <div class="s-empty">
       <span class="ms" aria-hidden="true">{{ students().length ? 'search_off' : 'group_add' }}</span>
       <strong>{{ students().length ? 'No matches' : 'No students yet' }}</strong>
-      <p>{{ students().length ? 'Try another name, roll number or phone.' : 'Add students one by one or import the whole school from a spreadsheet.' }}</p>
+      <p>{{ students().length ? 'Try another name, roll number or phone.' : 'Add students one by one, or import the whole school from a CSV or Excel sheet.' }}</p>
+      @if (!students().length && canEdit()) {
+        <div class="empty-actions">
+          <button class="btn" type="button" (click)="downloadTemplate()"><span class="ms" aria-hidden="true">download</span> Download sample CSV</button>
+          <button class="btn primary" type="button" (click)="file.click()" [disabled]="importing()"><span class="ms" aria-hidden="true">upload_file</span> Import CSV</button>
+        </div>
+        <p class="cols">Columns: Roll No, Student Name, Class, Section, Father Name, Mother Name, Parent Phone, Bus Route, Hostel (Yes or No). Parent Phone is the WhatsApp number.</p>
+      }
     </div>
   } @else {
     <div class="s-table">

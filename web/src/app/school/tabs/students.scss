@@ -129,3 +129,6 @@
   padding-top: var(--space-md);
   border-top: 1px solid var(--border);
 }
+
+.empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-sm); margin-top: var(--space-md); }
+.cols { max-width: 56ch; margin-top: var(--space-sm); font-size: 12px; }
