@@ -331,31 +331,31 @@
 
 .stat {
   display: grid;
-  grid-template-columns: auto auto;
-  justify-content: center;
-  align-items: center;
-  gap: 2px 8px;
+  justify-items: center;
+  align-content: center;
+  gap: 2px;
   padding: 10px 6px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface-alt);
   color: var(--text-muted);
-  font-size: 12px;
 
   .ms {
-    justify-self: end;
+    font-size: 17px;
+    margin-bottom: 2px;
   }
 
   strong {
     color: var(--text);
-    font-size: 14px;
+    font-size: 17px;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
   }
 
-  span {
-    grid-column: 1 / -1;
+  span:not(.ms) {
+    color: var(--text-muted);
+    font-size: 12px;
     text-align: center;
-    color: var(--text);
-    font-size: 13px;
   }
 
   &.bad strong,
@@ -391,6 +391,10 @@
   gap: var(--space-sm);
 
   .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     min-height: 44px;
     white-space: nowrap;
   }
@@ -430,10 +434,6 @@
 
   .stat {
     padding: 8px 4px;
-
-    span {
-      grid-column: auto;
-    }
   }
 }
 
