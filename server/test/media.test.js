@@ -11,6 +11,8 @@ import { DEFAULTS } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { MediaStore } from '../src/mediaStore.js';
 import { Status } from '../src/protocol.js';
+import { fileTypeError } from '../src/security/filetype.js';
+import { CloudApiTransport } from '../src/transports/cloudApi.js';
 
 it('hands the same media to the transport for every recipient', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-media-'));
@@ -49,4 +51,28 @@ it('rehydrates a mediaId missing from memory from the uploads directory', () => 
     assert.equal(store.get('med_ffffffffffff'), undefined);
     assert.equal(store.get('../etc'), undefined);
     fs.rmSync(dir, { recursive: true, force: true });
+});
+
+it('sniffs mp4/3gp video by the ftyp box and maps their extensions', () => {
+    const mp4 = Buffer.concat([Buffer.from('00000018667479706d703432', 'hex'), Buffer.alloc(16)]);
+    assert.equal(fileTypeError(mp4, { mimetype: 'video/mp4', filename: 'a.mp4' }), null);
+    assert.equal(fileTypeError(mp4, { mimetype: 'video/3gpp', filename: 'a.3gp' }), null);
+    assert.match(fileTypeError(Buffer.from('not a video at all'), { mimetype: 'video/mp4', filename: 'a.mp4' }), /does not match/);
+    assert.match(fileTypeError(mp4, { mimetype: 'image/png', filename: 'a.png' }), /does not match/);
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-up-'));
+    fs.writeFileSync(path.join(dir, 'med_0123456789ab_clip.mp4'), mp4);
+    assert.equal(new MediaStore(dir).get('med_0123456789ab').mimetype, 'video/mp4');
+    fs.rmSync(dir, { recursive: true, force: true });
+});
+
+it('cloud API sends video/* as a video message with caption', () => {
+    const transport = new CloudApiTransport({ ...DEFAULTS, phoneNumberId: '1', accessToken: 't' });
+    const body = transport.payload('919800000001', 'Watch this', {
+        uploadedMedia: { id: 'media.9', filename: 'clip.mp4', mimetype: 'video/mp4' },
+    });
+    assert.equal(body.type, 'video');
+    assert.deepEqual(body.video, { id: 'media.9', caption: 'Watch this' });
+    const image = transport.payload('919800000001', 'Pic', { uploadedMedia: { id: 'm', filename: 'a.png', mimetype: 'image/png' } });
+    assert.equal(image.type, 'image');
 });

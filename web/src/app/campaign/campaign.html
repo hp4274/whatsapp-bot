@@ -76,14 +76,16 @@
     <div class="attach">
       <label class="btn" for="attach-file" [class.disabled]="uploading()">
         @if (uploading()) { <span class="spinner"></span> } @else { <span class="ms" aria-hidden="true">attach_file</span> }
-        Attach image or PDF
+        Attach image, video or PDF
       </label>
-      <input id="attach-file" type="file" accept="image/jpeg,image/png,application/pdf"
+      <input id="attach-file" type="file" accept="image/jpeg,image/png,application/pdf,video/mp4,video/3gpp"
              (change)="onAttach($event)" [disabled]="uploading()" hidden />
       @if (attachment(); as file) {
         <div class="chip">
           @if (file.image) {
             <img [src]="file.previewUrl" alt="Preview of attached image" />
+          } @else if (file.video) {
+            <video [src]="file.previewUrl" muted controls preload="metadata" aria-label="Preview of attached video"></video>
           } @else {
             <span class="ms" aria-hidden="true">picture_as_pdf</span>
           }
@@ -95,7 +97,8 @@
           </button>
         </div>
       } @else {
-        <span class="muted">Optional - JPG, PNG or PDF up to 16 MB; your message becomes the caption</span>
+        <span class="muted">Optional - JPG, PNG or PDF up to 16 MB, or MP4 video up to 64 MB; your message becomes the caption.
+          WhatsApp Web (QR) video needs Google Chrome: set CHROME_PATH on the server if videos fail.</span>
       }
     </div>
 

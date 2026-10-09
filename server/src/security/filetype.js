@@ -18,22 +18,32 @@ const KIND_BY_MIME = {
     'application/pdf': ['pdf'],
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['zip'],
     'application/msword': ['ole'],
+    'video/mp4': ['ftyp'],
+    'video/3gpp': ['ftyp'],
 };
 
 const KIND_BY_EXT = {
     jpg: ['jpeg'], jpeg: ['jpeg'], png: ['png'], pdf: ['pdf'],
     xlsx: ['zip'], xlsm: ['zip'], docx: ['zip'], xls: ['ole', 'zip'], doc: ['ole'],
+    mp4: ['ftyp'], '3gp': ['ftyp'],
     csv: ['text'], txt: ['text'],
 };
 
-const starts = (buf, sig) => buf.length >= sig.length && sig.every((b, i) => buf[i] === b);
+const starts = (buf, sig, at = 0) => buf.length >= at + sig.length && sig.every((b, i) => buf[at + i] === b);
+
+/** ISO base media (mp4, 3gp): a box size, then 'ftyp' at offset 4. */
+const isFtyp = (buf) => starts(buf, [0x66, 0x74, 0x79, 0x70], 4);
 
 /** Plain text: no NUL byte and no known binary signature in the first 8 KB. */
 const isText = (buf) => !buf.subarray(0, 8192).includes(0)
-    && !Object.values(SIGNATURES).flat().some((sig) => starts(buf, sig));
+    && !Object.values(SIGNATURES).flat().some((sig) => starts(buf, sig)) && !isFtyp(buf);
 
 function matches(buf, kinds) {
-    return kinds.some((kind) => (kind === 'text' ? isText(buf) : SIGNATURES[kind].some((sig) => starts(buf, sig))));
+    return kinds.some((kind) => {
+        if (kind === 'text') return isText(buf);
+        if (kind === 'ftyp') return isFtyp(buf);
+        return SIGNATURES[kind].some((sig) => starts(buf, sig));
+    });
 }
 
 /**

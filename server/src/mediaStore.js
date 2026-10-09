@@ -10,6 +10,7 @@ const MIME = {
     '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
     '.pdf': 'application/pdf', '.doc': 'application/msword',
     '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.mp4': 'video/mp4', '.3gp': 'video/3gpp',
 };
 
 export class MediaStore extends Map {

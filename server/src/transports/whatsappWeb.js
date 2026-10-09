@@ -16,6 +16,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { APP_DIR, SESSION_DIR } from '../config.js';
@@ -115,6 +116,9 @@ export class WhatsAppWebTransport extends Transport {
          */
         this.recentOutgoing = new Map();
         this.botOutgoing = new Map();
+        /** '…@lid' -> '…@c.us' for recipients whose LID we have looked up. */
+        this.lidToPhone = new Map();
+        this.phoneToLid = new Map();
     }
 
     isConnected() {
@@ -139,7 +143,7 @@ export class WhatsAppWebTransport extends Transport {
         if (this.client) await this.#destroyClient(this.client);
         const client = await this.createClient({
             sessionDir: this.sessionDir,
-            chromePath: this.config.chromePath,
+            chromePath: this.config.chromePath || process.env.CHROME_PATH || '',
         });
         this.client = client;
 
@@ -154,7 +158,10 @@ export class WhatsAppWebTransport extends Transport {
             this.events.emit('state', { state: 'loading', detail: `loading ${percent}%` }));
         client.on('message_create', (msg) => {
             if (!msg?.fromMe) return;
-            const chatId = privateChatId(msg?.to ?? msg?.id?.remote);
+            const rawChatId = privateChatId(msg?.to ?? msg?.id?.remote);
+            // Accounts migrated to LIDs echo our send to '…@c.us' back as '…@lid'.
+            const chatId = this.lidToPhone.get(rawChatId) ?? rawChatId;
+            if (rawChatId !== chatId) this.#recordOutgoing(rawChatId, msg.body, serializedId(msg));
             this.#recordOutgoing(chatId, msg.body, serializedId(msg));
             if (this.#consumeBotOutgoing(chatId, msg.body, serializedId(msg))) return;
             const inbound = toInboundMessage(msg, chatId);
@@ -439,13 +446,17 @@ export class WhatsAppWebTransport extends Transport {
             if (!numberId) {
                 throw new TransportSendError(`${recipient} is not on WhatsApp`, { retryable: false });
             }
-            chatId = numberId._serialized;
+            chatId = numberId._serialized ?? numberId.$1;
         }
         const startedAt = Date.now();
-        let providerId = null;
-        let sendError = null;
         this.#recordBotOutgoing(chatId, message);
         if (media) return this.#sendMedia(chatId, message, media, startedAt);
+        return this.#sendText(chatId, message, startedAt);
+    }
+
+    async #sendText(chatId, message, startedAt) {
+        let providerId = null;
+        let sendError = null;
         try {
             // sendSeen: false - marking the chat read first is what throws
             // "Data passed to getter must include an id property" on recent
@@ -491,8 +502,21 @@ export class WhatsAppWebTransport extends Transport {
     async #sendMedia(chatId, message, media, startedAt) {
         const pkg = await import('whatsapp-web.js');
         const { MessageMedia } = pkg.default ?? pkg;
-        const attachment = MessageMedia.fromFilePath(media.filePath);
-        if (media.filename) attachment.filename = media.filename;
+        let data;
+        try {
+            data = Buffer.isBuffer(media.buffer) ? media.buffer : fs.readFileSync(media.filePath);
+        } catch (err) {
+            throw new TransportSendError(`attachment file is missing: ${err.message ?? err}`, { retryable: false });
+        }
+        // Built from the bytes with the MIME type we sniffed at upload, not
+        // guessed again from the path.
+        const attachment = new MessageMedia(
+            media.mimetype || 'application/octet-stream',
+            data.toString('base64'),
+            media.filename || path.basename(String(media.filePath ?? 'attachment')),
+            data.length,
+        );
+        const kind = attachment.mimetype.split('/')[0];
         const attempts = [
             { caption: message, sendSeen: false },
             { caption: message, sendSeen: false, sendMediaAsDocument: true },
@@ -504,6 +528,8 @@ export class WhatsAppWebTransport extends Transport {
                 providerId = serializedId(await this.client.sendMessage(chatId, attachment, options));
             } catch (err) {
                 lastError = String(err.message ?? err);
+                // Raw library text for the server log; the history row gets a friendly sentence.
+                console.warn(`[webjs media] ${chatId} ${attachment.mimetype}${options.sendMediaAsDocument ? ' as document' : ''}: ${lastError}`);
             }
             providerId ??= await this.#confirmOutgoing(chatId, message, startedAt);
             if (providerId) {
@@ -514,17 +540,9 @@ export class WhatsAppWebTransport extends Transport {
             }
         }
         // The attachment will not go: send the words, and say so.
-        let providerId = null;
-        try {
-            providerId = serializedId(await this.client.sendMessage(chatId, message, { sendSeen: false }));
-        } catch (err) {
-            throw new TransportSendError(lastError || String(err.message ?? err), { retryable: true });
-        }
-        providerId ??= await this.#confirmOutgoing(chatId, message, startedAt);
-        if (!providerId) throw new TransportSendError(lastError || 'WhatsApp Web did not confirm the message', { retryable: true });
-        this.receipts.set(providerId, Status.SENT);
-        this.#recordBotOutgoing(chatId, message, providerId);
-        return { providerId, status: Status.SENT, detail: 'The text was sent, but WhatsApp Web could not attach the image.' };
+        const result = await this.#sendText(chatId, message, startedAt);
+        const what = kind === 'video' || kind === 'image' ? kind : 'attachment';
+        return { ...result, detail: `The text was sent, but WhatsApp Web could not attach the ${what}.` };
     }
 
     #recordOutgoing(chatId, body, id) {
@@ -561,17 +579,38 @@ export class WhatsAppWebTransport extends Transport {
     }
 
     async #confirmOutgoing(chatId, body, notBefore) {
-        const key = `${chatId}|${body}`;
+        // Keys stay per-recipient (that recipient's phone JID or its own LID),
+        // so a bulk send of the same text can never confirm someone else's message.
+        const keys = [`${chatId}|${body}`];
+        const lid = await this.#lidFor(chatId);
+        if (lid) keys.push(`${lid}|${body}`);
         const deadline = Date.now() + CONFIRM_TIMEOUT_MS;
         while (Date.now() < deadline) {
-            const entry = this.recentOutgoing.get(key);
-            if (entry && entry.at >= notBefore) {
-                this.recentOutgoing.delete(key); // never match the same message twice
-                return entry.id;
+            for (const key of keys) {
+                const entry = this.recentOutgoing.get(key);
+                if (entry && entry.at >= notBefore) {
+                    for (const k of keys) this.recentOutgoing.delete(k); // never match the same message twice
+                    return entry.id;
+                }
             }
             await new Promise((resolve) => setTimeout(resolve, 100));
         }
         return null;
+    }
+
+    /** The recipient's LID, looked up once; null when unknown or not a phone JID. */
+    async #lidFor(chatId) {
+        if (!chatId?.endsWith('@c.us') || typeof this.client?.getContactLidAndPhone !== 'function') return null;
+        if (this.phoneToLid.has(chatId)) return this.phoneToLid.get(chatId);
+        try {
+            const [{ lid } = {}] = await this.client.getContactLidAndPhone([chatId]);
+            if (!privateChatId(lid)?.endsWith('@lid')) return null;
+            this.lidToPhone.set(lid, chatId);
+            this.phoneToLid.set(chatId, lid);
+            return lid;
+        } catch {
+            return null;
+        }
     }
 
     getStatus(providerId) {
@@ -583,7 +622,9 @@ function serializedId(msg) {
     const id = msg?.id;
     if (!id) return null;
     if (typeof id === 'string') return id;
-    return id._serialized ?? null;
+    // WhatsApp Web renamed Wid._serialized to $1 in July 2026; whatsapp-web.js
+    // 1.34.7 (npm) still reads _serialized and hands back undefined.
+    return id._serialized ?? id.$1 ?? null;
 }
 
 function directPrivateChatId(recipient) {

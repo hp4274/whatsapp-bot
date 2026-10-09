@@ -140,6 +140,22 @@ describe('sending', () => {
         assert.equal(body.queued, 1);
     });
 
+    it('accepts an mp4 video upload and caps images at 16 MB', async () => {
+        const mp4 = Buffer.concat([Buffer.from('00000020667479706d703432', 'hex'), Buffer.alloc(64)]);
+        const form = new FormData();
+        form.set('file', new Blob([mp4], { type: 'video/mp4' }), 'clip.mp4');
+        const res = await fetch(`${base}/api/media/upload`, { method: 'POST', body: form });
+        assert.equal(res.status, 201);
+        assert.equal((await res.json()).mimetype, 'video/mp4');
+
+        const big = Buffer.alloc(17 * 1024 * 1024);
+        Buffer.from('89504e470d0a1a0a', 'hex').copy(big);
+        const bigForm = new FormData();
+        bigForm.set('file', new Blob([big], { type: 'image/png' }), 'big.png');
+        const bigRes = await fetch(`${base}/api/media/upload`, { method: 'POST', body: bigForm });
+        assert.equal(bigRes.status, 413);
+    });
+
     it('runs a campaign and skips a number it already messaged', async () => {
         const contacts = [
             { name: 'Rahul', phone: '919876543210' },   // messaged above (SANDBOX)

@@ -266,6 +266,23 @@ export class Api {
       .pipe(catchError(toMessage));
   }
 
+  customSafety(): Observable<CustomSafetyView> {
+    return this.http.get<CustomSafetyView>('/api/safety/custom').pipe(catchError(toMessage));
+  }
+
+  acceptSafetyRisk(body: { accept: boolean; version: string; fullName: string; confirmation: string }):
+    Observable<CustomSafetyView> {
+    return this.http.post<CustomSafetyView>('/api/safety/custom/consent', body).pipe(catchError(toMessage));
+  }
+
+  setCustomSafety(patch: Partial<SafetyPolicy>): Observable<CustomSafetyView> {
+    return this.http.put<CustomSafetyView>('/api/safety/custom', patch).pipe(catchError(toMessage));
+  }
+
+  resetCustomSafety(): Observable<CustomSafetyView> {
+    return this.http.delete<CustomSafetyView>('/api/safety/custom').pipe(catchError(toMessage));
+  }
+
   stats(): Observable<{ stats: CampaignStats }> {
     return this.http.get<{ stats: CampaignStats }>('/api/campaign/stats').pipe(catchError(toMessage));
   }
@@ -377,6 +394,36 @@ export interface TenantLimits {
   allowCloudApi: boolean;
   allowWhatsappWeb: boolean;
   blockedWords: string;
+  /** The business may change its own sending limits after accepting the risk. */
+  allowCustomSafety: boolean;
+}
+
+/** A recorded acceptance of the sending-risk terms. Immutable on the server. */
+export interface SafetyConsent {
+  id: number;
+  userId: number;
+  email: string;
+  fullName: string;
+  acceptedAt: string;
+  version: string;
+  textHash: string;
+}
+
+/** The tenant's own layer over the platform's anti-ban policy. */
+export interface CustomSafetyState {
+  allowed: boolean;
+  /** Allowed + consented to the current version + at least one override. */
+  active: boolean;
+  overrides: Partial<SafetyPolicy>;
+  consent: SafetyConsent | null;
+  consentVersion: string;
+}
+
+export interface CustomSafetyView extends CustomSafetyState {
+  consentText: string[];
+  policy: SafetyPolicy;
+  platform: SafetyPolicy;
+  ranges: Record<string, [number, number] | string[] | 'bool'>;
 }
 
 export interface BillingPlan {
@@ -429,8 +476,15 @@ export class TenancyApi {
     return this.updateTenant(id, { status });
   }
 
-  safety(id: number): Observable<{ safety: SafetyPolicy }> {
-    return this.http.get<{ safety: SafetyPolicy }>(`/api/admin/tenants/${id}/safety`).pipe(catchError(toMessage));
+  safety(id: number): Observable<{ safety: SafetyPolicy; custom: CustomSafetyState }> {
+    return this.http.get<{ safety: SafetyPolicy; custom: CustomSafetyState }>(`/api/admin/tenants/${id}/safety`)
+      .pipe(catchError(toMessage));
+  }
+
+  /** Drop a tenant's own limits and take the permission back. */
+  revokeCustomSafety(id: number): Observable<{ safety: SafetyPolicy; custom: CustomSafetyState }> {
+    return this.http.delete<{ safety: SafetyPolicy; custom: CustomSafetyState }>(`/api/admin/tenants/${id}/custom-safety`)
+      .pipe(catchError(toMessage));
   }
 
   setSafety(id: number, patch: Partial<SafetyPolicy>): Observable<{ safety: SafetyPolicy }> {

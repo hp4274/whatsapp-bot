@@ -125,7 +125,7 @@ const FRIENDLY = Object.freeze({
     [ErrorCode.CANCELLED]: 'Stopped before it was sent.',
     chat: 'WhatsApp could not find this chat. Check the number is on WhatsApp, then retry.',
     type: 'WhatsApp does not support this kind of message for this number.',
-    media: 'The attachment could not be sent. Use a JPG, PNG or PDF under 16 MB.',
+    media: 'The attachment could not be sent. Use a JPG, PNG or PDF under 16 MB, or an MP4 video under 64 MB.',
     generic: 'WhatsApp could not send this message. Please try again; if it keeps failing, reconnect the number.',
 });
 

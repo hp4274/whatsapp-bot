@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 
 import { Api, AppConfig, SafetyStatus } from '../core/api';
 import { Store } from '../core/store';
+import { SafetyControls } from './safety-controls';
 
 interface FieldSpec {
   key: keyof AppConfig;
@@ -23,7 +24,7 @@ const CREDENTIAL_FIELDS: FieldSpec[] = [
 
 @Component({
   selector: 'app-connection',
-  imports: [FormsModule, DatePipe],
+  imports: [FormsModule, DatePipe, SafetyControls],
   templateUrl: './connection.html',
   styleUrl: './connection.scss',
 })
@@ -36,6 +37,8 @@ export class ConnectionView {
   protected readonly errors = signal<string[]>([]);
   protected readonly saving = signal(false);
   protected readonly safety = signal<SafetyStatus | null>(null);
+  /** The business is running its own anti-ban limits (see SafetyControls). */
+  protected readonly customSafety = signal(false);
 
   protected readonly transports = [
     { value: 'cloud_api', label: 'WhatsApp Business Cloud API', hint: 'Real delivery, needs an access token' },
