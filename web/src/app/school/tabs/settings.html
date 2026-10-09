@@ -1,0 +1,92 @@
+<header class="head">
+  <div>
+    <span class="eyebrow"><span class="ms">tune</span> School settings</span>
+    <h2>How your school runs, on autopilot.</h2>
+    <p>Times, automations and payment details the whole portal works from.</p>
+  </div>
+</header>
+
+@if (error()) {
+  <div class="banner" role="alert"><span class="ms">error</span>{{ error() }}</div>
+}
+
+@if (loading()) {
+  <div class="panel">@for (x of [0, 1, 2, 3, 4]; track x) { <div class="skel"></div> }</div>
+} @else if (s(); as st) {
+  <form class="grid" (ngSubmit)="save()">
+    <section class="panel" style="--i: 0">
+      <h3><span class="ms">school</span> Identity &amp; timings</h3>
+      <div class="form">
+        <div class="field wide">
+          <label for="st-name">School name</label>
+          <input id="st-name" name="schoolName" [ngModel]="st.schoolName" (ngModelChange)="set('schoolName', $event)" />
+          <span class="hint">Shown at the top of every WhatsApp message.</span>
+        </div>
+        <div class="field">
+          <label for="st-gate">Gate cutoff</label>
+          <input id="st-gate" type="time" name="gateCutoff" [ngModel]="st.gateCutoff" (ngModelChange)="set('gateCutoff', $event)" />
+          <span class="hint">Arrivals after this are marked late.</span>
+        </div>
+        <div class="field">
+          <label for="st-hw">Homework send time</label>
+          <input id="st-hw" type="time" name="homeworkSendTime" [ngModel]="st.homeworkSendTime" (ngModelChange)="set('homeworkSendTime', $event)" />
+          <span class="hint">Default for scheduled homework.</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" style="--i: 1">
+      <h3><span class="ms">auto_mode</span> Automations</h3>
+      <div class="auto">
+        <div class="row">
+          <label class="switch"><input type="checkbox" name="autoAbsent" [ngModel]="autoAbsent()" (ngModelChange)="autoAbsent.set($event); touch()" /><i></i> Auto-send absent alerts daily</label>
+          @if (autoAbsent()) {
+            <label class="sr" for="st-absent">Absent alert time</label>
+            <input id="st-absent" class="t" type="time" name="absentTime" [ngModel]="absentTime()" (ngModelChange)="absentTime.set($event); touch()" />
+          }
+        </div>
+        <small class="muted">{{ autoAbsent() ? 'Parents of absent students hear at ' + absentTime() + ' every school day.' : 'Manual only - send alerts from the Attendance tab.' }}</small>
+        <div class="row">
+          <label class="switch"><input type="checkbox" name="monthlySummary" [ngModel]="st.monthlySummary" (ngModelChange)="set('monthlySummary', $event)" /><i></i> Monthly attendance summary on the 1st</label>
+        </div>
+        <div class="row">
+          <label class="switch"><input type="checkbox" name="commandsEnabled" [ngModel]="st.commandsEnabled" (ngModelChange)="set('commandsEnabled', $event)" /><i></i> WhatsApp keyword commands</label>
+        </div>
+        <ul class="cmds" [class.off]="!st.commandsEnabled">
+          @for (c of commands; track c[0]; let i = $index) {
+            <li [style.--i]="i"><code>{{ c[0] }}</code><span>{{ c[1] }}</span></li>
+          }
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel pay" style="--i: 2">
+      <h3><span class="ms">qr_code_2</span> Fee payments</h3>
+      <div class="form">
+        <div class="field">
+          <label for="st-upi">UPI id</label>
+          <input id="st-upi" name="upiId" placeholder="school@okbank" [ngModel]="st.upiId" (ngModelChange)="set('upiId', $event)" />
+        </div>
+        <div class="field">
+          <label for="st-payee">Payee name</label>
+          <input id="st-payee" name="payeeName" [ngModel]="st.payeeName" (ngModelChange)="set('payeeName', $event)" />
+        </div>
+        <div class="field">
+          <label for="st-cur">Currency</label>
+          <input id="st-cur" name="currency" maxlength="3" [ngModel]="st.currency" (ngModelChange)="set('currency', $event.toUpperCase())" />
+        </div>
+      </div>
+      <p class="note"><span class="ms">link</span><span>Pay links in fee reminders are built from these details.</span></p>
+    </section>
+
+    <div class="savebar" [class.dirty]="dirty()">
+      <span aria-live="polite">
+        @if (saved()) { <span class="flash"><span class="ms">check_circle</span> Settings saved</span> }
+        @else if (dirty()) { <span class="muted">You have unsaved changes</span> }
+      </span>
+      <button class="btn primary" type="submit" [disabled]="!dirty() || saving()">
+        @if (saving()) { <span class="spinner"></span> } @else { <span class="ms">save</span> } Save settings
+      </button>
+    </div>
+  </form>
+}

@@ -53,7 +53,9 @@ describe('the catalogue', () => {
         assert.equal(new Set(keys).size, keys.length);
         for (const expected of ['appointment_reminder', 'order_confirmation', 'order_status_updates',
             'lead_welcome', 'lead_stop_on_reply', 'payment_due_reminder', 'payment_received',
-            'subscription_renewal', 'event_registration', 'school_fee_reminder', 'complaint_to_ticket']) {
+            'subscription_renewal', 'event_registration', 'school_fee_reminder', 'daily_absent_alert',
+            'homework_broadcast', 'ptm_slot_booking', 'leave_request_to_ticket', 'timetable_lookup',
+            'complaint_to_ticket']) {
             assert.ok(keys.includes(expected), expected);
         }
     });
@@ -100,6 +102,22 @@ describe('the catalogue', () => {
             for (const name of used) assert.ok(declared.has(name), `${recipe.key}: ${name} is not declared`);
             for (const t of recipe.requires.templates ?? []) assert.ok(t.body, `${recipe.key}: ${t.name} has no body`);
         }
+    });
+
+    it('wires each new school recipe to its trigger', () => {
+        const expected = {
+            fee_payment_receipt: 'fee.status_changed',
+            fee_due_reminder: 'fee.created',
+            late_arrival_alert: 'attendance.created',
+            homework_due_reminder: 'homework.created',
+            exam_result_published: 'exam_result.status_changed',
+        };
+        for (const [key, type] of Object.entries(expected)) {
+            assert.equal(getRecipe(key).build().trigger.type, type, key);
+        }
+        assert.equal(getRecipe('fee_payment_receipt').build().trigger.conditions[0].value, 'paid');
+        assert.equal(getRecipe('late_arrival_alert').build().trigger.conditions[0].value, 'late');
+        assert.equal(getRecipe('exam_result_published').build().trigger.conditions[0].value, 'published');
     });
 
     it('answers for an unknown key with null, not a throw', () => {

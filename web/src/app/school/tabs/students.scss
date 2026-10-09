@@ -1,0 +1,131 @@
+@use '../school-shared' as s;
+
+@include s.all;
+
+:host {
+  display: grid;
+  gap: var(--space-xl);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.live { display: grid; gap: var(--space-sm); &:empty { display: none; } }
+.head-actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); }
+
+.count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 36px;
+  height: 30px;
+  padding: 0 8px;
+  margin-left: 4px;
+  vertical-align: middle;
+  border-radius: 999px;
+  font-size: 15px;
+  letter-spacing: 0;
+  color: var(--on-primary);
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+}
+
+.segments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  .s-chip .ms { font-size: 15px; }
+}
+
+.errs { padding: var(--space-lg) var(--space-xl); }
+
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--space-lg);
+
+  .ms { position: absolute; left: 12px; color: var(--text-muted); pointer-events: none; }
+  input { padding-left: 40px; border-radius: 999px; }
+}
+
+.mono { font-family: var(--mono); font-size: 12px; }
+
+.name {
+  font-weight: 600;
+
+  .avatar {
+    display: inline-grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    margin-right: 8px;
+    border-radius: 9px;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    vertical-align: middle;
+  }
+}
+
+.acts { text-align: right; }
+.del:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); }
+
+.confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--danger);
+  animation: s-pop 200ms var(--ease) both;
+}
+
+/* Drawer form ----------------------------------------------------------- */
+.drawer-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+
+  .eyebrow { display: none; }
+  h3 { font-size: 22px; letter-spacing: -0.02em; }
+}
+
+.form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+
+  .wide { grid-column: 1 / -1; }
+
+  > * {
+    animation: s-rise 360ms var(--ease) both;
+  }
+  @for $i from 1 through 12 {
+    > :nth-child(#{$i}) { animation-delay: #{$i * 30}ms; }
+  }
+}
+
+.check {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+
+  input { width: 16px; height: 16px; accent-color: var(--primary); }
+}
+
+.drawer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+}

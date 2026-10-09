@@ -21,24 +21,6 @@ const CREDENTIAL_FIELDS: FieldSpec[] = [
   { key: 'templateLanguage', label: 'Template language', help: 'Language code, e.g. en_US', cloudOnly: true },
 ];
 
-const SAFETY_FIELDS: FieldSpec[] = [
-  { key: 'dailyLimit', label: 'Daily message limit', help: 'Hard ceiling per calendar day (0 = off)', type: 'number' },
-  { key: 'restEvery', label: 'Rest every N messages', help: 'Take a long pause this often (0 = never)', type: 'number' },
-  { key: 'restMinMinutes', label: 'Rest length min (min)', help: 'Shortest long pause', type: 'number' },
-  { key: 'restMaxMinutes', label: 'Rest length max (min)', help: 'Longest long pause', type: 'number' },
-  { key: 'minDelaySeconds', label: 'Min gap override (s)', help: '0 = pick from the batch size', type: 'number' },
-  { key: 'maxDelaySeconds', label: 'Max gap override (s)', help: '0 = pick from the batch size', type: 'number' },
-];
-
-const DELIVERY_FIELDS: FieldSpec[] = [
-  { key: 'rateLimitPerSecond', label: 'Rate limit (messages/second)', help: 'Maximum number of messages to send per second', type: 'number' },
-  { key: 'maxRetries', label: 'Max retries', help: 'Number of retry attempts on failure', type: 'number' },
-  { key: 'retryDelay', label: 'Retry base delay (s)', help: 'Initial delay before retrying', type: 'number' },
-  { key: 'retryBackoff', label: 'Retry backoff factor', help: 'Multiplier for each retry delay', type: 'number' },
-  { key: 'requestTimeout', label: 'Request timeout (s)', help: 'Maximum time to wait for a response', type: 'number' },
-  { key: 'defaultCountryCode', label: 'Default country code', help: 'For numbers stored without +' },
-];
-
 @Component({
   selector: 'app-connection',
   imports: [FormsModule, DatePipe],
@@ -54,7 +36,6 @@ export class ConnectionView {
   protected readonly errors = signal<string[]>([]);
   protected readonly saving = signal(false);
   protected readonly safety = signal<SafetyStatus | null>(null);
-  protected readonly safetyFields = SAFETY_FIELDS;
 
   protected readonly transports = [
     { value: 'cloud_api', label: 'WhatsApp Business Cloud API', hint: 'Real delivery, needs an access token' },
@@ -67,7 +48,6 @@ export class ConnectionView {
   /** Progressive disclosure: Cloud API fields only exist for the Cloud API. */
   protected readonly fields = computed(() => [
     ...(this.isCloud() ? CREDENTIAL_FIELDS : []),
-    ...DELIVERY_FIELDS,
   ]);
 
   protected readonly advisory = computed(() => {

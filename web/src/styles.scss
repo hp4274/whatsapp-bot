@@ -290,3 +290,21 @@ textarea {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Google Material Symbols (loaded in index.html). Use: <span class="ms">name</span> */
+.ms {
+  display: inline-block;
+  flex: none;
+  font-family: 'Material Symbols Outlined';
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  direction: ltr;
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}

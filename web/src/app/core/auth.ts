@@ -29,9 +29,52 @@ export interface Tenant {
   id: number;
   name: string;
   slug: string;
-  status: 'active' | 'suspended';
+  status: 'active' | 'suspended' | 'archived';
+  services: string[];
+  controls: TenantControls;
+  /** Anti-ban overrides set by the platform admin; absent keys use the defaults. */
+  safety?: Record<string, number | boolean | string>;
+  channels?: TenantChannelSummary[];
+  health?: TenantHealth;
   createdAt: string;
   users?: number;
+}
+
+export interface TenantControls {
+  sendingEnabled: boolean;
+  inboundEnabled: boolean;
+  campaignsEnabled: boolean;
+  automationsEnabled: boolean;
+}
+
+export interface TenantChannelSummary {
+  id: number;
+  displayName: string;
+  provider: string;
+  phoneNumber: string;
+  status: 'active' | 'disabled';
+  capabilities: string[];
+  isDefault: boolean;
+  health: {
+    connected: boolean;
+    connecting: boolean;
+    running: boolean;
+    account: string;
+    detail: string;
+    error: string | null;
+    withinSendingWindow: boolean;
+  };
+}
+
+export interface TenantHealth {
+  channels: number;
+  connected: number;
+  running: number;
+  disabled: number;
+  outsideWindow: number;
+  sent: number;
+  failed: number;
+  queued: number;
 }
 
 const TOKEN_KEY = 'wsender.token';

@@ -14,12 +14,45 @@ import { DB_PATH } from './config.js';
 import { MODULE_SCHEMAS } from './schema.js';
 import { STATUS_RANK, SUCCESS_STATUSES, Status, utcNow } from './protocol.js';
 
+const DEFAULT_TENANT_SERVICES_JSON = JSON.stringify([
+    'school_whatsapp_bot',
+    'whatsapp_channels',
+    'contacts',
+    'templates',
+    'inbox',
+    'auto_replies',
+    'bulk_messages',
+    'campaigns',
+    'payment_reminders',
+    'workflows',
+    'faq',
+    'tickets',
+    'appointments',
+    'orders',
+    'leads',
+    'subscriptions',
+    'events',
+    'api',
+    'analytics',
+    'integrations',
+    'ai',
+]);
+const DEFAULT_TENANT_CONTROLS_JSON = JSON.stringify({
+    sendingEnabled: true,
+    inboundEnabled: true,
+    campaignsEnabled: true,
+    automationsEnabled: true,
+});
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS tenants (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT NOT NULL,
     slug        TEXT NOT NULL UNIQUE,
     status      TEXT NOT NULL DEFAULT 'active',
+    services    TEXT NOT NULL DEFAULT '${DEFAULT_TENANT_SERVICES_JSON}',
+    controls    TEXT NOT NULL DEFAULT '${DEFAULT_TENANT_CONTROLS_JSON}',
+    safety      TEXT NOT NULL DEFAULT '{}',
     created_at  TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS users (
@@ -175,6 +208,18 @@ function columnsOf(db, table) {
     return db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
 }
 
+function addTenantControlColumns(db) {
+    const cols = columnsOf(db, 'tenants');
+    if (!cols.length) return;
+    if (!cols.includes('services')) {
+        db.exec(`ALTER TABLE tenants ADD COLUMN services TEXT NOT NULL DEFAULT '${DEFAULT_TENANT_SERVICES_JSON}'`);
+    }
+    if (!cols.includes('controls')) {
+        db.exec(`ALTER TABLE tenants ADD COLUMN controls TEXT NOT NULL DEFAULT '${DEFAULT_TENANT_CONTROLS_JSON}'`);
+    }
+    if (!cols.includes('safety')) db.exec("ALTER TABLE tenants ADD COLUMN safety TEXT NOT NULL DEFAULT '{}'");
+}
+
 /** Adds channel_id to tables that predate channels. Existing rows keep NULL
  *  until the tenant's default channel adopts them (see adoptOrphanRows). */
 function addChannelColumns(db) {
@@ -270,6 +315,7 @@ export class Database {
         // Before SCHEMA: its indexes reference channel_id on tables that predate it.
         addChannelColumns(this.db);
         this.db.exec(SCHEMA);
+        addTenantControlColumns(this.db);
         for (const fragment of MODULE_SCHEMAS) this.db.exec(fragment);
         if (old.length) finishLegacy(this.db, old);
         this.db.prepare(`INSERT OR IGNORE INTO tenants (id, name, slug, status, created_at)

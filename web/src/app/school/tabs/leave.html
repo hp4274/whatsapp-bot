@@ -1,0 +1,82 @@
+<header class="head">
+  <div>
+    <span class="eyebrow"><span class="ms">event_busy</span> Leave desk</span>
+    <h2>Approve leave in one tap.</h2>
+    <p>Requests arrive straight from WhatsApp. Your decision goes back to the parent the moment you make it.</p>
+  </div>
+  <p class="note"><span class="ms">chat</span><span>Parents send <code>LEAVE &lt;reason&gt; &lt;dates&gt;</code> on WhatsApp.</span></p>
+</header>
+
+<div class="seg" role="tablist" aria-label="Leave status">
+  @for (s of statuses; track s) {
+    <button type="button" role="tab" [attr.aria-selected]="status() === s" [attr.aria-pressed]="status() === s" (click)="status.set(s)">
+      <span class="ms">{{ s === 'pending' ? 'hourglass_top' : s === 'approved' ? 'check_circle' : 'cancel' }}</span>{{ s }}
+      @if (s === status() && !loading()) { <span class="count">{{ requests().length }}</span> }
+    </button>
+  }
+</div>
+
+@if (error()) {
+  <div class="banner" role="alert"><span class="ms">error</span>{{ error() }}</div>
+}
+
+@if (loading()) {
+  <div class="grid">@for (s of [0, 1, 2]; track s) { <div class="panel ghostcard"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div> }</div>
+} @else if (!requests().length) {
+  <div class="panel"><div class="empty"><span class="ms">{{ status() === 'pending' ? 'inbox' : 'folder_open' }}</span>
+    <strong>{{ status() === 'pending' ? 'Inbox zero' : 'Nothing ' + status() + ' yet' }}</strong>
+    {{ status() === 'pending' ? 'No leave requests waiting for a decision.' : 'Decided requests show up here.' }}</div></div>
+} @else {
+  <div class="grid">
+    @for (r of requests(); track r.ticketId; let i = $index) {
+      <article class="panel req" [schoolTilt]="4" [style.--i]="i"
+        [class.out-ok]="leaving()?.id === r.ticketId && leaving()?.dir === 'approve'"
+        [class.out-bad]="leaving()?.id === r.ticketId && leaving()?.dir === 'reject'">
+        <div class="top">
+          <span class="avatar" aria-hidden="true">{{ r.studentName.charAt(0) }}</span>
+          <div>
+            <strong>{{ r.studentName }}</strong>
+            <small class="muted">{{ r.classKey }} · {{ r.reference }}</small>
+          </div>
+          <span class="pill" [class.warn]="r.status === 'pending'" [class.ok]="r.status === 'approved'" [class.bad]="r.status === 'rejected'">{{ r.status }}</span>
+        </div>
+        <div class="dates">
+          <span class="ms">date_range</span>
+          @if (r.fromDate) {
+            {{ r.fromDate | date: 'EEE d MMM' }}@if (r.toDate && r.toDate !== r.fromDate) { &rarr; {{ r.toDate | date: 'EEE d MMM' }} }
+            <span class="days">{{ days(r) }}d</span>
+          } @else { <span class="muted">Dates not given</span> }
+        </div>
+        <blockquote>{{ r.reason || 'No reason given' }}</blockquote>
+        <div class="meta muted"><span class="ms">call</span>{{ r.parentPhone }} · <span class="ms">schedule</span>{{ r.createdAt | date: 'd MMM, h:mm a' }}</div>
+
+        @if (r.status === 'pending') {
+          @if (deciding()?.id === r.ticketId) {
+            <div class="decide" [class.rej]="deciding()?.decision === 'reject'">
+              <label [for]="'note-' + r.ticketId">Note to parent (optional)</label>
+              <input [id]="'note-' + r.ticketId" [ngModel]="note()" (ngModelChange)="note.set($event)"
+                [placeholder]="deciding()?.decision === 'approve' ? 'Get well soon!' : 'Exams that week - please reschedule'" (keydown.enter)="decide(r)" />
+              <div class="actions">
+                <button class="btn sm" type="button" [class.primary]="deciding()?.decision === 'approve'" [class.danger]="deciding()?.decision === 'reject'"
+                  [disabled]="busy() === r.ticketId" (click)="decide(r)">
+                  @if (busy() === r.ticketId) { <span class="spinner"></span> }
+                  Confirm {{ deciding()?.decision }}
+                </button>
+                <button class="btn sm ghost" type="button" (click)="deciding.set(null)">Cancel</button>
+              </div>
+            </div>
+          } @else {
+            <div class="actions btns">
+              <button class="btn sm primary" type="button" (click)="open(r.ticketId, 'approve')"><span class="ms">check</span> Approve</button>
+              <button class="btn sm" type="button" (click)="open(r.ticketId, 'reject')"><span class="ms">close</span> Reject</button>
+            </div>
+          }
+        }
+      </article>
+    }
+  </div>
+}
+
+<div class="toast" role="status" aria-live="polite" [class.show]="toast()">
+  @if (toast()) { <span class="ms">mark_chat_read</span>{{ toast() }} }
+</div>

@@ -88,7 +88,7 @@
           <button type="button" class="link" (click)="applySegment(segment)">
             {{ segment.name }} <em>{{ segment.count }}</em>
           </button>
-          <button type="button" class="x" aria-label="Delete segment" (click)="deleteSegment(segment)">&times;</button>
+          <button type="button" class="x" aria-label="Delete segment" (click)="deleteSegment(segment)"><span class="ms" aria-hidden="true">close</span></button>
         </div>
       } @empty {
         <p class="muted small">Filter the list, then save it as a segment.</p>

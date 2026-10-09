@@ -353,3 +353,23 @@
     padding: var(--space-md) var(--space-lg) 0;
   }
 }
+
+.pill-note {
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.stack {
+  display: grid;
+  gap: var(--space-lg);
+  align-content: start;
+}
+
+.safety > p.muted {
+  margin: 0;
+  padding: var(--space-md) var(--space-lg) 0;
+}

@@ -71,6 +71,29 @@ export const DEFAULTS = Object.freeze({
     logLevel: 'info',
 });
 
+/**
+ * Anti-ban policy: owned by the platform admin, never by a tenant.  Each key
+ * maps to its allowed range (or values); see Tenancy.setSafety.
+ */
+export const POLICY_SPEC = Object.freeze({
+    safetyEnabled: 'bool',
+    pacingMode: ['adaptive', 'fixed'],
+    dailyLimit: [0, 100000],
+    minDelaySeconds: [0, 3600],
+    maxDelaySeconds: [0, 3600],
+    restEvery: [0, 10000],
+    restMinMinutes: [0, 240],
+    restMaxMinutes: [0, 240],
+    rateLimitPerSecond: [0.01, 50],
+    rateLimitBurst: [1, 100],
+    maxRetries: [0, 10],
+    retryDelay: [0, 600],
+    retryBackoff: [1, 10],
+    retryMaxDelay: [0, 3600],
+    retryJitter: [0, 1],
+});
+export const POLICY_KEYS = Object.keys(POLICY_SPEC);
+
 export function ensureAppDir() {
     fs.mkdirSync(APP_DIR, { recursive: true });
     return APP_DIR;

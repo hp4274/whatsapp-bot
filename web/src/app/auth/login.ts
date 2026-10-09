@@ -1,4 +1,4 @@
-import { Component, ElementRef, inject, signal, viewChild } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
@@ -15,7 +15,6 @@ export class LoginView {
   private readonly auth = inject(Auth);
   private readonly store = inject(Store);
   private readonly router = inject(Router);
-  private readonly card = viewChild.required<ElementRef<HTMLElement>>('card');
 
   protected readonly email = signal('');
   protected readonly password = signal('');
@@ -46,8 +45,10 @@ export class LoginView {
 
   /** Tilts the card toward the pointer. Pure transform, so it costs no layout. */
   protected tilt(event: PointerEvent) {
-    const el = this.card().nativeElement;
+    const el = event.currentTarget as HTMLElement | null;
+    if (!el) return;
     const box = el.getBoundingClientRect();
+    if (!box.width || !box.height) return;
     const x = (event.clientX - box.left) / box.width - 0.5;
     const y = (event.clientY - box.top) / box.height - 0.5;
     el.style.setProperty('--tilt-x', `${(-y * 7).toFixed(2)}deg`);
@@ -56,8 +57,9 @@ export class LoginView {
     el.style.setProperty('--gleam-y', `${((y + 0.5) * 100).toFixed(1)}%`);
   }
 
-  protected level() {
-    const el = this.card().nativeElement;
+  protected level(event: PointerEvent) {
+    const el = event.currentTarget as HTMLElement | null;
+    if (!el) return;
     el.style.setProperty('--tilt-x', '0deg');
     el.style.setProperty('--tilt-y', '0deg');
   }

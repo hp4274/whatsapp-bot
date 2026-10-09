@@ -1,0 +1,58 @@
+@use 'kit';
+
+@include kit.base;
+@include kit.bubble;
+
+:host { --tone: var(--accent); }
+
+.tall { min-height: 72px; }
+
+.hint code { font-family: var(--mono); }
+
+.foot + div .banner { margin-top: var(--space-lg); }
+
+.errs {
+  margin-top: var(--space-md);
+  max-height: 220px;
+  overflow-y: auto;
+
+  td:last-child { white-space: normal; color: var(--danger); }
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  select { width: auto; }
+}
+
+.bar .btn.danger { animation: pulse 1s var(--ease) infinite; }
+
+.small { font-size: 12px; margin: 0 0 8px; }
+
+.grade {
+  display: inline-grid;
+  place-items: center;
+  min-width: 32px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-weight: 800;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 22%, var(--surface)), var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  color: var(--accent);
+  box-shadow: 0 4px 10px -6px var(--accent);
+}
+
+@keyframes pulse {
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--danger) 20%, transparent); }
+}

@@ -21,8 +21,12 @@
  *     its field is `event.data.status`.
  */
 
+import { SCHOOL_TEMPLATES } from '../school/templates.js';
+
 /** `{name}`-style placeholders; the template store derives its variable list from these. */
 const T = (name, body) => ({ name, body });
+/** A school master template, so the recipe and the tenant provisioning share one body. */
+const ST = (name) => T(name, SCHOOL_TEMPLATES[name]);
 
 export const RECIPES = Object.freeze([
     {
@@ -328,6 +332,188 @@ export const RECIPES = Object.freeze([
                     { id: 'due', action: 'send_template', params: { template: 'school_fee_due' }, next: 'hold' },
                     { id: 'hold', action: 'wait', params: { days: overdueAfterDays }, next: 'overdue' },
                     { id: 'overdue', action: 'send_template', params: { template: 'school_fee_overdue' }, next: null },
+                ],
+            };
+        },
+    },
+    {
+        key: 'daily_absent_alert',
+        name: 'Daily absent alert',
+        description: 'Alerts the parent the instant an attendance record is marked absent. Do not combine it with the portal manual "Notify parents" button, or parents get two alerts.',
+        industry: 'schools, coaching',
+        requires: {
+            objectType: 'attendance',
+            templates: [
+                T('daily_absent_alert', 'Dear parent, {studentName} has been marked absent for {className} on {date}. Reply here if this needs correction.'),
+            ],
+        },
+        build() {
+            return {
+                name: 'Daily absent alert',
+                trigger: { type: 'attendance.created', conditions: [{ field: 'status', op: 'eq', value: 'absent' }] },
+                steps: [
+                    { id: 'alert', action: 'send_template', params: { template: 'daily_absent_alert' }, next: null },
+                ],
+            };
+        },
+    },
+    {
+        key: 'fee_payment_receipt',
+        name: 'Fee payment receipt',
+        description: 'Sends a receipt to the parent as soon as a fee is marked paid.',
+        industry: 'schools, coaching',
+        requires: { objectType: 'fee', templates: [ST('school_fee_receipt')] },
+        build() {
+            return {
+                name: 'Fee payment receipt',
+                trigger: { type: 'fee.status_changed', conditions: [{ field: 'status', op: 'eq', value: 'paid' }] },
+                steps: [{ id: 'receipt', action: 'send_template', params: { template: 'school_fee_receipt' }, next: null }],
+            };
+        },
+    },
+    {
+        key: 'fee_due_reminder',
+        name: 'Fee due reminder',
+        description: 'The fee-object version of the school fee reminder: nudges 3 days before the due date, then once more a day after the due date. It cannot see a payment made in between, so use the portal reminders for paid-aware nudges.',
+        industry: 'schools, coaching',
+        requires: { objectType: 'fee', templates: [ST('school_fee_due'), ST('school_fee_overdue')] },
+        build({ remindHoursBefore = 72, overdueHoursAfter = 24 } = {}) {
+            return {
+                name: 'Fee due reminder',
+                trigger: { type: 'fee.created' },
+                steps: [
+                    { id: 'hold', action: 'wait', params: { until: 'event.data.dueAt', hours: -Math.abs(remindHoursBefore) }, next: 'due' },
+                    { id: 'due', action: 'send_template', params: { template: 'school_fee_due' }, next: 'settle' },
+                    // ponytail: no paid check - a run sees the fee as created, not live. Add when the engine can re-read objects.
+                    { id: 'settle', action: 'wait', params: { until: 'event.data.dueAt', hours: Math.abs(overdueHoursAfter) }, next: 'overdue' },
+                    { id: 'overdue', action: 'send_template', params: { template: 'school_fee_overdue' }, next: null },
+                ],
+            };
+        },
+    },
+    {
+        key: 'late_arrival_alert',
+        name: 'Late arrival alert',
+        description: 'Tells the parent when a student is marked late.',
+        industry: 'schools, coaching',
+        requires: { objectType: 'attendance', templates: [ST('school_late_alert')] },
+        build() {
+            return {
+                name: 'Late arrival alert',
+                trigger: { type: 'attendance.created', conditions: [{ field: 'status', op: 'eq', value: 'late' }] },
+                steps: [{ id: 'alert', action: 'send_template', params: { template: 'school_late_alert' }, next: null }],
+            };
+        },
+    },
+    {
+        key: 'homework_due_reminder',
+        name: 'Homework due reminder',
+        description: 'Reminds the class a day before homework is due.',
+        industry: 'schools, coaching',
+        requires: {
+            objectType: 'homework',
+            templates: [T('school_homework_due', 'Reminder: {subject} homework "{title}" for {classKey} is due {dueAt}.')],
+        },
+        build({ remindHoursBefore = 24 } = {}) {
+            return {
+                name: 'Homework due reminder',
+                trigger: { type: 'homework.created' },
+                steps: [
+                    { id: 'hold', action: 'wait', params: { until: 'event.data.dueAt', hours: -Math.abs(remindHoursBefore) }, next: 'remind' },
+                    { id: 'remind', action: 'send_template', params: { template: 'school_homework_due' }, next: null },
+                ],
+            };
+        },
+    },
+    {
+        key: 'exam_result_published',
+        name: 'Exam result published',
+        description: 'Sends the result breakdown to the parent when an exam result is published.',
+        industry: 'schools, coaching',
+        requires: { objectType: 'exam_result', templates: [ST('school_result')] },
+        build() {
+            return {
+                name: 'Exam result published',
+                trigger: { type: 'exam_result.status_changed', conditions: [{ field: 'status', op: 'eq', value: 'published' }] },
+                steps: [{ id: 'result', action: 'send_template', params: { template: 'school_result' }, next: null }],
+            };
+        },
+    },
+    {
+        key: 'homework_broadcast',
+        name: 'Homework broadcast',
+        description: 'Sends the homework details when a new homework object is published into the catalogue.',
+        industry: 'schools, coaching',
+        requires: {
+            objectType: 'homework',
+            templates: [
+                T('homework_broadcast', 'Homework for {className} {section}: {subject} - {title}. Due {dueAt}. {instructions}'),
+            ],
+        },
+        build() {
+            return {
+                name: 'Homework broadcast',
+                trigger: { type: 'homework.created' },
+                steps: [
+                    { id: 'send', action: 'send_template', params: { template: 'homework_broadcast' }, next: null },
+                ],
+            };
+        },
+    },
+    {
+        key: 'ptm_slot_booking',
+        name: 'PTM slot booking',
+        description: 'Turns an inbound PTM booking request into a staff ticket and confirms that the request was received.',
+        industry: 'schools, coaching',
+        requires: {
+            templates: [],
+        },
+        build({ assignTo = 'front-desk' } = {}) {
+            return {
+                name: 'PTM slot booking',
+                trigger: { type: 'message.received', conditions: [{ field: 'intent', op: 'eq', value: 'ptm_slot_booking' }] },
+                steps: [
+                    { id: 'file', action: 'create_ticket', params: { category: 'ptm', priority: 'normal', assignedTo: assignTo, subject: 'PTM slot request from {name}' }, next: 'ack' },
+                    { id: 'ack', action: 'send_message', params: { text: 'Thanks {name}. We have received your PTM slot request as {vars.file.reference}.' }, next: null },
+                ],
+            };
+        },
+    },
+    {
+        key: 'leave_request_to_ticket',
+        name: 'Leave request to ticket',
+        description: 'Files an inbound leave request for school staff review and acknowledges the parent.',
+        industry: 'schools, coaching',
+        requires: {
+            templates: [],
+        },
+        build({ assignTo = 'class-teacher' } = {}) {
+            return {
+                name: 'Leave request to ticket',
+                trigger: { type: 'message.received', conditions: [{ field: 'intent', op: 'eq', value: 'leave_request' }] },
+                steps: [
+                    { id: 'file', action: 'create_ticket', params: { category: 'leave_request', priority: 'normal', assignedTo: assignTo, subject: 'Leave request from {name}' }, next: 'ack' },
+                    { id: 'ack', action: 'send_message', params: { text: 'Thanks {name}. Your leave request has been logged as {vars.file.reference}.' }, next: null },
+                ],
+            };
+        },
+    },
+    {
+        key: 'timetable_lookup',
+        name: 'Timetable lookup',
+        description: 'Replies to an inbound timetable lookup intent with the timetable fields carried by the event.',
+        industry: 'schools, coaching',
+        requires: {
+            templates: [
+                T('timetable_lookup', '{className} {section} timetable for {day}: {period} - {subject} with {teacher} in {room}.'),
+            ],
+        },
+        build() {
+            return {
+                name: 'Timetable lookup',
+                trigger: { type: 'message.received', conditions: [{ field: 'intent', op: 'eq', value: 'timetable_lookup' }] },
+                steps: [
+                    { id: 'reply', action: 'send_template', params: { template: 'timetable_lookup' }, next: null },
                 ],
             };
         },

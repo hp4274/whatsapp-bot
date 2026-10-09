@@ -1,0 +1,154 @@
+<header class="head">
+  <div>
+    <span class="eyebrow"><span class="ms">payments</span> Fee ledger</span>
+    <h2>Collect without chasing.</h2>
+    <p>Every fee, receipt and reminder in one ledger. Paid entries send a receipt to the parent on WhatsApp automatically.</p>
+  </div>
+  <div class="actions">
+    <button class="btn" type="button" [attr.aria-expanded]="panel() === 'single'" (click)="openPanel('single')"><span class="ms">person_add</span> Fee for a student</button>
+    <button class="btn primary" type="button" [attr.aria-expanded]="panel() === 'bulk'" (click)="openPanel('bulk')"><span class="ms">library_add</span> Bulk for a class</button>
+  </div>
+</header>
+
+<div class="tiles">
+  <div class="stat ok" style="--i: 0"><small>Collected</small><b>@if (totals(); as t) { {{ currency() }} {{ t.collected | number }} } @else { - }</b></div>
+  <div class="stat warn" style="--i: 1"><small>Pending</small><b>@if (totals(); as t) { {{ currency() }} {{ t.pending | number }} } @else { - }</b></div>
+  <div class="stat bad" style="--i: 2"><small>Overdue</small><b>@if (totals(); as t) { {{ currency() }} {{ t.overdue | number }} } @else { - }</b></div>
+</div>
+
+@if (error()) {
+  <div class="banner" role="alert"><span class="ms">error</span>{{ error() }}</div>
+}
+<div aria-live="polite">
+  @if (flash()) { <div class="banner ok"><span class="ms">check_circle</span>{{ flash() }}</div> }
+  @if (remindResult(); as r) {
+    <div class="banner info"><span class="ms">notifications_active</span>Reminders: {{ r.sent }} sent · {{ r.skipped }} skipped · {{ r.failed }} failed</div>
+  }
+</div>
+
+@if (panel()) {
+  <form class="panel create" (ngSubmit)="create()">
+    <h3><span class="ms">{{ panel() === 'bulk' ? 'library_add' : 'person_add' }}</span> {{ panel() === 'bulk' ? 'Bulk fee for a class + term' : 'Fee for one student' }}</h3>
+    <div class="form four">
+      <div class="field">
+        <label for="fc-class">Class</label>
+        <select id="fc-class" name="classKey" [ngModel]="form().classKey" (ngModelChange)="setForm('classKey', $event)">
+          @for (c of classes(); track c.key) { <option [value]="c.key">{{ c.key }} ({{ c.students }})</option> }
+        </select>
+      </div>
+      @if (panel() === 'single') {
+        <div class="field">
+          <label for="fc-student">Student</label>
+          <select id="fc-student" name="studentId" [ngModel]="form().studentId" (ngModelChange)="setForm('studentId', +$event)">
+            <option [ngValue]="0" disabled>{{ students().length ? 'Choose a student' : 'Loading...' }}</option>
+            @for (s of students(); track s.id) { <option [ngValue]="s.id">{{ s.rollNumber }} · {{ s.name }}</option> }
+          </select>
+        </div>
+      }
+      <div class="field">
+        <label for="fc-term">Term</label>
+        <input id="fc-term" name="term" list="fee-terms" placeholder="Term 1 2026" [ngModel]="form().term" (ngModelChange)="setForm('term', $event)" required />
+        <datalist id="fee-terms">@for (t of terms(); track t) { <option [value]="t"></option> }</datalist>
+      </div>
+      <div class="field">
+        <label for="fc-amt">Amount ({{ currency() }})</label>
+        <input id="fc-amt" type="number" min="1" name="amount" [ngModel]="form().amount" (ngModelChange)="setForm('amount', +$event)" required />
+      </div>
+      <div class="field">
+        <label for="fc-due">Due date</label>
+        <input id="fc-due" type="date" name="dueAt" [ngModel]="form().dueAt" (ngModelChange)="setForm('dueAt', $event)" required />
+      </div>
+      @if (panel() === 'single') {
+        <div class="field wide">
+          <label for="fc-link">Pay link (optional)</label>
+          <input id="fc-link" name="payLink" placeholder="Auto-generated from your UPI id when empty" [ngModel]="form().payLink" (ngModelChange)="setForm('payLink', $event)" />
+        </div>
+      }
+    </div>
+    <div class="actions foot">
+      <button class="btn primary" type="submit" [disabled]="busy() || !form().term.trim() || !(form().amount > 0) || !form().dueAt || (panel() === 'single' && !form().studentId)">
+        @if (busy()) { <span class="spinner"></span> } <span class="ms">add</span> Create
+      </button>
+      <button class="btn ghost" type="button" (click)="panel.set('')">Cancel</button>
+    </div>
+  </form>
+}
+
+<section class="panel ledger">
+  <div class="bar">
+    <div class="filters">
+      <label class="sr" for="ff-class">Class</label>
+      <select id="ff-class" [ngModel]="fClass()" (ngModelChange)="fClass.set($event)">
+        <option value="">All classes</option>
+        @for (c of classes(); track c.key) { <option [value]="c.key">{{ c.key }}</option> }
+      </select>
+      <label class="sr" for="ff-term">Term</label>
+      <select id="ff-term" [ngModel]="fTerm()" (ngModelChange)="fTerm.set($event)">
+        <option value="">All terms</option>
+        @for (t of terms(); track t) { <option [value]="t">{{ t }}</option> }
+      </select>
+      <div class="seg" role="group" aria-label="Status">
+        @for (s of ['', 'pending', 'overdue', 'paid', 'waived']; track s) {
+          <button type="button" [attr.aria-pressed]="fStatus() === s" (click)="fStatus.set(s)">{{ s || 'All' }}</button>
+        }
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn sm" type="button" [disabled]="busy() || !selected().size" (click)="remindSelected()"><span class="ms">send</span> Remind {{ selected().size || '' }} selected</button>
+      <button class="btn sm" type="button" [disabled]="busy()" (click)="remind({ status: 'overdue' })"><span class="ms">alarm</span> All overdue</button>
+      <button class="btn sm" type="button" [disabled]="busy()" (click)="remind({ status: 'pending' })"><span class="ms">schedule_send</span> All pending</button>
+    </div>
+  </div>
+
+  @if (loading()) {
+    @for (s of [0, 1, 2, 3, 4]; track s) { <div class="skel"></div> }
+  } @else if (!fees().length) {
+    <div class="empty"><span class="ms">receipt_long</span><strong>No fees match</strong>Create a fee or change the filters.</div>
+  } @else {
+    <div class="tbl">
+      <table>
+        <thead>
+          <tr>
+            <th><input type="checkbox" aria-label="Select all" [checked]="allChecked()" (change)="toggleAll($any($event.target).checked)" /></th>
+            <th>Student</th><th>Class</th><th>Term</th><th class="num">Amount</th><th>Due</th><th>Status</th><th>Receipt</th><th><span class="sr">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (f of fees(); track f.id; let i = $index) {
+            <tr [style.--i]="i" [class.flip]="justPaid() === f.id">
+              <td><input type="checkbox" [attr.aria-label]="'Select ' + f.studentName" [checked]="selected().has(f.id)" (change)="toggle(f.id, $any($event.target).checked)" /></td>
+              <td><strong>{{ f.studentName }}</strong></td>
+              <td>{{ f.classKey }}</td>
+              <td>{{ f.term }}</td>
+              <td class="num">{{ f.currency }} {{ f.amount | number }}</td>
+              <td>{{ f.dueAt | date: 'd MMM' }}</td>
+              <td><span class="pill" [class]="tone(f.status)">{{ f.status }}</span></td>
+              <td class="mono">{{ f.receiptNo || '-' }}</td>
+              <td class="row-actions">
+                @if (payingId() === f.id) {
+                  <span class="pay">
+                    <label class="sr" [for]="'pm-' + f.id">Payment method</label>
+                    <select [id]="'pm-' + f.id" [ngModel]="payMethod()" (ngModelChange)="payMethod.set($event)">
+                      @for (m of methods; track m) { <option [value]="m">{{ m }}</option> }
+                    </select>
+                    <button class="btn sm primary" type="button" [disabled]="busy()" (click)="markPaid(f)">Confirm</button>
+                    <button class="btn sm ghost" type="button" (click)="payingId.set(null)" aria-label="Cancel"><span class="ms">close</span></button>
+                  </span>
+                } @else {
+                  @if (f.status === 'pending' || f.status === 'overdue') {
+                    <button class="btn sm" type="button" (click)="payingId.set(f.id)"><span class="ms">done</span> Mark paid</button>
+                  }
+                  @if (f.payLink) {
+                    <button class="btn sm ghost" type="button" (click)="copy(f)" [attr.aria-label]="'Copy pay link for ' + f.studentName">
+                      <span class="ms">{{ copied() === f.id ? 'check' : 'link' }}</span>{{ copied() === f.id ? 'Copied' : '' }}
+                    </button>
+                  }
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</section>

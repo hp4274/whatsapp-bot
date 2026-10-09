@@ -1,9 +1,10 @@
 <header class="page-head">
   <div>
     <h2>Tenants</h2>
-    <p class="muted">Every business on this platform, and the audit trail behind them.</p>
+    <p class="muted">Every business on this platform, and the controls behind it.</p>
   </div>
   <button class="btn primary" type="button" (click)="showForm.set(!showForm())">
+    <span class="ms" aria-hidden="true">{{ showForm() ? 'close' : 'add' }}</span>
     {{ showForm() ? 'Cancel' : 'New tenant' }}
   </button>
 </header>
@@ -25,6 +26,9 @@
         <label for="t-slug">Slug <small class="muted">optional</small></label>
         <input id="t-slug" name="slug" [ngModel]="draft().slug"
                (ngModelChange)="draft.set({ ...draft(), slug: $event })" />
+        @if (duplicateDraftSlug()) {
+          <small class="field-error">Already in use</small>
+        }
       </div>
       <div class="field">
         <label for="t-owner">Owner name</label>
@@ -42,55 +46,269 @@
                (ngModelChange)="draft.set({ ...draft(), password: $event })" />
       </div>
     </div>
-    <button class="btn primary" type="submit" [disabled]="busy()">
+
+    <div class="service-picker">
+      <div>
+        <h4>Services</h4>
+        <p class="muted compact">{{ serviceSummary(draft().services) }}</p>
+      </div>
+      <button class="btn" type="button" (click)="openDraftServices()" [disabled]="busy()">
+        Services
+      </button>
+    </div>
+
+    <div class="control-band">
+      <div>
+        <h4>Operations</h4>
+        <div class="switches">
+          @for (control of controlKeys; track control) {
+            <label class="switch">
+              <input type="checkbox" [checked]="draft().controls[control]"
+                     (change)="toggleDraftControl(control, checked($event))" />
+              <span>{{ controlLabel(control) }}</span>
+            </label>
+          }
+        </div>
+      </div>
+    </div>
+
+    <button class="btn primary" type="submit" [disabled]="busy() || duplicateDraftSlug()">
       {{ busy() ? 'Creating...' : 'Create tenant' }}
     </button>
   </form>
 }
 
-<div class="tenants">
-  @for (tenant of tenants(); track tenant.id) {
+<div class="toolbar">
+  <label class="search">
+    <span class="ms" aria-hidden="true">search</span>
+    <input type="search" placeholder="Search tenants by name or slug..." aria-label="Search tenants"
+           [value]="query()" (input)="query.set($any($event.target).value)" />
+  </label>
+  <select class="status-select" aria-label="Filter by status" [value]="statusFilter()"
+          (change)="setStatusFilter($any($event.target).value)">
+    <option value="all">All status</option>
+    <option value="active">Active</option>
+    <option value="suspended">Suspended</option>
+  </select>
+  <div class="view-toggle" role="group" aria-label="Layout">
+    <button type="button" [class.on]="view() === 'grid'" [attr.aria-pressed]="view() === 'grid'"
+            (click)="setView('grid')" aria-label="Grid view" title="Grid view">
+      <span class="ms" aria-hidden="true">grid_view</span>
+    </button>
+    <button type="button" [class.on]="view() === 'list'" [attr.aria-pressed]="view() === 'list'"
+            (click)="setView('list')" aria-label="List view" title="List view">
+      <span class="ms" aria-hidden="true">view_list</span>
+    </button>
+  </div>
+</div>
+
+<div class="tenants" [class.list]="view() === 'list'">
+  @for (tenant of visible(); track tenant.id) {
     <article class="card tenant" [class.suspended]="tenant.status === 'suspended'"
              [class.acting]="actingId() === tenant.id">
-      <div class="face">
-        <span class="mono muted">#{{ tenant.id }}</span>
-        <h3>{{ tenant.name }}</h3>
-        <p class="muted">{{ tenant.slug }} &middot; {{ tenant.users }} user(s)</p>
-        <span class="pill" [class.live]="tenant.status === 'active'">{{ tenant.status }}</span>
+      <div class="top">
+        <span class="avatar" aria-hidden="true">{{ tenant.name.charAt(0) }}</span>
+        <div class="who">
+          <span class="mono muted">#{{ tenant.id }}</span>
+          <h3>{{ tenant.name }}</h3>
+          <p class="muted">{{ tenant.slug }} &middot; {{ tenant.users }} user(s)</p>
+        </div>
+        <span class="state" [class.live]="tenant.status === 'active'">{{ tenant.status }}</span>
+        <div class="menu-wrap">
+          <button class="icon-btn" type="button" (click)="toggleMenu(tenant)" aria-label="More actions"
+                  aria-haspopup="menu" [attr.aria-expanded]="menuId() === tenant.id">
+            <span class="ms" aria-hidden="true">more_vert</span>
+          </button>
+          @if (menuId() === tenant.id) {
+            <div class="menu-backdrop" (click)="menuId.set(null)"></div>
+            <div class="menu" role="menu">
+              <button type="button" role="menuitem" (click)="toggleStatus(tenant)" [disabled]="savingId() === tenant.id">
+                {{ tenant.status === 'active' ? 'Suspend tenant' : 'Activate tenant' }}
+              </button>
+            </div>
+          }
+        </div>
       </div>
+
+      <div class="stats">
+        <div class="stat">
+          <span class="ms" aria-hidden="true">send</span>
+          <strong>{{ tenant.health?.sent ?? 0 }}</strong><span>Sent</span>
+        </div>
+        <div class="stat" [class.bad]="(tenant.health?.failed ?? 0) > 0">
+          <span class="ms" aria-hidden="true">close</span>
+          <strong>{{ tenant.health?.failed ?? 0 }}</strong><span>Failed</span>
+        </div>
+        <div class="stat">
+          <span class="ms" aria-hidden="true">link</span>
+          <strong>{{ tenant.health?.connected ?? 0 }}</strong><span>Connected</span>
+        </div>
+        <div class="stat">
+          <span class="ms" aria-hidden="true">schedule</span>
+          <strong>{{ tenant.health?.queued ?? 0 }}</strong><span>Queued</span>
+        </div>
+      </div>
+
+      <button class="services-row" type="button" (click)="openTenantServices(tenant)"
+              [disabled]="savingId() === tenant.id">
+        <span class="ms" aria-hidden="true">apps</span>
+        <strong>Services</strong>
+        <span class="muted">{{ serviceSummary(tenant.services) }}</span>
+        <span class="ms chev" aria-hidden="true" style="font-size: 16px">chevron_right</span>
+      </button>
+
       <div class="actions">
-        <button class="btn" type="button" (click)="open(tenant)" [disabled]="tenant.status !== 'active'">
+        <button class="btn primary open" type="button" (click)="open(tenant)" [disabled]="tenant.status !== 'active'">
+          <span class="ms" aria-hidden="true" style="font-size: 16px">arrow_outward</span>
           Open as tenant
         </button>
-        <button class="btn" [class.danger]="tenant.status === 'active'" type="button"
-                (click)="toggleStatus(tenant)">
-          {{ tenant.status === 'active' ? 'Suspend' : 'Reactivate' }}
+        <button class="btn square" type="button" (click)="openSettings(tenant)" aria-label="Tenant settings"
+                title="Controls and sending safety" [disabled]="savingId() === tenant.id">
+          <span class="ms" aria-hidden="true">settings</span>
+        </button>
+        <button class="btn square danger-ghost" type="button" (click)="deleteTenant(tenant)"
+                [disabled]="savingId() === tenant.id || tenant.id === 1" aria-label="Delete tenant"
+                [attr.title]="tenant.id === 1 ? 'The default tenant cannot be deleted' : 'Delete tenant'">
+          <span class="ms" aria-hidden="true">delete</span>
         </button>
       </div>
     </article>
   } @empty {
-    <p class="muted">No tenants yet.</p>
+    <p class="muted">{{ tenants().length ? 'No tenant matches this filter.' : 'No tenants yet.' }}</p>
   }
 </div>
 
 <section class="card audit">
-  <h3>Audit log</h3>
-  <table>
-    <thead>
-      <tr><th>When</th><th>Tenant</th><th>User</th><th>Action</th><th>Detail</th></tr>
-    </thead>
-    <tbody>
-      @for (log of logs(); track log.id) {
-        <tr>
-          <td class="mono">{{ log.createdAt }}</td>
-          <td>{{ log.tenantId ?? '-' }}</td>
-          <td>{{ log.userId ?? '-' }}</td>
-          <td class="mono">{{ log.action }}</td>
-          <td class="muted">{{ log.detail }}</td>
-        </tr>
-      } @empty {
-        <tr><td colspan="5" class="muted">Nothing recorded yet.</td></tr>
-      }
-    </tbody>
-  </table>
+  <div class="audit-head">
+    <h3>Recent activity</h3>
+    <a class="all" routerLink="/admin/audit-logs">See all <span class="ms" aria-hidden="true">arrow_forward</span></a>
+  </div>
+  <ul class="feed">
+    @for (log of recentLogs(); track log.id) {
+      <li>
+        <span class="dot" aria-hidden="true"></span>
+        <code>{{ log.action }}</code>
+        <span class="muted">{{ log.detail || log.target }}</span>
+        <time class="muted" [title]="log.createdAt">{{ ago(log.createdAt) }}</time>
+      </li>
+    } @empty {
+      <li class="muted">Nothing recorded yet.</li>
+    }
+  </ul>
 </section>
+
+@if (serviceDrawer(); as drawer) {
+  <div class="drawer-backdrop" (click)="closeServiceDrawer()"></div>
+  <aside class="service-drawer" role="dialog" aria-modal="true" aria-labelledby="service-drawer-title">
+    <header>
+      <div>
+        <span class="mono muted">{{ drawer.mode === 'tenant' ? '#' + drawer.tenant.id : 'NEW' }}</span>
+        <h3 id="service-drawer-title">
+          {{ drawer.mode === 'tenant' ? drawer.tenant.name : (draft().name || 'New tenant') }}
+        </h3>
+        <p class="muted compact">{{ serviceSummary(drawer.services) }}</p>
+      </div>
+      <button class="btn icon" type="button" (click)="closeServiceDrawer()" [disabled]="serviceDrawerBusy()"
+              aria-label="Close services">
+        <span class="ms" aria-hidden="true">close</span>
+      </button>
+    </header>
+
+    <div class="drawer-checks">
+      @for (service of services(); track service) {
+        <label class="check drawer-check">
+          <input type="checkbox" [checked]="drawer.services.includes(service)" [disabled]="serviceDrawerBusy()"
+                 (change)="toggleDrawerService(service, checked($event))" />
+          <span>{{ serviceLabel(service) }}</span>
+        </label>
+      }
+    </div>
+
+    <footer>
+      <button class="btn" type="button" (click)="closeServiceDrawer()" [disabled]="serviceDrawerBusy()">Cancel</button>
+      <button class="btn primary" type="button" (click)="saveServices()" [disabled]="serviceDrawerBusy()">
+        {{ serviceDrawerBusy() ? 'Saving...' : 'Save services' }}
+      </button>
+    </footer>
+  </aside>
+}
+
+@if (settings(); as s) {
+  <div class="drawer-backdrop" (click)="closeSettings()"></div>
+  <aside class="service-drawer wide-drawer" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <header>
+      <div>
+        <span class="mono muted">#{{ s.tenant.id }}</span>
+        <h3 id="settings-title">{{ s.tenant.name }}</h3>
+        <p class="muted compact">Controls and sending safety. Only the platform admin can change these.</p>
+      </div>
+      <button class="btn icon" type="button" (click)="closeSettings()" [disabled]="savingId() !== null"
+              aria-label="Close settings"><span class="ms" aria-hidden="true">close</span></button>
+    </header>
+
+    <div class="settings-body">
+      <section>
+        <h4>Operations</h4>
+        <div class="switches">
+          @for (control of controlKeys; track control) {
+            <label class="switch drawer-check">
+              <input type="checkbox" [checked]="s.controls[control]"
+                     (change)="setSettingsControl(control, checked($event))" />
+              <span>{{ controlLabel(control) }}</span>
+            </label>
+          }
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <h4>Sending safety</h4>
+          @if (s.safety; as safety) {
+            <label class="switch">
+              <input type="checkbox" [checked]="safety.safetyEnabled"
+                     (change)="setSafetyValue('safetyEnabled', checked($event))" />
+              <span>Enforced</span>
+            </label>
+          }
+        </div>
+        <p class="muted compact">Bulk sending gets numbers banned. These limits apply to every number of this tenant.</p>
+
+        @if (s.safety; as safety) {
+          <div class="field">
+            <label for="s-pacing">Pacing mode</label>
+            <select id="s-pacing" [value]="safety.pacingMode"
+                    (change)="setSafetyValue('pacingMode', $any($event.target).value)">
+              <option value="adaptive">Adaptive - vary the gap, widen it as the batch grows</option>
+              <option value="fixed">Fixed - rate limit only (faster, easier to spot)</option>
+            </select>
+          </div>
+
+          @for (group of safetyGroups; track group.title) {
+            <fieldset class="safety-group">
+              <legend>{{ group.title }}</legend>
+              <div class="safety-fields">
+                @for (f of group.fields; track f.key) {
+                  <div class="field">
+                    <label [for]="'s-' + f.key">{{ f.label }}</label>
+                    <input [id]="'s-' + f.key" type="number" min="0" [step]="f.step ?? 1"
+                           [value]="safety[f.key]" (input)="setSafetyNumber(f.key, $any($event.target).value)" />
+                    <span class="hint">{{ f.help }}</span>
+                  </div>
+                }
+              </div>
+            </fieldset>
+          }
+        } @else {
+          <p class="muted">Loading limits...</p>
+        }
+      </section>
+    </div>
+
+    <footer>
+      <button class="btn" type="button" (click)="resetSettings()" [disabled]="savingId() !== null">Reset</button>
+      <button class="btn primary" type="button" (click)="saveSettings()" [disabled]="savingId() !== null || !s.safety">
+        {{ savingId() !== null ? 'Saving...' : 'Save settings' }}
+      </button>
+    </footer>
+  </aside>
+}

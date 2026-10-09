@@ -221,16 +221,58 @@ describe('tenant lifecycle', () => {
     it('creates a tenant with its owner and records it in the audit log', async () => {
         const made = await call(tokens.superAdmin, 'POST', '/api/admin/tenants', {
             name: 'Clinic C', slug: 'clinic-c',
+            services: ['contacts', 'campaigns', 'payment_reminders'],
+            controls: { sendingEnabled: true, inboundEnabled: false },
             owner: { email: 'owner@clinic-c.dev', password: 'long-enough-1' },
         });
         assert.equal(made.status, 201);
         assert.equal(made.body.owner.role, 'owner');
+        assert.deepEqual(made.body.tenant.services, ['contacts', 'campaigns', 'payment_reminders']);
+        assert.equal(made.body.tenant.controls.inboundEnabled, false);
         const logs = await call(tokens.superAdmin, 'GET', '/api/admin/audit-logs');
         assert.ok(logs.body.logs.some((l) => l.action === 'tenant.create'));
         const dup = await call(tokens.superAdmin, 'POST', '/api/admin/tenants', {
             name: 'Clinic C', slug: 'clinic-c', owner: { email: 'x@clinic-c.dev', password: 'long-enough-1' },
         });
         assert.equal(dup.status, 409);
+    });
+
+    it('does not leave an orphan tenant when owner creation is invalid', async () => {
+        const before = tenancy.listTenants().length;
+        const bad = await call(tokens.superAdmin, 'POST', '/api/admin/tenants', {
+            name: 'Broken Tenant', slug: 'broken-tenant',
+            owner: { email: 'bad-owner@test.dev', password: 'short' },
+        });
+        assert.equal(bad.status, 400);
+        assert.equal(tenancy.listTenants().length, before);
+    });
+
+    it('lets super admin edit services and operational controls', async () => {
+        const made = await call(tokens.superAdmin, 'POST', '/api/admin/tenants', {
+            name: 'Limited Tenant', slug: 'limited-tenant',
+            services: ['contacts'],
+            controls: { sendingEnabled: false, inboundEnabled: false },
+            owner: { email: 'owner@limited-tenant.dev', password: 'long-enough-1' },
+        });
+        assert.equal(made.status, 201);
+        const tenantId = made.body.tenant.id;
+        const token = sessionFor(app, { tenantId, role: 'owner' });
+
+        assert.equal((await call(token, 'GET', '/api/contacts')).status, 200);
+        const blockedService = await call(token, 'GET', '/api/campaign/stats');
+        assert.equal(blockedService.status, 403);
+        assert.match(blockedService.body.errors[0], /campaigns is disabled/);
+
+        const updated = await call(tokens.superAdmin, 'PATCH', `/api/admin/tenants/${tenantId}`, {
+            services: ['contacts', 'bulk_messages'],
+            controls: { sendingEnabled: false },
+        });
+        assert.equal(updated.status, 200);
+        assert.ok(updated.body.tenant.services.includes('bulk_messages'));
+        const blockedSend = await call(token, 'POST', '/api/messages', { recipient: '+919876543210', message: 'x' });
+        assert.equal(blockedSend.status, 403);
+        assert.match(blockedSend.body.errors[0], /sending is disabled/);
+        assert.equal((await call(null, 'GET', `/api/webhook/${tenantId}`)).status, 404);
     });
 
     it('locks a suspended tenant out immediately, and its webhook goes dark', async () => {
@@ -244,6 +286,43 @@ describe('tenant lifecycle', () => {
         assert.equal(res.body.tenant.status, 'suspended');
         assert.equal((await call(token, 'GET', '/api/history')).status, 401);
         assert.equal((await call(null, 'GET', `/api/webhook/${victim.id}`)).status, 404);
+    });
+
+    it('archives a deleted tenant, hides it from admin lists, and kills sessions', async () => {
+        const victim = tenancy.createTenant('Delete Me', 'delete-me');
+        const token = sessionFor(app, { tenantId: victim.id, role: 'owner' });
+        assert.equal((await call(token, 'GET', '/api/history')).status, 200);
+
+        const deleted = await call(tokens.superAdmin, 'DELETE', `/api/admin/tenants/${victim.id}`);
+        assert.equal(deleted.status, 200);
+        assert.equal(deleted.body.deleted, 1);
+        assert.equal(deleted.body.tenant.status, 'archived');
+        assert.equal(tenancy.getTenant(victim.id).status, 'archived');
+        assert.ok(!tenancy.listTenants().some((tenant) => tenant.id === victim.id));
+        assert.ok(tenancy.listTenants({ includeArchived: true }).some((tenant) => tenant.id === victim.id));
+        assert.equal((await call(token, 'GET', '/api/history')).status, 401);
+
+        const listed = await call(tokens.superAdmin, 'GET', '/api/admin/tenants');
+        assert.ok(!listed.body.tenants.some((tenant) => tenant.id === victim.id));
+        assert.equal((await call(tokens.superAdmin, 'DELETE', '/api/admin/tenants/1')).status, 400);
+    });
+
+    it('lets only the platform admin set anti-ban limits, and they beat tenant config', async () => {
+        const made = tenancy.createTenant('Paced', 'paced');
+        const owner = sessionFor(app, { tenantId: made.id, role: 'owner' });
+        const url = `/api/admin/tenants/${made.id}/safety`;
+
+        assert.equal((await call(owner, 'PUT', url, { dailyLimit: 5 })).status, 403);
+        assert.equal((await call(tokens.superAdmin, 'PUT', url, { dailyLimit: -1 })).status, 400);
+        assert.equal((await call(tokens.superAdmin, 'PUT', url, { minDelaySeconds: 30, maxDelaySeconds: 10 })).status, 400);
+        const set = await call(tokens.superAdmin, 'PUT', url, { dailyLimit: 5, minDelaySeconds: 20 });
+        assert.equal(set.body.safety.dailyLimit, 5);
+        assert.equal(set.body.safety.restEvery, DEFAULTS.restEvery);
+
+        await call(owner, 'PUT', '/api/config', { dailyLimit: 9999, minDelaySeconds: 0 });
+        const cfg = await call(owner, 'GET', '/api/config');
+        assert.equal(cfg.body.config.dailyLimit, 5);
+        assert.equal(cfg.body.config.minDelaySeconds, 20);
     });
 
     it('audits tenant-side changes with the acting user', async () => {
