@@ -100,18 +100,20 @@ const HANDLERS = {
     PTM: ptm,
 };
 
+/** The school keywords, one per line. Shared with the platform-wide HELP reply. */
+export const SCHOOL_HELP_LINES = Object.freeze([
+    "ATTENDANCE - this month's attendance",
+    "TIMETABLE [day] - today's periods",
+    'HOMEWORK - current homework',
+    'HOLIDAYS / EXAMS - upcoming dates',
+    'RESULT - latest exam result',
+    'FEES - pending fees and pay link',
+    'LEAVE <reason, dates> - apply for leave',
+    'PTM - book a parent-teacher meeting',
+]);
+
 function help({ settings }) {
-    return [
-        `${settings.schoolName || 'School'} - reply with:`,
-        'ATTENDANCE - this month\'s attendance',
-        'TIMETABLE [day] - today\'s periods',
-        'HOMEWORK - current homework',
-        'HOLIDAYS / EXAMS - upcoming dates',
-        'RESULT - latest exam result',
-        'FEES - pending fees and pay link',
-        'LEAVE <reason, dates> - apply for leave',
-        'PTM - book a parent-teacher meeting',
-    ].join('\n');
+    return [`${settings.schoolName || 'School'} - reply with:`, ...SCHOOL_HELP_LINES].join('\n');
 }
 
 // ------------------------------------------------------------- helpers --

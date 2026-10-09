@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 
 import { Api } from './api';
 import { Store } from './store';
@@ -148,6 +148,16 @@ export class SendIsland {
   protected readonly error = signal('');
   /** A finished run the user closed; a new run (more total, or less processed) reopens it. */
   private readonly dismissed = signal<{ total: number } | null>(null);
+
+  constructor() {
+    // A new run brings the card back even if the last one was closed.
+    effect(() => {
+      if (this.phase() === 'sending' || this.phase() === 'paused') {
+        this.dismissed.set(null);
+        this.open.set(true);
+      }
+    });
+  }
 
   protected readonly percent = computed(() => Math.round(this.store.progress() * 100));
 

@@ -158,6 +158,17 @@ describe('school assistant', () => {
         assert.ok(sentTo('919876512012').some((t) => /present over/.test(t)), 'matched by last ten digits');
     });
 
+    it('answers HELP with every keyword, school and auto-reply alike', async () => {
+        const who = '919000000123';
+        await inbound(who, 'HELP');
+        await wait();
+        const text = sentTo(who).join('\n');
+        assert.match(text, /ATTENDANCE/);
+        assert.match(text, /Quick replies/);
+        assert.match(text, /hi, hello|hello, hi|pricing/i);
+        assert.match(text, /STOP/);
+    });
+
     it('gates staff by title and class', async () => {
         const teacher = sessionFor(app, { tenantId: 1, role: 'agent' });
         const accounts = sessionFor(app, { tenantId: 1, role: 'agent' });

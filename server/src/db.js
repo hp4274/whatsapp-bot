@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     services    TEXT NOT NULL DEFAULT '${DEFAULT_TENANT_SERVICES_JSON}',
     controls    TEXT NOT NULL DEFAULT '${DEFAULT_TENANT_CONTROLS_JSON}',
     safety      TEXT NOT NULL DEFAULT '{}',
+    limits      TEXT NOT NULL DEFAULT '{}',
     created_at  TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS users (
@@ -218,6 +219,7 @@ function addTenantControlColumns(db) {
         db.exec(`ALTER TABLE tenants ADD COLUMN controls TEXT NOT NULL DEFAULT '${DEFAULT_TENANT_CONTROLS_JSON}'`);
     }
     if (!cols.includes('safety')) db.exec("ALTER TABLE tenants ADD COLUMN safety TEXT NOT NULL DEFAULT '{}'");
+    if (!cols.includes('limits')) db.exec("ALTER TABLE tenants ADD COLUMN limits TEXT NOT NULL DEFAULT '{}'");
 }
 
 /** Adds channel_id to tables that predate channels. Existing rows keep NULL

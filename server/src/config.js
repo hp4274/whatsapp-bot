@@ -84,6 +84,7 @@ export const POLICY_SPEC = Object.freeze({
     dailyLimit: [0, 100000],
     minDelaySeconds: [0, 3600],
     maxDelaySeconds: [0, 3600],
+    failureStopPercent: [0, 100],
     restEvery: [0, 10000],
     restMinMinutes: [0, 240],
     restMaxMinutes: [0, 240],

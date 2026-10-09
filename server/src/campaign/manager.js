@@ -433,10 +433,27 @@ export class CampaignManager extends EventEmitter {
             type: 'status', messageId: item.messageId, status, providerId, error,
             attempt: item.attempt,
         });
+        this.#stopOnFailures(item);
         this.#emitStats();
     }
 
-    /** A receipt that arrived out of band (webhook, or a WhatsApp Web ACK). */
+    /**
+   * Platform policy: a run where too many sends fail is usually a bad list or a
+   * blocked number, and carrying on makes it worse. Pause, keep the rest queued.
+   */
+  #stopOnFailures(item) {
+    const limit = Number(this.config.failureStopPercent) || 0;
+    const { processed, failed } = this.stats;
+    if (!limit || item.messageType !== 'campaign' || processed < 20 ) return;
+    if ((failed / processed) * 100 <= limit || this.queue.isPaused || this.queue.isStopped) return;
+    this.queue.pause();
+    this.emit('event', {
+      type: 'failureStop', failed, processed,
+      message: `Paused: ${failed} of ${processed} messages failed (limit ${limit}%).`,
+    });
+  }
+
+  /** A receipt that arrived out of band (webhook, or a WhatsApp Web ACK). */
     handleReceipt(providerId, status, error = null) {
         if (this.db.applyReceipt(providerId, status, error)) {
             this.emit('event', { type: 'receipt', providerId, status, error });
