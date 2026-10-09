@@ -6,15 +6,7 @@
     @if (store.connecting()) {
       <span class="spinner"></span>
     } @else {
-      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
-           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        @if (live) {
-          <path d="M20 6 9 17l-5-5" />
-        } @else {
-          <path d="M5 12.5a10 10 0 0 1 14 0" /><path d="M8.5 16a5 5 0 0 1 7 0" />
-          <circle cx="12" cy="19" r="1" />
-        }
-      </svg>
+      <span class="ms" aria-hidden="true" style="font-size: 26px">{{ live ? 'check' : 'wifi' }}</span>
     }
   </div>
 
@@ -53,13 +45,11 @@
 
 @if (config(); as config) {
   <div class="columns">
+    <div class="stack">
     <section class="card config enter">
       <header class="card-head">
         <span class="badge accent">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15a1.7 1.7 0 0 0-1.6-1H1a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 3 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 3.4V3a2 2 0 1 1 4 0v.1A1.7 1.7 0 0 0 15 5a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 20.6 9H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" />
-          </svg>
+          <span class="ms" aria-hidden="true">settings</span>
         </span>
         <div>
           <h3>Account Configuration</h3>
@@ -101,12 +91,52 @@
       </div>
     </section>
 
+  <section class="card safety enter">
+      <header class="card-head">
+        <span class="badge warn">
+          <span class="ms" aria-hidden="true">shield</span>
+        </span>
+        <div>
+          <h3>Sending Safety</h3>
+          <p class="muted">Bulk sending is what gets a number banned. These limits are the brake.</p>
+        </div>
+        <span class="pill-note">Managed by platform</span>
+      </header>
+  
+      @if (safety(); as safety) {
+        <div class="budget">
+          <div>
+            <span class="muted">Sent today</span>
+            <strong>{{ safety.used }}{{ safety.limit ? ' / ' + safety.limit : '' }}</strong>
+          </div>
+          <div>
+            <span class="muted">Remaining</span>
+            <strong [class.status-FAILED]="safety.remaining === 0">
+              {{ safety.remaining === null ? 'no limit' : safety.remaining }}
+            </strong>
+          </div>
+          <div>
+            <span class="muted">Gap between messages</span>
+            <strong>{{ safety.minSeconds }}-{{ safety.maxSeconds }}s, varied</strong>
+          </div>
+          <div>
+            <span class="muted">Budget resets</span>
+            <strong>{{ safety.resetsAt | date: 'shortTime' }}</strong>
+          </div>
+        </div>
+        <div class="meter" aria-hidden="true">
+          <div class="bar" [style.width.%]="safety.limit ? (safety.used / safety.limit) * 100 : 0"></div>
+        </div>
+      }
+  
+      <p class="muted">Pacing, daily cap, rate and retry limits are set by the platform admin to keep your number safe.</p>
+    </section>
+    </div>
+
     <section class="card status enter">
       <header class="card-head">
         <span class="badge primary">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8">
-            <path d="M3 3v18h18" /><path d="M7 15l3-4 3 3 4-6" />
-          </svg>
+          <span class="ms" aria-hidden="true">monitoring</span>
         </span>
         <div>
           <h3>Connection Status</h3>
@@ -148,73 +178,6 @@
       </aside>
     </section>
   </div>
-
-  <section class="card safety enter">
-    <header class="card-head">
-      <span class="badge warn">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"
-             stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 3 4 6v6c0 4.4 3.4 8.5 8 9 4.6-.5 8-4.6 8-9V6Z" /><path d="M12 8v5" />
-          <path d="M12 16h.01" />
-        </svg>
-      </span>
-      <div>
-        <h3>Sending Safety</h3>
-        <p class="muted">Bulk sending is what gets a number banned. These limits are the brake.</p>
-      </div>
-      <label class="switch">
-        <input type="checkbox" [ngModel]="config.safetyEnabled"
-               (ngModelChange)="update('safetyEnabled', $event)" />
-        Enabled
-      </label>
-    </header>
-
-    @if (safety(); as safety) {
-      <div class="budget">
-        <div>
-          <span class="muted">Sent today</span>
-          <strong>{{ safety.used }}{{ safety.limit ? ' / ' + safety.limit : '' }}</strong>
-        </div>
-        <div>
-          <span class="muted">Remaining</span>
-          <strong [class.status-FAILED]="safety.remaining === 0">
-            {{ safety.remaining === null ? 'no limit' : safety.remaining }}
-          </strong>
-        </div>
-        <div>
-          <span class="muted">Gap between messages</span>
-          <strong>{{ safety.minSeconds }}-{{ safety.maxSeconds }}s, varied</strong>
-        </div>
-        <div>
-          <span class="muted">Budget resets</span>
-          <strong>{{ safety.resetsAt | date: 'shortTime' }}</strong>
-        </div>
-      </div>
-      <div class="meter" aria-hidden="true">
-        <div class="bar" [style.width.%]="safety.limit ? (safety.used / safety.limit) * 100 : 0"></div>
-      </div>
-    }
-
-    <div class="field pacing">
-      <label for="pacing-mode">Pacing</label>
-      <select id="pacing-mode" [ngModel]="config.pacingMode"
-              (ngModelChange)="update('pacingMode', $event)">
-        <option value="adaptive">Adaptive - vary the gap, widen it as the batch grows</option>
-        <option value="fixed">Fixed - rate limit only (faster, easier to spot)</option>
-      </select>
-    </div>
-
-    <div class="settings">
-      @for (field of safetyFields; track field.key) {
-        <div class="row">
-          <label [for]="field.key">{{ field.label }}</label>
-          <input [id]="field.key" type="number" [ngModel]="config[field.key]"
-                 (ngModelChange)="onField(field, $event)" />
-          <span class="hint">{{ field.help }}</span>
-        </div>
-      }
-    </div>
-  </section>
 
   <footer class="actions">
     <button type="button" class="btn primary" (click)="connect()"

@@ -1,0 +1,92 @@
+<header class="head">
+  <span class="tile"><span class="ms" aria-hidden="true">{{ meta().icon }}</span></span>
+  <div>
+    <h2>{{ meta().label }}</h2>
+    <p class="muted">
+      Enabled for {{ enabledCount() }} of {{ tenants().length }} tenants. Switch it per tenant below.
+    </p>
+  </div>
+</header>
+
+@if (error()) {
+  <p class="error" role="alert">{{ error() }}</p>
+}
+
+@if (meta().sends) {
+  <aside class="note">
+    <span class="ms" aria-hidden="true">shield</span>
+    <p>
+      This service sends WhatsApp messages. Pacing, daily cap and retry limits apply to every number of a tenant;
+      change them from the gear on <strong>Tenants</strong>.
+    </p>
+  </aside>
+}
+
+@if (isSchool() && catalog(); as cat) {
+  <section class="card pack">
+    <div class="pack-head">
+      <h3><span class="ms" aria-hidden="true">school</span>School pack</h3>
+      <button type="button" class="ghost" (click)="downloadStudentCsv()">
+        <span class="ms" aria-hidden="true">download</span>Download student CSV template
+      </button>
+    </div>
+    <p class="muted">Choose the automations to install when you provision a tenant. They land as drafts.</p>
+    <div class="recipes">
+      @for (recipe of cat.recipes; track recipe.key) {
+        <label class="recipe">
+          <input type="checkbox" [checked]="picked().has(recipe.key)" (change)="pick(recipe.key, checked($event))" />
+          <span><strong>{{ recipe.name }}</strong><small class="muted">{{ recipe.description }}</small></span>
+        </label>
+      }
+    </div>
+    <button type="button" class="link" [attr.aria-expanded]="showTemplates()" (click)="showTemplates.set(!showTemplates())">
+      <span class="ms" aria-hidden="true">{{ showTemplates() ? 'expand_less' : 'expand_more' }}</span>
+      Master templates ({{ cat.templates.length }})
+    </button>
+    @if (showTemplates()) {
+      <ul class="templates">
+        @for (t of cat.templates; track t.name) {
+          <li><code>{{ t.name }}</code><span class="muted">{{ t.body }}</span></li>
+        }
+      </ul>
+    }
+  </section>
+}
+
+<section class="card list">
+  @for (tenant of tenants(); track tenant.id) {
+    <div class="row" [class.off]="!has(tenant)">
+      <span class="avatar" aria-hidden="true">{{ tenant.name.charAt(0) }}</span>
+      <div class="who">
+        <strong>{{ tenant.name }}</strong>
+        <span class="muted">{{ tenant.slug }} &middot; #{{ tenant.id }}</span>
+      </div>
+      @if (meta().sends) {
+        <span class="chip"><span class="ms" aria-hidden="true">speed</span>Daily cap {{ cap(tenant) }}</span>
+      }
+      <span class="state" [class.live]="tenant.status === 'active'">{{ tenant.status }}</span>
+      @if (isSchool() && has(tenant)) {
+        <button type="button" class="ghost" [disabled]="provisioningId() === tenant.id || !picked().size"
+                (click)="provision(tenant)">
+          <span class="ms" aria-hidden="true">rocket_launch</span>
+          {{ provisioningId() === tenant.id ? 'Provisioning...' : 'Provision school pack' }}
+        </button>
+      }
+      <label class="toggle">
+        <input type="checkbox" [checked]="has(tenant)" [disabled]="busyId() === tenant.id"
+               (change)="toggle(tenant, checked($event))" [attr.aria-label]="'Enable ' + meta().label + ' for ' + tenant.name" />
+        <span>{{ has(tenant) ? 'Enabled' : 'Disabled' }}</span>
+      </label>
+      @if (result(tenant); as r) {
+        <p class="outcome" role="status">
+          Created {{ r.templates.length }} templates and {{ r.workflows.length }} workflows; skipped {{ r.skipped.length }}.
+        </p>
+      }
+      @if (resultError(tenant)) {
+        <p class="outcome bad" role="alert">{{ resultError(tenant) }}</p>
+      }
+    </div>
+  } @empty {
+    <p class="muted empty">No tenants yet.</p>
+  }
+</section>

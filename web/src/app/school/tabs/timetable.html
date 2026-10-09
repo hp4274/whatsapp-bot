@@ -1,0 +1,164 @@
+<header class="s-head">
+  <div>
+    <span class="eyebrow"><span class="ms" aria-hidden="true">calendar_view_week</span> Weekly grid</span>
+    <h2>Class {{ className() || '—' }} timetable</h2>
+    <p class="note"><span class="ms" aria-hidden="true">chat</span> Parents can text <code>TIMETABLE</code> on WhatsApp to get today's periods (toggle in Settings).</p>
+  </div>
+  <div class="head-actions">
+    @if (editing()) {
+      <button class="btn sm" type="button" (click)="addPeriod()"><span class="ms" aria-hidden="true">add_row_below</span> Add period</button>
+      <button class="btn ghost sm" type="button" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
+      <button class="btn primary sm" type="button" (click)="save()" [disabled]="saving()">
+        @if (saving()) { <span class="spinner"></span> } @else { <span class="ms" aria-hidden="true">save</span> } Save timetable
+      </button>
+    } @else {
+      <button class="btn sm" type="button" (click)="print()" [disabled]="!periods().length"><span class="ms" aria-hidden="true">print</span> Export / Print</button>
+      @if (canEdit()) {
+        <button class="btn primary sm" type="button" (click)="editing.set(true)" [disabled]="!classKey() || loading()"><span class="ms" aria-hidden="true">edit_calendar</span> Edit</button>
+      }
+    }
+  </div>
+</header>
+
+<div aria-live="polite" class="live">
+  @if (error()) {
+    <p class="s-banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ error() }}
+      <button class="btn sm" type="button" (click)="load()">Retry</button></p>
+  }
+  @if (message()) {
+    <p class="s-banner tone-ok"><span class="ms" aria-hidden="true">task_alt</span> {{ message() }}</p>
+  }
+</div>
+
+<section class="s-card grid-card tone-info" [class.editing]="editing()">
+  @if (loading()) {
+    @for (k of [1, 2, 3, 4]; track k) { <div class="s-skel" style="height: 56px"></div> }
+  } @else if (!classKey()) {
+    <div class="s-empty"><span class="ms" aria-hidden="true">class</span><strong>Pick a class</strong><p>Choose a class above to see its week.</p></div>
+  } @else if (!periods().length) {
+    <div class="s-empty">
+      <span class="ms" aria-hidden="true">calendar_add_on</span>
+      <strong>No timetable yet</strong>
+      <p>Build the week period by period. Parents will be able to ask for it on WhatsApp.</p>
+      @if (canEdit()) {
+        <button class="btn primary sm" type="button" (click)="editing.set(true); addPeriod()"><span class="ms" aria-hidden="true">add</span> Start with period 1</button>
+      }
+    </div>
+  } @else {
+    <div class="tt-print">
+      <h3 class="print-title">Class {{ className() }} · Weekly timetable</h3>
+      <div class="tt-scroll">
+        <table class="tt">
+          <thead>
+            <tr>
+              <th scope="col" class="corner">Period</th>
+              @for (d of days; track d) { <th scope="col" [class.today]="d === today">{{ d }}</th> }
+            </tr>
+          </thead>
+          <tbody>
+            @for (p of periods(); track p.period; let i = $index) {
+              <tr [style.--i]="i">
+                <th scope="row" class="period">
+                  <span class="pnum">{{ p.period }}</span>
+                  @if (editing()) {
+                    <span class="times">
+                      <label class="sr-only" [for]="'ps-' + i">Period {{ p.period }} start</label>
+                      <input type="time" [id]="'ps-' + i" [value]="p.startTime" (change)="setTime(p, 'startTime', $event)" />
+                      <label class="sr-only" [for]="'pe-' + i">Period {{ p.period }} end</label>
+                      <input type="time" [id]="'pe-' + i" [value]="p.endTime" (change)="setTime(p, 'endTime', $event)" />
+                    </span>
+                    <button class="btn ghost icon sm" type="button" (click)="removePeriod(p)" [attr.aria-label]="'Remove period ' + p.period"><span class="ms" aria-hidden="true">delete</span></button>
+                  } @else {
+                    <span class="times muted">{{ p.startTime }}–{{ p.endTime }}</span>
+                  }
+                </th>
+                @for (d of days; track d) {
+                  @let c = cells()[key(d, p.period)];
+                  <td [class.today]="d === today">
+                    <button type="button" class="slot" [class.empty]="!c?.subject"
+                            [class.changed]="c?.status === 'changed'" [class.cancelled]="c?.status === 'cancelled'"
+                            [disabled]="!editing() && !c?.subject"
+                            [attr.aria-label]="d + ' period ' + p.period + ': ' + (c?.subject || 'free') + (c?.status && c.status !== 'scheduled' ? ' (' + c.status + ')' : '')"
+                            (click)="open(d, p.period)">
+                      @if (c?.subject) {
+                        <strong>{{ c!.subject }}</strong>
+                        <span>{{ c!.teacher }}</span>
+                        @if (c!.room) { <small><span class="ms" aria-hidden="true">meeting_room</span>{{ c!.room }}</small> }
+                        @if (c!.status === 'changed' || c!.status === 'cancelled') { <em class="flag">{{ c!.status }}</em> }
+                      } @else if (editing()) {
+                        <span class="ms add" aria-hidden="true">add</span>
+                      } @else {
+                        <span class="free">Free</span>
+                      }
+                    </button>
+                  </td>
+                }
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+</section>
+
+<!-- Native popover: top layer, Esc and light dismiss for free -->
+<div #pop popover="auto" class="pop" (toggle)="onToggle($event)" role="dialog" aria-labelledby="tt-pop-title">
+  @if (active(); as a) {
+    <div class="pop-head">
+      <h3 id="tt-pop-title">{{ a.day }} · Period {{ a.period }}</h3>
+      <button class="btn ghost icon" type="button" (click)="close()" aria-label="Close"><span class="ms" aria-hidden="true">close</span></button>
+    </div>
+
+    @if (editing()) {
+      <form class="pop-form" (submit)="$event.preventDefault(); applyCell()">
+        <div class="s-field">
+          <label for="tt-subject">Subject</label>
+          <input id="tt-subject" name="subject" [ngModel]="draft().subject" (ngModelChange)="patch('subject', $event)" placeholder="Leave empty for a free period" />
+        </div>
+        <div class="s-field">
+          <label for="tt-teacher">Teacher</label>
+          <input id="tt-teacher" name="teacher" [ngModel]="draft().teacher" (ngModelChange)="patch('teacher', $event)" />
+        </div>
+        <div class="s-field">
+          <label for="tt-room">Room</label>
+          <input id="tt-room" name="room" [ngModel]="draft().room" (ngModelChange)="patch('room', $event)" />
+        </div>
+        <button class="btn primary" type="submit"><span class="ms" aria-hidden="true">check</span> Apply to grid</button>
+      </form>
+    } @else {
+      <div class="pop-detail">
+        <strong>{{ draft().subject }}</strong>
+        <span class="muted">{{ draft().teacher }} @if (draft().room) { · Room {{ draft().room }} }</span>
+      </div>
+      @if (canEdit()) {
+        <form class="pop-form" (submit)="$event.preventDefault(); sendChange()">
+          <div class="s-seg" role="group" aria-label="Change type">
+            <button type="button" class="tone-warn" [attr.aria-pressed]="change().status === 'changed'" (click)="patchChange('status', 'changed')">Changed</button>
+            <button type="button" class="tone-bad" [attr.aria-pressed]="change().status === 'cancelled'" (click)="patchChange('status', 'cancelled')">Cancelled</button>
+          </div>
+          <div class="s-field">
+            <label for="tt-note">Note for parents</label>
+            <input id="tt-note" name="note" [ngModel]="change().note" (ngModelChange)="patchChange('note', $event)" placeholder="e.g. Maths moved to period 6" />
+          </div>
+          <label class="check">
+            <input type="checkbox" [checked]="change().notify" (change)="patchChange('notify', $any($event.target).checked)" />
+            Notify parents on WhatsApp
+          </label>
+          <button class="btn primary" type="submit" [disabled]="changing()">
+            @if (changing()) { <span class="spinner"></span> } @else { <span class="ms" aria-hidden="true">campaign</span> }
+            Mark {{ change().status }}{{ change().notify ? ' + notify' : '' }}
+          </button>
+        </form>
+      }
+      <div aria-live="polite">
+        @if (changeResult(); as r) {
+          <p class="s-banner tone-ok"><span class="ms" aria-hidden="true">task_alt</span> Updated · {{ r.sent }} sent · {{ r.skipped }} skipped · {{ r.failed }} failed</p>
+        }
+        @if (changeError()) {
+          <p class="s-banner" role="alert">{{ changeError() }}</p>
+        }
+      </div>
+    }
+  }
+</div>

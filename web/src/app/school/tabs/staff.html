@@ -1,0 +1,63 @@
+<header class="head">
+  <div>
+    <span class="eyebrow"><span class="ms">badge</span> Staff &amp; access</span>
+    <h2>The right desk for every person.</h2>
+    <p>Give each team member a school title. Titles decide which parts of the portal they can open.</p>
+  </div>
+  <a class="btn primary" routerLink="/team"><span class="ms">person_add</span> Invite on Team page</a>
+</header>
+
+<div class="legend">
+  @for (t of titles; track t.id; let i = $index) {
+    <div class="role" schoolTilt [style.--i]="i">
+      <span class="ms">{{ t.icon }}</span>
+      <strong>{{ t.label }}</strong>
+      <small>{{ t.access }}</small>
+    </div>
+  }
+</div>
+
+@if (error()) {
+  <div class="banner" role="alert"><span class="ms">error</span>{{ error() }}</div>
+}
+
+<section class="panel" style="--i: 4">
+  <h3><span class="ms">group</span> Team</h3>
+  @if (loading()) {
+    @for (s of [0, 1, 2]; track s) { <div class="skel"></div> }
+  } @else if (!rows().length) {
+    <div class="empty"><span class="ms">group_add</span><strong>No staff yet</strong>Invite people from the Team page, then assign titles here.</div>
+  } @else {
+    <ul class="people">
+      @for (r of rows(); track r.id; let i = $index) {
+        <li [style.--i]="i" [class.saved]="r.saved">
+          <span class="avatar" aria-hidden="true">{{ (r.name || r.email).charAt(0) }}</span>
+          <div class="who">
+            <strong>{{ r.name || r.email }}</strong>
+            <small class="muted">{{ r.email }} · {{ r.role }}</small>
+          </div>
+          <div class="ctl">
+            <label class="sr" [for]="'title-' + r.id">Staff title for {{ r.name || r.email }}</label>
+            <span class="sel"><span class="ms">{{ titleOf(r.title).icon }}</span>
+              <select [id]="'title-' + r.id" [ngModel]="r.title" (ngModelChange)="setTitle(r, $event)">
+                @for (t of titles; track t.id) { <option [value]="t.id">{{ t.label }}</option> }
+              </select>
+            </span>
+            <button class="btn sm" type="button" [class.primary]="r.dirty" [disabled]="!r.dirty || r.saving" (click)="save(r)">
+              @if (r.saving) { <span class="spinner"></span> } @else if (r.saved) { <span class="ms">check</span> Saved } @else { Save }
+            </button>
+          </div>
+          @if (r.title === 'class_teacher') {
+            <div class="picks" role="group" [attr.aria-label]="'Assigned classes for ' + (r.name || r.email)">
+              @for (c of classes(); track c.key) {
+                <label><input type="checkbox" [checked]="r.classes.includes(c.key)" (change)="toggleClass(r, c.key, $any($event.target).checked)" />{{ c.key }}</label>
+              }
+              @if (!r.classes.length) { <small class="muted">No classes picked - they will see none.</small> }
+            </div>
+          }
+          @if (r.error) { <p class="err" role="alert">{{ r.error }}</p> }
+        </li>
+      }
+    </ul>
+  }
+</section>

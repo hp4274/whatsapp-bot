@@ -4,7 +4,7 @@ import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http'
 import { Injectable, inject } from '@angular/core';
 import { Observable, throwError } from 'rxjs';
 
-import { Role, Tenant, User } from './auth';
+import { Role, Tenant, TenantControls, User } from './auth';
 import { catchError } from 'rxjs/operators';
 
 export type MessageStatus =
@@ -320,29 +320,135 @@ export interface AuditLog {
   createdAt: string;
 }
 
+export interface SchoolCatalog {
+  recipes: { key: string; name: string; description: string }[];
+  templates: { name: string; body: string }[];
+  studentColumns: string[];
+}
+
+export interface SchoolProvisionResult {
+  templates: string[];
+  workflows: { id: number; name: string }[];
+  skipped: string[];
+}
+
+/** Anti-ban limits, owned by the platform admin. */
+export interface SafetyPolicy {
+  safetyEnabled: boolean;
+  pacingMode: 'adaptive' | 'fixed';
+  dailyLimit: number;
+  minDelaySeconds: number;
+  maxDelaySeconds: number;
+  restEvery: number;
+  restMinMinutes: number;
+  restMaxMinutes: number;
+  rateLimitPerSecond: number;
+  rateLimitBurst: number;
+  maxRetries: number;
+  retryDelay: number;
+  retryBackoff: number;
+  retryMaxDelay: number;
+  retryJitter: number;
+}
+
+export interface BillingPlan {
+  key: string;
+  name: string;
+  tier: number;
+  limits: Record<string, number | null>;
+  features: Record<string, boolean>;
+}
+
+export interface BillingUsage {
+  period: string;
+  counters?: Record<string, number>;
+  limits?: Record<string, number | null>;
+  [key: string]: unknown;
+}
+
+export interface HealthStatus {
+  ok?: boolean;
+  status?: string;
+  [key: string]: unknown;
+}
+
 @Injectable({ providedIn: 'root' })
 export class TenancyApi {
   private readonly http = inject(HttpClient);
 
-  tenants(): Observable<{ tenants: Tenant[] }> {
-    return this.http.get<{ tenants: Tenant[] }>('/api/admin/tenants').pipe(catchError(toMessage));
+  tenants(): Observable<{ tenants: Tenant[]; services: string[] }> {
+    return this.http.get<{ tenants: Tenant[]; services: string[] }>('/api/admin/tenants').pipe(catchError(toMessage));
   }
 
   createTenant(body: {
     name: string;
     slug?: string;
+    services?: string[];
+    controls?: TenantControls;
     owner: { email: string; name?: string; password: string };
   }): Observable<{ tenant: Tenant; owner: User }> {
     return this.http.post<{ tenant: Tenant; owner: User }>('/api/admin/tenants', body).pipe(catchError(toMessage));
   }
 
+  updateTenant(
+    id: number,
+    patch: Partial<{ status: Tenant['status']; services: string[]; controls: Partial<TenantControls> }>,
+  ): Observable<{ tenant: Tenant }> {
+    return this.http.patch<{ tenant: Tenant }>(`/api/admin/tenants/${id}`, patch).pipe(catchError(toMessage));
+  }
+
   setTenantStatus(id: number, status: Tenant['status']): Observable<{ tenant: Tenant }> {
-    return this.http.patch<{ tenant: Tenant }>(`/api/admin/tenants/${id}`, { status }).pipe(catchError(toMessage));
+    return this.updateTenant(id, { status });
+  }
+
+  safety(id: number): Observable<{ safety: SafetyPolicy }> {
+    return this.http.get<{ safety: SafetyPolicy }>(`/api/admin/tenants/${id}/safety`).pipe(catchError(toMessage));
+  }
+
+  setSafety(id: number, patch: Partial<SafetyPolicy>): Observable<{ safety: SafetyPolicy }> {
+    return this.http.put<{ safety: SafetyPolicy }>(`/api/admin/tenants/${id}/safety`, patch)
+      .pipe(catchError(toMessage));
+  }
+
+  deleteTenant(id: number): Observable<{ tenant: Tenant; deleted: number }> {
+    return this.http.delete<{ tenant: Tenant; deleted: number }>(`/api/admin/tenants/${id}`)
+      .pipe(catchError(toMessage));
+  }
+
+  schoolCatalog(): Observable<SchoolCatalog> {
+    return this.http.get<SchoolCatalog>('/api/admin/school/catalog').pipe(catchError(toMessage));
+  }
+
+  provisionSchool(id: number, body: { recipes?: string[]; templates?: boolean; status?: 'draft' | 'active' }):
+    Observable<SchoolProvisionResult> {
+    return this.http.post<SchoolProvisionResult>(`/api/admin/tenants/${id}/school/provision`, body)
+      .pipe(catchError(toMessage));
   }
 
   auditLogs(tenantId?: number | null): Observable<{ logs: AuditLog[] }> {
     const params = tenantId ? new HttpParams().set('tenant', tenantId) : undefined;
     return this.http.get<{ logs: AuditLog[] }>('/api/admin/audit-logs', { params }).pipe(catchError(toMessage));
+  }
+
+  plans(): Observable<{ plans: BillingPlan[] }> {
+    return this.http.get<{ plans: BillingPlan[] }>('/api/billing/plans').pipe(catchError(toMessage));
+  }
+
+  usage(period?: string): Observable<{ usage: BillingUsage }> {
+    const params = period ? new HttpParams().set('period', period) : undefined;
+    return this.http.get<{ usage: BillingUsage }>('/api/billing/usage', { params }).pipe(catchError(toMessage));
+  }
+
+  usageHistory(months = 6): Observable<{ history: BillingUsage[] }> {
+    return this.http
+      .get<{ history: BillingUsage[] }>('/api/billing/usage/history', {
+        params: new HttpParams().set('months', months),
+      })
+      .pipe(catchError(toMessage));
+  }
+
+  health(): Observable<HealthStatus> {
+    return this.http.get<HealthStatus>('/api/health').pipe(catchError(toMessage));
   }
 
   users(): Observable<{ users: User[]; roles: Role[] }> {

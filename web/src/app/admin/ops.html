@@ -1,0 +1,176 @@
+<header class="page-head">
+  <div class="title">
+    <span class="mark" aria-hidden="true"><span class="ms">{{ copy().icon }}</span></span>
+    <div>
+      <h2>{{ copy().title }}</h2>
+      <p class="muted">{{ copy().lede }}</p>
+    </div>
+  </div>
+  <button class="btn" type="button" (click)="load()" [disabled]="loading()">
+    <span class="ms" aria-hidden="true">refresh</span> Refresh
+  </button>
+</header>
+
+@if (error()) {
+  <p class="error" role="alert"><span class="ms" aria-hidden="true">error</span> {{ error() }}</p>
+}
+
+@if (loading()) {
+  <div class="skel-list" aria-busy="true">
+    @for (n of [1, 2, 3]; track n) { <div class="skel"></div> }
+  </div>
+} @else {
+  @if (kindValue() === 'plans') {
+    <div class="stats">
+      <div class="stat" style="--i: 0"><small>Businesses</small><b>{{ totals().tenants }}</b></div>
+      <div class="stat ok" style="--i: 1"><small>Active</small><b>{{ totals().active }}</b></div>
+      <div class="stat" style="--i: 2"><small>Services on the platform</small><b>{{ allServices().length }}</b></div>
+    </div>
+    <section class="list">
+      @for (tenant of tenants(); track tenant.id; let i = $index) {
+        <article class="row" [style.--i]="i">
+          <div class="who">
+            <span class="avatar">{{ initial(tenant.name) }}</span>
+            <div>
+              <strong>{{ tenant.name }}</strong>
+              <span class="muted">{{ tenant.slug }}</span>
+            </div>
+            <span [class]="'pill ' + tenant.status">{{ tenant.status }}</span>
+          </div>
+          <div class="meter-row">
+            <div class="meter" role="img" [attr.aria-label]="tenant.services.length + ' of ' + allServices().length + ' services'">
+              <span [style.width.%]="pct(tenant.services.length, allServices().length || tenant.services.length)"></span>
+            </div>
+            <span class="muted">{{ tenant.services.length }} of {{ allServices().length || tenant.services.length }} services</span>
+          </div>
+          <div class="chips">
+            @for (service of tenant.services; track service) {
+              <span class="chip"><span class="ms" aria-hidden="true">{{ meta(service).icon }}</span>{{ meta(service).label }}</span>
+            } @empty {
+              <span class="chip off">No services enabled</span>
+            }
+          </div>
+          <a class="link" routerLink="/admin/tenants">Change services <span class="ms" aria-hidden="true">arrow_forward</span></a>
+        </article>
+      } @empty {
+        <div class="empty"><span class="ms" aria-hidden="true">domain_disabled</span><strong>No businesses yet</strong><p>Create one from the Tenants page.</p></div>
+      }
+    </section>
+  } @else if (kindValue() === 'usage') {
+    <div class="stats">
+      <div class="stat ok" style="--i: 0"><small>Sent</small><b>{{ totals().sent }}</b></div>
+      <div class="stat bad" style="--i: 1"><small>Failed</small><b>{{ totals().failed }}</b></div>
+      <div class="stat warn" style="--i: 2"><small>Waiting</small><b>{{ totals().queued }}</b></div>
+      <div class="stat" style="--i: 3"><small>Delivery rate</small><b>{{ totals().rate }}%</b></div>
+    </div>
+    <section class="list">
+      @for (tenant of tenants(); track tenant.id; let i = $index) {
+        <article class="row" [style.--i]="i">
+          <div class="who">
+            <span class="avatar">{{ initial(tenant.name) }}</span>
+            <div>
+              <strong>{{ tenant.name }}</strong>
+              <span class="muted">{{ tenant.channels?.length ?? 0 }} numbers, {{ tenant.users ?? 0 }} users</span>
+            </div>
+          </div>
+          <div class="bars" role="img"
+               [attr.aria-label]="(tenant.health?.sent ?? 0) + ' sent, ' + (tenant.health?.failed ?? 0) + ' failed, ' + (tenant.health?.queued ?? 0) + ' waiting'">
+            <span class="b ok" [style.width.%]="volumeWidth(tenant.health?.sent ?? 0)"></span>
+            <span class="b bad" [style.width.%]="volumeWidth(tenant.health?.failed ?? 0)"></span>
+            <span class="b warn" [style.width.%]="volumeWidth(tenant.health?.queued ?? 0)"></span>
+          </div>
+          <ul class="legend">
+            <li class="ok">{{ tenant.health?.sent ?? 0 }} sent</li>
+            <li class="bad">{{ tenant.health?.failed ?? 0 }} failed</li>
+            <li class="warn">{{ tenant.health?.queued ?? 0 }} waiting</li>
+          </ul>
+        </article>
+      } @empty {
+        <div class="empty"><span class="ms" aria-hidden="true">monitoring</span><strong>Nothing sent yet</strong><p>Usage appears once a business starts messaging.</p></div>
+      }
+    </section>
+  } @else if (kindValue() === 'health') {
+    <div class="banner" [class.bad]="totals().disabled || totals().outside">
+      <span class="ms" aria-hidden="true">{{ totals().disabled || totals().outside ? 'warning' : 'check_circle' }}</span>
+      <div>
+        <strong>
+          @if (totals().disabled || totals().outside) { Some numbers cannot send right now } @else { Every number can send }
+        </strong>
+        <p>{{ totals().running }} running, {{ totals().disabled }} disabled, {{ totals().outside }} outside their sending window</p>
+      </div>
+    </div>
+    <section class="list">
+      @for (tenant of tenants(); track tenant.id; let i = $index) {
+        <article class="row" [style.--i]="i">
+          <div class="who">
+            <span class="avatar">{{ initial(tenant.name) }}</span>
+            <div>
+              <strong>{{ tenant.name }}</strong>
+              <span class="muted">{{ tenant.slug }}</span>
+            </div>
+            <span [class]="'pill ' + tenant.status">{{ tenant.status }}</span>
+          </div>
+          <ul class="facts">
+            <li><b>{{ tenant.health?.channels ?? 0 }}</b> numbers</li>
+            <li class="ok"><b>{{ tenant.health?.running ?? 0 }}</b> running</li>
+            <li [class.bad]="tenant.health?.disabled"><b>{{ tenant.health?.disabled ?? 0 }}</b> disabled</li>
+            <li [class.warn]="tenant.health?.outsideWindow"><b>{{ tenant.health?.outsideWindow ?? 0 }}</b> outside window</li>
+          </ul>
+        </article>
+      } @empty {
+        <div class="empty"><span class="ms" aria-hidden="true">health_and_safety</span><strong>No businesses yet</strong></div>
+      }
+    </section>
+  } @else if (kindValue() === 'audit') {
+    <label class="search">
+      <span class="ms" aria-hidden="true">search</span>
+      <span class="sr-only">Filter the log</span>
+      <input type="search" placeholder="Filter by action, business or detail" [value]="filter()" (input)="setFilter($event)" />
+    </label>
+    <section class="list log">
+      @for (log of shownLogs(); track log.id; let i = $index) {
+        <article class="row line" [style.--i]="i < 15 ? i : 15">
+          <span [class]="'verb ' + verb(log.action)">{{ verb(log.action) }}</span>
+          <div class="what">
+            <strong>{{ log.action }}</strong>
+            @if (log.target || log.detail) { <span class="muted">{{ log.target }}{{ log.target && log.detail ? ', ' : '' }}{{ log.detail }}</span> }
+          </div>
+          <span class="muted who-t">{{ tenantName(log.tenantId) }}</span>
+          <time class="muted" [attr.datetime]="log.createdAt" [title]="log.createdAt">{{ ago(log.createdAt) }}</time>
+        </article>
+      } @empty {
+        <div class="empty"><span class="ms" aria-hidden="true">manage_search</span><strong>{{ filter() ? 'No entries match' : 'No changes recorded yet' }}</strong>
+          <p>{{ filter() ? 'Try a shorter filter.' : 'Admin actions show up here as they happen.' }}</p></div>
+      }
+    </section>
+  } @else {
+    <div class="stats">
+      <div class="stat" style="--i: 0"><small>Numbers</small><b>{{ totals().channels }}</b></div>
+      <div class="stat ok" style="--i: 1"><small>Running</small><b>{{ totals().running }}</b></div>
+      <div class="stat bad" style="--i: 2"><small>Disabled</small><b>{{ totals().disabled }}</b></div>
+    </div>
+    <section class="list">
+      @for (entry of tenantChannels(); track entry.tenant.id + '-' + entry.channel.id; let i = $index) {
+        <article class="row" [style.--i]="i">
+          <div class="who">
+            <span class="avatar"><span class="ms">smartphone</span></span>
+            <div>
+              <strong>{{ entry.channel.displayName }}</strong>
+              <span class="muted">{{ entry.tenant.name }}, {{ entry.channel.phoneNumber || 'no number yet' }}</span>
+            </div>
+            <span [class]="'pill ' + (entry.channel.status === 'active' ? 'active' : 'suspended')">{{ entry.channel.status }}</span>
+          </div>
+          <ul class="facts">
+            <li>{{ entry.channel.provider.replace('_', ' ') }}</li>
+            <li [class.ok]="entry.channel.health.running" [class.bad]="!entry.channel.health.running">{{ entry.channel.health.running ? 'Running' : 'Stopped' }}</li>
+            <li [class.warn]="!entry.channel.health.withinSendingWindow">{{ entry.channel.health.withinSendingWindow ? 'In sending window' : 'Outside sending window' }}</li>
+            @if (entry.channel.isDefault) { <li>Default</li> }
+          </ul>
+          @if (entry.channel.health.error) { <p class="err-line"><span class="ms" aria-hidden="true">error</span> {{ entry.channel.health.error }}</p> }
+        </article>
+      } @empty {
+        <div class="empty"><span class="ms" aria-hidden="true">smartphone</span><strong>No numbers connected</strong><p>Businesses add numbers from WhatsApp numbers.</p></div>
+      }
+    </section>
+  }
+}

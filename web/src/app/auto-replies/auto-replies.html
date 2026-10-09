@@ -3,10 +3,7 @@
 <section class="summary card enter" [class.off]="allDisabled()">
   <div class="summary-main">
     <span class="badge primary">
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
-           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M4 5h16v10H7l-3 3Z" /><path d="M8 9h8" /><path d="M8 12h5" />
-      </svg>
+      <span class="ms" aria-hidden="true" style="font-size: 20px">chat</span>
     </span>
     <div>
       <h2>Keyword Auto-Replies</h2>
@@ -73,23 +70,14 @@
               <button type="button" class="icon-btn" [attr.aria-label]="rule.isActive ? 'Disable rule' : 'Enable rule'"
                       [title]="rule.isActive ? 'Disable rule' : 'Enable rule'" (click)="toggle(rule)">
                 @if (rule.isActive) {
-                  <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
-                       stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M18 6 6 18" /><path d="m6 6 12 12" />
-                  </svg>
+                  <span class="ms" aria-hidden="true" style="font-size: 17px">close</span>
                 } @else {
-                  <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
-                       stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
+                  <span class="ms" aria-hidden="true" style="font-size: 17px">check</span>
                 }
               </button>
               <button type="button" class="icon-btn danger" aria-label="Delete rule" title="Delete rule"
                       (click)="delete(rule)">
-                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
-                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" />
-                </svg>
+                <span class="ms" aria-hidden="true" style="font-size: 17px">delete</span>
               </button>
             </div>
           </article>

@@ -69,8 +69,10 @@
   grid-area: rail;
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
+  gap: var(--space-xs);
   padding: var(--space-md);
+  min-height: 0;
+  overflow-y: auto;
   background: var(--rail);
   border-right: 1px solid var(--border);
 
@@ -78,7 +80,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-md);
-    padding: 14px var(--space-md);
+    padding: 11px var(--space-md);
     border-radius: var(--radius-sm);
     color: var(--text-muted);
     font-weight: 600;
@@ -95,8 +97,29 @@
     }
   }
 
+  .nav-heading {
+    margin: var(--space-lg) var(--space-md) var(--space-xs);
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .nav-group {
+    display: grid;
+    gap: var(--space-xs);
+
+    summary {
+      cursor: pointer;
+      list-style: none;
+    }
+
+    summary::-webkit-details-marker {
+      display: none;
+    }
+  }
+
   .nav-icon {
-    display: inline-flex;
+    font-size: 22px;
   }
 
   .rail-foot {
@@ -147,15 +170,24 @@
 
   .rail {
     flex-direction: row;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    gap: 4px;
+    padding: 6px var(--space-md);
+    overflow-x: auto;
+    scrollbar-width: none;
     border-right: 0;
     border-bottom: 1px solid var(--border);
 
+    &::-webkit-scrollbar { display: none; }
+
+    > * { flex: none; white-space: nowrap; }
+
     .rail-foot {
-      margin-top: 0;
-      width: 100%;
+      display: none;
     }
   }
+
+  .content { padding: var(--space-md); }
 }
 
 /* Account block in the header: who you are, and the way out. */

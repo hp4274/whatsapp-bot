@@ -1,0 +1,146 @@
+<header class="head">
+  <div>
+    <span class="eyebrow"><span class="ms">campaign</span> Notice board</span>
+    <h2>Circulars, holidays &amp; exams.</h2>
+    <p>One archive for every notice - broadcast it on WhatsApp to the right parents, or simply file it for the record.</p>
+  </div>
+  <p class="note"><span class="ms">chat</span><span>Parents can text <code>HOLIDAYS</code> or <code>EXAMS</code> to get the upcoming list.</span></p>
+</header>
+
+@if (error()) {
+  <div class="banner" role="alert"><span class="ms">error</span>{{ error() }}</div>
+}
+
+<section class="cal panel" style="--i: 0" aria-label="Upcoming calendar">
+  <h3><span class="ms">calendar_month</span> Upcoming</h3>
+  @if (loading()) {
+    <div class="strip">@for (s of [0, 1, 2, 3]; track s) { <div class="date skel-card"></div> }</div>
+  } @else if (!upcoming().length) {
+    <p class="muted">No upcoming holidays, events or exams on the calendar.</p>
+  } @else {
+    <div class="strip">
+      @for (n of upcoming(); track n.id; let i = $index) {
+        <article class="date" schoolTilt [class]="kindOf(n.kind).tone" [style.--i]="i">
+          <span class="mon">{{ n.startsAt | date: 'MMM' }}</span>
+          <span class="day">{{ n.startsAt | date: 'd' }}</span>
+          <span class="wk">{{ n.startsAt | date: 'EEE' }}@if (n.endsAt && n.endsAt !== n.startsAt) { - {{ n.endsAt | date: 'd MMM' }} }</span>
+          <strong>{{ n.title }}</strong>
+          <span class="pill">{{ kindOf(n.kind).label }}</span>
+        </article>
+      }
+    </div>
+  }
+</section>
+
+<div class="split">
+  <form class="panel" style="--i: 1" (ngSubmit)="publish()">
+    <h3><span class="ms">edit_square</span> Compose</h3>
+    <div class="kinds" role="radiogroup" aria-label="Notice kind">
+      @for (k of kinds; track k.id) {
+        <button type="button" role="radio" class="kind" [class]="k.tone" [attr.aria-checked]="kind() === k.id" (click)="kind.set(k.id)">
+          <span class="ms">{{ k.icon }}</span>{{ k.label }}
+        </button>
+      }
+    </div>
+    <div class="form">
+      <div class="field wide">
+        <label for="n-title">Title</label>
+        <input id="n-title" name="title" [ngModel]="title()" (ngModelChange)="title.set($event)" placeholder="Diwali vacation" required />
+      </div>
+      <div class="field wide">
+        <label for="n-body">Message</label>
+        <textarea id="n-body" name="body" rows="4" [ngModel]="body()" (ngModelChange)="body.set($event)" placeholder="School remains closed from..." required></textarea>
+      </div>
+      <div class="field">
+        <label for="n-start">Starts</label>
+        <input id="n-start" type="date" name="start" [ngModel]="startsAt()" (ngModelChange)="startsAt.set($event)" />
+      </div>
+      <div class="field">
+        <label for="n-end">Ends</label>
+        <input id="n-end" type="date" name="end" [min]="startsAt()" [ngModel]="endsAt()" (ngModelChange)="endsAt.set($event)" />
+      </div>
+      <div class="field wide">
+        <span class="lbl">Attachment</span>
+        @if (file(); as f) {
+          <span class="chip"><span class="ms">attach_file</span><span class="name">{{ f.name }}</span>
+            <button type="button" (click)="file.set(null)" aria-label="Remove attachment"><span class="ms">close</span></button></span>
+        } @else {
+          <label class="drop">
+            <input type="file" accept="application/pdf,image/*" (change)="pick($event)" [disabled]="uploading()" />
+            @if (uploading()) { <span class="spinner"></span> Uploading... } @else { <span class="ms">upload_file</span> Attach circular PDF or image }
+          </label>
+        }
+      </div>
+      <div class="field wide">
+        <span class="lbl">Audience</span>
+        <div class="seg" role="group" aria-label="Audience">
+          <button type="button" [attr.aria-pressed]="audMode() === 'all'" (click)="audMode.set('all')"><span class="ms">groups</span> All parents</button>
+          <button type="button" [attr.aria-pressed]="audMode() === 'classes'" (click)="audMode.set('classes')"><span class="ms">school</span> Classes</button>
+          <button type="button" [attr.aria-pressed]="audMode() === 'routes'" (click)="audMode.set('routes')"><span class="ms">directions_bus</span> Bus routes</button>
+        </div>
+        @if (audMode() === 'classes') {
+          <div class="picks">
+            @for (c of classes(); track c.key) {
+              <label><input type="checkbox" [checked]="pickedClasses().includes(c.key)" (change)="toggleClass(c.key, $any($event.target).checked)" />{{ c.key }}</label>
+            }
+          </div>
+        }
+        @if (audMode() === 'routes') {
+          <div class="routes">
+            @for (r of routes(); track r) {
+              <span class="chip">{{ r }}<button type="button" (click)="removeRoute(r)" [attr.aria-label]="'Remove route ' + r"><span class="ms">close</span></button></span>
+            }
+            <input aria-label="Add bus route" placeholder="Type a route, press Enter" [ngModel]="routeDraft()" name="routeDraft"
+              (ngModelChange)="routeDraft.set($event)" (keydown.enter)="$event.preventDefault(); addRoute()" (blur)="addRoute()" />
+          </div>
+        }
+      </div>
+      <div class="field wide toggles">
+        <label class="switch"><input type="checkbox" name="broadcast" [ngModel]="broadcast()" (ngModelChange)="broadcast.set($event)" /><i></i> Broadcast on WhatsApp</label>
+        @if (broadcast()) {
+          <label class="switch"><input type="checkbox" name="scheduled" [ngModel]="scheduled()" (ngModelChange)="scheduled.set($event)" /><i></i> Schedule</label>
+          @if (scheduled()) {
+            <label class="sr" for="n-at">Send at</label>
+            <input id="n-at" class="at" type="datetime-local" name="sendAt" [ngModel]="sendAt()" (ngModelChange)="sendAt.set($event)" />
+          }
+        }
+      </div>
+    </div>
+    <div class="actions foot">
+      <button class="btn primary" type="submit" [disabled]="!valid() || busy()">
+        @if (busy()) { <span class="spinner"></span> } @else { <span class="ms">{{ broadcast() ? 'send' : 'inventory_2' }}</span> }
+        {{ broadcast() ? (scheduled() ? 'Publish & schedule' : 'Publish & broadcast') : 'Publish to archive' }}
+      </button>
+      <span class="flash" aria-live="polite">@if (flash()) { <span class="ms">check_circle</span> {{ flash() }} }</span>
+    </div>
+  </form>
+
+  <section class="panel" style="--i: 2">
+    <h3><span class="ms">inventory_2</span> Archive</h3>
+    <div class="seg filter" role="group" aria-label="Filter by kind">
+      <button type="button" [attr.aria-pressed]="filter() === ''" (click)="filter.set('')">All</button>
+      @for (k of kinds; track k.id) {
+        <button type="button" [attr.aria-pressed]="filter() === k.id" (click)="filter.set(k.id)">{{ k.label }}</button>
+      }
+    </div>
+    @if (loading()) {
+      <div class="skel"></div><div class="skel"></div><div class="skel"></div>
+    } @else if (!filtered().length) {
+      <div class="empty"><span class="ms">folder_open</span><strong>Nothing filed here</strong>Published notices are kept for the record.</div>
+    } @else {
+      <ul class="arch">
+        @for (n of filtered(); track n.id; let i = $index) {
+          <li [style.--i]="i" [class]="kindOf(n.kind).tone">
+            <span class="ic ms">{{ kindOf(n.kind).icon }}</span>
+            <div class="body">
+              <strong>{{ n.title }}</strong>
+              <small class="muted">{{ n.createdAt | date: 'd MMM y' }} · {{ audienceLabel(n.audience) }}@if (n.mediaId) { · attachment }</small>
+            </div>
+            <span class="pill" [class.ok]="n.sentAt" [class.info]="n.status === 'scheduled'">{{ n.sentAt ? 'sent' : n.status }}</span>
+            <button class="btn sm ghost" type="button" (click)="remove(n)" [attr.aria-label]="'Delete ' + n.title"><span class="ms">delete</span></button>
+          </li>
+        }
+      </ul>
+    }
+  </section>
+</div>

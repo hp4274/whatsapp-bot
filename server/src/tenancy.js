@@ -12,6 +12,8 @@
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 
+import { DEFAULTS, POLICY_SPEC } from './config.js';
+import { DEFAULT_TENANT_ID } from './db.js';
 import { utcNow } from './protocol.js';
 
 const scrypt = promisify(crypto.scrypt);
@@ -20,6 +22,37 @@ export const ROLES = Object.freeze(['agent', 'admin', 'owner', 'super_admin']);
 export const roleRank = (role) => ROLES.indexOf(role);
 
 const SESSION_TTL_MS = 7 * 24 * 3600 * 1000;
+
+export const TENANT_SERVICES = Object.freeze([
+    'school_whatsapp_bot',
+    'whatsapp_channels',
+    'contacts',
+    'templates',
+    'inbox',
+    'auto_replies',
+    'bulk_messages',
+    'campaigns',
+    'payment_reminders',
+    'workflows',
+    'faq',
+    'tickets',
+    'appointments',
+    'orders',
+    'leads',
+    'subscriptions',
+    'events',
+    'api',
+    'analytics',
+    'integrations',
+    'ai',
+]);
+
+export const DEFAULT_TENANT_CONTROLS = Object.freeze({
+    sendingEnabled: true,
+    inboundEnabled: true,
+    campaignsEnabled: true,
+    automationsEnabled: true,
+});
 
 export async function hashPassword(password) {
     const salt = crypto.randomBytes(16);
@@ -52,18 +85,65 @@ export class Tenancy {
     }
 
     // ------------------------------------------------------------ tenants --
-    createTenant(name, slug) {
-        const cleanName = String(name ?? '').trim();
-        const cleanSlug = String(slug ?? cleanName).trim().toLowerCase()
-            .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-        if (!cleanName) throw new TenancyError('name is required');
-        if (!cleanSlug) throw new TenancyError('slug is required');
+    createTenant(name, slug, { services, controls } = {}) {
+        const { cleanName, cleanSlug } = cleanTenantInput(name, slug);
         try {
             const info = this.db.prepare(
-                'INSERT INTO tenants (name, slug, status, created_at) VALUES (?, ?, \'active\', ?)')
-                .run(cleanName, cleanSlug, utcNow());
+                `INSERT INTO tenants (name, slug, status, services, controls, created_at)
+                 VALUES (?, ?, 'active', ?, ?, ?)`)
+                .run(
+                    cleanName,
+                    cleanSlug,
+                    JSON.stringify(normalizeTenantServices(services)),
+                    JSON.stringify(normalizeTenantControls(controls)),
+                    utcNow(),
+                );
             return this.getTenant(Number(info.lastInsertRowid));
         } catch (err) {
+            if (/users/.test(err.message) && /UNIQUE/.test(err.message)) {
+                throw new TenancyError('that email is already registered', 409);
+            }
+            if (/UNIQUE/.test(err.message)) throw new TenancyError('that tenant slug is taken', 409);
+            throw err;
+        }
+    }
+
+    async createTenantWithOwner({ name, slug, services, controls, owner = {} }) {
+        const { cleanName, cleanSlug } = cleanTenantInput(name, slug);
+        const cleanEmail = cleanUserEmail(owner.email);
+        const cleanOwnerName = String(owner.name ?? '').trim();
+        const password = String(owner.password ?? '');
+        if (password.length < 8) throw new TenancyError('password must be at least 8 characters');
+        if (this.db.prepare('SELECT 1 FROM users WHERE email = ?').get(cleanEmail)) {
+            throw new TenancyError('that email is already registered', 409);
+        }
+
+        const hash = await hashPassword(password);
+        try {
+            this.db.exec('BEGIN');
+            const tenantInfo = this.db.prepare(
+                `INSERT INTO tenants (name, slug, status, services, controls, created_at)
+                 VALUES (?, ?, 'active', ?, ?, ?)`)
+                .run(
+                    cleanName,
+                    cleanSlug,
+                    JSON.stringify(normalizeTenantServices(services)),
+                    JSON.stringify(normalizeTenantControls(controls)),
+                    utcNow(),
+                );
+            const tenantId = Number(tenantInfo.lastInsertRowid);
+            const userInfo = this.db.prepare(
+                `INSERT INTO users (tenant_id, email, name, password_hash, role, created_at)
+                 VALUES (?, ?, ?, ?, 'owner', ?)`)
+                .run(tenantId, cleanEmail, cleanOwnerName, hash, utcNow());
+            this.db.exec('COMMIT');
+            return { tenant: this.getTenant(tenantId), owner: this.getUser(Number(userInfo.lastInsertRowid)) };
+        } catch (err) {
+            try {
+                this.db.exec('ROLLBACK');
+            } catch {
+                // already rolled back
+            }
             if (/UNIQUE/.test(err.message)) throw new TenancyError('that tenant slug is taken', 409);
             throw err;
         }
@@ -74,8 +154,11 @@ export class Tenancy {
         return row ? toTenant(row) : null;
     }
 
-    listTenants() {
-        return this.db.prepare('SELECT * FROM tenants ORDER BY id').all().map(toTenant);
+    listTenants({ includeArchived = false } = {}) {
+        const sql = includeArchived
+            ? 'SELECT * FROM tenants ORDER BY id'
+            : "SELECT * FROM tenants WHERE status != 'archived' ORDER BY id";
+        return this.db.prepare(sql).all().map(toTenant);
     }
 
     setTenantStatus(id, status) {
@@ -90,10 +173,57 @@ export class Tenancy {
         return this.getTenant(id);
     }
 
+    archiveTenant(id) {
+        const tenant = this.getTenant(id);
+        if (!tenant) throw new TenancyError('tenant not found', 404);
+        if (tenant.id === DEFAULT_TENANT_ID) throw new TenancyError('default tenant cannot be deleted', 400);
+        const info = this.db.prepare("UPDATE tenants SET status = 'archived' WHERE id = ?").run(Number(id));
+        if (!info.changes) throw new TenancyError('tenant not found', 404);
+        this.db.prepare(`DELETE FROM sessions WHERE user_id IN
+                         (SELECT id FROM users WHERE tenant_id = ?)`).run(Number(id));
+        return this.getTenant(id);
+    }
+
+    /** Anti-ban policy for a tenant: stored as overrides, shown merged over the defaults. */
+    setSafety(id, patch = {}) {
+        const before = this.getTenant(id);
+        if (!before || before.status === 'archived') throw new TenancyError('tenant not found', 404);
+        const next = { ...before.safety, ...normalizeSafety(patch) };
+        const view = { ...DEFAULTS, ...next };
+        if (view.maxDelaySeconds > 0 && view.maxDelaySeconds < view.minDelaySeconds) {
+            throw new TenancyError('maximum delay must be at least the minimum delay');
+        }
+        if (view.restMaxMinutes < view.restMinMinutes) {
+            throw new TenancyError('longest rest must be at least the shortest rest');
+        }
+        this.db.prepare('UPDATE tenants SET safety = ? WHERE id = ?').run(JSON.stringify(next), Number(id));
+        return this.getTenant(id);
+    }
+
+    updateTenant(id, patch = {}) {
+        const before = this.getTenant(id);
+        if (!before) throw new TenancyError('tenant not found', 404);
+        if (before.status === 'archived') throw new TenancyError('tenant not found', 404);
+        const status = patch.status ?? before.status;
+        if (!['active', 'suspended'].includes(status)) throw new TenancyError('status must be active or suspended');
+        const services = patch.services === undefined
+            ? before.services
+            : normalizeTenantServices(patch.services);
+        const controls = patch.controls === undefined
+            ? before.controls
+            : normalizeTenantControls({ ...before.controls, ...patch.controls });
+        this.db.prepare('UPDATE tenants SET status = ?, services = ?, controls = ? WHERE id = ?')
+            .run(status, JSON.stringify(services), JSON.stringify(controls), Number(id));
+        if (status === 'suspended') {
+            this.db.prepare(`DELETE FROM sessions WHERE user_id IN
+                             (SELECT id FROM users WHERE tenant_id = ?)`).run(Number(id));
+        }
+        return this.getTenant(id);
+    }
+
     // -------------------------------------------------------------- users --
     async createUser({ tenantId = null, email, name = '', password, role }) {
-        const cleanEmail = String(email ?? '').trim().toLowerCase();
-        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleanEmail)) throw new TenancyError('a valid email is required');
+        const cleanEmail = cleanUserEmail(email);
         if (String(password ?? '').length < 8) throw new TenancyError('password must be at least 8 characters');
         if (!ROLES.includes(role)) throw new TenancyError(`role must be one of ${ROLES.join(', ')}`);
         if ((role === 'super_admin') !== (tenantId === null)) {
@@ -192,8 +322,71 @@ export class Tenancy {
     }
 }
 
+function cleanTenantInput(name, slug) {
+    const cleanName = String(name ?? '').trim();
+    const cleanSlug = String(slug ?? cleanName).trim().toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    if (!cleanName) throw new TenancyError('name is required');
+    if (!cleanSlug) throw new TenancyError('slug is required');
+    return { cleanName, cleanSlug };
+}
+
+function cleanUserEmail(email) {
+    const cleanEmail = String(email ?? '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleanEmail)) throw new TenancyError('a valid email is required');
+    return cleanEmail;
+}
+
+export function normalizeTenantServices(services) {
+    if (!Array.isArray(services)) return [...TENANT_SERVICES];
+    return TENANT_SERVICES.filter((service) => services.includes(service));
+}
+
+export function normalizeTenantControls(controls = {}) {
+    return Object.fromEntries(Object.entries(DEFAULT_TENANT_CONTROLS)
+        .map(([key, fallback]) => [key, controls[key] === undefined ? fallback : Boolean(controls[key])]));
+}
+
+/** Keep only known keys, each checked against POLICY_SPEC. */
+function normalizeSafety(input) {
+    const out = {};
+    for (const [key, spec] of Object.entries(POLICY_SPEC)) {
+        const value = input?.[key];
+        if (value === undefined) continue;
+        if (spec === 'bool') out[key] = Boolean(value);
+        else if (Array.isArray(spec) && typeof spec[0] === 'string') {
+            if (!spec.includes(value)) throw new TenancyError(`${key} must be one of ${spec.join(', ')}`);
+            out[key] = value;
+        } else {
+            const n = Number(value);
+            if (!Number.isFinite(n) || n < spec[0] || n > spec[1]) {
+                throw new TenancyError(`${key} must be between ${spec[0]} and ${spec[1]}`);
+            }
+            out[key] = n;
+        }
+    }
+    return out;
+}
+
+function parseJson(value, fallback) {
+    try {
+        return value ? JSON.parse(value) : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
 function toTenant(row) {
-    return { id: row.id, name: row.name, slug: row.slug, status: row.status, createdAt: row.created_at };
+    return {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        status: row.status,
+        services: normalizeTenantServices(parseJson(row.services, null)),
+        controls: normalizeTenantControls(parseJson(row.controls, {})),
+        safety: parseJson(row.safety, {}),
+        createdAt: row.created_at,
+    };
 }
 
 /** Never includes the password hash. */

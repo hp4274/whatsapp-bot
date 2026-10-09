@@ -85,11 +85,89 @@ export const OBJECT_TYPES = Object.freeze({
     },
     student: {
         label: 'Student',
-        fields: { name: 'string', course: 'string', batch: 'string', parentName: 'string', parentPhone: 'string', enrolledAt: 'datetime', notes: 'string' },
+        fields: {
+            name: 'string', rollNumber: 'string', className: 'string', section: 'string', course: 'string', batch: 'string',
+            parentName: 'string', fatherName: 'string', motherName: 'string', parentPhone: 'string', busRoute: 'string',
+            hostel: 'boolean', enrolledAt: 'datetime', notes: 'string',
+        },
         required: ['name'],
         statuses: ['enquiry', 'enrolled', 'active', 'on_hold', 'graduated', 'dropped'],
         closed: ['graduated', 'dropped'],
         events: { created: 'student.created', statusChanged: 'student.status_changed' },
+    },
+    attendance: {
+        label: 'Attendance',
+        fields: {
+            studentId: 'number', rollNumber: 'string', studentName: 'string', className: 'string', section: 'string', date: 'datetime',
+            arrivedAt: 'string', reason: 'string', markedBy: 'string', alertedAt: 'datetime', notes: 'string',
+        },
+        required: ['studentName', 'date'],
+        statuses: ['present', 'absent', 'late', 'excused'],
+        closed: [],
+        occursAt: 'date',
+        events: { created: 'attendance.created', statusChanged: 'attendance.status_changed', due: 'attendance.due' },
+    },
+    timetable: {
+        label: 'Timetable',
+        fields: {
+            className: 'string', section: 'string', day: 'string', period: 'string', startTime: 'string', endTime: 'string',
+            subject: 'string', teacher: 'string', room: 'string', startsAt: 'datetime', endsAt: 'datetime', notes: 'string',
+        },
+        required: ['className', 'day', 'subject'],
+        statuses: ['scheduled', 'changed', 'cancelled'],
+        closed: ['cancelled'],
+        occursAt: 'startsAt',
+        events: { created: 'timetable.created', updated: 'timetable.updated', statusChanged: 'timetable.status_changed', due: 'timetable.due' },
+    },
+    homework: {
+        label: 'Homework',
+        fields: {
+            className: 'string', section: 'string', subject: 'string', title: 'string', instructions: 'string', assignedAt: 'datetime',
+            dueAt: 'datetime', teacher: 'string', mediaId: 'string', campaignId: 'number', notes: 'string',
+        },
+        required: ['className', 'subject', 'title'],
+        statuses: ['assigned', 'reminded', 'submitted', 'closed', 'cancelled'],
+        closed: ['submitted', 'closed', 'cancelled'],
+        occursAt: 'dueAt',
+        events: { created: 'homework.created', updated: 'homework.updated', statusChanged: 'homework.status_changed', due: 'homework.due' },
+    },
+    exam_result: {
+        label: 'Exam Result',
+        fields: {
+            studentId: 'number', rollNumber: 'string', studentName: 'string', className: 'string', section: 'string', examName: 'string',
+            subject: 'string', marks: 'number', totalMarks: 'number', grade: 'string', breakdown: 'string', publishedAt: 'datetime',
+            dispatchedAt: 'datetime', remarks: 'string',
+        },
+        required: ['studentName', 'examName'],
+        statuses: ['draft', 'published', 'withheld', 'corrected'],
+        closed: [],
+        occursAt: 'publishedAt',
+        events: { created: 'exam_result.created', updated: 'exam_result.updated', statusChanged: 'exam_result.status_changed', due: 'exam_result.due' },
+    },
+    fee: {
+        label: 'Fee',
+        fields: {
+            studentId: 'number', studentName: 'string', className: 'string', section: 'string', term: 'string', amount: 'number',
+            currency: 'string', dueAt: 'datetime', paidAt: 'datetime', method: 'string', payLink: 'string', receiptNo: 'string', notes: 'string',
+        },
+        required: ['amount', 'dueAt'],
+        statuses: ['pending', 'paid', 'overdue', 'waived'],
+        closed: ['paid', 'waived'],
+        occursAt: 'dueAt',
+        events: { created: 'fee.created', statusChanged: 'fee.status_changed', due: 'fee.due' },
+    },
+    // Circulars, calendar entries (holidays, events, exam date sheets) and broadcasts.
+    notice: {
+        label: 'Notice',
+        fields: {
+            kind: 'string', title: 'string', body: 'string', startsAt: 'datetime', endsAt: 'datetime', audience: 'string',
+            mediaId: 'string', sentAt: 'datetime', campaignId: 'number', notes: 'string',
+        },
+        required: ['kind', 'title'],
+        statuses: ['draft', 'published', 'archived'],
+        closed: ['archived'],
+        occursAt: 'startsAt',
+        events: { created: 'notice.created', statusChanged: 'notice.status_changed' },
     },
 });
 

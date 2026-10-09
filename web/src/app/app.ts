@@ -1,29 +1,51 @@
 import { Component, computed, inject } from '@angular/core';
-import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter, map } from 'rxjs';
 
 import { Auth, Role } from './core/auth';
 import { Store, ThemeMode } from './core/store';
+import { SERVICE_META } from './admin/service-meta';
 
-/** Inline SVG, so the icons need no font, no sprite and no network. */
-function icon(path: string): string {
-  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-    stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
-}
+type NavItem = { path: string; label: string; icon: string; min?: Role; service?: string; heading?: undefined };
+type NavEntry = NavItem | { heading: string; children: NavItem[]; path?: undefined; label?: undefined; icon?: undefined };
 
+/** Google Material Symbols ligature names (font loaded in index.html). */
 const ICONS = {
-  connection: icon('<path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19" r="1"/>'),
-  campaign: icon('<path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l2-4.9A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5Z"/>'),
-  replies: icon('<path d="M4 5h16v10H7l-3 3Z"/><path d="M8 9h8"/><path d="M8 12h5"/>'),
-  payment: icon('<path d="M4 7h16v10H4z"/><path d="M4 10h16"/><path d="M7 14h4"/><path d="M16 14h1"/>'),
-  history: icon('<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/><path d="M12 8v4l3 2"/>'),
-  team: icon('<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.5a3 3 0 0 1 0 5"/><path d="M18 20a5.5 5.5 0 0 0-3-4.9"/>'),
-  tenants: icon('<path d="M4 20V8l6-4 6 4v12"/><path d="M10 20v-5h4v5"/><path d="M20 20V11l-4-2.7"/>'),
-  channels: icon('<rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10 5.5h4"/><path d="M11 18.5h2"/>'),
-  contacts: icon('<circle cx="12" cy="8" r="3.2"/><path d="M5 20a7 7 0 0 1 14 0"/>'),
+  connection: 'wifi',
+  campaign: 'forum',
+  replies: 'quickreply',
+  payment: 'payments',
+  history: 'history',
+  team: 'group',
+  tenants: 'domain',
+  plans: 'workspace_premium',
+  usage: 'monitoring',
+  health: 'health_and_safety',
+  audit: 'manage_search',
+  channels: 'smartphone',
+  contacts: 'contacts',
+  school: 'school',
 };
+
+const SERVICE_GROUPS = [
+  {
+    heading: 'Messaging',
+    services: ['school_whatsapp_bot', 'whatsapp_channels', 'templates', 'auto_replies', 'bulk_messages', 'campaigns'],
+  },
+  {
+    heading: 'Customers',
+    services: ['contacts', 'inbox', 'payment_reminders', 'faq', 'tickets', 'appointments'],
+  },
+  {
+    heading: 'Commerce',
+    services: ['orders', 'leads', 'subscriptions', 'events'],
+  },
+  {
+    heading: 'Platform',
+    services: ['workflows', 'api', 'analytics', 'integrations', 'ai'],
+  },
+];
 
 @Component({
   selector: 'app-root',
@@ -35,7 +57,6 @@ export class App {
   protected readonly store = inject(Store);
   protected readonly auth = inject(Auth);
   private readonly router = inject(Router);
-  private readonly sanitizer = inject(DomSanitizer);
 
   /** The sign-in screen is full-bleed: no header, no rail. */
   protected readonly bare = toSignal(
@@ -52,21 +73,54 @@ export class App {
     { value: 'dark', label: 'Dark' },
   ];
 
-  private readonly allNav: { path: string; label: string; icon: SafeHtml; min?: Role }[] = [
-    { path: '/admin/tenants', label: 'Tenants', icon: this.trust(ICONS.tenants), min: 'super_admin' },
-    { path: '/connection', label: 'Connection', icon: this.trust(ICONS.connection) },
-    { path: '/channels', label: 'WhatsApp Numbers', icon: this.trust(ICONS.channels) },
-    { path: '/contacts', label: 'Contacts', icon: this.trust(ICONS.contacts) },
-    { path: '/campaign', label: 'Messaging & Campaign', icon: this.trust(ICONS.campaign) },
-    { path: '/auto-replies', label: 'Auto-Replies', icon: this.trust(ICONS.replies) },
-    { path: '/payment-reminder', label: 'Payment Reminder', icon: this.trust(ICONS.payment) },
-    { path: '/history', label: 'History', icon: this.trust(ICONS.history) },
-    { path: '/team', label: 'Team', icon: this.trust(ICONS.team), min: 'admin' },
+  private readonly allNav: NavItem[] = [
+    { path: '/admin/tenants', label: 'Tenants', icon: ICONS.tenants, min: 'super_admin' },
+    { path: '/admin/plans', label: 'Plans', icon: ICONS.plans, min: 'super_admin' },
+    { path: '/admin/usage', label: 'Usage', icon: ICONS.usage, min: 'super_admin' },
+    { path: '/admin/health', label: 'Health', icon: ICONS.health, min: 'super_admin' },
+    { path: '/admin/audit-logs', label: 'Audit logs', icon: ICONS.audit, min: 'super_admin' },
+    { path: '/admin/channels', label: 'Channels', icon: ICONS.channels, min: 'super_admin' },
+    { path: '/connection', label: 'Connection', icon: ICONS.connection, service: 'whatsapp_channels' },
+    { path: '/channels', label: 'WhatsApp Numbers', icon: ICONS.channels, service: 'whatsapp_channels' },
+    { path: '/school', label: 'School Assistant', icon: ICONS.school, service: 'school_whatsapp_bot' },
+    { path: '/contacts', label: 'Contacts', icon: ICONS.contacts, service: 'contacts' },
+    { path: '/campaign', label: 'Messaging & Campaign', icon: ICONS.campaign, service: 'bulk_messages' },
+    { path: '/auto-replies', label: 'Auto-Replies', icon: ICONS.replies, service: 'auto_replies' },
+    { path: '/payment-reminder', label: 'Payment Reminder', icon: ICONS.payment, service: 'payment_reminders' },
+    { path: '/history', label: 'History', icon: ICONS.history },
+    { path: '/team', label: 'Team', icon: ICONS.team, min: 'admin' },
   ];
 
-  protected readonly navigation = computed(() =>
-    this.auth.user() ? this.allNav.filter((item) => !item.min || this.auth.atLeast(item.min)) : [],
-  );
+  /**
+   * Tenant users see the services they have.  A super admin on the platform view
+   * sees each service as its own settings page; once inside a tenant they get
+   * that tenant's sections like anyone else.
+   */
+  protected readonly navigation = computed<NavEntry[]>(() => {
+    if (!this.auth.user()) return [];
+    const superAdmin = this.auth.isSuperAdmin();
+    if (superAdmin && this.auth.actingTenantId() === null) {
+      return [
+        { heading: 'Platform', children: this.allNav.slice(0, 6) },
+        ...SERVICE_GROUPS.map((group) => ({
+          heading: group.heading,
+          children: group.services
+            .filter((key) => SERVICE_META[key])
+            .map((key) => {
+              const meta = SERVICE_META[key];
+              return { path: `/admin/services/${key}`, label: meta.label, icon: meta.icon };
+            }),
+        })),
+      ];
+    }
+    const owned = this.auth.tenant()?.services;
+    return this.allNav.filter((item) => {
+      if (item.min === 'super_admin') return superAdmin;
+      if (superAdmin) return true;
+      if (item.service && owned && !owned.includes(item.service)) return false;
+      return !item.min || this.auth.atLeast(item.min);
+    });
+  });
 
   /** What the header calls the current workspace. */
   protected readonly workspace = computed(() => {
@@ -108,7 +162,4 @@ export class App {
     this.router.navigate(['/admin/tenants']);
   }
 
-  private trust(markup: string): SafeHtml {
-    return this.sanitizer.bypassSecurityTrustHtml(markup);
-  }
 }

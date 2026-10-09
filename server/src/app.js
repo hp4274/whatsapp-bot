@@ -20,6 +20,7 @@ import { processOptOut } from './autoreply/optout.js';
 import { CampaignManager } from './campaign/manager.js';
 import {
     APP_DIR,
+    DEFAULTS,
     SESSION_DIR,
     TRANSPORTS,
     TRANSPORT_CLOUD_API,
@@ -30,6 +31,7 @@ import {
     publicConfig,
     saveConfig,
     validateConfig,
+    POLICY_KEYS,
 } from './config.js';
 import { DEFAULT_TENANT_ID, Database } from './db.js';
 import {
@@ -71,8 +73,12 @@ import { registerQueue, snapshot, unregisterQueue } from './observability/metric
 import { ApiKeyStore } from './publicapi/keys.js';
 import { createPublicApiRouter } from './publicapi/routes.js';
 import { WEBHOOK_JOB_KIND, createWebhookDeliveryHandler } from './publicapi/webhooks.js';
+import { RECIPES, getRecipe, installRecipe } from './recipes/index.js';
+import { SCHOOL_TEMPLATES, STUDENT_CSV_COLUMNS } from './school/templates.js';
+import { handleSchoolCommand } from './school/commands.js';
+import { createSchoolRouter, schoolSweep } from './school/routes.js';
 import { rateLimit, webhookSignatureGuard } from './security/signature.js';
-import { ROLES, Tenancy, TenancyError, roleRank } from './tenancy.js';
+import { ROLES, TENANT_SERVICES, Tenancy, TenancyError, roleRank } from './tenancy.js';
 import { TransportError } from './transports/base.js';
 import { CloudApiTransport, parseInboundPayload, parseStatusPayload } from './transports/cloudApi.js';
 import { SandboxTransport } from './transports/sandbox.js';
@@ -120,6 +126,8 @@ const FEATURE_ROUTERS = [
     createBillingRouter,
     createPublicApiRouter,
     createCampaignRouter,
+    // After createObjectRouter: it reads `state.objects`.
+    createSchoolRouter,
 ];
 
 /** Which capability each sending route needs. Everything else is read or admin. */
@@ -138,11 +146,58 @@ const SEND_ROUTE_PATTERNS = Object.freeze([
     [/^\/campaigns\/[^/]+\/start$/, 'campaigns'],
 ]);
 
+const SERVICE_ROUTE_PREFIXES = Object.freeze([
+    ['/channels', 'whatsapp_channels'],
+    ['/contacts', 'contacts'],
+    ['/segments', 'contacts'],
+    ['/templates', 'templates'],
+    ['/inbox', 'inbox'],
+    ['/conversations', 'inbox'],
+    ['/auto-replies', 'auto_replies'],
+    ['/campaign', 'campaigns'],
+    ['/campaigns', 'campaigns'],
+    ['/payment-reminders', 'payment_reminders'],
+    ['/workflows', 'workflows'],
+    ['/tickets', 'tickets'],
+    ['/knowledge', 'faq'],
+    ['/objects/appointments', 'appointments'],
+    ['/objects/orders', 'orders'],
+    ['/objects/leads', 'leads'],
+    ['/objects/payments', 'payment_reminders'],
+    ['/objects/subscriptions', 'subscriptions'],
+    ['/objects/events', 'events'],
+    ['/objects/students', 'school_whatsapp_bot'],
+    ['/school', 'school_whatsapp_bot'],
+    ['/objects', 'workflows'],
+    ['/billing', 'analytics'],
+]);
+
 /** The capability a write needs, by path. Null when the route does not send. */
 function capabilityForPath(path) {
     if (SEND_ROUTES[path]) return SEND_ROUTES[path];
     for (const [pattern, capability] of SEND_ROUTE_PATTERNS) {
         if (pattern.test(path)) return capability;
+    }
+    return null;
+}
+
+function serviceForPath(path) {
+    if (path === '/messages') return 'bulk_messages';
+    return SERVICE_ROUTE_PREFIXES.find(([prefix]) => path === prefix || path.startsWith(`${prefix}/`))?.[1] ?? null;
+}
+
+function tenantAccessError(tenant, req) {
+    const service = serviceForPath(req.path);
+    if (service && !tenant.services.includes(service)) return `${service.replaceAll('_', ' ')} is disabled for this tenant`;
+    const controls = tenant.controls ?? {};
+    const sendCapability = capabilityForPath(req.path);
+    if (sendCapability && controls.sendingEnabled === false) return 'sending is disabled for this tenant';
+    if (sendCapability === 'campaigns' && controls.campaignsEnabled === false) {
+        return 'campaign sending is disabled for this tenant';
+    }
+    if (['/auto-replies', '/workflows'].some((prefix) => req.path === prefix || req.path.startsWith(`${prefix}/`))
+        && controls.automationsEnabled === false) {
+        return 'automations are disabled for this tenant';
     }
     return null;
 }
@@ -172,6 +227,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         clients: new Set(), // SSE subscribers
         media: new Map(),
         webhookConnect: null,
+        tenancy: deps.tenancy ?? null,
     };
     // Feature routers push to the browser through this rather than importing
     // `broadcast` and the client set.
@@ -271,7 +327,10 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     });
 
     app.put('/config', (req, res) => {
-        const merged = mergeConfig(state.config, req.body);
+        // Anti-ban limits belong to the platform admin (PUT /api/admin/tenants/:id/safety).
+        const body = { ...req.body };
+        for (const key of POLICY_KEYS) delete body[key];
+        const merged = mergeConfig(state.config, body);
         const problems = validateConfig(merged);
         if (problems.length) return res.status(400).json({ errors: problems });
         state.config = state.save(merged);
@@ -1145,7 +1204,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
  * are lazy and cached, so a tenant with six numbers pays only for the ones it
  * actually uses.
  */
-function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit }) {
+function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, policy = () => ({}) }) {
     const app = express.Router();
     const channels = new Channels(db);
     const runtimes = new Map();
@@ -1172,8 +1231,18 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit })
         }
         // The row is the source of truth: a PATCH elsewhere must be visible here.
         runtime.state.channel = channel;
+        enforcePolicy(runtime);
         return runtime;
     };
+
+    /** The platform's anti-ban limits win over whatever a channel's own settings say. */
+    const enforcePolicy = ({ state }) => {
+        const wanted = policy();
+        if (!POLICY_KEYS.some((key) => key in wanted && state.config[key] !== wanted[key])) return;
+        Object.assign(state.config, wanted);
+        state.manager.applyConfig(state.config);
+    };
+    const applyPolicy = () => runtimes.forEach(enforcePolicy);
 
     const fail = (res, err) => {
         if (err instanceof ChannelError) return res.status(err.status).json({ errors: [err.message] });
@@ -1268,7 +1337,7 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit })
         }
     });
 
-    return { router: app, channels, runtimes, runtimeFor };
+    return { router: app, channels, runtimes, runtimeFor, applyPolicy };
 }
 
 /** What an operator needs at a glance, without opening the channel. */
@@ -1293,7 +1362,8 @@ const AGENT_WRITES = new Set(['/messages', '/inbox/mark-read']);
  * An agent talks to customers and works the queue, so inbox and ticket writes
  * are theirs. Anything that changes how the account behaves still is not.
  */
-const AGENT_WRITE_PREFIXES = ['/conversations', '/tickets'];
+// `/school` checks each staff title's areas itself (class teachers mark attendance).
+const AGENT_WRITE_PREFIXES = ['/conversations', '/tickets', '/school'];
 
 export function createApp({
     db = new Database(), config = loadConfig(), deps = {}, dataDir = APP_DIR,
@@ -1329,12 +1399,55 @@ export function createApp({
                 config: isDefault ? config : loadConfig(path.join(tenantDir, 'config.json')),
                 tenantDir,
                 sessionDir: isDefault ? SESSION_DIR : path.join(tenantDir, 'wwebjs_auth'),
-                deps,
+                // The school module needs the tenant's services and user list.
+                deps: { ...deps, tenancy },
                 audit,
+                policy: () => tenancy.getTenant(tenantId)?.safety ?? {},
             });
             runtimes.set(tenantId, runtime);
         }
         return runtime;
+    };
+
+    const closeTenantRuntime = async (tenantId) => {
+        const runtime = runtimes.get(Number(tenantId));
+        if (!runtime) return;
+        for (const { state } of runtime.runtimes.values()) await closeState(state);
+        runtimes.delete(Number(tenantId));
+    };
+
+    const tenantOverview = (tenant) => {
+        const runtime = runtimes.get(tenant.id);
+        const scoped = db.forTenant(tenant.id);
+        const channels = new Channels(scoped).list().map((channel) => {
+            const health = channelHealth(channel, runtime?.runtimes.get(channel.id));
+            return {
+                id: channel.id,
+                displayName: channel.displayName,
+                provider: channel.provider,
+                phoneNumber: channel.phoneNumber,
+                status: channel.status,
+                capabilities: channel.capabilities,
+                isDefault: channel.isDefault,
+                health,
+            };
+        });
+        const counts = scoped.countsByStatus?.() ?? {};
+        return {
+            ...tenant,
+            users: tenancy.listUsers(tenant.id).length,
+            channels,
+            health: {
+                channels: channels.length,
+                connected: channels.filter((channel) => channel.health.connected).length,
+                running: channels.filter((channel) => channel.health.running).length,
+                disabled: channels.filter((channel) => channel.status !== 'active').length,
+                outsideWindow: channels.filter((channel) => !channel.health.withinSendingWindow).length,
+                sent: Number(counts.SENT ?? 0) + Number(counts.DELIVERED ?? 0) + Number(counts.READ ?? 0),
+                failed: Number(counts.FAILED ?? 0),
+                queued: Number(counts.QUEUED ?? 0) + Number(counts.SENDING ?? 0),
+            },
+        };
     };
 
     const audit = (req, action, target = '', detail = '') => tenancy.audit({
@@ -1352,7 +1465,8 @@ export function createApp({
     // Meta cannot send a bearer token, so the webhook is public and per tenant.
     app.all(['/api/webhook', '/api/webhook/:tenantId'], (req, res, next) => {
         const id = req.params.tenantId === undefined ? DEFAULT_TENANT_ID : Number(req.params.tenantId);
-        if (tenancy.getTenant(id)?.status !== 'active') return res.sendStatus(404);
+        const tenant = tenancy.getTenant(id);
+        if (tenant?.status !== 'active' || tenant.controls?.inboundEnabled === false) return res.sendStatus(404);
         const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
         req.url = `/webhook${query}`;
         return runtimeFor(id).router(req, res, next);
@@ -1446,26 +1560,111 @@ export function createApp({
     app.use('/api/admin', admin);
 
     admin.get('/tenants', (req, res) => res.json({
-        tenants: tenancy.listTenants().map((t) => ({ ...t, users: tenancy.listUsers(t.id).length })),
+        tenants: tenancy.listTenants().map(tenantOverview),
+        services: TENANT_SERVICES,
     }));
 
     admin.post('/tenants', async (req, res) => {
-        const { name, slug, owner = {} } = req.body ?? {};
         try {
-            const tenant = tenancy.createTenant(name, slug);
-            const user = await tenancy.createUser({ ...owner, tenantId: tenant.id, role: 'owner' });
+            const { tenant, owner: user } = await tenancy.createTenantWithOwner(req.body ?? {});
             audit(req, 'tenant.create', tenant.id, tenant.slug);
-            return res.status(201).json({ tenant, owner: user });
+            return res.status(201).json({ tenant: tenantOverview(tenant), owner: user });
         } catch (err) {
             return fail(res, err);
         }
     });
 
-    admin.patch('/tenants/:id', (req, res) => {
+    admin.patch('/tenants/:id', async (req, res) => {
         try {
-            const tenant = tenancy.setTenantStatus(req.params.id, req.body?.status);
-            audit(req, `tenant.${tenant.status}`, tenant.id);
-            return res.json({ tenant });
+            const tenant = tenancy.updateTenant(req.params.id, req.body ?? {});
+            if (tenant.status === 'suspended') await closeTenantRuntime(tenant.id);
+            audit(req, `tenant.${tenant.status}`, tenant.id, {
+                services: tenant.services,
+                controls: tenant.controls,
+            });
+            return res.json({ tenant: tenantOverview(tenant) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    // ---- school pack: master catalogue + one-click provisioning per tenant ----
+    const schoolRecipes = () => RECIPES.filter((r) => r.industry.includes('school'));
+
+    admin.get('/school/catalog', (req, res) => res.json({
+        recipes: schoolRecipes().map(({ key, name, description }) => ({ key, name, description })),
+        templates: Object.entries(SCHOOL_TEMPLATES).map(([name, body]) => ({ name, body })),
+        studentColumns: STUDENT_CSV_COLUMNS,
+    }));
+
+    admin.post('/tenants/:id/school/provision', (req, res) => {
+        const tenant = tenancy.getTenant(req.params.id);
+        if (!tenant) return res.status(404).json({ errors: ['tenant not found'] });
+        if (!tenant.services.includes('school_whatsapp_bot')) {
+            return res.status(409).json({ errors: ['tenant does not have the school_whatsapp_bot service enabled'] });
+        }
+        const body = req.body ?? {};
+        const wanted = body.recipes === undefined ? schoolRecipes() : [];
+        if (body.recipes !== undefined) {
+            if (!Array.isArray(body.recipes)) return res.status(400).json({ errors: ['recipes must be an array of keys'] });
+            for (const key of body.recipes) {
+                const recipe = getRecipe(key);
+                if (!recipe) return res.status(400).json({ errors: [`unknown recipe: ${key}`] });
+                wanted.push(recipe);
+            }
+        }
+        const status = body.status === 'active' ? 'active' : 'draft';
+        const rt = runtimeFor(tenant.id);
+        const channel = rt.channels.getDefault();
+        if (!channel) return res.status(409).json({ errors: ['tenant has no channel yet'] });
+        const { templates, workflows } = rt.runtimeFor(channel).state;
+
+        const result = { templates: [], workflows: [], skipped: [] };
+        if (body.templates !== false) {
+            for (const [name, text] of Object.entries(SCHOOL_TEMPLATES)) {
+                if (templates.getByName(name)) { result.skipped.push(`template:${name}`); continue; }
+                templates.create({ name, body: text, channelId: channel.id });
+                result.templates.push(name);
+            }
+        }
+        const existing = new Set(workflows.list().map((w) => w.name));
+        for (const recipe of wanted) {
+            if (existing.has(recipe.build().name)) { result.skipped.push(recipe.key); continue; }
+            const { workflow, templates: made } = installRecipe(recipe, { workflows, templates, channelId: channel.id, status });
+            result.templates.push(...made);
+            result.workflows.push({ id: workflow.id, name: workflow.name });
+        }
+        audit(req, 'tenant.school_provision', tenant.id, { templates: result.templates.length, workflows: result.workflows.length });
+        return res.status(201).json(result);
+    });
+
+    // Anti-ban policy (pacing, daily cap, rate, retries): effective values = defaults + overrides.
+    const safetyView = (tenant) => ({
+        safety: Object.fromEntries(POLICY_KEYS.map((key) => [key, tenant.safety[key] ?? DEFAULTS[key]])),
+    });
+
+    admin.get('/tenants/:id/safety', (req, res) => {
+        const tenant = tenancy.getTenant(req.params.id);
+        return tenant ? res.json(safetyView(tenant)) : res.status(404).json({ errors: ['tenant not found'] });
+    });
+
+    admin.put('/tenants/:id/safety', (req, res) => {
+        try {
+            const tenant = tenancy.setSafety(req.params.id, req.body ?? {});
+            runtimes.get(tenant.id)?.applyPolicy();
+            audit(req, 'tenant.safety', tenant.id, tenant.safety);
+            return res.json(safetyView(tenant));
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    admin.delete('/tenants/:id', async (req, res) => {
+        try {
+            const tenant = tenancy.archiveTenant(req.params.id);
+            await closeTenantRuntime(tenant.id);
+            audit(req, 'tenant.delete', tenant.id, tenant.slug);
+            return res.json({ tenant: tenantOverview(tenant), deleted: 1 });
         } catch (err) {
             return fail(res, err);
         }
@@ -1518,6 +1717,9 @@ export function createApp({
 
     // ------------------------------------------------- tenant routes --
     app.use('/api', withTenant, (req, res, next) => {
+        const tenant = tenancy.getTenant(req.tenantId);
+        const accessError = tenant ? tenantAccessError(tenant, req) : 'tenant not found';
+        if (accessError) return res.status(403).json({ errors: [accessError] });
         const write = req.method !== 'GET' && req.method !== 'HEAD';
         const agentMayWrite = AGENT_WRITES.has(req.path)
             || AGENT_WRITE_PREFIXES.some((prefix) => req.path.startsWith(prefix));
@@ -1583,6 +1785,25 @@ export function createApp({
                 console.error(`[workflows] run ${runId} failed to resume:`, err.message);
             }
         }
+
+        // School clock: auto absent alerts, monthly summaries, overdue fees,
+        // scheduled homework/notices. Only tenants that have used the school
+        // portal have a settings row, so other tenants never get a runtime here.
+        try {
+            for (const { tenant_id: tenantId } of db.db.prepare('SELECT tenant_id FROM school_settings').all()) {
+                try {
+                    const tenant = tenancy.getTenant(tenantId);
+                    if (tenant?.status !== 'active' || !tenant.services.includes('school_whatsapp_bot')) continue;
+                    const runtime = runtimeFor(tenantId);
+                    const channel = runtime.channels.getDefault();
+                    if (channel) await schoolSweep(runtime.runtimeFor(channel).state);
+                } catch (err) {
+                    console.error(`[school] sweep for tenant ${tenantId} failed:`, err.message);
+                }
+            }
+        } catch (err) {
+            console.error('[school] sweep failed:', err.message);
+        }
     };
 
     if (scheduler) {
@@ -1631,6 +1852,10 @@ async function handleInbound(state, message) {
         // message service enforces this too, but returning early also skips the
         // typing delay and the FAQ lookup.
         if (state.conversations?.isBotPaused(saved.sender, state.channel.id)) return saved;
+
+        // Parent keywords (ATTENDANCE, FEES, LEAVE...) before the FAQ; only a
+        // number linked to a student is answered, everyone else falls through.
+        if ((await handleSchoolCommand(state, saved)).handled) return saved;
 
         // The knowledge base answers first and the keyword engine is the
         // fallback, so an operator migrates at their own pace: with no FAQ

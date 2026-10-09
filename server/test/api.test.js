@@ -82,9 +82,9 @@ describe('config API', () => {
     });
 
     it('rejects settings that cannot work', async () => {
-        const { status, body } = await api('PUT', '/api/config', { rateLimitPerSecond: 0 });
+        const { status, body } = await api('PUT', '/api/config', { requestTimeout: 0 });
         assert.equal(status, 400);
-        assert.match(body.errors[0], /Rate limit/);
+        assert.match(body.errors[0], /Request timeout/);
     });
 });
 

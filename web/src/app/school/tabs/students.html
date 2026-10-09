@@ -1,0 +1,193 @@
+<header class="s-head">
+  <div>
+    <span class="eyebrow"><span class="ms" aria-hidden="true">groups</span> Directory</span>
+    <h2>Students <span class="count">{{ filtered().length }}</span></h2>
+    <p>Every student, their parents' WhatsApp and the segments broadcasts are sent to.</p>
+  </div>
+  @if (canEdit()) {
+    <div class="head-actions">
+      <button class="btn ghost sm" type="button" (click)="downloadTemplate()"><span class="ms" aria-hidden="true">download</span> CSV template</button>
+      <input #file class="sr-only" type="file" accept=".csv,.xlsx,.xls" (change)="importFile($event)" tabindex="-1" aria-hidden="true" />
+      <button class="btn sm" type="button" (click)="file.click()" [disabled]="importing()">
+        @if (importing()) { <span class="spinner"></span> } @else { <span class="ms" aria-hidden="true">upload_file</span> } Bulk import
+      </button>
+      <button class="btn primary sm" type="button" (click)="add()"><span class="ms" aria-hidden="true">person_add</span> Add student</button>
+    </div>
+  }
+</header>
+
+<!-- Auto segments -->
+<div class="segments" aria-label="Auto segments">
+  @for (c of classChips(); track c.key; let i = $index) {
+    <span class="s-chip s-enter" [style.--i]="i"><span class="ms" aria-hidden="true">school</span>{{ c.label }} <b>{{ c.count }}</b></span>
+  }
+  @for (c of otherChips(); track c.label; let i = $index) {
+    <button type="button" class="s-chip s-enter" [style.--i]="classChips().length + i" [attr.aria-pressed]="chip()?.label === c.label" (click)="toggleChip(c)">
+      <span class="ms" aria-hidden="true">{{ c.kind === 'route' ? 'directions_bus' : 'bed' }}</span>{{ c.label }} <b>{{ c.count }}</b>
+    </button>
+  }
+</div>
+
+<div aria-live="polite" class="live">
+  @if (error()) {
+    <p class="s-banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ error() }}
+      <button class="btn sm" type="button" (click)="load()">Retry</button></p>
+  }
+  @if (message()) {
+    <p class="s-banner tone-ok"><span class="ms" aria-hidden="true">task_alt</span> {{ message() }}
+      <button class="btn ghost sm" type="button" (click)="message.set('')">Dismiss</button></p>
+  }
+  @if (importResult(); as r) {
+    <div class="s-banner {{ r.errors.length ? 'tone-warn' : 'tone-ok' }}">
+      <span class="ms" aria-hidden="true">upload_file</span>
+      {{ r.imported }} imported · {{ r.updated }} updated · {{ r.errors.length }} row errors
+      <button class="btn ghost sm" type="button" (click)="importResult.set(null)">Dismiss</button>
+    </div>
+    @if (r.errors.length) {
+      <div class="s-card errs tone-warn">
+        <h3><span class="ms" aria-hidden="true">rule</span> Rows that need fixing</h3>
+        <div class="s-table">
+          <table>
+            <thead><tr><th class="num">Row</th><th>Problem</th></tr></thead>
+            <tbody>
+              @for (e of r.errors; track $index) { <tr [style.--i]="$index"><td class="num">{{ e.row }}</td><td>{{ e.error }}</td></tr> }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    }
+  }
+</div>
+
+<section class="s-card tone-info">
+  <div class="search">
+    <span class="ms" aria-hidden="true">search</span>
+    <label class="sr-only" for="st-q">Search students</label>
+    <input id="st-q" type="search" placeholder="Search name, roll, parent, phone, route..." [value]="query()" (input)="query.set($any($event.target).value)" />
+  </div>
+
+  @if (loading()) {
+    @for (k of [1, 2, 3, 4, 5, 6]; track k) { <div class="s-skel" style="height: 34px"></div> }
+  } @else if (!filtered().length) {
+    <div class="s-empty">
+      <span class="ms" aria-hidden="true">{{ students().length ? 'search_off' : 'group_add' }}</span>
+      <strong>{{ students().length ? 'No matches' : 'No students yet' }}</strong>
+      <p>{{ students().length ? 'Try another name, roll number or phone.' : 'Add students one by one or import the whole school from a spreadsheet.' }}</p>
+    </div>
+  } @else {
+    <div class="s-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Roll</th><th>Name</th><th>Class</th><th>Father</th><th>Mother</th><th>WhatsApp</th><th>Bus route</th><th>Hostel</th>
+            @if (canEdit()) { <th><span class="sr-only">Actions</span></th> }
+          </tr>
+        </thead>
+        <tbody>
+          @for (s of filtered(); track s.id; let i = $index) {
+            <tr [style.--i]="i">
+              <td class="mono">{{ s.rollNumber }}</td>
+              <td class="name"><span class="avatar" aria-hidden="true">{{ s.name.charAt(0) }}</span>{{ s.name }}</td>
+              <td><span class="s-pill tone-info">{{ s.classKey }}</span></td>
+              <td>{{ s.fatherName || '—' }}</td>
+              <td>{{ s.motherName || '—' }}</td>
+              <td class="mono">{{ s.parentPhone || '—' }}</td>
+              <td>{{ s.busRoute || '—' }}</td>
+              <td>@if (s.hostel) { <span class="s-pill tone-warn">Hostel</span> } @else { <span class="muted">—</span> }</td>
+              @if (canEdit()) {
+                <td class="acts">
+                  @if (confirmId() === s.id) {
+                    <span class="confirm">
+                      Remove?
+                      <button class="btn danger sm" type="button" (click)="remove(s)" [disabled]="deleting()">Yes, remove</button>
+                      <button class="btn ghost sm" type="button" (click)="confirmId.set(null)">Keep</button>
+                    </span>
+                  } @else {
+                    <button class="btn ghost icon sm" type="button" (click)="edit(s)" [attr.aria-label]="'Edit ' + s.name"><span class="ms" aria-hidden="true">edit</span></button>
+                    <button class="btn ghost icon sm del" type="button" (click)="confirmId.set(s.id)" [attr.aria-label]="'Remove ' + s.name"><span class="ms" aria-hidden="true">delete</span></button>
+                  }
+                </td>
+              }
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</section>
+
+@if (drawer()) {
+  <button class="s-scrim" type="button" aria-label="Close form" (click)="drawer.set(false)"></button>
+  <aside class="s-drawer" role="dialog" aria-modal="true" aria-labelledby="st-form-title">
+    <div class="drawer-head">
+      <div>
+        <span class="eyebrow">{{ draft().id ? 'Edit student' : 'New student' }}</span>
+        <h3 id="st-form-title">{{ draft().name || 'Student details' }}</h3>
+      </div>
+      <button class="btn ghost icon" type="button" (click)="drawer.set(false)" aria-label="Close"><span class="ms" aria-hidden="true">close</span></button>
+    </div>
+
+    <form class="form" (submit)="$event.preventDefault(); save()" novalidate>
+      @let e = shownErrors();
+      <div class="s-field wide">
+        <label for="sf-name">Student name *</label>
+        <input id="sf-name" name="name" required [class.invalid]="e.name" [attr.aria-invalid]="!!e.name" aria-describedby="sf-name-err"
+               [ngModel]="draft().name" (ngModelChange)="patch('name', $event)" />
+        @if (e.name) { <span class="err" id="sf-name-err">{{ e.name }}</span> }
+      </div>
+      <div class="s-field">
+        <label for="sf-roll">Roll no. *</label>
+        <input id="sf-roll" name="roll" required [class.invalid]="e.rollNumber" [attr.aria-invalid]="!!e.rollNumber" aria-describedby="sf-roll-err"
+               [ngModel]="draft().rollNumber" (ngModelChange)="patch('rollNumber', $event)" />
+        @if (e.rollNumber) { <span class="err" id="sf-roll-err">{{ e.rollNumber }}</span> }
+      </div>
+      <div class="s-field">
+        <label for="sf-class">Class *</label>
+        <input id="sf-class" name="className" required placeholder="10" [class.invalid]="e.className" [attr.aria-invalid]="!!e.className" aria-describedby="sf-class-err"
+               [ngModel]="draft().className" (ngModelChange)="patch('className', $event)" />
+        @if (e.className) { <span class="err" id="sf-class-err">{{ e.className }}</span> }
+      </div>
+      <div class="s-field">
+        <label for="sf-section">Section *</label>
+        <input id="sf-section" name="section" required placeholder="A" [class.invalid]="e.section" [attr.aria-invalid]="!!e.section" aria-describedby="sf-section-err"
+               [ngModel]="draft().section" (ngModelChange)="patch('section', $event)" />
+        @if (e.section) { <span class="err" id="sf-section-err">{{ e.section }}</span> }
+      </div>
+      <div class="s-field">
+        <label for="sf-father">Father's name</label>
+        <input id="sf-father" name="father" [ngModel]="draft().fatherName" (ngModelChange)="patch('fatherName', $event)" />
+      </div>
+      <div class="s-field">
+        <label for="sf-mother">Mother's name</label>
+        <input id="sf-mother" name="mother" [ngModel]="draft().motherName" (ngModelChange)="patch('motherName', $event)" />
+      </div>
+      <div class="s-field wide">
+        <label for="sf-phone">Parent WhatsApp</label>
+        <input id="sf-phone" name="phone" type="tel" inputmode="tel" placeholder="9876512001 or +919876512001"
+               [class.invalid]="e.parentPhone" [attr.aria-invalid]="!!e.parentPhone" aria-describedby="sf-phone-err"
+               [ngModel]="draft().parentPhone" (ngModelChange)="patch('parentPhone', $event)" />
+        @if (e.parentPhone) { <span class="err" id="sf-phone-err">{{ e.parentPhone }}</span> } @else { <span class="hint">Alerts, homework and fee reminders go here.</span> }
+      </div>
+      <div class="s-field">
+        <label for="sf-route">Bus route</label>
+        <input id="sf-route" name="route" placeholder="4" [ngModel]="draft().busRoute" (ngModelChange)="patch('busRoute', $event)" />
+      </div>
+      <label class="check">
+        <input type="checkbox" name="hostel" [checked]="draft().hostel" (change)="patch('hostel', $any($event.target).checked)" />
+        Lives in hostel
+      </label>
+
+      <div aria-live="polite" class="wide">
+        @if (saveError()) { <p class="s-banner" role="alert">{{ saveError() }}</p> }
+      </div>
+
+      <div class="wide drawer-actions">
+        <button class="btn ghost" type="button" (click)="drawer.set(false)">Cancel</button>
+        <button class="btn primary" type="submit" [disabled]="saving()">
+          @if (saving()) { <span class="spinner"></span> } @else { <span class="ms" aria-hidden="true">check</span> }
+          {{ draft().id ? 'Save changes' : 'Add student' }}
+        </button>
+      </div>
+    </form>
+  </aside>
+}

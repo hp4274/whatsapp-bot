@@ -1,0 +1,261 @@
+@use '../school-shared' as s;
+
+@include s.all;
+
+:host {
+  display: grid;
+  gap: var(--space-xl);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.live { display: grid; gap: var(--space-sm); &:empty { display: none; } }
+
+.note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+
+  code {
+    font-family: var(--mono);
+    font-weight: 700;
+    color: var(--primary);
+    background: var(--primary-soft);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+}
+
+.head-actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); }
+
+.grid-card.editing {
+  border-style: dashed;
+  border-color: var(--accent);
+}
+
+.print-title { display: none; }
+
+.tt-scroll {
+  overflow-x: auto;
+  margin: 0 calc(var(--space-xl) * -1);
+  padding: 4px var(--space-xl) 8px;
+  perspective: 1200px;
+
+  @media (max-width: 560px) {
+    margin: 0 calc(var(--space-lg) * -1);
+    padding: 4px var(--space-lg) 8px;
+  }
+}
+
+.tt {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: separate;
+  border-spacing: 6px;
+  table-layout: fixed;
+
+  thead th {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    color: var(--text-muted);
+    padding: 4px 0 8px;
+
+    &.today { color: var(--primary); }
+  }
+
+  .corner { width: 120px; text-align: left; }
+
+  tbody tr {
+    animation: s-rise 460ms var(--ease) both;
+    animation-delay: calc(var(--i, 0) * 50ms);
+  }
+
+  td { padding: 0; vertical-align: top; }
+
+  td.today .slot:not(.empty) {
+    border-color: color-mix(in srgb, var(--primary) 50%, var(--border));
+  }
+}
+
+.period {
+  text-align: left;
+  vertical-align: middle;
+  padding-right: 6px;
+
+  .pnum {
+    display: inline-grid;
+    place-items: center;
+    min-width: 30px;
+    height: 30px;
+    padding: 0 6px;
+    border-radius: 10px;
+    font-weight: 900;
+    color: var(--on-primary);
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    box-shadow: 0 4px 10px color-mix(in srgb, var(--primary) 30%, transparent);
+  }
+
+  .times {
+    display: grid;
+    gap: 4px;
+    margin-top: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+
+    input { padding: 4px 6px; font-size: 12px; }
+  }
+}
+
+.slot {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  width: 100%;
+  min-height: 84px;
+  padding: 10px;
+  text-align: left;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 60%),
+    var(--surface-alt);
+  transition: transform var(--base) var(--ease), box-shadow var(--base) var(--ease), border-color var(--fast) var(--ease);
+
+  &:not(:disabled):hover {
+    transform: translateY(-3px) rotateX(6deg);
+    box-shadow: 0 12px 24px color-mix(in srgb, var(--text) 12%, transparent);
+  }
+
+  &:disabled { cursor: default; opacity: 1; }
+
+  strong { font-size: 13px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; }
+  span { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  small { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; color: var(--text-muted); .ms { font-size: 13px; } }
+
+  &.empty {
+    place-content: center;
+    background: transparent;
+    border-style: dashed;
+  }
+
+  .free { font-size: 11px; letter-spacing: 0.1em; opacity: 0.6; text-align: center; }
+  .add { font-size: 22px; color: var(--accent); }
+
+  .flag {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-style: normal;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    color: var(--surface);
+    background: var(--tone);
+  }
+
+  &.changed {
+    --tone: var(--warning);
+    border-color: var(--warning);
+    background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  }
+
+  &.cancelled {
+    --tone: var(--danger);
+    border-color: var(--danger);
+    background:
+      repeating-linear-gradient(135deg, color-mix(in srgb, var(--danger) 8%, transparent) 0 6px, transparent 6px 12px),
+      var(--surface);
+
+    strong { text-decoration: line-through; color: var(--text-muted); }
+  }
+}
+
+/* Popover --------------------------------------------------------------- */
+.pop {
+  width: min(360px, calc(100vw - 32px));
+  padding: var(--space-xl);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 6px);
+  box-shadow: 0 30px 60px color-mix(in srgb, var(--text) 25%, transparent);
+
+  &:popover-open {
+    display: grid;
+    gap: var(--space-lg);
+    animation: s-pop 240ms var(--ease) both;
+  }
+
+  &::backdrop {
+    background: color-mix(in srgb, var(--text) 30%, transparent);
+    backdrop-filter: blur(2px);
+  }
+}
+
+.pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  h3 { font-size: 17px; }
+}
+
+.pop-form { display: grid; gap: var(--space-md); }
+.pop-detail { display: grid; strong { font-size: 20px; } }
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+
+  input { width: 16px; height: 16px; accent-color: var(--primary); }
+}
+
+.s-seg button { --on-tone: var(--surface); }
+
+/* Print: only the grid. The body class is set by print() for the duration. */
+@media print {
+  ::ng-deep body.tt-printing * { visibility: hidden; }
+  ::ng-deep body.tt-printing .tt-print,
+  ::ng-deep body.tt-printing .tt-print * { visibility: visible; }
+
+  .tt-print {
+    position: fixed;
+    inset: 0;
+    padding: 12mm;
+    background: white;
+    color: black;
+  }
+
+  .print-title { display: block; margin-bottom: 8px; font-size: 16px; }
+  .tt-scroll { overflow: visible; margin: 0; padding: 0; }
+  .tt { min-width: 0; }
+  .tt tbody tr { animation: none; }
+
+  .slot {
+    min-height: 0;
+    color: black;
+    background: none;
+    border-color: #999;
+    box-shadow: none;
+
+    span, small { color: #333; }
+  }
+
+  .period .pnum { color: black; background: none; box-shadow: none; border: 1px solid #999; }
+}

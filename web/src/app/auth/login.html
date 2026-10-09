@@ -1,4 +1,4 @@
-<div class="login" (pointermove)="tilt($event)" (pointerleave)="level()">
+<div class="login">
   <div class="aurora" aria-hidden="true">
     <span class="orb a"></span>
     <span class="orb b"></span>
@@ -20,7 +20,7 @@
       </ul>
     </div>
 
-    <form #card class="card panel" (submit)="submit($event)" novalidate>
+    <form class="card panel" (pointermove)="tilt($event)" (pointerleave)="level($event)" (submit)="submit($event)" novalidate>
       <span class="gleam" aria-hidden="true"></span>
       <h2>Sign in</h2>
       <p class="muted">Use the credentials your administrator issued.</p>

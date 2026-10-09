@@ -1,0 +1,116 @@
+<section class="sp">
+  <header class="sp-head">
+    <div class="sp-title">
+      <span class="sp-mark" aria-hidden="true"><span class="ms">school</span></span>
+      <div>
+        <strong>School desk</strong>
+        @if (roleLabel()) { <span class="role">{{ roleLabel() }}</span> }
+      </div>
+    </div>
+
+    @if (showPicker()) {
+      <label class="class-pick">
+        <span class="ms" aria-hidden="true">class</span>
+        <span class="sr-only">Class</span>
+        <select [value]="tabClassKey()" (change)="pickClass($event)" aria-label="Class">
+          @if (!classRequired()) {
+            <option value="" [selected]="tabClassKey() === ''">All classes</option>
+          }
+          @for (c of visibleClasses(); track c.key) {
+            <option [value]="c.key" [selected]="c.key === tabClassKey()">Class {{ c.className }}{{ c.section }} ({{ c.students }})</option>
+          }
+        </select>
+      </label>
+    }
+  </header>
+
+  @if (loading()) {
+    <div class="sp-tabs skeleton" aria-hidden="true">
+      @for (n of [1, 2, 3, 4, 5]; track n) { <span class="tab-skel"></span> }
+    </div>
+    <div class="sp-loading" aria-busy="true" aria-live="polite">
+      <span class="spinner"></span> Opening your school desk...
+    </div>
+  } @else if (error()) {
+    <div class="sp-error" role="alert">
+      <span class="ms" aria-hidden="true">cloud_off</span>
+      <div>
+        <strong>Couldn't open the school desk</strong>
+        <p>{{ error() }}</p>
+      </div>
+      <button class="btn" type="button" (click)="load()">
+        <span class="ms" aria-hidden="true">refresh</span> Retry
+      </button>
+    </div>
+  } @else if (!tabs().length) {
+    <div class="sp-error quiet" role="status">
+      <span class="ms" aria-hidden="true">lock</span>
+      <div>
+        <strong>No school areas assigned</strong>
+        <p>Ask your principal to give your account a role on the Staff tab.</p>
+      </div>
+    </div>
+  } @else {
+    <div class="sp-shell">
+    <nav class="sp-rail" role="tablist" aria-label="School areas">
+      @for (g of groups(); track g.name) {
+        <div class="grp">
+          <span class="grp-name">{{ g.name }}</span>
+          @for (t of g.tabs; track t.area) {
+            <button type="button" role="tab" class="tab"
+                    [class.on]="t.area === active()" [attr.aria-selected]="t.area === active()"
+                    (click)="go(t.area)">
+              <span class="ms" aria-hidden="true">{{ t.icon }}</span>
+              <span>{{ t.label }}</span>
+            </button>
+          }
+        </div>
+      }
+    </nav>
+
+    <div class="sp-body" role="tabpanel" [attr.aria-label]="activeMeta().label">
+      @switch (active()) {
+        @case ('overview') {
+          <school-overview [classes]="visibleClasses()" [classKey]="tabClassKey()" [me]="me()" (navigate)="go($event)" />
+        }
+        @case ('attendance') {
+          <school-attendance [classes]="visibleClasses()" [classKey]="tabClassKey()" [me]="me()" (navigate)="go($event)" />
+        }
+        @case ('timetable') {
+          <school-timetable [classes]="visibleClasses()" [classKey]="tabClassKey()" [me]="me()" (navigate)="go($event)" />
+        }
+        @case ('homework') {
+          <school-homework [classes]="visibleClasses()" [classKey]="tabClassKey()" [me]="me()" (navigate)="go($event)" />
+        }
+        @case ('notices') {
+          <school-notices [classes]="visibleClasses()" [classKey]="tabClassKey()" [me]="me()" (navigate)="go($event)" />
+        }
+        @case ('students') {
+          <school-students [classes]="visibleClasses()" [classKey]="tabClassKey()" [me]="me()" (navigate)="go($event)" />
+        }
+        @case ('fees') {
+          <school-fees [classes]="visibleClasses()" [classKey]="tabClassKey()" [me]="me()" (navigate)="go($event)" />
+        }
+        @case ('leave') {
+          <school-leave [classes]="visibleClasses()" [classKey]="tabClassKey()" [me]="me()" (navigate)="go($event)" />
+        }
+        @case ('results') {
+          <school-results [classes]="visibleClasses()" [classKey]="tabClassKey()" [me]="me()" (navigate)="go($event)" />
+        }
+        @case ('broadcast') {
+          <school-broadcast [classes]="visibleClasses()" [classKey]="tabClassKey()" [me]="me()" (navigate)="go($event)" />
+        }
+        @case ('ptm') {
+          <school-ptm [classes]="visibleClasses()" [classKey]="tabClassKey()" [me]="me()" (navigate)="go($event)" />
+        }
+        @case ('staff') {
+          <school-staff [classes]="visibleClasses()" [classKey]="tabClassKey()" [me]="me()" (navigate)="go($event)" />
+        }
+        @case ('settings') {
+          <school-settings [classes]="visibleClasses()" [classKey]="tabClassKey()" [me]="me()" (navigate)="go($event)" />
+        }
+      }
+    </div>
+    </div>
+  }
+</section>

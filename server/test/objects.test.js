@@ -61,13 +61,14 @@ after(() => {
 describe('the registry', () => {
     it('has every Phase 11 object except ticket', () => {
         assert.deepEqual(Object.keys(OBJECT_TYPES).sort(),
-            ['appointment', 'event', 'lead', 'order', 'payment', 'student', 'subscription']);
+            ['appointment', 'attendance', 'event', 'exam_result', 'fee', 'homework', 'lead', 'notice', 'order', 'payment', 'student', 'subscription', 'timetable']);
     });
 
     it('emits exactly the Phase 6 trigger names it owns', () => {
         const names = eventTypes();
         for (const expected of ['lead.created', 'lead.updated', 'appointment.created', 'appointment.updated',
-            'order.created', 'order.status_changed', 'payment.due', 'subscription.expiring', 'event.created']) {
+            'order.created', 'order.status_changed', 'payment.due', 'subscription.expiring', 'event.created',
+            'attendance.created', 'homework.created', 'exam_result.created', 'timetable.updated']) {
             assert.ok(names.includes(expected), expected);
         }
         assert.ok(!names.some((n) => n.startsWith('ticket.')));

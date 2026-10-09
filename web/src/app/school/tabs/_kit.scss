@@ -1,0 +1,508 @@
+@use '../school-shared' as s;
+
+/* Part B tab kit: the editorial vocabulary shared by homework, notices, fees,
+ * leave, results, broadcast, staff and settings. Every colour comes from the
+ * tokens in styles.scss so light and dark stay in step.
+ * Built on ../school-shared (Part A) for the tilt surface.
+ * Usage: `@use 'kit';` then `@include kit.base;` at the top of a tab's scss. */
+
+@mixin base {
+  :host {
+    display: grid;
+    gap: var(--space-xl);
+    perspective: 1400px;
+  }
+
+  /* Editorial header: eyebrow, oversized title, short deck. */
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: space-between;
+    gap: var(--space-lg);
+
+    .eyebrow {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      color: var(--tone, var(--primary));
+    }
+
+    h2 {
+      margin-top: 4px;
+      font-size: clamp(24px, 3.2vw, 34px);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    p {
+      margin: 6px 0 0;
+      max-width: 60ch;
+      color: var(--text-muted);
+    }
+  }
+
+  /* Layered card: a soft tinted slab sits behind the surface for depth. */
+  .panel {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) + 6px);
+    box-shadow: var(--shadow);
+    padding: var(--space-xl);
+    min-width: 0;
+    animation: rise 520ms var(--ease) backwards;
+    animation-delay: calc(var(--i, 0) * 40ms);
+
+    &::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      border-radius: inherit;
+      pointer-events: none;
+      background:
+        radial-gradient(120% 60% at 0% 0%, color-mix(in srgb, var(--tone, var(--primary)) 10%, transparent), transparent 60%),
+        linear-gradient(180deg, color-mix(in srgb, var(--text) 3%, transparent), transparent 35%);
+    }
+
+    > h3 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 15px;
+      margin-bottom: var(--space-lg);
+    }
+  }
+
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: var(--space-xl);
+    align-items: start;
+
+    @media (max-width: 960px) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  .form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-lg);
+
+    .wide { grid-column: 1 / -1; }
+
+    @media (max-width: 560px) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  /* Segmented toggle with a sliding feel. */
+  .seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 4px;
+    border-radius: 999px;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+
+    button {
+      border: 0;
+      background: transparent;
+      color: var(--text-muted);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-weight: 600;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background var(--base) var(--ease), color var(--base) var(--ease), box-shadow var(--base) var(--ease);
+
+      &[aria-pressed='true'] {
+        background: var(--surface);
+        color: var(--text);
+        box-shadow: 0 2px 10px color-mix(in srgb, var(--text) 12%, transparent);
+      }
+    }
+  }
+
+  .pill {
+    padding: 3px 10px;
+    font-size: 11px;
+    text-transform: capitalize;
+    background: color-mix(in srgb, var(--tone, var(--text-muted)) 14%, transparent);
+    color: var(--tone, var(--text-muted));
+    transition: background var(--base) var(--ease), color var(--base) var(--ease);
+
+    &::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+  }
+
+  .ok { --tone: var(--primary); }
+  .warn { --tone: var(--warning); }
+  .bad { --tone: var(--danger); }
+  .info { --tone: var(--accent); }
+  .mute { --tone: var(--text-muted); }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 6px 5px 12px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 600;
+    max-width: 100%;
+
+    span.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    button {
+      border: 0;
+      background: transparent;
+      color: inherit;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      padding: 2px;
+
+      &:hover { background: color-mix(in srgb, currentColor 16%, transparent); }
+    }
+  }
+
+  /* Multi-select as toggle chips (real checkboxes underneath). */
+  .picks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+
+    label {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface-alt);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all var(--fast) var(--ease);
+
+      &:has(input:checked) {
+        background: var(--primary-soft);
+        border-color: var(--primary);
+        color: var(--primary);
+        transform: translateY(-1px);
+      }
+
+      &:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+    }
+
+    input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  }
+
+  .banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-radius: var(--radius);
+    border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent);
+    background: color-mix(in srgb, var(--tone) 10%, var(--surface));
+    color: var(--tone);
+    font-weight: 600;
+    animation: rise 320ms var(--ease) backwards;
+
+    &:not(.ok, .warn, .info) { --tone: var(--danger); }
+  }
+
+  .tbl {
+    overflow-x: auto;
+    margin: 0 calc(var(--space-xl) * -1);
+    padding: 0 var(--space-xl);
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+    th {
+      text-align: left;
+      font-size: 11px;
+      letter-spacing: 0.01em;
+      color: var(--text-muted);
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 12px 10px;
+      border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+      white-space: nowrap;
+    }
+
+    tbody tr {
+      animation: rise 400ms var(--ease) backwards;
+      animation-delay: calc(var(--i, 0) * 30ms);
+      transition: background var(--fast) var(--ease);
+
+      &:hover { background: color-mix(in srgb, var(--primary) 5%, transparent); }
+    }
+
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+  }
+
+  .empty {
+    display: grid;
+    justify-items: center;
+    gap: 6px;
+    padding: 40px 16px;
+    text-align: center;
+    color: var(--text-muted);
+
+    .ms {
+      font-size: 40px;
+      color: var(--tone, var(--primary));
+      animation: float 3.2s var(--ease) infinite;
+    }
+
+    strong { color: var(--text); font-size: 15px; }
+  }
+
+  .skel {
+    height: 18px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, var(--surface-alt) 25%, color-mix(in srgb, var(--surface-alt) 50%, var(--surface)) 50%, var(--surface-alt) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.2s linear infinite;
+    margin: 10px 0;
+  }
+
+  /* Real pointer tilt comes from the shared [schoolTilt] directive. */
+  @include s.tilt;
+
+  .stat {
+    position: relative;
+    overflow: hidden;
+    padding: var(--space-lg) var(--space-xl);
+    border-radius: calc(var(--radius) + 4px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    animation: rise 520ms var(--ease) backwards;
+    animation-delay: calc(var(--i, 0) * 60ms);
+
+    small {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      color: var(--tone, var(--text-muted));
+    }
+
+    b {
+      display: block;
+      margin-top: 4px;
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    &::after {
+      content: '';
+      position: absolute;
+      right: -30px;
+      top: -30px;
+      width: 110px;
+      height: 110px;
+      border-radius: 50%;
+      background: radial-gradient(circle, color-mix(in srgb, var(--tone, var(--primary)) 28%, transparent), transparent 70%);
+    }
+  }
+
+  .note {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    font-size: 12px;
+    color: var(--text-muted);
+
+    code {
+      font-family: var(--mono);
+      font-weight: 700;
+      color: var(--primary);
+      background: var(--primary-soft);
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+  }
+
+  .lbl {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  /* File picker as a dashed drop slab. */
+  .drop {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 42px;
+    padding: 8px 12px;
+    border: 1.5px dashed var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease), background var(--fast) var(--ease);
+
+    &:hover, &:has(input:focus-visible) {
+      border-color: var(--primary);
+      color: var(--primary);
+      background: color-mix(in srgb, var(--primary) 6%, transparent);
+    }
+
+    input { position: absolute; inset: 0; opacity: 0; cursor: pointer; padding: 0; }
+  }
+
+  .flash {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--primary);
+    font-weight: 600;
+    font-size: 13px;
+
+    &:not(:empty) { animation: rise 320ms var(--ease) backwards; }
+  }
+
+  .foot {
+    margin-top: var(--space-xl);
+    padding-top: var(--space-lg);
+    border-top: 1px dashed var(--border);
+  }
+
+  /* Toggle switch: <label class="switch"><input type="checkbox"><i></i> Text</label> */
+  .switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    cursor: pointer;
+
+    input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+
+    i {
+      position: relative;
+      flex: none;
+      width: 40px;
+      height: 22px;
+      border-radius: 999px;
+      background: var(--border);
+      transition: background var(--base) var(--ease);
+
+      &::after {
+        content: '';
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--surface);
+        box-shadow: 0 2px 6px color-mix(in srgb, var(--text) 25%, transparent);
+        transition: transform var(--base) cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+    }
+
+    input:checked + i { background: var(--primary); }
+    input:checked + i::after { transform: translateX(18px); }
+    input:focus-visible + i { outline: 2px solid var(--accent); outline-offset: 2px; }
+  }
+
+  .btn.sm { padding: 6px 10px; font-size: 12px; }
+  .btn.ghost { background: transparent; }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px) rotateX(-6deg); }
+    to { opacity: 1; transform: none; }
+  }
+
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-5px); }
+  }
+
+}
+
+/* The WhatsApp bubble used for live previews. */
+@mixin bubble {
+  .phone {
+    padding: var(--space-lg);
+    border-radius: calc(var(--radius) + 6px);
+    background:
+      radial-gradient(circle at 20% 10%, color-mix(in srgb, var(--primary) 12%, transparent), transparent 50%),
+      var(--surface-alt);
+    border: 1px solid var(--border);
+    transform: rotateY(-6deg) rotateX(3deg);
+    transform-style: preserve-3d;
+    transition: transform 500ms var(--ease);
+
+    &:hover { transform: none; }
+  }
+
+  .bubble {
+    position: relative;
+    max-width: 92%;
+    margin-left: auto;
+    padding: 10px 12px 18px;
+    border-radius: 12px 12px 2px 12px;
+    background: color-mix(in srgb, var(--primary) 22%, var(--surface));
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--text) 10%, transparent);
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 13px;
+    transform: translateZ(24px);
+
+    time {
+      position: absolute;
+      right: 10px;
+      bottom: 4px;
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+  }
+}

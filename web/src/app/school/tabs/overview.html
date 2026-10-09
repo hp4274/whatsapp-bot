@@ -1,0 +1,172 @@
+<section class="hero" [schoolTilt]="3">
+  <span class="layer orb a" aria-hidden="true"></span>
+  <span class="layer orb b" aria-hidden="true"></span>
+  <span class="layer day" aria-hidden="true">{{ dayNumber }}</span>
+  <div class="hero-copy">
+    <span class="eyebrow"><span class="live-dot"></span> {{ dateLabel }}</span>
+    <h2>{{ greeting }}{{ schoolName() ? ',' : '' }} <em>{{ schoolName() || 'your school' }}</em></h2>
+    <p>Here is how today is shaping up across classes, parents and fees.</p>
+  </div>
+</section>
+
+@if (error()) {
+  <div class="s-banner" role="alert">
+    <span class="ms" aria-hidden="true">error</span> {{ error() }}
+    <button class="btn sm" type="button" (click)="load()">Retry</button>
+  </div>
+}
+
+@if (loading()) {
+  <div class="grid" aria-busy="true">
+    @for (k of [1, 2, 3, 4]; track k) {
+      <div class="s-stat"><div class="s-skel" style="width: 40%"></div><div class="s-skel" style="height: 32px; width: 60%"></div></div>
+    }
+  </div>
+} @else if (data(); as d) {
+  <div class="grid">
+    <!-- Attendance gauge: the headline of the day -->
+    @if (areas().has('attendance')) {
+      <article class="s-card gauge-card s-enter tone-ok" style="--i: 0" schoolTilt>
+        <h3><span class="ms" aria-hidden="true">fact_check</span> Today's attendance</h3>
+        <div class="gauge-row">
+          <svg class="gauge" viewBox="0 0 120 120" role="img" [attr.aria-label]="'Attendance rate ' + ratePct() + ' percent'">
+            <defs>
+              <linearGradient id="g-ring" x1="0" y1="0" x2="1" y2="1">
+                <stop class="s0" offset="0" />
+                <stop class="s1" offset="1" />
+              </linearGradient>
+            </defs>
+            <circle class="track" cx="60" cy="60" r="52" />
+            <circle class="arc" cx="60" cy="60" r="52" stroke="url(#g-ring)"
+                    [attr.stroke-dasharray]="ring" [attr.stroke-dashoffset]="gaugeOffset()" />
+          </svg>
+          <div class="gauge-num">
+            <b>{{ (ratePct() * progress()).toFixed(0) }}<small>%</small></b>
+            <span class="muted">{{ n(d.attendance.marked) }} of {{ d.students }} marked</span>
+          </div>
+        </div>
+        <ul class="split3">
+          <li class="tone-ok"><span>Present</span><b>{{ n(d.attendance.present) }}</b></li>
+          <li class="tone-bad"><span>Absent</span><b>{{ n(d.attendance.absent) }}</b></li>
+          <li class="tone-warn"><span>Late</span><b>{{ n(d.attendance.late) }}</b></li>
+        </ul>
+      </article>
+    }
+
+    <article class="s-stat s-enter tone-info" style="--i: 1" schoolTilt>
+      <small>Students</small>
+      <b>{{ n(d.students) }}</b>
+      <span class="muted">across {{ n(d.classes) }} active classes</span>
+    </article>
+
+    @if (areas().has('attendance')) {
+      <article class="s-stat s-enter tone-bad" style="--i: 2" schoolTilt>
+        <small>Absent alerts sent</small>
+        <b>{{ n(d.alerts.absentSent) }}<span class="of">/{{ d.alerts.absentTotal }}</span></b>
+        <div class="meter" role="presentation">
+          <span [style.width.%]="d.alerts.absentTotal ? (d.alerts.absentSent / d.alerts.absentTotal) * 100 * progress() : 0"></span>
+        </div>
+      </article>
+    }
+
+    <article class="s-stat s-enter tone-info" style="--i: 3" schoolTilt>
+      <small>Unread parent queries</small>
+      <b>{{ n(d.inbox.unread) }}</b>
+      <span class="muted">{{ d.inbox.unread ? 'Waiting in the inbox' : 'Inbox is clear' }}</span>
+    </article>
+
+    @if (areas().has('fees')) {
+      <article class="s-card fees s-enter tone-ok" style="--i: 4" schoolTilt>
+        <h3><span class="ms" aria-hidden="true">payments</span> Fees · {{ d.fees.month }}</h3>
+        <b class="big">{{ money(d.fees.collected * progress(), d.fees.currency) }}</b>
+        <span class="muted">collected this month</span>
+        <div class="stack" role="img"
+             [attr.aria-label]="'Collected ' + money(d.fees.collected, d.fees.currency) + ', pending ' + money(d.fees.pending, d.fees.currency) + ', overdue ' + money(d.fees.overdue, d.fees.currency)">
+          <span class="c" [style.width.%]="share(d.fees.collected) * progress()"></span>
+          <span class="p" [style.width.%]="share(d.fees.pending) * progress()"></span>
+          <span class="o" [style.width.%]="share(d.fees.overdue) * progress()"></span>
+        </div>
+        <ul class="legend">
+          <li class="tone-ok">Collected</li>
+          <li class="tone-warn">Pending {{ money(d.fees.pending, d.fees.currency) }}</li>
+          <li class="tone-bad">Overdue {{ money(d.fees.overdue, d.fees.currency) }}</li>
+        </ul>
+      </article>
+    }
+
+    @if (areas().has('leave')) {
+      <article class="s-stat s-enter tone-warn" style="--i: 5" schoolTilt>
+        <small>Pending leave</small>
+        <b>{{ n(d.leave.pending) }}</b>
+        <button class="link" type="button" (click)="navigate.emit('leave')">Review requests <span class="ms" aria-hidden="true">arrow_forward</span></button>
+      </article>
+    }
+
+    @if (areas().has('homework')) {
+      <article class="s-stat s-enter tone-info" style="--i: 6" schoolTilt>
+        <small>Homework today</small>
+        <b>{{ n(d.homeworkToday) }}</b>
+        <span class="muted">assignments published</span>
+      </article>
+    }
+  </div>
+}
+
+@if (areas().has('attendance') || areas().has('homework') || areas().has('broadcast')) {
+  <section class="actions">
+    <h3 class="eyebrow">Quick actions</h3>
+    <div class="action-row">
+      @if (areas().has('attendance')) {
+        <div class="action s-enter tone-bad" style="--i: 7" schoolTilt>
+          <span class="ico ms" aria-hidden="true">notifications_active</span>
+          <div class="txt">
+            <strong>Send daily absent alerts</strong>
+            <span class="muted">WhatsApp every parent whose child is absent today.</span>
+          </div>
+          @if (confirming()) {
+            <div class="confirm">
+              <span>Send to all classes?</span>
+              <button class="btn primary sm" type="button" (click)="sendAbsent()" [disabled]="sending()">
+                @if (sending()) { <span class="spinner"></span> } Confirm
+              </button>
+              <button class="btn ghost sm" type="button" (click)="confirming.set(false)" [disabled]="sending()">Cancel</button>
+            </div>
+          } @else {
+            <button class="btn primary sm" type="button" (click)="confirming.set(true); sendResult.set(null)">Send alerts</button>
+          }
+        </div>
+      }
+      @if (areas().has('homework')) {
+        <button class="action s-enter tone-info" type="button" style="--i: 8" schoolTilt (click)="navigate.emit('homework')">
+          <span class="ico ms" aria-hidden="true">menu_book</span>
+          <div class="txt">
+            <strong>Broadcast today's homework</strong>
+            <span class="muted">Publish and send assignments by class.</span>
+          </div>
+          <span class="ms go" aria-hidden="true">arrow_forward</span>
+        </button>
+      }
+      @if (areas().has('broadcast')) {
+        <button class="action s-enter tone-warn" type="button" style="--i: 9" schoolTilt (click)="navigate.emit('broadcast')">
+          <span class="ico ms" aria-hidden="true">crisis_alert</span>
+          <div class="txt">
+            <strong>Emergency / holiday alert</strong>
+            <span class="muted">Reach every parent, a class or a bus route.</span>
+          </div>
+          <span class="ms go" aria-hidden="true">arrow_forward</span>
+        </button>
+      }
+    </div>
+    <div aria-live="polite">
+      @if (sendResult(); as r) {
+        <p class="s-banner tone-ok">
+          <span class="ms" aria-hidden="true">task_alt</span>
+          Absent alerts: {{ r.sent }} sent · {{ r.skipped }} skipped · {{ r.failed }} failed
+        </p>
+      }
+      @if (sendError()) {
+        <p class="s-banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ sendError() }}</p>
+      }
+    </div>
+  </section>
+}

@@ -38,11 +38,23 @@
     </header>
 
     <nav class="rail" aria-label="Sections">
-      @for (item of navigation(); track item.path) {
-        <a class="nav" [routerLink]="item.path" routerLinkActive="active">
-          <span class="nav-icon" [innerHTML]="item.icon"></span>
-          {{ item.label }}
-        </a>
+      @for (item of navigation(); track item.heading ?? item.path) {
+        @if (item.heading) {
+          <details class="nav-group" open>
+            <summary class="nav-heading">{{ item.heading }}</summary>
+            @for (child of item.children; track child.path) {
+              <a class="nav" [routerLink]="child.path" routerLinkActive="active">
+                <span class="ms nav-icon" aria-hidden="true">{{ child.icon }}</span>
+                {{ child.label }}
+              </a>
+            }
+          </details>
+        } @else {
+          <a class="nav" [routerLink]="item.path" routerLinkActive="active">
+            <span class="ms nav-icon" aria-hidden="true">{{ item.icon }}</span>
+            {{ item.label }}
+          </a>
+        }
       }
 
       <div class="rail-foot card">

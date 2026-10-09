@@ -18,6 +18,7 @@ import { OBJECTS_SCHEMA } from './objects/schema.js';
 import { PUBLIC_API_SCHEMA } from './publicapi/schema.js';
 import { SCHEDULER_SCHEMA } from './scheduler/schema.js';
 import { TEMPLATES_SCHEMA } from './templates/schema.js';
+import { SCHOOL_SCHEMA } from './school/settings.js';
 import { TICKETS_SCHEMA } from './tickets/schema.js';
 import { WORKFLOWS_SCHEMA } from './workflows/schema.js';
 
@@ -32,4 +33,5 @@ export const MODULE_SCHEMAS = [
     BILLING_SCHEMA,
     PUBLIC_API_SCHEMA,
     CAMPAIGNS_SCHEMA,
+    SCHOOL_SCHEMA,
 ];
