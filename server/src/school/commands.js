@@ -36,11 +36,19 @@ export async function handleSchoolCommand(state, message) {
     const tenant = state.tenancy?.getTenant(state.db.tenantId);
     if (!tenant?.services.includes(SERVICE) || !state.objects) return { handled: false };
 
-    const contact = state.contacts.getByPhone(message.sender);
-    const children = contact ? listAll(state.objects, { type: 'student', contactId: contact.id }) : [];
-    if (!children.length) return { handled: false };
     const settings = getSettings(state.db.db, state.db.tenantId);
     if (!settings.commandsEnabled) return { handled: false };
+    const { contact, children } = findParent(state, message.sender);
+    if (!children.length) {
+        // Say why instead of going quiet: a number saved without the same country
+        // code, or one the school never added, would otherwise look like a dead bot.
+        deliver(state, {
+            recipient: message.sender, messageType: 'auto_reply', key: `school.cmd.${message.messageId}`,
+            text: `${settings.schoolName || 'The school'}: we could not find a student linked to this number. Please ask the school office to add it.`,
+        });
+        state.db.markInboundReplied?.(message.messageId, `school:unlinked`);
+        return { handled: true };
+    }
 
     const ctx = { state, settings, contact, children, args: rest, message, now: localNow(state.channel?.timezone) };
     const text = await (HANDLERS[word] ?? help)(ctx);
@@ -49,6 +57,31 @@ export async function handleSchoolCommand(state, message) {
     });
     state.db.markInboundReplied?.(message.messageId, `school:${word.toLowerCase()}`);
     return { handled: true };
+}
+
+/**
+ * The parent behind a WhatsApp number, and their children. Numbers are matched on
+ * their last ten digits, so "9876512001" in the roster still meets "919876512001"
+ * from WhatsApp.
+ */
+function findParent(state, sender) {
+    const tail = String(sender).replace(/\D/g, '').slice(-10);
+    let contact = state.contacts.getByPhone(sender);
+    if (!contact && tail.length === 10) {
+        const row = state.db.db.prepare(
+            'SELECT phone FROM contacts WHERE tenant_id = ? AND phone LIKE ? ORDER BY id LIMIT 1')
+            .get(state.db.tenantId, `%${tail}`);
+        if (row) contact = state.contacts.getByPhone(row.phone);
+    }
+    let children = contact ? listAll(state.objects, { type: 'student', contactId: contact.id }) : [];
+    if (!children.length && tail.length === 10) {
+        // The roster's own phone column, for students whose contact was never linked.
+        children = listAll(state.objects, { type: 'student' })
+            .filter((o) => String(o.data.parentPhone ?? '').replace(/\D/g, '').endsWith(tail));
+        contact ??= children.length && children[0].contactId ? state.contacts.get(children[0].contactId) : null;
+        if (!contact) children = [];
+    }
+    return { contact, children };
 }
 
 const HANDLERS = {

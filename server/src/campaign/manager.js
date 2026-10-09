@@ -124,9 +124,12 @@ export class CampaignManager extends EventEmitter {
                     skipped += 1;
                     continue;
                 }
+                // A `message` column in the sheet gives that number its own text;
+                // everyone else gets the shared template.
+                const own = String(contact.extra?.message ?? contact.extra?.custom_message ?? '').trim();
                 const item = queueItem({
                     recipient: contact.phone,
-                    message: personalize(template, contactContext(contact)),
+                    message: personalize(own || template, contactContext(contact)),
                     name: contact.name ?? '',
                     campaignId: this.campaignId,
                     media,
@@ -294,7 +297,9 @@ export class CampaignManager extends EventEmitter {
      * Wait out the adaptive gap before the next real send.
      * Returns false if the campaign stopped while waiting.
      */
-    async #paceBeforeSend() {
+    async #paceBeforeSend(item) {
+        // A reply to someone who just wrote in is not bulk traffic: no gap.
+        if (item?.messageType === 'auto_reply') return true;
         const adaptive = this.config.safetyEnabled && this.config.pacingMode !== 'fixed';
         // Sandbox sends never leave the machine, so they are not paced.
         if (!adaptive || !this.transport?.realDelivery) return true;
@@ -350,7 +355,7 @@ export class CampaignManager extends EventEmitter {
                 return;
             }
             if (this.#quotaBlocked(item)) return;
-            if (!await this.#paceBeforeSend()) {
+            if (!await this.#paceBeforeSend(item)) {
                 this.queue.putFront(item);   // stopped while pacing: keep the row queued
                 return;
             }

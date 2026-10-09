@@ -84,6 +84,14 @@ export class Store {
       },
       error: () => this.setStatus('Backend not reachable', 'danger'),
     });
+    // A send keeps running on the server after a tab closes, so ask where it got to.
+    this.api.stats().subscribe({
+      next: ({ stats }) => {
+        this.stats.set(stats);
+        if (stats.safety) this.safety.set(stats.safety);
+      },
+      error: () => undefined,
+    });
     this.listen();
   }
 

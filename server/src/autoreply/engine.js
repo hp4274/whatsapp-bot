@@ -5,7 +5,7 @@ export class AutoReplyEngine {
         this.db = db;
         this.transport = transport;
         this.defaultCooldownSec = options.cooldownSec ?? 300;
-        this.delayRangeMs = options.delayRangeMs ?? [2500, 4500];
+        this.delayRangeMs = options.delayRangeMs ?? [200, 600];
         this.recentReplies = new Map();
         // Phase 3: when a message service is attached, replies go down the
         // common pipeline (pacing, retries, daily cap) instead of straight at

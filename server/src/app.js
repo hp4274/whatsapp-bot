@@ -68,7 +68,7 @@ import { createBillingRouter } from './billing/routes.js';
 import { createCampaignRouter } from './campaigns/routes.js';
 import { dueCampaigns } from './campaigns/store.js';
 import { BillingStore } from './billing/store.js';
-import { bindContext, requestContext } from './observability/logger.js';
+import { bindContext, logger, requestContext } from './observability/logger.js';
 import { registerQueue, snapshot, unregisterQueue } from './observability/metrics.js';
 import { ApiKeyStore } from './publicapi/keys.js';
 import { createPublicApiRouter } from './publicapi/routes.js';
@@ -981,7 +981,10 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
             contacts: audience = [], segmentId = null, template = '',
             onePerNumber = true, mediaId = null,
         } = req.body ?? {};
-        if (!template) return res.status(400).json({ errors: ['message is required'] });
+        const ownText = (c) => String(c?.extra?.message ?? c?.extra?.custom_message ?? '').trim();
+        if (!template && !(Array.isArray(audience) && audience.length && audience.every(ownText))) {
+            return res.status(400).json({ errors: ['message is required'] });
+        }
 
         // A segment is resolved at send time, so the audience is whoever
         // matches now rather than whoever matched when it was saved.
@@ -1065,7 +1068,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         if (!current) return res.status(404).json({ errors: ['rule not found'] });
         const rule = validateAutoReply({ ...current, ...req.body, id: current.id });
         if (rule.errors) return res.status(400).json({ errors: rule.errors });
-        return res.json({ rule: db.saveAutoReply(rule) });
+        return res.json({ rule: db.saveAutoReply({ ...rule, createdAt: current.createdAt }) });
     });
 
     app.delete('/auto-replies/:id', (req, res) => {
@@ -1827,6 +1830,15 @@ export function createApp({
     app.locals.runtimes = runtimes;
     app.locals.tenancy = tenancy;
     app.locals.runtimeFor = runtimeFor;
+
+    // A thrown error is logged with its stack and answered as JSON, so the UI
+    // shows the cause instead of "500 Internal Server Error".
+    app.use((err, req, res, next) => {
+        if (res.headersSent) return next(err);
+        const status = Number(err.status ?? err.statusCode) || 500;
+        if (status >= 500) logger.error('unhandled error', { path: req.path, error: err.message, stack: err.stack });
+        return res.status(status).json({ errors: [status >= 500 ? `Server error: ${err.message}` : err.message] });
+    });
     return app;
 }
 
@@ -1941,7 +1953,7 @@ function validateAutoReply(input = {}) {
         matchType: String(input.matchType ?? input.match_type ?? '').trim().toUpperCase(),
         replyBody: String(input.replyBody ?? input.reply_body ?? '').trim(),
         isActive: input.isActive ?? input.is_active ?? true,
-        cooldownSec: Number(input.cooldownSec ?? input.cooldown_sec ?? 300),
+        cooldownSec: Math.floor(Number(input.cooldownSec ?? input.cooldown_sec ?? 300)),
     };
     const errors = [];
     if (!rule.keyword && rule.matchType !== 'FALLBACK') errors.push('keyword is required');

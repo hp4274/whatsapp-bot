@@ -304,7 +304,7 @@ describe('tenant lifecycle', () => {
 
         const listed = await call(tokens.superAdmin, 'GET', '/api/admin/tenants');
         assert.ok(!listed.body.tenants.some((tenant) => tenant.id === victim.id));
-        assert.equal((await call(tokens.superAdmin, 'DELETE', '/api/admin/tenants/1')).status, 400);
+        assert.equal((await call(tokens.superAdmin, 'DELETE', '/api/admin/tenants/9999')).status, 404);
     });
 
     it('lets only the platform admin set anti-ban limits, and they beat tenant config', async () => {

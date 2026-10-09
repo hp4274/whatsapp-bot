@@ -65,6 +65,43 @@
       </details>
     }
 
+    <div class="field">
+      <label for="bulk-message">Message for everyone</label>
+      <textarea id="bulk-message" rows="3" [ngModel]="bulkMessage()" (ngModelChange)="bulkMessage.set($event)"
+                placeholder="Hello {name}, ..."></textarea>
+      <small class="hint">Use {{ '{name}' }} or any column from your file, like {{ '{amount}' }}. To give a number its own text, add a
+        <code>message</code> column to the file or type it in the table below.</small>
+    </div>
+
+    @if (contacts().length) {
+      <details class="own" [open]="ownCount() > 0">
+        <summary>
+          Custom messages
+          <span class="count">{{ ownCount() }} of {{ contacts().length }} numbers have their own</span>
+        </summary>
+        <div class="own-table" role="region" aria-label="Custom message per number" tabindex="0">
+          <table>
+            <thead><tr><th>Name</th><th>Phone</th><th>Own message (leave empty to use the message above)</th></tr></thead>
+            <tbody>
+              @for (contact of shown(); track $index; let i = $index) {
+                <tr>
+                  <td>{{ contact.name || '-' }}</td>
+                  <td class="mono">{{ contact.phone }}</td>
+                  <td>
+                    <input type="text" [attr.aria-label]="'Own message for ' + (contact.name || contact.phone)"
+                           [ngModel]="own(contact)" (ngModelChange)="setOwn(i, $event)" placeholder="Same as everyone" />
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+          @if (contacts().length > shown().length) {
+            <p class="muted more">Showing the first {{ shown().length }}. Use a <code>message</code> column in the file to set the rest.</p>
+          }
+        </div>
+      </details>
+    }
+
     <label class="check">
       <input type="checkbox" [ngModel]="onePerNumber()" (ngModelChange)="onePerNumber.set($event)" />
       One message per number (skip repeats and numbers already messaged)

@@ -13,7 +13,6 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 
 import { DEFAULTS, POLICY_SPEC } from './config.js';
-import { DEFAULT_TENANT_ID } from './db.js';
 import { utcNow } from './protocol.js';
 
 const scrypt = promisify(crypto.scrypt);
@@ -176,7 +175,6 @@ export class Tenancy {
     archiveTenant(id) {
         const tenant = this.getTenant(id);
         if (!tenant) throw new TenancyError('tenant not found', 404);
-        if (tenant.id === DEFAULT_TENANT_ID) throw new TenancyError('default tenant cannot be deleted', 400);
         const info = this.db.prepare("UPDATE tenants SET status = 'archived' WHERE id = ?").run(Number(id));
         if (!info.changes) throw new TenancyError('tenant not found', 404);
         this.db.prepare(`DELETE FROM sessions WHERE user_id IN

@@ -17,7 +17,10 @@ export class CampaignView {
   protected readonly recipient = signal('');
   protected readonly recipientName = signal('');
   protected readonly message = signal('Hello {name}, your order has been confirmed.');
+  protected readonly bulkMessage = signal('Hello {name}, your order has been confirmed.');
   protected readonly contacts = signal<Contact[]>([]);
+  protected readonly shown = computed(() => this.contacts().slice(0, 100));
+  protected readonly ownCount = computed(() => this.contacts().filter((c) => this.own(c)).length);
   protected readonly fileName = signal('');
   protected readonly importErrors = signal<string[]>([]);
   protected readonly onePerNumber = signal(true);
@@ -35,7 +38,7 @@ export class CampaignView {
       phone: first.phone,
       ...(first.extra ?? {}),
     };
-    return `Preview for ${first.name || first.phone}: ${substitute(this.message(), context)}`;
+    return `Preview for ${first.name || first.phone}: ${substitute(this.own(first) || this.bulkMessage(), context)}`;
   });
 
   protected readonly percent = computed(() => Math.round(this.store.progress() * 100));
@@ -81,6 +84,16 @@ export class CampaignView {
     });
   }
 
+  /** A number's own text: the `message` column of the sheet, or what was typed in the table. */
+  protected own(contact: Contact): string {
+    return (contact.extra?.['message'] ?? contact.extra?.['custom_message'] ?? '').trim();
+  }
+
+  protected setOwn(index: number, value: string): void {
+    this.contacts.update((list) => list.map((c, i) => i === index
+      ? { ...c, extra: { ...(c.extra ?? {}), message: value } } : c));
+  }
+
   protected onFile(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -113,7 +126,7 @@ export class CampaignView {
       return;
     }
     this.busy.set(true);
-    this.api.startCampaign(this.contacts(), this.message(), this.onePerNumber()).subscribe({
+    this.api.startCampaign(this.contacts(), this.bulkMessage(), this.onePerNumber()).subscribe({
       next: ({ queued, skipped, safety }) => {
         this.busy.set(false);
         this.notice.set('');
