@@ -63,6 +63,7 @@ import { WorkflowEngine } from './workflows/engine.js';
 import { WorkflowError } from './workflows/definition.js';
 import { WorkflowStore, dueRuns } from './workflows/store.js';
 import { MessageJobError, messageJob } from './messaging/job.js';
+import { friendlyError } from './messaging/errors.js';
 import { MessageService } from './messaging/service.js';
 import { MediaStore } from './mediaStore.js';
 import { createBillingRouter } from './billing/routes.js';
@@ -1206,7 +1207,9 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
             return res.status(204).end();
         }
         return res.json({
-            records: db.history({ limit: Number(req.query.limit) || 1000, status, recipient }),
+            // Rows written before errors were made readable still hold raw text.
+            records: db.history({ limit: Number(req.query.limit) || 1000, status, recipient })
+                .map((r) => (r.error ? { ...r, error: friendlyError(r.error) } : r)),
             counts: db.countsByStatus(),
             signature: `${signature.count}:${signature.last}`,
         });

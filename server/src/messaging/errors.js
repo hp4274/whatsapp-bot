@@ -114,3 +114,45 @@ function fromText(detail) {
     if (/stopped by operator|cancelled|canceled|shutting down/.test(text)) return ErrorCode.CANCELLED;
     return ErrorCode.UNKNOWN;
 }
+
+const FRIENDLY = Object.freeze({
+    [ErrorCode.DISCONNECTED]: 'WhatsApp disconnected while sending. It will retry once the number reconnects.',
+    [ErrorCode.RATE_LIMITED]: 'WhatsApp is limiting messages from this number right now. Sending slows down and retries.',
+    [ErrorCode.AUTH]: 'The WhatsApp connection needs to be set up again (login or access token expired).',
+    [ErrorCode.INVALID_RECIPIENT]: 'This number is not on WhatsApp. Check the number and its country code.',
+    [ErrorCode.TEMPLATE_REQUIRED]: 'This person has not messaged you in the last 24 hours, so WhatsApp only allows an approved template.',
+    [ErrorCode.PROVIDER_UNAVAILABLE]: 'WhatsApp did not respond in time. The message will be retried.',
+    [ErrorCode.CANCELLED]: 'Stopped before it was sent.',
+    chat: 'WhatsApp could not find this chat. Check the number is on WhatsApp, then retry.',
+    type: 'WhatsApp does not support this kind of message for this number.',
+    media: 'The attachment could not be sent. Use a JPG, PNG or PDF under 16 MB.',
+    generic: 'WhatsApp could not send this message. Please try again; if it keeps failing, reconnect the number.',
+});
+
+/**
+ * A sentence a customer can act on, never a stack trace. Raw provider text is
+ * for the server log; this is what history, the inbox and the UI show.
+ * Already-friendly text (from this function, or our own refusals) passes through.
+ */
+export function friendlyError(errOrText) {
+    const text = String(errOrText?.message ?? errOrText ?? '').trim();
+    if (!text) return '';
+    if (Object.values(FRIENDLY).includes(text)) return text;
+    const lower = text.toLowerCase();
+    // WhatsApp Web internals leaking through whatsapp-web.js.
+    if (/getter must include an id|no lid for user|wid error|invalid wid/.test(lower)) {
+        return FRIENDLY.chat;
+    }
+    if (/evaluation failed|protocol error|target closed|execution context was destroyed|session closed|page crashed/.test(lower)) {
+        return FRIENDLY[ErrorCode.DISCONNECTED];
+    }
+    if (/131051|unsupported message type/.test(lower)) return FRIENDLY.type;
+    if (/media|file.*(too large|size)/.test(lower) && /fail|error|large/.test(lower)) {
+        return FRIENDLY.media;
+    }
+    const code = typeof errOrText === 'object' ? normalizeError(errOrText).code : normalizeError(new Error(text)).code;
+    if (FRIENDLY[code]) return FRIENDLY[code];
+    // Our own plain-language reasons (opt-out, daily limit, quiet hours...) stay as they are.
+    if (text.length < 140 && !/[{}<>]|\.js:\d|https?:\/\/|at\s+\w+\s*\(/i.test(text)) return text;
+    return FRIENDLY.generic;
+}

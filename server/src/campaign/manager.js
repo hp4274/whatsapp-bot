@@ -7,6 +7,7 @@
  * written to SQLite and emitted for the browser.
  */
 
+import { friendlyError } from '../messaging/errors.js';
 import { EventEmitter } from 'node:events';
 
 import {
@@ -439,6 +440,10 @@ export class CampaignManager extends EventEmitter {
                     retryable = false;
                     errorText = `Unexpected error: ${err.message ?? err}`;
                 }
+                // The raw provider text goes to the server log; history and the
+                // UI get a sentence the customer can act on.
+                console.warn(`[send] ${item.messageId} to ${item.recipient}: ${errorText}`);
+                errorText = friendlyError(err);
             }
 
             if (this.retryPolicy.shouldRetry(item.attempt, retryable)) {

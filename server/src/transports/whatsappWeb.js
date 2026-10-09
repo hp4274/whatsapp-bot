@@ -450,9 +450,12 @@ export class WhatsAppWebTransport extends Transport {
                 const pkg = await import('whatsapp-web.js');
                 const { MessageMedia } = pkg.default ?? pkg;
                 const attachment = MessageMedia.fromFilePath(media.filePath);
-                providerId = serializedId(await this.client.sendMessage(chatId, attachment, { caption: message }));
+                providerId = serializedId(await this.client.sendMessage(chatId, attachment, { caption: message, sendSeen: false }));
             } else {
-                providerId = serializedId(await this.client.sendMessage(chatId, message));
+                // sendSeen: false - marking the chat read first is what throws
+                // "Data passed to getter must include an id property" on recent
+                // WhatsApp Web builds, and a bulk send has nothing to mark read.
+                providerId = serializedId(await this.client.sendMessage(chatId, message, { sendSeen: false }));
             }
         } catch (err) {
             sendError = String(err.message ?? err);
