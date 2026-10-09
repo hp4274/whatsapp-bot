@@ -808,3 +808,26 @@
 
 /* The settings drawer has a tab row between its header and body. */
 .service-drawer.wide-drawer { grid-template-rows: auto auto minmax(0, 1fr) auto; }
+
+/* Whether the business has layered its own limits over the platform's. */
+.custom-safety {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  margin-block: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+
+  > .ms { color: var(--primary); font-size: 22px; }
+  > div { display: grid; gap: 2px; flex: 1 1 220px; min-width: 0; font-size: 13px; }
+  .muted { font-size: 12px; overflow-wrap: anywhere; }
+
+  &.on {
+    border-color: var(--warning);
+    background: var(--warning-soft);
+    > .ms { color: var(--warning); }
+  }
+}

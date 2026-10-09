@@ -112,7 +112,8 @@ export class CloudApiTransport extends Transport {
 
     payload(recipient, message, { uploadedMedia = null } = {}) {
         if (uploadedMedia) {
-            const type = uploadedMedia.mimetype?.startsWith('image/') ? 'image' : 'document';
+            const kind = uploadedMedia.mimetype?.split('/')[0];
+            const type = kind === 'image' || kind === 'video' ? kind : 'document';
             return {
                 messaging_product: 'whatsapp',
                 recipient_type: 'individual',
@@ -298,6 +299,7 @@ function inboundBody(msg) {
     if (msg.interactive?.list_reply?.title) return msg.interactive.list_reply.title;
     if (msg.image?.caption) return msg.image.caption;
     if (msg.document?.caption) return msg.document.caption;
+    if (msg.video?.caption) return msg.video.caption;
     return '';
 }
 

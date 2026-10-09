@@ -100,7 +100,7 @@
           <h3>Sending Safety</h3>
           <p class="muted">Bulk sending is what gets a number banned. These limits are the brake.</p>
         </div>
-        <span class="pill-note">Managed by platform</span>
+        <span class="pill-note" [class.custom]="customSafety()">{{ customSafety() ? 'Custom limits' : 'Managed by platform' }}</span>
       </header>
   
       @if (safety(); as safety) {
@@ -129,7 +129,7 @@
         </div>
       }
   
-      <p class="muted">Pacing, daily cap, rate and retry limits are set by the platform admin to keep your number safe.</p>
+      <app-safety-controls (changed)="refreshSafety()" (active)="customSafety.set($event)" />
     </section>
     </div>
 

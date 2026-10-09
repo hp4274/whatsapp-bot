@@ -28,7 +28,7 @@ export class CampaignView implements OnDestroy {
   protected readonly notice = signal('');
   protected readonly plan = signal<SafetyStatus | null>(null);
 
-  protected readonly attachment = signal<{ mediaId: string; filename: string; size: number; image: boolean; previewUrl: string } | null>(null);
+  protected readonly attachment = signal<{ mediaId: string; filename: string; size: number; image: boolean; video: boolean; previewUrl: string } | null>(null);
   protected readonly uploading = signal(false);
 
   protected readonly connected = computed(() => this.store.connection().connected);
@@ -126,12 +126,14 @@ export class CampaignView implements OnDestroy {
     const file = input.files?.[0];
     input.value = '';
     if (!file) return;
-    if (!['image/jpeg', 'image/png', 'application/pdf'].includes(file.type)) {
-      this.notice.set('Attach a JPG, PNG or PDF file.');
+    if (!['image/jpeg', 'image/png', 'application/pdf', 'video/mp4', 'video/3gpp'].includes(file.type)) {
+      this.notice.set('Attach a JPG, PNG, PDF or MP4 file.');
       return;
     }
-    if (file.size > 16 * 1024 * 1024) {
-      this.notice.set('That file is over 16 MB.');
+    const video = file.type.startsWith('video/');
+    const maxMb = video ? 64 : 16; // WhatsApp's caps; the server enforces the same
+    if (file.size > maxMb * 1024 * 1024) {
+      this.notice.set(`That file is over ${maxMb} MB.`);
       return;
     }
     this.uploading.set(true);
@@ -140,8 +142,8 @@ export class CampaignView implements OnDestroy {
         this.removeAttachment();
         const image = file.type.startsWith('image/');
         this.attachment.set({
-          mediaId: media.mediaId, filename: media.filename, size: media.size, image,
-          previewUrl: image ? URL.createObjectURL(file) : '',
+          mediaId: media.mediaId, filename: media.filename, size: media.size, image, video,
+          previewUrl: image || video ? URL.createObjectURL(file) : '',
         });
         this.uploading.set(false);
         this.notice.set('');

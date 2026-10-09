@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     controls    TEXT NOT NULL DEFAULT '${DEFAULT_TENANT_CONTROLS_JSON}',
     safety      TEXT NOT NULL DEFAULT '{}',
     limits      TEXT NOT NULL DEFAULT '{}',
+    custom_safety TEXT NOT NULL DEFAULT '{}',
     created_at  TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS users (
@@ -82,6 +83,25 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_logs(tenant_id, id);
+-- A tenant accepting the risk of its own sending limits. Evidence, so the
+-- database itself refuses to edit or delete a row.
+CREATE TABLE IF NOT EXISTS safety_consents (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id     INTEGER NOT NULL REFERENCES tenants(id),
+    user_id       INTEGER NOT NULL,
+    user_email    TEXT NOT NULL,
+    full_name     TEXT NOT NULL DEFAULT '',
+    accepted_at   TEXT NOT NULL,
+    ip            TEXT NOT NULL DEFAULT '',
+    user_agent    TEXT NOT NULL DEFAULT '',
+    text_version  TEXT NOT NULL,
+    text_hash     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_safety_consents_tenant ON safety_consents(tenant_id, id);
+CREATE TRIGGER IF NOT EXISTS safety_consents_no_update BEFORE UPDATE ON safety_consents
+BEGIN SELECT RAISE(ABORT, 'consent records are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS safety_consents_no_delete BEFORE DELETE ON safety_consents
+BEGIN SELECT RAISE(ABORT, 'consent records are immutable'); END;
 
 CREATE TABLE IF NOT EXISTS whatsapp_channels (
     id                       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -220,6 +240,7 @@ function addTenantControlColumns(db) {
     }
     if (!cols.includes('safety')) db.exec("ALTER TABLE tenants ADD COLUMN safety TEXT NOT NULL DEFAULT '{}'");
     if (!cols.includes('limits')) db.exec("ALTER TABLE tenants ADD COLUMN limits TEXT NOT NULL DEFAULT '{}'");
+    if (!cols.includes('custom_safety')) db.exec("ALTER TABLE tenants ADD COLUMN custom_safety TEXT NOT NULL DEFAULT '{}'");
     // Session idle timeout (see Tenancy.resolveSession).
     if (!columnsOf(db, 'sessions').includes('last_seen_at')) db.exec('ALTER TABLE sessions ADD COLUMN last_seen_at TEXT');
 }

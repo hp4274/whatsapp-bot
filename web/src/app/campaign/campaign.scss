@@ -220,6 +220,7 @@
   padding: 4px 6px 4px 6px; border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--surface-alt);
   img { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; }
+  video { width: 160px; max-height: 90px; border-radius: 6px; background: #000; }
   .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
   .chip-x { display: inline-flex; border: 0; background: transparent; color: inherit; cursor: pointer; padding: 2px; border-radius: 50%; }
   .chip-x:focus-visible { outline: 2px solid var(--primary); }

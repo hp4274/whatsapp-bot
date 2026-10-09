@@ -12,7 +12,7 @@
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 
-import { DEFAULTS, POLICY_SPEC } from './config.js';
+import { DEFAULTS, POLICY_KEYS, POLICY_SPEC } from './config.js';
 import { utcNow } from './protocol.js';
 
 const scrypt = promisify(crypto.scrypt);
@@ -72,6 +72,20 @@ export async function verifyPassword(password, stored) {
 }
 
 const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
+
+/**
+ * What a tenant agrees to before changing its own sending limits. Changing the
+ * text means bumping the version: every tenant must accept again.
+ */
+export const CONSENT_VERSION = '2026-10-1';
+export const CONSENT_TEXT = [
+    'WhatsApp may restrict, suspend or permanently ban a phone number that sends fast, high-volume, repetitive or unsolicited messages.',
+    'Changing these sending limits removes protections the platform set to reduce that risk.',
+    'I accept full responsibility for any restriction, suspension or ban of our number(s), and for any lost messages, contacts or business that follow.',
+    'The platform and its operators are not liable for any such outcome and cannot restore a banned number.',
+    'I am authorised to accept this on behalf of my business.',
+];
+const CONSENT_HASH = sha256(CONSENT_TEXT.join('\n'));
 
 export class TenancyError extends Error {
     constructor(message, status = 400) {
@@ -199,14 +213,80 @@ export class Tenancy {
         const before = this.getTenant(id);
         if (!before || before.status === 'archived') throw new TenancyError('tenant not found', 404);
         const next = { ...before.safety, ...normalizeSafety(patch) };
-        const view = { ...DEFAULTS, ...next };
-        if (view.maxDelaySeconds > 0 && view.maxDelaySeconds < view.minDelaySeconds) {
-            throw new TenancyError('maximum delay must be at least the minimum delay');
-        }
-        if (view.restMaxMinutes < view.restMinMinutes) {
-            throw new TenancyError('longest rest must be at least the shortest rest');
-        }
+        checkSafety({ ...DEFAULTS, ...next });
         this.db.prepare('UPDATE tenants SET safety = ? WHERE id = ?').run(JSON.stringify(next), Number(id));
+        return this.getTenant(id);
+    }
+
+    // ------------------------------------------------ tenant-owned safety --
+    // A tenant may override the platform's anti-ban policy only when the
+    // platform admin allows it (limits.allowCustomSafety) AND someone at the
+    // tenant accepted the current CONSENT_VERSION. Either missing: the stored
+    // overrides are kept but ignored.
+
+    /** The latest consent to the current text, or null. */
+    currentConsent(tenantId) {
+        const row = this.db.prepare(
+            'SELECT * FROM safety_consents WHERE tenant_id = ? AND text_version = ? ORDER BY id DESC LIMIT 1')
+            .get(Number(tenantId), CONSENT_VERSION);
+        return row ? toConsent(row) : null;
+    }
+
+    listConsents(tenantId) {
+        return this.db.prepare('SELECT * FROM safety_consents WHERE tenant_id = ? ORDER BY id DESC')
+            .all(Number(tenantId)).map(toConsent);
+    }
+
+    recordConsent({ tenantId, user, fullName = '', ip = '', userAgent = '' }) {
+        const info = this.db.prepare(
+            `INSERT INTO safety_consents
+             (tenant_id, user_id, user_email, full_name, accepted_at, ip, user_agent, text_version, text_hash)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(Number(tenantId), user.id, user.email, String(fullName).trim().slice(0, 200), utcNow(),
+                String(ip).slice(0, 100), String(userAgent).slice(0, 500), CONSENT_VERSION, CONSENT_HASH);
+        return toConsent(this.db.prepare('SELECT * FROM safety_consents WHERE id = ?').get(Number(info.lastInsertRowid)));
+    }
+
+    customSafetyActive(tenant) {
+        return Boolean(tenant?.limits.allowCustomSafety && Object.keys(tenant.customSafety).length
+            && this.currentConsent(tenant.id));
+    }
+
+    /** Platform policy: defaults < super admin overrides. */
+    platformSafety(tenant) {
+        return Object.fromEntries(POLICY_KEYS.map((key) => [key, tenant.safety[key] ?? DEFAULTS[key]]));
+    }
+
+    /** What actually runs: platform policy < the tenant's own overrides, when active. */
+    effectiveSafety(tenant) {
+        return { ...this.platformSafety(tenant), ...(this.customSafetyActive(tenant) ? tenant.customSafety : {}) };
+    }
+
+    /**
+     * The values to force onto a channel's config. Only keys someone set, so a
+     * channel's own unmanaged values stand; a key the tenant overrode falls back
+     * to the platform value once the override stops applying.
+     */
+    enforcedSafety(tenant) {
+        if (!tenant) return {};
+        const platform = this.platformSafety(tenant);
+        const touched = Object.fromEntries(Object.keys(tenant.customSafety).map((key) => [key, platform[key]]));
+        return { ...touched, ...tenant.safety, ...(this.customSafetyActive(tenant) ? tenant.customSafety : {}) };
+    }
+
+    /** Merge a tenant's own overrides. Callers check allowance + consent first. */
+    setCustomSafety(id, patch = {}) {
+        const before = this.getTenant(id);
+        if (!before || before.status === 'archived') throw new TenancyError('tenant not found', 404);
+        const next = { ...before.customSafety, ...normalizeSafety(patch) };
+        checkSafety({ ...this.platformSafety(before), ...next });
+        this.db.prepare('UPDATE tenants SET custom_safety = ? WHERE id = ?').run(JSON.stringify(next), Number(id));
+        return this.getTenant(id);
+    }
+
+    clearCustomSafety(id) {
+        const info = this.db.prepare("UPDATE tenants SET custom_safety = '{}' WHERE id = ?").run(Number(id));
+        if (!info.changes) throw new TenancyError('tenant not found', 404);
         return this.getTenant(id);
     }
 
@@ -381,10 +461,13 @@ export const LIMIT_SPEC = Object.freeze({
     allowCloudApi: 'bool',
     allowWhatsappWeb: 'bool',
     blockedWords: 'text',
+    allowCustomSafety: 'bool',
 });
 export const DEFAULT_LIMITS = Object.freeze({
     maxChannels: 0, maxUsers: 0, maxTemplates: 0, maxContactsPerCampaign: 0, maxMediaMb: 0,
     allowCloudApi: true, allowWhatsappWeb: true, blockedWords: '',
+    // Off: only the platform admin sets anti-ban limits.
+    allowCustomSafety: false,
 });
 
 export function normalizeLimits(input = {}, strict = false) {
@@ -420,6 +503,16 @@ export function blockedWordIn(limits, text) {
 export function normalizeTenantControls(controls = {}) {
     return Object.fromEntries(Object.entries(DEFAULT_TENANT_CONTROLS)
         .map(([key, fallback]) => [key, controls[key] === undefined ? fallback : Boolean(controls[key])]));
+}
+
+/** Cross-field rules over a full policy view. */
+function checkSafety(view) {
+    if (view.maxDelaySeconds > 0 && view.maxDelaySeconds < view.minDelaySeconds) {
+        throw new TenancyError('maximum delay must be at least the minimum delay');
+    }
+    if (view.restMaxMinutes < view.restMinMinutes) {
+        throw new TenancyError('longest rest must be at least the shortest rest');
+    }
 }
 
 /** Keep only known keys, each checked against POLICY_SPEC. */
@@ -461,7 +554,16 @@ function toTenant(row) {
         controls: normalizeTenantControls(parseJson(row.controls, {})),
         safety: parseJson(row.safety, {}),
         limits: normalizeLimits(parseJson(row.limits, {})),
+        customSafety: parseJson(row.custom_safety, {}),
         createdAt: row.created_at,
+    };
+}
+
+function toConsent(row) {
+    return {
+        id: row.id, tenantId: row.tenant_id, userId: row.user_id, email: row.user_email, fullName: row.full_name,
+        acceptedAt: row.accepted_at, ip: row.ip, userAgent: row.user_agent,
+        version: row.text_version, textHash: row.text_hash,
     };
 }
 

@@ -20,7 +20,6 @@ import { processOptOut } from './autoreply/optout.js';
 import { CampaignManager } from './campaign/manager.js';
 import {
     APP_DIR,
-    DEFAULTS,
     SESSION_DIR,
     TRANSPORTS,
     TRANSPORT_CLOUD_API,
@@ -32,6 +31,7 @@ import {
     saveConfig,
     validateConfig,
     POLICY_KEYS,
+    POLICY_SPEC,
 } from './config.js';
 import { DEFAULT_TENANT_ID, Database } from './db.js';
 import {
@@ -84,8 +84,10 @@ import { createSchoolRouter, schoolSweep } from './school/routes.js';
 import { rateLimit, safeEqual, webhookSignatureGuard } from './security/signature.js';
 import { checkImport, fileTypeError } from './security/filetype.js';
 import { securityHeaders } from './security/headers.js';
+import {
+    CONSENT_TEXT, CONSENT_VERSION, ROLES, TENANT_SERVICES, Tenancy, TenancyError, blockedWordIn, roleRank,
+} from './tenancy.js';
 import { bulkWindowOpen } from './campaign/safety.js';
-import { ROLES, TENANT_SERVICES, Tenancy, TenancyError, blockedWordIn, roleRank } from './tenancy.js';
 import { TransportError } from './transports/base.js';
 import { CloudApiTransport, parseInboundPayload, parseStatusPayload } from './transports/cloudApi.js';
 import { SandboxTransport } from './transports/sandbox.js';
@@ -95,12 +97,16 @@ const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 12 * 1024 * 1024 },
 });
+// WhatsApp's own caps: 64 MB for video, 16 MB for images and documents.
+// Multer stops at the larger one; the route applies the per-type cap.
+const MAX_VIDEO_BYTES = 64 * 1024 * 1024;
+const MAX_MEDIA_BYTES = 16 * 1024 * 1024;
 const mediaUpload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 16 * 1024 * 1024 },
+    limits: { fileSize: MAX_VIDEO_BYTES },
 });
 
-/** Media: the bytes must be the type the browser claimed (jpeg/png/pdf/doc/docx). */
+/** Media: the bytes must be the type the browser claimed (jpeg/png/pdf/doc/docx/mp4/3gp). */
 const mediaContentError = (file) => fileTypeError(file.buffer, { mimetype: file.mimetype, filename: file.originalname });
 
 const UPLOAD_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'uploads');
@@ -110,6 +116,8 @@ const ALLOWED_MEDIA_TYPES = new Set([
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'image/jpeg',
     'image/png',
+    'video/mp4',
+    'video/3gpp',
 ]);
 
 export function createTransport(config, deps = {}) {
@@ -1031,6 +1039,9 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         if (!ALLOWED_MEDIA_TYPES.has(req.file.mimetype)) {
             return res.status(400).json({ errors: [`unsupported media type: ${req.file.mimetype}`] });
         }
+        if (!req.file.mimetype.startsWith('video/') && req.file.size > MAX_MEDIA_BYTES) {
+            return res.status(413).json({ errors: ['Images and documents can be up to 16 MB (videos up to 64 MB).'] });
+        }
         const mediaId = `med_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
         const filename = path.basename(req.file.originalname).replace(/[^\w.\- ]+/g, '_');
         const storedName = `${mediaId}_${filename}`;
@@ -1333,13 +1344,14 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
     };
 
     /** The platform's anti-ban limits win over whatever a channel's own settings say. */
-    const enforcePolicy = ({ state }) => {
-        const wanted = policy();
+    // `reset`: values to put back for keys the policy no longer names (custom limits removed).
+    const enforcePolicy = ({ state }, reset = {}) => {
+        const wanted = { ...reset, ...policy() };
         if (!POLICY_KEYS.some((key) => key in wanted && state.config[key] !== wanted[key])) return;
         Object.assign(state.config, wanted);
         state.manager.applyConfig(state.config);
     };
-    const applyPolicy = () => runtimes.forEach(enforcePolicy);
+    const applyPolicy = (reset) => runtimes.forEach((runtime) => enforcePolicy(runtime, reset));
 
     const fail = (res, err) => {
         if (err instanceof ChannelError) return res.status(err.status).json({ errors: [err.message] });
@@ -1506,7 +1518,7 @@ export function createApp({
                 // The school module needs the tenant's services and user list.
                 deps: { ...deps, tenancy, limits: () => tenancy.getTenant(tenantId)?.limits ?? {} },
                 audit,
-                policy: () => tenancy.getTenant(tenantId)?.safety ?? {},
+                policy: () => tenancy.enforcedSafety(tenancy.getTenant(tenantId)),
             });
             runtimes.set(tenantId, runtime);
         }
@@ -1768,9 +1780,24 @@ export function createApp({
     });
 
     // Anti-ban policy (pacing, daily cap, rate, retries): effective values = defaults + overrides.
-    const safetyView = (tenant) => ({
-        safety: Object.fromEntries(POLICY_KEYS.map((key) => [key, tenant.safety[key] ?? DEFAULTS[key]])),
+    // `safety` stays the platform's own values; `custom` is what the tenant layered on top.
+    const customSafetyView = (tenant) => ({
+        allowed: tenant.limits.allowCustomSafety,
+        active: tenancy.customSafetyActive(tenant),
+        overrides: tenant.customSafety,
+        consent: tenancy.currentConsent(tenant.id),
+        consentVersion: CONSENT_VERSION,
     });
+    const safetyView = (tenant) => ({
+        safety: tenancy.platformSafety(tenant),
+        custom: customSafetyView(tenant),
+    });
+    /** Put platform values back on running channels for keys the tenant had overridden. */
+    const revertCustomSafety = (before) => {
+        const platform = tenancy.platformSafety(before);
+        runtimes.get(before.id)?.applyPolicy(Object.fromEntries(Object.keys(before.customSafety)
+            .map((key) => [key, platform[key]])));
+    };
 
     admin.get('/tenants/:id/safety', (req, res) => {
         const tenant = tenancy.getTenant(req.params.id);
@@ -1791,8 +1818,24 @@ export function createApp({
     admin.put('/tenants/:id/limits', (req, res) => {
         try {
             const tenant = tenancy.setLimits(req.params.id, req.body ?? {});
+            runtimes.get(tenant.id)?.applyPolicy(); // allowCustomSafety may have switched custom limits on/off
             audit(req, 'tenant.limits', tenant.id, tenant.limits);
             return res.json({ limits: tenant.limits });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    // Revoke: drop the tenant's own limits and take the permission back.
+    admin.delete('/tenants/:id/custom-safety', (req, res) => {
+        try {
+            const before = tenancy.getTenant(req.params.id);
+            if (!before) return res.status(404).json({ errors: ['tenant not found'] });
+            tenancy.clearCustomSafety(before.id);
+            const tenant = tenancy.setLimits(before.id, { allowCustomSafety: false });
+            revertCustomSafety(before);
+            audit(req, 'tenant.custom_safety.revoke', tenant.id, before.customSafety);
+            return res.json(safetyView(tenant));
         } catch (err) {
             return fail(res, err);
         }
@@ -1856,6 +1899,82 @@ export function createApp({
         } catch (err) {
             return fail(res, err);
         }
+    });
+
+    // ------------------------------------------- tenant-owned safety --
+    // A business changing its own anti-ban limits: only when the platform admin
+    // allows it, and only after someone accepted the risk (CONSENT_VERSION).
+    const custom = express.Router();
+    custom.use(withTenant, requireRole('admin'));
+    app.use('/api/safety/custom', custom);
+
+    const tenantSafetyView = (tenant) => ({
+        ...customSafetyView(tenant),
+        consentText: CONSENT_TEXT,
+        policy: tenancy.effectiveSafety(tenant),
+        platform: tenancy.platformSafety(tenant),
+        ranges: POLICY_SPEC,
+    });
+    const tenantOr404 = (req, res) => {
+        const tenant = tenancy.getTenant(req.tenantId);
+        if (!tenant) res.status(404).json({ errors: ['tenant not found'] });
+        return tenant;
+    };
+
+    custom.get('/', (req, res) => {
+        const tenant = tenantOr404(req, res);
+        return tenant && res.json(tenantSafetyView(tenant));
+    });
+
+    custom.post('/consent', (req, res) => {
+        const tenant = tenantOr404(req, res);
+        if (!tenant) return undefined;
+        if (!tenant.limits.allowCustomSafety) {
+            return res.status(403).json({ errors: ['Your platform admin has not enabled custom sending limits.'] });
+        }
+        const { accept, version, fullName, confirmation } = req.body ?? {};
+        if (accept !== true) return res.status(400).json({ errors: ['Tick the box to accept the risk.'] });
+        if (version !== CONSENT_VERSION) {
+            return res.status(409).json({ errors: ['The terms changed. Reload and read them again.'] });
+        }
+        if (!String(fullName ?? '').trim()) return res.status(400).json({ errors: ['Type your full name.'] });
+        const typed = String(confirmation ?? '').trim().toLowerCase();
+        if (typed !== 'i accept' && typed !== tenant.name.trim().toLowerCase()) {
+            return res.status(400).json({ errors: ['Type I ACCEPT (or your business name) to confirm.'] });
+        }
+        const consent = tenancy.recordConsent({
+            tenantId: tenant.id, user: req.user, fullName, ip: req.ip, userAgent: req.get('user-agent') ?? '',
+        });
+        audit(req, 'safety.consent', consent.id, { version: consent.version, fullName: consent.fullName });
+        return res.status(201).json(tenantSafetyView(tenancy.getTenant(tenant.id)));
+    });
+
+    custom.put('/', (req, res) => {
+        const tenant = tenantOr404(req, res);
+        if (!tenant) return undefined;
+        if (!tenant.limits.allowCustomSafety) {
+            return res.status(403).json({ errors: ['Your platform admin has not enabled custom sending limits.'] });
+        }
+        if (!tenancy.currentConsent(tenant.id)) {
+            return res.status(403).json({ errors: ['Accept the sending-risk terms before changing limits.'] });
+        }
+        try {
+            const next = tenancy.setCustomSafety(tenant.id, req.body ?? {});
+            runtimes.get(tenant.id)?.applyPolicy();
+            audit(req, 'safety.custom', tenant.id, next.customSafety);
+            return res.json(tenantSafetyView(next));
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    custom.delete('/', (req, res) => {
+        const before = tenantOr404(req, res);
+        if (!before) return undefined;
+        const tenant = tenancy.clearCustomSafety(before.id);
+        revertCustomSafety(before);
+        audit(req, 'safety.custom.reset', tenant.id, before.customSafety);
+        return res.json(tenantSafetyView(tenant));
     });
 
     // ------------------------------------------------- tenant routes --

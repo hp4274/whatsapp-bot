@@ -4,7 +4,8 @@ import { Router, RouterLink } from '@angular/router';
 
 import { forkJoin } from 'rxjs';
 
-import { AuditLog, SafetyPolicy, TenancyApi, TenantLimits } from '../core/api';
+import { AuditLog, CustomSafetyState, SafetyPolicy, TenancyApi, TenantLimits } from '../core/api';
+import { SAFETY_GROUPS } from '../core/safety-fields';
 import { Auth, Tenant, TenantControls } from '../core/auth';
 import { Store } from '../core/store';
 import { serviceMeta } from './service-meta';
@@ -61,64 +62,11 @@ const CONTROL_LABELS: Record<keyof TenantControls, string> = {
   automationsEnabled: 'Automations',
 };
 
-type SafetyField = { key: keyof SafetyPolicy; label: string; help: string; step?: number };
-
-const SAFETY_GROUPS: { title: string; fields: SafetyField[] }[] = [
-  {
-    title: 'Daily cap',
-    fields: [{ key: 'dailyLimit', label: 'Messages per day', help: 'Hard ceiling per number (0 = off)' }],
-  },
-  {
-    title: 'Pacing between messages',
-    fields: [
-      { key: 'minDelaySeconds', label: 'Min gap (s)', help: '0 = pick from batch size' },
-      { key: 'maxDelaySeconds', label: 'Max gap (s)', help: '0 = pick from batch size' },
-      { key: 'restEvery', label: 'Rest every N messages', help: '0 = never rest' },
-      { key: 'restMinMinutes', label: 'Rest min (min)', help: 'Shortest long pause' },
-      { key: 'restMaxMinutes', label: 'Rest max (min)', help: 'Longest long pause' },
-    ],
-  },
-  {
-    title: 'Throughput and retries',
-    fields: [
-      { key: 'rateLimitPerSecond', label: 'Messages per second', help: 'Token-bucket rate', step: 0.1 },
-      { key: 'rateLimitBurst', label: 'Burst', help: 'Sent at once after idle' },
-      { key: 'maxRetries', label: 'Max retries', help: 'Attempts on failure' },
-      { key: 'retryDelay', label: 'Retry delay (s)', help: 'First wait', step: 0.5 },
-      { key: 'retryBackoff', label: 'Backoff factor', help: 'Multiplier per retry', step: 0.5 },
-      { key: 'retryMaxDelay', label: 'Max retry wait (s)', help: 'Cap on backoff' },
-      { key: 'retryJitter', label: 'Jitter (0-1)', help: 'Randomises retries', step: 0.05 },
-    ],
-  },
-  {
-    title: 'Protect the number',
-    fields: [{
-      key: 'failureStopPercent', label: 'Pause a campaign above (% failed)',
-      help: 'Checked after 20 sends. 0 = never pause',
-    }, {
-      key: 'warmupDays', label: 'New-number warm-up (days)',
-      help: 'Cap starts at 30/day and doubles daily. 0 = off',
-    }, {
-      key: 'recipientDailyCap', label: 'Bulk per recipient per 24h',
-      help: 'Replies never count. 0 = off',
-    }, {
-      key: 'requireVariationAbove', label: 'Require spintax/{name} above N recipients',
-      help: '0 = off',
-    }],
-  },
-  {
-    title: 'Quiet hours (bulk only, channel timezone)',
-    fields: [
-      { key: 'quietHoursStart', label: 'Hold from hour (0-23)', help: 'Bulk waits, never fails' },
-      { key: 'quietHoursEnd', label: 'Resume at hour (0-23)', help: 'Same as start = off' },
-    ],
-  },
-];
-
 type SettingsDrawer = {
   tenant: Tenant;
   controls: TenantControls;
   safety: SafetyPolicy | null;
+  custom: CustomSafetyState | null;
   limits: TenantLimits;
 };
 
@@ -126,7 +74,7 @@ type SettingsTab = 'general' | 'limits' | 'safety';
 
 const DEFAULT_LIMITS: TenantLimits = {
   maxChannels: 0, maxUsers: 0, maxTemplates: 0, maxContactsPerCampaign: 0, maxMediaMb: 0,
-  allowCloudApi: true, allowWhatsappWeb: true, blockedWords: '',
+  allowCloudApi: true, allowWhatsappWeb: true, blockedWords: '', allowCustomSafety: false,
 };
 
 type LimitField = {
@@ -303,17 +251,50 @@ export class TenantsView {
   }
 
   protected openSettings(tenant: Tenant) {
+    this.revokeConfirm.set(false);
     if (this.settings()?.tenant.id !== tenant.id) this.settingsTab.set('general');
     this.settings.set({
       tenant,
       controls: { ...DEFAULT_CONTROLS, ...(tenant.controls ?? {}) },
       safety: null,
+      custom: null,
       limits: { ...DEFAULT_LIMITS, ...(tenant.limits ?? {}) },
     });
     this.api.safety(tenant.id).subscribe({
-      next: ({ safety }) => this.settings.update((cur) => (cur?.tenant.id === tenant.id ? { ...cur, safety } : cur)),
+      next: ({ safety, custom }) =>
+        this.settings.update((cur) => (cur?.tenant.id === tenant.id ? { ...cur, safety, custom } : cur)),
       error: (err: Error) => this.error.set(err.message),
     });
+  }
+
+  protected readonly revokeConfirm = signal(false);
+
+  /** Drop the tenant's own limits and take the permission back. Two clicks, no window.confirm. */
+  protected revokeCustomSafety() {
+    const cur = this.settings();
+    if (!cur) return;
+    if (!this.revokeConfirm()) {
+      this.revokeConfirm.set(true);
+      return;
+    }
+    this.revokeConfirm.set(false);
+    this.savingId.set(cur.tenant.id);
+    this.api.revokeCustomSafety(cur.tenant.id).subscribe({
+      next: ({ custom }) => {
+        this.savingId.set(null);
+        this.settings.update((s) => (s?.tenant.id === cur.tenant.id
+          ? { ...s, custom, limits: { ...s.limits, allowCustomSafety: false } } : s));
+        this.refresh();
+      },
+      error: (err: Error) => {
+        this.savingId.set(null);
+        this.error.set(err.message);
+      },
+    });
+  }
+
+  protected overrideCount(custom: CustomSafetyState): number {
+    return Object.keys(custom.overrides ?? {}).length;
   }
 
   protected closeSettings() {

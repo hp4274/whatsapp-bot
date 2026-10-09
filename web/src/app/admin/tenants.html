@@ -319,6 +319,18 @@
           </section>
 
           <section>
+            <h4>Sending limits</h4>
+            <p class="muted compact">Off: only you set this business's anti-ban limits. On: their owner or admins can change them after accepting, in writing, that a banned number is their responsibility.</p>
+            <div class="switches">
+              <label class="switch drawer-check">
+                <input type="checkbox" [checked]="s.limits.allowCustomSafety"
+                       (change)="setLimit('allowCustomSafety', checked($event))" />
+                <span>Let this business change its own sending limits (they must accept the risk)</span>
+              </label>
+            </div>
+          </section>
+
+          <section>
             <h4>Services</h4>
             <p class="muted compact">{{ serviceSummary(s.tenant.services) }}</p>
             <button class="btn" type="button" (click)="openTenantServices(s.tenant)">Choose services</button>
@@ -377,6 +389,36 @@
               }
             </div>
             <p class="muted compact">Bulk sending gets numbers banned. These limits apply to every number of this tenant.</p>
+
+            @if (s.custom; as custom) {
+              <div class="custom-safety" [class.on]="custom.active" role="status">
+                <span class="ms" aria-hidden="true">{{ custom.active ? 'gpp_maybe' : 'verified_user' }}</span>
+                <div>
+                  <strong>
+                    @if (custom.active) {
+                      Business limits active: {{ overrideCount(custom) }} value{{ overrideCount(custom) === 1 ? '' : 's' }} override yours
+                    } @else if (!custom.allowed) {
+                      Only you set these limits
+                    } @else if (overrideCount(custom)) {
+                      Business limits saved but not applied
+                    } @else {
+                      Business may customise - nothing changed yet
+                    }
+                  </strong>
+                  @if (custom.consent; as consent) {
+                    <span class="muted">Risk accepted by {{ consent.fullName }} ({{ consent.email }}) on {{ consent.acceptedAt.slice(0, 10) }}, terms v{{ consent.version }}</span>
+                  } @else if (custom.allowed) {
+                    <span class="muted">No one has accepted the current terms (v{{ custom.consentVersion }}) yet.</span>
+                  }
+                </div>
+                @if (custom.allowed || overrideCount(custom)) {
+                  <button class="btn" type="button" [class.danger]="revokeConfirm()" (click)="revokeCustomSafety()"
+                          [disabled]="savingId() !== null">
+                    <span class="ms" aria-hidden="true">block</span>{{ revokeConfirm() ? 'Click again to revoke' : 'Revoke custom limits' }}
+                  </button>
+                }
+              </div>
+            }
 
             @if (s.safety; as safety) {
               <div class="field">
