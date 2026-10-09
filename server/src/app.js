@@ -76,9 +76,10 @@ import { WEBHOOK_JOB_KIND, createWebhookDeliveryHandler } from './publicapi/webh
 import { RECIPES, getRecipe, installRecipe } from './recipes/index.js';
 import { SCHOOL_TEMPLATES, STUDENT_CSV_COLUMNS } from './school/templates.js';
 import { handleSchoolCommand } from './school/commands.js';
+import { helpText, isHelp } from './help.js';
 import { createSchoolRouter, schoolSweep } from './school/routes.js';
 import { rateLimit, webhookSignatureGuard } from './security/signature.js';
-import { ROLES, TENANT_SERVICES, Tenancy, TenancyError, roleRank } from './tenancy.js';
+import { ROLES, TENANT_SERVICES, Tenancy, TenancyError, blockedWordIn, roleRank } from './tenancy.js';
 import { TransportError } from './transports/base.js';
 import { CloudApiTransport, parseInboundPayload, parseStatusPayload } from './transports/cloudApi.js';
 import { SandboxTransport } from './transports/sandbox.js';
@@ -233,6 +234,19 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     // `broadcast` and the client set.
     state.broadcast = (event) => broadcast(state, event);
 
+    // Plan limits set by the platform admin. Read per call so a change applies at once.
+    const limits = () => deps.limits?.() ?? {};
+    const transportBlocked = (cfg) => {
+        const lim = limits();
+        if (cfg.transport === TRANSPORT_CLOUD_API && lim.allowCloudApi === false) return 'The Meta Cloud API is not enabled for your plan.';
+        if (cfg.transport === TRANSPORT_WEB_JS && lim.allowWhatsappWeb === false) return 'WhatsApp Web (QR) is not enabled for your plan.';
+        return null;
+    };
+    const bannedIn = (text) => {
+        const word = blockedWordIn(limits(), text);
+        return word ? `Your message uses "${word}", which is not allowed on this platform.` : null;
+    };
+
     /**
      * Rule 2 enforcement.  A send is refused unless this channel is active, is
      * enabled for that kind of traffic, and is inside its sending window.  The
@@ -333,6 +347,8 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         const merged = mergeConfig(state.config, body);
         const problems = validateConfig(merged);
         if (problems.length) return res.status(400).json({ errors: problems });
+        const blocked = transportBlocked(merged);
+        if (blocked) return res.status(403).json({ errors: [blocked] });
         state.config = state.save(merged);
         manager.applyConfig(state.config);
         contacts.defaultCountryCode = state.config.defaultCountryCode;
@@ -356,6 +372,8 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         }
         const problems = validateConfig(state.config);
         if (problems.length) return { status: 400, body: { errors: problems } };
+        const blocked = transportBlocked(state.config);
+        if (blocked) return { status: 403, body: { errors: [blocked] } };
 
         if (state.transport) {
             try {
@@ -730,6 +748,12 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     }));
 
     app.post('/templates', (req, res) => {
+        const cap = limits().maxTemplates;
+        if (cap && templates.list().length >= cap) {
+            return res.status(403).json({ errors: [`Your plan allows ${cap} templates. Delete one or ask the platform admin to raise it.`] });
+        }
+        const banned = bannedIn(`${req.body?.name ?? ''} ${req.body?.body ?? ''}`);
+        if (banned) return res.status(400).json({ errors: [banned] });
         // The store saves half-written drafts on purpose; the API is the gate.
         const problems = validateTemplate(req.body ?? {});
         if (problems.length && req.query.draft !== 'true') return res.status(400).json({ errors: problems });
@@ -751,6 +775,8 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     });
 
     app.put('/templates/:id', (req, res) => {
+        const banned = bannedIn(`${req.body?.name ?? ''} ${req.body?.body ?? ''}`);
+        if (banned) return res.status(400).json({ errors: [banned] });
         const problems = validateTemplate({ ...templates.get(req.params.id), ...req.body });
         if (problems.length && req.query.draft !== 'true') return res.status(400).json({ errors: problems });
         try {
@@ -963,6 +989,10 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     // -------------------------------------------------------------- media --
     app.post('/media/upload', mediaUpload.single('file'), async (req, res) => {
         if (!req.file) return res.status(400).json({ errors: ['no file uploaded'] });
+        const maxMb = limits().maxMediaMb;
+        if (maxMb && req.file.size > maxMb * 1024 * 1024) {
+            return res.status(413).json({ errors: [`Files can be up to ${maxMb} MB on your plan.`] });
+        }
         if (!ALLOWED_MEDIA_TYPES.has(req.file.mimetype)) {
             return res.status(400).json({ errors: [`unsupported media type: ${req.file.mimetype}`] });
         }
@@ -1022,6 +1052,12 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         if (!list.length) {
             return res.status(400).json({ errors: [segmentId ? 'that segment is empty' : 'no contacts'] });
         }
+        const cap = limits().maxContactsPerCampaign;
+        if (cap && list.length > cap) {
+            return res.status(403).json({ errors: [`A campaign can reach ${cap} contacts on your plan; this one has ${list.length}.`] });
+        }
+        const banned = bannedIn([template, ...list.map(ownText)].join(' '));
+        if (banned) return res.status(400).json({ errors: [banned] });
         if (!state.transport?.isConnected?.()) {
             return res.status(409).json({ errors: ['Connect a transport first.'] });
         }
@@ -1293,6 +1329,10 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
     }));
 
     app.post('/channels', (req, res) => {
+        const cap = deps.limits?.().maxChannels;
+        if (cap && channels.list().length >= cap) {
+            return res.status(403).json({ errors: [`Your plan allows ${cap} WhatsApp number${cap === 1 ? '' : 's'}. Ask the platform admin to raise it.`] });
+        }
         try {
             const channel = channels.create(req.body ?? {});
             audit?.(req, 'channel.create', channel.id, channel.displayName);
@@ -1424,7 +1464,7 @@ export function createApp({
                 tenantDir,
                 sessionDir: isDefault ? SESSION_DIR : path.join(tenantDir, 'wwebjs_auth'),
                 // The school module needs the tenant's services and user list.
-                deps: { ...deps, tenancy },
+                deps: { ...deps, tenancy, limits: () => tenancy.getTenant(tenantId)?.limits ?? {} },
                 audit,
                 policy: () => tenancy.getTenant(tenantId)?.safety ?? {},
             });
@@ -1683,6 +1723,16 @@ export function createApp({
         }
     });
 
+    admin.put('/tenants/:id/limits', (req, res) => {
+        try {
+            const tenant = tenancy.setLimits(req.params.id, req.body ?? {});
+            audit(req, 'tenant.limits', tenant.id, tenant.limits);
+            return res.json({ limits: tenant.limits });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
     admin.delete('/tenants/:id', async (req, res) => {
         try {
             const tenant = tenancy.archiveTenant(req.params.id);
@@ -1713,6 +1763,10 @@ export function createApp({
         // You can only create people below you; owners come from the platform admin.
         if (roleRank(role) >= roleRank(req.user.role) && req.user.role !== 'super_admin') {
             return res.status(403).json({ errors: ['You can only add users with a lower role than yours.'] });
+        }
+        const cap = tenancy.getTenant(req.tenantId)?.limits.maxUsers;
+        if (cap && tenancy.listUsers(req.tenantId).length >= cap) {
+            return res.status(403).json({ errors: [`Your plan allows ${cap} team member${cap === 1 ? '' : 's'}.`] });
         }
         try {
             const user = await tenancy.createUser({ ...req.body, role, tenantId: req.tenantId });
@@ -1919,6 +1973,20 @@ async function handleInbound(state, message) {
         // message service enforces this too, but returning early also skips the
         // typing delay and the FAQ lookup.
         if (state.conversations?.isBotPaused(saved.sender, state.channel.id)) return saved;
+
+        // HELP lists every keyword the customer can use, whichever engine owns it.
+        if (isHelp(saved.body)) {
+            const text = helpText(state);
+            if (text) {
+                const outcome = state.messages.send({
+                    messageType: 'auto_reply', recipient: saved.sender, text, idempotencyKey: `help.${saved.messageId}`,
+                });
+                if (outcome.accepted) {
+                    state.db.markInboundReplied(saved.messageId, 'help');
+                    return saved;
+                }
+            }
+        }
 
         // Parent keywords (ATTENDANCE, FEES, LEAVE...) before the FAQ; only a
         // number linked to a student is answered, everyone else falls through.

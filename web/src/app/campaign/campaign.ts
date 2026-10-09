@@ -131,6 +131,8 @@ export class CampaignView {
         this.busy.set(false);
         this.notice.set('');
         this.plan.set(safety);
+        // Pull the new run's numbers now so the progress card appears at once.
+        this.api.stats().subscribe({ next: ({ stats }) => this.store.stats.set(stats), error: () => undefined });
         const reason = this.onePerNumber() ? 'repeat or already-messaged number' : 'duplicate message';
         this.store.setStatus(`Campaign started: ${queued} queued, ${skipped} skipped (${reason})`, 'primary');
       },

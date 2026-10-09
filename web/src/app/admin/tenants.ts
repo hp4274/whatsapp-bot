@@ -4,7 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 
 import { forkJoin } from 'rxjs';
 
-import { AuditLog, SafetyPolicy, TenancyApi } from '../core/api';
+import { AuditLog, SafetyPolicy, TenancyApi, TenantLimits } from '../core/api';
 import { Auth, Tenant, TenantControls } from '../core/auth';
 import { Store } from '../core/store';
 import { serviceMeta } from './service-meta';
@@ -90,13 +90,41 @@ const SAFETY_GROUPS: { title: string; fields: SafetyField[] }[] = [
       { key: 'retryJitter', label: 'Jitter (0-1)', help: 'Randomises retries', step: 0.05 },
     ],
   },
+  {
+    title: 'Protect the number',
+    fields: [{
+      key: 'failureStopPercent', label: 'Pause a campaign above (% failed)',
+      help: 'Checked after 20 sends. 0 = never pause',
+    }],
+  },
 ];
 
 type SettingsDrawer = {
   tenant: Tenant;
   controls: TenantControls;
   safety: SafetyPolicy | null;
+  limits: TenantLimits;
 };
+
+type SettingsTab = 'general' | 'limits' | 'safety';
+
+const DEFAULT_LIMITS: TenantLimits = {
+  maxChannels: 0, maxUsers: 0, maxTemplates: 0, maxContactsPerCampaign: 0, maxMediaMb: 0,
+  allowCloudApi: true, allowWhatsappWeb: true, blockedWords: '',
+};
+
+type LimitField = {
+  key: 'maxChannels' | 'maxUsers' | 'maxTemplates' | 'maxContactsPerCampaign' | 'maxMediaMb';
+  label: string;
+  unit: string;
+};
+const LIMIT_FIELDS: LimitField[] = [
+  { key: 'maxChannels', label: 'WhatsApp numbers', unit: 'numbers' },
+  { key: 'maxUsers', label: 'Team members', unit: 'seats' },
+  { key: 'maxTemplates', label: 'Saved templates', unit: 'templates' },
+  { key: 'maxContactsPerCampaign', label: 'Contacts per campaign', unit: 'contacts' },
+  { key: 'maxMediaMb', label: 'Largest upload', unit: 'MB' },
+];
 
 const VIEW_KEY = 'wsender.tenantView';
 
@@ -154,6 +182,13 @@ export class TenantsView {
   protected readonly menuId = signal<number | null>(null);
   protected readonly settings = signal<SettingsDrawer | null>(null);
   protected readonly safetyGroups = SAFETY_GROUPS;
+  protected readonly limitFields = LIMIT_FIELDS;
+  protected readonly settingsTab = signal<SettingsTab>('general');
+  protected readonly settingsTabs: { id: SettingsTab; label: string; icon: string }[] = [
+    { id: 'general', label: 'General', icon: 'tune' },
+    { id: 'limits', label: 'Limits and quotas', icon: 'data_usage' },
+    { id: 'safety', label: 'Anti-ban safety', icon: 'shield' },
+  ];
   protected readonly visible = computed(() => {
     const q = this.query().trim().toLowerCase();
     const status = this.statusFilter();
@@ -249,10 +284,12 @@ export class TenantsView {
   }
 
   protected openSettings(tenant: Tenant) {
+    if (this.settings()?.tenant.id !== tenant.id) this.settingsTab.set('general');
     this.settings.set({
       tenant,
       controls: { ...DEFAULT_CONTROLS, ...(tenant.controls ?? {}) },
       safety: null,
+      limits: { ...DEFAULT_LIMITS, ...(tenant.limits ?? {}) },
     });
     this.api.safety(tenant.id).subscribe({
       next: ({ safety }) => this.settings.update((cur) => (cur?.tenant.id === tenant.id ? { ...cur, safety } : cur)),
@@ -272,6 +309,14 @@ export class TenantsView {
     this.settings.update((cur) => (cur?.safety ? { ...cur, safety: { ...cur.safety, [key]: value } } : cur));
   }
 
+  protected setLimit<K extends keyof TenantLimits>(key: K, value: TenantLimits[K]) {
+    this.settings.update((cur) => (cur ? { ...cur, limits: { ...cur.limits, [key]: value } } : cur));
+  }
+
+  protected setLimitNumber(key: LimitField['key'], raw: string) {
+    this.setLimit(key, Math.max(0, Math.floor(Number(raw) || 0)));
+  }
+
   protected setSafetyNumber(key: keyof SafetyPolicy, raw: string) {
     this.setSafetyValue(key, Number(raw) as never);
   }
@@ -288,6 +333,7 @@ export class TenantsView {
     this.error.set('');
     forkJoin([
       this.api.updateTenant(cur.tenant.id, { controls: cur.controls }),
+      this.api.setLimits(cur.tenant.id, cur.limits),
       ...(cur.safety ? [this.api.setSafety(cur.tenant.id, cur.safety)] : []),
     ]).subscribe({
       next: () => {

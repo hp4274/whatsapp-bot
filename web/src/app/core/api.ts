@@ -349,6 +349,19 @@ export interface SafetyPolicy {
   retryBackoff: number;
   retryMaxDelay: number;
   retryJitter: number;
+  failureStopPercent: number;
+}
+
+/** Plan limits the platform admin sets per tenant. 0 means no limit. */
+export interface TenantLimits {
+  maxChannels: number;
+  maxUsers: number;
+  maxTemplates: number;
+  maxContactsPerCampaign: number;
+  maxMediaMb: number;
+  allowCloudApi: boolean;
+  allowWhatsappWeb: boolean;
+  blockedWords: string;
 }
 
 export interface BillingPlan {
@@ -407,6 +420,11 @@ export class TenancyApi {
 
   setSafety(id: number, patch: Partial<SafetyPolicy>): Observable<{ safety: SafetyPolicy }> {
     return this.http.put<{ safety: SafetyPolicy }>(`/api/admin/tenants/${id}/safety`, patch)
+      .pipe(catchError(toMessage));
+  }
+
+  setLimits(id: number, patch: Partial<TenantLimits>): Observable<{ limits: TenantLimits }> {
+    return this.http.put<{ limits: TenantLimits }>(`/api/admin/tenants/${id}/limits`, patch)
       .pipe(catchError(toMessage));
   }
 

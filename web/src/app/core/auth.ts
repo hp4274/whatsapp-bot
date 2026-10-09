@@ -34,6 +34,7 @@ export interface Tenant {
   controls: TenantControls;
   /** Anti-ban overrides set by the platform admin; absent keys use the defaults. */
   safety?: Record<string, number | boolean | string>;
+  limits?: import('./api').TenantLimits;
   channels?: TenantChannelSummary[];
   health?: TenantHealth;
   createdAt: string;

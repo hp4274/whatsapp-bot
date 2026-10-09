@@ -183,6 +183,14 @@ export class Tenancy {
     }
 
     /** Anti-ban policy for a tenant: stored as overrides, shown merged over the defaults. */
+    setLimits(id, patch = {}) {
+        const before = this.getTenant(id);
+        if (!before || before.status === 'archived') throw new TenancyError('tenant not found', 404);
+        const next = normalizeLimits({ ...before.limits, ...patch }, true);
+        this.db.prepare('UPDATE tenants SET limits = ? WHERE id = ?').run(JSON.stringify(next), Number(id));
+        return this.getTenant(id);
+    }
+
     setSafety(id, patch = {}) {
         const before = this.getTenant(id);
         if (!before || before.status === 'archived') throw new TenancyError('tenant not found', 404);
@@ -340,6 +348,55 @@ export function normalizeTenantServices(services) {
     return TENANT_SERVICES.filter((service) => services.includes(service));
 }
 
+/**
+ * Plan limits the platform admin sets per tenant. A number of 0 means "no limit";
+ * the booleans default to allowed, so an existing tenant loses nothing.
+ */
+export const LIMIT_SPEC = Object.freeze({
+    maxChannels: [0, 1000],
+    maxUsers: [0, 10000],
+    maxTemplates: [0, 100000],
+    maxContactsPerCampaign: [0, 1000000],
+    maxMediaMb: [0, 500],
+    allowCloudApi: 'bool',
+    allowWhatsappWeb: 'bool',
+    blockedWords: 'text',
+});
+export const DEFAULT_LIMITS = Object.freeze({
+    maxChannels: 0, maxUsers: 0, maxTemplates: 0, maxContactsPerCampaign: 0, maxMediaMb: 0,
+    allowCloudApi: true, allowWhatsappWeb: true, blockedWords: '',
+});
+
+export function normalizeLimits(input = {}, strict = false) {
+    const out = { ...DEFAULT_LIMITS };
+    for (const [key, spec] of Object.entries(LIMIT_SPEC)) {
+        const value = input?.[key];
+        if (value === undefined || value === null) continue;
+        if (spec === 'bool') out[key] = Boolean(value);
+        else if (spec === 'text') out[key] = String(value).slice(0, 2000);
+        else {
+            const n = Number(value);
+            if (!Number.isFinite(n) || n < spec[0] || n > spec[1]) {
+                if (strict) throw new TenancyError(`${key} must be between ${spec[0]} and ${spec[1]}`);
+                continue;
+            }
+            out[key] = Math.floor(n);
+        }
+    }
+    if (!out.allowCloudApi && !out.allowWhatsappWeb && strict) {
+        throw new TenancyError('allow at least one transport');
+    }
+    return out;
+}
+
+/** The first banned word or phrase found in `text`, or null. Whole words, any case. */
+export function blockedWordIn(limits, text) {
+    const flat = (t) => ` ${String(t).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
+    const hay = flat(text);
+    return String(limits?.blockedWords ?? '').split(/[,\n]/).map((w) => w.trim()).filter(Boolean)
+        .find((w) => hay.includes(flat(w))) ?? null;
+}
+
 export function normalizeTenantControls(controls = {}) {
     return Object.fromEntries(Object.entries(DEFAULT_TENANT_CONTROLS)
         .map(([key, fallback]) => [key, controls[key] === undefined ? fallback : Boolean(controls[key])]));
@@ -383,6 +440,7 @@ function toTenant(row) {
         services: normalizeTenantServices(parseJson(row.services, null)),
         controls: normalizeTenantControls(parseJson(row.controls, {})),
         safety: parseJson(row.safety, {}),
+        limits: normalizeLimits(parseJson(row.limits, {})),
         createdAt: row.created_at,
     };
 }
