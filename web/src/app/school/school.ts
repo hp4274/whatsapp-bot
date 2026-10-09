@@ -1,4 +1,5 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
+import { Store } from '../core/store';
 import { ActivatedRoute, Router } from '@angular/router';
 
 import { ClassInfo, SchoolApi, SchoolArea, SchoolMe, StaffTitle } from './school-api';
@@ -54,6 +55,7 @@ const TITLES: Record<StaffTitle, string> = {
 })
 export class SchoolView {
   private readonly api = inject(SchoolApi);
+  private readonly store = inject(Store);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
@@ -101,11 +103,14 @@ export class SchoolView {
 
   constructor() {
     this.load();
+    this.store.watch(['school'], () => this.load(true));
   }
 
-  protected load() {
-    this.loading.set(true);
-    this.error.set('');
+  protected load(quiet = false) {
+    if (!quiet) {
+      this.loading.set(true);
+      this.error.set('');
+    }
     this.api.me().subscribe({
       next: (me) => {
         this.me.set(me);

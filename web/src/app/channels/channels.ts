@@ -26,6 +26,7 @@ export class ChannelsView {
 
   constructor() {
     this.refresh();
+    this.store.watch(['channels'], () => this.refresh());
   }
 
   protected refresh() {

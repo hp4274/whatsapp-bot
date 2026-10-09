@@ -223,8 +223,7 @@ describe('one pipeline', () => {
             messageId: 'inbound-pipeline-2', sender: '919000001005', senderName: 'Test', body: 'pipeline',
         };
         await runtime.state.autoReply.handleInbound(inbound);
-        // A second delivery of the same webhook, past the cooldown.
-        runtime.state.autoReply.recentReplies.clear();
+        // A second delivery of the same webhook (there is no cooldown to hide behind).
         await runtime.state.autoReply.handleInbound(inbound);
 
         await waitFor(() => false, 300);

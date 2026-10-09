@@ -1,5 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import { Store } from '../../core/store';
 import { FormsModule } from '@angular/forms';
 
 import { ClassInfo, Homework, SchoolApi, SchoolArea, SchoolMe } from '../school-api';
@@ -12,6 +13,7 @@ import { ClassInfo, Homework, SchoolApi, SchoolArea, SchoolMe } from '../school-
 })
 export class HomeworkTab {
   private readonly api = inject(SchoolApi);
+  private readonly store = inject(Store);
 
   readonly classes = input<ClassInfo[]>([]);
   readonly classKey = input<string>('');
@@ -48,11 +50,12 @@ export class HomeworkTab {
       this.cls.set(key);
     });
     effect(() => this.load(this.cls()));
+    this.store.watch(['school', 'objects'], () => this.load(this.cls(), true));
     this.api.settings().subscribe({ next: (r) => r.settings.homeworkSendTime && this.sendTime.set(r.settings.homeworkSendTime), error: () => {} });
   }
 
-  private load(key: string) {
-    this.loading.set(true);
+  private load(key: string, quiet = false) {
+    if (!quiet) this.loading.set(true);
     this.api.homework(key || undefined).subscribe({
       next: (r) => { this.list.set(r.homework); this.loading.set(false); },
       error: (e: Error) => { this.error.set(e.message); this.loading.set(false); },

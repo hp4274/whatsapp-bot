@@ -1,4 +1,5 @@
 import { Component, output, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { Store } from '../../core/store';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
@@ -20,6 +21,7 @@ const PHONE = /^(\d{10}|\+\d{8,15})$/;
 })
 export class StudentsTab {
   private readonly api = inject(SchoolApi);
+  private readonly store = inject(Store);
 
   readonly classes = input<ClassInfo[]>([]);
   readonly classKey = input<string>('');
@@ -93,13 +95,16 @@ export class StudentsTab {
       const key = this.classKey();
       untracked(() => this.load(key));
     });
+    this.store.watch(['school', 'objects'], () => this.load(this.classKey(), true));
   }
 
-  protected load(key = this.classKey()) {
+  protected load(key = this.classKey(), quiet = false) {
     this.sub?.unsubscribe();
-    this.loading.set(true);
-    this.error.set('');
-    this.chip.set(null);
+    if (!quiet) {
+      this.loading.set(true);
+      this.error.set('');
+      this.chip.set(null);
+    }
     this.sub = this.api.students(key || undefined).subscribe({
       next: ({ students }) => {
         this.students.set(students);

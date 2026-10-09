@@ -217,7 +217,7 @@
 }
 
 .form-grid {
-  grid-template-columns: minmax(220px, 1.3fr) minmax(160px, 1fr) minmax(110px, 0.5fr);
+  grid-template-columns: minmax(220px, 1fr) minmax(160px, 1fr);
 
   .reply {
     grid-column: 1 / -1;

@@ -1,4 +1,5 @@
 import { Component, inject, input, output, signal } from '@angular/core';
+import { Store } from '../../core/store';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
@@ -22,6 +23,7 @@ interface Row extends StaffMember { dirty: boolean; saving: boolean; saved: bool
 })
 export class StaffTab {
   private readonly api = inject(SchoolApi);
+  private readonly store = inject(Store);
 
   readonly classes = input<ClassInfo[]>([]);
   readonly classKey = input<string>('');
@@ -34,9 +36,19 @@ export class StaffTab {
   protected readonly error = signal('');
 
   constructor() {
+    this.load();
+    this.store.watch(['school'], () => this.load(true));
+  }
+
+  private load(quiet = false) {
     this.api.staff().subscribe({
-      next: (r) => { this.rows.set(r.users.map((u) => ({ ...u, dirty: false, saving: false, saved: false, error: '' }))); this.loading.set(false); },
-      error: (e: Error) => { this.error.set(e.message); this.loading.set(false); },
+      next: (r) => {
+        // Never clobber unsaved edits: skip a live refresh while any row is dirty or saving.
+        if (quiet && this.rows().some((x) => x.dirty || x.saving)) return;
+        this.rows.set(r.users.map((u) => ({ ...u, dirty: false, saving: false, saved: false, error: '' })));
+        this.loading.set(false);
+      },
+      error: (e: Error) => { if (!quiet) this.error.set(e.message); this.loading.set(false); },
     });
   }
 

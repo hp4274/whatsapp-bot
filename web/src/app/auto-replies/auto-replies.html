@@ -60,7 +60,7 @@
             <button type="button" class="rule-main" (click)="edit(rule)">
               <span class="rule-title">
                 <strong>{{ ruleLabel(rule) }}</strong>
-                <small>{{ rule.matchType.toLowerCase() }} &middot; {{ rule.cooldownSec }}s cooldown</small>
+                <small>{{ rule.matchType.toLowerCase() }}</small>
               </span>
               <span class="pill" [class.active]="rule.isActive">
                 {{ rule.isActive ? 'On' : 'Off' }}
@@ -115,12 +115,6 @@
         <input id="keyword" [disabled]="form().matchType === 'FALLBACK'"
                [ngModel]="form().keyword" (ngModelChange)="update('keyword', $event)"
                placeholder="hi, pricing, invoice \\d+" />
-      </div>
-
-      <div class="field">
-        <label for="cooldown">Cooldown seconds</label>
-        <input id="cooldown" type="number" min="0" [ngModel]="form().cooldownSec"
-               (ngModelChange)="update('cooldownSec', +$event)" />
       </div>
 
       <div class="field reply">

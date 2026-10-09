@@ -1,4 +1,5 @@
 import { Component, output, computed, inject, input, signal } from '@angular/core';
+import { Store } from '../../core/store';
 import { FormsModule } from '@angular/forms';
 
 import { ClassInfo, PtmSlot, SchoolApi, SchoolArea, SchoolMe } from '../school-api';
@@ -11,6 +12,7 @@ import { ClassInfo, PtmSlot, SchoolApi, SchoolArea, SchoolMe } from '../school-a
 })
 export class PtmTab {
   private readonly api = inject(SchoolApi);
+  private readonly store = inject(Store);
 
   readonly classes = input<ClassInfo[]>([]);
   readonly classKey = input<string>('');
@@ -49,11 +51,14 @@ export class PtmTab {
 
   constructor() {
     this.load();
+    this.store.watch(['school', 'objects'], () => this.load(true));
   }
 
-  protected load() {
-    this.loading.set(true);
-    this.error.set('');
+  protected load(quiet = false) {
+    if (!quiet) {
+      this.loading.set(true);
+      this.error.set('');
+    }
     this.api.ptmSlots().subscribe({
       next: ({ slots }) => {
         this.slots.set(slots);

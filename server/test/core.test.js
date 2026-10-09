@@ -174,7 +174,7 @@ describe('inbound parsing and automation', () => {
         assert.match(sent[0].message, /Valued Customer/);
     });
 
-    it('suppresses repeated replies during cooldown', async () => {
+    it('answers every keyword message - no cooldown', async () => {
         const sent = [];
         const transport = {
             isConnected: () => true,
@@ -188,8 +188,8 @@ describe('inbound parsing and automation', () => {
         try {
             await engine.handleInbound({ sender: '15551230000', senderName: '', body: 'Hi' });
             const second = await engine.handleInbound({ sender: '15551230000', senderName: '', body: 'Hi' });
-            assert.equal(second, null);
-            assert.equal(sent.length, 1);
+            assert.ok(second?.rule, 'the repeat is answered too');
+            assert.equal(sent.length, 2);
         } finally {
             db.close();
         }

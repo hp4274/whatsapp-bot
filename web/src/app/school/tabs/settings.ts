@@ -1,4 +1,5 @@
 import { Component, inject, input, output, signal } from '@angular/core';
+import { Store } from '../../core/store';
 import { FormsModule } from '@angular/forms';
 
 import { ClassInfo, SchoolApi, SchoolArea, SchoolMe, SchoolSettings } from '../school-api';
@@ -24,6 +25,7 @@ const COMMANDS: [string, string][] = [
 })
 export class SettingsTab {
   private readonly api = inject(SchoolApi);
+  private readonly store = inject(Store);
 
   readonly classes = input<ClassInfo[]>([]);
   readonly classKey = input<string>('');
@@ -41,9 +43,19 @@ export class SettingsTab {
   protected readonly error = signal('');
 
   constructor() {
+    this.load();
+    this.store.watch(['school'], () => this.load(true));
+  }
+
+  private load(quiet = false) {
     this.api.settings().subscribe({
-      next: (r) => { this.apply(r.settings); this.loading.set(false); },
-      error: (e: Error) => { this.error.set(e.message); this.loading.set(false); },
+      next: (r) => {
+        // Never clobber unsaved edits on a live refresh.
+        if (quiet && (this.dirty() || this.saving())) return;
+        this.apply(r.settings);
+        this.loading.set(false);
+      },
+      error: (e: Error) => { if (!quiet) this.error.set(e.message); this.loading.set(false); },
     });
   }
 

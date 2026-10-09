@@ -1,5 +1,6 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
+import { Store } from '../core/store';
 import { RouterLink } from '@angular/router';
 import { Observable, forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
@@ -58,6 +59,7 @@ function bars(map: Record<string, number>, tone: (k: string) => string): Bar[] {
 })
 export class AnalyticsView {
   private readonly api = inject(AnalyticsApi);
+  private readonly store = inject(Store);
 
   protected readonly ring = RING;
   protected readonly statusOrder = STATUS_ORDER;
@@ -224,10 +226,11 @@ export class AnalyticsView {
 
   constructor() {
     this.load();
+    this.store.watch(['history', 'campaign', 'analytics', 'objects', 'tickets', 'inbox'], () => this.load(true), 2000);
   }
 
-  protected load() {
-    this.loading.set(true);
+  protected load(quiet = false) {
+    if (!quiet) this.loading.set(true);
     const now = new Date();
     const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     // Each source fails alone: a tenant without a service gets 403 there and

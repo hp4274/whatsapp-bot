@@ -17,7 +17,7 @@ type Filter = 'all' | 'unread' | ConversationStatus;
 type Row = Conversation & { name: string; preview: string };
 type Entry = { item: ThreadItem; who: 'in' | 'human' | 'bot'; day: string | null };
 
-const POLL_MS = 5000;
+const POLL_MS = 30_000;
 const STATUSES: ConversationStatus[] = ['open', 'pending', 'closed'];
 
 @Component({
@@ -109,6 +109,7 @@ export class InboxView implements OnDestroy {
         this.lastRevision = rev;
       });
     });
+    this.store.watch(['inbox', 'conversations'], () => this.tick(), 250);
     // Belt and braces: SSE can drop silently, so poll while the page is open.
     this.timer = setInterval(() => {
       this.now.set(Date.now());

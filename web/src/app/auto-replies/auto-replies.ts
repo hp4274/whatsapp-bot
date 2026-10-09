@@ -26,7 +26,7 @@ const EMPTY_FORM: AutoReplyForm = {
   matchType: 'CONTAINS',
   replyBody: '{time_greeting} {name}, thank you for contacting us.',
   isActive: true,
-  cooldownSec: 300,
+  cooldownSec: 0,
 };
 
 const MATCH_TYPES: { value: AutoReplyMatchType; label: string; hint: string }[] = [
@@ -72,19 +72,22 @@ export class AutoRepliesView {
 
   constructor() {
     this.load();
+    this.store.watch(['auto-replies'], () => this.load(true));
   }
 
-  protected load(): void {
-    this.loading.set(true);
-    this.errors.set([]);
+  protected load(quiet = false): void {
+    if (!quiet) {
+      this.loading.set(true);
+      this.errors.set([]);
+    }
     this.api.autoReplies().subscribe({
       next: ({ rules }) => {
         this.rules.set(rules);
-        if (rules[0] && this.form().id === null) this.edit(rules[0]);
+        if (!quiet && rules[0] && this.form().id === null) this.edit(rules[0]);
         this.loading.set(false);
       },
       error: (err: Error) => {
-        this.errors.set(err.message.split('\n'));
+        if (!quiet) this.errors.set(err.message.split('\n'));
         this.loading.set(false);
       },
     });

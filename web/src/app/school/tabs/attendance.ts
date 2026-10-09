@@ -1,4 +1,5 @@
 import { Component, output, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { Store } from '../../core/store';
 import { Subscription } from 'rxjs';
 
 import {
@@ -21,6 +22,7 @@ const STATUSES: { value: AttendanceStatus; label: string; short: string; tone: s
 })
 export class AttendanceTab {
   private readonly api = inject(SchoolApi);
+  private readonly store = inject(Store);
 
   readonly classes = input<ClassInfo[]>([]);
   readonly classKey = input<string>('');
@@ -87,18 +89,24 @@ export class AttendanceTab {
       const date = this.date();
       untracked(() => this.load(key, date));
     });
+    // Live refresh, but never over an unsaved sheet.
+    this.store.watch(['school', 'objects'], () => {
+      if (!this.dirty() && !this.saving()) this.load(this.classKey(), this.date(), true);
+    });
   }
 
-  protected load(key = this.classKey(), date = this.date()) {
+  protected load(key = this.classKey(), date = this.date(), quiet = false) {
     this.sub?.unsubscribe();
-    this.error.set('');
-    this.message.set('');
-    this.dirty.set(false);
+    if (!quiet) {
+      this.error.set('');
+      this.message.set('');
+      this.dirty.set(false);
+    }
     if (!key) {
       this.rows.set([]);
       return;
     }
-    this.loading.set(true);
+    if (!quiet) this.loading.set(true);
     this.sub = this.api.attendance(key, date).subscribe({
       next: (sheet) => {
         this.rows.set(sheet.rows);

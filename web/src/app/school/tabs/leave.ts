@@ -1,5 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { Component, effect, inject, input, output, signal } from '@angular/core';
+import { Store } from '../../core/store';
 import { FormsModule } from '@angular/forms';
 
 import { ClassInfo, LeaveRequest, SchoolApi, SchoolArea, SchoolMe } from '../school-api';
@@ -15,6 +16,7 @@ type LeaveStatus = LeaveRequest['status'];
 })
 export class LeaveTab {
   private readonly api = inject(SchoolApi);
+  private readonly store = inject(Store);
 
   readonly classes = input<ClassInfo[]>([]);
   readonly classKey = input<string>('');
@@ -38,11 +40,14 @@ export class LeaveTab {
 
   constructor() {
     effect(() => this.load(this.status()));
+    this.store.watch(['school', 'objects', 'tickets', 'inbox'], () => this.load(this.status(), true));
   }
 
-  private load(status: LeaveStatus) {
-    this.loading.set(true);
-    this.error.set('');
+  private load(status: LeaveStatus, quiet = false) {
+    if (!quiet) {
+      this.loading.set(true);
+      this.error.set('');
+    }
     this.api.leave(status).subscribe({
       next: (r) => {
         const key = this.classKey();

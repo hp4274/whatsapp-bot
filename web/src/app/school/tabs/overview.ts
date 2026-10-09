@@ -1,4 +1,5 @@
 import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { Store } from '../../core/store';
 
 import { ClassInfo, Overview, SchoolApi, SchoolArea, SchoolMe, SendResult } from '../school-api';
 import { Tilt } from '../tilt';
@@ -13,6 +14,7 @@ const RING = 2 * Math.PI * 52;
 })
 export class OverviewTab {
   private readonly api = inject(SchoolApi);
+  private readonly store = inject(Store);
 
   readonly classes = input<ClassInfo[]>([]);
   readonly classKey = input<string>('');
@@ -55,15 +57,18 @@ export class OverviewTab {
 
   constructor() {
     this.load();
+    this.store.watch(['school', 'objects'], () => this.load(true));
     this.api.settings().subscribe({
       next: ({ settings }) => this.schoolName.set(settings.schoolName),
       error: () => undefined,
     });
   }
 
-  protected load() {
-    this.loading.set(true);
-    this.error.set('');
+  protected load(quiet = false) {
+    if (!quiet) {
+      this.loading.set(true);
+      this.error.set('');
+    }
     this.api.overview(this.today).subscribe({
       next: (o) => {
         this.data.set(o);

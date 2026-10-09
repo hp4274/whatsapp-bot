@@ -458,6 +458,12 @@ export class TenancyApi {
       .pipe(catchError(toMessage));
   }
 
+  /** Fill a tenant with demo content for its enabled services. Idempotent; never sends. */
+  seedTenant(id: number): Observable<{ created: Record<string, number>; skipped: string[] }> {
+    return this.http.post<{ created: Record<string, number>; skipped: string[] }>(`/api/admin/tenants/${id}/seed`, {})
+      .pipe(catchError(toMessage));
+  }
+
   auditLogs(tenantId?: number | null): Observable<{ logs: AuditLog[] }> {
     const params = tenantId ? new HttpParams().set('tenant', tenantId) : undefined;
     return this.http.get<{ logs: AuditLog[] }>('/api/admin/audit-logs', { params }).pipe(catchError(toMessage));

@@ -1,4 +1,5 @@
 import { Component, output, ElementRef, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
+import { Store } from '../../core/store';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
@@ -23,6 +24,7 @@ function addMinutes(hhmm: string, minutes: number) {
 })
 export class TimetableTab {
   private readonly api = inject(SchoolApi);
+  private readonly store = inject(Store);
   private readonly pop = viewChild<ElementRef<HTMLElement>>('pop');
 
   readonly classes = input<ClassInfo[]>([]);
@@ -64,23 +66,29 @@ export class TimetableTab {
       const key = this.classKey();
       untracked(() => this.load(key));
     });
+    // Live refresh, but never while the grid is being edited.
+    this.store.watch(['school', 'objects'], () => {
+      if (!this.editing()) this.load(this.classKey(), true);
+    });
   }
 
   protected key(day: Day, period: string) {
     return `${day}|${period}`;
   }
 
-  protected load(key = this.classKey()) {
+  protected load(key = this.classKey(), quiet = false) {
     this.sub?.unsubscribe();
-    this.editing.set(false);
-    this.error.set('');
-    this.message.set('');
+    if (!quiet) {
+      this.editing.set(false);
+      this.error.set('');
+      this.message.set('');
+    }
     if (!key) {
       this.periods.set([]);
       this.cells.set({});
       return;
     }
-    this.loading.set(true);
+    if (!quiet) this.loading.set(true);
     this.sub = this.api.timetable(key).subscribe({
       next: ({ entries }) => {
         this.apply(entries);
