@@ -154,12 +154,12 @@
         <span class="ms" aria-hidden="true">apps</span>
         <strong>Services</strong>
         <span class="muted">{{ serviceSummary(tenant.services) }}</span>
-        <span class="ms chev" aria-hidden="true" style="font-size: 16px">chevron_right</span>
+        <span class="ms chev" aria-hidden="true">chevron_right</span>
       </button>
 
       <div class="actions">
         <button class="btn primary open" type="button" (click)="open(tenant)" [disabled]="tenant.status !== 'active'">
-          <span class="ms" aria-hidden="true" style="font-size: 16px">arrow_outward</span>
+          <span class="ms" aria-hidden="true">arrow_outward</span>
           Open as tenant
         </button>
         <button class="btn square" type="button" (click)="openSettings(tenant)" aria-label="Tenant settings"
