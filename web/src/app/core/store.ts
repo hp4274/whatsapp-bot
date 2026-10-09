@@ -6,7 +6,7 @@
  * signals the components read directly.
  */
 
-import { Injectable, NgZone, computed, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, NgZone, computed, inject, signal } from '@angular/core';
 
 import { Api, CampaignStats, ConnectionState, MessageStatus, SafetyStatus } from './api';
 import { Auth } from './auth';
@@ -163,7 +163,46 @@ export class Store {
     };
   }
 
+  /**
+   * Live data: call from a component constructor with the topics it shows and a
+   * reload function. Fires (debounced) whenever the server reports a matching
+   * change - a write by anyone on this number, an inbound WhatsApp message, a
+   * send status, or a background job. Topics are the API's first path segment
+   * ('contacts', 'tickets', 'school', 'objects', ...), plus 'inbox' and 'history'.
+   */
+  watch(topics: string[], reload: () => void, delayMs = 400): void {
+    const wanted = new Set(topics);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const listener = (topic: string) => {
+      if (!wanted.has(topic) && !wanted.has('*')) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { timer = null; reload(); }, delayMs);
+    };
+    this.listeners.add(listener);
+    inject(DestroyRef).onDestroy(() => {
+      this.listeners.delete(listener);
+      if (timer) clearTimeout(timer);
+    });
+  }
+
+  private readonly listeners = new Set<(topic: string) => void>();
+
+  private notify(...topics: string[]) {
+    for (const topic of topics) for (const fn of this.listeners) fn(topic);
+  }
+
   private handle(event: ServerEvent) {
+    switch (event.type) {
+      case 'changed': this.notify(String(event['topic'] ?? '')); break;
+      case 'inbound_message': this.notify('inbox', 'conversations', 'tickets', 'school', 'contacts'); break;
+      case 'object': this.notify('objects', 'school'); break;
+      case 'status': case 'stats': case 'receipt': this.notify('history', 'campaign', 'analytics'); break;
+      default: break;
+    }
+    this.handleEvent(event);
+  }
+
+  private handleEvent(event: ServerEvent) {
     switch (event.type) {
       case 'stats': {
         const stats = event['stats'] as CampaignStats;

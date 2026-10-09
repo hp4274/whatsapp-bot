@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 
 import { TenancyApi } from '../core/api';
 import { Auth, User } from '../core/auth';
+import { Store } from '../core/store';
 import { Tilt } from '../school/tilt';
 import {
   SLA_HOURS, TICKET_PRIORITIES, TICKET_STATUSES, Ticket, TicketDraft, TicketEvent, TicketFilter,
@@ -30,6 +31,7 @@ const blankDraft = (): TicketDraft => ({ subject: '', category: '', priority: 'n
 export class TicketsView {
   private readonly api = inject(TicketsApi);
   private readonly auth = inject(Auth);
+  private readonly store = inject(Store);
   private readonly tenancy = inject(TenancyApi);
 
   protected readonly statuses = TICKET_STATUSES;
@@ -97,11 +99,12 @@ export class TicketsView {
       this.tenancy.users().subscribe({ next: (r) => this.team.set(r.users.filter((u) => !u.disabled)), error: () => {} });
     }
     this.load();
+    this.store.watch(['tickets'], () => this.load(true));
   }
 
   // ------------------------------------------------------------- list --
-  protected load() {
-    this.loading.set(true);
+  protected load(quiet = false) {
+    if (!quiet) this.loading.set(true);
     this.error.set('');
     this.api.list(this.filter()).subscribe({
       next: (list) => { this.tickets.set(list); this.loading.set(false); },

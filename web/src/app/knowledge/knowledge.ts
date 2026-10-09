@@ -4,6 +4,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { Observable } from 'rxjs';
 
 import { Auth } from '../core/auth';
+import { Store } from '../core/store';
 import {
   FaqCategory, FaqInput, FaqItem, FaqMiss, KnowledgeApi, KnowledgeDashboard, MATCH_TYPES, MatchResult, MatchType, similarity,
 } from './knowledge-api';
@@ -41,6 +42,7 @@ const MATCH_HINTS: Record<MatchType, string> = {
 export class KnowledgeView {
   private readonly api = inject(KnowledgeApi);
   private readonly auth = inject(Auth);
+  private readonly store = inject(Store);
 
   protected readonly matchTypes = MATCH_TYPES;
   protected readonly matchHints = MATCH_HINTS;
@@ -129,6 +131,7 @@ export class KnowledgeView {
 
   constructor() {
     this.load();
+    this.store.watch(['faq', 'knowledge'], () => this.load());
   }
 
   protected load() {

@@ -1,5 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { Store } from '../../core/store';
 import { FormsModule } from '@angular/forms';
 
 import { Audience, ClassInfo, Notice, NoticeKind, SchoolApi, SchoolArea, SchoolMe } from '../school-api';
@@ -22,6 +23,7 @@ export const KINDS: { id: NoticeKind; label: string; icon: string; tone: string 
 })
 export class NoticesTab {
   private readonly api = inject(SchoolApi);
+  private readonly store = inject(Store);
 
   readonly classes = input<ClassInfo[]>([]);
   readonly classKey = input<string>('');
@@ -72,10 +74,11 @@ export class NoticesTab {
 
   constructor() {
     this.load();
+    this.store.watch(['school', 'objects'], () => this.load(true));
   }
 
-  private load() {
-    this.loading.set(true);
+  private load(quiet = false) {
+    if (!quiet) this.loading.set(true);
     this.api.notices().subscribe({
       next: (r) => { this.notices.set(r.notices); this.loading.set(false); },
       error: (e: Error) => { this.error.set(e.message); this.loading.set(false); },

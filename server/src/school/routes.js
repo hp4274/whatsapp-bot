@@ -1187,6 +1187,8 @@ export async function schoolSweep(state, at = new Date()) {
 
     // Fees: a pending fee past its due date becomes overdue (the `fee.status_changed` event is what recipes hook).
     for (const fee of listAll(state.objects, { type: 'fee', status: 'pending' })) {
+        // Demo data never goes live: flipping it would wake fee workflows aimed at fake parents.
+        if (fee.metadata?.seed) continue;
         if (dateOnly(fee.data.dueAt) < now.date) await state.objects.update(fee.id, { status: 'overdue' }, { source: 'scheduler' });
     }
 

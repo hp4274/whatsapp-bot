@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
+import { Store } from '../core/store';
 
 import {
   ApiKey, CreatedApiKey, CreatedEndpoint, DeveloperApi, WebhookDelivery, WebhookEndpoint,
@@ -15,6 +16,7 @@ import {
 })
 export class DeveloperView {
   private readonly api = inject(DeveloperApi);
+  private readonly store = inject(Store);
 
   readonly loading = signal(true);
   readonly error = signal('');
@@ -65,10 +67,13 @@ export class DeveloperView {
     ['GET', '/v1/tickets/:reference', 'Fetch a ticket (tickets:write)'],
   ];
 
-  constructor() { void this.load(); }
+  constructor() {
+    void this.load();
+    this.store.watch(['api-keys', 'webhook-endpoints'], () => void this.load(true));
+  }
 
-  async load() {
-    this.loading.set(true);
+  async load(quiet = false) {
+    if (!quiet) this.loading.set(true);
     this.error.set('');
     try {
       const [k, e] = await Promise.all([firstValueFrom(this.api.keys()), firstValueFrom(this.api.endpoints())]);

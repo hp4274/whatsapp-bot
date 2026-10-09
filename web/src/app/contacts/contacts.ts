@@ -2,6 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { Contact2, ContactFilter, ContactsApi, Segment, TimelineEntry } from '../core/api';
+import { Store } from '../core/store';
 
 @Component({
   selector: 'app-contacts',
@@ -11,6 +12,7 @@ import { Contact2, ContactFilter, ContactsApi, Segment, TimelineEntry } from '..
 })
 export class ContactsView {
   private readonly api = inject(ContactsApi);
+  private readonly store = inject(Store);
 
   protected readonly contacts = signal<Contact2[]>([]);
   protected readonly total = signal(0);
@@ -41,6 +43,7 @@ export class ContactsView {
 
   constructor() {
     this.refresh();
+    this.store.watch(['contacts', 'segments'], () => this.refresh());
   }
 
   protected refresh() {

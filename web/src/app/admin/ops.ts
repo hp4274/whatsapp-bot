@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
@@ -69,11 +69,18 @@ export class AdminOpsView {
 
   constructor() {
     this.load();
+    // /api/admin is not broadcast; poll the live-ish pages quietly.
+    const timer = setInterval(() => {
+      if (['usage', 'health'].includes(this.kind()) && !document.hidden) this.load(true);
+    }, 30_000);
+    inject(DestroyRef).onDestroy(() => clearInterval(timer));
   }
 
-  protected load() {
-    this.loading.set(true);
-    this.error.set('');
+  protected load(quiet = false) {
+    if (!quiet) {
+      this.loading.set(true);
+      this.error.set('');
+    }
     this.tenancy.tenants().subscribe({
       next: ({ tenants, services }) => {
         this.tenants.set(tenants);

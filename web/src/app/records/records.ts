@@ -1,5 +1,6 @@
 import { Component, ElementRef, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Store } from '../core/store';
 
 import { BusinessObject, FieldKind, FieldValue, ObjectEvent, ObjectInput, ObjectTypeSpec, RecordsApi } from './records-api';
 
@@ -44,6 +45,7 @@ const isBlank = (v: unknown) => v === null || v === undefined || (typeof v === '
 })
 export class RecordsView {
   private readonly api = inject(RecordsApi);
+  private readonly store = inject(Store);
 
   /** Bound from the `records/:type` route param. */
   readonly type = input<string>('');
@@ -128,6 +130,22 @@ export class RecordsView {
     effect(() => {
       const type = this.typeKey();
       untracked(() => this.load(type));
+    });
+    this.store.watch(['objects'], () => this.quietReload());
+  }
+
+  /** Live refresh: refetch the list only, keeping filters, drawer and form state. */
+  private quietReload() {
+    const type = this.typeKey();
+    if (!type || this.loading()) return;
+    const token = this.loadToken;
+    this.api.list(type, { limit: FETCH_LIMIT }).subscribe({
+      next: (r) => {
+        if (token !== this.loadToken) return;
+        this.objects.set(r.objects);
+        this.total.set(r.total);
+      },
+      error: () => undefined,
     });
   }
 

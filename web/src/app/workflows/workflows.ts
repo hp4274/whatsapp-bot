@@ -1,4 +1,5 @@
 import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
+import { Store } from '../core/store';
 import { FormsModule } from '@angular/forms';
 
 import { Tilt } from '../school/tilt';
@@ -31,6 +32,7 @@ const ACTION_ICONS: Record<string, string> = {
 })
 export class WorkflowsView implements OnDestroy {
   private readonly api = inject(WorkflowsApi);
+  private readonly store = inject(Store);
 
   protected readonly tab = signal<Tab>('mine');
   protected readonly filters: Filter[] = [null, 'active', 'paused', 'draft'];
@@ -90,6 +92,12 @@ export class WorkflowsView implements OnDestroy {
 
   constructor() {
     this.load();
+    this.store.watch(['workflows', 'workflow-runs', 'recipes', 'objects'], () => {
+      this.load(true);
+      const id = this.expanded();
+      if (id != null) this.loadRuns(id, true);
+      if (this.recipes().length) this.loadRecipes(true);
+    });
   }
 
   ngOnDestroy(): void {
@@ -111,8 +119,8 @@ export class WorkflowsView implements OnDestroy {
   }
 
   // -------------------------------------------------------- workflows --
-  protected load(): void {
-    this.loading.set(true);
+  protected load(quiet = false): void {
+    if (!quiet) this.loading.set(true);
     this.error.set('');
     this.api.list().subscribe({
       next: ({ workflows }) => {
@@ -172,10 +180,12 @@ export class WorkflowsView implements OnDestroy {
   }
 
   // ------------------------------------------------------------- runs --
-  protected loadRuns(id: number): void {
-    this.runsLoading.set(true);
-    this.runsError.set('');
-    this.runs.set([]);
+  protected loadRuns(id: number, quiet = false): void {
+    if (!quiet) {
+      this.runsLoading.set(true);
+      this.runsError.set('');
+      this.runs.set([]);
+    }
     this.api.runs(id).subscribe({
       next: ({ runs }) => {
         if (this.expanded() === id) this.runs.set(runs);
@@ -222,8 +232,8 @@ export class WorkflowsView implements OnDestroy {
   }
 
   // ---------------------------------------------------------- recipes --
-  protected loadRecipes(): void {
-    this.recipesLoading.set(true);
+  protected loadRecipes(quiet = false): void {
+    if (!quiet) this.recipesLoading.set(true);
     this.recipesError.set('');
     this.api.recipes().subscribe({
       next: ({ recipes }) => {

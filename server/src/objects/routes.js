@@ -21,7 +21,11 @@ export function createObjectRouter({ db, state }) {
     const objects = new ObjectStore(db, {
         // Resolved per call: the engine is attached to `state` after the router
         // is mounted, and a test may swap it.
-        emit: (event) => state.engine.dispatch(event),
+        emit: (event) => {
+            // Background changes (workflows, the school sweep, WhatsApp commands) reach open pages too.
+            state.broadcast?.({ type: 'changed', topic: 'objects', path: `/objects/${event.type?.split('.')[0] ?? ''}` });
+            return state.engine.dispatch(event);
+        },
     });
     state.objects = objects;
 

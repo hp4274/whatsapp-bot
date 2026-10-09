@@ -1,5 +1,6 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import { Store } from '../../core/store';
 import { FormsModule } from '@angular/forms';
 import { Observable, map } from 'rxjs';
 
@@ -17,6 +18,7 @@ interface FeeForm { classKey: string; studentId: number; term: string; amount: n
 })
 export class FeesTab {
   private readonly api = inject(SchoolApi);
+  private readonly store = inject(Store);
 
   readonly classes = input<ClassInfo[]>([]);
   readonly classKey = input<string>('');
@@ -54,14 +56,20 @@ export class FeesTab {
   constructor() {
     effect(() => this.fClass.set(this.classKey()));
     effect(() => this.load(this.fClass(), this.fStatus(), this.fTerm()));
+    this.store.watch(['school', 'objects'], () => this.load(this.fClass(), this.fStatus(), this.fTerm(), true));
   }
 
   protected reload() { this.load(this.fClass(), this.fStatus(), this.fTerm()); }
 
-  private load(cls: string, status: string, term: string) {
-    this.loading.set(true);
+  private load(cls: string, status: string, term: string, quiet = false) {
+    if (!quiet) this.loading.set(true);
     this.api.fees({ class: cls || undefined, status: status || undefined, term: term || undefined }).subscribe({
-      next: (r) => { this.fees.set(r.fees); this.totals.set(r.totals); this.selected.set(new Set()); this.loading.set(false); },
+      next: (r) => {
+        this.fees.set(r.fees);
+        this.totals.set(r.totals);
+        if (!quiet) this.selected.set(new Set());
+        this.loading.set(false);
+      },
       error: (e: Error) => { this.error.set(e.message); this.loading.set(false); },
     });
   }

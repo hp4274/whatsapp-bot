@@ -1,5 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import { Store } from '../../core/store';
 import { FormsModule } from '@angular/forms';
 
 import { ClassInfo, ExamResult, ImportResult, SchoolApi, SchoolArea, SchoolMe, SendResult } from '../school-api';
@@ -12,6 +13,7 @@ import { ClassInfo, ExamResult, ImportResult, SchoolApi, SchoolArea, SchoolMe, S
 })
 export class ResultsTab {
   private readonly api = inject(SchoolApi);
+  private readonly store = inject(Store);
 
   readonly classes = input<ClassInfo[]>([]);
   readonly classKey = input<string>('');
@@ -56,10 +58,11 @@ export class ResultsTab {
       this.upClass.set(k);
     });
     effect(() => this.load(this.cls(), this.exam()));
+    this.store.watch(['school', 'objects'], () => this.load(this.cls(), this.exam(), true));
   }
 
-  private load(cls: string, exam: string) {
-    this.loading.set(true);
+  private load(cls: string, exam: string, quiet = false) {
+    if (!quiet) this.loading.set(true);
     this.api.results({ class: cls || undefined, exam: exam || undefined }).subscribe({
       next: (r) => {
         this.exams.set(r.exams);

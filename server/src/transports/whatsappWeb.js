@@ -445,18 +445,12 @@ export class WhatsAppWebTransport extends Transport {
         let providerId = null;
         let sendError = null;
         this.#recordBotOutgoing(chatId, message);
+        if (media) return this.#sendMedia(chatId, message, media, startedAt);
         try {
-            if (media) {
-                const pkg = await import('whatsapp-web.js');
-                const { MessageMedia } = pkg.default ?? pkg;
-                const attachment = MessageMedia.fromFilePath(media.filePath);
-                providerId = serializedId(await this.client.sendMessage(chatId, attachment, { caption: message, sendSeen: false }));
-            } else {
-                // sendSeen: false - marking the chat read first is what throws
-                // "Data passed to getter must include an id property" on recent
-                // WhatsApp Web builds, and a bulk send has nothing to mark read.
-                providerId = serializedId(await this.client.sendMessage(chatId, message, { sendSeen: false }));
-            }
+            // sendSeen: false - marking the chat read first is what throws
+            // "Data passed to getter must include an id property" on recent
+            // WhatsApp Web builds, and a bulk send has nothing to mark read.
+            providerId = serializedId(await this.client.sendMessage(chatId, message, { sendSeen: false }));
         } catch (err) {
             sendError = String(err.message ?? err);
         }
@@ -484,6 +478,53 @@ export class WhatsAppWebTransport extends Transport {
             status: Status.SENT,
             detail: 'sent, but WhatsApp Web returned no message id - no DELIVERED/READ for this one',
         };
+    }
+
+    /**
+     * Media on WhatsApp Web breaks in ways text does not: recent web builds throw
+     * internal errors ("Data passed to getter must include an id property") from
+     * the media pipeline. Try the normal way, then as a document, and as a last
+     * resort deliver the text alone - the customer still gets the message, and
+     * the history row says the attachment was dropped. Every step first asks
+     * WhatsApp whether the previous attempt went out anyway, so nothing is sent twice.
+     */
+    async #sendMedia(chatId, message, media, startedAt) {
+        const pkg = await import('whatsapp-web.js');
+        const { MessageMedia } = pkg.default ?? pkg;
+        const attachment = MessageMedia.fromFilePath(media.filePath);
+        if (media.filename) attachment.filename = media.filename;
+        const attempts = [
+            { caption: message, sendSeen: false },
+            { caption: message, sendSeen: false, sendMediaAsDocument: true },
+        ];
+        let lastError = null;
+        for (const options of attempts) {
+            let providerId = null;
+            try {
+                providerId = serializedId(await this.client.sendMessage(chatId, attachment, options));
+            } catch (err) {
+                lastError = String(err.message ?? err);
+            }
+            providerId ??= await this.#confirmOutgoing(chatId, message, startedAt);
+            if (providerId) {
+                this.receipts.set(providerId, Status.SENT);
+                this.#recordBotOutgoing(chatId, message, providerId);
+                const asDoc = options.sendMediaAsDocument ? ' (attachment sent as a document)' : '';
+                return { providerId, status: Status.SENT, detail: `accepted by WhatsApp Web${asDoc}` };
+            }
+        }
+        // The attachment will not go: send the words, and say so.
+        let providerId = null;
+        try {
+            providerId = serializedId(await this.client.sendMessage(chatId, message, { sendSeen: false }));
+        } catch (err) {
+            throw new TransportSendError(lastError || String(err.message ?? err), { retryable: true });
+        }
+        providerId ??= await this.#confirmOutgoing(chatId, message, startedAt);
+        if (!providerId) throw new TransportSendError(lastError || 'WhatsApp Web did not confirm the message', { retryable: true });
+        this.receipts.set(providerId, Status.SENT);
+        this.#recordBotOutgoing(chatId, message, providerId);
+        return { providerId, status: Status.SENT, detail: 'The text was sent, but WhatsApp Web could not attach the image.' };
     }
 
     #recordOutgoing(chatId, body, id) {

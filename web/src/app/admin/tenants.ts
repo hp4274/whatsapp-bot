@@ -197,6 +197,9 @@ export class TenantsView {
   protected readonly view = signal<'grid' | 'list'>(readView());
   protected readonly menuId = signal<number | null>(null);
   protected readonly settings = signal<SettingsDrawer | null>(null);
+  protected readonly seedConfirmId = signal<number | null>(null);
+  protected readonly seedingId = signal<number | null>(null);
+  protected readonly seedResult = signal<{ id: number; ok: boolean; text: string } | null>(null);
   protected readonly safetyGroups = SAFETY_GROUPS;
   protected readonly limitFields = LIMIT_FIELDS;
   protected readonly settingsTab = signal<SettingsTab>('general');
@@ -433,6 +436,34 @@ export class TenantsView {
       error: (err: Error) => {
         this.savingId.set(null);
         this.error.set(err.message);
+      },
+    });
+  }
+
+  protected askSeed(tenant: Tenant) {
+    this.menuId.set(null);
+    this.seedResult.set(null);
+    this.seedConfirmId.set(tenant.id);
+  }
+
+  protected seed(tenant: Tenant) {
+    this.seedingId.set(tenant.id);
+    this.error.set('');
+    this.api.seedTenant(tenant.id).subscribe({
+      next: ({ created }) => {
+        const parts = Object.entries(created).map(([key, n]) => `${n} ${key.replace(/([A-Z])/g, ' $1').toLowerCase()}`);
+        this.seedingId.set(null);
+        this.seedConfirmId.set(null);
+        this.seedResult.set({
+          id: tenant.id,
+          ok: true,
+          text: parts.length ? `Added ${parts.join(', ')}.` : 'Demo data is already in place - nothing new to add.',
+        });
+        this.refresh();
+      },
+      error: (err: Error) => {
+        this.seedingId.set(null);
+        this.seedResult.set({ id: tenant.id, ok: false, text: err.message });
       },
     });
   }

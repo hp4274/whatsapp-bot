@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Auth } from '../core/auth';
+import { Store } from '../core/store';
 import { Tilt } from '../school/tilt';
 import {
   APPROVAL_STATUSES, ApiError, TEMPLATE_TYPES, Template, TemplateDraft, TemplateType, TemplateVersion,
@@ -31,6 +32,7 @@ const blank = (): TemplateDraft => ({
 export class TemplatesView {
   private readonly api = inject(TemplatesApi);
   private readonly auth = inject(Auth);
+  private readonly store = inject(Store);
 
   protected readonly types = TEMPLATE_TYPES;
   protected readonly statuses = APPROVAL_STATUSES;
@@ -66,10 +68,11 @@ export class TemplatesView {
 
   constructor() {
     this.load();
+    this.store.watch(['templates'], () => this.load(true));
   }
 
-  load() {
-    this.loading.set(true);
+  load(quiet = false) {
+    if (!quiet) this.loading.set(true);
     this.error.set('');
     this.api.list().subscribe({
       next: ({ templates }) => { this.templates.set(templates); this.loading.set(false); },

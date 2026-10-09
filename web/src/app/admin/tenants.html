@@ -125,6 +125,9 @@
               <button type="button" role="menuitem" (click)="toggleStatus(tenant)" [disabled]="savingId() === tenant.id">
                 {{ tenant.status === 'active' ? 'Suspend tenant' : 'Activate tenant' }}
               </button>
+              <button type="button" role="menuitem" (click)="askSeed(tenant)" [disabled]="seedingId() === tenant.id">
+                Fill with demo data
+              </button>
             </div>
           }
         </div>
@@ -156,6 +159,36 @@
         <span class="muted">{{ serviceSummary(tenant.services) }}</span>
         <span class="ms chev" aria-hidden="true">chevron_right</span>
       </button>
+
+      @if (seedConfirmId() === tenant.id) {
+        <div class="seed-confirm" role="group" aria-label="Confirm demo data">
+          <span class="ms seed-icon" aria-hidden="true">auto_awesome</span>
+          <p>Add sample contacts, records and content for the {{ tenant.services.length }} enabled services?
+            <span class="muted">Existing data stays; nothing is sent.</span></p>
+          <div class="seed-buttons">
+            <button class="btn" type="button" (click)="seedConfirmId.set(null)" [disabled]="seedingId() === tenant.id">Cancel</button>
+            <button class="btn primary" type="button" (click)="seed(tenant)" [disabled]="seedingId() === tenant.id"
+                    [attr.aria-busy]="seedingId() === tenant.id">
+              @if (seedingId() === tenant.id) {
+                <span class="seed-spin" aria-hidden="true"></span> Filling...
+              } @else {
+                Fill now
+              }
+            </button>
+          </div>
+        </div>
+      }
+      @if (seedResult(); as result) {
+        @if (result.id === tenant.id) {
+          <p class="seed-result" [class.bad]="!result.ok" role="status">
+            <span class="ms" aria-hidden="true">{{ result.ok ? 'check_circle' : 'error' }}</span>
+            <span>{{ result.text }}</span>
+            <button class="icon-btn" type="button" aria-label="Dismiss" (click)="seedResult.set(null)">
+              <span class="ms" aria-hidden="true">close</span>
+            </button>
+          </p>
+        }
+      }
 
       <div class="actions">
         <button class="btn primary open" type="button" (click)="open(tenant)" [disabled]="tenant.status !== 'active'">

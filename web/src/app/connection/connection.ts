@@ -76,6 +76,8 @@ export class ConnectionView {
       error: (err: Error) => this.errors.set([err.message]),
     });
     this.refreshSafety();
+    // Only safety is refreshed live: `config` is the editable form and must not be clobbered.
+    this.store.watch(['config', 'connection'], () => this.refreshSafety());
   }
 
   protected refreshSafety(): void {

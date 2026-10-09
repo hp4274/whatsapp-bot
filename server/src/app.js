@@ -76,6 +76,7 @@ import { ApiKeyStore } from './publicapi/keys.js';
 import { createPublicApiRouter } from './publicapi/routes.js';
 import { WEBHOOK_JOB_KIND, createWebhookDeliveryHandler } from './publicapi/webhooks.js';
 import { RECIPES, getRecipe, installRecipe } from './recipes/index.js';
+import { seedTenant } from './seed/index.js';
 import { SCHOOL_TEMPLATES, STUDENT_CSV_COLUMNS } from './school/templates.js';
 import { handleSchoolCommand } from './school/commands.js';
 import { helpText, isHelp } from './help.js';
@@ -249,6 +250,18 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     // Feature routers push to the browser through this rather than importing
     // `broadcast` and the client set.
     state.broadcast = (event) => broadcast(state, event);
+
+    // Live UI: after any successful write, tell every open browser on this number
+    // what changed, so pages reload that data without anyone pressing refresh.
+    app.use((req, res, next) => {
+        if (req.method === 'GET' || req.method === 'HEAD') return next();
+        res.on('finish', () => {
+            if (res.statusCode >= 400) return;
+            const topic = req.path.split('/').filter(Boolean)[0] ?? '';
+            broadcast(state, { type: 'changed', topic, path: req.path });
+        });
+        return next();
+    });
 
     // Plan limits set by the platform admin. Read per call so a change applies at once.
     const limits = () => deps.limits?.() ?? {};
@@ -1740,6 +1753,18 @@ export function createApp({
         }
         audit(req, 'tenant.school_provision', tenant.id, { templates: result.templates.length, workflows: result.workflows.length });
         return res.status(201).json(result);
+    });
+
+    // Demo content for the tenant's enabled services. Idempotent; never sends.
+    admin.post('/tenants/:id/seed', async (req, res) => {
+        const tenant = tenancy.getTenant(req.params.id);
+        if (!tenant) return res.status(404).json({ errors: ['tenant not found'] });
+        const rt = runtimeFor(tenant.id);
+        const channel = rt.channels.getDefault();
+        if (!channel) return res.status(409).json({ errors: ['tenant has no channel yet'] });
+        const result = await seedTenant(rt.runtimeFor(channel).state, { services: tenant.services, tenantName: tenant.name });
+        audit(req, 'tenant.seed', tenant.id, result.created);
+        return res.json(result);
     });
 
     // Anti-ban policy (pacing, daily cap, rate, retries): effective values = defaults + overrides.

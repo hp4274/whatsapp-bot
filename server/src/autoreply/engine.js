@@ -4,9 +4,7 @@ export class AutoReplyEngine {
     constructor(db, transport, options = {}) {
         this.db = db;
         this.transport = transport;
-        this.defaultCooldownSec = options.cooldownSec ?? 300;
         this.delayRangeMs = options.delayRangeMs ?? [200, 600];
-        this.recentReplies = new Map();
         // Phase 3: when a message service is attached, replies go down the
         // common pipeline (pacing, retries, daily cap) instead of straight at
         // the transport.  Without one the engine still works on its own, which
@@ -30,13 +28,8 @@ export class AutoReplyEngine {
         const matchedRule = this.matchRule(text, rules);
         if (!matchedRule) return null;
 
-        const cooldownSec = matchedRule.cooldownSec ?? this.defaultCooldownSec;
-        const key = `${msg.sender}|${matchedRule.id}`;
-        const now = Date.now();
-        const lastSent = this.recentReplies.get(key) || 0;
-        if (now - lastSent < cooldownSec * 1000) return null;
-
-        this.recentReplies.set(key, now);
+        // No cooldown: every keyword message gets its answer. The idempotency key
+        // below still stops a redelivered webhook from replying twice.
         await this.#delay();
         const responseText = this.formatResponse(matchedRule.replyBody, msg);
 
