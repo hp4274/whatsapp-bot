@@ -1,5 +1,5 @@
-/* The one full-bleed screen in the app: no rail, no header, so it can carry
- * more depth than the working surfaces behind it. */
+/* Full-bleed sign-in. Always dark: it is the front door, not a working surface,
+ * so it carries its own palette instead of following the theme switch. */
 
 :host {
   display: block;
@@ -7,106 +7,114 @@
 }
 
 .login {
+  --bg: #050d18;
+  --ink: #eaf2fb;
+  --mute: #8fa3b8;
+  --line: rgb(120 160 210 / 22%);
+  --green: #25d366;
+  --green-2: #3df0a0;
+  --blue: #2f8cff;
+
   position: relative;
   display: grid;
-  place-items: center;
+  grid-template-rows: auto 1fr;
   min-height: 100vh;
-  padding: var(--space-xl);
+  padding: 36px clamp(24px, 6vw, 100px) 48px;
   overflow: hidden;
-  background: var(--canvas);
-  perspective: 1400px;
+  color: var(--ink);
+  background: var(--bg);
+  font-family: var(--font);
 }
 
-/* Background --------------------------------------------------------- */
-.aurora {
+/* Background: a green arc rising on the left, a blue one on the right ---- */
+.bg {
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
 
-.orb {
+.arc {
   position: absolute;
   border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.5;
-  will-change: transform;
-
-  &.a {
-    width: 46vmax;
-    height: 46vmax;
-    top: -16vmax;
-    left: -10vmax;
-    background: radial-gradient(circle, var(--primary), transparent 65%);
-    animation: drift-a 26s var(--ease) infinite alternate;
+  &.green {
+    width: 78vmax;
+    height: 78vmax;
+    top: 8vmax;
+    left: -48vmax;
+    background: radial-gradient(circle at 70% 50%, rgb(37 211 102 / 42%), rgb(14 120 80 / 20%) 45%, transparent 68%);
+    box-shadow: inset -2px 0 0 rgb(60 220 140 / 45%), 0 0 80px rgb(37 211 102 / 12%);
   }
-
-  &.b {
-    width: 38vmax;
-    height: 38vmax;
-    right: -12vmax;
-    bottom: -14vmax;
-    background: radial-gradient(circle, var(--accent), transparent 65%);
-    animation: drift-b 32s var(--ease) infinite alternate;
+  &.blue {
+    width: 70vmax;
+    height: 70vmax;
+    right: -30vmax;
+    bottom: -34vmax;
+    background: radial-gradient(circle at 40% 40%, rgb(47 140 255 / 32%), rgb(20 60 160 / 16%) 48%, transparent 70%);
+    box-shadow: inset 2px 2px 0 rgb(90 160 255 / 24%);
   }
 }
 
-/* A floor plane under the card, which is what sells the perspective. */
-.grid {
+.floor {
   position: absolute;
-  inset: 48% -40% -30% -40%;
+  inset: 55% -10% -10% -10%;
   background:
-    linear-gradient(to right, color-mix(in srgb, var(--border) 85%, transparent) 1px, transparent 1px) 0 0 / 64px 64px,
-    linear-gradient(to bottom, color-mix(in srgb, var(--border) 85%, transparent) 1px, transparent 1px) 0 0 / 64px 64px;
-  transform: rotateX(72deg);
-  transform-origin: top center;
-  mask-image: linear-gradient(to bottom, #000, transparent 72%);
+    linear-gradient(to right, rgb(120 160 210 / 9%) 1px, transparent 1px) 0 0 / 72px 72px,
+    linear-gradient(to bottom, rgb(120 160 210 / 9%) 1px, transparent 1px) 0 0 / 72px 72px;
+  mask-image: linear-gradient(to bottom, transparent, #000 40%, transparent);
 }
 
-@keyframes drift-a {
-  to {
-    transform: translate3d(8vmax, 5vmax, 0) scale(1.15);
-  }
+/* Top bar --------------------------------------------------------------- */
+.top {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
-@keyframes drift-b {
-  to {
-    transform: translate3d(-7vmax, -4vmax, 0) scale(1.1);
-  }
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  img { width: 48px; height: 48px; object-fit: contain; }
+  strong { display: block; font-size: 19px; font-weight: 700; letter-spacing: -0.01em; }
+  span { font-size: 15px; color: var(--mute); }
 }
 
-/* Layout ------------------------------------------------------------- */
+.ver { font-size: 14px; color: var(--mute); }
+
+/* Layout ---------------------------------------------------------------- */
 .stage {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 420px);
-  gap: clamp(var(--space-xl), 6vw, 72px);
+  grid-template-columns: minmax(0, 1.25fr) minmax(340px, 620px);
+  gap: clamp(32px, 6vw, 110px);
   align-items: center;
-  width: min(1120px, 100%);
-  transform-style: preserve-3d;
+  width: min(1320px, 100%);
+  margin: 0 auto;
 }
 
-.pitch {
-  max-width: 34ch;
-}
+.pitch { padding-left: clamp(0px, 3vw, 60px); }
 
 .eyebrow {
-  margin: 0 0 var(--space-md);
-  font-size: 12px;
+  margin: 0 0 22px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--primary);
+  color: var(--green);
 }
 
 h1 {
   margin: 0;
-  font-size: clamp(40px, 6vw, 68px);
+  font-size: clamp(44px, 5vw, 84px);
+  white-space: nowrap;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  line-height: 1.02;
+  letter-spacing: -0.035em;
 
   em {
     font-style: normal;
-    background: linear-gradient(100deg, var(--primary), var(--accent));
+    background: linear-gradient(90deg, var(--green), var(--green-2) 45%, var(--blue));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -114,109 +122,235 @@ h1 {
 }
 
 .lede {
-  margin: var(--space-lg) 0 0;
-  font-size: 16px;
+  max-width: 34ch;
+  margin: 28px 0 0;
+  font-size: clamp(17px, 1.5vw, 21px);
+  line-height: 1.55;
+  color: #c3d1e0;
 }
 
-.facts {
-  display: grid;
-  gap: var(--space-sm);
-  margin: var(--space-xl) 0 0;
+.feats {
+  display: flex;
+  margin: 44px 0 0;
   padding: 0;
   list-style: none;
 
   li {
     display: grid;
-    grid-template-columns: 148px 1fr;
-    gap: var(--space-md);
-    align-items: baseline;
-    padding: 10px 0;
-    border-top: 1px solid var(--border);
-    font-size: 13px;
-  }
-
-  span {
-    color: var(--text-muted);
+    align-content: start;
+    gap: 12px;
+    padding: 0 28px;
+    font-size: 15px;
+    line-height: 1.35;
+    color: var(--mute);
+    &:first-child { padding-left: 0; }
+    &:not(:first-child) { border-left: 1px solid var(--line); }
   }
 }
 
-/* Card --------------------------------------------------------------- */
+.tile {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 16px;
+  color: #cfe3f6;
+  background: rgb(255 255 255 / 5%);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+  transition: transform 220ms var(--ease), box-shadow 220ms var(--ease);
+  .ms { font-size: 30px; }
+  &.bolt { color: var(--green); background: rgb(37 211 102 / 10%); border-color: rgb(37 211 102 / 30%); }
+  &.chart { color: #4aa3ff; background: rgb(47 140 255 / 10%); border-color: rgb(47 140 255 / 30%); }
+}
+.feats li:hover .tile { transform: translateY(-4px); box-shadow: 0 14px 28px rgb(0 0 0 / 35%); }
+
+/* Card ------------------------------------------------------------------ */
 .panel {
-  --tilt-x: 0deg;
-  --tilt-y: 0deg;
   --gleam-x: 50%;
   --gleam-y: 0%;
 
   position: relative;
   display: grid;
-  gap: var(--space-lg);
-  padding: clamp(var(--space-xl), 4vw, 36px);
+  gap: 22px;
+  padding: clamp(28px, 4vw, 60px);
   overflow: hidden;
-  transform: rotateX(var(--tilt-x)) rotateY(var(--tilt-y)) translateZ(0);
-  transition: transform var(--base) var(--ease);
-  will-change: transform;
+  border: 1px solid rgb(120 190 255 / 35%);
+  border-radius: 28px;
+  background: linear-gradient(160deg, rgb(20 38 62 / 82%), rgb(10 22 40 / 78%));
+  backdrop-filter: blur(18px);
+  box-shadow: 0 40px 90px rgb(0 0 0 / 55%), inset 0 1px 0 rgb(255 255 255 / 10%), inset 0 0 60px rgb(47 140 255 / 6%);
 
-  h2 {
-    font-size: 24px;
-    letter-spacing: -0.01em;
-  }
-
-  p {
-    margin: -8px 0 0;
-  }
+  h2 { margin: 0; font-size: clamp(30px, 3vw, 40px); font-weight: 700; letter-spacing: -0.02em; }
+  .sub { margin: -10px 0 6px; font-size: 18px; color: #b5c5d6; }
+  > :not(.gleam) { position: relative; }
 }
 
-/* Specular highlight that follows the pointer across the card face. */
+/* Specular highlight following the pointer. No transform, so inputs never move. */
 .gleam {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(
-    420px circle at var(--gleam-x) var(--gleam-y),
-    color-mix(in srgb, var(--primary) 16%, transparent),
-    transparent 60%
-  );
+  background: radial-gradient(460px circle at var(--gleam-x) var(--gleam-y), rgb(61 240 160 / 11%), transparent 60%);
 }
 
-.panel > :not(.gleam) {
+.field {
+  display: grid;
+  gap: 10px;
+  label { font-size: 17px; font-weight: 400; color: #cdd9e6; }
+}
+
+/* The input fills the whole box (icons float over it), so a click anywhere lands. */
+.box {
   position: relative;
+  height: 66px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgb(8 18 32 / 70%);
+  transition: border-color 160ms var(--ease), box-shadow 160ms var(--ease);
+
+  > .ms {
+    position: absolute;
+    left: 20px;
+    top: 50%;
+    translate: 0 -50%;
+    font-size: 26px;
+    color: #b9c8d8;
+    pointer-events: none;
+  }
+
+  input {
+    width: 100%;
+    height: 100%;
+    padding: 0 64px 0 62px;
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    box-shadow: none;
+    color: var(--ink);
+    font-size: 18px;
+    &:focus-visible { box-shadow: none; }
+    &::placeholder { color: #6f869d; }
+  }
+
+  &:focus-within {
+    border-color: var(--green);
+    box-shadow: 0 0 0 4px rgb(37 211 102 / 18%);
+  }
 }
 
-.big {
-  padding: 13px 16px;
+.eye {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  translate: 0 -50%;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #b9c8d8;
+  .ms { font-size: 24px; }
+  &:hover { background: rgb(255 255 255 / 8%); color: var(--ink); }
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.remember {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 17px;
+  color: #d5e0ec;
+  cursor: pointer;
+
+  input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+  }
+
+  .check {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: rgb(8 18 32 / 70%);
+    color: transparent;
+    transition: background 140ms var(--ease), color 140ms var(--ease);
+    .ms { font-size: 20px; font-weight: 700; }
+  }
+
+  input:checked + .check { background: var(--green); border-color: var(--green); color: #04210f; }
+  input:focus-visible + .check { box-shadow: 0 0 0 4px rgb(37 211 102 / 28%); }
+}
+
+.forgot {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: #38b6ff;
+  font-size: 17px;
+  &:hover { text-decoration: underline; }
+}
+
+.note, .error {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
   font-size: 15px;
 }
+.note { color: #bfe4ff; background: rgb(47 140 255 / 12%); border: 1px solid rgb(47 140 255 / 30%); }
+.error { color: #ffb4b4; background: rgb(220 38 38 / 16%); border: 1px solid rgb(220 38 38 / 40%); }
 
-.error {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--danger-soft);
-  color: var(--danger);
-  font-size: 13px;
+.go {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 66px;
+  border: 0;
+  border-radius: 14px;
+  color: #04210f;
+  font-size: 20px;
+  font-weight: 700;
+  background: linear-gradient(90deg, #1fd673, #44f0a8);
+  box-shadow: 0 14px 34px rgb(37 211 102 / 35%);
+  transition: transform 160ms var(--ease), box-shadow 160ms var(--ease), filter 160ms var(--ease);
+  .ms { font-size: 26px; transition: translate 160ms var(--ease); }
+
+  &:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 18px 40px rgb(37 211 102 / 45%); .ms { translate: 4px 0; } }
+  &:active:not(:disabled) { transform: translateY(0) scale(0.99); }
+  &:disabled { filter: saturate(0.5) brightness(0.8); cursor: progress; }
+  &:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 }
 
-@media (max-width: 880px) {
-  .stage {
-    grid-template-columns: 1fr;
-  }
+@media (max-width: 960px) {
+  .stage { grid-template-columns: 1fr; gap: 40px; padding-top: 24px; }
+  .pitch { padding-left: 0; }
+  h1 { white-space: normal; }
+  .feats { display: none; }
+  .arc.green { left: -60vmax; top: -10vmax; }
+}
 
-  .pitch {
-    max-width: none;
-  }
-
-  .facts {
-    display: none;
-  }
+@media (max-width: 520px) {
+  .login { padding: 24px 18px 32px; }
+  .box, .go { height: 58px; }
+  .field label, .remember, .forgot { font-size: 15px; }
+  .panel { border-radius: 22px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .orb {
-    animation: none;
-  }
-
-  .panel {
-    transform: none;
-    transition: none;
-  }
+  .tile, .go, .go .ms { transition: none; }
 }

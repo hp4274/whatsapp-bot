@@ -1,63 +1,91 @@
 <div class="login">
-  <div class="aurora" aria-hidden="true">
-    <span class="orb a"></span>
-    <span class="orb b"></span>
-    <span class="grid"></span>
+  <div class="bg" aria-hidden="true">
+    <span class="arc green"></span>
+    <span class="arc blue"></span>
+    <span class="floor"></span>
   </div>
 
-  <section class="stage">
-    <div class="pitch">
-      <p class="eyebrow">WhatsApp automation platform</p>
-      <h1>One engine.<br /><em>Every business.</em></h1>
-      <p class="muted lede">
-        Campaigns, auto-replies and reminders for each tenant, on its own number, with its own
-        data. Sign in to your workspace.
-      </p>
-      <ul class="facts">
-        <li><b>Isolated</b><span>Per-tenant data and sessions</span></li>
-        <li><b>Paced</b><span>Adaptive sending and daily caps</span></li>
-        <li><b>Audited</b><span>Every admin action logged</span></li>
-      </ul>
+  <header class="top">
+    <div class="brand">
+      <img src="logo.png" alt="" width="48" height="48" />
+      <div>
+        <strong>WhatsApp</strong>
+        <span>Automation Platform</span>
+      </div>
     </div>
+    <span class="ver">v1.0</span>
+  </header>
 
-    <form class="card panel" (pointermove)="tilt($event)" (pointerleave)="level($event)" (submit)="submit($event)" novalidate>
+  <main class="stage">
+    <section class="pitch">
+      <p class="eyebrow">WhatsApp automation platform</p>
+      <h1>One engine.<br />Every <em>business.</em></h1>
+      <p class="lede">Campaigns, auto-replies and reminders for each business, on its own number, with its own data.</p>
+      <ul class="feats">
+        <li>
+          <span class="tile"><span class="ms" aria-hidden="true">groups</span></span>
+          <span>Multiple<br />businesses</span>
+        </li>
+        <li>
+          <span class="tile bolt"><span class="ms" aria-hidden="true">bolt</span></span>
+          <span>Smart<br />automation</span>
+        </li>
+        <li>
+          <span class="tile chart"><span class="ms" aria-hidden="true">bar_chart</span></span>
+          <span>Campaigns<br />&amp; analytics</span>
+        </li>
+      </ul>
+    </section>
+
+    <form class="panel" (pointermove)="glow($event)" (pointerleave)="rest($event)" (submit)="submit($event)" novalidate>
       <span class="gleam" aria-hidden="true"></span>
       <h2>Sign in</h2>
-      <p class="muted">Use the credentials your administrator issued.</p>
+      <p class="sub">Use the credentials your administrator issued.</p>
 
       <div class="field">
         <label for="email">Email</label>
-        <input
-          id="email"
-          name="email"
-          type="email"
-          autocomplete="username"
-          required
-          [ngModel]="email()"
-          (ngModelChange)="email.set($event)"
-        />
+        <div class="box">
+          <span class="ms" aria-hidden="true">mail</span>
+          <input id="email" name="email" type="email" autocomplete="username" placeholder="Enter your email" required
+                 [ngModel]="email()" (ngModelChange)="email.set($event)" />
+        </div>
       </div>
 
       <div class="field">
         <label for="password">Password</label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          autocomplete="current-password"
-          required
-          [ngModel]="password()"
-          (ngModelChange)="password.set($event)"
-        />
+        <div class="box">
+          <span class="ms" aria-hidden="true">lock</span>
+          <input id="password" name="password" [type]="show() ? 'text' : 'password'" autocomplete="current-password"
+                 placeholder="Enter your password" required
+                 [ngModel]="password()" (ngModelChange)="password.set($event)" />
+          <button class="eye" type="button" (click)="show.set(!show())"
+                  [attr.aria-label]="show() ? 'Hide password' : 'Show password'" [attr.aria-pressed]="show()">
+            <span class="ms" aria-hidden="true">{{ show() ? 'visibility' : 'visibility_off' }}</span>
+          </button>
+        </div>
       </div>
+
+      <div class="row">
+        <label class="remember">
+          <input type="checkbox" name="remember" [ngModel]="remember()" (ngModelChange)="remember.set($event)" />
+          <span class="check" aria-hidden="true"><span class="ms">check</span></span>
+          Remember me
+        </label>
+        <button class="forgot" type="button" (click)="hint.set(!hint())" [attr.aria-expanded]="hint()">Forgot password?</button>
+      </div>
+
+      @if (hint()) {
+        <p class="note" role="status">Passwords are reset by your administrator. Ask them to issue a new one.</p>
+      }
 
       @if (error()) {
         <p class="error" role="alert">{{ error() }}</p>
       }
 
-      <button class="btn primary big" type="submit" [disabled]="busy()">
+      <button class="go" type="submit" [disabled]="busy()">
         {{ busy() ? 'Signing in...' : 'Sign in' }}
+        @if (!busy()) { <span class="ms" aria-hidden="true">arrow_forward</span> }
       </button>
     </form>
-  </section>
+  </main>
 </div>
