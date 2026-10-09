@@ -21,6 +21,26 @@ import { Database } from './db.js';
 import { migrateChannelSettings } from './security/crypto.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+// Automatically load .env file if present
+const envPaths = [
+    path.join(process.cwd(), '.env'),
+    path.join(HERE, '..', '..', '.env'),
+    path.join(HERE, '..', '.env'),
+];
+for (const envPath of envPaths) {
+    if (fs.existsSync(envPath)) {
+        try {
+            process.loadEnvFile(envPath);
+            break;
+        } catch {
+            // ignore
+        }
+    }
+}
+
+import { hashPassword } from './tenancy.js';
+
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 
@@ -50,6 +70,14 @@ if (tenancy.userCount() === 0) {
     await tenancy.createUser({ email, name: 'Platform admin', password, role: 'super_admin' });
     console.log(`[whatsapp-sender] created super admin ${email}`
         + (process.env.SUPER_ADMIN_PASSWORD ? '' : ` with password ${password}  (shown once)`));
+} else if (process.env.SUPER_ADMIN_PASSWORD) {
+    const email = (process.env.SUPER_ADMIN_EMAIL || 'admin@whatsapp.local').trim().toLowerCase();
+    const adminUser = tenancy.db.prepare('SELECT * FROM users WHERE email = ? AND role = "super_admin"').get(email);
+    if (adminUser) {
+        const hash = await hashPassword(process.env.SUPER_ADMIN_PASSWORD);
+        tenancy.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, adminUser.id);
+        console.log(`[whatsapp-sender] synced super admin password for ${email} from environment`);
+    }
 }
 
 const server = app.listen(PORT, HOST, () => {

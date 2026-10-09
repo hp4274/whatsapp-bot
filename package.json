@@ -10,6 +10,7 @@
     "dev:web": "npm --prefix web start",
     "build": "npm --prefix web run build",
     "start": "npm --prefix server start",
-    "test": "npm --prefix server test"
+    "test": "npm --prefix server test",
+    "reset-password": "node server/scripts/reset-password.js"
   }
 }
