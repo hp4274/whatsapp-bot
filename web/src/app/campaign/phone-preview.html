@@ -1,0 +1,129 @@
+@let r = rendered();
+@let block = interactive();
+@let file = attachment();
+
+<div class="bar" role="group" aria-label="Preview contact">
+  <div class="who">
+    @if (sample()) {
+      <span class="muted">Sample contact - <strong>{{ name() }}</strong></span>
+    } @else {
+      <span>Previewing contact <strong>{{ index() + 1 }}</strong> of {{ total() }}
+        @if (contactLabel()) { <span class="muted">- {{ contactLabel() }}</span> }</span>
+    }
+  </div>
+  <div class="tools">
+    <button type="button" class="ib" (click)="prev.emit()" [disabled]="total() < 2" aria-label="Previous contact">
+      <span class="ms" aria-hidden="true">chevron_left</span>
+    </button>
+    <button type="button" class="ib" (click)="next.emit()" [disabled]="total() < 2" aria-label="Next contact">
+      <span class="ms" aria-hidden="true">chevron_right</span>
+    </button>
+    <button type="button" class="ib" (click)="shuffle.emit()" aria-label="Shuffle spintax variants" title="Shuffle variants">
+      <span class="ms" aria-hidden="true">shuffle</span>
+    </button>
+  </div>
+  @if (missing().length) {
+    <span class="miss-pill" role="status">
+      <span class="ms" aria-hidden="true">error</span>
+      {{ missing().length }} unresolved placeholder{{ missing().length === 1 ? '' : 's' }}
+    </span>
+  }
+</div>
+
+<div class="stage">
+  <div class="phone" aria-label="WhatsApp preview" role="img" [attr.aria-description]="r.text">
+    <div class="screen">
+      <div class="notch" aria-hidden="true"></div>
+      <header class="wa-head">
+        <span class="ms back" aria-hidden="true">arrow_back</span>
+        <span class="avatar" aria-hidden="true">{{ initials() }}</span>
+        <div class="peer">
+          <strong>{{ name() }}</strong>
+          <small>online</small>
+        </div>
+        <span class="ms" aria-hidden="true">videocam</span>
+        <span class="ms" aria-hidden="true">call</span>
+      </header>
+
+      <div class="chat">
+        <span class="day">Today</span>
+        <div class="bubble">
+          @if (file) {
+            @switch (kind()) {
+              @case ('image') {
+                <img class="media" [src]="file.previewUrl" alt="Attached image" />
+              }
+              @case ('video') {
+                <div class="media video">
+                  <video [src]="file.previewUrl" muted playsinline preload="metadata" aria-label="Attached video"></video>
+                  <span class="ms play" aria-hidden="true">play_circle</span>
+                </div>
+              }
+              @default {
+                <div class="doc">
+                  <span class="ms" aria-hidden="true">{{ file.mimetype === 'application/pdf' ? 'picture_as_pdf' : 'description' }}</span>
+                  <div>
+                    <strong>{{ file.filename }}</strong>
+                    <small>{{ size(file.size) }} - {{ file.mimetype === 'application/pdf' ? 'PDF' : 'File' }}</small>
+                  </div>
+                </div>
+              }
+            }
+          }
+          @if (block?.header) { <p class="hdr">{{ fill(block?.header ?? '').text }}</p> }
+          @if (r.text) {
+            <p class="body" [innerHTML]="r.html"></p>
+          } @else {
+            <p class="body empty">Your message appears here</p>
+          }
+          @if (block?.footer) { <p class="ftr">{{ fill(block?.footer ?? '').text }}</p> }
+          <span class="meta">{{ time }} <span class="ms tick" aria-hidden="true">done_all</span></span>
+        </div>
+
+        @if (block) {
+          @switch (block.type) {
+            @case ('buttons') {
+              <div class="actions">
+                @for (b of block.buttons ?? []; track $index) {
+                  <span class="act"><span class="ms" aria-hidden="true">reply</span>{{ fill(b.title).text || 'Button' }}</span>
+                }
+              </div>
+            }
+            @case ('cta') {
+              <div class="actions">
+                @for (c of block.cta ?? []; track $index) {
+                  <span class="act"><span class="ms" aria-hidden="true">{{ ctaIcons[c.kind] }}</span>{{ fill(c.title).text || 'Open' }}</span>
+                }
+              </div>
+            }
+            @case ('list') {
+              <div class="actions">
+                <span class="act"><span class="ms" aria-hidden="true">format_list_bulleted</span>{{ block.list?.button || 'Options' }}</span>
+              </div>
+              <div class="sheet">
+                <span class="grip" aria-hidden="true"></span>
+                @for (s of listRows(); track $index) {
+                  @if (s.title) { <small class="sec">{{ s.title }}</small> }
+                  @for (row of s.rows; track $index) {
+                    <div class="row">
+                      <div>
+                        <span>{{ fill(row.title).text || 'Option' }}</span>
+                        @if (row.description) { <small>{{ fill(row.description).text }}</small> }
+                      </div>
+                      <span class="radio" aria-hidden="true"></span>
+                    </div>
+                  }
+                }
+              </div>
+            }
+          }
+        }
+      </div>
+
+      <footer class="composer" aria-hidden="true">
+        <span class="input"><span class="ms">mood</span> Message</span>
+        <span class="mic"><span class="ms">mic</span></span>
+      </footer>
+    </div>
+  </div>
+</div>

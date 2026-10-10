@@ -1,0 +1,47 @@
+<div class="rt-head">
+  <h2 id="t-response">First response time</h2>
+  <span class="muted">{{ data().conversations | number }} conversations · last {{ days() }} days</span>
+</div>
+
+@if (data().conversations) {
+  <div class="rt-top">
+    <div class="hero">
+      <p class="lbl">Median</p>
+      <p class="big">{{ fmt(data().medianSeconds) }}</p>
+      <dl class="mini">
+        <div><dt>p90</dt><dd>{{ fmt(data().p90Seconds) }}</dd></div>
+        <div><dt>Average</dt><dd>{{ fmt(data().averageSeconds) }}</dd></div>
+        <div><dt>Unanswered</dt><dd [class.bad]="data().unanswered > 0">{{ data().unanswered | number }}</dd></div>
+      </dl>
+    </div>
+    <div class="gauges">
+      @for (g of gauges(); track g.key) {
+        <figure class="gauge">
+          <svg viewBox="0 0 72 72" role="img" [attr.aria-label]="g.label + ': ' + (g.pct ?? 0) + '% of conversations'">
+            <circle cx="36" cy="36" r="30" class="track" />
+            <circle cx="36" cy="36" r="30" class="fill {{ g.key }}" [attr.stroke-dasharray]="arc" [attr.stroke-dashoffset]="offset(g.pct)" />
+          </svg>
+          <span class="pct" aria-hidden="true"><span [countUp]="g.pct" [decimals]="0" suffix="%"></span></span>
+          <figcaption><strong>{{ g.label }}</strong><small class="muted">{{ g.n | number }} of {{ data().conversations | number }}</small></figcaption>
+        </figure>
+      }
+    </div>
+  </div>
+
+  <h3 class="dist-h">Distribution</h3>
+  <ul class="dist" role="img" [attr.aria-label]="summary()">
+    @for (b of bars(); track b.key; let i = $index) {
+      <li class="tone-{{ b.tone }}" style="--i: {{ i }}">
+        <span class="d-label">{{ b.label }}</span>
+        <span class="d-track"><i [style.width.%]="b.pct"></i></span>
+        <span class="d-num">{{ b.n | number }}<small class="muted"> {{ b.share }}%</small></span>
+      </li>
+    }
+  </ul>
+  <p class="note muted">From each number's first message in the range to the first reply to it (auto-replies count; broadcasts don't).</p>
+} @else {
+  <div class="rt-empty">
+    <span class="ms" aria-hidden="true">forum</span>
+    <p><strong>No inbound conversations in this range.</strong><br /><span class="muted">Response times appear once customers message this number.</span></p>
+  </div>
+}

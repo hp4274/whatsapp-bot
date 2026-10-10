@@ -12,6 +12,7 @@ import path from 'node:path';
 
 import { APP_DIR } from '../config.js';
 import { Status, utcNow } from '../protocol.js';
+import { renderFallbackText } from '../messaging/interactive.js';
 import { Transport, TransportConnectionError, TransportSendError } from './base.js';
 
 export class SandboxTransport extends Transport {
@@ -47,7 +48,9 @@ export class SandboxTransport extends Transport {
         return this.connected;
     }
 
-    async sendMessage(recipient, message, { media = null } = {}) {
+    async sendMessage(recipient, message, { media = null, interactive = null } = {}) {
+        // Behaves like WhatsApp Web: the numbered text fallback, no buttons.
+        if (interactive) message = renderFallbackText(message, interactive);
         if (!this.connected) {
             throw new TransportConnectionError('Sandbox transport is not connected',
                 { retryable: false });

@@ -12,6 +12,9 @@
 
 import express from 'express';
 
+import { buildContacts, cleanCountryCode } from '../campaign/importer.js';
+import { SafetyError } from '../campaign/safety.js';
+import { InteractiveError } from '../messaging/interactive.js';
 import { contactContext, personalize } from '../protocol.js';
 import { RECIPES, getRecipe, installRecipe } from '../recipes/index.js';
 import { CampaignError, CampaignStore, campaignKey } from './store.js';
@@ -22,12 +25,57 @@ export function createCampaignRouter({ db, state }) {
         contacts: state.contacts,
         templates: state.templates,
         manager: state.manager,
+        // Read lazily: the transport and the hooks change over the runtime's life.
+        canSend: () => Boolean(state.transport?.isConnected?.()),
+        media: (id) => state.media?.get(id) ?? null,
+        interactiveStats: (key) => state.interactiveStats?.(key) ?? null,
     });
     state.campaigns = campaigns;
+    campaigns.channel = () => state.channel;   // Meta template mode needs the live transport
 
     const fail = (res, err) => {
-        if (!(err instanceof CampaignError)) throw err;
+        const known = err instanceof CampaignError || err instanceof InteractiveError || err instanceof SafetyError;
+        if (!known) throw err;
         return res.status(err.status).json({ errors: [err.message] });
+    };
+
+    /**
+     * An `{importId, mapping, ...}` audience becomes the explicit contact list
+     * now - the import session is short-lived, the campaign is not. Explicit
+     * lists are held to the plan's per-campaign cap, like /campaign/start.
+     */
+    const resolveBody = (body) => {
+        const out = { ...body };
+        const audience = body.audience;
+        if (audience && typeof audience === 'object' && !Array.isArray(audience) && audience.importId) {
+            const session = state.imports?.get(audience.importId);
+            if (!session) throw new CampaignError('import not found - upload the file again', 404);
+            const cc = audience.countryCode;
+            if (cc !== undefined && cc !== null && String(cc).trim() !== '' && !cleanCountryCode(cc)) {
+                throw new CampaignError('default country code must be 1-4 digits');
+            }
+            const dedupeDays = Math.max(0, Number(audience.dedupeDays) || 0);
+            const since = new Date(Date.now() - dedupeDays * 86_400_000).toISOString().replace(/\.\d{3}Z$/, '+00:00');
+            try {
+                out.audience = buildContacts(session.sheet, {
+                    mapping: audience.mapping,
+                    countryCode: cc ?? '',
+                    autoClean: Boolean(audience.autoClean),
+                    optOuts: new Set(db.getAllOptOuts?.() ?? []),
+                    recent: dedupeDays > 0 ? new Set(db.bulkCountsSince(since).keys()) : new Set(),
+                }).contacts;
+            } catch (err) {
+                if (err instanceof RangeError) throw new CampaignError(err.message);
+                throw err;
+            }
+        }
+        if (Array.isArray(out.audience)) {
+            const cap = state.limits?.()?.maxContactsPerCampaign;
+            if (cap && out.audience.length > cap) {
+                throw new CampaignError(`A campaign can reach ${cap} contacts on your plan; this one has ${out.audience.length}.`, 403);
+            }
+        }
+        return out;
     };
     const announce = (type, campaign) => state.broadcast?.({ type, campaign });
 
@@ -38,7 +86,7 @@ export function createCampaignRouter({ db, state }) {
 
     router.post('/campaigns', (req, res) => {
         try {
-            const campaign = campaigns.create({ ...(req.body ?? {}), channelId: state.channel.id });
+            const campaign = campaigns.create({ ...resolveBody(req.body ?? {}), channelId: state.channel.id });
             announce('campaignCreated', campaign);
             return res.status(201).json({ campaign });
         } catch (err) {
@@ -56,7 +104,7 @@ export function createCampaignRouter({ db, state }) {
 
     router.put('/campaigns/:id', (req, res) => {
         try {
-            const campaign = campaigns.update(req.params.id, req.body ?? {});
+            const campaign = campaigns.update(req.params.id, resolveBody(req.body ?? {}));
             announce('campaignUpdated', campaign);
             return res.json({ campaign });
         } catch (err) {
@@ -114,6 +162,48 @@ export function createCampaignRouter({ db, state }) {
         }
     });
 
+    // ------------------------------------------------- v2: speed, retry --
+    router.post('/campaigns/:id/speed', (req, res) => {
+        try {
+            const result = campaigns.setSpeed(req.params.id, req.body?.pacing);
+            announce('campaignUpdated', result.campaign);
+            return res.json(result);
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    router.post('/campaigns/:id/retry-failed', (req, res) => {
+        try {
+            const result = campaigns.retryFailed(req.params.id);
+            announce('campaignStarted', result.campaign);
+            return res.json(result);
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    router.get('/campaigns/:id/analytics', (req, res) => {
+        try {
+            return res.json(campaigns.analytics(req.params.id));
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    router.get('/campaigns/:id/export.csv', (req, res) => {
+        try {
+            const campaign = campaigns.require(req.params.id);
+            const csv = campaigns.exportCsv(campaign.id);
+            res.type('text/csv');
+            res.set('Content-Disposition', `attachment; filename="campaign-${campaign.id}.csv"`);
+            return res.send(csv);
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    // Kept last: `speed`, `retry-failed` and friends above match first.
     router.post('/campaigns/:id/:action', (req, res) => {
         const { action } = req.params;
         if (!['start', 'pause', 'resume', 'cancel'].includes(action)) {
@@ -125,15 +215,9 @@ export function createCampaignRouter({ db, state }) {
                 announce(`campaign${action[0].toUpperCase()}${action.slice(1)}d`, campaign);
                 return res.json({ campaign, stats: state.manager?.statsSnapshot() ?? null });
             }
-            // Same gate the legacy /campaign/start has: no transport, no send.
-            if (!state.transport?.isConnected?.()) {
-                return res.status(409).json({ errors: ['Connect a transport first.'] });
-            }
-            const campaign = campaigns.require(req.params.id);
-            const media = campaign.mediaId ? state.media.get(campaign.mediaId) : null;
-            if (campaign.mediaId && !media) return res.status(404).json({ errors: ['media not found'] });
-            const result = campaigns.start(campaign.id, {
-                media,
+            // The store refuses (409) without a transport and (404) when the
+            // campaign's media is gone; it resolves the media itself.
+            const result = campaigns.start(req.params.id, {
                 onePerNumber: req.body?.onePerNumber !== false,
             });
             announce('campaignStarted', result.campaign);

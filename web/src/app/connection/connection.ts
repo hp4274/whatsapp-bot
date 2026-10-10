@@ -42,7 +42,8 @@ export class ConnectionView {
 
   protected readonly transports = [
     { value: 'cloud_api', label: 'WhatsApp Business Cloud API', hint: 'Real delivery, needs an access token' },
-    { value: 'whatsapp_web', label: 'WhatsApp Web / whatsapp-web.js', hint: 'Real delivery, QR login, no token' },
+    { value: 'baileys', label: 'WhatsApp (no browser, QR)', hint: 'Real delivery, QR login, no token - most reliable for images, PDFs and videos' },
+    { value: 'whatsapp_web', label: 'WhatsApp Web / whatsapp-web.js', hint: 'Real delivery, QR login, no token, needs Chrome on the server' },
     { value: 'sandbox', label: 'Local sandbox', hint: 'Testing only - NOT delivered' },
   ];
 
@@ -59,14 +60,14 @@ export class ConnectionView {
     if (config.transport === 'sandbox') {
       return 'SANDBOX selected: messages are written to a local file, not delivered.';
     }
-    if (config.transport === 'whatsapp_web') {
-      return this.warnings()['whatsapp_web'] ?? '';
+    if (config.transport === 'whatsapp_web' || config.transport === 'baileys') {
+      return this.warnings()[config.transport] ?? '';
     }
     return 'Cloud API selected: messages are delivered by Meta.';
   });
 
   protected readonly transportLabel = computed(() =>
-    ({ cloud_api: 'Cloud API', whatsapp_web: 'WhatsApp Web', sandbox: 'Sandbox' })[
+    ({ cloud_api: 'Cloud API', whatsapp_web: 'WhatsApp Web', baileys: 'WhatsApp (no browser)', sandbox: 'Sandbox' })[
       this.config()?.transport ?? 'cloud_api'
     ]);
 

@@ -1,0 +1,88 @@
+<div class="legend" role="group" aria-label="Show or hide a series">
+  @for (s of series; track s.key) {
+    <button type="button" class="lg k-{{ s.key }}" [class.off]="hidden().has(s.key)"
+      [attr.aria-pressed]="!hidden().has(s.key)" (click)="toggle(s.key)">
+      <i class="mk {{ s.kind }}" aria-hidden="true"></i>
+      <span>{{ s.label }}</span>
+      <b>{{ totals()[s.key] | number }}</b>
+    </button>
+  }
+</div>
+
+<div class="frame">
+  <div class="y" aria-hidden="true">
+    @for (t of ticks(); track $index) { <span>{{ t | number }}</span> }
+  </div>
+  <div class="plot" tabindex="0" role="img" [attr.aria-label]="summary() + ' Use the arrow keys to read each day.'"
+    (pointermove)="pick($event)" (pointerdown)="pick($event)" (pointerleave)="active.set(null)"
+    (keydown)="key($event)" (blur)="active.set(null)">
+    <svg [attr.viewBox]="'0 0 ' + w + ' ' + h" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id="tc-sent-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" class="g-top" />
+          <stop offset="100%" class="g-bottom" />
+        </linearGradient>
+      </defs>
+      <line class="grid" x1="0" [attr.x2]="w" y1="0.5" y2="0.5" vector-effect="non-scaling-stroke" />
+      <line class="grid" x1="0" [attr.x2]="w" [attr.y1]="h / 2" [attr.y2]="h / 2" vector-effect="non-scaling-stroke" />
+      <line class="grid base" x1="0" [attr.x2]="w" [attr.y1]="h - 0.5" [attr.y2]="h - 0.5" vector-effect="non-scaling-stroke" />
+      <!-- Re-created (and so re-animated) only when the range length changes, not on every live update. -->
+      @for (n of [points().length]; track n) {
+        <g class="draw">
+          @if (!hidden().has('sent')) {
+            <path class="area" [attr.d]="paths().sentArea" fill="url(#tc-sent-fill)" />
+            <path class="ln sent" [attr.d]="paths().sentLine" vector-effect="non-scaling-stroke" />
+          }
+          @if (!hidden().has('failed')) {
+            @for (b of paths().failed; track b.x) {
+              <rect class="bar" [attr.x]="b.x" [attr.y]="b.y" [attr.width]="b.w" [attr.height]="b.h" rx="2" />
+            }
+          }
+          @if (!hidden().has('delivered')) {
+            <path class="ln delivered" [attr.d]="paths().delivered" vector-effect="non-scaling-stroke" />
+          }
+          @if (!hidden().has('read')) {
+            <path class="ln read" [attr.d]="paths().read" vector-effect="non-scaling-stroke" />
+          }
+        </g>
+      }
+    </svg>
+
+    @if (empty()) {
+      <p class="nodata"><span class="ms" aria-hidden="true">insights</span> No messages in this range yet</p>
+    }
+
+    @if (tip(); as t) {
+      <i class="cross" [style.left.%]="t.left" aria-hidden="true"></i>
+      @for (d of t.dots; track d.key) {
+        <i class="dot k-{{ d.key }}" [style.left.%]="t.left" [style.bottom.%]="d.bottom" aria-hidden="true"></i>
+      }
+      <div class="tip" [class.flip]="t.flip" [style.left.%]="t.left" aria-hidden="true">
+        <strong>{{ t.date }}</strong>
+        <dl>
+          @for (s of series; track s.key) {
+            <div class="k-{{ s.key }}" [class.dim]="hidden().has(s.key)">
+              <dt><i class="mk {{ s.kind }}"></i>{{ s.label }}</dt><dd>{{ t.p[s.key] | number }}</dd>
+            </div>
+          }
+        </dl>
+      </div>
+    }
+  </div>
+  <div class="xl" aria-hidden="true">
+    @for (l of xLabels(); track l.i) { <span [style.left.%]="l.left">{{ l.text }}</span> }
+  </div>
+</div>
+
+<p class="sr-only" aria-live="polite">
+  @if (tip(); as t) { {{ t.date }}: {{ t.p.sent }} sent, {{ t.p.delivered }} delivered, {{ t.p.read }} read, {{ t.p.failed }} failed. }
+</p>
+<table class="sr-only">
+  <caption>Messages per day</caption>
+  <thead><tr><th scope="col">Day</th>@for (s of series; track s.key) { <th scope="col">{{ s.label }}</th> }</tr></thead>
+  <tbody>
+    @for (p of points(); track p.date) {
+      <tr><th scope="row">{{ label(p.date) }}</th><td>{{ p.sent }}</td><td>{{ p.delivered }}</td><td>{{ p.read }}</td><td>{{ p.failed }}</td></tr>
+    }
+  </tbody>
+</table>

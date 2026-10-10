@@ -87,6 +87,15 @@ export class ConversationStore {
         return this.get(conversation.id);
     }
 
+    /** Remember which file went out with a reply, so the thread can show it. */
+    recordMedia(messageId, media) {
+        if (!messageId || !media?.mediaId) return;
+        this.db.prepare(
+            `INSERT OR REPLACE INTO conversation_media (tenant_id, message_id, media_id, mimetype, filename)
+             VALUES (?, ?, ?, ?, ?)`)
+            .run(this.tenantId, String(messageId), media.mediaId, media.mimetype ?? '', media.filename ?? '');
+    }
+
     assign(id, userId) {
         const user = Number(userId);
         if (!Number.isInteger(user)) throw new InboxError('assign needs a user id');
@@ -152,7 +161,7 @@ export class ConversationStore {
         return row ? toConversation(row) : null;
     }
 
-    list({ status = null, assignedTo = undefined, unread = false, search = null, limit = 100 } = {}) {
+    list({ status = null, assignedTo = undefined, unread = false, botPaused = false, search = null, limit = 100 } = {}) {
         const clauses = ['tenant_id = ?'];
         const args = [this.tenantId];
         if (status) {
@@ -166,6 +175,7 @@ export class ConversationStore {
             args.push(Number(assignedTo));
         }
         if (unread) clauses.push('unread_count > 0');
+        if (botPaused) clauses.push('bot_paused = 1');
         if (search) {
             clauses.push('phone LIKE ?');
             args.push(`%${search}%`);
@@ -191,24 +201,31 @@ export class ConversationStore {
         const channelArgs = conversation.channelId ? [conversation.channelId] : [];
 
         const outbound = this.db.prepare(
-            `SELECT message_id, message_type, message, status, created_at
+            `SELECT message_id, message_type, message, status, created_at, campaign_id
              FROM messages WHERE tenant_id = ? AND recipient = ? ${channelMatch}
              ORDER BY created_at DESC LIMIT ?`)
             .all(this.tenantId, conversation.phone, ...channelArgs, cap);
         const inbound = this.db.prepare(
-            `SELECT message_id, sender_name, body, received_at
+            `SELECT message_id, sender_name, body, received_at, media_url, media_type, replied_rule
              FROM inbound_messages WHERE tenant_id = ? AND sender = ? ${channelMatch}
              ORDER BY received_at DESC, id DESC LIMIT ?`)
             .all(this.tenantId, conversation.phone, ...channelArgs, cap);
 
+        const attached = this.#mediaFor(outbound.map((row) => row.message_id));
+        const clicks = this.#clicksFor(inbound.map((row) => row.message_id));
         return [
             ...outbound.map((row) => ({
                 at: row.created_at, direction: 'outbound', kind: row.message_type ?? 'campaign',
                 messageId: row.message_id, body: row.message, status: row.status, from: '',
+                campaignId: row.campaign_id || null, media: attached.get(row.message_id) ?? null,
             })),
             ...inbound.map((row) => ({
                 at: row.received_at, direction: 'inbound', kind: 'message',
                 messageId: row.message_id, body: row.body, status: null, from: row.sender_name ?? '',
+                repliedRule: row.replied_rule ?? null,
+                button: clicks.get(row.message_id) ?? null,
+                // Inbound media lives with the provider; the inbox can say a file came, not show it.
+                media: row.media_type ? { mimetype: row.media_type, url: null, mediaId: null, filename: '' } : null,
             })),
         ]
             // Take the newest `cap` across both sides, then flip: a chat pane
@@ -233,7 +250,7 @@ export class ConversationStore {
         return Boolean(row?.bot_paused);
     }
 
-    stats() {
+    stats({ userId = null } = {}) {
         const byStatus = Object.fromEntries(CONVERSATION_STATUSES.map((status) => [status, 0]));
         for (const row of this.db.prepare(
             'SELECT status, COUNT(*) AS n FROM conversations WHERE tenant_id = ? GROUP BY status')
@@ -258,6 +275,13 @@ export class ConversationStore {
             unread: this.db.prepare(
                 'SELECT COUNT(*) AS n FROM conversations WHERE tenant_id = ? AND unread_count > 0')
                 .get(this.tenantId).n,
+            // Filter-chip counts; like `unassigned`, closed conversations are not work.
+            botPaused: this.db.prepare(
+                "SELECT COUNT(*) AS n FROM conversations WHERE tenant_id = ? AND bot_paused = 1 AND status != 'closed'")
+                .get(this.tenantId).n,
+            mine: userId == null ? 0 : this.db.prepare(
+                "SELECT COUNT(*) AS n FROM conversations WHERE tenant_id = ? AND assigned_to = ? AND status != 'closed'")
+                .get(this.tenantId, Number(userId)).n,
             oldestUnansweredAt: oldest ?? null,
             oldestUnansweredSeconds: oldest
                 ? Math.max(0, Math.round((Date.now() - Date.parse(oldest)) / 1000)) : null,
@@ -297,6 +321,38 @@ export class ConversationStore {
         const conversation = this.get(id);
         if (!conversation) throw new InboxError('conversation not found', 404);
         return conversation;
+    }
+
+    /** messageId -> the attachment an agent sent with it (see conversation_media). */
+    /**
+     * inbound messageId -> the campaign button it was a tap on. `button_clicks`
+     * belongs to the interactive-replies module and may not exist yet.
+     */
+    #clicksFor(inboundIds) {
+        const ids = inboundIds.filter(Boolean);
+        if (!ids.length) return new Map();
+        const exists = this.db.prepare(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'button_clicks'").get();
+        if (!exists) return new Map();
+        const rows = this.db.prepare(
+            `SELECT inbound_message_id, campaign_id, option_id, option_title, payload FROM button_clicks
+             WHERE tenant_id = ? AND inbound_message_id IN (${ids.map(() => '?').join(',')})`)
+            .all(this.tenantId, ...ids);
+        return new Map(rows.map((row) => [row.inbound_message_id, {
+            campaignId: row.campaign_id || null, optionId: row.option_id ?? null,
+            title: row.option_title ?? '', payload: row.payload ?? null,
+        }]));
+    }
+
+    #mediaFor(messageIds) {
+        if (!messageIds.length) return new Map();
+        const rows = this.db.prepare(
+            `SELECT message_id, media_id, mimetype, filename FROM conversation_media
+             WHERE tenant_id = ? AND message_id IN (${messageIds.map(() => '?').join(',')})`)
+            .all(this.tenantId, ...messageIds);
+        return new Map(rows.map((row) => [row.message_id, {
+            mediaId: row.media_id, mimetype: row.mimetype, filename: row.filename, url: `/api/media/${row.media_id}`,
+        }]));
     }
 
     #patch(id, assignment, args) {

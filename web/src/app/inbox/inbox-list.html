@@ -1,0 +1,57 @@
+<div class="ib-tools">
+  <div class="ib-search-row">
+    <label class="ib-search">
+      <span class="ms" aria-hidden="true">search</span>
+      <input type="search" placeholder="Search name, number or message" aria-label="Search conversations"
+        [value]="search()" (input)="search.set($any($event.target).value)" />
+    </label>
+    <label class="ib-status">
+      <span class="sr-only">Status</span>
+      <select aria-label="Filter by status" [value]="status()" (change)="status.set($any($event.target).value)">
+        @for (s of statuses; track s.key) { <option [value]="s.key" [selected]="status() === s.key">{{ s.label }}</option> }
+      </select>
+    </label>
+  </div>
+  <div class="ib-chips" role="radiogroup" aria-label="Show">
+    @for (s of segments; track s.key) {
+      <button type="button" role="radio" class="chip" [class.on]="segment() === s.key" [attr.aria-checked]="segment() === s.key"
+        (click)="segment.set(s.key)">
+        <span class="ms" aria-hidden="true">{{ s.icon }}</span>{{ s.label }}
+        @if (counts()[s.key]; as n) { <span class="n">{{ n > 99 ? '99+' : n }}</span> }
+      </button>
+    }
+  </div>
+</div>
+
+<div class="ib-rows">
+  @if (loading()) {
+    @for (n of [1, 2, 3, 4, 5, 6]; track n) {
+      <div class="ib-row skel" aria-hidden="true"><span class="av"></span><span class="lines"><i></i><i></i></span></div>
+    }
+    <span class="sr-only" aria-live="polite">Loading conversations</span>
+  } @else {
+    @for (r of rows(); track r.id) {
+      <button type="button" class="ib-row" [class.on]="r.id === selectedId()" [class.unread]="r.unreadCount > 0"
+        (click)="select.emit(r)" [attr.aria-current]="r.id === selectedId() ? 'true' : null"
+        [attr.aria-label]="(r.name || r.phone) + (r.unreadCount ? ', ' + r.unreadCount + ' unread' : '')">
+        <span class="av" [style.--h]="hue(r.phone)">{{ initials(r) }}</span>
+        <span class="lines">
+          <span class="top"><b>{{ r.name || r.phone }}</b><time>{{ rel(r.lastMessageAt) }}</time></span>
+          <span class="bot">
+            <span class="pv">{{ r.preview || (r.name ? r.phone : 'No messages yet') }}</span>
+            @if (r.botPaused) { <span class="ms tiny" title="Bot paused" aria-label="Bot paused">pan_tool</span> }
+            @if (r.unreadCount > 0) { <span class="badge">{{ r.unreadCount > 99 ? '99+' : r.unreadCount }}</span> }
+          </span>
+        </span>
+        @if (r.status !== 'open') { <span class="st st-{{ r.status }}">{{ r.status }}</span> }
+      </button>
+    } @empty {
+      <div class="ib-none">
+        <span class="ms" aria-hidden="true">filter_alt_off</span>
+        <p>{{ emptyText() }}</p>
+        <button type="button" class="btn" (click)="reset()">Show all</button>
+      </div>
+    }
+  }
+</div>
+<p class="ib-kbd-hint muted" aria-hidden="true"><kbd>j</kbd><kbd>k</kbd> move · <kbd>?</kbd> shortcuts</p>

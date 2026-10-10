@@ -1,0 +1,78 @@
+<section class="block" [attr.aria-labelledby]="'cap-h-' + channel().id">
+  <header class="block-head">
+    <h4 [id]="'cap-h-' + channel().id">
+      <span class="ms" aria-hidden="true">tune</span> Allowed traffic
+      <span class="count">{{ enabledCount() }}/{{ capabilities().length }}</span>
+    </h4>
+    <div class="bulk">
+      <button type="button" class="link" (click)="setAll(true)" [disabled]="busy()">All on</button>
+      <button type="button" class="link" (click)="setAll(false)" [disabled]="busy()">All off</button>
+    </div>
+  </header>
+  <p class="sub">Messages of a type that is switched off are refused on this number instead of slipping out.</p>
+  <ul class="switches">
+    @for (capability of capabilities(); track capability) {
+      @let on = channel().capabilities.includes(capability);
+      <li>
+        <button type="button" role="switch" class="switch" [class.on]="on" [attr.aria-checked]="on"
+                [disabled]="busy()" (click)="toggle(capability)">
+          <span class="text">
+            <span class="name">{{ label(capability).label }}</span>
+            @if (label(capability).hint) { <span class="hint">{{ label(capability).hint }}</span> }
+          </span>
+          <span class="track" aria-hidden="true"><span class="thumb"></span></span>
+        </button>
+      </li>
+    }
+  </ul>
+</section>
+
+<section class="block" [attr.aria-labelledby]="'win-h-' + channel().id">
+  <header class="block-head">
+    <h4 [id]="'win-h-' + channel().id"><span class="ms" aria-hidden="true">schedule</span> Sending window</h4>
+  </header>
+  <app-send-window [channel]="channel()" [busy]="busy()" (save)="patch.emit($event)" />
+</section>
+
+<section class="block" [attr.aria-labelledby]="'mg-h-' + channel().id">
+  <header class="block-head">
+    <h4 [id]="'mg-h-' + channel().id"><span class="ms" aria-hidden="true">settings</span> Manage</h4>
+  </header>
+
+  <div class="manage">
+    @if (!channel().isDefault) {
+      <button class="btn small" type="button" (click)="makeDefault.emit()" [disabled]="busy()">
+        <span class="ms" aria-hidden="true">star</span> Make default
+      </button>
+    }
+
+    @if (confirming() === 'disable') {
+      <div class="confirm" role="group" aria-label="Confirm disable">
+        <span>Stop all sending from this number now?</span>
+        <button class="btn small" type="button" (click)="confirming.set(null)">Keep on</button>
+        <button class="btn small danger" type="button" (click)="toggleStatus()" [disabled]="busy()">Disable</button>
+      </div>
+    } @else {
+      <button class="btn small" type="button" (click)="toggleStatus()" [disabled]="busy()">
+        <span class="ms" aria-hidden="true">{{ channel().status === 'active' ? 'pause_circle' : 'play_circle' }}</span>
+        {{ channel().status === 'active' ? 'Disable' : 'Enable' }}
+      </button>
+    }
+
+    @if (canDelete()) {
+      @if (confirming() === 'delete') {
+        <div class="confirm danger-zone" role="group" aria-label="Confirm delete">
+          <span>Delete <strong>{{ channel().displayName }}</strong>? Its settings and link are removed; history stays.</span>
+          <button class="btn small" type="button" (click)="confirming.set(null)">Cancel</button>
+          <button class="btn small danger" type="button" (click)="confirmDelete()" [disabled]="busy()">Delete number</button>
+        </div>
+      } @else {
+        <button class="btn small ghost-danger" type="button" (click)="confirming.set('delete')" [disabled]="busy()">
+          <span class="ms" aria-hidden="true">delete</span> Delete
+        </button>
+      }
+    } @else {
+      <span class="note">Your only number cannot be deleted.</span>
+    }
+  </div>
+</section>

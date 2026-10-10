@@ -1,0 +1,254 @@
+/* WhatsApp's own chat colours, kept local so the app tokens stay untouched. */
+:host {
+  --wa-bubble: #ffffff;
+  --wa-text: #111b21;
+  --wa-muted: #667781;
+  --wa-link: #027eb5;
+  --wa-divider: #e9edef;
+  --wa-sheet: #ffffff;
+  --wa-radio: #00a884;
+
+  display: grid;
+  gap: var(--space-sm);
+  width: 100%;
+  font-size: 14px;
+}
+
+:host-context([data-theme='dark']) {
+  --wa-bubble: #202c33;
+  --wa-text: #e9edef;
+  --wa-muted: #8696a0;
+  --wa-link: #53bdeb;
+  --wa-divider: #2a3942;
+  --wa-sheet: #111b21;
+  --wa-radio: #00a884;
+}
+
+/* Labelled switch ------------------------------------------------------ */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  justify-self: start;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+
+  input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+  }
+
+  .track {
+    position: relative;
+    width: 34px;
+    height: 20px;
+    border-radius: 999px;
+    background: var(--border);
+    transition: background var(--fast) var(--ease);
+  }
+
+  .thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--surface);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    transition: transform var(--fast) var(--ease);
+  }
+
+  input:checked + .track {
+    background: var(--primary);
+
+    .thumb {
+      transform: translateX(14px);
+    }
+  }
+
+  input:focus-visible + .track {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+/* Incoming message ----------------------------------------------------- */
+.msg {
+  display: grid;
+  gap: 2px;
+  max-width: 88%;
+  perspective: 700px;
+}
+
+.bubble {
+  position: relative;
+  padding: 7px 9px 20px;
+  border-radius: 0 10px 10px 10px;
+  background: var(--wa-bubble);
+  color: var(--wa-text);
+  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13), 0 6px 16px -8px rgba(11, 20, 26, 0.25);
+  overflow-wrap: anywhere;
+
+  /* The little tail on the top-left corner. */
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -7px;
+    border-top: 0 solid transparent;
+    border-right: 8px solid var(--wa-bubble);
+    border-bottom: 10px solid transparent;
+  }
+
+  &.attached {
+    border-radius: 0 10px 4px 4px;
+  }
+}
+
+.header {
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+
+.body {
+  min-height: 1.4em;
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+
+.footer {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--wa-muted);
+}
+
+.time {
+  position: absolute;
+  right: 8px;
+  bottom: 4px;
+  font-size: 11px;
+  color: var(--wa-muted);
+}
+
+/* Buttons attached under the bubble ------------------------------------- */
+.actions {
+  display: grid;
+  gap: 2px;
+}
+
+.wa-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--wa-bubble);
+  color: var(--wa-link);
+  font: inherit;
+  font-weight: 500;
+  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+  transform-style: preserve-3d;
+  transition: transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+
+  .ms {
+    font-size: 17px;
+  }
+
+  &:hover {
+    transform: rotateX(8deg) translateZ(6px);
+    box-shadow: 0 8px 14px -8px rgba(11, 20, 26, 0.35);
+  }
+}
+
+.actions:last-child .wa-btn:last-child {
+  border-radius: 4px 4px 10px 10px;
+}
+
+button.wa-btn {
+  cursor: pointer;
+}
+
+/* List sheet ----------------------------------------------------------- */
+.sheet {
+  margin-top: var(--space-xs);
+  border-radius: 10px;
+  background: var(--wa-sheet);
+  color: var(--wa-text);
+  box-shadow: 0 12px 28px -12px rgba(11, 20, 26, 0.45);
+  overflow: hidden;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--wa-divider);
+}
+
+.close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--wa-muted);
+
+  &:hover {
+    background: var(--wa-divider);
+  }
+}
+
+.sheet-section {
+  padding: 10px 12px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--wa-radio);
+}
+
+.sheet-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--wa-divider);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+.row-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+
+  small {
+    font-size: 12px;
+    color: var(--wa-muted);
+  }
+}
+
+.radio {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border: 2px solid var(--wa-muted);
+  border-radius: 50%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-btn:hover {
+    transform: none;
+  }
+}

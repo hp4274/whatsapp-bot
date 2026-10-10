@@ -1,0 +1,206 @@
+<button class="scrim" type="button" tabindex="-1" aria-label="Close contact details" (click)="close()"></button>
+
+<aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="cd-title">
+  @if (contact(); as c) {
+    <header class="hero" [style.--h]="hue(c.phone)">
+      <span class="avatar" aria-hidden="true">{{ initials(c.name, c.phone) }}</span>
+      <div class="hero-text">
+        <h3 id="cd-title">{{ c.name || 'No name' }}</h3>
+        <button type="button" class="phone" (click)="copyPhone()" [attr.aria-label]="'Copy number ' + displayPhone(c.phone)">
+          <span class="mono">{{ displayPhone(c.phone) }}</span>
+          <span class="ms" aria-hidden="true">{{ copied() ? 'check' : 'content_copy' }}</span>
+        </button>
+        <span class="meta">
+          @if (c.email) { {{ c.email }} &middot; }
+          Added {{ ago(c.createdAt) }}@if (c.source) { via {{ c.source }} }
+        </span>
+      </div>
+      <button #closeBtn class="btn ghost icon close" type="button" aria-label="Close" (click)="close()"><span class="ms">close</span></button>
+    </header>
+
+    @if (error()) { <p class="banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ error() }}</p> }
+
+    <!-- Profile -->
+    @if (canWrite()) {
+      @if (editing()) {
+        <form class="panel edit" (submit)="saveProfile($event)">
+          <div class="pair">
+            <label for="cd-name">Name</label>
+            <input id="cd-name" name="name" maxlength="120" [ngModel]="profile().name" (ngModelChange)="profile.set({ name: $event, email: profile().email })" />
+          </div>
+          <div class="pair">
+            <label for="cd-email">Email</label>
+            <input id="cd-email" name="email" type="email" maxlength="200" [ngModel]="profile().email" (ngModelChange)="profile.set({ name: profile().name, email: $event })" />
+          </div>
+          <div class="row-end">
+            <button class="btn ghost sm" type="button" (click)="editing.set(false)">Cancel</button>
+            <button class="btn primary sm" type="submit" [disabled]="saving()">Save</button>
+          </div>
+        </form>
+      } @else {
+        <button class="btn sm edit-btn" type="button" (click)="startEdit()"><span class="ms" aria-hidden="true">edit</span> Edit name &amp; email</button>
+      }
+    }
+
+    <!-- Consent -->
+    <section class="panel consent" [class.off]="c.optedOut" aria-labelledby="cd-consent">
+      <div class="consent-row">
+        <span class="orb" aria-hidden="true"><span class="ms">{{ c.optedOut ? 'notifications_off' : 'verified' }}</span></span>
+        <div class="consent-text">
+          <h4 id="cd-consent">{{ c.optedOut ? 'Opted out' : 'Can receive messages' }}</h4>
+          <span class="muted">
+            @if (c.optedOut) {
+              {{ c.optOutReason || 'No reason recorded' }}@if (c.optedOutAt) { &middot; {{ ago(c.optedOutAt) }} }
+            } @else {
+              Consent: {{ c.optInStatus === 'opted_in' ? 'opted in' : 'unknown' }}
+            }
+          </span>
+        </div>
+        @if (canWrite()) {
+          <button type="button" class="switch" role="switch" [attr.aria-checked]="!c.optedOut" aria-labelledby="cd-consent"
+                  [disabled]="saving()" (click)="toggleConsent()"><span class="knob"></span></button>
+        }
+      </div>
+      @if (consentStep() === 'out') {
+        <form class="confirm" (submit)="confirmConsent($event)" role="alertdialog" aria-labelledby="cd-out-q">
+          <label id="cd-out-q" for="cd-reason">Stop all messages to this number?</label>
+          <input id="cd-reason" name="reason" maxlength="200" placeholder="Reason (e.g. replied STOP, asked by phone)"
+                 [ngModel]="reason()" (ngModelChange)="reason.set($event)" />
+          <div class="row-end">
+            <button class="btn ghost sm" type="button" (click)="consentStep.set('')">Cancel</button>
+            <button class="btn danger sm" type="submit" [disabled]="saving()">Opt out</button>
+          </div>
+        </form>
+      } @else if (consentStep() === 'in') {
+        <div class="confirm" role="alertdialog" aria-labelledby="cd-in-q">
+          <p id="cd-in-q">Opt this number back in? Only do this if they asked to hear from you again.</p>
+          <div class="row-end">
+            <button class="btn ghost sm" type="button" (click)="consentStep.set('')">Cancel</button>
+            <button class="btn primary sm" type="button" [disabled]="saving()" (click)="confirmConsent()">Opt in</button>
+          </div>
+        </div>
+      }
+    </section>
+
+    <!-- Tags -->
+    <section class="panel" aria-labelledby="cd-tags">
+      <h4 id="cd-tags"><span class="ms" aria-hidden="true">sell</span> Tags</h4>
+      <div class="tag-editor">
+        @for (t of c.tags; track t) {
+          <span class="tag">
+            {{ t }}
+            @if (canWrite()) {
+              <button type="button" [attr.aria-label]="'Remove tag ' + t" [disabled]="saving()" (click)="removeTag(t)"><span class="ms" aria-hidden="true">close</span></button>
+            }
+          </span>
+        } @empty {
+          @if (!canWrite()) { <span class="muted small">No tags.</span> }
+        }
+        @if (canWrite()) {
+          <form (submit)="addTags($event)" class="tag-input">
+            <input name="tag" list="cd-tag-list" autocomplete="off" aria-label="Add a tag" placeholder="Add tag..."
+                   [ngModel]="tagText()" (ngModelChange)="tagText.set($event)" (keydown)="tagKey($event)" />
+          </form>
+        }
+      </div>
+      <datalist id="cd-tag-list">
+        @for (t of knownTags(); track t.tag) { @if (!c.tags.includes(t.tag)) { <option [value]="t.tag"></option> } }
+      </datalist>
+    </section>
+
+    <!-- Custom fields -->
+    <section class="panel" aria-labelledby="cd-fields">
+      <h4 id="cd-fields"><span class="ms" aria-hidden="true">dataset</span> Custom fields</h4>
+      @if (fields().length) {
+        <div class="fields">
+          @for (f of fields(); track $index; let i = $index) {
+            <div class="field-row">
+              <input class="field-key mono" [attr.aria-label]="'Field name ' + (i + 1)" placeholder="key" list="cd-key-list"
+                     [readonly]="!canWrite()" [value]="f.key" (input)="setField(i, { key: $any($event.target).value })" />
+              <input [attr.aria-label]="'Value for ' + (f.key || 'field ' + (i + 1))" placeholder="value"
+                     [readonly]="!canWrite()" [value]="f.value" (input)="setField(i, { value: $any($event.target).value })" />
+              @if (canWrite()) {
+                <button type="button" class="btn ghost icon" [attr.aria-label]="'Remove field ' + (f.key || i + 1)" (click)="removeField(i)">
+                  <span class="ms" aria-hidden="true">remove</span>
+                </button>
+              }
+            </div>
+          }
+        </div>
+      } @else {
+        <p class="muted small">None recorded. Fields like a patient id or class name can be used in message templates.</p>
+      }
+      <datalist id="cd-key-list">
+        @for (k of fieldKeys(); track k) { <option [value]="k"></option> }
+      </datalist>
+      @if (fieldError()) { <p class="err" role="alert">{{ fieldError() }}</p> }
+      @if (canWrite()) {
+        <div class="row-end">
+          <button class="btn ghost sm" type="button" (click)="addField()"><span class="ms" aria-hidden="true">add</span> Add field</button>
+          @if (fieldsDirty()) {
+            <button class="btn ghost sm" type="button" (click)="resetFields()">Discard</button>
+            <button class="btn primary sm" type="button" [disabled]="saving() || !!fieldError()" (click)="saveFields()">Save fields</button>
+          }
+        </div>
+      }
+    </section>
+
+    <!-- Timeline -->
+    <section class="panel" aria-labelledby="cd-history">
+      <h4 id="cd-history"><span class="ms" aria-hidden="true">history</span> Timeline</h4>
+      @if (timeline(); as items) {
+        <ol class="timeline">
+          @for (e of items; track e.messageId + e.at) {
+            <li [class.in]="e.direction === 'inbound'" [class.click]="e.kind === 'button_click'" [class.failed]="e.status === 'FAILED'">
+              <span class="dot" aria-hidden="true"><span class="ms">{{ icon(e) }}</span></span>
+              <div class="entry">
+                <div class="entry-head">
+                  <strong>{{ label(e) }}</strong>
+                  @if (e.status) { <span class="s-pill" [class]="statusTone(e.status)">{{ e.status.toLowerCase() }}</span> }
+                  <time [attr.datetime]="e.at" [title]="absolute(e.at)">{{ ago(e.at) }}</time>
+                </div>
+                @if (e.body) { <p class="body">{{ e.body }}</p> }
+                @if (e.error) { <p class="err">{{ e.error }}</p> }
+              </div>
+            </li>
+          } @empty {
+            <li class="none"><span class="muted small">No messages with this number yet.</span></li>
+          }
+        </ol>
+      } @else {
+        <div class="s-skel" style="width: 80%"></div>
+        <div class="s-skel" style="width: 60%"></div>
+      }
+    </section>
+
+    @if (canWrite()) {
+      <footer class="danger-zone">
+        @if (confirmDelete()) {
+          <div class="confirm bad" role="alertdialog" aria-labelledby="cd-del-q">
+            <p id="cd-del-q">Delete {{ c.name || displayPhone(c.phone) }}? Message history stays; tags and fields are lost.</p>
+            <div class="row-end">
+              <button class="btn ghost sm" type="button" (click)="confirmDelete.set(false)">Keep</button>
+              <button class="btn danger sm" type="button" [disabled]="saving()" (click)="remove()">Delete contact</button>
+            </div>
+          </div>
+        } @else {
+          <button class="btn sm danger-ghost" type="button" (click)="confirmDelete.set(true)"><span class="ms" aria-hidden="true">delete</span> Delete contact</button>
+        }
+      </footer>
+    }
+  } @else if (error()) {
+    <header class="hero plain">
+      <h3 id="cd-title">Contact</h3>
+      <button #closeBtn class="btn ghost icon close" type="button" aria-label="Close" (click)="close()"><span class="ms">close</span></button>
+    </header>
+    <p class="banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ error() }}</p>
+  } @else {
+    <div class="loading" aria-busy="true">
+      <h3 id="cd-title" class="sr-only">Loading contact</h3>
+      <div class="s-skel" style="height: 64px; width: 64px; border-radius: 18px"></div>
+      <div class="s-skel" style="width: 60%"></div>
+      <div class="s-skel" style="width: 40%"></div>
+      <div class="s-skel" style="height: 90px"></div>
+    </div>
+  }
+</aside>

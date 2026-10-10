@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS templates (
     current_version        INTEGER NOT NULL DEFAULT 1,
     use_count              INTEGER NOT NULL DEFAULT 0,
     last_used_at           TEXT,
+    -- category, sample_values, header_media_id, interactive: see ADDED_COLUMNS.
     created_at             TEXT NOT NULL,
     updated_at             TEXT NOT NULL,
     -- The name is how a workflow or an API caller refers to a template, so it
@@ -42,3 +43,30 @@ CREATE TABLE IF NOT EXISTS template_versions (
     UNIQUE (template_id, version)
 );
 `;
+
+/**
+ * Columns added after the table first shipped. `CREATE TABLE IF NOT EXISTS`
+ * leaves an existing table alone, so every database - new or old - gets these
+ * here, called from db.js right after MODULE_SCHEMAS. One definition, one path,
+ * idempotent.
+ */
+const ADDED_COLUMNS = [
+    // Meta's template category (TEMPLATE_CATEGORIES in store.js).
+    ['category', "TEXT NOT NULL DEFAULT 'marketing'"],
+    ['sample_values', "TEXT NOT NULL DEFAULT '{}'"],
+    ['header_media_id', 'TEXT'],
+    ['interactive', 'TEXT'],
+    // Meta approved-template send: language code (en_US...) and the ordered
+    // {{n}} -> contact-variable mapping (see messaging/templateSend.js).
+    // The Meta template name itself is provider_template_name.
+    ['language', "TEXT NOT NULL DEFAULT ''"],
+    ['param_mapping', "TEXT NOT NULL DEFAULT '{}'"],
+];
+
+export function migrateTemplates(db) {
+    const cols = db.prepare('PRAGMA table_info(templates)').all().map((c) => c.name);
+    if (!cols.length) return;
+    for (const [name, type] of ADDED_COLUMNS) {
+        if (!cols.includes(name)) db.exec(`ALTER TABLE templates ADD COLUMN ${name} ${type}`);
+    }
+}

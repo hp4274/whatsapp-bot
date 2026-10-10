@@ -5,7 +5,7 @@
  * sender names and the last inbound preview - change both sides together.
  */
 
-import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpEvent, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
@@ -38,6 +38,36 @@ export interface ThreadItem {
   body: string;
   status: string | null;
   from: string;
+  /** Outbound with an attachment: a served file. Inbound: mimetype only (url null) - the file stays with the provider. */
+  media?: ThreadMedia | null;
+  campaignId?: string | null;
+  /** Inbound answered by an auto-reply rule: that rule's keyword. */
+  repliedRule?: string | null;
+  /** Inbound that was a tap on a campaign button (button_clicks). */
+  button?: { campaignId: string | null; optionId: string | null; title: string; payload: string | null } | null;
+}
+
+export interface ThreadMedia {
+  mediaId: string | null;
+  mimetype: string;
+  filename: string;
+  url: string | null;
+}
+
+export interface UploadedMedia {
+  mediaId: string;
+  filename: string;
+  mimetype: string;
+  size: number;
+  url: string;
+}
+
+/** Subset of GET /api/templates used for quick replies. */
+export interface QuickTemplate {
+  id: number;
+  name: string;
+  templateType: string;
+  body: string;
 }
 
 export interface ConversationNote {
@@ -53,6 +83,9 @@ export interface InboxStats {
   total: number;
   unassigned: number;
   unread: number;
+  /** Open + pending only, like `unassigned`. */
+  mine?: number;
+  botPaused?: number;
   oldestUnansweredAt: string | null;
   oldestUnansweredSeconds: number | null;
 }
@@ -72,6 +105,7 @@ export interface ConversationFilter {
   search?: string;
   unread?: boolean;
   assignedTo?: number | 'none' | null;
+  botPaused?: boolean;
   limit?: number;
 }
 
@@ -84,6 +118,7 @@ export class InboxApi {
     if (filter.status) params = params.set('status', filter.status);
     if (filter.search) params = params.set('search', filter.search);
     if (filter.unread) params = params.set('unread', 'true');
+    if (filter.botPaused) params = params.set('botPaused', 'true');
     if (filter.assignedTo != null) params = params.set('assignedTo', String(filter.assignedTo));
     if (filter.limit) params = params.set('limit', String(filter.limit));
     return this.http.get<{ conversations: Conversation[] }>('/api/conversations', { params }).pipe(catchError(toMessage));
@@ -108,8 +143,30 @@ export class InboxApi {
     }).pipe(catchError(toMessage));
   }
 
-  reply(id: number, text: string): Observable<{ conversation: Conversation; messageId: string }> {
-    return this.post(id, 'reply', { text });
+  reply(id: number, text: string, mediaId: string | null = null): Observable<{ conversation: Conversation; messageId: string }> {
+    return this.post(id, 'reply', mediaId ? { text, mediaId } : { text });
+  }
+
+  /** Multipart upload with progress events; the last event carries the body. */
+  upload(file: File): Observable<HttpEvent<UploadedMedia>> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http.post<UploadedMedia>('/api/media/upload', form, { reportProgress: true, observe: 'events' })
+      .pipe(catchError(toMessage));
+  }
+
+  /** Media needs the bearer header, so <img src> cannot fetch it directly. */
+  mediaBlob(url: string): Observable<Blob> {
+    return this.http.get(url, { responseType: 'blob' }).pipe(catchError(toMessage));
+  }
+
+  templates(): Observable<{ templates: QuickTemplate[] }> {
+    return this.http.get<{ templates: QuickTemplate[] }>('/api/templates').pipe(catchError(toMessage));
+  }
+
+  /** ContactsApi has no single-contact read; this is GET /api/contacts/:id. */
+  contact(id: number): Observable<{ contact: import('../core/api').Contact2 }> {
+    return this.http.get<{ contact: import('../core/api').Contact2 }>(`/api/contacts/${id}`).pipe(catchError(toMessage));
   }
 
   /** userId null unassigns. */

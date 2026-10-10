@@ -15,6 +15,9 @@
         <li><b>{{ waiting(s.oldestUnansweredSeconds) }}</b><span>Oldest wait</span></li>
       </ul>
     }
+    <button type="button" class="icon-btn kb" (click)="helpOpen.set(true)" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">
+      <span class="ms">keyboard</span>
+    </button>
   </header>
 
   @if (error() && !loading()) {
@@ -25,7 +28,7 @@
     </div>
   }
 
-  @if (!loading() && !error() && isFirstRun() && filter() === 'all') {
+  @if (!loading() && !error() && isFirstRun()) {
     <div class="card ib-empty enter">
       <span class="ib-orb" aria-hidden="true"><span class="ms">mark_chat_unread</span></span>
       <h2>No conversations yet</h2>
@@ -34,140 +37,82 @@
     </div>
   } @else {
     <div class="ib-panes card" [class.has-sel]="selectedId() !== null">
-      <!-- Conversation list -->
-      <aside class="ib-list" aria-label="Conversations">
-        <div class="ib-tools">
-          <label class="ib-search">
-            <span class="ms" aria-hidden="true">search</span>
-            <input type="search" placeholder="Search name, number or message" aria-label="Search conversations"
-              [ngModel]="search()" (ngModelChange)="search.set($event)" />
-          </label>
-          <div class="ib-tabs" role="tablist" aria-label="Filter by status">
-            @for (f of filters; track f.key) {
-              <button type="button" role="tab" [attr.aria-selected]="filter() === f.key" [class.on]="filter() === f.key"
-                (click)="setFilter(f.key)">{{ f.label }}</button>
-            }
-          </div>
-        </div>
+      <app-inbox-list class="ib-list" aria-label="Conversations" [rows]="rows()" [selectedId]="selectedId()" [loading]="loading()"
+        [counts]="counts()" [now]="now()" [(segment)]="segment" [(status)]="status" [(search)]="search" (select)="open($event)" />
 
-        <div class="ib-rows">
-          @if (loading()) {
-            @for (n of [1, 2, 3, 4, 5, 6]; track n) {
-              <div class="ib-row skel" aria-hidden="true"><span class="av"></span><span class="lines"><i></i><i></i></span></div>
-            }
-            <span class="sr-only" aria-live="polite">Loading conversations</span>
-          } @else {
-            @for (r of rows(); track r.id) {
-              <button type="button" class="ib-row" [class.on]="r.id === selectedId()" [class.unread]="r.unreadCount > 0"
-                (click)="open(r)" [attr.aria-current]="r.id === selectedId() ? 'true' : null"
-                [attr.aria-label]="(r.name || r.phone) + (r.unreadCount ? ', ' + r.unreadCount + ' unread' : '')">
-                <span class="av" [style.--h]="hue(r.phone)">{{ initials(r) }}</span>
-                <span class="lines">
-                  <span class="top"><b>{{ r.name || r.phone }}</b><time>{{ rel(r.lastMessageAt) }}</time></span>
-                  <span class="bot">
-                    <span class="pv">{{ r.preview || (r.name ? r.phone : 'No messages yet') }}</span>
-                    @if (r.botPaused) { <span class="ms tiny" title="Bot paused" aria-label="Bot paused">pan_tool</span> }
-                    @if (r.unreadCount > 0) { <span class="badge">{{ r.unreadCount > 99 ? '99+' : r.unreadCount }}</span> }
-                  </span>
-                </span>
-                @if (r.status !== 'open') { <span class="st st-{{ r.status }}">{{ r.status }}</span> }
-              </button>
-            } @empty {
-              <div class="ib-none">
-                <span class="ms" aria-hidden="true">filter_alt_off</span>
-                <p>{{ search() ? 'No conversations match "' + search() + '".' : 'Nothing in ' + filter() + ' right now.' }}</p>
-                <button type="button" class="btn" (click)="search.set(''); setFilter('all')">Show all</button>
-              </div>
-            }
-          }
-        </div>
-      </aside>
-
-      <!-- Thread -->
-      <div class="ib-thread" aria-label="Conversation">
+      <div class="ib-thread" aria-label="Conversation" (dragover)="onDrag($event, true)" (dragleave)="onDrag($event, false)" (drop)="onDrop($event)">
         @if (selected(); as c) {
           <div class="th-head">
             <button type="button" class="icon-btn back" (click)="back()" aria-label="Back to conversations"><span class="ms">arrow_back</span></button>
-            <span class="av" [style.--h]="hue(c.phone)">{{ selectedRow() ? initials(selectedRow()!) : '' }}</span>
+            <span class="av" [style.--h]="hue(c.phone)">{{ initials({ name: selectedRow()?.name ?? '', phone: c.phone }) }}</span>
             <div class="who">
-              <strong>{{ selectedRow()?.name || c.phone }}</strong>
-              <span class="muted">{{ selectedRow()?.name ? c.phone : 'WhatsApp' }} · {{ userName(c.assignedTo) }}</span>
+              <strong>{{ contact()?.name || selectedRow()?.name || c.phone }}</strong>
+              <span class="muted">{{ selectedRow()?.name ? c.phone : 'WhatsApp' }} · {{ userName(c.assignedTo) }}@if (c.status !== 'open') { · <em class="st-{{ c.status }}">{{ c.status }}</em> }</span>
             </div>
             <button type="button" class="bot-sw" role="switch" [attr.aria-checked]="!c.botPaused" [disabled]="busy() === 'bot'"
               (click)="toggleBot()" [title]="c.botPaused ? 'You have this chat. Hand it back to the bot.' : 'Bot is replying. Take over to pause it.'">
               <span class="knob"><span class="ms">{{ c.botPaused ? 'support_agent' : 'smart_toy' }}</span></span>
               <span class="lbl">{{ c.botPaused ? 'Bot paused' : 'Bot active' }}</span>
             </button>
-            <button type="button" class="icon-btn" [class.on]="notesOpen()" (click)="notesOpen.set(!notesOpen())"
-              [attr.aria-expanded]="notesOpen()" aria-controls="ib-notes" aria-label="Details and notes">
-              <span class="ms">sticky_note_2</span>
+            <button type="button" class="icon-btn" [class.on]="panelOpen()" (click)="panelOpen.set(!panelOpen())"
+              [attr.aria-expanded]="panelOpen()" aria-controls="ib-panel" aria-label="Contact details (i)" title="Contact details (i)">
+              <span class="ms">{{ panelOpen() ? 'right_panel_close' : 'contact_page' }}</span>
               @if (notes().length) { <span class="dot">{{ notes().length }}</span> }
             </button>
           </div>
 
           <div class="th-body">
-            <div class="th-scroll" #scroller aria-live="polite">
-              @if (threadLoading()) {
-                <div class="th-center"><span class="spinner"></span> Loading messages...</div>
-              } @else if (threadError()) {
-                <div class="th-center" role="alert">
-                  <span class="ms">error</span> {{ threadError() }}
-                  <button type="button" class="btn" (click)="loadThread(c.id, false)">Retry</button>
-                </div>
-              } @else {
-                @for (e of entries(); track e.item.messageId + e.item.at) {
-                  @if (e.day) { <div class="day"><span>{{ e.day }}</span></div> }
-                  <div class="msg {{ e.who }}">
-                    <div class="bubble">
-                      @if (e.who === 'bot') { <span class="tag"><span class="ms">smart_toy</span>Bot</span> }
-                      <p>{{ e.item.body || '(media)' }}</p>
-                      <span class="meta">
-                        {{ clock(e.item.at) }}
-                        @if (e.item.status) { <span class="status-{{ e.item.status }}">· {{ e.item.status.toLowerCase() }}</span> }
-                      </span>
-                    </div>
+            <div class="th-col">
+              <div class="th-scroll" #scroller (scroll)="onScroll()">
+                @if (threadLoading()) {
+                  <div class="th-center"><span class="spinner"></span> Loading messages...</div>
+                } @else if (threadError()) {
+                  <div class="th-center" role="alert">
+                    <span class="ms">error</span> {{ threadError() }}
+                    <button type="button" class="btn" (click)="loadThread(c.id, false)">Retry</button>
                   </div>
-                } @empty {
-                  <div class="th-center muted"><span class="ms">chat_bubble</span> No messages in this conversation yet.</div>
+                } @else {
+                  @for (e of entries(); track e.item.messageId + e.item.at) {
+                    @if (e.day) { <div class="day" role="separator"><span>{{ e.day }}</span></div> }
+                    <div class="msg {{ e.who }}">
+                      <div class="bubble">
+                        @if (e.who === 'bot') {
+                          <span class="tag"><span class="ms" aria-hidden="true">{{ e.item.campaignId ? 'campaign' : 'smart_toy' }}</span>{{ e.item.campaignId ? 'Campaign · ' + e.item.campaignId : 'Bot' }}</span>
+                        }
+                        @if (e.item.media; as m) { <app-inbox-media [media]="m" /> }
+                        @if (e.item.body || !e.item.media) { <p>{{ e.item.body || '(media)' }}</p> }
+                        @if (e.item.button; as b) {
+                          <span class="rule"><span class="ms" aria-hidden="true">touch_app</span>Tapped "{{ b.title || e.item.body }}"@if (b.campaignId) { · {{ b.campaignId }} }</span>
+                        }
+                        @if (e.item.repliedRule) {
+                          <span class="rule"><span class="ms" aria-hidden="true">smart_button</span>Matched rule "{{ e.item.repliedRule }}"</span>
+                        }
+                        <span class="meta">
+                          {{ clock(e.item.at) }}
+                          @if (e.who !== 'in' && tick$(e.item.status); as t) {
+                            <span class="tick {{ t.tone ?? '' }}" [title]="t.label" role="img" [attr.aria-label]="t.label"><span class="ms">{{ t.icon }}</span></span>
+                          }
+                        </span>
+                      </div>
+                    </div>
+                  } @empty {
+                    <div class="th-center muted"><span class="ms">chat_bubble</span> No messages in this conversation yet.</div>
+                  }
                 }
+              </div>
+              @if (newBelow()) {
+                <button type="button" class="new-below" (click)="scrollToBottom(false)"><span class="ms" aria-hidden="true">arrow_downward</span>New messages</button>
+              }
+              @if (dragging()) {
+                <div class="drop" aria-hidden="true"><span class="ms">upload_file</span><strong>Drop to attach</strong><span>Image, PDF or video</span></div>
               }
             </div>
 
-            @if (notesOpen()) {
-              <aside class="th-side" id="ib-notes" aria-label="Details and notes">
-                <div class="field">
-                  <label id="ib-status-l">Status</label>
-                  <div class="seg" role="group" aria-labelledby="ib-status-l">
-                    @for (s of statuses; track s) {
-                      <button type="button" [class.on]="c.status === s" [attr.aria-pressed]="c.status === s"
-                        [disabled]="busy() === 'status'" (click)="setStatus(s)">{{ s }}</button>
-                    }
-                  </div>
-                </div>
-                <div class="field">
-                  <label for="ib-assign">Assigned to</label>
-                  <select id="ib-assign" [disabled]="busy() === 'assign'" (change)="assign($any($event.target).value)">
-                    <option value="" [selected]="c.assignedTo === null">Unassigned</option>
-                    @for (u of assigneeOptions(); track u.id) {
-                      <option [value]="u.id" [selected]="c.assignedTo === u.id">{{ u.id === me()?.id ? 'Me (' + (u.name || u.email) + ')' : (u.name || u.email) }}</option>
-                    }
-                  </select>
-                </div>
-                <div class="notes">
-                  <h3><span class="ms" aria-hidden="true">lock</span>Internal notes</h3>
-                  <p class="hint muted">Only your team sees these. Never sent to the customer.</p>
-                  @for (n of notes(); track n.id) {
-                    <div class="note"><p>{{ n.body }}</p><span>{{ userName(n.userId) }} · {{ noteTime(n.createdAt) }}</span></div>
-                  } @empty {
-                    <p class="muted small">No notes yet.</p>
-                  }
-                  <textarea rows="2" placeholder="Add a note for your team" aria-label="New note"
-                    [ngModel]="noteDraft()" (ngModelChange)="noteDraft.set($event)"></textarea>
-                  <button type="button" class="btn" [disabled]="!noteDraft().trim() || busy() === 'note'" (click)="addNote()">
-                    <span class="ms" aria-hidden="true">add</span>Add note
-                  </button>
-                </div>
-              </aside>
+            @if (panelOpen()) {
+              <app-inbox-contact-panel id="ib-panel" [conversation]="c" [name]="selectedRow()?.name ?? ''" [contact]="contact()"
+                [contactLoading]="contactLoading()" [notes]="notes()" [team]="team()" [me]="me()" [canEditContact]="canEditContact()"
+                [context]="context()" (changed)="onChanged($event)" (contactChanged)="contact.set($event)"
+                (notesChanged)="loadNotes(c.id)" (close)="panelOpen.set(false)" />
             }
           </div>
 
@@ -177,27 +122,38 @@
               <button type="button" class="icon-btn" (click)="actionError.set('')" aria-label="Dismiss"><span class="ms">close</span></button>
             </div>
           }
-          <form class="composer" (submit)="$event.preventDefault(); send()">
-            @if (!c.botPaused) {
-              <span class="hint muted">The bot is still active. Take over to stop it replying alongside you.</span>
-            }
-            <div class="row">
-              <textarea [rows]="draftRows()" placeholder="Type a reply - Enter to send, Shift+Enter for a new line" aria-label="Reply"
-                [ngModel]="draft()" (ngModelChange)="draft.set($event)" name="draft" (keydown)="onKey($event)"
-                [disabled]="sending()"></textarea>
-              <button type="submit" class="btn primary send" [disabled]="!draft().trim() || sending()" aria-label="Send reply">
-                @if (sending()) { <span class="spinner"></span> } @else { <span class="ms">send</span> }
-              </button>
-            </div>
-          </form>
+          @if (!c.botPaused) {
+            <p class="bot-hint muted"><span class="ms" aria-hidden="true">smart_toy</span>The bot is still active. Take over to stop it replying alongside you.</p>
+          }
+          <app-inbox-composer [conversation]="c" [contact]="contact()" [name]="selectedRow()?.name ?? ''" (sent)="onSent($event)" />
         } @else {
           <div class="th-placeholder">
             <span class="ib-orb" aria-hidden="true"><span class="ms">chat</span></span>
             <strong>Pick a conversation</strong>
-            <p class="muted">Choose a chat on the left to read the thread and reply.</p>
+            <p class="muted">Choose a chat on the left, or press <kbd>j</kbd> to open the first one.</p>
           </div>
         }
       </div>
+    </div>
+  }
+
+  <div class="sr-only" aria-live="polite" aria-atomic="true">{{ announce() }}</div>
+
+  @if (helpOpen()) {
+    <div class="help-scrim" (click)="helpOpen.set(false)"></div>
+    <div class="help" role="dialog" aria-modal="true" aria-labelledby="ib-help-t">
+      <div class="help-head">
+        <span class="ms" aria-hidden="true">keyboard</span>
+        <h2 id="ib-help-t">Keyboard shortcuts</h2>
+        <button #helpClose type="button" class="icon-btn" (click)="helpOpen.set(false)" aria-label="Close"><span class="ms">close</span></button>
+      </div>
+      <dl>
+        @for (s of shortcuts; track s[1]) {
+          <div><dt>@for (k of s[0]; track k) { <kbd>{{ k }}</kbd> }</dt><dd>{{ s[1] }}</dd></div>
+        }
+        <div><dt><kbd>Enter</kbd></dt><dd>Send reply (<kbd>Shift</kbd>+<kbd>Enter</kbd> new line)</dd></div>
+      </dl>
+      <p class="muted">Shortcuts pause while you type in a field. Drop or paste a file into the chat to attach it.</p>
     </div>
   }
 </section>

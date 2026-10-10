@@ -1,150 +1,129 @@
 <header class="page-head">
-  <div>
+  <div class="title">
+    <span class="eyebrow"><span class="ms" aria-hidden="true">sim_card</span> Channels</span>
     <h2>WhatsApp numbers</h2>
-    <p class="muted">Each number runs on its own connection, limits and hours.</p>
+    <p class="muted">Each number runs on its own connection, daily budget and hours.</p>
   </div>
-  <button class="btn primary" type="button" (click)="showForm.set(!showForm())">
+  <button class="btn primary add" type="button" (click)="toggleForm()" [attr.aria-expanded]="showForm()"
+          aria-controls="add-number">
+    <span class="ms" aria-hidden="true">{{ showForm() ? 'close' : 'add' }}</span>
     {{ showForm() ? 'Cancel' : 'Add number' }}
   </button>
 </header>
 
-@if (error()) {
-  <p class="error" role="alert">{{ error() }}</p>
+@if (!loading() && channels().length) {
+  @let s = summary();
+  <ul class="stats" aria-label="Summary">
+    <li><span class="ms" aria-hidden="true">sim_card</span><strong>{{ s.total }}</strong> number{{ s.total === 1 ? '' : 's' }}</li>
+    <li class="ok"><span class="ms" aria-hidden="true">wifi_tethering</span><strong>{{ s.connected }}</strong> connected</li>
+    <li><span class="ms" aria-hidden="true">send</span><strong>{{ s.sentToday }}</strong> sent today</li>
+    @if (s.attention) {
+      <li class="warn"><span class="ms" aria-hidden="true">priority_high</span><strong>{{ s.attention }}</strong> need{{ s.attention === 1 ? 's' : '' }} attention</li>
+    }
+  </ul>
 }
 
 @if (showForm()) {
-  <form class="card new" (submit)="create($event)" novalidate>
-    <h3>Add a number</h3>
+  <form id="add-number" class="card new" (submit)="create($event)" novalidate aria-labelledby="add-h">
+    <div class="new-head">
+      <h3 id="add-h">Add a number</h3>
+      <p class="muted">Credentials and QR login happen on the Connection page once it exists.</p>
+    </div>
+
     <div class="grid">
       <div class="field">
         <label for="c-name">Label</label>
-        <input id="c-name" name="displayName" required [ngModel]="draft().displayName"
-               (ngModelChange)="draft.set({ ...draft(), displayName: $event })" />
+        <input #firstField id="c-name" name="displayName" required maxlength="80" placeholder="e.g. Sales line"
+               [ngModel]="draft().displayName" (ngModelChange)="setDraft('displayName', $event)"
+               [attr.aria-invalid]="!!formError() && !draft().displayName.trim()" />
       </div>
       <div class="field">
-        <label for="c-phone">Phone number <small class="muted">optional</small></label>
-        <input id="c-phone" name="phoneNumber" [ngModel]="draft().phoneNumber"
-               (ngModelChange)="draft.set({ ...draft(), phoneNumber: $event })" />
-      </div>
-      <div class="field">
-        <label for="c-transport">Provider</label>
-        <select id="c-transport" name="transport" [ngModel]="draft().transport"
-                (ngModelChange)="draft.set({ ...draft(), transport: $event })">
-          @for (t of transports(); track t) {
-            <option [value]="t">{{ t }}</option>
-          }
-        </select>
+        <label for="c-phone">Phone number <span class="opt">optional</span></label>
+        <input id="c-phone" name="phoneNumber" inputmode="tel" placeholder="+91 98765 43210"
+               [ngModel]="draft().phoneNumber" (ngModelChange)="setDraft('phoneNumber', $event)" />
       </div>
       <div class="field">
         <label for="c-tz">Timezone</label>
-        <input id="c-tz" name="timezone" [ngModel]="draft().timezone"
-               (ngModelChange)="draft.set({ ...draft(), timezone: $event })" />
+        <select id="c-tz" name="timezone" [ngModel]="draft().timezone" (ngModelChange)="setDraft('timezone', $event)">
+          @for (z of zones; track z) { <option [value]="z">{{ z.split('_').join(' ') }}</option> }
+        </select>
       </div>
     </div>
-    <p class="muted hint">
-      Credentials and pacing are set per number on the Connection page once you pick it.
-    </p>
-    <button class="btn primary" type="submit" [disabled]="busy()">
-      {{ busy() ? 'Adding...' : 'Add number' }}
-    </button>
+
+    <fieldset class="providers">
+      <legend>How it connects</legend>
+      <div class="options">
+        @for (t of transportOptions(); track t.value) {
+          <label class="option" [class.on]="draft().transport === t.value">
+            <input type="radio" name="transport" [value]="t.value" [checked]="draft().transport === t.value"
+                   (change)="setDraft('transport', t.value)" />
+            <span class="ms" aria-hidden="true">{{ t.icon }}</span>
+            <span class="opt-text">
+              <strong>{{ t.label }}</strong>
+              @if (t.hint) { <small>{{ t.hint }}</small> }
+            </span>
+          </label>
+        }
+      </div>
+      @if (warnings()[draft().transport]; as warning) {
+        <p class="tos"><span class="ms" aria-hidden="true">gavel</span>{{ warning }}</p>
+      }
+    </fieldset>
+
+    @if (formError()) {
+      <p class="error" role="alert">{{ formError() }}</p>
+    }
+
+    <div class="new-foot">
+      <button class="btn primary" type="submit" [disabled]="busy()">
+        @if (busy()) { <span class="spinner" aria-hidden="true"></span> Adding... } @else { Add number }
+      </button>
+      <button class="btn" type="button" (click)="toggleForm()">Cancel</button>
+    </div>
   </form>
 }
 
-<div class="rack">
-  @for (channel of channels(); track channel.id) {
-    <article class="card channel" [class.off]="channel.status !== 'active'"
-             [class.active]="activeId() === channel.id">
-      <div class="top">
-        <div class="id">
-          <h3>{{ channel.displayName }}</h3>
-          <p class="muted mono">{{ channel.phoneNumber || 'no number yet' }} &middot; {{ channel.provider }}</p>
-        </div>
-        <div class="badges">
-          @if (channel.isDefault) { <span class="pill tag">default</span> }
-          <span class="pill" [class.live]="channel.health?.connected"
-                [class.warn]="channel.status !== 'active'">
-            {{ channel.status !== 'active' ? 'disabled'
-               : channel.health?.connected ? 'connected'
-               : channel.health?.connecting ? 'connecting' : 'offline' }}
-          </span>
-        </div>
+@if (loading()) {
+  <div class="rack" aria-busy="true" aria-label="Loading numbers">
+    @for (i of [1, 2, 3]; track i) {
+      <div class="skeleton" aria-hidden="true">
+        <i class="s-line short"></i><i class="s-line"></i><i class="s-block"></i><i class="s-line mid"></i>
       </div>
-
-      <dl class="facts">
-        <div><dt>Account</dt><dd>{{ channel.health?.account || '-' }}</dd></div>
-        <div><dt>Timezone</dt><dd>{{ channel.timezone }}</dd></div>
-        <div>
-          <dt>Hours</dt>
-          <dd>
-            {{ channel.businessHours
-               ? channel.businessHours.start + ' - ' + channel.businessHours.end
-               : 'always open' }}
-            @if (channel.businessHours && !channel.health?.withinSendingWindow) {
-              <span class="muted">(closed now)</span>
-            }
-          </dd>
-        </div>
-        <div><dt>Daily cap</dt><dd>{{ channel.settings.dailyLimit }}</dd></div>
-      </dl>
-
-      @if (channel.health?.error) {
-        <p class="error small">{{ channel.health?.error }}</p>
-      }
-
-      <div class="actions">
-        <button class="btn" type="button" (click)="use(channel)" [disabled]="activeId() === channel.id">
-          {{ activeId() === channel.id ? 'In use' : 'Work on this' }}
-        </button>
-        <button class="btn" type="button" (click)="openId.set(openId() === channel.id ? null : channel.id)">
-          {{ openId() === channel.id ? 'Close' : 'Settings' }}
-        </button>
-      </div>
-
-      @if (openId() === channel.id) {
-        <div class="drawer">
-          <h4>Allowed traffic</h4>
-          <div class="caps">
-            @for (capability of capabilities(); track capability) {
-              <button
-                type="button"
-                class="cap"
-                [class.on]="channel.capabilities.includes(capability)"
-                [attr.aria-pressed]="channel.capabilities.includes(capability)"
-                (click)="toggleCapability(channel, capability)"
-              >
-                {{ capability.split('_').join(' ') }}
-              </button>
-            }
-          </div>
-
-          <h4>Sending window</h4>
-          <div class="window">
-            <input type="time" #start [value]="channel.businessHours?.start ?? '09:00'" aria-label="Window opens" />
-            <span class="muted">to</span>
-            <input type="time" #end [value]="channel.businessHours?.end ?? '18:00'" aria-label="Window closes" />
-            <button class="btn small" type="button" (click)="setWindow(channel, start.value, end.value)">Save</button>
-            @if (channel.businessHours) {
-              <button class="btn small" type="button" (click)="clearWindow(channel)">Always open</button>
-            }
-          </div>
-
-          <h4>Number</h4>
-          <div class="row">
-            @if (!channel.isDefault) {
-              <button class="btn small" type="button" (click)="makeDefault(channel)">Make default</button>
-            }
-            <button class="btn small" [class.danger]="channel.status === 'active'" type="button"
-                    (click)="toggleStatus(channel)">
-              {{ channel.status === 'active' ? 'Disable' : 'Enable' }}
-            </button>
-            @if (channels().length > 1) {
-              <button class="btn small danger" type="button" (click)="remove(channel)">Remove</button>
-            }
-          </div>
-        </div>
-      }
-    </article>
-  } @empty {
-    <p class="muted">No numbers yet.</p>
+    }
+  </div>
+} @else if (loadError() && !channels().length) {
+  <div class="card state error-state" role="alert">
+    <span class="ms big" aria-hidden="true">cloud_off</span>
+    <h3>Couldn't load your numbers</h3>
+    <p class="muted">{{ loadError() }}</p>
+    <button class="btn primary" type="button" (click)="loading.set(true); refresh()">
+      <span class="ms" aria-hidden="true">refresh</span> Try again
+    </button>
+  </div>
+} @else {
+  @if (loadError()) {
+    <p class="error" role="alert">Showing the last loaded data - {{ loadError() }}</p>
   }
-</div>
+  <div class="rack">
+    @for (channel of channels(); track channel.id) {
+      <app-channel-card
+        [channel]="channel"
+        [capabilities]="capabilities()"
+        [active]="activeId() === channel.id"
+        [canDelete]="channels().length > 1"
+        (changed)="refresh()"
+        (use)="use(channel)"
+        (connect)="connect(channel)"
+      />
+    } @empty {
+      <div class="card state empty">
+        <div class="phone-3d" aria-hidden="true"><span class="ms">chat</span></div>
+        <h3>No numbers yet</h3>
+        <p class="muted">Add your first WhatsApp number to start sending campaigns and replying to customers.</p>
+        <button class="btn primary" type="button" (click)="toggleForm()">
+          <span class="ms" aria-hidden="true">add</span> Add number
+        </button>
+      </div>
+    }
+  </div>
+}

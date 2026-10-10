@@ -1,182 +1,77 @@
-@let connection = store.connection();
-
-<section class="summary card enter" [class.off]="allDisabled()">
-  <div class="summary-main">
-    <span class="badge primary">
-      <span class="ms" aria-hidden="true" style="font-size: 20px">chat</span>
-    </span>
-    <div>
-      <h2>Keyword Auto-Replies</h2>
-      <p class="muted">
-        {{ activeCount() }} active, {{ inactiveCount() }} disabled
-        @if (connection.transport) { <span>on {{ connection.transport }}</span> }
-      </p>
+<section class="page">
+  <header class="hero" (pointermove)="tilt($event)" (pointerleave)="untilt($event)">
+    <div class="stack3d" aria-hidden="true">
+      <span class="b b1"><i></i><i></i></span>
+      <span class="b b2"><i></i></span>
+      <span class="b b3"><span class="ms">bolt</span><i></i><i></i></span>
     </div>
-  </div>
-
-  <div class="connection-state">
-    <span class="dot" [class.live-dot]="connected()"></span>
-    <span>{{ connected() ? 'Connected' : 'Disconnected' }}</span>
-  </div>
-
-  <div class="summary-actions">
-    <button type="button" class="btn" (click)="setAll(true)"
-            [disabled]="bulkSaving() || !rules().length || activeCount() === rules().length">
-      Enable all
-    </button>
-    <button type="button" class="btn danger" (click)="setAll(false)"
-            [disabled]="bulkSaving() || !activeCount()">
-      Disable all
-    </button>
-  </div>
-</section>
-
-@if (errors().length) {
-  <section class="card errors enter" role="alert">
-    @for (error of errors(); track error) { <p>{{ error }}</p> }
-  </section>
-}
-
-<div class="workspace">
-  <section class="card rules enter">
-    <header class="card-head">
-      <div>
-        <h3>Rules</h3>
-        <p class="muted">{{ rules().length }} configured</p>
-      </div>
-      <button type="button" class="btn primary" (click)="createNew()">New rule</button>
-    </header>
-
-    @if (loading()) {
-      <div class="empty muted"><span class="spinner"></span> Loading rules</div>
-    } @else if (!rules().length) {
-      <div class="empty muted">No keyword replies configured.</div>
-    } @else {
-      <div class="rule-list">
-        @for (rule of rules(); track rule.id) {
-          <article class="rule"
-                   [class.selected]="form().id === rule.id"
-                   [class.disabled]="!rule.isActive">
-            <button type="button" class="rule-main" (click)="edit(rule)">
-              <span class="rule-title">
-                <strong>{{ ruleLabel(rule) }}</strong>
-                <small>{{ rule.matchType.toLowerCase() }}</small>
-              </span>
-              <span class="pill" [class.active]="rule.isActive">
-                {{ rule.isActive ? 'On' : 'Off' }}
-              </span>
-            </button>
-            <div class="rule-actions">
-              <button type="button" class="icon-btn" [attr.aria-label]="rule.isActive ? 'Disable rule' : 'Enable rule'"
-                      [title]="rule.isActive ? 'Disable rule' : 'Enable rule'" (click)="toggle(rule)">
-                @if (rule.isActive) {
-                  <span class="ms" aria-hidden="true" style="font-size: 17px">close</span>
-                } @else {
-                  <span class="ms" aria-hidden="true" style="font-size: 17px">check</span>
-                }
-              </button>
-              <button type="button" class="icon-btn danger" aria-label="Delete rule" title="Delete rule"
-                      (click)="delete(rule)">
-                <span class="ms" aria-hidden="true" style="font-size: 17px">delete</span>
-              </button>
-            </div>
-          </article>
-        }
-      </div>
-    }
-  </section>
-
-  <section class="card editor enter">
-    <header class="card-head">
-      <div>
-        <h3>{{ formTitle() }}</h3>
-        <p class="muted">Template variables: &#123;name&#125;, &#123;sender&#125;, &#123;time_greeting&#125;</p>
-      </div>
-      <label class="switch">
-        <input type="checkbox" [ngModel]="form().isActive"
-               (ngModelChange)="update('isActive', $event)" />
-        Enabled
-      </label>
-    </header>
-
-    <div class="form-grid">
-      <div class="field">
-        <label for="match-type">Match</label>
-        <select id="match-type" [ngModel]="form().matchType"
-                (ngModelChange)="update('matchType', $event)">
-          @for (type of matchTypes; track type.value) {
-            <option [value]="type.value">{{ type.label }} - {{ type.hint }}</option>
-          }
-        </select>
-      </div>
-
-      <div class="field">
-        <label for="keyword">Keyword</label>
-        <input id="keyword" [disabled]="form().matchType === 'FALLBACK'"
-               [ngModel]="form().keyword" (ngModelChange)="update('keyword', $event)"
-               placeholder="hi, pricing, invoice \\d+" />
-      </div>
-
-      <div class="field reply">
-        <label for="reply">Reply body</label>
-        <textarea id="reply" rows="8" [ngModel]="form().replyBody"
-                  (ngModelChange)="update('replyBody', $event)"></textarea>
-      </div>
-    </div>
-
-    <footer class="editor-actions">
-      <button type="button" class="btn" (click)="renderPreview()" [disabled]="previewing() || !form().replyBody">
-        @if (previewing()) { <span class="spinner"></span> }
-        Preview
-      </button>
-      <button type="button" class="btn primary" (click)="save()"
-              [disabled]="saving() || !form().replyBody || (form().matchType !== 'FALLBACK' && !form().keyword)">
-        @if (saving()) { <span class="spinner"></span> }
-        Save rule
-      </button>
-    </footer>
-
-    @if (preview()) {
-      <div class="preview">
-        <span class="muted">Rendered reply</span>
-        <p>{{ preview() }}</p>
-      </div>
-    }
-  </section>
-</div>
-
-<section class="card tester enter">
-  <header class="card-head">
-    <div>
-      <h3>Match Test</h3>
-      <p class="muted">Uses the active rule order shown above</p>
+    <div class="copy">
+      <span class="eyebrow"><span class="ms" aria-hidden="true">quickreply</span> Auto-replies</span>
+      <h1>Replies that run themselves</h1>
+      <p>Greet new contacts, cover closed hours, answer keywords with buttons and menus, and hand off to a human when asked.</p>
+      @if (!loading() && !loadError()) {
+        <dl class="kpis">
+          <div><dt>Active rules</dt><dd>{{ kpis().active }}</dd></div>
+          <div><dt>Replies today</dt><dd>{{ kpis().today }}</dd></div>
+          <div><dt>This week</dt><dd>{{ kpis().week }}</dd></div>
+        </dl>
+      }
     </div>
   </header>
 
-  <div class="tester-grid">
-    <div class="field">
-      <label for="test-text">Incoming text</label>
-      <input id="test-text" [ngModel]="testText()" (ngModelChange)="testText.set($event)" />
+  @if (loading()) {
+    <div class="skel" aria-busy="true" aria-label="Loading auto-replies">
+      <div class="tiles">@for (n of [1, 2, 3, 4]; track n) { <span class="sk tile"></span> }</div>
+      <div class="cols"><span class="sk list"></span><span class="sk ed"></span></div>
     </div>
-    <div class="field">
-      <label for="test-name">Sender name</label>
-      <input id="test-name" [ngModel]="testName()" (ngModelChange)="testName.set($event)" />
+  } @else if (loadError()) {
+    <div class="err" role="alert">
+      <span class="ms" aria-hidden="true">cloud_off</span>
+      <div><strong>Couldn't load auto-replies</strong><p>{{ loadError() }}</p></div>
+      <button class="btn" type="button" (click)="load()"><span class="ms" aria-hidden="true">refresh</span> Retry</button>
     </div>
-    <div class="field">
-      <label for="test-sender">Sender number</label>
-      <input id="test-sender" [ngModel]="testSender()" (ngModelChange)="testSender.set($event)" />
-    </div>
-  </div>
-
-  <div class="match-result" [class.matched]="matchedRule()">
-    @if (matchedRule(); as rule) {
-      <div>
-        <span class="muted">Matched rule</span>
-        <strong>{{ ruleLabel(rule) }}</strong>
-      </div>
-      <button type="button" class="btn" (click)="renderPreview(rule)">Render matched reply</button>
-    } @else {
-      <span class="muted">No active rule matches this text.</span>
+  } @else {
+    @if (settings(); as s) {
+      <ar-system-cards [settings]="s" (settingsChange)="settings.set($event)" [stats]="sysStats()" />
     }
-  </div>
+
+    <div class="main">
+      <ar-rule-list class="list" [rules]="rules()" [selectedId]="selectedId()" [creating]="!!draft() && draft()!.id === null"
+                    (select)="request($event)" (create)="request('new')" (toggle)="toggle($event)" (reorder)="reorder($event)" />
+
+      <div class="edit">
+        @if (pending()) {
+          <div class="unsaved enter" role="alertdialog" aria-label="Unsaved changes">
+            <span class="ms" aria-hidden="true">warning</span>
+            <span>You have unsaved changes to this rule.</span>
+            <button type="button" class="btn sm" (click)="pending.set(null)">Keep editing</button>
+            <button type="button" class="btn sm danger" (click)="discardPending()">Discard &amp; continue</button>
+          </div>
+        }
+        @if (draft(); as d) {
+          <ar-rule-editor [value]="d" (valueChange)="setDraft($event)" [stats]="selectedStats()" [businessName]="businessName()"
+                          [saving]="saving()" [dirty]="dirty()" (save)="save()" (remove)="remove()" (cancel)="cancelNew()" />
+        } @else {
+          <div class="blank">
+            <div class="orb" aria-hidden="true"><span class="ms">forum</span></div>
+            <h2>Pick a rule or start a new one</h2>
+            <p>Rules answer keywords like “price” or “menu”. They run top to bottom; the first match wins unless you let it continue.</p>
+            <button type="button" class="btn primary" (click)="request('new')"><span class="ms" aria-hidden="true">add</span> New rule</button>
+          </div>
+        }
+      </div>
+    </div>
+
+    <ar-test-console [rules]="rules()" [businessName]="businessName()" />
+  }
 </section>
+
+<div class="toasts" aria-live="polite">
+  @for (t of toasts.items(); track t.id) {
+    <div class="toast" [class.bad]="t.tone === 'error'" [attr.role]="t.tone === 'error' ? 'alert' : 'status'">
+      <span class="ms" aria-hidden="true">{{ t.tone === 'error' ? 'error' : 'check_circle' }}</span>
+      <span class="txt">{{ t.text }}</span>
+      <button type="button" aria-label="Dismiss" (click)="toasts.dismiss(t.id)"><span class="ms" aria-hidden="true">close</span></button>
+    </div>
+  }
+</div>

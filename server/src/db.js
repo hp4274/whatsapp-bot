@@ -12,6 +12,9 @@ import { DB_PATH } from './config.js';
 // applied after the core schema, so a new feature never means editing the giant
 // template literal below - and two features can be built without colliding.
 import { MODULE_SCHEMAS } from './schema.js';
+import { migrateTemplates } from './templates/schema.js';
+import { migrateAutoReplies } from './autoreply/schema.js';
+import { AutoReplyStore } from './autoreply/store.js';
 import { STATUS_RANK, SUCCESS_STATUSES, Status, utcNow } from './protocol.js';
 
 const DEFAULT_TENANT_SERVICES_JSON = JSON.stringify([
@@ -342,6 +345,8 @@ export class Database {
         this.db.exec(SCHEMA);
         addTenantControlColumns(this.db);
         for (const fragment of MODULE_SCHEMAS) this.db.exec(fragment);
+        migrateTemplates(this.db);
+        migrateAutoReplies(this.db);
         if (old.length) finishLegacy(this.db, old);
         this.db.prepare(`INSERT OR IGNORE INTO tenants (id, name, slug, status, created_at)
                          VALUES (?, 'Default', 'default', 'active', ?)`).run(DEFAULT_TENANT_ID, utcNow());
@@ -572,6 +577,31 @@ export class Database {
         ).get(this.tenantId, ...args, ...SUCCESS_STATUSES).first ?? null;
     }
 
+    /**
+     * Outbound delivery tallies for this channel since `weekIso` (and the
+     * narrower `dayIso`), plus opt-outs from people this channel messaged.
+     * Two indexed queries: cheap enough to run on every channel list.
+     */
+    channelQuality(weekIso, dayIso) {
+        const ok = SUCCESS_STATUSES.map(() => '?').join(',');
+        const row = this.db.prepare(
+            `SELECT
+                COALESCE(SUM(CASE WHEN status IN (${ok}) THEN 1 ELSE 0 END), 0) AS sent7,
+                COALESCE(SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END), 0) AS failed7,
+                COALESCE(SUM(CASE WHEN status IN (${ok}) AND created_at >= ? THEN 1 ELSE 0 END), 0) AS sent24,
+                COALESCE(SUM(CASE WHEN status = 'FAILED' AND created_at >= ? THEN 1 ELSE 0 END), 0) AS failed24
+             FROM messages
+             WHERE tenant_id = ? AND channel_id = ? AND direction = 'outbound' AND created_at >= ?`,
+        ).get(...SUCCESS_STATUSES, ...SUCCESS_STATUSES, dayIso, dayIso, this.tenantId, this.channelId, weekIso);
+        const optOuts = this.db.prepare(
+            `SELECT COUNT(*) AS n FROM opt_outs o
+             WHERE o.tenant_id = ? AND o.opted_out_at >= ?
+               AND EXISTS (SELECT 1 FROM messages m
+                           WHERE m.recipient = o.phone AND m.tenant_id = o.tenant_id AND m.channel_id = ?)`,
+        ).get(this.tenantId, weekIso, this.channelId).n;
+        return { ...row, optOuts7: optOuts };
+    }
+
     /** recipient -> bulk (campaign) messages queued or sent to them since `sinceIso`. */
     bulkCountsSince(sinceIso) {
         const rows = this.db.prepare(
@@ -655,60 +685,22 @@ export class Database {
         return result.changes;
     }
 
+    // Auto-replies live in autoreply/store.js (v2: priority, keywords, variants,
+    // media, menus...). These wrappers keep the v1 call sites working.
     getActiveAutoReplies() {
-        return this.db.prepare(`
-            SELECT * FROM auto_replies
-            WHERE is_active = 1 AND tenant_id = ?
-            ORDER BY CASE match_type
-                WHEN 'EXACT' THEN 1
-                WHEN 'CONTAINS' THEN 2
-                WHEN 'REGEX' THEN 3
-                WHEN 'FALLBACK' THEN 4
-                ELSE 5
-            END, id ASC
-        `).all(this.tenantId).map(toAutoReply);
+        return new AutoReplyStore(this).list({ activeOnly: true });
     }
 
     getAutoReplies() {
-        return this.db.prepare('SELECT * FROM auto_replies WHERE tenant_id = ? ORDER BY id ASC')
-            .all(this.tenantId).map(toAutoReply);
+        return new AutoReplyStore(this).list();
     }
 
     saveAutoReply(rule) {
-        const now = utcNow();
-        const row = {
-            keyword: rule.keyword,
-            match_type: rule.matchType ?? rule.match_type,
-            reply_body: rule.replyBody ?? rule.reply_body,
-            is_active: rule.isActive ?? rule.is_active ?? 1,
-            cooldown_sec: rule.cooldownSec ?? rule.cooldown_sec ?? 300,
-            created_at: rule.createdAt ?? now,
-            updated_at: now,
-        };
-        const id = rule.id ?? null;
-        if (id) {
-            this.db.prepare(`
-                UPDATE auto_replies
-                SET keyword = :keyword, match_type = :match_type, reply_body = :reply_body,
-                    is_active = :is_active, cooldown_sec = :cooldown_sec,
-                    created_at = :created_at, updated_at = :updated_at
-                WHERE id = :id AND tenant_id = :tenant_id
-            `).run({ ...row, id, tenant_id: this.tenantId });
-            return toAutoReply(this.db.prepare('SELECT * FROM auto_replies WHERE id = ? AND tenant_id = ?')
-                .get(id, this.tenantId));
-        }
-        const result = this.db.prepare(`
-            INSERT INTO auto_replies
-                (tenant_id, keyword, match_type, reply_body, is_active, cooldown_sec, created_at, updated_at)
-            VALUES
-                (:tenant_id, :keyword, :match_type, :reply_body, :is_active, :cooldown_sec, :created_at, :updated_at)
-        `).run({ ...row, tenant_id: this.tenantId });
-        return toAutoReply(this.db.prepare('SELECT * FROM auto_replies WHERE id = ?').get(result.lastInsertRowid));
+        return new AutoReplyStore(this).save(rule);
     }
 
     deleteAutoReply(id) {
-        return this.db.prepare('DELETE FROM auto_replies WHERE id = ? AND tenant_id = ?')
-            .run(id, this.tenantId).changes;
+        return new AutoReplyStore(this).remove(id);
     }
 
     addOptOut(phone, reason = 'user_requested') {
@@ -729,6 +721,12 @@ export class Database {
     getAllOptOuts() {
         return this.db.prepare('SELECT phone FROM opt_outs WHERE tenant_id = ? ORDER BY phone ASC')
             .all(this.tenantId).map((row) => row.phone);
+    }
+
+    /** Numbers a reply rule muted from bulk campaigns (bulk_mutes, messaging/replies.js). */
+    bulkMutedPhones() {
+        return new Set(this.db.prepare('SELECT phone FROM bulk_mutes WHERE tenant_id = ? AND until > ?')
+            .all(this.tenantId, utcNow()).map((row) => row.phone));
     }
 
     getOptOuts() {
@@ -780,18 +778,5 @@ function toInboundRecord(row) {
         repliedRule: row.replied_rule ?? null,
         isRead: Boolean(row.is_read),
         receivedAt: row.received_at,
-    };
-}
-
-function toAutoReply(row) {
-    return {
-        id: row.id,
-        keyword: row.keyword,
-        matchType: row.match_type,
-        replyBody: row.reply_body,
-        isActive: Boolean(row.is_active),
-        cooldownSec: row.cooldown_sec,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
     };
 }

@@ -1,0 +1,66 @@
+<div class="panel">
+  <div class="top">
+    <h2>Keyword rules <span class="count">{{ rules().length }}</span></h2>
+    <button type="button" class="btn primary sm" (click)="create.emit()" [disabled]="creating()">
+      <span class="ms" aria-hidden="true">add</span> New rule
+    </button>
+  </div>
+
+  <label class="search">
+    <span class="ms" aria-hidden="true">search</span>
+    <input type="search" [value]="query()" (input)="query.set($any($event.target).value)" placeholder="Search name, keyword or reply" aria-label="Search rules" />
+  </label>
+
+  <p class="tip"><span class="ms" aria-hidden="true">swap_vert</span> Top runs first. Drag, use the arrows, or <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd>.</p>
+
+  @if (creating()) {
+    <div class="item draft on enter"><span class="ms" aria-hidden="true">edit_note</span> <strong>New rule</strong> <small>unsaved</small></div>
+  }
+
+  <ol class="list" aria-label="Rules in priority order">
+    @for (r of filtered(); track r.id; let i = $index, first = $first, last = $last) {
+      <li class="item" [class.on]="r.id === selectedId()" [class.off]="!r.isActive"
+          [class.dragging]="dragId() === r.id" [class.over]="overId() === r.id && dragId() !== r.id"
+          [attr.draggable]="!query()" (dragstart)="dragStart($event, r)" (dragover)="dragOver($event, r)"
+          (drop)="drop($event, r)" (dragend)="dragEnd()" (dragleave)="overId.set(null)">
+        <span class="grip ms" aria-hidden="true">drag_indicator</span>
+        <button type="button" class="main" (click)="select.emit(r)" (keydown)="key($event, r)"
+                [attr.aria-current]="r.id === selectedId() ? 'true' : null"
+                [attr.aria-label]="(i + 1) + '. ' + r.name + ', ' + label(r) + (r.isActive ? '' : ', paused') + '. Alt plus arrow keys to reorder.'">
+          <span class="row1">
+            <span class="prio">{{ rules().indexOf(r) + 1 }}</span>
+            <strong>{{ r.name }}</strong>
+          </span>
+          <span class="row2">
+            <span class="mt"><span class="ms" aria-hidden="true">{{ icon(r) }}</span>{{ label(r) }}</span>
+            @if (r.matchType !== 'FALLBACK') { <span class="kw">{{ r.keywords.slice(0, 3).join(', ') }}@if (r.keywords.length > 3) { +{{ r.keywords.length - 3 }} }</span> }
+          </span>
+          <span class="row3">
+            <span title="Total hits"><span class="ms" aria-hidden="true">bolt</span>{{ r.stats.hits }}</span>
+            <span>{{ ago(r.stats.lastTriggeredAt) }}</span>
+            @if (r.interactive) { <span class="ms" title="Has buttons or list" aria-label="Has buttons or list">smart_button</span> }
+            @if (r.schedule) { <span class="ms" title="Scheduled" aria-label="Scheduled">schedule</span> }
+            @if (r.media) { <span class="ms" title="Has media" aria-label="Has media">image</span> }
+          </span>
+        </button>
+        <div class="side">
+          <ar-switch [checked]="r.isActive" [ariaLabel]="'Active: ' + r.name" (checkedChange)="toggle.emit({ rule: r, active: $event })" />
+          <div class="arrows">
+            <button type="button" [disabled]="rules().indexOf(r) === 0" (click)="move(r, -1)" [attr.aria-label]="'Move ' + r.name + ' up'"><span class="ms" aria-hidden="true">keyboard_arrow_up</span></button>
+            <button type="button" [disabled]="rules().indexOf(r) === rules().length - 1" (click)="move(r, 1)" [attr.aria-label]="'Move ' + r.name + ' down'"><span class="ms" aria-hidden="true">keyboard_arrow_down</span></button>
+          </div>
+        </div>
+      </li>
+    } @empty {
+      <li class="empty">
+        @if (query()) {
+          <span class="ms" aria-hidden="true">search_off</span> No rule matches “{{ query() }}”.
+        } @else {
+          <span class="ms" aria-hidden="true">quickreply</span>
+          <strong>No keyword rules yet</strong>
+          <span>Reply instantly to “price”, “menu” or “hours”.</span>
+        }
+      </li>
+    }
+  </ol>
+</div>

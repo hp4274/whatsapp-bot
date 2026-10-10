@@ -21,6 +21,7 @@ import path from 'node:path';
 
 import { APP_DIR, SESSION_DIR } from '../config.js';
 import { Status } from '../protocol.js';
+import { renderFallbackText } from '../messaging/interactive.js';
 import { Transport, TransportConnectionError, TransportSendError } from './base.js';
 
 const ACK_STATUS = {
@@ -198,6 +199,7 @@ export class WhatsAppWebTransport extends Transport {
             this.qr = null;
             this.reconnectAttempt = 0;
             this.account = client.info?.wid?.user ?? '';
+            void installMsgKeyShim(client);
             this.events.emit('state', { state: 'ready', detail: 'session cached, no access token' });
             this.events.emit('ready', {
                 connected: true,
@@ -430,7 +432,10 @@ export class WhatsAppWebTransport extends Transport {
         await this.disconnect();
     }
 
-    async sendMessage(recipient, message, { media = null } = {}) {
+    async sendMessage(recipient, message, { media = null, interactive = null } = {}) {
+        // No reliable buttons on WhatsApp Web: send the numbered menu as the
+        // text (or the media caption); matchReply maps "1" / the title back.
+        if (interactive) message = renderFallbackText(message, interactive);
         if (!this.connected || !this.client) {
             throw new TransportConnectionError('Transport is reconnecting', { retryable: true });
         }
@@ -669,8 +674,50 @@ async function defaultClientFactory({ sessionDir, chromePath }) {
             path: WEB_CACHE_DIR,
         },
         puppeteer: {
-            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            // headless: true (the library default) is Chrome's full headless
+            // mode, which has the media pipeline; never 'shell'. The rest are
+            // the Linux-server defaults: root in a container needs no-sandbox,
+            // a 64 MB /dev/shm crashes the renderer on big uploads, and a
+            // server has no GPU.
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--no-first-run',
+                '--no-default-browser-check',
+            ],
             ...(chromePath ? { executablePath: chromePath } : {}),
         },
     });
+}
+
+/**
+ * WhatsApp Web renamed MsgKey._serialized to $1 (July 2026). The pinned
+ * whatsapp-web.js commit reads `_serialized || $1` on the paths it knows, but
+ * the media pipeline still trips over keys WhatsApp's own code hands back
+ * (wwebjs/whatsapp-web.js#201862, PR #201871 - unmerged). A prototype getter
+ * in the page makes every lookup see the old name. Idempotent, best effort.
+ */
+async function installMsgKeyShim(client) {
+    const page = client?.pupPage;
+    if (!page || typeof page.evaluate !== 'function') return;
+    try {
+        await page.evaluate(() => {
+            const proto = window.require?.('WAWebMsgKey')?.prototype;
+            if (!proto || Object.getOwnPropertyDescriptor(proto, '_serialized')) return;
+            Object.defineProperty(proto, '_serialized', {
+                configurable: true,
+                get() {
+                    return this.$1 ?? (typeof this.toString === 'function' ? this.toString() : undefined);
+                },
+                set(value) {
+                    Object.defineProperty(this, '_serialized', { value, writable: true, enumerable: true, configurable: true });
+                },
+            });
+        });
+    } catch (err) {
+        console.warn(`[webjs] MsgKey shim not installed: ${err?.message ?? err}`);
+    }
 }

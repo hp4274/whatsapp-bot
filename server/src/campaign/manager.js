@@ -7,7 +7,10 @@
  * written to SQLite and emitted for the browser.
  */
 
-import { friendlyError } from '../messaging/errors.js';
+import { ErrorCode, friendlyError, normalizeError } from '../messaging/errors.js';
+import { normalizeInteractive, personalizeInteractive } from '../messaging/interactive.js';
+import { renderMessage, withFallbacks } from './importer.js';
+import { prepareTemplateSend } from '../messaging/templateSend.js';
 import { EventEmitter } from 'node:events';
 
 import {
@@ -20,7 +23,7 @@ import { TransportConnectionError, TransportError } from '../transports/base.js'
 import { RateLimiter, RetryPolicy, interruptibleSleep } from './limits.js';
 import { MessageQueue, QueueState, queueItem } from './queue.js';
 import {
-    DailyQuota, SafetyError, estimateSeconds, nextDelay, paceFor, variationError,
+    DailyQuota, SafetyError, estimateSeconds, nextDelay, paceFor, pickPreset, variationError,
 } from './safety.js';
 
 export class CampaignManager extends EventEmitter {
@@ -41,6 +44,7 @@ export class CampaignManager extends EventEmitter {
         // Sending safety: a daily ceiling, and a gap between messages that
         // varies with how many are going out.
         this.quota = new DailyQuota(db, config);
+        this.pacePreset = 'balanced';   // 'safe' | 'balanced' | 'fast'
         this.pace = paceFor(0, config);
         this.sentInRun = 0;
         this.waitingUntil = null;   // when the next message may go (ms epoch)
@@ -56,7 +60,15 @@ export class CampaignManager extends EventEmitter {
         this.rateLimiter.setRate(config.rateLimitPerSecond, config.rateLimitBurst);
         this.retryPolicy = RetryPolicy.fromConfig(config);
         this.quota.config = config;
-        this.pace = paceFor(this.pace.batchSize, config);
+        this.pace = paceFor(this.pace.batchSize, config, this.pacePreset);
+    }
+
+    /** Change the speed preset of the current run (live): recomputes the gap range. */
+    setPace(preset, batchSize = this.pace.batchSize) {
+        this.pacePreset = pickPreset(preset);
+        this.pace = paceFor(batchSize, this.config, this.pacePreset);
+        this.#emitStats();
+        return this.pace;
     }
 
     setTransport(transport) {
@@ -74,11 +86,12 @@ export class CampaignManager extends EventEmitter {
     }
 
     /** Everything the UI needs to explain the pacing and the daily budget. */
-    safetyStatus(batchSize = this.pace.batchSize) {
-        const pace = paceFor(batchSize, this.config);
+    safetyStatus(batchSize = this.pace.batchSize, preset = this.pacePreset) {
+        const pace = paceFor(batchSize, this.config, pickPreset(preset));
         return {
             ...this.quota.status(),
             pacingMode: this.config.pacingMode,
+            pacing: pace.preset,
             minSeconds: pace.minSeconds,
             maxSeconds: pace.maxSeconds,
             restEvery: pace.restEvery,
@@ -106,8 +119,17 @@ export class CampaignManager extends EventEmitter {
      * received a real message in an earlier run are skipped too (the database,
      * not the queue, is what remembers those).
      */
-    enqueueContacts(contacts, template, { campaignId = null, onePerNumber = false, media = null } = {}) {
-        const unvaried = this.config.safetyEnabled === false ? null : variationError(template, contacts, this.config);
+    enqueueContacts(contacts, template, {
+        campaignId = null, onePerNumber = false, media = null, interactive = null,
+        // Meta approved template mode / 131047 fallback: { template: stored, params }.
+        metaTemplate = null, fallbackTemplate = null,
+        // Bulk Campaigns v2: per-variable fallback text and the speed preset.
+        fallbacks = null, pacing = 'balanced',
+    } = {}) {
+        // Throws InteractiveError (status 400) before anything is queued.
+        const block = normalizeInteractive(interactive);
+        // Meta fixes an approved template's wording; variation is not ours to add.
+        const unvaried = this.config.safetyEnabled === false || metaTemplate ? null : variationError(template, contacts, this.config);
         if (unvaried) throw new SafetyError(unvaried);
         this.campaignId = campaignId ?? crypto.randomUUID().replace(/-/g, '').slice(0, 12);
         const alreadySent = onePerNumber ? this.db.sentRecipients() : new Set();
@@ -118,12 +140,17 @@ export class CampaignManager extends EventEmitter {
             : new Map();
         let skippedFrequency = 0;
         const batch = Array.isArray(contacts) ? contacts.length : 0;
-        this.pace = paceFor(batch, this.config);
+        this.pacePreset = pickPreset(pacing);
+        this.pace = paceFor(batch, this.config, this.pacePreset);
         this.sentInRun = 0;
         let queued = 0;
         let skipped = 0;
         let skippedOptOut = 0;
+        let skippedMuted = 0;
+        let skippedTemplateVars = 0;
         const optedOut = new Set(this.db.getAllOptOuts?.() ?? []);
+        // Contacts a reply rule muted ("not now, ask me in 30 days").
+        const muted = this.db.bulkMutedPhones?.() ?? new Set();
 
         // The flag only governs this batch: a later single send to one of these
         // numbers is a deliberate act, not a duplicate.
@@ -140,6 +167,11 @@ export class CampaignManager extends EventEmitter {
                     skipped += 1;
                     continue;
                 }
+                if (muted.has(contact.phone)) {
+                    skipped += 1;
+                    skippedMuted += 1;
+                    continue;
+                }
                 if (perRecipient && (recent.get(contact.phone) ?? 0) >= perRecipient) {
                     skipped += 1;
                     skippedFrequency += 1;
@@ -148,12 +180,28 @@ export class CampaignManager extends EventEmitter {
                 // A `message` column in the sheet gives that number its own text;
                 // everyone else gets the shared template.
                 const own = String(contact.extra?.message ?? contact.extra?.custom_message ?? '').trim();
+                // --- Meta approved template (messaging/templateSend.js) ---
+                // Meta rejects an empty parameter, so a contact missing a
+                // mapped variable (and its fallback) is skipped, not sent.
+                const meta = metaTemplate
+                    ? prepareTemplateSend(metaTemplate.template, withFallbacks(contactContext(contact), fallbacks ?? {}), metaTemplate.params) : null;
+                if (meta?.missing.length) {
+                    skipped += 1;
+                    skippedTemplateVars += 1;
+                    continue;
+                }
+                const fallback = fallbackTemplate
+                    ? prepareTemplateSend(fallbackTemplate.template, withFallbacks(contactContext(contact), fallbacks ?? {}), fallbackTemplate.params) : null;
+                // --- end Meta approved template ---
                 const item = queueItem({
                     recipient: contact.phone,
-                    message: personalize(own || template, contactContext(contact)),
+                    message: meta ? meta.text : renderMessage(own || template, contact, fallbacks ?? {}),
+                    template: meta?.template ?? null,
+                    fallbackTemplate: fallback && !fallback.missing.length ? fallback : null,
                     name: contact.name ?? '',
                     campaignId: this.campaignId,
                     media,
+                    interactive: personalizeInteractive(block, withFallbacks(contactContext(contact), fallbacks ?? {})),
                 });
                 if (this.#enqueueItem(item)) {
                     queued += 1;
@@ -174,6 +222,8 @@ export class CampaignManager extends EventEmitter {
             skipped,
             skippedOptOut,
             skippedFrequency,
+            skippedMuted,
+            skippedTemplateVars,
             campaignId: this.campaignId,
             safety: this.safetyStatus(queued),
             overQuota: Number.isFinite(remaining) ? Math.max(0, queued - remaining) : 0,
@@ -211,6 +261,9 @@ export class CampaignManager extends EventEmitter {
             messageType: job.messageType,
             priority: job.priority,
             idempotencyKey: job.idempotencyKey,
+            interactive: job.interactive ?? null,
+            fallbackTemplate: job.fallbackTemplate ?? null,
+            template: job.template ?? null,
         });
         if (!this.#enqueueItem(item)) return null;
         this.stats.total += 1;
@@ -419,7 +472,8 @@ export class CampaignManager extends EventEmitter {
             let retryable = false;
             let errorText = '';
             try {
-                const result = await this.transport.sendMessage(item.recipient, item.message, { media: item.media });
+                const result = await this.transport.sendMessage(item.recipient, item.message,
+                    { media: item.media, interactive: item.interactive, template: item.template });
                 if (this.transport?.realDelivery) this.sentInRun += 1;
                 this.db.updateStatus(item.messageId, result.status, {
                     attempt: item.attempt,
@@ -440,10 +494,20 @@ export class CampaignManager extends EventEmitter {
                     retryable = false;
                     errorText = `Unexpected error: ${err.message ?? err}`;
                 }
+                // Meta 131049: this person's marketing allowance is used up; retrying now only burns attempts.
+                if (normalizeError(err).code === ErrorCode.PER_USER_CAP) retryable = false;
                 // The raw provider text goes to the server log; history and the
                 // UI get a sentence the customer can act on.
                 console.warn(`[send] ${item.messageId} to ${item.recipient}: ${errorText}`);
                 errorText = friendlyError(err);
+                // Outside the 24h window (131047): swap in the campaign's
+                // fallback approved template once and go again.
+                if (err?.code === 131047 && item.fallbackTemplate && !item.template) {
+                    item.template = item.fallbackTemplate.template;
+                    item.message = item.fallbackTemplate.text;
+                    item.interactive = null;
+                    continue;
+                }
             }
 
             if (this.retryPolicy.shouldRetry(item.attempt, retryable)) {
@@ -475,8 +539,15 @@ export class CampaignManager extends EventEmitter {
             this.db.updateStatus(item.messageId, status, { attempt: item.attempt, error });
         }
         this.stats.processed += 1;
-        if (SUCCESS_STATUSES.includes(status) || status === Status.SANDBOX) this.stats.successful += 1;
-        else this.stats.failed += 1;
+        if (SUCCESS_STATUSES.includes(status) || status === Status.SANDBOX) {
+            this.stats.successful += 1;
+            // Set by the channel runtime (records interactive sends for reply matching).
+            try {
+                this.onSent?.(item, { status, providerId });
+            } catch (err) {
+                console.warn(`[send] onSent hook failed for ${item.messageId}: ${err.message}`);
+            }
+        } else this.stats.failed += 1;
         this.emit('event', {
             type: 'status', messageId: item.messageId, status, providerId, error,
             attempt: item.attempt,

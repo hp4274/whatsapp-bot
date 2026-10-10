@@ -11,6 +11,10 @@
  * segment stores) or an explicit list of `{ name, phone }`. `segment_id` wins
  * when both are set, because a saved segment is resolved at send time and so
  * is always the more current answer.
+ *
+ * `options` (Bulk Campaigns v2) is JSON: { interactive, fallbacks, pacing,
+ * timezone, dedupeDays, variables, mediaMeta }. Databases created before it
+ * existed get the column from `ensureCampaignOptionsColumn` (store.js).
  */
 
 export const CAMPAIGNS_SCHEMA = `
@@ -29,6 +33,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
     started_at TEXT,
     finished_at TEXT,
     stats TEXT NOT NULL DEFAULT '{}',
+    options TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );

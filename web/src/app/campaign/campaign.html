@@ -1,189 +1,131 @@
-@let stats = store.stats();
+@let d = draft;
+@let step = d.step();
+
+<header class="page-head">
+  <div>
+    <span class="eyebrow"><span class="live-dot" aria-hidden="true"></span> Bulk campaigns</span>
+    <h2>New campaign</h2>
+    <p class="muted">Upload, personalise, preview on a real-looking phone, then send at a safe pace.</p>
+  </div>
+  <div class="head-actions">
+    <div class="tabs" role="tablist" aria-label="Mode">
+      <button type="button" role="tab" [attr.aria-selected]="tab() === 'composer'" [class.on]="tab() === 'composer'"
+              (click)="tab.set('composer')"><span class="ms" aria-hidden="true">campaign</span> Composer</button>
+      <button type="button" role="tab" [attr.aria-selected]="tab() === 'single'" [class.on]="tab() === 'single'"
+              (click)="tab.set('single')"><span class="ms" aria-hidden="true">send</span> Quick single message</button>
+    </div>
+    <a class="btn" routerLink="/campaigns"><span class="ms" aria-hidden="true">list</span> All campaigns</a>
+  </div>
+</header>
 
 @if (notice()) {
-  <p class="notice card enter" role="alert">{{ notice() }}</p>
+  <p class="notice" role="alert">{{ notice() }}</p>
 }
 
-<section class="card enter">
-  <header class="card-head">
-    <span class="badge primary">
-      <span class="ms" aria-hidden="true">send</span>
-    </span>
-    <div>
-      <h3>Send a Single Message</h3>
-      <p class="muted">One number, one message - same queue, limits and retries</p>
+@if (tab() === 'single') {
+  <section class="card single enter">
+    <div class="sh">
+      <span class="badge"><span class="ms" aria-hidden="true">send</span></span>
+      <div>
+        <h3>Send a single message</h3>
+        <p class="muted">One number, one message - same queue, limits and retries</p>
+      </div>
     </div>
-  </header>
-
-  <div class="single">
-    <div class="field">
-      <label for="recipient">Recipient number</label>
-      <input id="recipient" [ngModel]="recipient()" (ngModelChange)="recipient.set($event)"
-             placeholder="+919876543210" />
+    <div class="grid">
+      <div class="field">
+        <label for="recipient">Recipient number</label>
+        <input id="recipient" [ngModel]="recipient()" (ngModelChange)="recipient.set($event)" placeholder="+919876543210" />
+      </div>
+      <div class="field">
+        <label for="recipient-name">Recipient name</label>
+        <input id="recipient-name" [ngModel]="recipientName()" (ngModelChange)="recipientName.set($event)" placeholder="fills {name}" />
+      </div>
+      <div class="field full">
+        <label for="message">Message</label>
+        <textarea id="message" rows="4" [ngModel]="message()" (ngModelChange)="message.set($event)"></textarea>
+      </div>
     </div>
-    <div class="field">
-      <label for="recipient-name">Recipient name</label>
-      <input id="recipient-name" [ngModel]="recipientName()"
-             (ngModelChange)="recipientName.set($event)" placeholder="fills {name}" />
-    </div>
-    <div class="field message">
-      <label for="message">Message</label>
-      <textarea id="message" rows="3" [ngModel]="message()"
-                (ngModelChange)="message.set($event)"></textarea>
-    </div>
-    <button type="button" class="btn primary" (click)="sendSingle()"
-            [disabled]="busy() || !recipient() || !message()">
-      @if (busy()) { <span class="spinner"></span> }
-      Send message
-    </button>
-  </div>
-</section>
-
-<section class="card enter">
-  <header class="card-head">
-    <span class="badge accent">
-      <span class="ms" aria-hidden="true">chat</span>
-    </span>
-    <div>
-      <h3>Bulk Campaign</h3>
-      <p class="muted">Import contacts, personalise, then send at a controlled rate</p>
-    </div>
-  </header>
-
-  <div class="bulk">
-    <div class="import">
-      <label class="btn" for="contacts-file">Import CSV / XLSX</label>
-      <input id="contacts-file" type="file" accept=".csv,.xlsx,.xlsm" (change)="onFile($event)" hidden />
-      <span><strong>Contacts: {{ contacts().length }}</strong></span>
-      <span class="muted">{{ fileName() || 'No file loaded' }}</span>
-    </div>
-
-    @if (importErrors().length) {
-      <details class="import-errors">
-        <summary>{{ importErrors().length }} row(s) rejected</summary>
-        @for (error of importErrors(); track error) { <p>{{ error }}</p> }
-      </details>
-    }
-
-    <div class="field">
-      <label for="bulk-message">Message for everyone</label>
-      <textarea id="bulk-message" rows="3" [ngModel]="bulkMessage()" (ngModelChange)="bulkMessage.set($event)"
-                placeholder="Hello {name}, ..."></textarea>
-      <small class="hint">Use {{ '{name}' }} or any column from your file, like {{ '{amount}' }}. To give a number its own text, add a
-        <code>message</code> column to the file or type it in the table below.</small>
-    </div>
-
-    <div class="attach">
-      <label class="btn" for="attach-file" [class.disabled]="uploading()">
-        @if (uploading()) { <span class="spinner"></span> } @else { <span class="ms" aria-hidden="true">attach_file</span> }
-        Attach image, video or PDF
-      </label>
-      <input id="attach-file" type="file" accept="image/jpeg,image/png,application/pdf,video/mp4,video/3gpp"
-             (change)="onAttach($event)" [disabled]="uploading()" hidden />
-      @if (attachment(); as file) {
-        <div class="chip">
-          @if (file.image) {
-            <img [src]="file.previewUrl" alt="Preview of attached image" />
-          } @else if (file.video) {
-            <video [src]="file.previewUrl" muted controls preload="metadata" aria-label="Preview of attached video"></video>
-          } @else {
-            <span class="ms" aria-hidden="true">picture_as_pdf</span>
-          }
-          <span class="chip-name">{{ file.filename }}</span>
-          <span class="muted">{{ size(file.size) }}</span>
-          <button type="button" class="chip-x" (click)="removeAttachment()"
-                  [attr.aria-label]="'Remove attachment ' + file.filename">
-            <span class="ms" aria-hidden="true">close</span>
-          </button>
-        </div>
-      } @else {
-        <span class="muted">Optional - JPG, PNG or PDF up to 16 MB, or MP4 video up to 64 MB; your message becomes the caption.
-          WhatsApp Web (QR) video needs Google Chrome: set CHROME_PATH on the server if videos fail.</span>
+    <div class="row">
+      @if (!connected()) {
+        <span class="muted small"><span class="ms" aria-hidden="true">link_off</span> Not connected - <a routerLink="/connection">connect a number</a></span>
       }
+      <button type="button" class="btn primary" (click)="sendSingle()" [disabled]="busy() || !recipient() || !message()">
+        @if (busy()) { <span class="spinner"></span> } Send message
+      </button>
     </div>
-
-    @if (contacts().length) {
-      <details class="own" [open]="ownCount() > 0">
-        <summary>
-          Custom messages
-          <span class="count">{{ ownCount() }} of {{ contacts().length }} numbers have their own</span>
-        </summary>
-        <div class="own-table" role="region" aria-label="Custom message per number" tabindex="0">
-          <table>
-            <thead><tr><th>Name</th><th>Phone</th><th>Own message (leave empty to use the message above)</th></tr></thead>
-            <tbody>
-              @for (contact of shown(); track $index; let i = $index) {
-                <tr>
-                  <td>{{ contact.name || '-' }}</td>
-                  <td class="mono">{{ contact.phone }}</td>
-                  <td>
-                    <input type="text" [attr.aria-label]="'Own message for ' + (contact.name || contact.phone)"
-                           [ngModel]="own(contact)" (ngModelChange)="setOwn(i, $event)" placeholder="Same as everyone" />
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
-          @if (contacts().length > shown().length) {
-            <p class="muted more">Showing the first {{ shown().length }}. Use a <code>message</code> column in the file to set the rest.</p>
-          }
-        </div>
-      </details>
-    }
-
-    <label class="check">
-      <input type="checkbox" [ngModel]="onePerNumber()" (ngModelChange)="onePerNumber.set($event)" />
-      One message per number (skip repeats and numbers already messaged)
-    </label>
-
-    @if (plan(); as plan) {
-      <div class="plan" [class.warn]="overQuota() > 0">
-        <span>
-          <strong>Daily budget:</strong>
-          {{ plan.remaining === null ? 'no limit' : plan.remaining + ' left of ' + plan.limit }}
-          ({{ plan.used }} sent today)
+  </section>
+} @else {
+  <nav class="rail" aria-label="Campaign steps">
+    @for (s of steps; track s.n) {
+      <button type="button" class="st" [class.on]="step === s.n" [class.done]="step > s.n"
+              [disabled]="!canOpen(s.n)" (click)="open(s.n)" [attr.aria-current]="step === s.n ? 'step' : null">
+        <span class="num">
+          @if (step > s.n) { <span class="ms" aria-hidden="true">check</span> } @else { {{ s.n }} }
         </span>
-        @if (estimate()) { <span><strong>This batch:</strong> {{ estimate() }}</span> }
-        @if (overQuota() > 0) {
-          <span class="over">
-            {{ overQuota() }} message(s) exceed today's limit - they stay queued until the
-            budget resets.
-          </span>
+        <span class="lbl">{{ s.n === 4 && step === 4 ? 'Done' : s.label }}</span>
+      </button>
+      @if (!$last) { <span class="line" [class.fill]="step > s.n" aria-hidden="true"></span> }
+    }
+  </nav>
+
+  @if (step === 4) {
+    @if (d.result(); as r) {
+      <section class="card done enter">
+        <span class="orb" [class.warn]="!!r.error" aria-hidden="true">
+          <span class="ms">{{ r.error ? 'priority_high' : r.started ? 'rocket_launch' : 'event_available' }}</span>
+        </span>
+        @if (r.error) {
+          <h3>Saved, but not started</h3>
+          <p class="error">{{ r.error }}</p>
+          <p class="muted">"{{ r.campaign.name }}" is saved as a draft - start it from the campaign page once the problem is fixed.</p>
+        } @else if (r.started) {
+          <h3>"{{ r.campaign.name }}" is on its way</h3>
+          <div class="nums">
+            <div><strong>{{ r.queued ?? 0 }}</strong><small>queued</small></div>
+            <div><strong>{{ r.skipped ?? 0 }}</strong><small>skipped</small></div>
+            @if (r.overQuota) { <div class="warn"><strong>{{ r.overQuota }}</strong><small>over today's quota</small></div> }
+          </div>
+          <p class="muted">Progress shows in the island at the bottom of the screen - you can leave this page, sending continues on the server.</p>
+        } @else {
+          <h3>Scheduled</h3>
+          <p>"{{ r.campaign.name }}" sends at <strong>{{ r.campaign.scheduledAt ? (r.campaign.scheduledAt | date: 'medium') : '' }}</strong>
+            <span class="muted">({{ d.timezone() }})</span></p>
+          <p class="muted">It starts automatically when a WhatsApp number is connected at that time.</p>
+        }
+        <div class="row center">
+          <a class="btn primary" [routerLink]="['/campaigns', r.campaign.id]"><span class="ms" aria-hidden="true">insights</span> Open campaign</a>
+          <button type="button" class="btn" (click)="startOver()"><span class="ms" aria-hidden="true">add</span> New campaign</button>
+        </div>
+      </section>
+    } @else {
+      <section class="card done"><p class="muted">Nothing sent yet.</p>
+        <button type="button" class="btn" (click)="startOver()">Start a campaign</button></section>
+    }
+  } @else {
+    <div class="layout">
+      <div class="main">
+        @switch (step) {
+          @case (1) { <app-audience-step /> }
+          @case (2) { <app-message-step /> }
+          @case (3) { <app-review-step /> }
         }
       </div>
-    }
-
-    @if (store.pacing(); as pacing) {
-      <p class="pacing-note">
-        <span class="spinner"></span>
-        {{ pacing.resting ? 'Resting between batches' : 'Spacing messages' }} -
-        next send in about {{ pacing.seconds }}s
-      </p>
-    }
-
-    <div class="controls">
-      <button type="button" class="btn primary" (click)="start()"
-              [disabled]="busy() || !contacts().length">Start campaign</button>
-      <button type="button" class="btn" (click)="control('pause')"
-              [disabled]="stats.state !== 'RUNNING'">Pause</button>
-      <button type="button" class="btn" (click)="control('resume')"
-              [disabled]="stats.state !== 'PAUSED'">Resume</button>
-      <button type="button" class="btn danger" (click)="control('stop')"
-              [disabled]="stats.pending === 0">Stop</button>
+      <aside class="side" aria-label="Message preview">
+        <app-phone-preview
+          [text]="d.previewText()"
+          [context]="d.previewContext()"
+          [fallbacks]="d.fallbacks()"
+          [attachment]="d.attachment()"
+          [interactive]="d.metaMode() ? null : d.interactive()"
+          [index]="d.previewIndex()"
+          [total]="d.previewTotal()"
+          [contactLabel]="contactLabel()"
+          [seed]="d.seed()"
+          [sample]="d.validContacts().length === 0"
+          (prev)="d.movePreview(-1)"
+          (next)="d.movePreview(1)"
+          (shuffle)="d.shuffle()" />
+      </aside>
     </div>
-
-    <div class="progress" role="progressbar" [attr.aria-valuenow]="percent()"
-         aria-valuemin="0" aria-valuemax="100">
-      <div class="bar" [style.width.%]="percent()"></div>
-    </div>
-
-    <div class="stats">
-      <span class="status-SENT"><strong>Successful:</strong> {{ stats.successful }}</span>
-      <span class="status-FAILED"><strong>Failed:</strong> {{ stats.failed }}</span>
-      <span class="muted">Pending: {{ stats.pending }}</span>
-      <span class="muted">State: {{ stats.state.toLowerCase() }}</span>
-    </div>
-
-    @if (preview()) { <p class="preview muted">{{ preview() }}</p> }
-  </div>
-</section>
+  }
+}

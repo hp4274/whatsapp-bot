@@ -17,7 +17,7 @@ export type MessageStatus =
   | 'SANDBOX';
 
 export interface AppConfig {
-  transport: 'cloud_api' | 'whatsapp_web' | 'sandbox';
+  transport: 'cloud_api' | 'whatsapp_web' | 'baileys' | 'sandbox';
   graphVersion: string;
   phoneNumberId: string;
   accessToken: string;
@@ -573,6 +573,52 @@ export interface ChannelHealth {
   detail: string;
   error: string | null;
   withinSendingWindow: boolean;
+  /** The channel's provider, e.g. 'cloud_api'. */
+  transport?: string;
+  usage?: ChannelUsage;
+  warmup?: ChannelWarmup | null;
+  quality?: ChannelQuality;
+}
+
+/** Today's sending budget for one number (dailyLimit 0 = no cap). */
+export interface ChannelUsage {
+  sentToday: number;
+  dailyLimit: number;
+  baseLimit: number;
+  remaining: number | null;
+  resetsAt: string;
+  safetyEnabled: boolean;
+  /** The platform admin's policy sets the cap, not the channel. */
+  setByPlatform: boolean;
+}
+
+export interface ChannelWarmup {
+  active: boolean;
+  day: number;
+  totalDays: number;
+  todayCap: number;
+  startedAt: string | null;
+}
+
+export type QualityLevel = 'ok' | 'info' | 'warn' | 'bad';
+
+export interface ChannelQuality {
+  level: QualityLevel;
+  sent24h: number;
+  failed24h: number;
+  failureRate24h: number;
+  sent7d: number;
+  failed7d: number;
+  failureRate7d: number;
+  optOuts7d: number;
+  hints: { level: QualityLevel; code: string; message: string }[];
+}
+
+export interface ChannelList {
+  channels: Channel[];
+  capabilities: string[];
+  transports: string[];
+  warnings?: Record<string, string>;
 }
 
 export interface Channel {
@@ -609,10 +655,8 @@ export type ChannelPatch = Partial<{
 export class ChannelsApi {
   private readonly http = inject(HttpClient);
 
-  list(): Observable<{ channels: Channel[]; capabilities: string[]; transports: string[] }> {
-    return this.http
-      .get<{ channels: Channel[]; capabilities: string[]; transports: string[] }>('/api/channels')
-      .pipe(catchError(toMessage));
+  list(): Observable<ChannelList> {
+    return this.http.get<ChannelList>('/api/channels').pipe(catchError(toMessage));
   }
 
   create(body: ChannelPatch): Observable<{ channel: Channel }> {
@@ -647,6 +691,9 @@ export interface Contact2 {
   source: string;
   optedOut: boolean;
   messageable: boolean;
+  /** Why and when the number opted out, when it has. */
+  optOutReason?: string | null;
+  optedOutAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -654,10 +701,45 @@ export interface Contact2 {
 export interface TimelineEntry {
   at: string;
   direction: 'inbound' | 'outbound';
+  /** campaign | transactional | ... for outbound; message | media | button_click inbound. */
   kind: string;
   messageId: string;
   body: string;
   status: string | null;
+  error?: string;
+}
+
+export type ContactSort = 'name' | 'phone' | 'email' | 'createdAt' | 'updatedAt' | 'optInStatus';
+export type BulkAction = 'addTags' | 'removeTags' | 'optOut' | 'optIn' | 'delete';
+
+export interface BulkResult {
+  action: BulkAction;
+  affected: number;
+  missing: number[];
+}
+
+export interface DuplicateGroup {
+  key: string;
+  contacts: Contact2[];
+  suggestedKeepId: number;
+}
+
+/** One target per column: phone | name | email | tags | custom:<key> | ignore. */
+export type ImportTarget = string;
+
+export interface ImportPreview {
+  filename: string;
+  headers: string[];
+  rows: string[][];
+  rowCount: number;
+  mapping: ImportTarget[];
+  fieldKeys: string[];
+}
+
+export interface ImportResult {
+  errors: string[];
+  duplicates: number;
+  saved?: { created: number; updated: number; failed: { row: number; phone: string; error: string }[] };
 }
 
 export interface ContactFilter {
@@ -692,10 +774,64 @@ export interface ContactList {
 export class ContactsApi {
   private readonly http = inject(HttpClient);
 
-  list(filter: ContactFilter = {}, limit = 200): Observable<ContactList> {
+  list(
+    filter: ContactFilter = {},
+    limit = 200,
+    page: { offset?: number; sort?: ContactSort | ''; dir?: 'asc' | 'desc' } = {},
+  ): Observable<ContactList> {
     let params = new HttpParams().set('limit', limit);
     if (Object.keys(filter).length) params = params.set('filter', JSON.stringify(filter));
+    if (page.offset) params = params.set('offset', page.offset);
+    if (page.sort) params = params.set('sort', page.sort).set('dir', page.dir ?? 'asc');
     return this.http.get<ContactList>('/api/contacts', { params }).pipe(catchError(toMessage));
+  }
+
+  /** One action over many contacts: explicit ids, or every match of `filter`. */
+  bulk(body: { ids?: number[]; filter?: ContactFilter; action: BulkAction; tags?: string[]; reason?: string }): Observable<BulkResult> {
+    return this.http.post<BulkResult>('/api/contacts/bulk', body).pipe(catchError(toMessage));
+  }
+
+  /** Opt out (with a reason) or back in; keeps opt_outs and opt-in status in step. */
+  consent(id: number, optedOut: boolean, reason = ''): Observable<{ contact: Contact2 }> {
+    return this.http.post<{ contact: Contact2 }>(`/api/contacts/${id}/consent`, { optedOut, reason }).pipe(catchError(toMessage));
+  }
+
+  get(id: number): Observable<{ contact: Contact2 }> {
+    return this.http.get<{ contact: Contact2 }>(`/api/contacts/${id}`).pipe(catchError(toMessage));
+  }
+
+  /** CSV of the given ids, or of everything matching the filter. */
+  exportCsv(target: { ids?: number[]; filter?: ContactFilter; sort?: ContactSort | ''; dir?: 'asc' | 'desc' }): Observable<Blob> {
+    let params = new HttpParams();
+    if (target.ids?.length) params = params.set('ids', target.ids.join(','));
+    else if (target.filter && Object.keys(target.filter).length) params = params.set('filter', JSON.stringify(target.filter));
+    if (target.sort) params = params.set('sort', target.sort).set('dir', target.dir ?? 'asc');
+    return this.http.get('/api/contacts/export', { params, responseType: 'blob' }).pipe(catchError(toMessage));
+  }
+
+  duplicates(): Observable<{ total: number; groups: DuplicateGroup[] }> {
+    return this.http.get<{ total: number; groups: DuplicateGroup[] }>('/api/contacts/duplicates').pipe(catchError(toMessage));
+  }
+
+  merge(keepId: number, mergeIds: number[]): Observable<{ contact: Contact2; removed: number[] }> {
+    return this.http.post<{ contact: Contact2; removed: number[] }>('/api/contacts/merge', { keepId, mergeIds })
+      .pipe(catchError(toMessage));
+  }
+
+  importPreview(file: File): Observable<ImportPreview> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http.post<ImportPreview>('/api/contacts/import/preview', form).pipe(catchError(toMessage));
+  }
+
+  /** Commit an import with an explicit column mapping (one target per header). */
+  importMapped(file: File, mapping: ImportTarget[], tags: string[] = []): Observable<ImportResult> {
+    const form = new FormData();
+    form.append('mapping', JSON.stringify(mapping));
+    form.append('file', file);
+    let params = new HttpParams().set('save', 'true');
+    if (tags.length) params = params.set('tags', tags.join(','));
+    return this.http.post<ImportResult>('/api/contacts/import', form, { params }).pipe(catchError(toMessage));
   }
 
   save(body: Partial<Contact2>): Observable<{ contact: Contact2 }> {
@@ -737,5 +873,196 @@ export class ContactsApi {
     if (tags.length) params = params.set('tags', tags.join(','));
     return this.http.post<{ saved?: { created: number; updated: number; failed: unknown[] } }>(
       '/api/contacts/import', form, { params }).pipe(catchError(toMessage));
+  }
+}
+
+/* Campaigns v2: import wizard, persistent campaigns, analytics ------------ */
+
+export type ImportIssueReason =
+  | 'empty' | 'letters' | 'too_short' | 'too_long' | 'bad_country_code' | 'invalid'
+  | 'duplicate' | 'opted_out' | 'recent';
+
+export interface ImportPreview {
+  importId: string;
+  filename: string;
+  headers: string[];
+  columns: { header: string; slug: string }[];
+  rows: string[][];
+  total: number;
+  truncated: boolean;
+  guess: { phone: string | null; name: string | null };
+}
+
+export interface ImportMapping {
+  phone: string;
+  name?: string | null;
+}
+
+export interface ImportAuditOptions {
+  importId: string;
+  mapping: ImportMapping;
+  countryCode?: string;
+  dedupeDays?: number;
+  autoClean?: boolean;
+}
+
+export interface ImportIssue {
+  row: number;
+  raw: string;
+  phone: string | null;
+  name: string;
+  reason: ImportIssueReason;
+  detail: string;
+}
+
+export interface ImportAudit {
+  counts: { total: number; valid: number; invalid: number; duplicate: number; optedOut: number; recent: number };
+  issues: ImportIssue[];
+  /** Row index + normalised phone for every row that passed. */
+  valid: { row: number; phone: string; name: string }[];
+}
+
+export type PacingPreset = 'safe' | 'balanced' | 'fast';
+export type RetargetFilter = 'failed' | 'unread' | 'noreply' | 'replied' | 'clicked';
+
+/** Resolved at send time from a past campaign's message rows (+ inbound replies, button clicks). */
+export interface RetargetAudience {
+  retarget: { campaignId: number; filter: RetargetFilter; optionId?: string };
+}
+
+/** What `POST /api/campaigns` accepts as `audience`. */
+export type CampaignAudienceInput =
+  | Contact[]
+  | ImportAuditOptions
+  | RetargetAudience
+  | ContactFilter;
+
+export interface CampaignOptions {
+  interactive?: unknown | null;
+  fallbacks?: Record<string, string>;
+  pacing?: PacingPreset;
+  timezone?: string;
+  dedupeDays?: number;
+  variables?: string[];
+  mediaMeta?: { filename: string; mimetype: string; size: number } | null;
+  /** Cloud API only: send `templateId` as a Meta-approved template (server messaging/templateSend.js). */
+  templateMode?: 'free' | 'meta';
+  templateParams?: unknown;
+  fallbackTemplateId?: number | null;
+  fallbackTemplateParams?: unknown;
+}
+
+export type CampaignStatus = 'draft' | 'scheduled' | 'running' | 'paused' | 'done' | 'cancelled';
+
+export interface Campaign {
+  id: number;
+  name: string;
+  status: CampaignStatus;
+  templateId: number | null;
+  body: string;
+  segmentId: number | null;
+  audience: unknown;
+  audienceSize: number;
+  mediaId: string | null;
+  options: CampaignOptions;
+  scheduledAt: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  stats: { total?: number; pending?: number; failed?: number; sent?: number; byStatus?: Record<string, number> };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CampaignCreate {
+  name: string;
+  body: string;
+  mediaId?: string | null;
+  audience: CampaignAudienceInput;
+  options?: CampaignOptions;
+  status?: 'draft' | 'scheduled';
+  scheduledAt?: string | null;
+  templateId?: number | null;
+}
+
+export interface CampaignAnalytics {
+  campaign: Campaign;
+  funnel: { audience: number; queued: number; sent: number; delivered: number; read: number; replied: number; failed: number };
+  failures: { code: string; label: string; count: number }[];
+  /** Null when the interactive module has not recorded anything for this campaign. */
+  clicks: { id: string; title: string; count: number }[] | null;
+  recipients: {
+    phone: string; name: string; status: MessageStatus; updatedAt: string;
+    error: string | null; errorCode: string | null; clicked: string | null; replied: boolean;
+  }[];
+}
+
+@Injectable({ providedIn: 'root' })
+export class CampaignsApi {
+  private readonly http = inject(HttpClient);
+
+  importPreview(file: File, countryCode = ''): Observable<ImportPreview> {
+    const form = new FormData();
+    form.append('file', file);
+    if (countryCode) form.append('countryCode', countryCode);
+    return this.http.post<ImportPreview>('/api/campaign/import/preview', form).pipe(catchError(toMessage));
+  }
+
+  importAudit(body: ImportAuditOptions): Observable<ImportAudit> {
+    return this.http.post<ImportAudit>('/api/campaign/import/audit', body).pipe(catchError(toMessage));
+  }
+
+  list(): Observable<{ campaigns: Campaign[] }> {
+    return this.http.get<{ campaigns: Campaign[] }>('/api/campaigns').pipe(catchError(toMessage));
+  }
+
+  get(id: number): Observable<{ campaign: Campaign }> {
+    return this.http.get<{ campaign: Campaign }>(`/api/campaigns/${id}`).pipe(catchError(toMessage));
+  }
+
+  create(body: CampaignCreate): Observable<{ campaign: Campaign }> {
+    return this.http.post<{ campaign: Campaign }>('/api/campaigns', body).pipe(catchError(toMessage));
+  }
+
+  remove(id: number): Observable<{ deleted: boolean }> {
+    return this.http.delete<{ deleted: boolean }>(`/api/campaigns/${id}`).pipe(catchError(toMessage));
+  }
+
+  action(id: number, action: 'start' | 'pause' | 'resume' | 'cancel'):
+    Observable<{ campaign: Campaign; stats?: CampaignStats | null; queued?: number; skipped?: number; safety?: SafetyStatus }> {
+    return this.http
+      .post<{ campaign: Campaign; stats?: CampaignStats | null; queued?: number; skipped?: number; safety?: SafetyStatus }>(
+        `/api/campaigns/${id}/${action}`, {})
+      .pipe(catchError(toMessage));
+  }
+
+  speed(id: number, pacing: PacingPreset): Observable<{ campaign: Campaign; safety: SafetyStatus }> {
+    return this.http.post<{ campaign: Campaign; safety: SafetyStatus }>(`/api/campaigns/${id}/speed`, { pacing })
+      .pipe(catchError(toMessage));
+  }
+
+  retryFailed(id: number): Observable<{ campaign: Campaign; queued: number }> {
+    return this.http.post<{ campaign: Campaign; queued: number }>(`/api/campaigns/${id}/retry-failed`, {})
+      .pipe(catchError(toMessage));
+  }
+
+  analytics(id: number): Observable<CampaignAnalytics> {
+    return this.http.get<CampaignAnalytics>(`/api/campaigns/${id}/analytics`).pipe(catchError(toMessage));
+  }
+
+  /** The CSV export URL; opened with the bearer token by `download()`. */
+  exportCsv(id: number): Observable<Blob> {
+    return this.http.get(`/api/campaigns/${id}/export.csv`, { responseType: 'blob' }).pipe(catchError(toMessage));
+  }
+
+  /** Safety preview for a batch under a pacing preset. */
+  safetyFor(contacts: number, pacing: PacingPreset = 'balanced'): Observable<{ safety: SafetyStatus }> {
+    return this.http.get<{ safety: SafetyStatus }>('/api/safety', {
+      params: new HttpParams().set('contacts', contacts).set('pacing', pacing),
+    }).pipe(catchError(toMessage));
+  }
+
+  /** Adjust the live engine's speed (legacy single-run controls). */
+  liveSpeed(pacing: PacingPreset): Observable<{ stats: CampaignStats }> {
+    return this.http.post<{ stats: CampaignStats }>('/api/campaign/speed', { pacing }).pipe(catchError(toMessage));
   }
 }

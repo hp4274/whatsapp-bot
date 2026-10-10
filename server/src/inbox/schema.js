@@ -48,4 +48,15 @@ CREATE TABLE IF NOT EXISTS conversation_notes (
     created_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_conversation_notes ON conversation_notes(conversation_id, id);
+
+-- The attachment an agent sent with an inbox reply. The messages table keeps only
+-- text, so without this the thread would show a caption with no file.
+CREATE TABLE IF NOT EXISTS conversation_media (
+    tenant_id   INTEGER NOT NULL,
+    message_id  TEXT NOT NULL,
+    media_id    TEXT NOT NULL,
+    mimetype    TEXT NOT NULL DEFAULT '',
+    filename    TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (tenant_id, message_id)
+);
 `;

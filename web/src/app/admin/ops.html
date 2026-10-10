@@ -6,170 +6,244 @@
       <p class="muted">{{ copy().lede }}</p>
     </div>
   </div>
-  <button class="btn" type="button" (click)="load()" [disabled]="loading()">
-    <span class="ms" aria-hidden="true">refresh</span> Refresh
-  </button>
+  <div class="head-actions">
+    @if (updatedAt() && kind() !== 'audit') {
+      <span class="muted stamp" aria-live="polite"><span class="pulse" aria-hidden="true"></span>Updated {{ ago(updatedAt()) }}</span>
+    }
+    <button class="btn" type="button" (click)="load()" [disabled]="loading()">
+      <span class="ms" aria-hidden="true">refresh</span> Refresh
+    </button>
+  </div>
 </header>
 
 @if (error()) {
   <p class="error" role="alert"><span class="ms" aria-hidden="true">error</span> {{ error() }}</p>
 }
 
-@if (loading()) {
+@if (kind() === 'audit') {
+  <app-ops-audit />
+} @else if (loading()) {
   <div class="skel-list" aria-busy="true">
     @for (n of [1, 2, 3]; track n) { <div class="skel"></div> }
   </div>
 } @else {
-  @if (kindValue() === 'plans') {
+  @if (kind() !== 'health') {
+    <label class="search">
+      <span class="ms" aria-hidden="true">search</span>
+      <span class="sr-only">Filter</span>
+      <input type="search" [placeholder]="kind() === 'channels' ? 'Filter by number, business or account' : 'Filter by business'"
+             [value]="filter()" (input)="setFilter($event)" />
+    </label>
+  }
+
+  @if (kind() === 'plans') {
     <div class="stats">
-      <div class="stat" style="--i: 0"><small>Businesses</small><b>{{ totals().tenants }}</b></div>
-      <div class="stat ok" style="--i: 1"><small>Active</small><b>{{ totals().active }}</b></div>
-      <div class="stat" style="--i: 2"><small>Services on the platform</small><b>{{ allServices().length }}</b></div>
+      <div class="stat" style="--i: 0"><small>Businesses</small><b>{{ planTotals().tenants }}</b></div>
+      <div class="stat ok" style="--i: 1"><small>Active</small><b>{{ planTotals().active }}</b></div>
+      <div class="stat warn" style="--i: 2"><small>At 80%+ of a limit</small><b>{{ planTotals().near }}</b></div>
+      <div class="stat" style="--i: 3"><small>Own safety limits on</small><b>{{ planTotals().custom }}</b></div>
     </div>
     <section class="list">
-      @for (tenant of tenants(); track tenant.id; let i = $index) {
-        <article class="row" [style.--i]="i">
+      @for (p of shownPlans(); track p.tenantId; let i = $index) {
+        <article class="row tilt" [style.--i]="i < 12 ? i : 12">
           <div class="who">
-            <span class="avatar">{{ initial(tenant.name) }}</span>
-            <div>
-              <strong>{{ tenant.name }}</strong>
-              <span class="muted">{{ tenant.slug }}</span>
-            </div>
-            <span [class]="'pill ' + tenant.status">{{ tenant.status }}</span>
+            <span class="avatar">{{ initial(p.name) }}</span>
+            <div><strong>{{ p.name }}</strong><span class="muted">{{ p.slug }}</span></div>
+            @if (p.customSafetyActive) { <span class="pill custom" title="This business set its own sending limits">Own limits</span> }
+            <span [class]="'pill ' + p.status">{{ p.status }}</span>
           </div>
-          <div class="meter-row">
-            <div class="meter" role="img" [attr.aria-label]="tenant.services.length + ' of ' + allServices().length + ' services'">
-              <span [style.width.%]="pct(tenant.services.length, allServices().length || tenant.services.length)"></span>
-            </div>
-            <span class="muted">{{ tenant.services.length }} of {{ allServices().length || tenant.services.length }} services</span>
+
+          <div class="meters">
+            @for (m of planMeters(p); track m.label) {
+              <div class="gauge" [class]="'gauge ' + (m.cap ? tone(m.pct) : 'free')">
+                <span class="g-head"><span class="ms" aria-hidden="true">{{ m.icon }}</span>{{ m.label }}
+                  <b>{{ m.used }}<span class="muted"> / {{ m.cap || '∞' }}</span></b></span>
+                <span class="meter" role="meter" [attr.aria-label]="m.label" aria-valuemin="0"
+                      [attr.aria-valuemax]="m.cap || null" [attr.aria-valuenow]="m.used"
+                      [attr.aria-valuetext]="m.cap ? m.used + ' of ' + m.cap : m.used + ', no limit'">
+                  <span [style.width.%]="m.cap ? m.pct : 100"></span>
+                </span>
+              </div>
+            }
           </div>
+
+          <dl class="kv">
+            <div><dt>Contacts per campaign</dt><dd>{{ capText(p.limits.maxContactsPerCampaign) }}</dd></div>
+            <div><dt>Media size</dt><dd>{{ capText(p.limits.maxMediaMb, ' MB') }}</dd></div>
+            <div><dt>Transports</dt><dd>
+              <span [class.no]="!p.limits.allowCloudApi">Cloud API</span>,
+              <span [class.no]="!p.limits.allowWhatsappWeb">WhatsApp Web</span></dd></div>
+            <div><dt>Own safety limits</dt><dd>{{ p.limits.allowCustomSafety ? (p.customSafetyActive ? 'Allowed, in use' : 'Allowed') : 'Not allowed' }}</dd></div>
+            <div><dt>Daily cap</dt><dd>{{ p.safety['safetyEnabled'] === false ? 'Safety off' : capText(+p.safety['dailyLimit']) }}</dd></div>
+            <div><dt>Pacing</dt><dd>{{ p.safety['pacingMode'] }}</dd></div>
+            <div><dt>Warm-up</dt><dd>{{ +p.safety['warmupDays'] ? p.safety['warmupDays'] + ' days' : 'Off' }}</dd></div>
+            <div><dt>Per recipient a day</dt><dd>{{ capText(+p.safety['recipientDailyCap']) }}</dd></div>
+          </dl>
+
           <div class="chips">
-            @for (service of tenant.services; track service) {
+            @for (service of p.services; track service) {
               <span class="chip"><span class="ms" aria-hidden="true">{{ meta(service).icon }}</span>{{ meta(service).label }}</span>
             } @empty {
               <span class="chip off">No services enabled</span>
             }
+            <span class="muted count">{{ p.services.length }} of {{ services().length }}</span>
           </div>
-          <a class="link" routerLink="/admin/tenants">Change services <span class="ms" aria-hidden="true">arrow_forward</span></a>
+
+          <nav class="actions" [attr.aria-label]="'Settings for ' + p.name">
+            <a class="link" routerLink="/admin/tenants" [queryParams]="{ settings: p.tenantId, tab: 'limits' }">Edit limits <span class="ms" aria-hidden="true">arrow_forward</span></a>
+            <a class="link" routerLink="/admin/tenants" [queryParams]="{ settings: p.tenantId, tab: 'safety' }">Sending safety <span class="ms" aria-hidden="true">arrow_forward</span></a>
+            <a class="link" routerLink="/admin/tenants" [queryParams]="{ settings: p.tenantId }">Services <span class="ms" aria-hidden="true">arrow_forward</span></a>
+          </nav>
         </article>
       } @empty {
-        <div class="empty"><span class="ms" aria-hidden="true">domain_disabled</span><strong>No businesses yet</strong><p>Create one from the Tenants page.</p></div>
+        <div class="empty"><span class="ms" aria-hidden="true">domain_disabled</span><strong>{{ filter() ? 'No business matches' : 'No businesses yet' }}</strong><p>Create one from the Tenants page.</p></div>
       }
     </section>
-  } @else if (kindValue() === 'usage') {
-    <div class="stats">
-      <div class="stat ok" style="--i: 0"><small>Sent</small><b>{{ totals().sent }}</b></div>
-      <div class="stat bad" style="--i: 1"><small>Failed</small><b>{{ totals().failed }}</b></div>
-      <div class="stat warn" style="--i: 2"><small>Waiting</small><b>{{ totals().queued }}</b></div>
-      <div class="stat" style="--i: 3"><small>Delivery rate</small><b>{{ totals().rate }}%</b></div>
-    </div>
-    <section class="list">
-      @for (tenant of tenants(); track tenant.id; let i = $index) {
-        <article class="row" [style.--i]="i">
-          <div class="who">
-            <span class="avatar">{{ initial(tenant.name) }}</span>
-            <div>
-              <strong>{{ tenant.name }}</strong>
-              <span class="muted">{{ tenant.channels?.length ?? 0 }} numbers, {{ tenant.users ?? 0 }} users</span>
-            </div>
-          </div>
-          <div class="bars" role="img"
-               [attr.aria-label]="(tenant.health?.sent ?? 0) + ' sent, ' + (tenant.health?.failed ?? 0) + ' failed, ' + (tenant.health?.queued ?? 0) + ' waiting'">
-            <span class="b ok" [style.width.%]="volumeWidth(tenant.health?.sent ?? 0)"></span>
-            <span class="b bad" [style.width.%]="volumeWidth(tenant.health?.failed ?? 0)"></span>
-            <span class="b warn" [style.width.%]="volumeWidth(tenant.health?.queued ?? 0)"></span>
-          </div>
-          <ul class="legend">
-            <li class="ok">{{ tenant.health?.sent ?? 0 }} sent</li>
-            <li class="bad">{{ tenant.health?.failed ?? 0 }} failed</li>
-            <li class="warn">{{ tenant.health?.queued ?? 0 }} waiting</li>
-          </ul>
-        </article>
-      } @empty {
-        <div class="empty"><span class="ms" aria-hidden="true">monitoring</span><strong>Nothing sent yet</strong><p>Usage appears once a business starts messaging.</p></div>
-      }
-    </section>
-  } @else if (kindValue() === 'health') {
-    <div class="banner" [class.bad]="totals().disabled || totals().outside">
-      <span class="ms" aria-hidden="true">{{ totals().disabled || totals().outside ? 'warning' : 'check_circle' }}</span>
-      <div>
-        <strong>
-          @if (totals().disabled || totals().outside) { Some numbers cannot send right now } @else { Every number can send }
-        </strong>
-        <p>{{ totals().running }} running, {{ totals().disabled }} disabled, {{ totals().outside }} outside their sending window</p>
+  } @else if (kind() === 'usage') {
+    @if (usage(); as u) {
+      <div class="seg" role="radiogroup" aria-label="Period">
+        @for (r of [{ k: 'today', l: 'Today' }, { k: 'd7', l: '7 days' }, { k: 'd30', l: '30 days' }]; track r.k) {
+          <button type="button" role="radio" [attr.aria-checked]="range() === r.k" [class.on]="range() === r.k" (click)="range.set($any(r.k))">{{ r.l }}</button>
+        }
       </div>
-    </div>
-    <section class="list">
-      @for (tenant of tenants(); track tenant.id; let i = $index) {
-        <article class="row" [style.--i]="i">
-          <div class="who">
-            <span class="avatar">{{ initial(tenant.name) }}</span>
-            <div>
-              <strong>{{ tenant.name }}</strong>
-              <span class="muted">{{ tenant.slug }}</span>
+      @if (usageTotals(); as t) {
+        <div class="stats">
+          <div class="stat ok" style="--i: 0"><small>Sent</small><b>{{ t.sent.toLocaleString() }}</b></div>
+          <div class="stat" style="--i: 1"><small>Delivered</small><b>{{ t.delivered.toLocaleString() }}</b><em>{{ rate(t.delivered, t.sent) }} of sent</em></div>
+          <div class="stat" style="--i: 2"><small>Read</small><b>{{ t.read.toLocaleString() }}</b><em>{{ rate(t.read, t.sent) }} of sent</em></div>
+          <div class="stat bad" style="--i: 3"><small>Failed</small><b>{{ t.failed.toLocaleString() }}</b><em>{{ rate(t.failed, t.sent + t.failed) }} failure rate</em></div>
+          <div class="stat warn" style="--i: 4"><small>Waiting</small><b>{{ t.queued.toLocaleString() }}</b></div>
+        </div>
+      }
+      <section class="hero-spark" aria-label="Platform volume, last {{ u.days.length }} days">
+        <div>
+          <small class="muted">Platform, last {{ u.days.length }} days</small>
+          <b>{{ platformDaily().at(-1) ?? 0 }} <span class="muted">today</span></b>
+        </div>
+        @let ps = spark(platformDaily(), platformFailed());
+        <svg class="spark big" viewBox="0 0 140 36" preserveAspectRatio="none" role="img" [attr.aria-label]="sparkLabel(platformDaily())">
+          <path class="area" [attr.d]="ps.area" /><path class="line" [attr.d]="ps.line" />
+          @for (b of ps.bars; track $index) { <rect class="fail" [attr.x]="b.x" [attr.y]="ps.h - b.hgt" width="3" [attr.height]="b.hgt" /> }
+        </svg>
+        <span class="muted range">{{ u.days[0] }} to {{ u.days.at(-1) }}</span>
+      </section>
+      <section class="list">
+        @for (t of ranked(); track t.tenantId; let i = $index) {
+          @let b = t[range()];
+          @let sp = spark(t.daily, t.dailyFailed);
+          <article class="row usage" [style.--i]="i < 12 ? i : 12">
+            <span class="rank" aria-label="Rank {{ i + 1 }}">{{ i + 1 }}</span>
+            <div class="who">
+              <div>
+                <strong>{{ t.name }}</strong>
+                <span class="muted">{{ t.campaigns }} campaigns, {{ t.autoReplies }} auto-replies, {{ t.media }} media (30 days)</span>
+              </div>
             </div>
-            <span [class]="'pill ' + tenant.status">{{ tenant.status }}</span>
-          </div>
-          <ul class="facts">
-            <li><b>{{ tenant.health?.channels ?? 0 }}</b> numbers</li>
-            <li class="ok"><b>{{ tenant.health?.running ?? 0 }}</b> running</li>
-            <li [class.bad]="tenant.health?.disabled"><b>{{ tenant.health?.disabled ?? 0 }}</b> disabled</li>
-            <li [class.warn]="tenant.health?.outsideWindow"><b>{{ tenant.health?.outsideWindow ?? 0 }}</b> outside window</li>
-          </ul>
-        </article>
-      } @empty {
-        <div class="empty"><span class="ms" aria-hidden="true">health_and_safety</span><strong>No businesses yet</strong></div>
-      }
-    </section>
-  } @else if (kindValue() === 'audit') {
-    <label class="search">
-      <span class="ms" aria-hidden="true">search</span>
-      <span class="sr-only">Filter the log</span>
-      <input type="search" placeholder="Filter by action, business or detail" [value]="filter()" (input)="setFilter($event)" />
-    </label>
-    <section class="list log">
-      @for (log of shownLogs(); track log.id; let i = $index) {
-        <article class="row line" [style.--i]="i < 15 ? i : 15">
-          <span [class]="'verb ' + verb(log.action)">{{ verb(log.action) }}</span>
-          <div class="what">
-            <strong>{{ log.action }}</strong>
-            @if (log.target || log.detail) { <span class="muted">{{ log.target }}{{ log.target && log.detail ? ', ' : '' }}{{ log.detail }}</span> }
-          </div>
-          <span class="muted who-t">{{ tenantName(log.tenantId) }}</span>
-          <time class="muted" [attr.datetime]="log.createdAt" [title]="log.createdAt">{{ ago(log.createdAt) }}</time>
-        </article>
-      } @empty {
-        <div class="empty"><span class="ms" aria-hidden="true">manage_search</span><strong>{{ filter() ? 'No entries match' : 'No changes recorded yet' }}</strong>
-          <p>{{ filter() ? 'Try a shorter filter.' : 'Admin actions show up here as they happen.' }}</p></div>
-      }
-    </section>
+            <svg class="spark" viewBox="0 0 140 36" preserveAspectRatio="none" role="img" [attr.aria-label]="sparkLabel(t.daily)">
+              <path class="area" [attr.d]="sp.area" /><path class="line" [attr.d]="sp.line" />
+              @for (f of sp.bars; track $index) { <rect class="fail" [attr.x]="f.x" [attr.y]="sp.h - f.hgt" width="3" [attr.height]="f.hgt" /> }
+              @if (sp.last) { <circle class="dot" [attr.cx]="sp.last[0]" [attr.cy]="sp.last[1]" r="2.4" /> }
+            </svg>
+            <div class="bars" role="img" [attr.aria-label]="b.sent + ' sent, ' + b.failed + ' failed, ' + b.queued + ' waiting'">
+              <span class="b ok" [style.width.%]="bar(b.sent)"></span>
+              <span class="b bad" [style.width.%]="bar(b.failed)"></span>
+              <span class="b warn" [style.width.%]="bar(b.queued)"></span>
+            </div>
+            <ul class="legend">
+              <li class="ok"><b>{{ b.sent }}</b> sent</li>
+              <li><b>{{ b.delivered }}</b> delivered</li>
+              <li><b>{{ b.read }}</b> read</li>
+              <li class="bad"><b>{{ b.failed }}</b> failed</li>
+              @if (b.queued) { <li class="warn"><b>{{ b.queued }}</b> waiting</li> }
+              @if (b.sandbox) { <li><b>{{ b.sandbox }}</b> sandbox</li> }
+            </ul>
+          </article>
+        } @empty {
+          <div class="empty"><span class="ms" aria-hidden="true">monitoring</span><strong>Nothing sent yet</strong><p>Usage appears once a business starts messaging.</p></div>
+        }
+      </section>
+    }
   } @else {
-    <div class="stats">
-      <div class="stat" style="--i: 0"><small>Numbers</small><b>{{ totals().channels }}</b></div>
-      <div class="stat ok" style="--i: 1"><small>Running</small><b>{{ totals().running }}</b></div>
-      <div class="stat bad" style="--i: 2"><small>Disabled</small><b>{{ totals().disabled }}</b></div>
-    </div>
+    @if (kind() === 'health') {
+      @let hc = healthCounts();
+      <div class="banner" [class.bad]="hc.bad" [class.warn]="!hc.bad && hc.warn">
+        <span class="ms" aria-hidden="true">{{ hc.bad ? 'error' : hc.warn ? 'warning' : 'check_circle' }}</span>
+        <div>
+          <strong>
+            @if (hc.bad) { {{ hc.bad }} number{{ hc.bad === 1 ? '' : 's' }} cannot send }
+            @else if (hc.warn) { {{ hc.warn }} number{{ hc.warn === 1 ? '' : 's' }} need a look }
+            @else { Every number is fine }
+          </strong>
+          <p>{{ hc.connected }} connected, {{ hc.ok }} healthy, {{ hc.off }} disabled, {{ hc.waiting }} messages waiting</p>
+        </div>
+        <label class="toggle"><input type="checkbox" [checked]="problemsOnly()" (change)="problemsOnly.set(!problemsOnly())" /> Problems only</label>
+      </div>
+    } @else {
+      @let hc = healthCounts();
+      <div class="stats">
+        <div class="stat" style="--i: 0"><small>Numbers</small><b>{{ hc.all }}</b></div>
+        <div class="stat ok" style="--i: 1"><small>Connected</small><b>{{ hc.connected }}</b></div>
+        <div class="stat bad" style="--i: 2"><small>Need attention</small><b>{{ hc.bad + hc.warn }}</b></div>
+        <div class="stat warn" style="--i: 3"><small>In warm-up</small><b>{{ hc.warming }}</b></div>
+        <div class="stat" style="--i: 4"><small>Disabled</small><b>{{ hc.off }}</b></div>
+      </div>
+      @if (providers().length > 1) {
+        <label class="pick"><span class="muted">Transport</span>
+          <select [value]="provider()" (change)="setProvider($event)">
+            <option value="">All</option>
+            @for (p of providers(); track p) { <option [value]="p">{{ providerLabel(p) }}</option> }
+          </select>
+        </label>
+      }
+    }
     <section class="list">
-      @for (entry of tenantChannels(); track entry.tenant.id + '-' + entry.channel.id; let i = $index) {
-        <article class="row" [style.--i]="i">
+      @for (c of kind() === 'health' ? shownHealth() : shownChannels(); track c.tenantId + '-' + c.id; let i = $index) {
+        <article [class]="'row chan sev-' + c.severity" [style.--i]="i < 12 ? i : 12">
           <div class="who">
-            <span class="avatar"><span class="ms">smartphone</span></span>
+            <span [class]="'state-ic ' + c.state" aria-hidden="true"><span class="ms">{{ stateCopy(c.state).icon }}</span></span>
             <div>
-              <strong>{{ entry.channel.displayName }}</strong>
-              <span class="muted">{{ entry.tenant.name }}, {{ entry.channel.phoneNumber || 'no number yet' }}</span>
+              <strong>{{ c.displayName }}</strong>
+              <span class="muted">{{ c.tenantName }}, {{ c.phoneNumber || c.account || 'no number yet' }}</span>
             </div>
-            <span [class]="'pill ' + (entry.channel.status === 'active' ? 'active' : 'suspended')">{{ entry.channel.status }}</span>
+            <span [class]="'pill st ' + c.state">{{ stateCopy(c.state).label }}</span>
           </div>
           <ul class="facts">
-            <li>{{ entry.channel.provider.replace('_', ' ') }}</li>
-            <li [class.ok]="entry.channel.health.running" [class.bad]="!entry.channel.health.running">{{ entry.channel.health.running ? 'Running' : 'Stopped' }}</li>
-            <li [class.warn]="!entry.channel.health.withinSendingWindow">{{ entry.channel.health.withinSendingWindow ? 'In sending window' : 'Outside sending window' }}</li>
-            @if (entry.channel.isDefault) { <li>Default</li> }
+            <li><span class="ms" aria-hidden="true">cable</span>{{ providerLabel(c.provider) }}</li>
+            @if (c.account && c.account !== c.phoneNumber) { <li><span class="ms" aria-hidden="true">badge</span>{{ c.account }}</li> }
+            <li [class.warn]="c.waiting"><b>{{ c.queue }}</b> in queue, <b>{{ c.waiting }}</b> waiting</li>
+            <li>Last send <b>{{ ago(c.lastSentAt) }}</b></li>
+            <li [class.bad]="c.lastHour.failureRate >= 20" [class.warn]="c.lastHour.failureRate > 0 && c.lastHour.failureRate < 20">
+              Last hour <b>{{ c.lastHour.total }}</b>, <b>{{ c.lastHour.failureRate }}%</b> failed</li>
+            <li [class.warn]="!c.withinSendingWindow">{{ c.withinSendingWindow ? 'In sending window' : 'Outside sending window' }}</li>
+            @if (c.isDefault) { <li>Default</li> }
           </ul>
-          @if (entry.channel.health.error) { <p class="err-line"><span class="ms" aria-hidden="true">error</span> {{ entry.channel.health.error }}</p> }
+          @if (kind() === 'channels') {
+            <div class="meter-row">
+              <span class="muted">Today</span>
+              <span class="meter" [class]="'meter ' + tone(quotaPct(c))" role="meter" aria-label="Daily cap used" aria-valuemin="0"
+                    [attr.aria-valuemax]="c.quota.limit || null" [attr.aria-valuenow]="c.quota.used">
+                <span [style.width.%]="c.quota.limit ? quotaPct(c) : 0"></span>
+              </span>
+              <span><b>{{ c.quota.used }}</b> / {{ c.quota.enabled && c.quota.limit ? c.quota.limit : 'no cap' }}</span>
+              @if (c.warmup; as wu) {
+                <span class="pill" [class.warming]="wu.active">{{ wu.active ? 'Warm-up day ' + wu.day + ' of ' + wu.days : 'Warmed up' }}</span>
+              }
+            </div>
+          }
+          @if (c.problems.length) {
+            <ul class="problems">
+              @for (p of c.problems; track p.text) {
+                <li [class]="p.level"><span class="ms" aria-hidden="true">{{ p.level === 'bad' ? 'error' : 'warning' }}</span>{{ p.text }}</li>
+              }
+            </ul>
+          }
+          @if (c.error && c.state !== 'error') { <p class="err-line"><span class="ms" aria-hidden="true">error</span> {{ c.error }}</p> }
+          <a class="link" routerLink="/admin/tenants" [queryParams]="{ settings: c.tenantId }">Open {{ c.tenantName }} <span class="ms" aria-hidden="true">arrow_forward</span></a>
         </article>
       } @empty {
-        <div class="empty"><span class="ms" aria-hidden="true">smartphone</span><strong>No numbers connected</strong><p>Businesses add numbers from WhatsApp numbers.</p></div>
+        <div class="empty"><span class="ms" aria-hidden="true">{{ kind() === 'health' ? 'health_and_safety' : 'smartphone' }}</span>
+          <strong>{{ problemsOnly() && kind() === 'health' ? 'No problems right now' : filter() ? 'No number matches' : 'No numbers connected' }}</strong>
+          <p>Businesses add numbers from WhatsApp numbers.</p></div>
       }
     </section>
   }

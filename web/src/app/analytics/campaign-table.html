@@ -1,0 +1,65 @@
+<div class="ct-head">
+  <div>
+    <h2 id="t-campaigns">Campaigns</h2>
+    <p class="muted">{{ rows().length }} {{ rows().length === 1 ? 'campaign' : 'campaigns' }} sent in the last {{ days() }} days</p>
+  </div>
+  <button type="button" class="btn ghost sm" (click)="exportCsv()" [disabled]="!rows().length"
+    aria-label="Export the campaign table as CSV">
+    <span class="ms" aria-hidden="true">download</span> CSV
+  </button>
+</div>
+
+@if (rows().length) {
+  <div class="scroll" role="region" aria-label="Campaign table, scrolls sideways on small screens" tabindex="0">
+    <table>
+      <caption class="sr-only">Campaign performance, last {{ days() }} days. Column headers sort the table.</caption>
+      <thead>
+        <tr>
+          @for (c of columns; track c.key) {
+            <th scope="col" [class.num]="c.numeric" [attr.aria-sort]="ariaSort(c.key)">
+              <button type="button" class="sort" [class.on]="sortKey() === c.key" (click)="sortBy(c.key)">
+                {{ c.label }}
+                <span class="ms" aria-hidden="true">{{ sortKey() === c.key ? (dir() === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more' }}</span>
+              </button>
+            </th>
+          }
+        </tr>
+      </thead>
+      <tbody>
+        @for (c of sorted(); track c.campaignId; let i = $index) {
+          <tr style="--i: {{ i }}">
+            <th scope="row" class="name">
+              <a routerLink="/campaign" [queryParams]="{ id: c.campaignId }" [attr.aria-label]="'Open campaign ' + c.name">
+                <span class="ttl">{{ c.name }}</span>
+                <small class="muted">{{ c.campaignId }}@if (c.pending) { · {{ c.pending | number }} queued }</small>
+              </a>
+            </th>
+            <td class="num">{{ c.sent | number }}</td>
+            <td class="num">
+              <span class="rate">{{ c.deliveryRate === null ? '—' : (c.deliveryRate | number: '1.0-1') + '%' }}</span>
+              <small class="muted">{{ c.delivered | number }}</small>
+            </td>
+            <td class="num">
+              <span class="rr tier-{{ tier(c.readRate) }}">
+                <span class="rr-track" aria-hidden="true"><i [style.width.%]="c.readRate ?? 0"></i></span>
+                <span class="rate">{{ c.readRate === null ? '—' : (c.readRate | number: '1.0-1') + '%' }}</span>
+              </span>
+            </td>
+            <td class="num" [class.bad]="c.failed > 0">{{ c.failed | number }}</td>
+            <td class="when">
+              @if (c.lastSentAt) {
+                <time [attr.datetime]="c.lastSentAt" [title]="'First send ' + (c.firstSentAt | date: 'medium')">{{ c.lastSentAt | date: 'd MMM, HH:mm' }}</time>
+              } @else { <span class="muted">Queued</span> }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+} @else {
+  <div class="ct-empty">
+    <span class="ms" aria-hidden="true">campaign</span>
+    <p><strong>No campaign sends in this range.</strong><br /><span class="muted">Results appear here as soon as a campaign starts sending.</span></p>
+    <a class="btn primary sm" routerLink="/campaign"><span class="ms" aria-hidden="true">send</span> New campaign</a>
+  </div>
+}

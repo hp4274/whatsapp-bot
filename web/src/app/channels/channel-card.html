@@ -1,0 +1,165 @@
+@let ch = channel();
+@if (active()) {
+  <div class="ribbon"><span class="ms" aria-hidden="true">my_location</span> Working on this number</div>
+}
+
+<header class="head">
+  <span class="status" role="status">
+    <span class="dot" aria-hidden="true"></span>
+    {{ stateLabel() }}
+  </span>
+  <div class="badges">
+    <span class="badge transport" [title]="transport().hint || transport().label">
+      <span class="ms" aria-hidden="true">{{ transport().icon }}</span>{{ transport().short }}
+    </span>
+    @if (ch.isDefault) {
+      <span class="badge default" title="Used when a request does not name a number">
+        <span class="ms" aria-hidden="true">star</span>Default
+      </span>
+    }
+  </div>
+</header>
+
+<div class="ident">
+  <div class="avatar" aria-hidden="true">
+    <span>{{ (ch.displayName || '?').slice(0, 1).toUpperCase() }}</span>
+  </div>
+  <div class="names">
+    @if (editing() === 'name') {
+      <form class="inline" (submit)="commitEdit($event)">
+        <label class="sr" [for]="'name-' + ch.id">Label</label>
+        <input #editor [id]="'name-' + ch.id" class="edit-name" maxlength="80" [value]="draftValue()"
+               (input)="draftValue.set($any($event.target).value)" (keydown)="editKey($event)" />
+        <button class="icon-btn ok" type="submit" [disabled]="busy()" aria-label="Save label"><span class="ms">check</span></button>
+        <button class="icon-btn" type="button" (click)="cancelEdit()" aria-label="Cancel"><span class="ms">close</span></button>
+      </form>
+    } @else {
+      <h3>
+        <span class="title">{{ ch.displayName }}</span>
+        <button class="icon-btn pencil" type="button" (click)="startEdit('name')" [attr.aria-label]="'Rename ' + ch.displayName">
+          <span class="ms">edit</span>
+        </button>
+      </h3>
+    }
+
+    @if (editing() === 'phone') {
+      <form class="inline" (submit)="commitEdit($event)">
+        <label class="sr" [for]="'phone-' + ch.id">Phone number</label>
+        <input #editor [id]="'phone-' + ch.id" class="edit-phone" inputmode="tel" placeholder="+91 98765 43210"
+               [value]="draftValue()" (input)="draftValue.set($any($event.target).value)" (keydown)="editKey($event)" />
+        <button class="icon-btn ok" type="submit" [disabled]="busy()" aria-label="Save phone number"><span class="ms">check</span></button>
+        <button class="icon-btn" type="button" (click)="cancelEdit()" aria-label="Cancel"><span class="ms">close</span></button>
+      </form>
+    } @else {
+      <p class="phone">
+        <span class="mono">{{ ch.phoneNumber || 'No number set' }}</span>
+        <button class="icon-btn pencil" type="button" (click)="startEdit('phone')" aria-label="Edit phone number">
+          <span class="ms">edit</span>
+        </button>
+      </p>
+    }
+    @if (ch.health?.account) {
+      <p class="account"><span class="ms" aria-hidden="true">verified_user</span>{{ ch.health?.account }}</p>
+    }
+  </div>
+</div>
+
+@if (usage(); as u) {
+  <section class="meter" [attr.data-tone]="meterTone()" aria-label="Today's sends">
+    <div class="meter-top">
+      <span class="label">Today</span>
+      <span class="figures">
+        <strong>{{ u.sentToday }}</strong>
+        @if (u.dailyLimit) { <span class="of">/ {{ u.dailyLimit }}</span> } @else { <span class="of">sent</span> }
+      </span>
+    </div>
+    @if (usedShare() !== null) {
+      <div class="bar" role="meter" aria-valuemin="0" [attr.aria-valuemax]="u.dailyLimit" [attr.aria-valuenow]="u.sentToday"
+           [attr.aria-label]="u.sentToday + ' of ' + u.dailyLimit + ' daily sends used'">
+        <span class="fill" [style.--p]="usedShare()"></span>
+      </div>
+      <p class="meter-foot">
+        <span>{{ u.remaining }} left</span>
+        <span>resets {{ u.resetsAt | date: 'shortTime' }}</span>
+        @if (u.setByPlatform) { <span class="policy" title="The platform's anti-ban policy sets this limit"><span class="ms" aria-hidden="true">shield</span>platform limit</span> }
+      </p>
+    } @else {
+      <p class="meter-foot"><span>{{ u.safetyEnabled ? 'No daily cap set' : 'Sending safety is off' }}</span></p>
+    }
+  </section>
+}
+
+@if (warmup(); as w) {
+  <div class="warmup" [class.done]="!w.active">
+    <span class="ms" aria-hidden="true">{{ w.active ? 'local_fire_department' : 'verified' }}</span>
+    <div class="warm-body">
+      <span class="warm-title">
+        @if (w.active) { Warm-up day {{ w.day }}/{{ w.totalDays }} } @else { Warm-up complete }
+        <span class="muted">· cap {{ w.todayCap }} today</span>
+      </span>
+      <span class="steps" aria-hidden="true">
+        @for (s of warmupSteps(); track $index) { <i [class.on]="s"></i> }
+      </span>
+    </div>
+  </div>
+}
+
+<p class="window" [class.closed]="ch.businessHours && !ch.health?.withinSendingWindow">
+  <span class="ms" aria-hidden="true">schedule</span>
+  <span>{{ windowText() }}</span>
+  <span class="tz">{{ ch.timezone }}</span>
+  @if (ch.businessHours) {
+    <span class="now-chip">{{ ch.health?.withinSendingWindow ? 'Open now' : 'Closed now' }}</span>
+  }
+</p>
+
+@if (hints().length) {
+  <ul class="hints" aria-label="Quality hints">
+    @for (h of hints(); track h.code) {
+      <li [attr.data-level]="h.level"><span class="ms" aria-hidden="true">{{ hintIcon[h.level] }}</span>{{ h.message }}</li>
+    }
+  </ul>
+}
+
+@if (ch.health?.error && state() !== 'connected') {
+  <p class="alert"><span class="ms" aria-hidden="true">link_off</span>{{ ch.health?.error }}</p>
+}
+@if (error()) {
+  <p class="alert" role="alert"><span class="ms" aria-hidden="true">error</span>{{ error() }}</p>
+}
+
+<div class="actions">
+  @if (needsConnect()) {
+    <button class="btn primary cta" type="button" (click)="connect.emit()">
+      <span class="ms" aria-hidden="true">{{ transport().qr ? 'qr_code_scanner' : 'link' }}</span>
+      {{ transport().qr ? 'Scan QR' : 'Connect' }}
+    </button>
+  } @else if (!active()) {
+    <button class="btn" type="button" (click)="use.emit()" [disabled]="ch.status !== 'active'">
+      <span class="ms" aria-hidden="true">ads_click</span> Work on this
+    </button>
+  } @else {
+    <button class="btn" type="button" (click)="connect.emit()">
+      <span class="ms" aria-hidden="true">cable</span> Connection
+    </button>
+  }
+  <button class="btn" type="button" (click)="toggleOpen()" [attr.aria-expanded]="open()"
+          [attr.aria-controls]="'drawer-' + ch.id">
+    <span class="ms chev" aria-hidden="true">tune</span>
+    {{ open() ? 'Close' : 'Settings' }}
+  </button>
+</div>
+
+@if (open()) {
+  <div class="drawer" [id]="'drawer-' + ch.id">
+    <app-channel-settings
+      [channel]="ch"
+      [capabilities]="capabilities()"
+      [canDelete]="canDelete()"
+      [busy]="busy()"
+      (patch)="save($event)"
+      (makeDefault)="makeDefault()"
+      (remove)="remove()"
+    />
+  </div>
+}

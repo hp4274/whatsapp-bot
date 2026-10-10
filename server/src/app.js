@@ -18,6 +18,8 @@ import multer from 'multer';
 import { AutoReplyEngine } from './autoreply/engine.js';
 import { processOptOut } from './autoreply/optout.js';
 import { CampaignManager } from './campaign/manager.js';
+import { auditRows, cleanCountryCode, guessMapping, parseSheet } from './campaign/importer.js';
+import { channelInputProblems, channelUsage } from './channelUsage.js';
 import {
     APP_DIR,
     SESSION_DIR,
@@ -25,6 +27,8 @@ import {
     TRANSPORT_CLOUD_API,
     TRANSPORT_SANDBOX,
     TRANSPORT_WEB_JS,
+    TRANSPORT_BAILEYS,
+    QR_TRANSPORTS,
     loadConfig,
     mergeConfig,
     publicConfig,
@@ -39,7 +43,9 @@ import {
     importPaymentReminders,
     remindersToContacts,
 } from './paymentReminders.js';
-import { importContacts } from './contacts.js';
+import {
+    PREVIEW_ROWS, contactsToCsv, importContacts, mappedRowsToContacts, parseTable, resolveMapping, suggestMapping,
+} from './contacts.js';
 import { PhoneError, contactContext, normalizePhone, personalize } from './protocol.js';
 import {
     CAPABILITIES,
@@ -48,10 +54,12 @@ import {
     publicChannel,
     withinSendingWindow,
 } from './channels.js';
-import { ContactError, ContactStore } from './contactStore.js';
+import { BULK_ACTIONS, ContactError, ContactStore, MAX_BULK } from './contactStore.js';
 import { createInboxRouter } from './inbox/routes.js';
+import { createAnalyticsRouter } from './analytics/routes.js';
 import { ConversationStore } from './inbox/store.js';
 import { createKnowledgeRouter } from './knowledge/routes.js';
+import { createAutoReplyRouter } from './autoreply/routes.js';
 import { KnowledgeStore } from './knowledge/store.js';
 import { createObjectRouter } from './objects/routes.js';
 import { createTicketRouter } from './tickets/routes.js';
@@ -59,12 +67,15 @@ import { TicketStore } from './tickets/store.js';
 import { JobStore } from './scheduler/store.js';
 import { SchedulerWorker } from './scheduler/worker.js';
 import { TemplateError, TemplateStore, validate as validateTemplate } from './templates/store.js';
+import { metaTemplateFor } from './messaging/templateSend.js';
 import { WorkflowEngine } from './workflows/engine.js';
 import { WorkflowError } from './workflows/definition.js';
 import { WorkflowStore, dueRuns } from './workflows/store.js';
 import { MessageJobError, messageJob } from './messaging/job.js';
 import { friendlyError } from './messaging/errors.js';
 import { MessageService } from './messaging/service.js';
+import { InteractiveError, normalizeInteractive, personalizeInteractive } from './messaging/interactive.js';
+import { InteractiveStore, createInteractiveRouter, handleInteractiveReply, normalizeReplyRules } from './messaging/replies.js';
 import { MediaStore } from './mediaStore.js';
 import { createBillingRouter } from './billing/routes.js';
 import { createCampaignRouter } from './campaigns/routes.js';
@@ -87,11 +98,13 @@ import { securityHeaders } from './security/headers.js';
 import {
     CONSENT_TEXT, CONSENT_VERSION, ROLES, TENANT_SERVICES, Tenancy, TenancyError, blockedWordIn, roleRank,
 } from './tenancy.js';
-import { bulkWindowOpen } from './campaign/safety.js';
+import { PACING_PRESETS, bulkWindowOpen } from './campaign/safety.js';
+import { auditCsv, createAdminOps } from './adminOps.js';
 import { TransportError } from './transports/base.js';
 import { CloudApiTransport, parseInboundPayload, parseStatusPayload } from './transports/cloudApi.js';
 import { SandboxTransport } from './transports/sandbox.js';
 import { TOS_WARNING, WhatsAppWebTransport } from './transports/whatsappWeb.js';
+import { BaileysTransport, TOS_WARNING as BAILEYS_TOS_WARNING } from './transports/baileys.js';
 
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -128,6 +141,8 @@ export function createTransport(config, deps = {}) {
             return new CloudApiTransport(config, deps);
         case TRANSPORT_WEB_JS:
             return new WhatsAppWebTransport(config, deps);
+        case TRANSPORT_BAILEYS:
+            return new BaileysTransport(config, deps);
         default:
             throw new Error(`Unknown transport: ${config.transport}`);
     }
@@ -141,10 +156,13 @@ const FEATURE_ROUTERS = [
     createInboxRouter,
     createTicketRouter,
     createKnowledgeRouter,
+    createAutoReplyRouter,
     createObjectRouter,
     createBillingRouter,
+    createAnalyticsRouter,
     createPublicApiRouter,
     createCampaignRouter,
+    createInteractiveRouter,
     // After createObjectRouter: it reads `state.objects`.
     createSchoolRouter,
 ];
@@ -195,6 +213,7 @@ const SERVICE_ROUTE_PREFIXES = Object.freeze([
     ['/api-keys', 'api'],
     ['/webhook-endpoints', 'api'],
     ['/billing', 'analytics'],
+    ['/analytics', 'analytics'],
 ]);
 
 /** The capability a write needs, by path. Null when the route does not send. */
@@ -251,7 +270,8 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         connecting: false,
         manager: null,
         clients: new Set(), // SSE subscribers
-        media: new MediaStore(UPLOAD_DIR),
+        media: new MediaStore(UPLOAD_DIR, db.tenantId ?? null),
+        imports: new Map(), // importId -> { sheet, createdAt } for the campaign import wizard
         webhookConnect: null,
         tenancy: deps.tenancy ?? null,
     };
@@ -273,10 +293,11 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
 
     // Plan limits set by the platform admin. Read per call so a change applies at once.
     const limits = () => deps.limits?.() ?? {};
+    state.limits = limits; // campaigns/routes.js enforces maxContactsPerCampaign on saved lists
     const transportBlocked = (cfg) => {
         const lim = limits();
         if (cfg.transport === TRANSPORT_CLOUD_API && lim.allowCloudApi === false) return 'The Meta Cloud API is not enabled for your plan.';
-        if (cfg.transport === TRANSPORT_WEB_JS && lim.allowWhatsappWeb === false) return 'WhatsApp Web (QR) is not enabled for your plan.';
+        if (QR_TRANSPORTS.includes(cfg.transport) && lim.allowWhatsappWeb === false) return 'WhatsApp Web (QR) is not enabled for your plan.';
         return null;
     };
     const bannedIn = (text) => {
@@ -355,7 +376,25 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         },
     });
     autoReply.setService(messages);
+    autoReply.attach({
+        contacts,
+        conversations,
+        channel: () => state.channel,
+        media: (mediaId) => state.media?.get(mediaId) ?? null,
+        businessName: () => state.tenancy?.getTenant(db.tenantId)?.name ?? '',
+    });
     state.manager = manager;
+    // Interactive sends are remembered so a later "1" / button tap can be
+    // matched back to the menu (messaging/replies.js).
+    state.interactions = new InteractiveStore(db);
+    manager.onSent = (item) => {
+        // Auto-reply menus answer themselves (autoreply/engine.js handlePre).
+        if (!item.interactive || item.messageType === 'auto_reply') return;
+        state.interactions.recordSend({
+            channelId: state.channel.id, recipient: item.recipient, campaignId: item.campaignId,
+            messageId: item.messageId, interactive: item.interactive,
+        });
+    };
     state.autoReply = autoReply;
     state.messages = messages;
     state.contacts = contacts;
@@ -375,7 +414,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         res.json({
             config: publicConfig(state.config),
             transports: TRANSPORTS,
-            warnings: { [TRANSPORT_WEB_JS]: TOS_WARNING },
+            warnings: { [TRANSPORT_WEB_JS]: TOS_WARNING, [TRANSPORT_BAILEYS]: BAILEYS_TOS_WARNING },
         });
     });
 
@@ -598,6 +637,13 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         const body = personalize(message, { name, phone: normalized });
         const media = mediaId ? state.media.get(mediaId) : null;
         if (mediaId && !media) return res.status(404).json({ errors: ['media not found'] });
+        let interactive;
+        try {
+            interactive = personalizeInteractive(normalizeInteractive(req.body?.interactive), { name, phone: normalized });
+        } catch (err) {
+            if (err instanceof InteractiveError) return res.status(400).json({ errors: [err.message] });
+            throw err;
+        }
 
         let outcome;
         try {
@@ -607,6 +653,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
                 text: body,
                 name,
                 media,
+                interactive,
                 // A caller retrying a timed-out POST sends the same key and
                 // gets the original message id back, not a second message.
                 idempotencyKey: req.get('idempotency-key') || undefined,
@@ -629,18 +676,109 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     app.post('/contacts/import', upload.single('file'), checkImport, async (req, res) => {
         if (!req.file) return res.status(400).json({ errors: ['no file uploaded'] });
         try {
-            const result = await importContacts(
-                req.file.originalname, req.file.buffer, state.config.defaultCountryCode);
+            // An explicit column mapping comes from the contacts import wizard;
+            // without one, the header-guessing importer runs exactly as before.
+            const mapping = req.body?.mapping ?? req.query.mapping;
+            let result;
+            if (mapping !== undefined && mapping !== '') {
+                const table = await parseTable(req.file.originalname, req.file.buffer);
+                let targets;
+                try {
+                    targets = resolveMapping(table.headers, mapping);
+                } catch (err) {
+                    return res.status(400).json({ errors: [err.message] });
+                }
+                result = mappedRowsToContacts(table.rows, targets, state.config.defaultCountryCode);
+            } else {
+                result = await importContacts(
+                    req.file.originalname, req.file.buffer, state.config.defaultCountryCode);
+            }
             // Campaign preview just wants the parsed rows, so saving is opt-in
             // and the existing contract is unchanged.
             if (req.query.save === 'true' || req.body?.save === 'true') {
-                const tags = String(req.query.tags ?? '').split(',').filter(Boolean);
+                const tags = String(req.query.tags ?? req.body?.tags ?? '').split(',').map((t) => t.trim()).filter(Boolean);
                 // importContacts already normalised every number.
                 result.saved = contacts.importMany(result.contacts, { source: 'import', tags, normalized: true });
             }
             return res.json(result);
         } catch (err) {
             return res.status(400).json({ errors: [`Import failed: ${err.message}`] });
+        }
+    });
+
+    // Contacts import wizard, step 1: what is in the file and how we would map it.
+    // Stateless: the wizard sends the file again with its mapping to commit.
+    app.post('/contacts/import/preview', upload.single('file'), checkImport, async (req, res) => {
+        if (!req.file) return res.status(400).json({ errors: ['no file uploaded'] });
+        let table;
+        try {
+            table = await parseTable(req.file.originalname, req.file.buffer);
+        } catch (err) {
+            return res.status(400).json({ errors: [`Import failed: ${err.message}`] });
+        }
+        if (!table.headers.length) return res.status(400).json({ errors: ['the file has no header row'] });
+        return res.json({
+            filename: req.file.originalname,
+            headers: table.headers,
+            rows: table.rows.slice(0, PREVIEW_ROWS),
+            rowCount: table.rows.length,
+            mapping: suggestMapping(table.headers),
+            fieldKeys: contacts.fieldKeys(),
+        });
+    });
+
+    // ------------------------------------------------ campaign import wizard --
+    const BAD_CC = 'default country code must be 1-4 digits';
+    const ccProblem = (value) => value !== undefined && value !== null && String(value).trim() !== ''
+        && !cleanCountryCode(value);
+
+    app.post('/campaign/import/preview', upload.single('file'), checkImport, async (req, res) => {
+        if (!req.file) return res.status(400).json({ errors: ['no file uploaded'] });
+        if (ccProblem(req.body?.countryCode)) return res.status(400).json({ errors: [BAD_CC] });
+        let sheet;
+        try {
+            sheet = await parseSheet(req.file.originalname, req.file.buffer);
+        } catch (err) {
+            return res.status(400).json({ errors: [`Import failed: ${err.message}`] });
+        }
+        if (!sheet.headers.length || !sheet.rows.length) {
+            return res.status(400).json({ errors: ['the file has no header row or no data rows'] });
+        }
+        const importId = `imp_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+        state.imports.set(importId, { sheet, createdAt: Date.now() });
+        // Map keeps insertion order, so the first key is the oldest session.
+        while (state.imports.size > 8) state.imports.delete(state.imports.keys().next().value);
+        return res.json({
+            importId,
+            filename: req.file.originalname,
+            headers: sheet.headers,
+            columns: sheet.columns,
+            rows: sheet.rows,
+            total: sheet.total,
+            truncated: sheet.truncated,
+            guess: guessMapping(sheet.columns, sheet.rows),
+        });
+    });
+
+    app.post('/campaign/import/audit', (req, res) => {
+        const { importId, mapping, countryCode, autoClean } = req.body ?? {};
+        const session = state.imports.get(importId);
+        if (!session) return res.status(404).json({ errors: ['import not found - upload the file again'] });
+        if (ccProblem(countryCode)) return res.status(400).json({ errors: [BAD_CC] });
+        const dedupeDays = Math.max(0, Number(req.body?.dedupeDays) || 0);
+        const since = new Date(Date.now() - dedupeDays * 86_400_000).toISOString().replace(/\.\d{3}Z$/, '+00:00');
+        const recent = dedupeDays > 0 ? new Set(db.bulkCountsSince(since).keys()) : new Set();
+        try {
+            const { contacts: valid, issues, counts } = auditRows(session.sheet.rows, session.sheet.columns, mapping, {
+                countryCode: countryCode ?? '',
+                autoClean: Boolean(autoClean),
+                optOuts: new Set(db.getAllOptOuts()),
+                recent,
+            });
+            return res.json({ counts, issues, valid: valid.map(({ row, phone, name }) => ({ row, phone, name })) });
+        } catch (err) {
+            if (err instanceof RangeError) return res.status(400).json({ errors: [err.message] });
+            throw err;
         }
     });
 
@@ -674,11 +812,64 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     app.get('/contacts', (req, res) => {
         const filter = filterFromQuery(req.query);
         res.json({
-            contacts: contacts.find(filter, { limit: req.query.limit, offset: req.query.offset }),
+            contacts: contacts.find(filter, {
+                limit: req.query.limit, offset: req.query.offset, sort: req.query.sort, dir: req.query.dir,
+            }),
             total: contacts.count(filter),
             tags: contacts.tags(),
             fieldKeys: contacts.fieldKeys(),
         });
+    });
+
+    // Static paths below must stay above `/contacts/:id`, or ':id' swallows them.
+    /** CSV of the given ids, or of everything matching the filter. */
+    app.get('/contacts/export', (req, res) => {
+        const ids = String(req.query.ids ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0);
+        // `ids` present means "exactly these", even when none of them parse.
+        const list = req.query.ids !== undefined
+            ? ids.slice(0, MAX_BULK).map((id) => contacts.get(id)).filter(Boolean)
+            : contacts.find(filterFromQuery(req.query), { limit: 5000, sort: req.query.sort, dir: req.query.dir });
+        const stamp = new Date().toISOString().slice(0, 10);
+        res.set('content-type', 'text/csv; charset=utf-8');
+        res.set('content-disposition', `attachment; filename="contacts-${stamp}.csv"`);
+        res.set('cache-control', 'no-store');
+        return res.send(contactsToCsv(list));
+    });
+
+    app.get('/contacts/duplicates', (req, res) => res.json(contacts.duplicates({ limit: req.query.limit })));
+
+    app.post('/contacts/merge', (req, res) => {
+        try {
+            const { keepId, mergeIds } = req.body ?? {};
+            if (!Number.isInteger(Number(keepId)) || Number(keepId) < 1) {
+                return res.status(400).json({ errors: ['keepId must be a contact id'] });
+            }
+            return res.json(contacts.merge(Number(keepId), mergeIds));
+        } catch (err) {
+            return contactFail(res, err);
+        }
+    });
+
+    /** One action over many contacts: `ids`, or a `filter` meaning every match. */
+    app.post('/contacts/bulk', (req, res) => {
+        try {
+            const { ids, filter, action, tags, reason } = req.body ?? {};
+            if (reason !== undefined && typeof reason !== 'string') {
+                return res.status(400).json({ errors: ['reason must be text'] });
+            }
+            if (tags !== undefined && !Array.isArray(tags)) {
+                return res.status(400).json({ errors: ['tags must be a list'] });
+            }
+            let list = ids;
+            if (list === undefined && filter && typeof filter === 'object' && !Array.isArray(filter)) {
+                list = contacts.idsFor(filter);
+                if (!list.length && BULK_ACTIONS.includes(action)) return res.json({ action, affected: 0, missing: [] });
+            }
+            if (!Array.isArray(list)) return res.status(400).json({ errors: ['ids must be a list of contact ids'] });
+            return res.json(contacts.bulk(list, action, { tags, reason }));
+        } catch (err) {
+            return contactFail(res, err);
+        }
     });
 
     app.post('/contacts', (req, res) => {
@@ -738,6 +929,18 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         }
     });
 
+    /** Opt out or back in: writes `opt_outs` and `opt_in_status` together. */
+    app.post('/contacts/:id/consent', (req, res) => {
+        const { optedOut, reason } = req.body ?? {};
+        if (typeof optedOut !== 'boolean') return res.status(400).json({ errors: ['optedOut must be true or false'] });
+        if (reason !== undefined && typeof reason !== 'string') return res.status(400).json({ errors: ['reason must be text'] });
+        try {
+            return res.json({ contact: contacts.setOptOut(req.params.id, optedOut, reason) });
+        } catch (err) {
+            return contactFail(res, err);
+        }
+    });
+
     // ------------------------------------------------------------ segments --
     app.get('/segments', (req, res) => res.json({ segments: contacts.listSegments() }));
 
@@ -783,16 +986,25 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     };
 
     app.get('/templates', (req, res) => res.json({
-        templates: templates.list({ type: req.query.type, channelId: req.query.channel }),
+        templates: templates.list({ type: req.query.type, channelId: req.query.channel, category: req.query.category }),
     }));
+
+    // A header media id must name an upload we can actually attach; one that
+    // was already on the template is left alone so an unrelated edit still saves.
+    const templateMediaMissing = (body, current = null) => {
+        const id = body?.headerMediaId;
+        return Boolean(id) && id !== current?.headerMediaId && !state.media.get(id);
+    };
+    const templateText = (body) => `${body?.name ?? ''} ${body?.body ?? ''} ${body?.interactive ? JSON.stringify(body.interactive) : ''}`;
 
     app.post('/templates', (req, res) => {
         const cap = limits().maxTemplates;
         if (cap && templates.list().length >= cap) {
             return res.status(403).json({ errors: [`Your plan allows ${cap} templates. Delete one or ask the platform admin to raise it.`] });
         }
-        const banned = bannedIn(`${req.body?.name ?? ''} ${req.body?.body ?? ''}`);
+        const banned = bannedIn(templateText(req.body));
         if (banned) return res.status(400).json({ errors: [banned] });
+        if (templateMediaMissing(req.body)) return res.status(400).json({ errors: ['header media not found - upload it again'] });
         // The store saves half-written drafts on purpose; the API is the gate.
         const problems = validateTemplate(req.body ?? {});
         if (problems.length && req.query.draft !== 'true') return res.status(400).json({ errors: problems });
@@ -814,11 +1026,13 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     });
 
     app.put('/templates/:id', (req, res) => {
-        const banned = bannedIn(`${req.body?.name ?? ''} ${req.body?.body ?? ''}`);
+        const banned = bannedIn(templateText(req.body));
         if (banned) return res.status(400).json({ errors: [banned] });
+        const current = templates.get(req.params.id);
+        if (templateMediaMissing(req.body, current)) return res.status(400).json({ errors: ['header media not found - upload it again'] });
         // Variables follow the body unless the caller sends them: an edit that adds a
         // placeholder must not be checked against the old declared list.
-        const problems = validateTemplate({ ...templates.get(req.params.id), ...req.body, variables: req.body?.variables });
+        const problems = validateTemplate({ ...current, ...req.body, variables: req.body?.variables });
         if (problems.length && req.query.draft !== 'true') return res.status(400).json({ errors: problems });
         try {
             return res.json({ template: templates.update(req.params.id, req.body ?? {}) });
@@ -1049,6 +1263,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         try {
             await fs.promises.mkdir(UPLOAD_DIR, { recursive: true });
             await fs.promises.writeFile(filePath, req.file.buffer);
+            state.media.claim(mediaId);
         } catch (err) {
             return res.status(500).json({ errors: [`Media upload failed: ${err.message}`] });
         }
@@ -1079,7 +1294,8 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
             onePerNumber = true, mediaId = null,
         } = req.body ?? {};
         const ownText = (c) => String(c?.extra?.message ?? c?.extra?.custom_message ?? '').trim();
-        if (!template && !(Array.isArray(audience) && audience.length && audience.every(ownText))) {
+        if (!template && !req.body?.templateId
+            && !(Array.isArray(audience) && audience.length && audience.every(ownText))) {
             return res.status(400).json({ errors: ['message is required'] });
         }
 
@@ -1104,17 +1320,53 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         }
         const banned = bannedIn([template, ...list.map(ownText)].join(' '));
         if (banned) return res.status(400).json({ errors: [banned] });
+        let interactive;
+        let replyRules;
+        try {
+            interactive = normalizeInteractive(req.body?.interactive);
+            replyRules = normalizeReplyRules(req.body?.replyRules);
+        } catch (err) {
+            if (err instanceof InteractiveError) return res.status(400).json({ errors: [err.message] });
+            throw err;
+        }
         if (!state.transport?.isConnected?.()) {
             return res.status(409).json({ errors: ['Connect a transport first.'] });
         }
+        // --- Meta approved template mode (Cloud API only; messaging/templateSend.js) ---
+        let metaTemplate;
+        let fallbackTemplate;
+        try {
+            metaTemplate = metaTemplateFor(templates, state.channel, req.body?.templateId, req.body?.templateParams);
+            fallbackTemplate = metaTemplateFor(templates, state.channel,
+                req.body?.fallbackTemplateId, req.body?.fallbackTemplateParams);
+        } catch (err) {
+            return templateFail(res, err);
+        }
+        // --- end Meta approved template mode ---
         manager.resetStats();
         manager.queue.reset();
         manager.pausedByQuota = false;
         const media = mediaId ? state.media.get(mediaId) : null;
         if (mediaId && !media) return res.status(404).json({ errors: ['media not found'] });
-        const result = manager.enqueueContacts(list, template, { onePerNumber, media });
+        const result = manager.enqueueContacts(list, template, {
+            onePerNumber, media, interactive, metaTemplate, fallbackTemplate,
+            // Bulk Campaigns v2: per-variable fallback text and the speed preset.
+            fallbacks: req.body?.fallbacks ?? null, pacing: req.body?.pacing ?? 'balanced',
+        });
+        // Reply rules are keyed by the id the manager just generated.
+        if (replyRules.length) state.interactions.setRules(result.campaignId, replyRules);
         manager.start();
-        return res.json({ ...result, segmentId, audience: list.length });
+        return res.json({ ...result, segmentId, audience: list.length, replyRules });
+    });
+
+    /** Bulk Campaigns v2: change the live run's speed preset (safe / balanced / fast). */
+    app.post('/campaign/speed', (req, res) => {
+        const pacing = req.body?.pacing;
+        if (!PACING_PRESETS.includes(pacing)) {
+            return res.status(400).json({ errors: [`pacing must be one of ${PACING_PRESETS.join(', ')}`] });
+        }
+        manager.setPace(pacing);
+        return res.json({ stats: manager.statsSnapshot() });
     });
 
     app.post('/campaign/:action', (req, res) => {
@@ -1155,35 +1407,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         return res.json({ updated: db.markInboundRead(sender) });
     });
 
-    // ------------------------------------------------------ auto-replies --
-    app.get('/auto-replies', (req, res) => {
-        res.json({ rules: db.getAutoReplies() });
-    });
-
-    app.post('/auto-replies', (req, res) => {
-        const rule = validateAutoReply(req.body);
-        if (rule.errors) return res.status(400).json({ errors: rule.errors });
-        return res.status(201).json({ rule: db.saveAutoReply(rule) });
-    });
-
-    app.put('/auto-replies/:id', (req, res) => {
-        const current = db.getAutoReplies().find((rule) => rule.id === Number(req.params.id));
-        if (!current) return res.status(404).json({ errors: ['rule not found'] });
-        const rule = validateAutoReply({ ...current, ...req.body, id: current.id });
-        if (rule.errors) return res.status(400).json({ errors: rule.errors });
-        return res.json({ rule: db.saveAutoReply({ ...rule, createdAt: current.createdAt }) });
-    });
-
-    app.delete('/auto-replies/:id', (req, res) => {
-        return res.json({ deleted: db.deleteAutoReply(Number(req.params.id)) });
-    });
-
-    app.post('/auto-replies/preview', (req, res) => {
-        const { template = '', sender = '15551234567', senderName = 'Valued Customer' } = req.body ?? {};
-        res.json({
-            preview: autoReply.formatResponse(template, { sender, senderName, body: '' }),
-        });
-    });
+    // Auto-replies: autoreply/routes.js (mounted with FEATURE_ROUTERS).
 
     // ---------------------------------------------------------- opt-outs --
     app.get('/optouts', (req, res) => {
@@ -1217,7 +1441,8 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     // ------------------------------------------------------------- safety --
     app.get('/safety', (req, res) => {
         const batch = Number(req.query.contacts) || 0;
-        res.json({ safety: manager.safetyStatus(batch) });
+        const preset = PACING_PRESETS.includes(req.query.pacing) ? req.query.pacing : undefined;
+        res.json({ safety: manager.safetyStatus(batch, preset) });
     });
 
     // ------------------------------------------------------------ history --
@@ -1367,14 +1592,26 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
     };
 
     // --------------------------------------------------------- channels --
+    /** Live state plus today's budget, warm-up and delivery quality. */
+    const fullHealth = (channel) => {
+        const runtime = runtimes.get(channel.id);
+        const enforced = policy();
+        // A running runtime already carries the policy; a cold one gets it applied here.
+        const config = { ...(runtime?.state.config ?? channel.settings), ...enforced };
+        return {
+            ...channelHealth(channel, runtime),
+            ...channelUsage(channel, { db: db.forChannel(channel.id), config, policy: enforced }),
+        };
+    };
+
     app.get('/channels', (req, res) => res.json({
         channels: channels.list().map((channel) => ({
             ...publicChannel(channel),
-            health: channelHealth(channel, runtimes.get(channel.id)),
+            health: fullHealth(channel),
         })),
         capabilities: CAPABILITIES,
         transports: TRANSPORTS,
-        warnings: { [TRANSPORT_WEB_JS]: TOS_WARNING },
+        warnings: { [TRANSPORT_WEB_JS]: TOS_WARNING, [TRANSPORT_BAILEYS]: BAILEYS_TOS_WARNING },
     }));
 
     app.post('/channels', (req, res) => {
@@ -1383,6 +1620,8 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
             return res.status(403).json({ errors: [`Your plan allows ${cap} WhatsApp number${cap === 1 ? '' : 's'}. Ask the platform admin to raise it.`] });
         }
         try {
+            const problems = channelInputProblems(req.body ?? {});
+            if (problems.length) return res.status(400).json({ errors: problems });
             const channel = channels.create(req.body ?? {});
             audit?.(req, 'channel.create', channel.id, channel.displayName);
             return res.status(201).json({ channel: publicChannel(channel) });
@@ -1396,12 +1635,14 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         if (!channel) return res.status(404).json({ errors: ['channel not found'] });
         return res.json({
             channel: publicChannel(channel),
-            health: channelHealth(channel, runtimes.get(channel.id)),
+            health: fullHealth(channel),
         });
     });
 
     app.patch('/channels/:id', async (req, res) => {
         try {
+            const problems = channelInputProblems(req.body ?? {});
+            if (problems.length) return res.status(400).json({ errors: problems });
             const before = channels.get(req.params.id);
             const channel = channels.update(req.params.id, req.body ?? {});
             // A disabled channel must stop sending now, not at the next restart.
@@ -1464,6 +1705,7 @@ function channelHealth(channel, runtime) {
         detail: state?.info?.detail ?? '',
         error: state?.info?.error ?? null,
         withinSendingWindow: withinSendingWindow(channel),
+        transport: channel.provider || channel.settings?.transport || '',
     };
 }
 
@@ -1471,7 +1713,8 @@ const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_MAX_FAILS = 5;
 const LOGIN_MAX_IP_FAILS = 20;
 // Agents may send and triage, but not change how the account behaves.
-const AGENT_WRITES = new Set(['/messages', '/inbox/mark-read']);
+// '/media/upload': attaching a file to an inbox reply is agent work.
+const AGENT_WRITES = new Set(['/messages', '/inbox/mark-read', '/media/upload']);
 /**
  * An agent talks to customers and works the queue, so inbox and ticket writes
  * are theirs. Anything that changes how the account behaves still is not.
@@ -1852,12 +2095,14 @@ export function createApp({
         }
     });
 
-    admin.get('/audit-logs', (req, res) => res.json({
-        logs: tenancy.listAudit({
-            tenantId: req.query.tenant ? Number(req.query.tenant) : null,
-            limit: Math.min(Number(req.query.limit) || 200, 1000),
-        }),
-    }));
+    // Ops pages (read only): plans vs usage, message volume, live channel health, audit search.
+    const ops = createAdminOps({ db, tenancy, runtimes });
+    admin.get('/plans', (req, res) => res.json(ops.plans()));
+    admin.get('/usage-summary', (req, res) => res.json(ops.usage({ days: req.query.days })));
+    admin.get('/health-detail', (req, res) => res.json(ops.health()));
+    admin.get('/audit-logs', (req, res) => (req.query.format === 'csv'
+        ? res.type('text/csv').attachment('audit-logs.csv').send(auditCsv(ops.audit(req.query, { maxLimit: 10000 }).logs))
+        : res.json(ops.audit(req.query))));
 
     // ---------------------------------------------------------- team --
     const team = express.Router();
@@ -2010,6 +2255,7 @@ export function createApp({
      * run; the upgrade is a claim (`UPDATE ... WHERE status = 'waiting'`)
      * inside resume before that becomes possible.
      */
+    const sweepWarned = new Set(); // `${tenantId}:${campaignId}` already logged as not startable
     const sweep = async () => {
         let due = [];
         try {
@@ -2027,9 +2273,15 @@ export function createApp({
                     const channel = tenant.channels.getDefault();
                     if (channel) tenant.runtimeFor(channel).state.campaigns?.start(id);
                 } catch (err) {
-                    // An empty audience or a deleted template must not stop the
-                    // sweep for every other tenant.
-                    console.error(`[campaigns] ${id} failed to start:`, err.message);
+                    // An empty audience, a deleted template or a disconnected
+                    // number must not stop the sweep for every other tenant. The
+                    // campaign stays `scheduled` and is retried next tick, so
+                    // say so once per campaign rather than every tick.
+                    const key = `${tenantId}:${id}`;
+                    if (!sweepWarned.has(key)) {
+                        sweepWarned.add(key);
+                        console.error(`[campaigns] ${id} failed to start (will keep retrying):`, err.message);
+                    }
                 }
             }
         } catch (err) {
@@ -2152,6 +2404,10 @@ async function handleInbound(state, message) {
             broadcast(state, { type: 'optout', sender: saved.sender, action: optOut.action });
             return saved;
         }
+        // An answer to a campaign's buttons/list (native tap or typed "1"):
+        // counted, and the campaign's reply rules run. A rule that acted owns
+        // the message; a click without a rule falls through to auto-replies.
+        if ((await handleInteractiveReply(state, saved, message.replyId ?? null)).handled) return saved;
         // Opt-out is always honoured; auto-replies are a capability the
         // channel can be switched out of without going dark on STOP.
         if (!state.channel.capabilities.includes('auto_replies')) return saved;
@@ -2159,6 +2415,14 @@ async function handleInbound(state, message) {
         // message service enforces this too, but returning early also skips the
         // typing delay and the FAQ lookup.
         if (state.conversations?.isBotPaused(saved.sender, state.channel.id)) return saved;
+
+        // Menu answers, human handoff, welcome and away messages (autoreply/engine.js).
+        const early = await state.autoReply.handlePre({ ...saved, replyId: message.replyId ?? null });
+        if (early.replies.some((r) => r.accepted)) {
+            state.db.markInboundReplied(saved.messageId, early.replies.find((r) => r.accepted).source);
+            broadcast(state, { type: 'auto_reply', sender: saved.sender, rule: early.replies.map((r) => r.ruleName).join(', ') });
+        }
+        if (early.handled) return saved;
 
         // HELP lists every keyword the customer can use, whichever engine owns it.
         if (isHelp(saved.body)) {
@@ -2197,7 +2461,7 @@ async function handleInbound(state, message) {
                 return saved;
             }
         }
-        const reply = await state.autoReply.handleInbound(saved);
+        const reply = await state.autoReply.handleInbound(saved, { greeted: early.greeted });
         if (reply?.rule) {
             state.db.markInboundReplied(saved.messageId, reply.rule.keyword);
             broadcast(state, {
@@ -2253,27 +2517,6 @@ async function ensureWebhookTransport(state, deps) {
         });
     }
     return state.webhookConnect;
-}
-
-function validateAutoReply(input = {}) {
-    const rule = {
-        id: input.id,
-        keyword: String(input.keyword ?? '').trim(),
-        matchType: String(input.matchType ?? input.match_type ?? '').trim().toUpperCase(),
-        replyBody: String(input.replyBody ?? input.reply_body ?? '').trim(),
-        isActive: input.isActive ?? input.is_active ?? true,
-        cooldownSec: Math.floor(Number(input.cooldownSec ?? input.cooldown_sec ?? 300)),
-    };
-    const errors = [];
-    if (!rule.keyword && rule.matchType !== 'FALLBACK') errors.push('keyword is required');
-    if (!['EXACT', 'CONTAINS', 'REGEX', 'FALLBACK'].includes(rule.matchType)) {
-        errors.push('matchType must be EXACT, CONTAINS, REGEX, or FALLBACK');
-    }
-    if (!rule.replyBody) errors.push('replyBody is required');
-    if (!Number.isFinite(rule.cooldownSec) || rule.cooldownSec < 0) {
-        errors.push('cooldownSec must be zero or greater');
-    }
-    return errors.length ? { errors } : rule;
 }
 
 /**
