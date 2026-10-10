@@ -1,4 +1,4 @@
-import { Component, computed, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 
 import { Channel, ChannelPatch } from '../core/api';
 import { capabilityMeta } from './channel-meta';
@@ -10,6 +10,7 @@ import { SendWindow } from './send-window';
   imports: [SendWindow],
   templateUrl: './channel-settings.html',
   styleUrl: './channel-settings.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ChannelSettings {
   readonly channel = input.required<Channel>();
@@ -21,6 +22,7 @@ export class ChannelSettings {
   readonly makeDefault = output<void>();
   readonly remove = output<void>();
 
+  /** Disable and delete are two-step: the first click arms an inline confirm. */
   protected readonly confirming = signal<'delete' | 'disable' | null>(null);
   protected readonly label = capabilityMeta;
 

@@ -15,12 +15,24 @@ export const DB_PATH = path.join(APP_DIR, 'messages.db');
 export const SESSION_DIR = path.join(APP_DIR, 'wwebjs_auth');
 
 export const TRANSPORT_CLOUD_API = 'cloud_api';
-export const TRANSPORT_WEB_JS = 'whatsapp_web';
 export const TRANSPORT_BAILEYS = 'baileys';
+/** The offline fake transport: only for the test suite and the demo script (WHATSAPP_SENDER_SANDBOX=1). */
 export const TRANSPORT_SANDBOX = 'sandbox';
-export const TRANSPORTS = [TRANSPORT_CLOUD_API, TRANSPORT_WEB_JS, TRANSPORT_BAILEYS, TRANSPORT_SANDBOX];
+const SANDBOX_ENABLED = Boolean(process.env.WHATSAPP_SENDER_SANDBOX);
+export const TRANSPORTS = [TRANSPORT_CLOUD_API, TRANSPORT_BAILEYS, ...(SANDBOX_ENABLED ? [TRANSPORT_SANDBOX] : [])];
 /** QR-login transports that automate a personal/business number (same plan limit, same ToS warning). */
-export const QR_TRANSPORTS = [TRANSPORT_WEB_JS, TRANSPORT_BAILEYS];
+export const QR_TRANSPORTS = [TRANSPORT_BAILEYS];
+
+/**
+ * Transports that no longer exist map onto their replacement: WhatsApp Web
+ * (whatsapp-web.js) and the sandbox both become Baileys, so a saved number keeps
+ * working after a fresh QR scan.
+ */
+export function currentTransport(transport) {
+    if (transport === 'whatsapp_web') return TRANSPORT_BAILEYS;
+    if (transport === TRANSPORT_SANDBOX && !SANDBOX_ENABLED) return TRANSPORT_BAILEYS;
+    return transport;
+}
 
 export const DEFAULTS = Object.freeze({
     transport: TRANSPORT_CLOUD_API,
@@ -140,6 +152,7 @@ export function loadConfig(configPath = CONFIG_PATH) {
     } catch {
         // No file yet, or unreadable: defaults stand.
     }
+    config.transport = currentTransport(config.transport);
     return applyEnvOverrides(config);
 }
 
@@ -166,6 +179,7 @@ export function mergeConfig(current, update) {
         if ((key === 'accessToken' || key === 'appSecret') && value === '__set__') continue; // unchanged
         merged[key] = value;
     }
+    merged.transport = currentTransport(merged.transport);
     return merged;
 }
 

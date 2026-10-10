@@ -8,10 +8,21 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, throwError } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 
-export const TICKET_STATUSES = ['OPEN', 'IN_PROGRESS', 'WAITING_CUSTOMER', 'RESOLVED', 'CLOSED'] as const;
+export const TICKET_STATUSES = [
+  'OPEN',
+  'IN_PROGRESS',
+  'WAITING_CUSTOMER',
+  'RESOLVED',
+  'CLOSED',
+] as const;
 export const TICKET_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 /** Mirrors SLA_HOURS in store.js. */
-export const SLA_HOURS: Record<TicketPriority, number> = { low: 72, normal: 24, high: 8, urgent: 2 };
+export const SLA_HOURS: Record<TicketPriority, number> = {
+  low: 72,
+  normal: 24,
+  high: 8,
+  urgent: 2,
+};
 
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 export type TicketPriority = (typeof TICKET_PRIORITIES)[number];
@@ -70,7 +81,9 @@ export interface TicketDraft {
   contactId: number | null;
 }
 
-export type TicketPatch = Partial<Pick<Ticket, 'status' | 'priority' | 'assignedTo' | 'subject' | 'category'>> & {
+export type TicketPatch = Partial<
+  Pick<Ticket, 'status' | 'priority' | 'assignedTo' | 'subject' | 'category'>
+> & {
   notify?: boolean;
 };
 
@@ -84,32 +97,53 @@ export class TicketsApi {
     if (f.priority) params = params.set('priority', f.priority);
     if (f.assignedTo) params = params.set('assignedTo', f.assignedTo);
     if (f.overdue) params = params.set('overdue', 'true');
-    return this.http.get<{ tickets: Ticket[] }>('/api/tickets', { params }).pipe(map((r) => r.tickets), catchError(toMessage));
+    return this.http.get<{ tickets: Ticket[] }>('/api/tickets', { params }).pipe(
+      map((r) => r.tickets),
+      catchError(toMessage),
+    );
   }
 
   stats(): Observable<TicketStats> {
-    return this.http.get<{ stats: TicketStats }>('/api/tickets/stats').pipe(map((r) => r.stats), catchError(toMessage));
+    return this.http.get<{ stats: TicketStats }>('/api/tickets/stats').pipe(
+      map((r) => r.stats),
+      catchError(toMessage),
+    );
   }
 
   create(draft: TicketDraft): Observable<Ticket> {
-    return this.http.post<{ ticket: Ticket }>('/api/tickets', draft).pipe(map((r) => r.ticket), catchError(toMessage));
+    return this.http.post<{ ticket: Ticket }>('/api/tickets', draft).pipe(
+      map((r) => r.ticket),
+      catchError(toMessage),
+    );
   }
 
   update(id: number, patch: TicketPatch): Observable<{ ticket: Ticket; notified: boolean }> {
-    return this.http.patch<{ ticket: Ticket; notified: boolean }>(`/api/tickets/${id}`, patch).pipe(catchError(toMessage));
+    return this.http
+      .patch<{ ticket: Ticket; notified: boolean }>(`/api/tickets/${id}`, patch)
+      .pipe(catchError(toMessage));
   }
 
   events(id: number): Observable<TicketEvent[]> {
-    return this.http.get<{ events: TicketEvent[] }>(`/api/tickets/${id}/events`).pipe(map((r) => r.events), catchError(toMessage));
+    return this.http.get<{ events: TicketEvent[] }>(`/api/tickets/${id}/events`).pipe(
+      map((r) => r.events),
+      catchError(toMessage),
+    );
   }
 
   addNote(id: number, body: string): Observable<TicketEvent> {
-    return this.http.post<{ event: TicketEvent }>(`/api/tickets/${id}/notes`, { body }).pipe(map((r) => r.event), catchError(toMessage));
+    return this.http.post<{ event: TicketEvent }>(`/api/tickets/${id}/notes`, { body }).pipe(
+      map((r) => r.event),
+      catchError(toMessage),
+    );
   }
 
   satisfaction(id: number, score: number, comment = ''): Observable<Ticket> {
-    return this.http.post<{ ticket: Ticket }>(`/api/tickets/${id}/satisfaction`, { score, comment })
-      .pipe(map((r) => r.ticket), catchError(toMessage));
+    return this.http
+      .post<{ ticket: Ticket }>(`/api/tickets/${id}/satisfaction`, { score, comment })
+      .pipe(
+        map((r) => r.ticket),
+        catchError(toMessage),
+      );
   }
 }
 

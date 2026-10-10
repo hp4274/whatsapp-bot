@@ -1,54 +1,27 @@
+@use '../school/school-shared' as s;
+
+@include s.keyframes;
+@include s.tones;
+@include s.enter;
+@include s.head;
+@include s.card;
+@include s.pill;
+@include s.buttons;
+@include s.banner;
+
 :host {
   display: grid;
-  gap: var(--space-md);
+  gap: var(--space-xl);
+  align-content: start;
 }
 
-.notice {
-  margin: 0;
-  padding: var(--space-md) var(--space-lg);
-  border-color: var(--danger);
-  color: var(--danger);
-}
+.s-banner { align-items: flex-start; }
 
-.card-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-lg) var(--space-lg) var(--space-md);
-
-  &.slim {
-    padding-bottom: var(--space-sm);
-  }
-
-  h3 {
-    font-size: 15px;
-  }
-
-  p {
-    margin: 0;
-    font-size: 12px;
-  }
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: var(--radius-sm);
-  flex: none;
-
-  &.accent {
-    background: var(--accent-soft);
-    color: var(--accent);
-  }
-}
+.lede { margin: calc(var(--space-sm) * -1) 0 var(--space-md); font-size: 13px; }
 
 .workflow {
   display: grid;
   gap: var(--space-md);
-  padding: 0 var(--space-lg) var(--space-lg);
 }
 
 .import-row,
@@ -58,46 +31,48 @@
   gap: var(--space-md);
   flex-wrap: wrap;
 }
+label.btn { cursor: pointer; }
 
 .help,
 .plan {
   display: grid;
   gap: 4px;
-  padding: var(--space-md);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-alt);
-  font-size: 12px;
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  font-size: 13px;
+  color: var(--text-color);
+  strong { font-weight: 500; color: var(--text-strong); }
 }
 
 .plan.warn {
-  border-color: var(--warning);
-  background: var(--warning-soft);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning) 35%, transparent);
 }
 
 .over {
   color: var(--warning);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .import-errors {
-  font-size: 12px;
-  color: var(--text-muted);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  font-size: 13px;
+  color: var(--danger-text);
 
-  p {
-    margin: 2px 0;
-  }
+  summary { cursor: pointer; font-weight: 500; }
+  p { margin: 4px 0 0; color: var(--text-muted); }
 }
 
-.compact,
-.preview {
-  margin: 0;
-  font-size: 12px;
-}
+.compact { margin: 0; font-size: 13px; }
 
+/* Table: 12px hint headers, 13px cells, hairline rows, sunken hover. */
 .table-wrap {
   overflow-x: auto;
-  padding: 0 var(--space-lg) var(--space-lg);
+  margin: 0 calc(var(--space-xl) * -1);
+  padding: 0 var(--space-xl);
 }
 
 table {
@@ -109,22 +84,44 @@ table {
 
 th,
 td {
-  padding: 10px 8px;
-  border-bottom: 1px solid var(--border);
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--border-color);
   text-align: left;
   vertical-align: top;
+  color: var(--text-color);
 }
 
 th {
-  color: var(--text-muted);
+  color: var(--hint);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
-td:last-child {
-  min-width: 260px;
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+tbody tr {
+  transition: background var(--fast) var(--ease);
+  &:hover { background: var(--surface-sunken); }
+  &:last-child td { border-bottom: 0; }
 }
+
+td:last-child { min-width: 260px; }
 
 .preview {
-  padding: 0 var(--space-lg) var(--space-lg);
+  display: grid;
+  gap: 4px;
+  margin: var(--space-lg) 0 0;
+  padding: var(--space-md) var(--space-lg);
+  border-radius: 16px 16px 16px 4px;
+  background: var(--primary-tint);
+  font-size: 13.5px;
+  color: var(--text-color);
+  white-space: pre-line;
+
+  span { font-size: 12px; font-weight: 500; color: var(--primary-text); }
+}
+
+@media (max-width: 560px) {
+  .table-wrap { margin: 0 -20px; padding: 0 20px; }
 }

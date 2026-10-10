@@ -1,88 +1,177 @@
 <header class="s-head">
   <div>
-    <span class="eyebrow"><span class="ms" aria-hidden="true">handshake</span> Parent-teacher meetings</span>
+    <span class="eyebrow"
+      ><i class="ti ti-heart-handshake" aria-hidden="true"></i> Parent-teacher meetings</span
+    >
     <h2>PTM slots</h2>
-    <p class="note"><span class="ms" aria-hidden="true">chat</span> Parents book an open slot by texting <code>PTM</code> on WhatsApp.</p>
+    <p class="note">
+      <i class="ti ti-message" aria-hidden="true"></i> Parents book an open slot by texting
+      <code>PTM</code> on WhatsApp.
+    </p>
   </div>
   <ul class="totals">
-    <li class="tone-ok"><b>{{ totals().open }}</b> open</li>
-    <li class="tone-info"><b>{{ totals().booked }}</b> booked</li>
-    <li class="tone-mute"><b>{{ totals().cancelled }}</b> cancelled</li>
+    <li class="tone-ok">
+      <b>{{ totals().open }}</b> open
+    </li>
+    <li class="tone-info">
+      <b>{{ totals().booked }}</b> booked
+    </li>
+    <li class="tone-mute">
+      <b>{{ totals().cancelled }}</b> cancelled
+    </li>
   </ul>
 </header>
 
 <div class="layout">
   <form class="s-card create tone-info" (submit)="$event.preventDefault(); create()" novalidate>
-    <h3><span class="ms" aria-hidden="true">add_circle</span> Open new slots</h3>
+    <h3><i class="ti ti-circle-plus" aria-hidden="true"></i> Open new slots</h3>
     <div class="s-field">
       <label for="ptm-start">First slot starts</label>
-      <input id="ptm-start" name="startsAt" type="datetime-local" required [ngModel]="form().startsAt" (ngModelChange)="patch('startsAt', $event)" />
+      <input
+        id="ptm-start"
+        name="startsAt"
+        type="datetime-local"
+        required
+        [ngModel]="form().startsAt"
+        (ngModelChange)="patch('startsAt', $event)"
+      />
     </div>
     <div class="pair">
       <div class="s-field">
         <label for="ptm-dur">Minutes each</label>
-        <input id="ptm-dur" name="duration" type="number" min="5" max="120" step="5" [ngModel]="form().durationMinutes" (ngModelChange)="patch('durationMinutes', +$event)" />
+        <input
+          id="ptm-dur"
+          name="duration"
+          type="number"
+          min="5"
+          max="120"
+          step="5"
+          [ngModel]="form().durationMinutes"
+          (ngModelChange)="patch('durationMinutes', +$event)"
+        />
       </div>
       <div class="s-field">
         <label for="ptm-count">How many</label>
-        <input id="ptm-count" name="count" type="number" min="1" max="60" [ngModel]="form().count" (ngModelChange)="patch('count', +$event)" />
+        <input
+          id="ptm-count"
+          name="count"
+          type="number"
+          min="1"
+          max="60"
+          [ngModel]="form().count"
+          (ngModelChange)="patch('count', +$event)"
+        />
       </div>
     </div>
     <div class="s-field">
       <label for="ptm-teacher">Teacher</label>
-      <input id="ptm-teacher" name="teacher" required placeholder="Mrs. Iyer" [ngModel]="form().teacher" (ngModelChange)="patch('teacher', $event)" />
+      <input
+        id="ptm-teacher"
+        name="teacher"
+        required
+        placeholder="Mrs. Iyer"
+        [ngModel]="form().teacher"
+        (ngModelChange)="patch('teacher', $event)"
+      />
     </div>
     <div class="s-field">
       <label for="ptm-class">Class</label>
-      <select id="ptm-class" name="classKey" [ngModel]="form().classKey || classKey()" (ngModelChange)="patch('classKey', $event)">
+      <select
+        id="ptm-class"
+        name="classKey"
+        [ngModel]="form().classKey || classKey()"
+        (ngModelChange)="patch('classKey', $event)"
+      >
         <option value="" disabled>Choose a class</option>
-        @for (c of classes(); track c.key) { <option [value]="c.key">Class {{ c.className }}{{ c.section }}</option> }
+        @for (c of classes(); track c.key) {
+          <option [value]="c.key">Class {{ c.className }}{{ c.section }}</option>
+        }
       </select>
     </div>
     @if (form().startsAt && form().count > 0) {
-      <p class="preview">{{ form().count }} × {{ form().durationMinutes }} min = {{ form().count * form().durationMinutes }} min of meetings</p>
+      <p class="preview">
+        {{ form().count }} × {{ form().durationMinutes }} min =
+        {{ form().count * form().durationMinutes }} min of meetings
+      </p>
     }
     <div aria-live="polite">
-      @if (formError()) { <p class="s-banner" role="alert">{{ formError() }}</p> }
+      @if (formError()) {
+        <p class="s-banner" role="alert">{{ formError() }}</p>
+      }
     </div>
     <button class="btn primary" type="submit" [disabled]="creating()">
-      @if (creating()) { <span class="spinner"></span> } @else { <span class="ms" aria-hidden="true">event_available</span> } Create slots
+      @if (creating()) {
+        <span class="spinner"></span>
+      } @else {
+        <i class="ti ti-calendar-check" aria-hidden="true"></i>
+      }
+      Create slots
     </button>
   </form>
 
   <section class="board">
     <div aria-live="polite" class="live">
       @if (error()) {
-        <p class="s-banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ error() }}
-          <button class="btn sm" type="button" (click)="load()">Retry</button></p>
+        <p class="s-banner" role="alert">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ error() }}
+          <button class="btn sm" type="button" (click)="load()">Try again</button>
+        </p>
       }
       @if (message()) {
-        <p class="s-banner tone-ok"><span class="ms" aria-hidden="true">task_alt</span> {{ message() }}</p>
+        <p class="s-banner tone-ok">
+          <i class="ti ti-circle-check" aria-hidden="true"></i> {{ message() }}
+        </p>
       }
     </div>
 
     @if (loading()) {
-      @for (k of [1, 2]; track k) { <div class="s-card"><div class="s-skel" style="width: 30%"></div><div class="s-skel" style="height: 60px"></div></div> }
+      <div class="board" aria-busy="true">
+        @for (k of [1, 2]; track k) {
+          <div class="s-card">
+            <div class="s-skel" style="width: 30%"></div>
+            <div class="s-skel" style="height: 60px"></div>
+          </div>
+        }
+      </div>
     } @else if (!days().length) {
-      <div class="s-card"><div class="s-empty"><span class="ms" aria-hidden="true">event_upcoming</span><strong>No slots yet</strong><p>Open a batch of slots and parents can start booking on WhatsApp right away.</p></div></div>
+      <div class="s-card">
+        <div class="s-empty">
+          <i class="ti ti-calendar-due" aria-hidden="true"></i><strong>No slots yet</strong>
+          <p>Open a batch of slots and parents can start booking on WhatsApp right away.</p>
+        </div>
+      </div>
     } @else {
       @for (d of days(); track d.label; let di = $index) {
         <article class="s-card day s-enter tone-info" [style.--i]="di">
           <h3>
-            <span class="ms" aria-hidden="true">calendar_today</span> {{ d.label }}
+            <i class="ti ti-calendar" aria-hidden="true"></i> {{ d.label }}
             <span class="s-pill tone-info">{{ d.booked }}/{{ d.slots.length }} booked</span>
           </h3>
           <ul class="slots">
             @for (s of d.slots; track s.id; let i = $index) {
               <li class="slot {{ s.status }}" [style.--i]="i">
                 <span class="t">{{ time(s.startsAt) }}</span>
-                <span class="meta">{{ s.durationMinutes }}m · {{ s.teacher }} · {{ s.classKey }}</span>
+                <span class="meta"
+                  >{{ s.durationMinutes }}m · {{ s.teacher }} · {{ s.classKey }}</span
+                >
                 @if (s.status === 'booked') {
-                  <span class="who"><span class="ms" aria-hidden="true">person</span>{{ s.studentName }}</span>
+                  <span class="who"
+                    ><i class="ti ti-user" aria-hidden="true"></i>{{ s.studentName }}</span
+                  >
                   <span class="phone">{{ s.parentPhone }}</span>
                 } @else if (s.status === 'open') {
-                  <button class="x" type="button" (click)="remove(s)" [disabled]="removing() === s.id" [attr.aria-label]="'Remove open slot at ' + time(s.startsAt)">
-                    @if (removing() === s.id) { <span class="spinner"></span> } @else { <span class="ms" aria-hidden="true">close</span> }
+                  <button
+                    class="x"
+                    type="button"
+                    (click)="remove(s)"
+                    [disabled]="removing() === s.id"
+                    [attr.aria-label]="'Remove open slot at ' + time(s.startsAt)"
+                  >
+                    @if (removing() === s.id) {
+                      <span class="spinner"></span>
+                    } @else {
+                      <i class="ti ti-x" aria-hidden="true"></i>
+                    }
                   </button>
                 } @else {
                   <span class="who">Cancelled</span>

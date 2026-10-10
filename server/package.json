@@ -18,7 +18,9 @@
     "express": "^5.1.0",
     "multer": "^2.0.0",
     "qrcode": "^1.5.4",
-    "whatsapp-web.js": "https://codeload.github.com/wwebjs/whatsapp-web.js/tar.gz/064a3d5a5a3dce1281a6a12740b5a7051339d154",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.38.0"
   }
 }

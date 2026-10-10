@@ -1,7 +1,14 @@
-import { Component, computed, inject, signal } from '@angular/core';
-import { forkJoin } from 'rxjs';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 
-import { ArToasts, AutoRepliesApi, AutoReplyRule, AutoReplySettings, SystemStats } from './auto-replies.api';
+import {
+  ArToasts,
+  AutoRepliesApi,
+  AutoReplyRule,
+  AutoReplySettings,
+  SystemStats,
+} from './auto-replies.api';
 import { RuleDraft, RuleEditor, emptyDraft, toPayload } from './rule-editor';
 import { RuleList } from './rule-list';
 import { SystemCards } from './system-cards';
@@ -27,11 +34,20 @@ function toDraft(r: AutoReplyRule): RuleDraft {
   });
 }
 
+/**
+ * The auto-reply workspace: built-in system replies, the priority-ordered
+ * keyword rules with their editor, and a sandbox to try messages against both.
+ *
+ * The editor works on a draft compared to a JSON baseline, so switching rules
+ * with unsaved edits asks first instead of silently dropping them. Toggles and
+ * reorders are optimistic and roll back if the server refuses.
+ */
 @Component({
   selector: 'app-auto-replies',
   imports: [SystemCards, RuleList, RuleEditor, TestConsole],
   templateUrl: './auto-replies.html',
   styleUrl: './auto-replies.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AutoRepliesView {
   private readonly api = inject(AutoRepliesApi);
@@ -42,24 +58,52 @@ export class AutoRepliesView {
   protected readonly rules = signal<AutoReplyRule[]>([]);
   protected readonly settings = signal<AutoReplySettings | null>(null);
   protected readonly sysStats = signal<SystemStats | null>(null);
+  /** Opt-out words set by the platform: shown locked, never editable here. */
+  protected readonly platformWords = signal<string[]>([]);
+  protected readonly planValues = signal<Record<string, unknown>>({});
   protected readonly draft = signal<RuleDraft | null>(null);
+  /** JSON of the draft as last loaded or saved; `dirty` compares against it. */
   protected readonly baseline = signal('');
   protected readonly saving = signal(false);
   /** A rule (or 'new') the user tried to open while the current draft had unsaved edits. */
   protected readonly pending = signal<AutoReplyRule | 'new' | null>(null);
 
   protected readonly selectedId = computed(() => this.draft()?.id ?? null);
-  protected readonly dirty = computed(() => !!this.draft() && JSON.stringify(this.draft()) !== this.baseline());
-  protected readonly selectedStats = computed(() => this.rules().find((r) => r.id === this.selectedId())?.stats ?? null);
-  protected readonly businessName = computed(() => this.settings()?.businessName || 'Your business');
+  protected readonly dirty = computed(
+    () => !!this.draft() && JSON.stringify(this.draft()) !== this.baseline(),
+  );
+  protected readonly selectedStats = computed(
+    () => this.rules().find((r) => r.id === this.selectedId())?.stats ?? null,
+  );
+  protected readonly businessName = computed(
+    () => this.settings()?.businessName || 'Your business',
+  );
 
+  /** Plain-sentence notices for what the plan blocks, so a refused save is no surprise. */
+  protected readonly planNotices = computed(() => {
+    const v = this.planValues();
+    const max = Number(v['autoReplies.maxRules'] ?? 0);
+    const notes: string[] = [];
+    if (max > 0 && this.rules().length >= max) {
+      notes.push(`Your plan allows ${max} rule${max === 1 ? '' : 's'} and you have reached the limit.`);
+    }
+    if (v['autoReplies.allowKeywords'] === false) notes.push('Keyword rules are not included in your plan, so they will not reply.');
+    if (v['autoReplies.allowMenus'] === false) notes.push('Menus are not included in your plan, so they will not reply.');
+    return notes;
+  });
+
+  /** Header counts: rule hits plus the four system replies' hits. */
   protected readonly kpis = computed(() => {
     const rules = this.rules();
     const sys = Object.values(this.sysStats() ?? {});
     return {
       active: rules.filter((r) => r.isActive).length,
-      today: rules.reduce((n, r) => n + (r.stats?.today ?? 0), 0) + sys.reduce((n, s) => n + (s?.today ?? 0), 0),
-      week: rules.reduce((n, r) => n + (r.stats?.week ?? 0), 0) + sys.reduce((n, s) => n + (s?.week ?? 0), 0),
+      today:
+        rules.reduce((n, r) => n + (r.stats?.today ?? 0), 0) +
+        sys.reduce((n, s) => n + (s?.today ?? 0), 0),
+      week:
+        rules.reduce((n, r) => n + (r.stats?.week ?? 0), 0) +
+        sys.reduce((n, s) => n + (s?.week ?? 0), 0),
     };
   });
 
@@ -70,9 +114,16 @@ export class AutoRepliesView {
   protected load(): void {
     this.loading.set(true);
     this.loadError.set('');
-    forkJoin({ list: this.api.list(), cfg: this.api.settings() }).subscribe({
-      next: ({ list, cfg }) => {
+    forkJoin({
+      list: this.api.list(),
+      cfg: this.api.settings(),
+      // Notices are a nicety: a failed policy read must not hide the page.
+      plan: this.api.policy().pipe(catchError(() => of({ values: {} }))),
+    }).subscribe({
+      next: ({ list, cfg, plan }) => {
         this.rules.set(list.rules);
+        this.platformWords.set(list.platformOptOutWords ?? []);
+        this.planValues.set(plan.values);
         this.settings.set(cfg.settings);
         this.sysStats.set(cfg.stats);
         this.loading.set(false);
@@ -122,7 +173,9 @@ export class AutoRepliesView {
     const req = d.id === null ? this.api.create(payload) : this.api.update(d.id, payload);
     req.subscribe({
       next: ({ rule }) => {
-        this.rules.update((list) => d.id === null ? [...list, rule] : list.map((r) => (r.id === rule.id ? rule : r)));
+        this.rules.update((list) =>
+          d.id === null ? [...list, rule] : list.map((r) => (r.id === rule.id ? rule : r)),
+        );
         this.open(rule);
         this.saving.set(false);
         this.toasts.ok(d.id === null ? 'Rule created' : 'Rule saved');
@@ -148,7 +201,8 @@ export class AutoRepliesView {
   }
 
   protected toggle({ rule, active }: { rule: AutoReplyRule; active: boolean }): void {
-    const flip = (v: boolean) => this.rules.update((list) => list.map((r) => (r.id === rule.id ? { ...r, isActive: v } : r)));
+    const flip = (v: boolean) =>
+      this.rules.update((list) => list.map((r) => (r.id === rule.id ? { ...r, isActive: v } : r)));
     flip(active);
     const d = this.draft();
     if (d?.id === rule.id) {
@@ -179,19 +233,5 @@ export class AutoRepliesView {
 
   protected setDraft(d: RuleDraft): void {
     this.draft.set(d);
-  }
-
-  protected tilt(e: PointerEvent): void {
-    if (e.pointerType === 'touch' || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const el = e.currentTarget as HTMLElement;
-    const r = el.getBoundingClientRect();
-    el.style.setProperty('--px', ((e.clientX - r.left) / r.width - 0.5).toFixed(3));
-    el.style.setProperty('--py', ((e.clientY - r.top) / r.height - 0.5).toFixed(3));
-  }
-
-  protected untilt(e: PointerEvent): void {
-    const el = e.currentTarget as HTMLElement;
-    el.style.removeProperty('--px');
-    el.style.removeProperty('--py');
   }
 }

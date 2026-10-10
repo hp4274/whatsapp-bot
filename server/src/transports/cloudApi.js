@@ -99,6 +99,7 @@ export class CloudApiTransport extends Transport {
             connected: true,
             account: this.account,
             detail: `quality: ${data.quality_rating ?? 'UNKNOWN'}`,
+            qualityRating: data.quality_rating ?? null, // the ban-risk guard reads this (policy/channelOps.js)
             realDelivery: true,
         };
     }

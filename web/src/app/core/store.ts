@@ -11,13 +11,16 @@ import { DestroyRef, Injectable, NgZone, computed, inject, signal } from '@angul
 import { Api, CampaignStats, ConnectionState, MessageStatus, SafetyStatus } from './api';
 import { Auth } from './auth';
 
+/** `auto` follows the operating system. */
 export type ThemeMode = 'auto' | 'light' | 'dark';
 
+/** One message from the SSE stream; `type` selects the handler, the rest is payload. */
 export interface ServerEvent {
   type: string;
   [key: string]: unknown;
 }
 
+/** What the dashboard shows before the first stats arrive. */
 const EMPTY_STATS: CampaignStats = {
   total: 0,
   successful: 0,
@@ -28,12 +31,14 @@ const EMPTY_STATS: CampaignStats = {
   state: 'RUNNING',
 };
 
+/** Live app state; see the file header for how events reach it. */
 @Injectable({ providedIn: 'root' })
 export class Store {
   private readonly api = inject(Api);
   private readonly zone = inject(NgZone);
   private readonly auth = inject(Auth);
 
+  /** Mirror of the active number's transport state. */
   readonly connection = signal<ConnectionState>({
     connected: false,
     transport: 'cloud_api',
@@ -59,11 +64,13 @@ export class Store {
   /** Which WhatsApp number the UI is working on; owned by Auth, mirrored here. */
   readonly channelId = this.auth.channelId;
 
+  /** 0 to 1 share of the current campaign already processed. */
   readonly progress = computed(() => {
     const { total, processed } = this.stats();
     return total > 0 ? Math.min(1, processed / total) : 0;
   });
 
+  private readonly listeners = new Set<(topic: string) => void>();
   private source: EventSource | null = null;
 
   constructor() {
@@ -112,11 +119,13 @@ export class Store {
     this.setStatus('Ready.');
   }
 
+  /** The one-line status shown in the shell; tone picks its colour. */
   setStatus(text: string, tone: 'muted' | 'primary' | 'warning' | 'danger' = 'muted') {
     this.statusLine.set(text);
     this.statusTone.set(tone);
   }
 
+  /** Persist the choice and apply it to the document right away. */
   setTheme(mode: ThemeMode) {
     this.theme.set(mode);
     localStorage.setItem('wsender.theme', mode);
@@ -124,8 +133,8 @@ export class Store {
   }
 
   private applyTheme(mode: ThemeMode) {
-    const dark = mode === 'dark'
-      || (mode === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+    const dark =
+      mode === 'dark' || (mode === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.dataset['theme'] = dark ? 'dark' : 'light';
   }
 
@@ -176,7 +185,10 @@ export class Store {
     const listener = (topic: string) => {
       if (!wanted.has(topic) && !wanted.has('*')) return;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => { timer = null; reload(); }, delayMs);
+      timer = setTimeout(() => {
+        timer = null;
+        reload();
+      }, delayMs);
     };
     this.listeners.add(listener);
     inject(DestroyRef).onDestroy(() => {
@@ -185,23 +197,35 @@ export class Store {
     });
   }
 
-  private readonly listeners = new Set<(topic: string) => void>();
-
+  /** Fan a topic out to every `watch` listener. */
   private notify(...topics: string[]) {
     for (const topic of topics) for (const fn of this.listeners) fn(topic);
   }
 
+  /** Route one event: first to page reloaders, then to the signals. */
   private handle(event: ServerEvent) {
     switch (event.type) {
-      case 'changed': this.notify(String(event['topic'] ?? '')); break;
-      case 'inbound_message': this.notify('inbox', 'conversations', 'tickets', 'school', 'contacts'); break;
-      case 'object': this.notify('objects', 'school'); break;
-      case 'status': case 'stats': case 'receipt': this.notify('history', 'campaign', 'analytics'); break;
-      default: break;
+      case 'changed':
+        this.notify(String(event['topic'] ?? ''));
+        break;
+      case 'inbound_message':
+        this.notify('inbox', 'conversations', 'tickets', 'school', 'contacts');
+        break;
+      case 'object':
+        this.notify('objects', 'school');
+        break;
+      case 'status':
+      case 'stats':
+      case 'receipt':
+        this.notify('history', 'campaign', 'analytics');
+        break;
+      default:
+        break;
     }
     this.handleEvent(event);
   }
 
+  /** Fold an event into the signals the UI reads. */
   private handleEvent(event: ServerEvent) {
     switch (event.type) {
       case 'stats': {
@@ -219,12 +243,16 @@ export class Store {
         break;
       case 'quotaReached':
         this.safety.update((current) =>
-          current ? { ...current, ...(event as unknown as SafetyStatus) } : current);
+          current ? { ...current, ...(event as unknown as SafetyStatus) } : current,
+        );
         this.setStatus(String(event['message']), 'warning');
         break;
       case 'connection': {
         const connected = Boolean(event['connected']);
-        this.connection.update((current) => ({ ...current, ...(event as Partial<ConnectionState>) }));
+        this.connection.update((current) => ({
+          ...current,
+          ...(event as Partial<ConnectionState>),
+        }));
         if (connected) {
           this.connecting.set(false);
           this.qr.set(null);
@@ -255,7 +283,10 @@ export class Store {
       case 'status': {
         const status = event['status'] as MessageStatus;
         if (status === 'FAILED' && event['error']) {
-          this.setStatus(`FAILED ${String(event['messageId']).slice(0, 8)}: ${event['error']}`, 'danger');
+          this.setStatus(
+            `FAILED ${String(event['messageId']).slice(0, 8)}: ${event['error']}`,
+            'danger',
+          );
         }
         this.historyRevision.update((n) => n + 1);
         break;
@@ -270,6 +301,7 @@ export class Store {
     }
   }
 
+  /** Close the stream without resetting the status line. */
   dispose() {
     this.source?.close();
     this.source = null;

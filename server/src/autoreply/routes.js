@@ -10,6 +10,7 @@ import express from 'express';
 
 import { isHelp, helpText } from '../help.js';
 import { localClock } from './engine.js';
+import { ruleKind, ruleRefusal } from './policy.js';
 import { AutoReplyStore, EMPTY_STATS, SYSTEM_KEYS, validateRule } from './store.js';
 
 export function createAutoReplyRouter({ db, state }) {
@@ -27,12 +28,15 @@ export function createAutoReplyRouter({ db, state }) {
 
     app.get('/auto-replies', (req, res) => {
         const all = stats();
-        res.json({ rules: store.list().map((r) => withStats(r, all)) });
+        // Platform rules the tenant inherits and cannot remove (shown locked in the UI).
+        res.json({ rules: store.list().map((r) => withStats(r, all)), platformOptOutWords: state.platformPolicy?.()['autoReplies.optOutWords'] ?? [] });
     });
 
     app.post('/auto-replies', (req, res) => {
         const rule = validateRule(req.body ?? {});
         if (rule.errors) return res.status(400).json({ errors: rule.errors });
+        const refusal = ruleRefusal(rule, state.platformPolicy?.(), store.list().length);
+        if (refusal) return res.status(403).json({ errors: [refusal] });
         const saved = store.save({ ...rule, priority: req.body?.priority });
         return res.status(201).json({ rule: withStats(saved) });
     });
@@ -67,6 +71,11 @@ export function createAutoReplyRouter({ db, state }) {
         if (body.replyBody !== undefined && body.variants === undefined) merged.variants = [body.replyBody, ...current.variants.slice(1)];
         const rule = validateRule(merged);
         if (rule.errors) return res.status(400).json({ errors: rule.errors });
+        // Editing never counts against the cap; only a change into a disallowed kind is refused.
+        if (ruleKind(rule) !== ruleKind(current)) {
+            const refusal = ruleRefusal(rule, state.platformPolicy?.(), 0);
+            if (refusal) return res.status(403).json({ errors: [refusal] });
+        }
         return res.json({ rule: withStats(store.save({ ...rule, id: current.id, priority: body.priority ?? current.priority })) });
     });
 

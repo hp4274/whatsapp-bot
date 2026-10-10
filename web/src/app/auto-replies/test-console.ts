@@ -1,13 +1,28 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 
 import { interactiveOptions } from '../campaign/interactive/interactive.model';
 import { ArChips } from './ar-fields';
-import { ArToasts, AutoRepliesApi, AutoReplyRule, Session, TestReply, TestResult } from './auto-replies.api';
+import {
+  ArToasts,
+  AutoRepliesApi,
+  AutoReplyRule,
+  Session,
+  TestReply,
+  TestResult,
+} from './auto-replies.api';
 import { PreviewTurn, WaPreview } from './wa-preview';
 
+/** Human names for the engine's reply sources, shown on each simulated reply. */
 const SOURCE_LABEL: Record<TestReply['source'], string> = {
-  welcome: 'Welcome', away: 'Away', handoff: 'Handoff', menu: 'Menu follow-up', rule: 'Rule',
-  schedule: 'Outside schedule', fallback: 'Fallback', help: 'Help', faq: 'Knowledge base',
+  welcome: 'Welcome',
+  away: 'Away',
+  handoff: 'Handoff',
+  menu: 'Menu follow-up',
+  rule: 'Rule',
+  schedule: 'Outside schedule',
+  fallback: 'Fallback',
+  help: 'Help',
+  faq: 'Knowledge base',
 };
 
 /** Local "now" in the format <input type="datetime-local"> expects. */
@@ -17,11 +32,17 @@ function localNow(): string {
   return d.toISOString().slice(0, 16);
 }
 
+/**
+ * Sandbox: runs a message through the real reply engine on the server without
+ * sending anything or counting stats. The menu session is carried between
+ * runs so button taps can walk a follow-up tree like a customer would.
+ */
 @Component({
   selector: 'ar-test-console',
   imports: [ArChips, WaPreview],
   templateUrl: './test-console.html',
   styleUrl: './test-console.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TestConsole {
   private readonly api = inject(AutoRepliesApi);
@@ -50,7 +71,9 @@ export class TestConsole {
   /** Options of the last interactive reply, so a button tap can be simulated with its id. */
   protected readonly taps = computed(() => {
     const replies = this.result()?.replies ?? [];
-    return replies.flatMap((r) => interactiveOptions(r.interactive)).map((o) => ({ id: o.id, title: o.title }));
+    return replies
+      .flatMap((r) => interactiveOptions(r.interactive))
+      .map((o) => ({ id: o.id, title: o.title }));
   });
 
   protected v(e: Event): string {
@@ -61,34 +84,41 @@ export class TestConsole {
     const body = tap ? tap.title : this.body().trim();
     if (!body || this.running()) return;
     this.running.set(true);
-    this.api.test({
-      body,
-      sender: this.sender().trim(),
-      senderName: this.senderName().trim() || undefined,
-      at: this.at() ? new Date(this.at()).toISOString() : undefined,
-      firstContact: this.first() === 'auto' ? null : this.first() === 'yes',
-      tags: this.tags().length ? this.tags() : null,
-      session: this.session(),
-      ...(tap ? { replyId: tap.id } : {}),
-    }).subscribe({
-      next: (res) => {
-        this.result.set(res);
-        this.session.set(res.session);
-        this.turns.update((t) => [...t.slice(-5), {
-          incoming: body,
-          replies: res.replies.map((r) => ({
-            text: r.text, media: r.media, interactive: r.interactive,
-            label: `${SOURCE_LABEL[r.source] ?? r.source}${r.ruleName ? ' · ' + r.ruleName : ''}`,
-          })),
-        }]);
-        if (!tap) this.body.set('');
-        this.running.set(false);
-      },
-      error: (err) => {
-        this.toasts.error(err);
-        this.running.set(false);
-      },
-    });
+    this.api
+      .test({
+        body,
+        sender: this.sender().trim(),
+        senderName: this.senderName().trim() || undefined,
+        at: this.at() ? new Date(this.at()).toISOString() : undefined,
+        firstContact: this.first() === 'auto' ? null : this.first() === 'yes',
+        tags: this.tags().length ? this.tags() : null,
+        session: this.session(),
+        ...(tap ? { replyId: tap.id } : {}),
+      })
+      .subscribe({
+        next: (res) => {
+          this.result.set(res);
+          this.session.set(res.session);
+          this.turns.update((t) => [
+            ...t.slice(-5),
+            {
+              incoming: body,
+              replies: res.replies.map((r) => ({
+                text: r.text,
+                media: r.media,
+                interactive: r.interactive,
+                label: `${SOURCE_LABEL[r.source] ?? r.source}${r.ruleName ? ' · ' + r.ruleName : ''}`,
+              })),
+            },
+          ]);
+          if (!tap) this.body.set('');
+          this.running.set(false);
+        },
+        error: (err) => {
+          this.toasts.error(err);
+          this.running.set(false);
+        },
+      });
   }
 
   protected reset(): void {

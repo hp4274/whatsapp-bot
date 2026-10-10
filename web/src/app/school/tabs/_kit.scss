@@ -1,80 +1,39 @@
 @use '../school-shared' as s;
 
-/* Part B tab kit: the editorial vocabulary shared by homework, notices, fees,
- * leave, results, broadcast, staff and settings. Every colour comes from the
- * tokens in styles.scss so light and dark stay in step.
- * Built on ../school-shared (Part A) for the tilt surface.
- * Usage: `@use 'kit';` then `@include kit.base;` at the top of a tab's scss. */
+/* Tab kit: the Kardlyz vocabulary for every school tab.
+ *
+ * It re-emits the pieces of ../school-shared a tab needs (header, card, stat,
+ * pill + tones, segmented track, table, banner, empty, skeleton, tilt, field
+ * and button variants) and adds the few helpers only these forms use. Tabs
+ * write `s-*` classes in their templates; nothing here hard-codes a colour.
+ * Usage: `@use 'kit';` then `@include kit.base;` at the top of a tab's scss,
+ * plus `kit.data` (stats/tables), `kit.pickers` (chip, picks, drop, switch)
+ * and `kit.bubble` (WhatsApp preview) only where the template uses them. */
 
 @mixin base {
+  @include s.keyframes;
+  @include s.tones;
+  @include s.enter;
+  @include s.head;
+  @include s.card;
+  @include s.pill;
+  @include s.seg;
+  @include s.field;
+  @include s.buttons;
+  @include s.empty;
+  @include s.skeleton;
+  @include s.banner;
+  @include s.tilt;
+
   :host {
     display: grid;
     gap: var(--space-xl);
   }
 
-  /* Editorial header: eyebrow, oversized title, short deck. */
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: end;
-    justify-content: space-between;
-    gap: var(--space-lg);
-
-    .eyebrow {
-      display: none;
-      align-items: center;
-      gap: 6px;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.01em;
-      color: var(--tone, var(--primary));
-    }
-
-    h2 {
-      margin-top: 4px;
-      font-size: clamp(24px, 3.2vw, 34px);
-      font-weight: 800;
-      letter-spacing: -0.03em;
-    }
-
-    p {
-      margin: 6px 0 0;
-      max-width: 60ch;
-      color: var(--text-muted);
-    }
-  }
-
-  /* Layered card: a soft tinted slab sits behind the surface for depth. */
-  .panel {
-    position: relative;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: calc(var(--radius) + 6px);
-    box-shadow: var(--shadow);
-    padding: var(--space-xl);
-    min-width: 0;
-    animation: rise 520ms var(--ease) backwards;
+  /* Cards rise in on their own; set style="--i: n" to stagger. */
+  .s-card {
+    animation: s-rise 520ms var(--ease) both;
     animation-delay: calc(var(--i, 0) * 40ms);
-
-    &::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      z-index: -1;
-      border-radius: inherit;
-      pointer-events: none;
-      background:
-        radial-gradient(120% 60% at 0% 0%, color-mix(in srgb, var(--tone, var(--primary)) 10%, transparent), transparent 60%),
-        linear-gradient(180deg, color-mix(in srgb, var(--text) 3%, transparent), transparent 35%);
-    }
-
-    > h3 {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 15px;
-      margin-bottom: var(--space-lg);
-    }
   }
 
   .split {
@@ -83,9 +42,7 @@
     gap: var(--space-xl);
     align-items: start;
 
-    @media (max-width: 960px) {
-      grid-template-columns: minmax(0, 1fr);
-    }
+    @media (max-width: 960px) { grid-template-columns: minmax(0, 1fr); }
   }
 
   .form {
@@ -95,9 +52,7 @@
 
     .wide { grid-column: 1 / -1; }
 
-    @media (max-width: 560px) {
-      grid-template-columns: minmax(0, 1fr);
-    }
+    @media (max-width: 560px) { grid-template-columns: minmax(0, 1fr); }
   }
 
   .actions {
@@ -107,82 +62,91 @@
     gap: var(--space-sm);
   }
 
-  /* Segmented toggle with a sliding feel. */
-  .seg {
+  .note {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-muted);
+
+    code {
+      padding: 1px 6px;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-weight: 500;
+      color: var(--primary-text);
+      background: var(--primary-tint);
+    }
+  }
+
+  .lbl { font-size: 13px; font-weight: 500; color: var(--text-strong); }
+
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  /* One-line success confirmation next to a submit button. */
+  .flash {
     display: inline-flex;
-    flex-wrap: wrap;
-    gap: 2px;
-    padding: 4px;
-    border-radius: 999px;
-    background: var(--surface-alt);
-    border: 1px solid var(--border);
+    align-items: center;
+    gap: 6px;
+    color: var(--success);
+    font-size: 13px;
+    font-weight: 500;
 
-    button {
-      border: 0;
-      background: transparent;
-      color: var(--text-muted);
-      border-radius: 999px;
-      padding: 6px 14px;
-      font-weight: 600;
-      font-size: 13px;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition: background var(--base) var(--ease), color var(--base) var(--ease), box-shadow var(--base) var(--ease);
-
-      &[aria-pressed='true'] {
-        background: var(--surface);
-        color: var(--text);
-        box-shadow: 0 2px 10px color-mix(in srgb, var(--text) 12%, transparent);
-      }
-    }
+    &:not(:empty) { animation: s-pop 280ms var(--ease) both; }
   }
 
-  .pill {
-    padding: 3px 10px;
-    font-size: 11px;
-    text-transform: capitalize;
-    background: color-mix(in srgb, var(--tone, var(--text-muted)) 14%, transparent);
-    color: var(--tone, var(--text-muted));
-    transition: background var(--base) var(--ease), color var(--base) var(--ease);
-
-    &::before {
-      content: '';
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: currentColor;
-    }
+  .foot {
+    margin-top: var(--space-xl);
+    padding-top: var(--space-lg);
+    border-top: 1px solid var(--border-color);
   }
+}
 
-  .ok { --tone: var(--primary); }
-  .warn { --tone: var(--warning); }
-  .bad { --tone: var(--danger); }
-  .info { --tone: var(--accent); }
-  .mute { --tone: var(--text-muted); }
+/* Opt-in: stat tiles and data tables (`@include kit.data;`). Kept out of
+ * `base` so form-only tabs stay well inside the 16kB component-style budget. */
+@mixin data {
+  @include s.stat;
+  @include s.table;
 
+  .s-stat {
+    animation: s-rise 520ms var(--ease) both;
+    animation-delay: calc(var(--i, 0) * 40ms);
+  }
+}
+
+/* Opt-in: attachment chip, toggle chips, file drop zone and switch
+ * (`@include kit.pickers;`). */
+@mixin pickers {
+  /* Attachment chip: file name plus a remove button. */
   .chip {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    max-width: 100%;
     padding: 5px 6px 5px 12px;
     border-radius: 999px;
     background: var(--accent-soft);
     color: var(--accent);
-    font-size: 12px;
-    font-weight: 600;
-    max-width: 100%;
+    font-size: 12.5px;
+    font-weight: 500;
 
     span.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     button {
-      border: 0;
-      background: transparent;
-      color: inherit;
       display: grid;
       place-items: center;
-      border-radius: 50%;
       padding: 2px;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: inherit;
 
       &:hover { background: color-mix(in srgb, currentColor 16%, transparent); }
     }
@@ -198,177 +162,29 @@
       position: relative;
       display: inline-flex;
       align-items: center;
-      padding: 6px 12px;
+      padding: 6px 13px;
       border-radius: 999px;
-      border: 1px solid var(--border);
-      background: var(--surface-alt);
-      font-size: 12px;
-      font-weight: 600;
+      border: 1px solid var(--border-color);
+      background: var(--surface-card);
+      color: var(--text-muted);
+      font-size: 12.5px;
+      font-weight: 500;
       cursor: pointer;
-      transition: all var(--fast) var(--ease);
+      transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease);
 
+      &:hover { color: var(--text-strong); background: var(--surface-sunken); }
       &:has(input:checked) {
-        background: var(--primary-soft);
-        border-color: var(--primary);
-        color: var(--primary);
-        transform: translateY(-1px);
+        background: var(--primary-tint);
+        border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+        color: var(--primary-text);
       }
-
-      &:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+      &:has(input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
     }
 
     input { position: absolute; opacity: 0; width: 1px; height: 1px; }
   }
 
-  .banner {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 16px;
-    border-radius: var(--radius);
-    border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent);
-    background: color-mix(in srgb, var(--tone) 10%, var(--surface));
-    color: var(--tone);
-    font-weight: 600;
-    animation: rise 320ms var(--ease) backwards;
-
-    &:not(.ok, .warn, .info) { --tone: var(--danger); }
-  }
-
-  .tbl {
-    overflow-x: auto;
-    margin: 0 calc(var(--space-xl) * -1);
-    padding: 0 var(--space-xl);
-
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-
-    th {
-      text-align: left;
-      font-size: 11px;
-      letter-spacing: 0.01em;
-      color: var(--text-muted);
-      padding: 8px 10px;
-      border-bottom: 1px solid var(--border);
-      white-space: nowrap;
-    }
-
-    td {
-      padding: 12px 10px;
-      border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-      white-space: nowrap;
-    }
-
-    tbody tr {
-      animation: rise 400ms var(--ease) backwards;
-      animation-delay: calc(var(--i, 0) * 30ms);
-      transition: background var(--fast) var(--ease);
-
-      &:hover { background: color-mix(in srgb, var(--primary) 5%, transparent); }
-    }
-
-    .num { text-align: right; font-variant-numeric: tabular-nums; }
-  }
-
-  .empty {
-    display: grid;
-    justify-items: center;
-    gap: 6px;
-    padding: 40px 16px;
-    text-align: center;
-    color: var(--text-muted);
-
-    .ms {
-      font-size: 40px;
-      color: var(--tone, var(--primary));
-      animation: float 3.2s var(--ease) infinite;
-    }
-
-    strong { color: var(--text); font-size: 15px; }
-  }
-
-  .skel {
-    height: 18px;
-    border-radius: 6px;
-    background: linear-gradient(90deg, var(--surface-alt) 25%, color-mix(in srgb, var(--surface-alt) 50%, var(--surface)) 50%, var(--surface-alt) 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.2s linear infinite;
-    margin: 10px 0;
-  }
-
-  /* Real pointer tilt comes from the shared [schoolTilt] directive. */
-  @include s.tilt;
-
-  .stat {
-    position: relative;
-    overflow: hidden;
-    padding: var(--space-lg) var(--space-xl);
-    border-radius: calc(var(--radius) + 4px);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow);
-    animation: rise 520ms var(--ease) backwards;
-    animation-delay: calc(var(--i, 0) * 60ms);
-
-    small {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.01em;
-      color: var(--tone, var(--text-muted));
-    }
-
-    b {
-      display: block;
-      margin-top: 4px;
-      font-size: 26px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      font-variant-numeric: tabular-nums;
-    }
-
-    &::after {
-      content: '';
-      position: absolute;
-      right: -30px;
-      top: -30px;
-      width: 110px;
-      height: 110px;
-      border-radius: 50%;
-      background: radial-gradient(circle, color-mix(in srgb, var(--tone, var(--primary)) 28%, transparent), transparent 70%);
-    }
-  }
-
-  .note {
-    display: flex;
-    gap: 8px;
-    align-items: flex-start;
-    font-size: 12px;
-    color: var(--text-muted);
-
-    code {
-      font-family: var(--mono);
-      font-weight: 700;
-      color: var(--primary);
-      background: var(--primary-soft);
-      padding: 1px 6px;
-      border-radius: 4px;
-    }
-  }
-
-  .lbl {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-muted);
-  }
-
-  .sr {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-  }
-
-  /* File picker as a dashed drop slab. */
+  /* File picker as a dashed drop zone. */
   .drop {
     position: relative;
     display: flex;
@@ -377,38 +193,22 @@
     gap: 8px;
     min-height: 42px;
     padding: 8px 12px;
-    border: 1.5px dashed var(--border);
-    border-radius: var(--radius-sm);
+    border: 1px dashed var(--border-hover);
+    border-radius: var(--radius-md);
+    background: var(--input-bg);
     color: var(--text-muted);
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 500;
     cursor: pointer;
     transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease), background var(--fast) var(--ease);
 
     &:hover, &:has(input:focus-visible) {
       border-color: var(--primary);
-      color: var(--primary);
-      background: color-mix(in srgb, var(--primary) 6%, transparent);
+      color: var(--primary-text);
+      background: var(--primary-tint);
     }
 
     input { position: absolute; inset: 0; opacity: 0; cursor: pointer; padding: 0; }
-  }
-
-  .flash {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--primary);
-    font-weight: 600;
-    font-size: 13px;
-
-    &:not(:empty) { animation: rise 320ms var(--ease) backwards; }
-  }
-
-  .foot {
-    margin-top: var(--space-xl);
-    padding-top: var(--space-lg);
-    border-top: 1px dashed var(--border);
   }
 
   /* Toggle switch: <label class="switch"><input type="checkbox"><i></i> Text</label> */
@@ -417,7 +217,9 @@
     display: inline-flex;
     align-items: center;
     gap: 10px;
-    font-weight: 600;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--text-strong);
     cursor: pointer;
 
     input { position: absolute; opacity: 0; width: 1px; height: 1px; }
@@ -425,10 +227,11 @@
     i {
       position: relative;
       flex: none;
-      width: 40px;
+      width: 38px;
       height: 22px;
       border-radius: 999px;
-      background: var(--border);
+      background: var(--surface-sunken);
+      box-shadow: inset 0 0 0 1px var(--border-color);
       transition: background var(--base) var(--ease);
 
       &::after {
@@ -439,44 +242,26 @@
         width: 16px;
         height: 16px;
         border-radius: 50%;
-        background: var(--surface);
-        box-shadow: 0 2px 6px color-mix(in srgb, var(--text) 25%, transparent);
-        transition: transform var(--base) cubic-bezier(0.34, 1.56, 0.64, 1);
+        background: var(--surface-card);
+        box-shadow: var(--shadow-sm);
+        transition: transform var(--base) var(--ease);
       }
     }
 
-    input:checked + i { background: var(--primary); }
-    input:checked + i::after { transform: translateX(18px); }
-    input:focus-visible + i { outline: 2px solid var(--accent); outline-offset: 2px; }
+    input:checked + i { background: var(--primary); box-shadow: none; }
+    input:checked + i::after { transform: translateX(16px); }
+    input:focus-visible + i { outline: 2px solid var(--primary); outline-offset: 2px; }
   }
-
-  .btn.sm { padding: 6px 10px; font-size: 12px; }
-  .btn.ghost { background: transparent; }
-
-  @keyframes rise {
-    from { opacity: 0; transform: translateY(14px) rotateX(-6deg); }
-    to { opacity: 1; transform: none; }
-  }
-
-  @keyframes shimmer { to { background-position: -200% 0; } }
-
-  @keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-5px); }
-  }
-
 }
 
-/* The WhatsApp bubble used for live previews. */
+/* The WhatsApp bubble used for live previews. The bubble keeps WhatsApp's
+ * green cast (via --success) so it reads as "this is what the parent gets". */
 @mixin bubble {
   .phone {
     padding: var(--space-lg);
-    border-radius: calc(var(--radius) + 6px);
-    background:
-      radial-gradient(circle at 20% 10%, color-mix(in srgb, var(--primary) 12%, transparent), transparent 50%),
-      var(--surface-alt);
-    border: 1px solid var(--border);
-    transform: rotateY(-6deg) rotateX(3deg);
+    border-radius: var(--radius-lg);
+    background: var(--surface-sunken);
+    transform: perspective(900px) rotateY(-5deg) rotateX(3deg);
     transform-style: preserve-3d;
     transition: transform 500ms var(--ease);
 
@@ -488,12 +273,14 @@
     max-width: 92%;
     margin-left: auto;
     padding: 10px 12px 18px;
-    border-radius: 12px 12px 2px 12px;
-    background: color-mix(in srgb, var(--primary) 22%, var(--surface));
-    box-shadow: 0 6px 18px color-mix(in srgb, var(--text) 10%, transparent);
+    border-radius: 14px 14px 4px 14px;
+    background: color-mix(in srgb, var(--success) 14%, var(--surface-card));
+    box-shadow: var(--shadow-card);
+    color: var(--text-color);
     white-space: pre-wrap;
     word-break: break-word;
     font-size: 13px;
+    line-height: 1.55;
     transform: translateZ(24px);
 
     time {

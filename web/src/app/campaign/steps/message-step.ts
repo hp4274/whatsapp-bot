@@ -1,47 +1,74 @@
-import { Component, ElementRef, effect, inject, signal, untracked, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 
 import { Api } from '../../core/api';
 import { Template, TemplatesApi } from '../../templates/templates-api';
 import { InteractiveEditor } from '../interactive/interactive-editor';
 import { CampaignDraft } from '../draft';
+import { CampaignPolicy } from '../policy-api';
 import { MetaParams } from './meta-params';
 import { formatBytes } from '../wa-format';
 
+/** Media types WhatsApp accepts as an attachment; the server checks the same list. */
 const ALLOWED = ['image/jpeg', 'image/png', 'application/pdf', 'video/mp4', 'video/3gpp'];
+/** Inserted by the Spintax button: a working example the user edits in place. */
 const SPIN_SAMPLE = '{Hi|Hello|Hey}';
 
+/**
+ * Step 2: the message itself — free-form text with WhatsApp formatting and
+ * variables, or (on Cloud API) a Meta-approved template mapped to columns.
+ * Optional extras (backup template, buttons, fallbacks) fold away so the main
+ * path stays short.
+ */
 @Component({
   selector: 'app-message-step',
-  imports: [FormsModule, InteractiveEditor, MetaParams],
+  imports: [FormsModule, RouterLink, InteractiveEditor, MetaParams],
   templateUrl: './message-step.html',
   styleUrl: './message-step.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MessageStep {
   protected readonly draft = inject(CampaignDraft);
   private readonly api = inject(Api);
+  private readonly templatesApi = inject(TemplatesApi);
+  /** Interactive buttons can be off on the plan; the editor is then replaced by a note. */
+  protected readonly policy = inject(CampaignPolicy);
   private readonly editor = viewChild<ElementRef<HTMLTextAreaElement>>('editor');
 
   protected readonly uploading = signal(false);
   protected readonly error = signal('');
   protected readonly spinHelp = signal(false);
 
-  private readonly templatesApi = inject(TemplatesApi);
   /** Approved Meta templates (Cloud API channels only), loaded once on demand. */
   protected readonly approved = signal<Template[] | null>(null);
   protected readonly templatesError = signal('');
 
   constructor() {
+    this.policy.load();
     effect(() => {
-      if (this.draft.cloudApi() && untracked(this.approved) === null) untracked(() => this.loadTemplates());
+      if (this.draft.cloudApi() && untracked(this.approved) === null)
+        untracked(() => this.loadTemplates());
     });
   }
 
-  private loadTemplates(): void {
+  /** Also the error banner's Try again. */
+  protected loadTemplates(): void {
     this.approved.set([]);
     this.templatesApi.list().subscribe({
       next: ({ templates }) => {
-        this.approved.set(templates.filter((t) => t.approvalStatus === 'approved' && t.providerTemplateName));
+        this.approved.set(
+          templates.filter((t) => t.approvalStatus === 'approved' && t.providerTemplateName),
+        );
         this.templatesError.set('');
       },
       error: (err: Error) => this.templatesError.set(`Could not load templates: ${err.message}`),
@@ -56,10 +83,11 @@ export class MessageStep {
     return `${t.name} - ${t.language || 'en_US'} - ${t.category}`;
   }
 
+  /** Toolbar buttons: WhatsApp's own markdown markers, not HTML. */
   protected readonly formats = [
-    { marker: '*', icon: 'format_bold', label: 'Bold' },
-    { marker: '_', icon: 'format_italic', label: 'Italic' },
-    { marker: '~', icon: 'strikethrough_s', label: 'Strikethrough' },
+    { marker: '*', icon: 'bold', label: 'Bold' },
+    { marker: '_', icon: 'italic', label: 'Italic' },
+    { marker: '~', icon: 'strikethrough', label: 'Strikethrough' },
     { marker: '```', icon: 'code', label: 'Monospace' },
   ];
 
@@ -69,7 +97,11 @@ export class MessageStep {
     if (!el) return;
     const { selectionStart: s, selectionEnd: e, value } = el;
     const picked = value.slice(s, e) || 'text';
-    this.apply(value.slice(0, s) + marker + picked + marker + value.slice(e), s + marker.length, s + marker.length + picked.length);
+    this.apply(
+      value.slice(0, s) + marker + picked + marker + value.slice(e),
+      s + marker.length,
+      s + marker.length + picked.length,
+    );
   }
 
   /** Insert text at the caret. */

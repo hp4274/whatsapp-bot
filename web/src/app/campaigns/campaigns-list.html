@@ -1,144 +1,213 @@
-<header class="page-head enter">
+<!-- Header, filter toolbar, then error / skeleton / empty / table. -->
+<header class="s-head s-enter">
   <div>
+    <p class="eyebrow"><i class="ti ti-speakerphone" aria-hidden="true"></i>Bulk sends</p>
     <h2>Campaigns</h2>
-    <p class="muted">Every bulk send, scheduled or finished, with its live progress.</p>
+    <p>Every bulk send, scheduled or finished, with its live progress.</p>
   </div>
   <div class="head-actions">
-    <button type="button" class="btn" (click)="load()" [disabled]="loading()" aria-label="Refresh campaigns">
-      @if (loading()) { <span class="spinner" aria-hidden="true"></span> }
-      @else { <span class="ms" aria-hidden="true">refresh</span> }
+    <button
+      type="button"
+      class="btn"
+      (click)="load()"
+      [disabled]="loading()"
+      aria-label="Refresh campaigns"
+    >
+      @if (loading()) {
+        <span class="spinner" aria-hidden="true"></span>
+      } @else {
+        <i class="ti ti-refresh" aria-hidden="true"></i>
+      }
       Refresh
     </button>
     <a class="btn primary" routerLink="/campaign">
-      <span class="ms" aria-hidden="true">add</span>
+      <i class="ti ti-plus" aria-hidden="true"></i>
       New campaign
     </a>
   </div>
 </header>
 
-<section class="card toolbar enter">
+<section class="toolbar s-enter" style="--i: 1">
   <div class="chips" role="group" aria-label="Filter by status">
     @for (f of filters; track f.key) {
-      <button type="button" class="chip" [class.on]="filter() === f.key"
-              [attr.aria-pressed]="filter() === f.key" (click)="filter.set(f.key)">
+      <button
+        type="button"
+        class="s-chip"
+        [attr.aria-pressed]="filter() === f.key"
+        (click)="filter.set(f.key)"
+      >
         {{ f.label }}
-        <span class="n">{{ counts()[f.key] ?? 0 }}</span>
+        <b>{{ counts()[f.key] ?? 0 }}</b>
       </button>
     }
   </div>
   <label class="search">
-    <span class="ms" aria-hidden="true">search</span>
-    <input type="search" placeholder="Search campaigns" aria-label="Search campaigns"
-           [value]="search()" (input)="search.set($any($event.target).value)" />
+    <i class="ti ti-search" aria-hidden="true"></i>
+    <input
+      type="search"
+      placeholder="Search campaigns"
+      aria-label="Search campaigns"
+      [value]="search()"
+      (input)="search.set($any($event.target).value)"
+    />
   </label>
 </section>
 
 @if (error()) {
-  <p class="card notice" role="alert">
-    <span class="ms" aria-hidden="true">error</span>
-    {{ error() }}
-    <button type="button" class="btn small" (click)="error.set(''); load()">Retry</button>
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="grow">{{ error() }}</span>
+    <button type="button" class="btn sm" (click)="error.set(''); load()">Try again</button>
   </p>
 }
 
 @if (!loaded()) {
-  <section class="card skeleton enter" aria-busy="true" aria-label="Loading campaigns">
-    @for (i of [1, 2, 3, 4]; track i) { <div class="sk-row"></div> }
+  <section class="s-card" aria-busy="true" aria-label="Loading campaigns">
+    @for (i of [1, 2, 3, 4, 5]; track i) {
+      <div class="s-skel sk-row"></div>
+    }
   </section>
 } @else if (!campaigns().length && !error()) {
-  <section class="card empty-state enter">
-    <div class="stack" aria-hidden="true">
-      <span class="tile t1"></span><span class="tile t2"></span><span class="tile t3"></span>
+  <section class="s-card s-enter" style="--i: 2">
+    <div class="s-empty">
+      <i class="ti ti-speakerphone" aria-hidden="true"></i>
+      <strong>No campaigns yet</strong>
+      <p>
+        Upload a sheet, write one message, and reach everyone at a safe pace. Your campaigns, their
+        progress and results will live here.
+      </p>
+      <a class="btn primary" routerLink="/campaign">
+        <i class="ti ti-plus" aria-hidden="true"></i>
+        Create your first campaign
+      </a>
     </div>
-    <h3>No campaigns yet</h3>
-    <p class="muted">Upload a sheet, write one message, and reach everyone at a safe pace.
-      Your campaigns, their progress and results will live here.</p>
-    <a class="btn primary" routerLink="/campaign">
-      <span class="ms" aria-hidden="true">campaign</span>
-      Create your first campaign
-    </a>
   </section>
 } @else {
-  <section class="card table-wrap enter">
-    <table>
-      <thead>
-        <tr>
-          <th scope="col">Name</th>
-          <th scope="col">Created</th>
-          <th scope="col">Scheduled</th>
-          <th scope="col">Status</th>
-          <th scope="col" class="num">Audience</th>
-          <th scope="col" class="num">Sent / Failed</th>
-          <th scope="col" class="actions-col"><span class="sr">Actions</span></th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (c of visible(); track c.id) {
-          <tr [class.live]="c.status === 'running'">
-            <td class="name">
-              <a [routerLink]="['/campaigns', c.id]">{{ c.name || 'Untitled campaign' }}</a>
-              <small class="muted mono">#{{ c.id }}</small>
-            </td>
-            <td class="mono">{{ localTime(c.createdAt) }}</td>
-            <td>
-              @if (c.scheduledAt) {
-                <span class="mono">{{ localTime(c.scheduledAt) }}</span>
-                <small class="rel">{{ relative(c.scheduledAt) }}</small>
-              } @else { <span class="muted">-</span> }
-            </td>
-            <td><app-campaign-status [status]="c.status" /></td>
-            <td class="num mono">{{ c.audienceSize ?? '-' }}</td>
-            <td class="num mono">
-              <span class="ok">{{ sent(c) }}</span>
-              <span class="muted"> / </span>
-              <span [class.bad]="failed(c) > 0">{{ failed(c) }}</span>
-            </td>
-            <td class="actions">
-              @if (canStart(c.status)) {
-                <button type="button" class="btn small primary" [disabled]="busy() === c.id"
-                        (click)="act(c, 'start')" [attr.aria-label]="'Start ' + c.name">
-                  <span class="ms" aria-hidden="true">play_arrow</span>Start
-                </button>
-              }
-              @if (canPause(c.status)) {
-                <button type="button" class="btn small" [disabled]="busy() === c.id"
-                        (click)="act(c, 'pause')" [attr.aria-label]="'Pause ' + c.name">
-                  <span class="ms" aria-hidden="true">pause</span>Pause
-                </button>
-              }
-              @if (canResume(c.status)) {
-                <button type="button" class="btn small primary" [disabled]="busy() === c.id"
-                        (click)="act(c, 'resume')" [attr.aria-label]="'Resume ' + c.name">
-                  <span class="ms" aria-hidden="true">play_arrow</span>Resume
-                </button>
-              }
-              @if (canCancel(c.status)) {
-                <button type="button" class="btn small" [class.danger]="isConfirming(c.id, 'cancel')"
-                        [disabled]="busy() === c.id" (click)="act(c, 'cancel')"
-                        (blur)="isConfirming(c.id, 'cancel') && confirming.set(null)"
-                        [attr.aria-label]="isConfirming(c.id, 'cancel') ? 'Confirm cancel ' + c.name : 'Cancel ' + c.name">
-                  <span class="ms" aria-hidden="true">block</span>
-                  {{ isConfirming(c.id, 'cancel') ? 'Confirm cancel?' : 'Cancel' }}
-                </button>
-              }
-              @if (canDelete(c.status)) {
-                <button type="button" class="btn small ghost" [class.danger]="isConfirming(c.id, 'delete')"
-                        [disabled]="busy() === c.id" (click)="act(c, 'delete')"
-                        (blur)="isConfirming(c.id, 'delete') && confirming.set(null)"
-                        [attr.aria-label]="isConfirming(c.id, 'delete') ? 'Confirm delete ' + c.name : 'Delete ' + c.name">
-                  <span class="ms" aria-hidden="true">delete</span>
-                  {{ isConfirming(c.id, 'delete') ? 'Delete?' : '' }}
-                </button>
-              }
-              <a class="btn small" [routerLink]="['/campaigns', c.id]" [attr.aria-label]="'Open ' + c.name">
-                Open<span class="ms" aria-hidden="true">arrow_forward</span>
-              </a>
-            </td>
+  <section class="s-card list s-enter" style="--i: 2">
+    <div class="s-table">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Created</th>
+            <th scope="col">Scheduled</th>
+            <th scope="col">Status</th>
+            <th scope="col" class="num">Audience</th>
+            <th scope="col" class="num">Sent / Failed</th>
+            <th scope="col" class="actions-col"><span class="sr">Actions</span></th>
           </tr>
-        } @empty {
-          <tr><td colspan="7" class="empty muted">No campaigns match this filter.</td></tr>
-        }
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          @for (c of visible(); track c.id) {
+            <tr [class.live]="c.status === 'running'" [style.--i]="$index">
+              <td class="name">
+                <a [routerLink]="['/campaigns', c.id]">{{ c.name || 'Untitled campaign' }}</a>
+                <small class="muted mono">#{{ c.id }}</small>
+              </td>
+              <td class="mono">{{ localTime(c.createdAt) }}</td>
+              <td>
+                @if (c.scheduledAt) {
+                  <span class="mono">{{ localTime(c.scheduledAt) }}</span>
+                  <small class="rel">{{ relative(c.scheduledAt) }}</small>
+                } @else {
+                  <span class="muted">-</span>
+                }
+              </td>
+              <td><app-campaign-status [status]="c.status" /></td>
+              <td class="num mono">{{ c.audienceSize ?? '-' }}</td>
+              <td class="num mono">
+                <span class="good">{{ sent(c) }}</span>
+                <span class="muted"> / </span>
+                <span [class.bad]="failed(c) > 0">{{ failed(c) }}</span>
+              </td>
+              <td class="actions">
+                @if (canStart(c.status)) {
+                  <button
+                    type="button"
+                    class="btn sm primary"
+                    [disabled]="busy() === c.id"
+                    (click)="act(c, 'start')"
+                    [attr.aria-label]="'Start ' + c.name"
+                  >
+                    <i class="ti ti-player-play" aria-hidden="true"></i>Start
+                  </button>
+                }
+                @if (canPause(c.status)) {
+                  <button
+                    type="button"
+                    class="btn sm"
+                    [disabled]="busy() === c.id"
+                    (click)="act(c, 'pause')"
+                    [attr.aria-label]="'Pause ' + c.name"
+                  >
+                    <i class="ti ti-player-pause" aria-hidden="true"></i>Pause
+                  </button>
+                }
+                @if (canResume(c.status)) {
+                  <button
+                    type="button"
+                    class="btn sm primary"
+                    [disabled]="busy() === c.id"
+                    (click)="act(c, 'resume')"
+                    [attr.aria-label]="'Resume ' + c.name"
+                  >
+                    <i class="ti ti-player-play" aria-hidden="true"></i>Resume
+                  </button>
+                }
+                @if (canCancel(c.status)) {
+                  <button
+                    type="button"
+                    class="btn sm"
+                    [class.danger]="isConfirming(c.id, 'cancel')"
+                    [disabled]="busy() === c.id"
+                    (click)="act(c, 'cancel')"
+                    (blur)="isConfirming(c.id, 'cancel') && confirming.set(null)"
+                    [attr.aria-label]="
+                      isConfirming(c.id, 'cancel') ? 'Confirm cancel ' + c.name : 'Cancel ' + c.name
+                    "
+                  >
+                    <i class="ti ti-ban" aria-hidden="true"></i>
+                    {{ isConfirming(c.id, 'cancel') ? 'Confirm cancel?' : 'Cancel' }}
+                  </button>
+                }
+                @if (canDelete(c.status)) {
+                  <button
+                    type="button"
+                    class="btn sm ghost"
+                    [class.danger]="isConfirming(c.id, 'delete')"
+                    [disabled]="busy() === c.id"
+                    (click)="act(c, 'delete')"
+                    (blur)="isConfirming(c.id, 'delete') && confirming.set(null)"
+                    [attr.aria-label]="
+                      isConfirming(c.id, 'delete') ? 'Confirm delete ' + c.name : 'Delete ' + c.name
+                    "
+                  >
+                    <i class="ti ti-trash" aria-hidden="true"></i>
+                    {{ isConfirming(c.id, 'delete') ? 'Delete?' : '' }}
+                  </button>
+                }
+                <a
+                  class="btn sm"
+                  [routerLink]="['/campaigns', c.id]"
+                  [attr.aria-label]="'Open ' + c.name"
+                >
+                  Open<i class="ti ti-arrow-right" aria-hidden="true"></i>
+                </a>
+              </td>
+            </tr>
+          } @empty {
+            <tr class="none">
+              <td colspan="7">
+                <div class="s-empty">
+                  <i class="ti ti-filter-off" aria-hidden="true"></i>
+                  <strong>Nothing here</strong>
+                  <p>No campaigns match this filter.</p>
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
   </section>
 }

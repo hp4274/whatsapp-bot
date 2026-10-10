@@ -1,6 +1,7 @@
 @use 'kit';
 
 @include kit.base;
+@include kit.pickers;
 
 .legend {
   display: grid;
@@ -13,15 +14,10 @@
   gap: 4px;
   align-content: start;
   padding: var(--space-lg);
-  border-radius: calc(var(--radius) + 4px);
-  border: 1px solid var(--border);
-  background: linear-gradient(160deg, var(--surface-alt), var(--surface));
-  box-shadow: var(--shadow);
-  animation: rise 480ms var(--ease) backwards;
-  animation-delay: calc(var(--i, 0) * 60ms);
 
-  .ms { font-size: 28px; color: var(--accent); transform: translateZ(24px); }
-  small { color: var(--text-muted); font-size: 12px; }
+  strong { font-weight: 500; color: var(--text-strong); }
+  .ti { font-size: 28px; color: var(--primary-text); transform: translateZ(24px); }
+  small { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 }
 
 .people {
@@ -37,13 +33,14 @@
     align-items: center;
     gap: 10px var(--space-md);
     padding: 12px;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    animation: rise 400ms var(--ease) backwards;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    animation: s-rise 400ms var(--ease) backwards;
     animation-delay: calc(var(--i, 0) * 40ms);
     transition: border-color var(--base) var(--ease), background var(--base) var(--ease);
 
-    &.saved { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 5%, transparent); }
+    &:hover { border-color: var(--border-hover); }
+    &.saved { border-color: var(--success); background: color-mix(in srgb, var(--success) 5%, transparent); }
 
     > .picks, > .err { grid-column: 2 / -1; }
 
@@ -60,13 +57,14 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent), var(--primary));
-  color: var(--on-primary);
-  font-weight: 800;
+  background: var(--primary-tint);
+  color: var(--primary-text);
+  font-weight: 600;
 }
 
 .who { display: grid; min-width: 0; }
 .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who strong { font-weight: 500; color: var(--text-strong); }
 
 .ctl {
   display: flex;
@@ -79,8 +77,8 @@
   display: flex;
   align-items: center;
 
-  .ms { position: absolute; left: 10px; color: var(--accent); pointer-events: none; }
-  select { padding: 7px 10px 7px 34px; min-width: 170px; }
+  .ti { position: absolute; left: 12px; color: var(--primary-text); pointer-events: none; }
+  select { padding-left: 36px; min-width: 170px; }
 }
 
-.err { margin: 0; color: var(--danger); font-size: 12px; font-weight: 600; }
+.err { margin: 0; color: var(--danger-text); font-size: 12px; font-weight: 500; }

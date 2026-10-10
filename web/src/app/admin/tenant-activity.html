@@ -1,0 +1,20 @@
+<section class="audit" aria-labelledby="audit-title">
+  <div class="audit-head">
+    <h3 id="audit-title">Recent activity</h3>
+    <a class="all" routerLink="/admin/audit-logs"
+      >See all <i class="ti ti-arrow-right" aria-hidden="true"></i
+    ></a>
+  </div>
+  <ul class="feed">
+    @for (log of recent(); track log.id) {
+      <li>
+        <span class="dot" aria-hidden="true"></span>
+        <code>{{ log.action }}</code>
+        <span class="muted">{{ log.detail || log.target }}</span>
+        <time class="muted" [title]="log.createdAt">{{ ago(log.createdAt) }}</time>
+      </li>
+    } @empty {
+      <li class="muted">Nothing recorded yet.</li>
+    }
+  </ul>
+</section>

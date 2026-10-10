@@ -1,16 +1,24 @@
+<!-- Composer: optional quick-reply sheet and attachment chip stacked above one input bar. -->
 @if (quickOpen()) {
   <div class="qr" id="ib-quick" role="listbox" aria-label="Quick replies">
     <div class="qr-head">
-      <span class="ms" aria-hidden="true">bolt</span>
+      <i class="ti ti-bolt" aria-hidden="true"></i>
       <strong>Quick replies</strong>
-      <span class="muted">{{ quickQuery() ? 'matching "' + quickQuery() + '"' : 'type to filter' }}</span>
+      <span class="muted">{{
+        quickQuery() ? 'matching "' + quickQuery() + '"' : 'type to filter'
+      }}</span>
       <span class="keys muted" aria-hidden="true"><kbd>↑</kbd><kbd>↓</kbd> <kbd>Enter</kbd></span>
     </div>
     @if (!slashFilter()) {
       <label class="qr-filter">
         <span class="sr-only">Filter quick replies</span>
-        <input type="search" placeholder="Filter templates" [value]="quickQuery()" (input)="quickQuery.set($any($event.target).value); quickIndex.set(0)"
-          (keydown)="onKey($event)" />
+        <input
+          type="search"
+          placeholder="Filter templates"
+          [value]="quickQuery()"
+          (input)="quickQuery.set($any($event.target).value); quickIndex.set(0)"
+          (keydown)="onKey($event)"
+        />
       </label>
     }
     <div class="qr-list">
@@ -18,13 +26,27 @@
         <p class="qr-empty"><span class="spinner"></span> Loading templates...</p>
       } @else {
         @for (t of matches(); track t.id; let i = $index) {
-          <button type="button" role="option" class="qr-item" [class.on]="i === quickIndex()" [attr.aria-selected]="i === quickIndex()"
-            (mouseenter)="quickIndex.set(i)" (mousedown)="$event.preventDefault()" (click)="pick(t)">
-            <b>{{ t.name }}</b><span>{{ t.body }}</span>
+          <button
+            type="button"
+            role="option"
+            class="qr-item"
+            [class.on]="i === quickIndex()"
+            [attr.aria-selected]="i === quickIndex()"
+            (mouseenter)="quickIndex.set(i)"
+            (mousedown)="$event.preventDefault()"
+            (click)="pick(t)"
+          >
+            <b>{{ t.name }}</b
+            ><span>{{ t.body }}</span>
           </button>
         } @empty {
           <p class="qr-empty">
-            {{ templatesError() || (quickQuery() ? 'No template matches.' : 'No text templates yet. Create one under Templates.') }}
+            {{
+              templatesError() ||
+                (quickQuery()
+                  ? 'No template matches.'
+                  : 'No text templates yet. Create one under Templates.')
+            }}
           </p>
         }
       }
@@ -34,47 +56,112 @@
 
 @if (attachment(); as a) {
   <div class="att" [class.bad]="a.error" [class.done]="a.mediaId">
-    @if (a.preview) { <img [src]="a.preview" alt="" /> }
-    @else { <span class="att-ic ms" aria-hidden="true">{{ kind(a.file) === 'pdf' ? 'picture_as_pdf' : kind(a.file) === 'video' ? 'movie' : 'description' }}</span> }
+    @if (a.preview) {
+      <img [src]="a.preview" alt="" />
+    } @else {
+      <i
+        class="ti ti-{{
+          kind(a.file) === 'pdf'
+            ? 'file-type-pdf'
+            : kind(a.file) === 'video'
+              ? 'movie'
+              : 'file-text'
+        }} att-ic"
+        aria-hidden="true"
+      ></i>
+    }
     <div class="att-info">
       <strong>{{ a.file.name }}</strong>
-      @if (a.error) { <span class="err" role="alert">{{ a.error }}</span> }
-      @else if (a.mediaId) { <span class="muted">{{ size(a.file.size) }} · ready</span> }
-      @else {
+      @if (a.error) {
+        <span class="err" role="alert">{{ a.error }}</span>
+      } @else if (a.mediaId) {
+        <span class="muted">{{ size(a.file.size) }} · ready</span>
+      } @else {
         <span class="muted">Uploading {{ a.progress }}%</span>
-        <span class="bar" role="progressbar" [attr.aria-valuenow]="a.progress" aria-valuemin="0" aria-valuemax="100" aria-label="Upload progress"><i [style.width.%]="a.progress"></i></span>
+        <span
+          class="bar"
+          role="progressbar"
+          [attr.aria-valuenow]="a.progress"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-label="Upload progress"
+          ><i [style.width.%]="a.progress"></i
+        ></span>
       }
     </div>
     @if (a.error && retryable(a)) {
-      <button type="button" class="icon-btn" (click)="retryUpload()" aria-label="Retry upload"><span class="ms">refresh</span></button>
+      <button type="button" class="icon-btn" (click)="retryUpload()" aria-label="Retry upload">
+        <i class="ti ti-refresh" aria-hidden="true"></i>
+      </button>
     }
-    <button type="button" class="icon-btn" (click)="removeAttachment()" aria-label="Remove attachment"><span class="ms">close</span></button>
+    <button
+      type="button"
+      class="icon-btn"
+      (click)="removeAttachment()"
+      aria-label="Remove attachment"
+    >
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
   </div>
 }
 
 @if (error()) {
-  <div class="c-err" role="alert">
-    <span class="ms" aria-hidden="true">error</span>{{ error() }}
-    <button type="button" class="icon-btn" (click)="error.set('')" aria-label="Dismiss"><span class="ms">close</span></button>
+  <div class="x-err" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}
+    <button type="button" class="icon-btn" (click)="error.set('')" aria-label="Dismiss">
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
   </div>
 }
 
 <form class="row" (submit)="$event.preventDefault(); send()">
   <input #picker type="file" hidden [accept]="accept" (change)="onPicked(picker)" />
   <div class="tools">
-    <button type="button" class="icon-btn" (click)="browse()" aria-label="Attach a file" title="Attach image, PDF or video">
-      <span class="ms">attach_file</span>
+    <button
+      type="button"
+      class="icon-btn"
+      (click)="browse()"
+      aria-label="Attach a file"
+      title="Attach image, PDF or video"
+    >
+      <i class="ti ti-paperclip" aria-hidden="true"></i>
     </button>
-    <button type="button" class="icon-btn" [class.on]="quickOpen()" (click)="quickOpen() ? closeQuick() : openQuick()"
-      aria-label="Quick replies" title="Quick replies (/)" [attr.aria-expanded]="quickOpen()" aria-controls="ib-quick">
-      <span class="ms">bolt</span>
+    <button
+      type="button"
+      class="icon-btn"
+      [class.on]="quickOpen()"
+      (click)="quickOpen() ? closeQuick() : openQuick()"
+      aria-label="Quick replies"
+      title="Quick replies (/)"
+      [attr.aria-expanded]="quickOpen()"
+      aria-controls="ib-quick"
+    >
+      <i class="ti ti-bolt" aria-hidden="true"></i>
     </button>
   </div>
-  <textarea #box [rows]="rows()" name="draft" aria-label="Reply" [readOnly]="sending()"
-    [placeholder]="attachment() ? 'Add a caption (optional)' : 'Reply... Enter to send, / for quick replies'"
-    [value]="draft()" (input)="onInput($any($event.target).value)" (keydown)="onKey($event)" (paste)="onPaste($event)"
-    role="combobox" [attr.aria-expanded]="quickOpen()" aria-autocomplete="list" aria-controls="ib-quick"></textarea>
+  <textarea
+    #box
+    [rows]="rows()"
+    name="draft"
+    aria-label="Reply"
+    [readOnly]="sending()"
+    [placeholder]="
+      attachment() ? 'Add a caption (optional)' : 'Reply... Enter to send, / for quick replies'
+    "
+    [value]="draft()"
+    (input)="onInput($any($event.target).value)"
+    (keydown)="onKey($event)"
+    (paste)="onPaste($event)"
+    role="combobox"
+    [attr.aria-expanded]="quickOpen()"
+    aria-autocomplete="list"
+    aria-controls="ib-quick"
+  ></textarea>
   <button type="submit" class="btn primary send" [disabled]="!canSend()" aria-label="Send reply">
-    @if (sending()) { <span class="spinner"></span> } @else { <span class="ms">send</span> }
+    @if (sending()) {
+      <span class="spinner"></span>
+    } @else {
+      <i class="ti ti-send" aria-hidden="true"></i>
+    }
   </button>
 </form>

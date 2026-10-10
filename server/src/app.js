@@ -26,9 +26,8 @@ import {
     TRANSPORTS,
     TRANSPORT_CLOUD_API,
     TRANSPORT_SANDBOX,
-    TRANSPORT_WEB_JS,
     TRANSPORT_BAILEYS,
-    QR_TRANSPORTS,
+    DEFAULTS,
     loadConfig,
     mergeConfig,
     publicConfig,
@@ -67,6 +66,9 @@ import { TicketStore } from './tickets/store.js';
 import { JobStore } from './scheduler/store.js';
 import { SchedulerWorker } from './scheduler/worker.js';
 import { TemplateError, TemplateStore, validate as validateTemplate } from './templates/store.js';
+import { needsReview, reviewBlock, spamScore, stricterCap, templateRuleProblem } from './templates/policy.js';
+import { getLibraryEntry, listLibrary } from './templates/library.js';
+import { registerTemplateAdmin } from './templates/admin.js';
 import { metaTemplateFor } from './messaging/templateSend.js';
 import { WorkflowEngine } from './workflows/engine.js';
 import { WorkflowError } from './workflows/definition.js';
@@ -81,6 +83,8 @@ import { createBillingRouter } from './billing/routes.js';
 import { createCampaignRouter } from './campaigns/routes.js';
 import { dueCampaigns } from './campaigns/store.js';
 import { BillingStore } from './billing/store.js';
+import { POLICY_FIELDS, PolicyError, PolicyStore } from './policy/index.js';
+import { attachCampaignPolicy, bulkKillReason, createCampaignOpsRouter, retentionSweep } from './policy/campaignOps.js';
 import { bindContext, logger, requestContext } from './observability/logger.js';
 import { registerQueue, snapshot, unregisterQueue } from './observability/metrics.js';
 import { ApiKeyStore } from './publicapi/keys.js';
@@ -100,11 +104,11 @@ import {
 } from './tenancy.js';
 import { PACING_PRESETS, bulkWindowOpen } from './campaign/safety.js';
 import { auditCsv, createAdminOps } from './adminOps.js';
+import { capMessage, createChannelOps, newNumberSafety, numberCap, overCap, providerBlocked, quotaLeft } from './policy/channelOps.js';
 import { TransportError } from './transports/base.js';
 import { CloudApiTransport, parseInboundPayload, parseStatusPayload } from './transports/cloudApi.js';
 import { SandboxTransport } from './transports/sandbox.js';
-import { TOS_WARNING, WhatsAppWebTransport } from './transports/whatsappWeb.js';
-import { BaileysTransport, TOS_WARNING as BAILEYS_TOS_WARNING } from './transports/baileys.js';
+import { BaileysTransport, TOS_WARNING } from './transports/baileys.js';
 
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -139,8 +143,6 @@ export function createTransport(config, deps = {}) {
             return new SandboxTransport(config);
         case TRANSPORT_CLOUD_API:
             return new CloudApiTransport(config, deps);
-        case TRANSPORT_WEB_JS:
-            return new WhatsAppWebTransport(config, deps);
         case TRANSPORT_BAILEYS:
             return new BaileysTransport(config, deps);
         default:
@@ -294,12 +296,8 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     // Plan limits set by the platform admin. Read per call so a change applies at once.
     const limits = () => deps.limits?.() ?? {};
     state.limits = limits; // campaigns/routes.js enforces maxContactsPerCampaign on saved lists
-    const transportBlocked = (cfg) => {
-        const lim = limits();
-        if (cfg.transport === TRANSPORT_CLOUD_API && lim.allowCloudApi === false) return 'The Meta Cloud API is not enabled for your plan.';
-        if (QR_TRANSPORTS.includes(cfg.transport) && lim.allowWhatsappWeb === false) return 'WhatsApp Web (QR) is not enabled for your plan.';
-        return null;
-    };
+    // Tenant limits and channels.* policy both apply; stricter wins (policy/channelOps.js).
+    const transportBlocked = (cfg) => providerBlocked(cfg.transport, limits(), deps.platformPolicy?.() ?? {});
     const bannedIn = (text) => {
         const word = blockedWordIn(limits(), text);
         return word ? `Your message uses "${word}", which is not allowed on this platform.` : null;
@@ -361,6 +359,8 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
             const found = Number.isInteger(Number(template))
                 ? templates.get(template) : templates.getByName(template);
             if (!found) throw new Error(`template not found: ${template}`);
+            const blocked = templates.sendBlock(found);
+            if (blocked) throw new Error(blocked);
             // `personalize` reads flat keys, but a run context is nested
             // ({ event, contact, vars }). Flatten it, or every {name} in a
             // template survives into the message as literal text.
@@ -382,8 +382,11 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         channel: () => state.channel,
         media: (mediaId) => state.media?.get(mediaId) ?? null,
         businessName: () => state.tenancy?.getTenant(db.tenantId)?.name ?? '',
+        platformPolicy: () => deps.platformPolicy?.() ?? {},
     });
+    state.platformPolicy = () => deps.platformPolicy?.() ?? {};
     state.manager = manager;
+    attachCampaignPolicy(state, deps); // bulk.* caps, opt-in, speed, window, kill switch
     // Interactive sends are remembered so a later "1" / button tap can be
     // matched back to the menu (messaging/replies.js).
     state.interactions = new InteractiveStore(db);
@@ -399,6 +402,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     state.messages = messages;
     state.contacts = contacts;
     state.templates = templates;
+    templates.sendGate = (template) => reviewBlock(template, state.platformPolicy(), state.channel);
     state.conversations = conversations;
     state.tickets = tickets;
     state.knowledge = knowledge;
@@ -414,7 +418,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         res.json({
             config: publicConfig(state.config),
             transports: TRANSPORTS,
-            warnings: { [TRANSPORT_WEB_JS]: TOS_WARNING, [TRANSPORT_BAILEYS]: BAILEYS_TOS_WARNING },
+            warnings: { [TRANSPORT_BAILEYS]: TOS_WARNING },
         });
     });
 
@@ -450,7 +454,8 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         }
         const problems = validateConfig(state.config);
         if (problems.length) return { status: 400, body: { errors: problems } };
-        const blocked = transportBlocked(state.config);
+        const blocked = transportBlocked(state.config)
+            ?? overCap(db, state.channel, limits(), deps.platformPolicy?.() ?? {});
         if (blocked) return { status: 403, body: { errors: [blocked] } };
 
         if (state.transport) {
@@ -995,21 +1000,55 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         const id = body?.headerMediaId;
         return Boolean(id) && id !== current?.headerMediaId && !state.media.get(id);
     };
-    const templateText = (body) => `${body?.name ?? ''} ${body?.body ?? ''} ${body?.interactive ? JSON.stringify(body.interactive) : ''}`;
+
+    // Platform template rules (templates/policy.js). Legacy limits.maxTemplates and
+    // templates.maxTemplates both apply: the lower cap wins.
+    const templateCapError = () => {
+        const cap = stricterCap(limits().maxTemplates, state.platformPolicy()['templates.maxTemplates']);
+        return cap && templates.list().length >= cap
+            ? `Your plan allows ${cap} templates. Delete one or ask the platform admin to raise it.` : null;
+    };
+    const templateRuleFail = (res, draft) => {
+        const problem = templateRuleProblem(draft, {
+            policy: state.platformPolicy(), limits: limits(), media: (id) => state.media.get(id),
+        });
+        return problem ? res.status(400).json({ errors: [problem.message], rule: problem.rule }) : null;
+    };
+    // New or reworded templates go (back) to the review queue when the policy asks for one.
+    const queueForReview = (template) => (needsReview(state.platformPolicy(), template)
+        ? templates.setReview(template.id, 'pending') : template);
 
     app.post('/templates', (req, res) => {
-        const cap = limits().maxTemplates;
-        if (cap && templates.list().length >= cap) {
-            return res.status(403).json({ errors: [`Your plan allows ${cap} templates. Delete one or ask the platform admin to raise it.`] });
-        }
-        const banned = bannedIn(templateText(req.body));
-        if (banned) return res.status(400).json({ errors: [banned] });
+        const capError = templateCapError();
+        if (capError) return res.status(403).json({ errors: [capError], rule: 'maxTemplates' });
+        if (templateRuleFail(res, req.body ?? {})) return undefined;
         if (templateMediaMissing(req.body)) return res.status(400).json({ errors: ['header media not found - upload it again'] });
         // The store saves half-written drafts on purpose; the API is the gate.
         const problems = validateTemplate(req.body ?? {});
         if (problems.length && req.query.draft !== 'true') return res.status(400).json({ errors: problems });
         try {
-            return res.status(201).json({ template: templates.create(req.body ?? {}), warnings: problems });
+            return res.status(201).json({ template: queueForReview(templates.create(req.body ?? {})), warnings: problems });
+        } catch (err) {
+            return templateFail(res, err);
+        }
+    });
+
+    /** Live spam score for the editor, with the limit it is judged against. */
+    app.post('/templates/spam-score', (req, res) => res.json({
+        ...spamScore(req.body ?? {}), limit: state.platformPolicy()['templates.maxSpamScore'] ?? 100,
+    }));
+
+    // Starter library (templates/library.js): read-only here, curated by super admins.
+    app.get('/templates/library', (req, res) => res.json({ starters: listLibrary(db.db) }));
+
+    app.post('/templates/library/:entryId/copy', (req, res) => {
+        try {
+            const entry = getLibraryEntry(db.db, req.params.entryId);
+            const draft = { name: String(req.body?.name ?? '').trim() || entry.name, body: entry.body, category: entry.category };
+            const capError = templateCapError();
+            if (capError) return res.status(403).json({ errors: [capError], rule: 'maxTemplates' });
+            if (templateRuleFail(res, draft)) return undefined;
+            return res.status(201).json({ template: queueForReview(templates.create(draft)) });
         } catch (err) {
             return templateFail(res, err);
         }
@@ -1026,16 +1065,18 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     });
 
     app.put('/templates/:id', (req, res) => {
-        const banned = bannedIn(templateText(req.body));
-        if (banned) return res.status(400).json({ errors: [banned] });
         const current = templates.get(req.params.id);
+        if (templateRuleFail(res, { ...current, ...req.body })) return undefined;
         if (templateMediaMissing(req.body, current)) return res.status(400).json({ errors: ['header media not found - upload it again'] });
         // Variables follow the body unless the caller sends them: an edit that adds a
         // placeholder must not be checked against the old declared list.
         const problems = validateTemplate({ ...current, ...req.body, variables: req.body?.variables });
         if (problems.length && req.query.draft !== 'true') return res.status(400).json({ errors: problems });
         try {
-            return res.json({ template: templates.update(req.params.id, req.body ?? {}) });
+            const updated = templates.update(req.params.id, req.body ?? {});
+            const changed = ['body', 'interactive', 'headerMediaId', 'templateType']
+                .some((key) => JSON.stringify(updated[key]) !== JSON.stringify(current?.[key]));
+            return res.json({ template: changed ? queueForReview(updated) : updated });
         } catch (err) {
             return templateFail(res, err);
         }
@@ -1611,18 +1652,20 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         })),
         capabilities: CAPABILITIES,
         transports: TRANSPORTS,
-        warnings: { [TRANSPORT_WEB_JS]: TOS_WARNING, [TRANSPORT_BAILEYS]: BAILEYS_TOS_WARNING },
+        warnings: { [TRANSPORT_BAILEYS]: TOS_WARNING },
     }));
 
     app.post('/channels', (req, res) => {
-        const cap = deps.limits?.().maxChannels;
-        if (cap && channels.list().length >= cap) {
-            return res.status(403).json({ errors: [`Your plan allows ${cap} WhatsApp number${cap === 1 ? '' : 's'}. Ask the platform admin to raise it.`] });
-        }
+        const platform = deps.platformPolicy?.() ?? {};
+        const cap = numberCap(deps.limits?.() ?? {}, platform);
+        if (cap && channels.list().length >= cap) return res.status(403).json({ errors: [capMessage(cap)] });
+        const body = req.body ?? {};
+        const blocked = providerBlocked(mergeConfig(DEFAULTS, body.settings).transport, deps.limits?.() ?? {}, platform);
+        if (blocked) return res.status(403).json({ errors: [blocked] });
         try {
-            const problems = channelInputProblems(req.body ?? {});
+            const problems = channelInputProblems(body);
             if (problems.length) return res.status(400).json({ errors: problems });
-            const channel = channels.create(req.body ?? {});
+            const channel = channels.create({ ...body, safety: newNumberSafety(platform, body.settings ?? {}) });
             audit?.(req, 'channel.create', channel.id, channel.displayName);
             return res.status(201).json({ channel: publicChannel(channel) });
         } catch (err) {
@@ -1643,6 +1686,9 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         try {
             const problems = channelInputProblems(req.body ?? {});
             if (problems.length) return res.status(400).json({ errors: problems });
+            const swapped = req.body?.settings?.transport;
+            const blocked = swapped && providerBlocked(mergeConfig(DEFAULTS, { transport: swapped }).transport, deps.limits?.() ?? {}, deps.platformPolicy?.() ?? {});
+            if (blocked) return res.status(403).json({ errors: [blocked] });
             const before = channels.get(req.params.id);
             const channel = channels.update(req.params.id, req.body ?? {});
             // A disabled channel must stop sending now, not at the next restart.
@@ -1680,8 +1726,13 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
     app.use((req, res, next) => {
         const named = req.get('x-channel-id') ?? req.query.channel;
         try {
+            // Sender rule (channels.routing) for an unnamed send; reads and other writes keep the default.
+            const sending = req.method === 'POST' && SEND_ROUTES[req.path];
             const channel = named == null || named === ''
-                ? channels.route({})
+                ? channels.route(sending ? {
+                    rule: deps.platformPolicy?.()['channels.routing'],
+                    remaining: (ch) => quotaLeft(db, ch, runtimes.get(ch.id), policy()),
+                } : {})
                 : channels.route({ channelId: Number(named) });
             req.channel = channel;
             bindContext({ channelId: channel.id });
@@ -1691,7 +1742,7 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         }
     });
 
-    return { router: app, channels, runtimes, runtimeFor, applyPolicy };
+    return { router: app, channels, runtimes, runtimeFor, applyPolicy, release };
 }
 
 /** What an operator needs at a glance, without opening the channel. */
@@ -1743,6 +1794,8 @@ export function createApp({
     }));
 
     const tenancy = new Tenancy(db);
+    // Super-admin rules per plan; every tenant runtime reads its effective values through deps.platformPolicy.
+    const policyStore = new PolicyStore(db);
     const runtimes = new Map();
     const logins = new Map(); // email -> { fails, until }  ponytail: in-memory, per process
 
@@ -1759,7 +1812,13 @@ export function createApp({
                 tenantDir,
                 sessionDir: isDefault ? SESSION_DIR : path.join(tenantDir, 'wwebjs_auth'),
                 // The school module needs the tenant's services and user list.
-                deps: { ...deps, tenancy, limits: () => tenancy.getTenant(tenantId)?.limits ?? {} },
+                deps: {
+                    ...deps,
+                    tenancy,
+                    limits: () => tenancy.getTenant(tenantId)?.limits ?? {},
+                    platformPolicy: () => policyStore.resolve(tenantId).values,
+                    bulkKill: () => bulkKillReason(policyStore, tenantId),
+                },
                 audit,
                 policy: () => tenancy.enforcedSafety(tenancy.getTenant(tenantId)),
             });
@@ -1930,6 +1989,8 @@ export function createApp({
         next();
     });
     app.use('/api/admin', admin);
+    admin.use(createCampaignOpsRouter({ db, runtimes, runtimeFor, tenancy, policyStore, audit }));
+    registerTemplateAdmin(admin, { db, tenancy, policy: policyStore, audit }); // review queue, starter library, Meta status
 
     admin.get('/tenants', (req, res) => res.json({
         tenants: tenancy.listTenants().map(tenantOverview),
@@ -2095,8 +2156,37 @@ export function createApp({
         }
     });
 
+    // Platform policy: per-plan rules for every service (see src/policy). Scope is
+    // `global`, `plan:<key>` or `tenant:<id>`; a null value removes an override.
+    const policyFail = (res, err) => {
+        if (err instanceof PolicyError) return res.status(err.status).json({ errors: [err.message] });
+        throw err;
+    };
+    admin.get('/policy', (req, res) => res.json({
+        fields: POLICY_FIELDS,
+        global: policyStore.values('global'),
+        plans: policyStore.planValues(),
+        planList: new BillingStore(db.forTenant(DEFAULT_TENANT_ID)).plans().map((p) => ({ key: p.key, name: p.name, tier: p.tier })),
+    }));
+    admin.get('/policy/tenant/:id', (req, res) => res.json({
+        overrides: policyStore.values(`tenant:${Number(req.params.id)}`),
+        ...policyStore.resolve(Number(req.params.id)),
+    }));
+    admin.put('/policy/:scope', (req, res) => {
+        try {
+            const values = policyStore.set(req.params.scope, req.body?.values ?? {});
+            audit(req, 'policy.change', req.params.scope, Object.keys(req.body?.values ?? {}).join(', '));
+            return res.json({ values });
+        } catch (err) {
+            return policyFail(res, err);
+        }
+    });
+
     // Ops pages (read only): plans vs usage, message volume, live channel health, audit search.
     const ops = createAdminOps({ db, tenancy, runtimes });
+    const channelOps = createChannelOps({ db, tenancy, runtimes, policy: policyStore });
+    channelOps.register(admin, audit); // /api/admin/numbers/:channelId/{pause,resume,disconnect,move}
+    app.locals.channelOps = channelOps;
     admin.get('/plans', (req, res) => res.json(ops.plans()));
     admin.get('/usage-summary', (req, res) => res.json(ops.usage({ days: req.query.days })));
     admin.get('/health-detail', (req, res) => res.json(ops.health()));
@@ -2223,6 +2313,9 @@ export function createApp({
     });
 
     // ------------------------------------------------- tenant routes --
+    // What the platform allows this business, so its own screens can show limits before refusing.
+    app.get('/api/policy', withTenant, (req, res) => res.json(policyStore.resolve(req.tenantId)));
+
     app.use('/api', withTenant, (req, res, next) => {
         const tenant = tenancy.getTenant(req.tenantId);
         const accessError = tenant ? tenantAccessError(tenant, req) : 'tenant not found';
@@ -2257,6 +2350,7 @@ export function createApp({
      */
     const sweepWarned = new Set(); // `${tenantId}:${campaignId}` already logged as not startable
     const sweep = async () => {
+        await channelOps.guard().catch((err) => console.error('[channels] ban guard failed:', err.message));
         let due = [];
         try {
             due = dueRuns(db, new Date());
@@ -2286,6 +2380,11 @@ export function createApp({
             }
         } catch (err) {
             console.error('[campaigns] sweep failed:', err.message);
+        }
+        try {
+            retentionSweep(db, policyStore); // campaigns.retentionDays, throttled to hourly
+        } catch (err) {
+            console.error('[campaigns] retention sweep failed:', err.message);
         }
 
         for (const { runId, tenantId } of due) {
@@ -2374,6 +2473,7 @@ export function createApp({
 
     app.locals.runtimes = runtimes;
     app.locals.tenancy = tenancy;
+    app.locals.policy = policyStore;
     app.locals.runtimeFor = runtimeFor;
 
     // A thrown error is logged with its stack and answered as JSON, so the UI
@@ -2399,7 +2499,7 @@ async function handleInbound(state, message) {
     });
     broadcast(state, { type: 'inbound_message', message: saved, conversationId: conversation?.id ?? null });
     try {
-        const optOut = await processOptOut(state.db, state.transport, saved);
+        const optOut = await processOptOut(state.db, state.transport, saved, state.platformPolicy()['autoReplies.optOutWords']);
         if (optOut.handled) {
             broadcast(state, { type: 'optout', sender: saved.sender, action: optOut.action });
             return saved;
@@ -2445,7 +2545,9 @@ async function handleInbound(state, message) {
         // The knowledge base answers first and the keyword engine is the
         // fallback, so an operator migrates at their own pace: with no FAQ
         // items the match is always null and behaviour is unchanged.
-        const hit = state.knowledge?.answer(saved.body, { channel: state.channel });
+        // Platform: FAQ answers need autoReplies.allowAi, and respect quiet hours.
+        const faqOn = state.platformPolicy()['autoReplies.allowAi'] !== false && !state.autoReply.quiet();
+        const hit = faqOn ? state.knowledge?.answer(saved.body, { channel: state.channel }) : null;
         if (hit?.item) {
             const outcome = state.messages.send({
                 messageType: 'auto_reply',

@@ -1,5 +1,5 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Observable, Subject, forkJoin, of } from 'rxjs';
@@ -8,7 +8,16 @@ import { catchError, distinctUntilChanged, map, switchMap } from 'rxjs/operators
 import { Store } from '../core/store';
 import { Tilt } from '../school/tilt';
 import {
-  AnalyticsApi, CampaignStats, InboxStats, ObjectStats, Overview, RANGE_DAYS, RangeDays, TicketStats, Usage, UsagePeriod,
+  AnalyticsApi,
+  CampaignStats,
+  InboxStats,
+  ObjectStats,
+  Overview,
+  RANGE_DAYS,
+  RangeDays,
+  TicketStats,
+  Usage,
+  UsagePeriod,
 } from './analytics-api';
 import { CountUp, downloadCsv, duration, toCsv, today } from './analytics-util';
 import { CampaignTable } from './campaign-table';
@@ -19,7 +28,12 @@ import { TrendChart } from './trend-chart';
 const STATUS_ORDER = ['READ', 'DELIVERED', 'SENT', 'SANDBOX', 'SENDING', 'QUEUED', 'FAILED'];
 const OPEN_TICKETS = ['OPEN', 'IN_PROGRESS', 'WAITING_CUSTOMER'];
 
-interface Bar { label: string; n: number; pct: number; tone: string }
+interface Bar {
+  label: string;
+  n: number;
+  pct: number;
+  tone: string;
+}
 /** The range-independent sources. Each is null when its endpoint failed or is not enabled. */
 interface Sources {
   usage: Usage | null;
@@ -29,12 +43,24 @@ interface Sources {
   tickets: TicketStats | null;
   inbox: InboxStats | null;
 }
-const EMPTY: Sources = { usage: null, months: null, campaign: null, objects: null, tickets: null, inbox: null };
+const EMPTY: Sources = {
+  usage: null,
+  months: null,
+  campaign: null,
+  objects: null,
+  tickets: null,
+  inbox: null,
+};
 
 const pct = (n: number, of: number) => (of > 0 ? Math.round((n / of) * 1000) / 10 : 0);
-const sum = (o: Record<string, number | undefined>) => Object.values(o).reduce<number>((a, v) => a + (v ?? 0), 0);
-const human = (s: string) => s.replace(/_/g, ' ').toLowerCase().replace(/^./, (c) => c.toUpperCase());
-const toDays = (v: string | null): RangeDays => (RANGE_DAYS.find((d) => String(d) === v) ?? 30);
+const sum = (o: Record<string, number | undefined>) =>
+  Object.values(o).reduce<number>((a, v) => a + (v ?? 0), 0);
+const human = (s: string) =>
+  s
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/^./, (c) => c.toUpperCase());
+const toDays = (v: string | null): RangeDays => RANGE_DAYS.find((d) => String(d) === v) ?? 30;
 
 function bars(source: Record<string, number>, tone: (k: string) => string): Bar[] {
   const total = sum(source);
@@ -48,16 +74,34 @@ function bars(source: Record<string, number>, tone: (k: string) => string): Bar[
 function spark(values: number[]) {
   if (values.length < 2) return null;
   const max = Math.max(1, ...values);
-  const pts = values.map((v, i) => `${((i / (values.length - 1)) * 100).toFixed(2)},${(30 - (v / max) * 26).toFixed(2)}`);
+  const pts = values.map(
+    (v, i) => `${((i / (values.length - 1)) * 100).toFixed(2)},${(30 - (v / max) * 26).toFixed(2)}`,
+  );
   const line = `M${pts.join('L')}`;
   return { line, area: `${line}L100,32L0,32Z` };
 }
 
+/**
+ * One page for how a number performs. The range-bound overview (?days=) and
+ * the range-free sources load independently, so one failing endpoint hides
+ * only its own section; live store events refresh quietly in the background.
+ */
 @Component({
   selector: 'app-analytics',
-  imports: [RouterLink, Tilt, DecimalPipe, DatePipe, CountUp, TrendChart, CampaignTable, ResponseTimesView, MonthlyUsage],
+  imports: [
+    RouterLink,
+    Tilt,
+    DecimalPipe,
+    DatePipe,
+    CountUp,
+    TrendChart,
+    CampaignTable,
+    ResponseTimesView,
+    MonthlyUsage,
+  ],
   templateUrl: './analytics.html',
   styleUrl: './analytics.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AnalyticsView {
   private readonly api = inject(AnalyticsApi);
@@ -68,7 +112,9 @@ export class AnalyticsView {
   protected readonly ranges = RANGE_DAYS;
   protected readonly fmt = duration;
 
-  protected readonly days = signal<RangeDays>(toDays(this.route.snapshot.queryParamMap.get('days')));
+  protected readonly days = signal<RangeDays>(
+    toDays(this.route.snapshot.queryParamMap.get('days')),
+  );
   protected readonly data = signal<Sources>(EMPTY);
   protected readonly srcLoading = signal(true);
   protected readonly overview = signal<Overview | null>(null);
@@ -78,10 +124,14 @@ export class AnalyticsView {
   private readonly overviewReq = new Subject<boolean>();
 
   /** First paint only; a range switch keeps the old figures on screen, dimmed. */
-  protected readonly loading = computed(() => this.srcLoading() || (this.ovLoading() && !this.overview() && !this.ovError()));
+  protected readonly loading = computed(
+    () => this.srcLoading() || (this.ovLoading() && !this.overview() && !this.ovError()),
+  );
   protected readonly stale = computed(() => this.ovLoading() && !!this.overview());
-  protected readonly allFailed = computed(() =>
-    !this.loading() && !this.overview() && Object.values(this.data()).every((v) => v === null));
+  protected readonly allFailed = computed(
+    () =>
+      !this.loading() && !this.overview() && Object.values(this.data()).every((v) => v === null),
+  );
   /** Nothing at all happened on this number in the range. */
   protected readonly quiet = computed(() => {
     const o = this.overview();
@@ -96,19 +146,80 @@ export class AnalyticsView {
     const series = (k: 'sent' | 'delivered' | 'read' | 'failed') => spark(o.daily.map((d) => d[k]));
     const rt = o.responseTimes;
     return [
-      { key: 'sent', label: 'Sent', icon: 'send', tone: 'info', value: t.sent, decimals: 0, suffix: '', text: null,
-        foot: `${t.attempted.toLocaleString()} attempted · ${t.pending.toLocaleString()} queued`, spark: series('sent') },
-      { key: 'delivery', label: 'Delivery rate', icon: 'done_all', tone: 'ok', value: t.deliveryRate, decimals: 1, suffix: '%', text: null,
-        foot: `${t.delivered.toLocaleString()} delivered of ${t.attempted.toLocaleString()}`, spark: series('delivered') },
-      { key: 'read', label: 'Read rate', icon: 'visibility', tone: 'read', value: t.readRate, decimals: 1, suffix: '%', text: null,
-        foot: `${t.read.toLocaleString()} read of ${t.delivered.toLocaleString()} delivered`, spark: series('read') },
-      { key: 'failed', label: 'Failed', icon: 'error', tone: 'bad', value: t.failed, decimals: 0, suffix: '', text: null,
-        foot: t.failureRate === null ? 'Nothing attempted yet' : `${t.failureRate}% of attempted`, spark: series('failed') },
-      { key: 'auto', label: 'Auto-reply hits', icon: 'smart_toy', tone: 'warn', value: o.autoReplies.messages, decimals: 0, suffix: '', text: null,
-        foot: `${o.autoReplies.matched.toLocaleString()} of ${o.autoReplies.inbound.toLocaleString()} inbound matched a rule`, spark: null },
-      { key: 'response', label: 'Median first response', icon: 'timer', tone: 'mute', value: null, decimals: 0, suffix: '',
-        text: duration(rt.medianSeconds), foot: rt.answered ? `p90 ${duration(rt.p90Seconds)} · ${rt.unanswered} unanswered` : 'No replies to measure yet',
-        spark: null },
+      {
+        key: 'sent',
+        label: 'Sent',
+        icon: 'send',
+        tone: 'info',
+        value: t.sent,
+        decimals: 0,
+        suffix: '',
+        text: null,
+        foot: `${t.attempted.toLocaleString()} attempted · ${t.pending.toLocaleString()} queued`,
+        spark: series('sent'),
+      },
+      {
+        key: 'delivery',
+        label: 'Delivery rate',
+        icon: 'checks',
+        tone: 'ok',
+        value: t.deliveryRate,
+        decimals: 1,
+        suffix: '%',
+        text: null,
+        foot: `${t.delivered.toLocaleString()} delivered of ${t.attempted.toLocaleString()}`,
+        spark: series('delivered'),
+      },
+      {
+        key: 'read',
+        label: 'Read rate',
+        icon: 'eye',
+        tone: 'read',
+        value: t.readRate,
+        decimals: 1,
+        suffix: '%',
+        text: null,
+        foot: `${t.read.toLocaleString()} read of ${t.delivered.toLocaleString()} delivered`,
+        spark: series('read'),
+      },
+      {
+        key: 'failed',
+        label: 'Failed',
+        icon: 'alert-circle',
+        tone: 'bad',
+        value: t.failed,
+        decimals: 0,
+        suffix: '',
+        text: null,
+        foot: t.failureRate === null ? 'Nothing attempted yet' : `${t.failureRate}% of attempted`,
+        spark: series('failed'),
+      },
+      {
+        key: 'auto',
+        label: 'Auto-reply hits',
+        icon: 'robot',
+        tone: 'warn',
+        value: o.autoReplies.messages,
+        decimals: 0,
+        suffix: '',
+        text: null,
+        foot: `${o.autoReplies.matched.toLocaleString()} of ${o.autoReplies.inbound.toLocaleString()} inbound matched a rule`,
+        spark: null,
+      },
+      {
+        key: 'response',
+        label: 'Median first response',
+        icon: 'clock-hour-4',
+        tone: 'mute',
+        value: null,
+        decimals: 0,
+        suffix: '',
+        text: duration(rt.medianSeconds),
+        foot: rt.answered
+          ? `p90 ${duration(rt.p90Seconds)} · ${rt.unanswered} unanswered`
+          : 'No replies to measure yet',
+        spark: null,
+      },
     ];
   });
 
@@ -150,8 +261,20 @@ export class AnalyticsView {
     const t = this.data().tickets;
     const i = this.data().inbox;
     return [
-      { name: 'Tickets', rows: t ? bars(t.byStatus, (k) => (k === 'OPEN' ? 'warn' : OPEN_TICKETS.includes(k) ? 'info' : 'ok')) : [] },
-      { name: 'Conversations', rows: i ? bars(i.byStatus, (k) => (k === 'open' ? 'info' : k === 'pending' ? 'warn' : 'ok')) : [] },
+      {
+        name: 'Tickets',
+        rows: t
+          ? bars(t.byStatus, (k) =>
+              k === 'OPEN' ? 'warn' : OPEN_TICKETS.includes(k) ? 'info' : 'ok',
+            )
+          : [],
+      },
+      {
+        name: 'Conversations',
+        rows: i
+          ? bars(i.byStatus, (k) => (k === 'open' ? 'info' : k === 'pending' ? 'warn' : 'ok'))
+          : [],
+      },
     ].filter((g) => g.rows.length);
   });
   protected readonly openTickets = computed(() => {
@@ -164,45 +287,58 @@ export class AnalyticsView {
   });
 
   constructor() {
-    this.overviewReq.pipe(
-      switchMap((quiet) => {
-        if (!quiet) this.ovLoading.set(true);
-        return this.api.overview(this.days()).pipe(
-          map((o) => ({ o, err: null as string | null, quiet })),
-          catchError((e: Error) => of({ o: null, err: e.message, quiet })),
-        );
-      }),
-      takeUntilDestroyed(),
-    ).subscribe(({ o, err, quiet }) => {
-      if (o) {
-        this.overview.set(o);
-        this.ovError.set(null);
-        this.updatedAt.set(new Date());
-      } else if (!quiet) {
-        // A failed background refresh keeps the figures already shown.
-        this.overview.set(null);
-        this.ovError.set(err);
-      }
-      this.ovLoading.set(false);
-    });
+    this.overviewReq
+      .pipe(
+        switchMap((quiet) => {
+          if (!quiet) this.ovLoading.set(true);
+          return this.api.overview(this.days()).pipe(
+            map((o) => ({ o, err: null as string | null, quiet })),
+            catchError((e: Error) => of({ o: null, err: e.message, quiet })),
+          );
+        }),
+        takeUntilDestroyed(),
+      )
+      .subscribe(({ o, err, quiet }) => {
+        if (o) {
+          this.overview.set(o);
+          this.ovError.set(null);
+          this.updatedAt.set(new Date());
+        } else if (!quiet) {
+          // A failed background refresh keeps the figures already shown.
+          this.overview.set(null);
+          this.ovError.set(err);
+        }
+        this.ovLoading.set(false);
+      });
 
     // The range lives in the URL (?days=7|30|90): shareable, and Back works.
-    this.route.queryParamMap.pipe(
-      map((p) => toDays(p.get('days'))),
-      distinctUntilChanged(),
-      takeUntilDestroyed(),
-    ).subscribe((d) => {
-      this.days.set(d);
-      this.overviewReq.next(false);
-    });
+    this.route.queryParamMap
+      .pipe(
+        map((p) => toDays(p.get('days'))),
+        distinctUntilChanged(),
+        takeUntilDestroyed(),
+      )
+      .subscribe((d) => {
+        this.days.set(d);
+        this.overviewReq.next(false);
+      });
 
     this.loadSources();
-    this.store.watch(['history', 'campaign', 'analytics', 'objects', 'tickets', 'inbox'], () => this.load(true), 2000);
+    this.store.watch(
+      ['history', 'campaign', 'analytics', 'objects', 'tickets', 'inbox'],
+      () => this.load(true),
+      2000,
+    );
   }
 
   protected setDays(d: RangeDays) {
     if (d === this.days()) return;
-    void this.router.navigate([], { relativeTo: this.route, queryParams: { days: d }, queryParamsHandling: 'merge', replaceUrl: true });
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { days: d },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   protected load(quiet = false) {
@@ -233,10 +369,13 @@ export class AnalyticsView {
   protected exportDaily() {
     const o = this.overview();
     if (!o) return;
-    downloadCsv(`daily-messages-${o.range.days}d-${today()}.csv`, toCsv(
-      ['Date (UTC)', 'Total', 'Sent', 'Delivered', 'Read', 'Failed'],
-      o.daily.map((d) => [d.date, d.total, d.sent, d.delivered, d.read, d.failed]),
-    ));
+    downloadCsv(
+      `daily-messages-${o.range.days}d-${today()}.csv`,
+      toCsv(
+        ['Date (UTC)', 'Total', 'Sent', 'Delivered', 'Read', 'Failed'],
+        o.daily.map((d) => [d.date, d.total, d.sent, d.delivered, d.read, d.failed]),
+      ),
+    );
   }
 
   protected statusLabel(s: string) {

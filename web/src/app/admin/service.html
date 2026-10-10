@@ -1,92 +1,164 @@
-<header class="head">
-  <span class="tile"><span class="ms" aria-hidden="true">{{ meta().icon }}</span></span>
+<!-- One service across all tenants: header, optional send-safety note, school pack, tenant switches, rules. -->
+<header class="s-head">
   <div>
+    <p class="eyebrow"><i class="ti ti-{{ meta().icon }}" aria-hidden="true"></i> Service</p>
     <h2>{{ meta().label }}</h2>
-    <p class="muted">
-      Enabled for {{ enabledCount() }} of {{ tenants().length }} tenants. Switch it per tenant below.
+    <p>
+      Enabled for {{ enabledCount() }} of {{ tenants().length }} tenants. Switch it per tenant
+      below.
     </p>
   </div>
 </header>
 
 @if (error()) {
-  <p class="error" role="alert">{{ error() }}</p>
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="msg">{{ error() }}</span>
+    <button type="button" class="btn sm" (click)="refresh()">Try again</button>
+  </p>
 }
 
 @if (meta().sends) {
-  <aside class="note">
-    <span class="ms" aria-hidden="true">shield</span>
-    <p>
-      This service sends WhatsApp messages. Pacing, daily cap and retry limits apply to every number of a tenant;
-      change them from the gear on <strong>Tenants</strong>.
-    </p>
+  <aside class="s-banner tone-warn">
+    <i class="ti ti-shield" aria-hidden="true"></i>
+    <span class="msg">
+      This service sends WhatsApp messages. Pacing, daily cap and retry limits apply to every number
+      of a tenant; change them from the gear on <strong>Tenants</strong>.
+    </span>
   </aside>
 }
 
 @if (isSchool() && catalog(); as cat) {
-  <section class="card pack">
+  <section class="s-card pack" aria-labelledby="pack-title">
     <div class="pack-head">
-      <h3><span class="ms" aria-hidden="true">school</span>School pack</h3>
-      <button type="button" class="ghost" (click)="downloadStudentCsv()">
-        <span class="ms" aria-hidden="true">download</span>Download student CSV template
+      <h3 id="pack-title"><i class="ti ti-school" aria-hidden="true"></i> School pack</h3>
+      <button type="button" class="btn sm" (click)="downloadStudentCsv()">
+        <i class="ti ti-download" aria-hidden="true"></i>Download student CSV template
       </button>
     </div>
-    <p class="muted">Choose the automations to install when you provision a tenant. They land as drafts.</p>
+    <p class="muted">
+      Choose the automations to install when you provision a tenant. They land as drafts.
+    </p>
     <div class="recipes">
       @for (recipe of cat.recipes; track recipe.key) {
         <label class="recipe">
-          <input type="checkbox" [checked]="picked().has(recipe.key)" (change)="pick(recipe.key, checked($event))" />
-          <span><strong>{{ recipe.name }}</strong><small class="muted">{{ recipe.description }}</small></span>
+          <input
+            type="checkbox"
+            [checked]="picked().has(recipe.key)"
+            (change)="pick(recipe.key, checked($event))"
+          />
+          <span
+            ><strong>{{ recipe.name }}</strong
+            ><small class="muted">{{ recipe.description }}</small></span
+          >
         </label>
       }
     </div>
-    <button type="button" class="link" [attr.aria-expanded]="showTemplates()" (click)="showTemplates.set(!showTemplates())">
-      <span class="ms" aria-hidden="true">{{ showTemplates() ? 'expand_less' : 'expand_more' }}</span>
+    <button
+      type="button"
+      class="link"
+      [attr.aria-expanded]="showTemplates()"
+      (click)="showTemplates.set(!showTemplates())"
+    >
+      <i class="ti ti-{{ showTemplates() ? 'chevron-up' : 'chevron-down' }}" aria-hidden="true"></i>
       Master templates ({{ cat.templates.length }})
     </button>
     @if (showTemplates()) {
       <ul class="templates">
         @for (t of cat.templates; track t.name) {
-          <li><code>{{ t.name }}</code><span class="muted">{{ t.body }}</span></li>
+          <li>
+            <code>{{ t.name }}</code
+            ><span class="muted">{{ t.body }}</span>
+          </li>
         }
       </ul>
     }
   </section>
 }
 
-<section class="card list">
-  @for (tenant of tenants(); track tenant.id) {
-    <div class="row" [class.off]="!has(tenant)">
-      <span class="avatar" aria-hidden="true">{{ tenant.name.charAt(0) }}</span>
-      <div class="who">
-        <strong>{{ tenant.name }}</strong>
-        <span class="muted">{{ tenant.slug }} &middot; #{{ tenant.id }}</span>
-      </div>
-      @if (meta().sends) {
-        <span class="chip"><span class="ms" aria-hidden="true">speed</span>Daily cap {{ cap(tenant) }}</span>
-      }
-      <span class="state" [class.live]="tenant.status === 'active'">{{ tenant.status }}</span>
-      @if (isSchool() && has(tenant)) {
-        <button type="button" class="ghost" [disabled]="provisioningId() === tenant.id || !picked().size"
-                (click)="provision(tenant)">
-          <span class="ms" aria-hidden="true">rocket_launch</span>
-          {{ provisioningId() === tenant.id ? 'Provisioning...' : 'Provision school pack' }}
-        </button>
-      }
-      <label class="toggle">
-        <input type="checkbox" [checked]="has(tenant)" [disabled]="busyId() === tenant.id"
-               (change)="toggle(tenant, checked($event))" [attr.aria-label]="'Enable ' + meta().label + ' for ' + tenant.name" />
-        <span>{{ has(tenant) ? 'Enabled' : 'Disabled' }}</span>
-      </label>
-      @if (result(tenant); as r) {
-        <p class="outcome" role="status">
-          Created {{ r.templates.length }} templates and {{ r.workflows.length }} workflows; skipped {{ r.skipped.length }}.
-        </p>
-      }
-      @if (resultError(tenant)) {
-        <p class="outcome bad" role="alert">{{ resultError(tenant) }}</p>
+<section class="s-card list" aria-label="Tenants">
+  @if (loading()) {
+    <div aria-busy="true" aria-label="Loading tenants">
+      @for (n of skeletonRows; track n) {
+        <div class="s-skel" style="height: 44px; border-radius: 12px"></div>
       }
     </div>
-  } @empty {
-    <p class="muted empty">No tenants yet.</p>
+  } @else {
+    @for (tenant of tenants(); track tenant.id; let i = $index) {
+      <div class="row s-enter" [class.off]="!has(tenant)" [style.--i]="i">
+        <span class="avatar" aria-hidden="true">{{ tenant.name.charAt(0) }}</span>
+        <div class="who">
+          <strong>{{ tenant.name }}</strong>
+          <span class="muted">{{ tenant.slug }} &middot; #{{ tenant.id }}</span>
+        </div>
+        @if (meta().sends) {
+          <span class="s-chip"
+            ><i class="ti ti-gauge" aria-hidden="true"></i>Daily cap {{ cap(tenant) }}</span
+          >
+        }
+        <span
+          class="s-pill"
+          [class.tone-ok]="tenant.status === 'active'"
+          [class.tone-mute]="tenant.status !== 'active'"
+          >{{ tenant.status }}</span
+        >
+        @if (isSchool() && has(tenant)) {
+          <button
+            type="button"
+            class="btn sm"
+            [disabled]="provisioningId() === tenant.id || !picked().size"
+            (click)="provision(tenant)"
+          >
+            <i class="ti ti-rocket" aria-hidden="true"></i>
+            {{ provisioningId() === tenant.id ? 'Provisioning...' : 'Provision school pack' }}
+          </button>
+        }
+        <label class="toggle">
+          <input
+            type="checkbox"
+            [checked]="has(tenant)"
+            [disabled]="busyId() === tenant.id"
+            (change)="toggle(tenant, checked($event))"
+            [attr.aria-label]="'Enable ' + meta().label + ' for ' + tenant.name"
+          />
+          <span>{{ has(tenant) ? 'Enabled' : 'Disabled' }}</span>
+        </label>
+        @if (result(tenant); as r) {
+          <p class="outcome" role="status">
+            Created {{ r.templates.length }} templates and {{ r.workflows.length }} workflows;
+            skipped {{ r.skipped.length }}.
+          </p>
+        }
+        @if (resultError(tenant)) {
+          <p class="outcome bad" role="alert">{{ resultError(tenant) }}</p>
+        }
+      </div>
+    } @empty {
+      <div class="s-empty">
+        <i class="ti ti-building" aria-hidden="true"></i>
+        <strong>No tenants yet</strong>
+        <p>Create a tenant on the Tenants page and it will show up here.</p>
+      </div>
+    }
   }
 </section>
+
+@if (hasRules()) {
+  <section class="rules" aria-labelledby="rules-title">
+    <div class="rules-head">
+      <h3 id="rules-title"><i class="ti ti-list-check" aria-hidden="true"></i> Rules</h3>
+      <p class="muted">
+        What every business may do with {{ meta().label }}, per plan. Override one business from
+        the gear on <strong>Tenants</strong>.
+      </p>
+    </div>
+    <app-policy-editor [service]="key()" />
+    <!-- service ops panels: the live operations each service needs beyond its rules -->
+    @switch (key()) {
+      @case ('whatsapp_channels') { <app-channels-ops /> }
+      @case ('templates') { <app-template-review /> }
+      @case ('bulk_messages') { <app-campaigns-ops /> }
+      @case ('campaigns') { <app-campaigns-ops /> }
+    }
+  </section>
+}

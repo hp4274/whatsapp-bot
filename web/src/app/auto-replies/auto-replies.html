@@ -1,62 +1,131 @@
+<!--
+  Auto-replies. Kardlyz header (eyebrow, title, lede, hairline rule) with the
+  three headline counts on the right; then the error / skeleton / content
+  states. Content is the four system tiles, the rule list beside its editor,
+  and the sandbox console at the bottom. Toasts float bottom-right.
+-->
 <section class="page">
-  <header class="hero" (pointermove)="tilt($event)" (pointerleave)="untilt($event)">
-    <div class="stack3d" aria-hidden="true">
-      <span class="b b1"><i></i><i></i></span>
-      <span class="b b2"><i></i></span>
-      <span class="b b3"><span class="ms">bolt</span><i></i><i></i></span>
-    </div>
+  <header class="s-head">
     <div class="copy">
-      <span class="eyebrow"><span class="ms" aria-hidden="true">quickreply</span> Auto-replies</span>
+      <p class="eyebrow"><i class="ti ti-message-bolt" aria-hidden="true"></i> Auto-replies</p>
       <h1>Replies that run themselves</h1>
-      <p>Greet new contacts, cover closed hours, answer keywords with buttons and menus, and hand off to a human when asked.</p>
-      @if (!loading() && !loadError()) {
-        <dl class="kpis">
-          <div><dt>Active rules</dt><dd>{{ kpis().active }}</dd></div>
-          <div><dt>Replies today</dt><dd>{{ kpis().today }}</dd></div>
-          <div><dt>This week</dt><dd>{{ kpis().week }}</dd></div>
-        </dl>
-      }
+      <p>
+        Greet new contacts, cover closed hours, answer keywords with buttons and menus, and hand off
+        to a human when asked.
+      </p>
     </div>
+    @if (!loading() && !loadError()) {
+      <dl class="kpis">
+        <div>
+          <dt>Active rules</dt>
+          <dd>{{ kpis().active }}</dd>
+        </div>
+        <div>
+          <dt>Replies today</dt>
+          <dd>{{ kpis().today }}</dd>
+        </div>
+        <div>
+          <dt>This week</dt>
+          <dd>{{ kpis().week }}</dd>
+        </div>
+      </dl>
+    }
   </header>
 
-  @if (loading()) {
+  @if (loadError()) {
+    <div class="s-banner" role="alert">
+      <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+      <span class="grow">Couldn't load auto-replies: {{ loadError() }}</span>
+      <button class="link" type="button" (click)="load()">Try again</button>
+    </div>
+  } @else if (loading()) {
     <div class="skel" aria-busy="true" aria-label="Loading auto-replies">
-      <div class="tiles">@for (n of [1, 2, 3, 4]; track n) { <span class="sk tile"></span> }</div>
+      <div class="tiles">
+        @for (n of [1, 2, 3, 4]; track n) {
+          <span class="sk tile"></span>
+        }
+      </div>
       <div class="cols"><span class="sk list"></span><span class="sk ed"></span></div>
     </div>
-  } @else if (loadError()) {
-    <div class="err" role="alert">
-      <span class="ms" aria-hidden="true">cloud_off</span>
-      <div><strong>Couldn't load auto-replies</strong><p>{{ loadError() }}</p></div>
-      <button class="btn" type="button" (click)="load()"><span class="ms" aria-hidden="true">refresh</span> Retry</button>
-    </div>
   } @else {
+    @for (note of planNotices(); track note) {
+      <div class="s-banner plan-note" role="status">
+        <i class="ti ti-lock" aria-hidden="true"></i>
+        <span class="grow">{{ note }}</span>
+      </div>
+    }
+
     @if (settings(); as s) {
-      <ar-system-cards [settings]="s" (settingsChange)="settings.set($event)" [stats]="sysStats()" />
+      <ar-system-cards
+        [settings]="s"
+        (settingsChange)="settings.set($event)"
+        [stats]="sysStats()"
+      />
+    }
+
+    @if (platformWords().length) {
+      <aside class="platform" aria-label="Opt-out words set by the platform">
+        <i class="ti ti-lock" aria-hidden="true"></i>
+        <div>
+          <strong>Set by the platform</strong>
+          <p>
+            Anyone who sends one of these words is opted out automatically. You cannot remove them.
+          </p>
+          <ul>
+            @for (w of platformWords(); track w) {
+              <li>{{ w }}</li>
+            }
+          </ul>
+        </div>
+      </aside>
     }
 
     <div class="main">
-      <ar-rule-list class="list" [rules]="rules()" [selectedId]="selectedId()" [creating]="!!draft() && draft()!.id === null"
-                    (select)="request($event)" (create)="request('new')" (toggle)="toggle($event)" (reorder)="reorder($event)" />
+      <ar-rule-list
+        class="list"
+        [rules]="rules()"
+        [selectedId]="selectedId()"
+        [creating]="!!draft() && draft()!.id === null"
+        (select)="request($event)"
+        (create)="request('new')"
+        (toggle)="toggle($event)"
+        (reorder)="reorder($event)"
+      />
 
       <div class="edit">
         @if (pending()) {
           <div class="unsaved enter" role="alertdialog" aria-label="Unsaved changes">
-            <span class="ms" aria-hidden="true">warning</span>
+            <i class="ti ti-alert-triangle" aria-hidden="true"></i>
             <span>You have unsaved changes to this rule.</span>
             <button type="button" class="btn sm" (click)="pending.set(null)">Keep editing</button>
-            <button type="button" class="btn sm danger" (click)="discardPending()">Discard &amp; continue</button>
+            <button type="button" class="btn sm danger" (click)="discardPending()">
+              Discard &amp; continue
+            </button>
           </div>
         }
         @if (draft(); as d) {
-          <ar-rule-editor [value]="d" (valueChange)="setDraft($event)" [stats]="selectedStats()" [businessName]="businessName()"
-                          [saving]="saving()" [dirty]="dirty()" (save)="save()" (remove)="remove()" (cancel)="cancelNew()" />
+          <ar-rule-editor
+            [value]="d"
+            (valueChange)="setDraft($event)"
+            [stats]="selectedStats()"
+            [businessName]="businessName()"
+            [saving]="saving()"
+            [dirty]="dirty()"
+            (save)="save()"
+            (remove)="remove()"
+            (cancel)="cancelNew()"
+          />
         } @else {
-          <div class="blank">
-            <div class="orb" aria-hidden="true"><span class="ms">forum</span></div>
-            <h2>Pick a rule or start a new one</h2>
-            <p>Rules answer keywords like “price” or “menu”. They run top to bottom; the first match wins unless you let it continue.</p>
-            <button type="button" class="btn primary" (click)="request('new')"><span class="ms" aria-hidden="true">add</span> New rule</button>
+          <div class="blank s-empty">
+            <i class="ti ti-messages" aria-hidden="true"></i>
+            <strong>Pick a rule or start a new one</strong>
+            <p>
+              Rules answer keywords like “price” or “menu”. They run top to bottom; the first match
+              wins unless you let it continue.
+            </p>
+            <button type="button" class="btn primary" (click)="request('new')">
+              <i class="ti ti-plus" aria-hidden="true"></i> New rule
+            </button>
           </div>
         }
       </div>
@@ -68,10 +137,19 @@
 
 <div class="toasts" aria-live="polite">
   @for (t of toasts.items(); track t.id) {
-    <div class="toast" [class.bad]="t.tone === 'error'" [attr.role]="t.tone === 'error' ? 'alert' : 'status'">
-      <span class="ms" aria-hidden="true">{{ t.tone === 'error' ? 'error' : 'check_circle' }}</span>
+    <div
+      class="toast"
+      [class.bad]="t.tone === 'error'"
+      [attr.role]="t.tone === 'error' ? 'alert' : 'status'"
+    >
+      <i
+        class="ti ti-{{ t.tone === 'error' ? 'alert-circle' : 'circle-check' }}"
+        aria-hidden="true"
+      ></i>
       <span class="txt">{{ t.text }}</span>
-      <button type="button" aria-label="Dismiss" (click)="toasts.dismiss(t.id)"><span class="ms" aria-hidden="true">close</span></button>
+      <button type="button" aria-label="Dismiss" (click)="toasts.dismiss(t.id)">
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
     </div>
   }
 </div>

@@ -1,4 +1,14 @@
-import { Component, ElementRef, computed, inject, input, output, signal, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { Observable } from 'rxjs';
 
@@ -8,7 +18,9 @@ import { LIVE_LABEL, describeDays, liveState, transportMeta } from './channel-me
 
 type Editing = 'name' | 'phone' | null;
 
-const REDUCED = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+/** Read once: the tilt is decorative, so a mid-session preference change can wait for a reload. */
+const REDUCED =
+  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /** One WhatsApp number: live state, today's budget, quality, and its controls. */
 @Component({
@@ -16,6 +28,7 @@ const REDUCED = typeof matchMedia === 'function' && matchMedia('(prefers-reduced
   imports: [DatePipe, ChannelSettings],
   templateUrl: './channel-card.html',
   styleUrl: './channel-card.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '[class.active]': 'active()',
     '[class.off]': "channel().status !== 'active'",
@@ -36,7 +49,9 @@ export class ChannelCard {
 
   /** Something changed server-side: the page should reload the list. */
   readonly changed = output<void>();
+  /** Make this the number later requests run against. */
   readonly use = output<void>();
+  /** Open the Connection page for this number (QR scan or credentials). */
   readonly connect = output<void>();
 
   protected readonly open = signal(false);
@@ -48,7 +63,9 @@ export class ChannelCard {
 
   protected readonly state = computed(() => liveState(this.channel()));
   protected readonly stateLabel = computed(() => LIVE_LABEL[this.state()]);
-  protected readonly transport = computed(() => transportMeta(this.channel().health?.transport || this.channel().provider));
+  protected readonly transport = computed(() =>
+    transportMeta(this.channel().health?.transport || this.channel().provider),
+  );
   protected readonly needsConnect = computed(() => this.state() === 'disconnected');
 
   protected readonly usage = computed(() => this.channel().health?.usage ?? null);
@@ -63,6 +80,7 @@ export class ChannelCard {
     return Math.min(1, u.sentToday / u.dailyLimit);
   });
 
+  /** Bar colour shifts before the cap is hit, so a busy number is noticed early. */
   protected readonly meterTone = computed(() => {
     const share = this.usedShare() ?? 0;
     return share >= 0.9 ? 'hot' : share >= 0.7 ? 'warm' : 'cool';
@@ -83,7 +101,12 @@ export class ChannelCard {
     return `${describeDays(hours.days)} · ${hours.start}-${hours.end}`;
   });
 
-  protected readonly hintIcon = { bad: 'error', warn: 'warning', info: 'info', ok: 'check_circle' } as const;
+  protected readonly hintIcon = {
+    bad: 'alert-circle',
+    warn: 'alert-triangle',
+    info: 'info-circle',
+    ok: 'circle-check',
+  } as const;
 
   // -------------------------------------------------------- inline edit --
   protected startEdit(field: Exclude<Editing, null>) {
@@ -115,7 +138,9 @@ export class ChannelCard {
       this.editing.set(null);
       return;
     }
-    this.save(field === 'name' ? { displayName: value } : { phoneNumber: value }, () => this.editing.set(null));
+    this.save(field === 'name' ? { displayName: value } : { phoneNumber: value }, () =>
+      this.editing.set(null),
+    );
   }
 
   protected editKey(event: KeyboardEvent) {

@@ -1,8 +1,19 @@
-import { Component, DestroyRef, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 
 import { TenancyApi } from '../core/api';
 import { AuditEntry, AuditFilter, AuditVerb, OpsApi } from './ops-api';
 
+/** Entries per keyset page. */
 const PAGE = 50;
 
 /** Audit log search: filters, keyset pages loaded as you scroll, expandable detail, CSV export. */
@@ -10,9 +21,12 @@ const PAGE = 50;
   selector: 'app-ops-audit',
   templateUrl: './ops-audit.html',
   styleUrl: './ops-audit.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OpsAudit {
   private readonly api = inject(OpsApi);
+  private readonly tenancy = inject(TenancyApi);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly more = viewChild<ElementRef<HTMLElement>>('more');
 
   protected readonly filter = signal<AuditFilter>({});
@@ -25,33 +39,45 @@ export class OpsAudit {
   protected readonly error = signal('');
   protected readonly open = signal<ReadonlySet<number>>(new Set());
   protected readonly active = computed(() => Object.values(this.filter()).some(Boolean));
+  /** Change-type filter; the empty key means no filter. */
   protected readonly verbs: { k: '' | AuditVerb; l: string }[] = [
-    { k: '', l: 'All' }, { k: 'create', l: 'Create' }, { k: 'change', l: 'Change' }, { k: 'remove', l: 'Remove' },
+    { k: '', l: 'All' },
+    { k: 'create', l: 'Create' },
+    { k: 'change', l: 'Change' },
+    { k: 'remove', l: 'Remove' },
   ];
 
+  /** Bumped per request so a slow older page cannot overwrite a newer filter. */
   private seq = 0;
   private typing?: ReturnType<typeof setTimeout>;
 
   constructor() {
-    inject(TenancyApi).tenants().subscribe({
+    this.tenancy.tenants().subscribe({
       next: ({ tenants }) => this.tenants.set(tenants.map((t) => ({ id: t.id, name: t.name }))),
       error: () => undefined, // names fall back to "Tenant N"
     });
     this.reload();
 
     // Infinite scroll: load the next page when the sentinel comes into view.
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) this.loadMore();
-    }, { rootMargin: '240px' });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) this.loadMore();
+      },
+      { rootMargin: '240px' },
+    );
     effect((onCleanup) => {
       const el = this.more()?.nativeElement;
       if (!el) return;
       observer.observe(el);
       onCleanup(() => observer.unobserve(el));
     });
-    inject(DestroyRef).onDestroy(() => { observer.disconnect(); clearTimeout(this.typing); });
+    this.destroyRef.onDestroy(() => {
+      observer.disconnect();
+      clearTimeout(this.typing);
+    });
   }
 
+  /** Restart from the newest entry; called by the shell's Refresh button. */
   reload() {
     this.fetch(null);
   }
@@ -117,7 +143,10 @@ export class OpsAudit {
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         this.exporting.set(false);
       },
-      error: (err: Error) => { this.error.set(err.message); this.exporting.set(false); },
+      error: (err: Error) => {
+        this.error.set(err.message);
+        this.exporting.set(false);
+      },
     });
   }
 
@@ -130,7 +159,9 @@ export class OpsAudit {
   protected pretty(detail: string): string {
     try {
       const value = JSON.parse(detail);
-      return typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : String(value);
+      return typeof value === 'object' && value !== null
+        ? JSON.stringify(value, null, 2)
+        : String(value);
     } catch {
       return detail;
     }
@@ -143,7 +174,11 @@ export class OpsAudit {
     if (s < 60) return 'just now';
     if (s < 3600) return `${Math.floor(s / 60)} min ago`;
     if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
-    return new Date(then).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    return new Date(then).toLocaleDateString(undefined, {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
   }
 
   protected full(iso: string): string {

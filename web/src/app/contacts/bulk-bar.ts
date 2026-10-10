@@ -1,9 +1,19 @@
-import { Component, ElementRef, effect, input, output, signal, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  effect,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { BulkAction } from '../core/api';
 import { splitTags } from './contact-util';
 
+/** What the bar asks the page to run; the page decides ids vs. filter. */
 export interface BulkRequest {
   action: BulkAction;
   tags?: string[];
@@ -21,6 +31,7 @@ type Mode = '' | BulkAction;
   imports: [FormsModule],
   templateUrl: './bulk-bar.html',
   styleUrl: './bulk-bar.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BulkBar {
   readonly count = input.required<number>();
@@ -35,6 +46,7 @@ export class BulkBar {
   readonly selectAll = output<void>();
   readonly clear = output<void>();
 
+  /** The action whose inline confirm/input step is open, or '' for none. */
   protected readonly mode = signal<Mode>('');
   protected readonly text = signal('');
   private readonly field = viewChild<ElementRef<HTMLInputElement>>('field');

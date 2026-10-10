@@ -1,22 +1,31 @@
-<section class="card enter" aria-labelledby="rcp-h">
+<section class="s-card s-enter" style="--i: 6" aria-labelledby="rcp-h">
   <header class="head">
     <div>
       <h3 id="rcp-h">Recipients</h3>
-      <p class="muted">{{ filtered().length }} of {{ recipients().length }} shown by latest status</p>
+      <p>{{ filtered().length }} of {{ recipients().length }} shown by latest status</p>
     </div>
     <div class="filters">
-      <select [value]="status()" (change)="setStatus($any($event.target).value)" aria-label="Filter recipients by status">
+      <select
+        [value]="status()"
+        (change)="setStatus($any($event.target).value)"
+        aria-label="Filter recipients by status"
+      >
         <option value="ALL">All statuses ({{ recipients().length }})</option>
         @for (entry of statusCounts(); track entry[0]) {
           <option [value]="entry[0]">{{ entry[0] }} ({{ entry[1] }})</option>
         }
       </select>
-      <input type="search" placeholder="Search name or phone" aria-label="Search recipients"
-             [value]="search()" (input)="setSearch($any($event.target).value)" />
+      <input
+        type="search"
+        placeholder="Search name or phone"
+        aria-label="Search recipients"
+        [value]="search()"
+        (input)="setSearch($any($event.target).value)"
+      />
     </div>
   </header>
 
-  <div class="table-wrap">
+  <div class="s-table">
     <table>
       <thead>
         <tr>
@@ -30,26 +39,52 @@
         </tr>
       </thead>
       <tbody>
-        @for (r of shown(); track r.phone) {
-          <tr>
+        @for (r of shown(); track r.phone; let i = $index) {
+          <tr [style.--i]="i">
             <td class="mono">+{{ r.phone }}</td>
             <td>{{ r.name || '-' }}</td>
-            <td><span class="spill" [class]="'spill status-' + r.status">{{ r.status }}</span></td>
+            <td><app-campaign-status [status]="r.status" /></td>
             <td class="mono">{{ localTime(r.updatedAt) }}</td>
             <td class="err" [title]="r.error || ''">{{ friendlyError(r.error) }}</td>
             <td>
-              @if (r.clicked) { <span class="tag">{{ r.clicked }}</span> } @else { <span class="muted">-</span> }
+              @if (r.clicked) {
+                <span class="tag">{{ r.clicked }}</span>
+              } @else {
+                <span class="muted">-</span>
+              }
             </td>
             <td class="c">
               @if (r.replied) {
-                <span class="ms yes" aria-label="Replied" role="img">check_circle</span>
-              } @else { <span class="muted" aria-label="No reply">-</span> }
+                <i
+                  class="ti ti-circle-check yes"
+                  aria-label="Replied"
+                  role="img"
+                  aria-hidden="true"
+                ></i>
+              } @else {
+                <span class="muted" aria-label="No reply">-</span>
+              }
             </td>
           </tr>
         } @empty {
-          <tr><td colspan="7" class="empty muted">
-            {{ recipients().length ? 'No recipients match this filter.' : 'No messages have been sent for this campaign yet.' }}
-          </td></tr>
+          <tr class="none">
+            <td colspan="7">
+              <div class="s-empty">
+                <i
+                  class="ti ti-{{ recipients().length ? 'filter-off' : 'users' }}"
+                  aria-hidden="true"
+                ></i>
+                <strong>{{ recipients().length ? 'No matches' : 'No recipients yet' }}</strong>
+                <p>
+                  {{
+                    recipients().length
+                      ? 'No recipients match this filter.'
+                      : 'No messages have been sent for this campaign yet.'
+                  }}
+                </p>
+              </div>
+            </td>
+          </tr>
         }
       </tbody>
     </table>

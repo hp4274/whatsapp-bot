@@ -151,6 +151,8 @@ describe('template metadata over HTTP', () => {
     };
 
     it('creates, updates and filters by category', async () => {
+        // Copy-code buttons are off in the default platform policy (policy/templates.js).
+        app.locals.policy.set('global', { 'templates.buttonTypes': ['quick_reply', 'url', 'call', 'copy'] });
         const created = await api('POST', '/api/templates', {
             name: 'otp', body: 'Your code is {code}', category: 'authentication',
             sampleValues: { code: '482913' }, interactive: { type: 'cta', cta: [{ kind: 'copy', title: 'Copy code', value: '{code}' }] },

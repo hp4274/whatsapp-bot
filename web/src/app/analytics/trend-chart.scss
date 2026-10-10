@@ -1,8 +1,9 @@
 :host {
   display: block;
-  --k-sent: var(--accent);
-  --k-delivered: color-mix(in srgb, var(--primary) 55%, var(--accent));
-  --k-read: var(--primary);
+  /* Series: sent orange, delivered green, read violet, failed red (same as the KPI tiles). */
+  --k-sent: var(--primary);
+  --k-delivered: var(--success);
+  --k-read: var(--accent);
   --k-failed: var(--danger);
 }
 .k-sent { --k: var(--k-sent); } .k-delivered { --k: var(--k-delivered); }
@@ -13,17 +14,17 @@
 /* Legend toggles: shape + label, so colour is never the only cue. */
 .legend { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: var(--space-lg); }
 .lg {
-  display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 10px; border: 1px solid var(--border);
-  border-radius: 999px; background: var(--surface); color: var(--text); font-size: 12px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 13px 6px 11px; border: 1px solid var(--border-color);
+  border-radius: 999px; background: var(--surface-card); color: var(--text-color); font-size: 12.5px; font-weight: 500;
   transition: opacity var(--fast) var(--ease), background var(--fast) var(--ease), transform var(--fast) var(--ease);
-  b { font-variant-numeric: tabular-nums; color: var(--text-muted); font-weight: 700; }
-  &:hover { background: var(--surface-alt); }
+  b { font-variant-numeric: tabular-nums; color: var(--text-strong); font-weight: 500; }
+  &:hover { background: var(--surface-sunken); border-color: var(--border-hover); }
   &:active { transform: scale(0.97); }
   &.off { opacity: 0.5; span { text-decoration: line-through; } }
 }
 .mk {
   display: inline-block; flex: none; width: 16px; height: 10px; color: var(--k);
-  &.area { border-radius: 3px; background: linear-gradient(color-mix(in srgb, var(--k) 55%, transparent), color-mix(in srgb, var(--k) 12%, transparent)); border-top: 2px solid var(--k); }
+  &.area { border-radius: 3px; background: color-mix(in srgb, var(--k) 20%, transparent); border-top: 2px solid var(--k); }
   &.line { height: 0; border-top: 3px solid var(--k); border-radius: 2px; }
   &.dash { height: 0; border-top: 2px dashed var(--k); }
   &.bar { width: 8px; height: 10px; border-radius: 2px; background: var(--k); }
@@ -33,61 +34,65 @@
 .frame { display: grid; grid-template-columns: auto 1fr; gap: var(--space-sm); }
 .y {
   display: flex; flex-direction: column; justify-content: space-between; height: 240px; translate: 0 -7px;
-  font-size: 11px; color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums;
+  font-size: 11px; color: var(--hint); text-align: right; font-variant-numeric: tabular-nums;
 }
 .plot {
   position: relative; height: 240px; border-radius: var(--radius-sm); outline-offset: 4px; touch-action: pan-y;
   cursor: crosshair;
 }
 svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.grid { stroke: var(--border); stroke-width: 1; &.base { stroke: color-mix(in srgb, var(--text-muted) 40%, var(--border)); } }
-.g-top { stop-color: var(--k-sent); stop-opacity: 0.28; }
+.grid { stroke: var(--border-color); stroke-width: 1; &.base { stroke: var(--border-hover); } }
+.g-top { stop-color: var(--k-sent); stop-opacity: 0.16; }
 .g-bottom { stop-color: var(--k-sent); stop-opacity: 0.02; }
 .ln { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.ln.sent { stroke: var(--k-sent); stroke-width: 1.5; opacity: 0.9; }
+.ln.sent { stroke: var(--k-sent); stroke-width: 2; }
 .ln.delivered { stroke: var(--k-delivered); stroke-dasharray: 6 5; }
-.ln.read { stroke: var(--k-read); stroke-width: 3; filter: drop-shadow(0 4px 6px color-mix(in srgb, var(--k-read) 35%, transparent)); }
-.bar { fill: var(--k-failed); opacity: 0.85; }
+.ln.read { stroke: var(--k-read); stroke-width: 2.5; }
+/* Entrance: lines and area wipe in left to right; failed bars rise from the floor once the wipe passes. */
+.bar {
+  fill: var(--k-failed); opacity: 0.85; transform-box: fill-box; transform-origin: bottom;
+  animation: rise-y 600ms var(--ease) 500ms both;
+}
 .draw { animation: reveal 1100ms var(--ease) both; }
 
 .nodata {
   position: absolute; inset: 0; display: grid; place-content: center; grid-auto-flow: column; gap: 8px; align-items: center;
-  margin: 0; font-size: 13px; font-weight: 600; color: var(--text-muted); pointer-events: none;
+  margin: 0; font-size: 13px; font-weight: 500; color: var(--text-muted); pointer-events: none;
 }
 
 .cross {
-  position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed color-mix(in srgb, var(--text-muted) 70%, transparent);
+  position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--border-hover);
   pointer-events: none;
 }
 .dot {
   position: absolute; width: 10px; height: 10px; margin: 0 0 -5px -5px; border-radius: 50%; pointer-events: none;
-  background: var(--surface); border: 2.5px solid var(--k); box-shadow: 0 2px 6px color-mix(in srgb, var(--k) 45%, transparent);
+  background: var(--surface-card); border: 2.5px solid var(--k); box-shadow: var(--shadow-sm);
 }
 .tip {
   position: absolute; top: 4px; z-index: 2; min-width: 150px; padding: 10px 12px; margin-left: 14px; pointer-events: none;
-  border: 1px solid var(--border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--surface) 92%, transparent);
-  backdrop-filter: blur(8px); font-size: 12px;
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 8%, transparent), 0 18px 36px -14px color-mix(in srgb, var(--text) 35%, transparent);
+  border: 1px solid var(--border-color); border-radius: var(--radius-md); background: color-mix(in srgb, var(--surface-card) 94%, transparent);
+  backdrop-filter: blur(8px); font-size: 12px; box-shadow: var(--shadow-lift);
   &.flip { translate: calc(-100% - 28px) 0; }
-  strong { display: block; margin-bottom: 6px; font-size: 12px; }
+  strong { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 500; color: var(--text-strong); }
   dl { display: grid; gap: 4px; margin: 0; }
   dl > div { display: flex; justify-content: space-between; gap: 16px; &.dim { opacity: 0.45; } }
-  dt { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-weight: 600; }
-  dd { margin: 0; font-weight: 800; font-variant-numeric: tabular-nums; }
+  dt { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-weight: 500; }
+  dd { margin: 0; font-weight: 500; color: var(--text-strong); font-variant-numeric: tabular-nums; }
 }
 
 .xl {
   grid-column: 2; position: relative; height: 18px; margin-top: 2px;
-  font-size: 11px; color: var(--text-muted); white-space: nowrap;
+  font-size: 11px; color: var(--hint); white-space: nowrap;
   span { position: absolute; translate: -50% 0; }
   span:first-child { translate: 0 0; }
   span:last-child { translate: -100% 0; }
 }
 
 @keyframes reveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes rise-y { from { transform: scaleY(0); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .draw { animation: none; }
+  .draw, .bar { animation: none; }
   .lg { transition: none; }
 }
 @media (max-width: 600px) {

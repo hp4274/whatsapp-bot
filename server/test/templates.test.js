@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
-import { TRANSPORT_CLOUD_API, TRANSPORT_SANDBOX, TRANSPORT_WEB_JS } from '../src/config.js';
+import { TRANSPORT_CLOUD_API, TRANSPORT_SANDBOX, TRANSPORT_BAILEYS } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { TEMPLATES_SCHEMA } from '../src/templates/schema.js';
 import { TemplateStore, TemplateError, compatibility, validate } from '../src/templates/store.js';
@@ -208,7 +208,7 @@ describe('variable validation', () => {
 
 describe('channel compatibility', () => {
     const cloud = { id: 1, provider: TRANSPORT_CLOUD_API };
-    const web = { id: 2, provider: TRANSPORT_WEB_JS };
+    const web = { id: 2, provider: TRANSPORT_BAILEYS };
     const sandbox = { id: 3, provider: TRANSPORT_SANDBOX };
 
     const providerTemplate = (overrides = {}) => ({

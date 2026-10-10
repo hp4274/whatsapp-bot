@@ -1,16 +1,31 @@
-import { afterNextRender, Component, computed, inject, input, signal } from '@angular/core';
+import {
+  afterNextRender,
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
 import { Router } from '@angular/router';
 
-import { CampaignAnalytics } from '../core/api';
+import type { CampaignAnalytics } from '../core/api';
 import { percent } from './campaign-format';
 
-type Tone = 'good' | 'accent' | 'bad';
+type Tone = 'info' | 'good' | 'accent' | 'bad';
 
-/** Funnel, button clicks, failure breakdown and re-target shortcuts. */
+/**
+ * Funnel, button clicks, failure breakdown and re-target shortcuts.
+ *
+ * Funnel percentages are of the audience, not of the previous stage, so a
+ * drop at any step is comparable. Click bars are scaled to the most-clicked
+ * button (their label still says % of sent) so small counts stay visible.
+ */
 @Component({
   selector: 'app-campaign-insights',
   templateUrl: './campaign-insights.html',
   styleUrl: './campaign-insights.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CampaignInsights {
   private readonly router = inject(Router);
@@ -25,11 +40,11 @@ export class CampaignInsights {
     const f = this.analytics().funnel;
     const base = f.audience || f.queued || f.sent + f.failed || 0;
     const rows: { key: string; label: string; icon: string; count: number; tone: Tone }[] = [
-      { key: 'sent', label: 'Sent', icon: 'send', count: f.sent, tone: 'good' },
-      { key: 'delivered', label: 'Delivered', icon: 'done_all', count: f.delivered, tone: 'good' },
-      { key: 'read', label: 'Read', icon: 'visibility', count: f.read, tone: 'good' },
-      { key: 'replied', label: 'Replied', icon: 'reply', count: f.replied, tone: 'accent' },
-      { key: 'failed', label: 'Failed', icon: 'error', count: f.failed, tone: 'bad' },
+      { key: 'sent', label: 'Sent', icon: 'send', count: f.sent, tone: 'info' },
+      { key: 'delivered', label: 'Delivered', icon: 'checks', count: f.delivered, tone: 'good' },
+      { key: 'read', label: 'Read', icon: 'eye', count: f.read, tone: 'good' },
+      { key: 'replied', label: 'Replied', icon: 'arrow-back-up', count: f.replied, tone: 'accent' },
+      { key: 'failed', label: 'Failed', icon: 'alert-circle', count: f.failed, tone: 'bad' },
     ];
     return rows.map((r) => ({ ...r, pct: percent(r.count, base) }));
   });
@@ -39,7 +54,11 @@ export class CampaignInsights {
     if (!Array.isArray(a.clicks)) return null;
     const sent = a.funnel.sent;
     const max = Math.max(1, ...a.clicks.map((c) => c.count));
-    return a.clicks.map((c) => ({ ...c, pct: percent(c.count, sent), width: percent(c.count, max) }));
+    return a.clicks.map((c) => ({
+      ...c,
+      pct: percent(c.count, sent),
+      width: percent(c.count, max),
+    }));
   });
 
   protected readonly failures = computed(() => {
@@ -53,9 +72,19 @@ export class CampaignInsights {
   protected readonly retargets = computed(() => {
     const f = this.analytics().funnel;
     return [
-      { filter: 'unread', label: 'Not read', icon: 'mark_email_unread', count: Math.max(0, f.sent - f.read) },
-      { filter: 'noreply', label: 'No reply', icon: 'speaker_notes_off', count: Math.max(0, f.sent - f.replied) },
-      { filter: 'failed', label: 'Failed', icon: 'sync_problem', count: f.failed },
+      {
+        filter: 'unread',
+        label: 'Not read',
+        icon: 'mail-exclamation',
+        count: Math.max(0, f.sent - f.read),
+      },
+      {
+        filter: 'noreply',
+        label: 'No reply',
+        icon: 'message-off',
+        count: Math.max(0, f.sent - f.replied),
+      },
+      { filter: 'failed', label: 'Failed', icon: 'refresh-alert', count: f.failed },
     ];
   });
 
@@ -63,6 +92,7 @@ export class CampaignInsights {
     afterNextRender(() => requestAnimationFrame(() => this.ready.set(true)));
   }
 
+  /** Hands off to the campaign wizard, which pre-fills the audience from this slice. */
   protected retarget(filter: string): void {
     this.router.navigate(['/campaign'], {
       queryParams: { retarget: this.campaignId(), filter },

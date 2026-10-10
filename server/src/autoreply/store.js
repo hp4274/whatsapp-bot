@@ -175,6 +175,13 @@ export class AutoReplyStore {
         return row?.at ? new Date(row.at) : null;
     }
 
+    /** Auto-replies sent to this number on this channel since `since` (loop protection). */
+    hitsSince(phone, since) {
+        return this.db.prepare(`SELECT COUNT(*) AS n FROM autoreply_hits
+            WHERE tenant_id = ? AND channel_id = ? AND phone = ? AND at >= ?`)
+            .get(this.tenantId, this.channelId, String(phone), since.toISOString()).n;
+    }
+
     /** { key: { hits, lastTriggeredAt, today, week } } for every key with hits. `dayStart` is local midnight. */
     stats(now = new Date(), dayStart = startOfDay(now)) {
         const week = new Date(dayStart.getTime() - 6 * 86_400_000).toISOString();

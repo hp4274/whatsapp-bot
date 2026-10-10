@@ -12,7 +12,13 @@ import type { MetaMapping } from './meta-mapping';
 
 export type { InteractiveDraft };
 
-export const TEMPLATE_TYPES = ['text', 'media', 'provider_template', 'interactive', 'notification'] as const;
+export const TEMPLATE_TYPES = [
+  'text',
+  'media',
+  'provider_template',
+  'interactive',
+  'notification',
+] as const;
 export const APPROVAL_STATUSES = ['draft', 'pending', 'approved', 'rejected'] as const;
 /** Meta's template categories; the server defaults new templates to 'marketing'. */
 export const TEMPLATE_CATEGORIES = ['marketing', 'utility', 'authentication'] as const;
@@ -39,8 +45,29 @@ export interface Template {
   /** Meta send settings (meta-mapping.ts): language code + {{n}} mapping. */
   language?: string;
   paramMapping?: MetaMapping;
+  /** Platform review (server templates/policy.js), separate from Meta's approvalStatus. '' = never reviewed. */
+  reviewStatus: ReviewStatus;
+  reviewNote: string;
+  spam: SpamScore;
   createdAt: string;
   updatedAt: string;
+}
+
+export type ReviewStatus = '' | 'pending' | 'approved' | 'rejected';
+
+/** Server heuristic: a plain sum of named points, so the editor can say why. */
+export interface SpamScore {
+  readonly score: number;
+  readonly reasons: readonly { readonly points: number; readonly reason: string }[];
+}
+
+/** A platform-wide starter a super admin curates; copying makes an ordinary tenant template. */
+export interface Starter {
+  readonly id: number;
+  readonly name: string;
+  readonly category: TemplateCategory;
+  readonly description: string;
+  readonly body: string;
 }
 
 export interface TemplateVersion {
@@ -77,7 +104,10 @@ export interface UploadedMedia {
 
 /** Error carrying the HTTP status, so the page can tell a 403 from a 400. */
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
     super(message);
   }
 }
@@ -91,20 +121,44 @@ export class TemplatesApi {
   }
   get(id: number) {
     return this.http
-      .get<{ template: Template; versions: TemplateVersion[]; compatibility: string[] }>(`/api/templates/${id}`)
+      .get<{ template: Template; versions: TemplateVersion[]; compatibility: string[] }>(
+        `/api/templates/${id}`,
+      )
       .pipe(catchError(toError));
   }
   create(body: TemplateDraft) {
-    return this.http.post<{ template: Template; warnings: string[] }>('/api/templates', body).pipe(catchError(toError));
+    return this.http
+      .post<{ template: Template; warnings: string[] }>('/api/templates', body)
+      .pipe(catchError(toError));
   }
   update(id: number, body: Partial<TemplateDraft>) {
-    return this.http.put<{ template: Template }>(`/api/templates/${id}`, body).pipe(catchError(toError));
+    return this.http
+      .put<{ template: Template }>(`/api/templates/${id}`, body)
+      .pipe(catchError(toError));
   }
   remove(id: number) {
     return this.http.delete<{ deleted: number }>(`/api/templates/${id}`).pipe(catchError(toError));
   }
   revert(id: number, version: number) {
-    return this.http.post<{ template: Template }>(`/api/templates/${id}/revert`, { version }).pipe(catchError(toError));
+    return this.http
+      .post<{ template: Template }>(`/api/templates/${id}/revert`, { version })
+      .pipe(catchError(toError));
+  }
+  /** Live score for a draft, plus the platform limit it is judged against (100 = off). */
+  spamScore(body: Pick<TemplateDraft, 'body' | 'interactive'>) {
+    return this.http
+      .post<SpamScore & { limit: number }>('/api/templates/spam-score', body)
+      .pipe(catchError(toError));
+  }
+  library() {
+    return this.http
+      .get<{ starters: Starter[] }>('/api/templates/library')
+      .pipe(catchError(toError));
+  }
+  copyStarter(id: number, name: string) {
+    return this.http
+      .post<{ template: Template }>(`/api/templates/library/${id}/copy`, { name })
+      .pipe(catchError(toError));
   }
   upload(file: File) {
     const form = new FormData();
@@ -113,13 +167,17 @@ export class TemplatesApi {
   }
   /** Media needs the bearer token, so an <img src> cannot fetch it directly. */
   mediaBlob(mediaId: string) {
-    return this.http.get(`/api/media/${encodeURIComponent(mediaId)}`, { responseType: 'blob' }).pipe(catchError(toError));
+    return this.http
+      .get(`/api/media/${encodeURIComponent(mediaId)}`, { responseType: 'blob' })
+      .pipe(catchError(toError));
   }
 }
 
 function toError(error: HttpErrorResponse): Observable<never> {
   const body = error.error as { errors?: string[] } | null;
-  return throwError(() => new ApiError(body?.errors?.join(' ') || error.message || 'Request failed', error.status));
+  return throwError(
+    () => new ApiError(body?.errors?.join(' ') || error.message || 'Request failed', error.status),
+  );
 }
 
 // ------------------------------------------------ mirrors of the server ---
@@ -148,13 +206,21 @@ export function validate(body: string): string[] {
 /** `personalize()` without spintax: blank samples use the fallback, else `[key]`. */
 export function render(body: string, sample: Record<string, string>): string {
   return body
-    .replace(/\{(\w+)\|([^{}]*)\}/g, (_, key: string, fallback: string) => sample[key] || fallback || `[${key}]`)
+    .replace(
+      /\{(\w+)\|([^{}]*)\}/g,
+      (_, key: string, fallback: string) => sample[key] || fallback || `[${key}]`,
+    )
     .replace(/\{(\w+)\}/g, (_, key: string) => sample[key] || `[${key}]`)
     .trim();
 }
 
 const escapeHtml = (text: string) =>
-  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 
 /**
  * WhatsApp formatting for a preview: *bold* _italic_ ~strike~ ```mono``` `code`.
@@ -177,4 +243,3 @@ export function formatWhatsApp(text: string): string {
     })
     .join('');
 }
-

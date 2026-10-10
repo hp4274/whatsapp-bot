@@ -1,0 +1,261 @@
+/* Template moderation: sunken tab strip, 24px hairline cards in an auto grid,
+ * a WhatsApp-style bubble for each body, Meta counts in a kit table. */
+@use '../school/school-shared' as s;
+
+@include s.keyframes;
+@include s.tones;
+@include s.enter;
+@include s.card;
+@include s.pill;
+@include s.seg;
+@include s.table;
+@include s.field;
+@include s.empty;
+@include s.skeleton;
+@include s.banner;
+@include s.buttons;
+@include s.tilt;
+
+:host {
+  display: grid;
+  gap: var(--space-lg);
+  container-type: inline-size;
+}
+
+.msg { flex: 1; min-width: 0; white-space: pre-line; }
+
+.tabs {
+  justify-self: start;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  button { display: inline-flex; align-items: center; gap: 6px; }
+  .count {
+    min-width: 20px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--on-primary);
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.panel { display: grid; gap: var(--space-lg); min-width: 0; }
+
+.lede { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--text-muted); }
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: var(--space-lg);
+  align-items: start;
+
+  .wide { grid-column: 1 / -1; }
+  .sk { height: 260px; margin: 0; border-radius: var(--radius-xl); }
+}
+
+.card {
+  display: grid;
+  gap: var(--space-md);
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  background: var(--surface-card);
+  transition: transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease),
+    border-color var(--fast) var(--ease);
+
+  &:hover { border-color: var(--border-hover); box-shadow: var(--shadow-card); }
+  // transform, not translate: the s-enter animation holds `translate` once it ends.
+  &:not(.s-tilt):hover { transform: translateY(-2px); }
+}
+
+// Starters are the browsable gallery, so they get the kit tilt as their depth cue.
+.starter:hover { box-shadow: var(--shadow-lift); }
+
+.top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm);
+
+  h3 {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.2px;
+    color: var(--text-strong);
+  }
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+
+  .s-pill .ti { font-size: 13px; }
+  .s-pill:has(.ti)::before { display: none; }
+}
+
+.mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.desc { margin: 0; font-size: 13px; line-height: 1.55; color: var(--text-muted); }
+
+// Chat backdrop with an incoming-message bubble, so reviewers read the body as recipients will.
+.chat {
+  padding: 14px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-sunken);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--text-strong) 6%, transparent);
+}
+
+.bubble {
+  position: relative;
+  max-width: 92%;
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 4px 14px 14px 14px;
+  background: color-mix(in srgb, var(--success) 12%, var(--surface-card));
+  color: var(--text-color);
+  font-size: 13.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-shadow: 0 1px 1px color-mix(in srgb, var(--text-strong) 8%, transparent);
+
+  &.clamp {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 6;
+    overflow: hidden;
+  }
+}
+
+.reasons {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--text-muted);
+
+  li { display: flex; gap: 8px; }
+  b {
+    flex: none;
+    min-width: 30px;
+    font-weight: 500;
+    color: var(--warning);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-color);
+
+  .when { flex: 1; min-width: 0; font-size: 12px; color: var(--hint); }
+}
+
+.decide {
+  --tone: var(--success);
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--tone) 8%, transparent);
+  animation: s-pop 240ms var(--ease) both;
+
+  &.reject { --tone: var(--danger-text); }
+  label { font-size: 13px; font-weight: 500; color: var(--text-strong); }
+  textarea { width: 100%; resize: vertical; }
+  .actions { padding-top: 0; border-top: 0; }
+}
+
+.form {
+  display: grid;
+  gap: var(--space-lg);
+  animation: s-pop 280ms var(--ease) both;
+
+  > h3 { margin: 0; }
+  .actions { padding-top: 0; border-top: 0; }
+  textarea { min-height: 120px; resize: vertical; font-family: var(--mono); font-size: 13px; }
+  select { text-transform: capitalize; }
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-lg);
+
+  .full { grid-column: 1 / -1; }
+}
+
+.s-table {
+  .name { font-weight: 500; color: var(--text-strong); }
+  .total { font-weight: 500; color: var(--text-strong); }
+  .ok { color: var(--success); font-weight: 500; }
+  .warn { color: var(--warning); font-weight: 500; }
+  .bad { color: var(--danger-text); font-weight: 500; }
+  tr.idle td { color: var(--hint); }
+}
+
+.flash {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 50;
+  margin: 0;
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-radius: 12px;
+    background: var(--text-strong);
+    color: var(--surface-card);
+    font-size: 13.5px;
+    font-weight: 500;
+    box-shadow: var(--shadow-float);
+    animation: s-pop 240ms var(--ease) both;
+
+    .ti { color: var(--primary); font-size: 17px; }
+  }
+}
+
+@container (max-width: 520px) {
+  .fields { grid-template-columns: 1fr; }
+  .card { padding: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card { transition: none; }
+  .card:not(.s-tilt):hover { transform: none; }
+}

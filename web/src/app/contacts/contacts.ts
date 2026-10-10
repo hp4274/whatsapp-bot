@@ -1,39 +1,91 @@
-import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import {
-  BulkAction, Contact2, ContactFilter, ContactSort, ContactsApi, DuplicateGroup, Segment,
+  BulkAction,
+  Contact2,
+  ContactFilter,
+  ContactSort,
+  ContactsApi,
+  DuplicateGroup,
+  Segment,
 } from '../core/api';
 import { Auth } from '../core/auth';
 import { Store } from '../core/store';
 import { Tilt } from '../school/tilt';
 import { BulkBar, BulkRequest } from './bulk-bar';
 import { ContactDrawer } from './contact-drawer';
-import { displayPhone, hue, initials, relativeTime, absoluteTime, saveBlob, splitTags, today } from './contact-util';
+import {
+  displayPhone,
+  hue,
+  initials,
+  relativeTime,
+  absoluteTime,
+  saveBlob,
+  splitTags,
+  today,
+} from './contact-util';
 import { ImportWizard } from './import-wizard';
 import { MergeDialog } from './merge-dialog';
 
-interface Draft { phone: string; name: string; email: string; tags: string; fields: string }
+interface Draft {
+  phone: string;
+  name: string;
+  email: string;
+  tags: string;
+  fields: string;
+}
 
 /** The consent filter the toolbar offers, mapped onto the server's filter keys. */
 type ConsentFilter = '' | 'messageable' | 'opted_in' | 'unknown' | 'opted_out';
 
+/** The consent strip's buttons, in the order an operator narrows an audience. */
+const CONSENT_OPTIONS: readonly { value: ConsentFilter; label: string }[] = [
+  { value: '', label: 'Any' },
+  { value: 'messageable', label: 'Can message' },
+  { value: 'opted_in', label: 'Opted in' },
+  { value: 'unknown', label: 'Unknown' },
+  { value: 'opted_out', label: 'Opted out' },
+];
+
+/** Past-tense verb for the toast after a bulk action. */
 const VERB: Record<BulkAction, string> = {
-  addTags: 'Tagged', removeTags: 'Untagged', optOut: 'Opted out', optIn: 'Opted in', delete: 'Deleted',
+  addTags: 'Tagged',
+  removeTags: 'Untagged',
+  optOut: 'Opted out',
+  optIn: 'Opted in',
+  delete: 'Deleted',
 };
 
+/**
+ * The contact book: filter, select, bulk-edit, import and merge.
+ *
+ * The table is server-paged and every filter change goes back to page one with
+ * the selection cleared, so a bulk action never hits rows the user cannot see.
+ * Responses are sequence-numbered because fast typing fires overlapping loads.
+ */
 @Component({
   selector: 'app-contacts',
   imports: [FormsModule, Tilt, BulkBar, ContactDrawer, ImportWizard, MergeDialog],
   templateUrl: './contacts.html',
   styleUrl: './contacts.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ContactsView {
   private readonly api = inject(ContactsApi);
   private readonly store = inject(Store);
   private readonly auth = inject(Auth);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly pageSize = 50;
+  protected readonly consentOptions = CONSENT_OPTIONS;
   protected readonly canWrite = computed(() => this.auth.atLeast('admin'));
 
   protected readonly rows = signal<Contact2[]>([]);
@@ -57,7 +109,9 @@ export class ContactsView {
   protected readonly page = signal(0);
 
   protected readonly selected = signal<ReadonlySet<number>>(new Set());
+  /** True once "select all N matching" is used: bulk actions then target the filter, not ids. */
   protected readonly allMatching = signal(false);
+  /** Row index of the last checkbox click, for shift-click range selection. */
   private anchor: number | null = null;
 
   protected readonly openId = signal<number | null>(null);
@@ -70,12 +124,20 @@ export class ContactsView {
   protected readonly showForm = signal(false);
   protected readonly busy = signal(false);
   protected readonly formError = signal('');
-  protected readonly draft = signal<Draft>({ phone: '', name: '', email: '', tags: '', fields: '' });
+  protected readonly draft = signal<Draft>({
+    phone: '',
+    name: '',
+    email: '',
+    tags: '',
+    fields: '',
+  });
   protected readonly segName = signal('');
   protected readonly confirmSegment = signal<number | null>(null);
   protected readonly exporting = signal(false);
 
-  protected readonly segment = computed(() => this.segments().find((s) => s.id === this.segmentId()) ?? null);
+  protected readonly segment = computed(
+    () => this.segments().find((s) => s.id === this.segmentId()) ?? null,
+  );
 
   /** What the server is asked for: the segment's stored filter, narrowed by the toolbar. */
   protected readonly filter = computed<ContactFilter>(() => {
@@ -92,15 +154,22 @@ export class ContactsView {
   });
 
   protected readonly hasFilters = computed(() =>
-    Boolean(this.search().trim() || this.tagFilter().length || this.segmentId() || this.consent()));
-  protected readonly pageCount = computed(() => Math.max(1, Math.ceil(this.total() / this.pageSize)));
+    Boolean(this.search().trim() || this.tagFilter().length || this.segmentId() || this.consent()),
+  );
+  protected readonly pageCount = computed(() =>
+    Math.max(1, Math.ceil(this.total() / this.pageSize)),
+  );
   protected readonly from = computed(() => (this.total() ? this.page() * this.pageSize + 1 : 0));
   protected readonly to = computed(() => Math.min(this.total(), (this.page() + 1) * this.pageSize));
-  protected readonly selectedCount = computed(() => (this.allMatching() ? this.total() : this.selected().size));
-  protected readonly pageAllSelected = computed(() =>
-    this.rows().length > 0 && this.rows().every((r) => this.selected().has(r.id)));
-  protected readonly pageSomeSelected = computed(() =>
-    !this.pageAllSelected() && this.rows().some((r) => this.selected().has(r.id)));
+  protected readonly selectedCount = computed(() =>
+    this.allMatching() ? this.total() : this.selected().size,
+  );
+  protected readonly pageAllSelected = computed(
+    () => this.rows().length > 0 && this.rows().every((r) => this.selected().has(r.id)),
+  );
+  protected readonly pageSomeSelected = computed(
+    () => !this.pageAllSelected() && this.rows().some((r) => this.selected().has(r.id)),
+  );
 
   protected readonly displayPhone = displayPhone;
   protected readonly initials = initials;
@@ -108,6 +177,7 @@ export class ContactsView {
   protected readonly ago = relativeTime;
   protected readonly absolute = absoluteTime;
 
+  /** Bumped per list request; a response with an older number is dropped. */
   private seq = 0;
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
   private noticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -119,7 +189,7 @@ export class ContactsView {
       this.load(true);
       this.loadMeta();
     });
-    inject(DestroyRef).onDestroy(() => {
+    this.destroyRef.onDestroy(() => {
       if (this.searchTimer) clearTimeout(this.searchTimer);
       if (this.noticeTimer) clearTimeout(this.noticeTimer);
     });
@@ -130,7 +200,11 @@ export class ContactsView {
     const seq = ++this.seq;
     if (!quiet) this.refreshing.set(true);
     this.api
-      .list(this.filter(), this.pageSize, { offset: this.page() * this.pageSize, sort: this.sort(), dir: this.dir() })
+      .list(this.filter(), this.pageSize, {
+        offset: this.page() * this.pageSize,
+        sort: this.sort(),
+        dir: this.dir(),
+      })
       .subscribe({
         next: ({ contacts, total, tags, fieldKeys }) => {
           if (seq !== this.seq) return; // a newer request owns the table
@@ -158,12 +232,15 @@ export class ContactsView {
   }
 
   private loadMeta() {
-    this.api.segments().subscribe({ next: ({ segments }) => this.segments.set(segments), error: () => undefined });
+    this.api
+      .segments()
+      .subscribe({ next: ({ segments }) => this.segments.set(segments), error: () => undefined });
     this.api.list({}, 1).subscribe({
-      next: ({ total }) => this.api.list({ optedOut: true }, 1).subscribe({
-        next: (out) => this.overall.set({ total, optedOut: out.total }),
-        error: () => undefined,
-      }),
+      next: ({ total }) =>
+        this.api.list({ optedOut: true }, 1).subscribe({
+          next: (out) => this.overall.set({ total, optedOut: out.total }),
+          error: () => undefined,
+        }),
       error: () => undefined,
     });
     if (this.canWrite()) {
@@ -300,9 +377,16 @@ export class ContactsView {
     this.api.bulk({ ...target, ...request }).subscribe({
       next: (result) => {
         this.busy.set(false);
-        this.flash('ok', `${VERB[result.action]} ${result.affected} contact${result.affected === 1 ? '' : 's'}.`);
+        this.flash(
+          'ok',
+          `${VERB[result.action]} ${result.affected} contact${result.affected === 1 ? '' : 's'}.`,
+        );
         if (result.action === 'delete') this.clearSelection();
-        if (result.action === 'delete' && this.openId() !== null && !this.rows().some((r) => r.id === this.openId())) {
+        if (
+          result.action === 'delete' &&
+          this.openId() !== null &&
+          !this.rows().some((r) => r.id === this.openId())
+        ) {
           this.openId.set(null);
         }
         this.load(true);
@@ -316,9 +400,10 @@ export class ContactsView {
   }
 
   protected exportCsv(selectedOnly: boolean) {
-    const target = selectedOnly && !this.allMatching()
-      ? { ids: [...this.selected()] }
-      : { filter: this.filter(), sort: this.sort(), dir: this.dir() };
+    const target =
+      selectedOnly && !this.allMatching()
+        ? { ids: [...this.selected()] }
+        : { filter: this.filter(), sort: this.sort(), dir: this.dir() };
     this.exporting.set(true);
     this.api.exportCsv(target).subscribe({
       next: (blob) => {

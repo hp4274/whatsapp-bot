@@ -45,7 +45,14 @@ export function hue(seed: string): number {
 export const displayPhone = (phone: string) => (/^\d+$/.test(phone) ? `+${phone}` : phone);
 
 export function splitTags(value: string): string[] {
-  return [...new Set(value.split(/[,;]/).map((t) => t.trim().toLowerCase()).filter(Boolean))];
+  return [
+    ...new Set(
+      value
+        .split(/[,;]/)
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 /** Hand a blob to the browser as a download. */

@@ -12,7 +12,11 @@ import { catchError } from 'rxjs/operators';
 export type WorkflowStatus = 'draft' | 'active' | 'paused';
 export type RunStatus = 'running' | 'waiting' | 'completed' | 'failed' | 'stopped';
 
-export interface Condition { field: string; op: string; value: unknown }
+export interface Condition {
+  field: string;
+  op: string;
+  value: unknown;
+}
 
 export interface WorkflowStep {
   id: string;
@@ -68,11 +72,20 @@ export interface Recipe {
   requires: { objectType: string | null; templates: string[] };
 }
 
-export interface InstallResult { workflow: Workflow; templates: string[]; recipe: string }
+export interface InstallResult {
+  workflow: Workflow;
+  templates: string[];
+  recipe: string;
+}
 
 /** Error with the HTTP status kept, so a 403 (automations disabled) can be told apart. */
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) { super(message); }
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
 }
 
 @Injectable({ providedIn: 'root' })
@@ -83,35 +96,50 @@ export class WorkflowsApi {
     return this.http.get<{ workflows: Workflow[] }>('/api/workflows').pipe(catchError(toMessage));
   }
   setStatus(id: number, status: WorkflowStatus): Observable<{ workflow: Workflow }> {
-    return this.http.put<{ workflow: Workflow }>(`/api/workflows/${id}`, { status }).pipe(catchError(toMessage));
+    return this.http
+      .put<{ workflow: Workflow }>(`/api/workflows/${id}`, { status })
+      .pipe(catchError(toMessage));
   }
   remove(id: number): Observable<{ deleted: number }> {
-    return this.http.delete<{ deleted: number }>(`/api/workflows/${id}`).pipe(catchError(toMessage));
+    return this.http
+      .delete<{ deleted: number }>(`/api/workflows/${id}`)
+      .pipe(catchError(toMessage));
   }
   runs(id: number): Observable<{ runs: WorkflowRun[] }> {
-    return this.http.get<{ runs: WorkflowRun[] }>(`/api/workflows/${id}/runs`).pipe(catchError(toMessage));
+    return this.http
+      .get<{ runs: WorkflowRun[] }>(`/api/workflows/${id}/runs`)
+      .pipe(catchError(toMessage));
   }
   run(runId: string): Observable<{ run: WorkflowRun; steps: RunStep[] }> {
-    return this.http.get<{ run: WorkflowRun; steps: RunStep[] }>(`/api/workflow-runs/${encodeURIComponent(runId)}`)
+    return this.http
+      .get<{ run: WorkflowRun; steps: RunStep[] }>(
+        `/api/workflow-runs/${encodeURIComponent(runId)}`,
+      )
       .pipe(catchError(toMessage));
   }
   retry(runId: string): Observable<{ run: WorkflowRun }> {
-    return this.http.post<{ run: WorkflowRun }>(`/api/workflow-runs/${encodeURIComponent(runId)}/retry`, {})
+    return this.http
+      .post<{ run: WorkflowRun }>(`/api/workflow-runs/${encodeURIComponent(runId)}/retry`, {})
       .pipe(catchError(toMessage));
   }
   recipes(): Observable<{ recipes: Recipe[] }> {
     return this.http.get<{ recipes: Recipe[] }>('/api/recipes').pipe(catchError(toMessage));
   }
-  install(key: string, body: { name?: string; status: 'draft' | 'active' }): Observable<InstallResult> {
-    return this.http.post<InstallResult>(`/api/recipes/${encodeURIComponent(key)}/install`, body)
+  install(
+    key: string,
+    body: { name?: string; status: 'draft' | 'active' },
+  ): Observable<InstallResult> {
+    return this.http
+      .post<InstallResult>(`/api/recipes/${encodeURIComponent(key)}/install`, body)
       .pipe(catchError(toMessage));
   }
 }
 
 function toMessage(error: HttpErrorResponse) {
   const body = error.error as { errors?: string[] } | null;
-  const text = error.status === 403 && !body?.errors?.length
-    ? 'Automations are not enabled for this workspace.'
-    : body?.errors?.join(' ') || error.message || 'Request failed';
+  const text =
+    error.status === 403 && !body?.errors?.length
+      ? 'Automations are not enabled for this workspace.'
+      : body?.errors?.join(' ') || error.message || 'Request failed';
   return throwError(() => new ApiError(text, error.status));
 }

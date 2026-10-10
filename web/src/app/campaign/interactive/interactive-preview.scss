@@ -30,9 +30,9 @@
   align-items: center;
   gap: var(--space-sm);
   justify-self: start;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-strong);
   cursor: pointer;
 
   input {
@@ -47,7 +47,7 @@
     width: 34px;
     height: 20px;
     border-radius: 999px;
-    background: var(--border);
+    background: var(--border-hover);
     transition: background var(--fast) var(--ease);
   }
 
@@ -58,8 +58,8 @@
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: var(--surface);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    background: var(--surface-card);
+    box-shadow: var(--shadow-sm);
     transition: transform var(--fast) var(--ease);
   }
 
@@ -72,7 +72,7 @@
   }
 
   input:focus-visible + .track {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
   }
 }
@@ -158,7 +158,7 @@
   transform-style: preserve-3d;
   transition: transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
 
-  .ms {
+  .ti {
     font-size: 17px;
   }
 

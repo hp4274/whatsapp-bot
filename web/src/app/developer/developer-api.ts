@@ -19,7 +19,9 @@ export interface ApiKey {
   revokedAt: string | null;
   createdAt: string;
 }
-export interface CreatedApiKey extends ApiKey { key: string }
+export interface CreatedApiKey extends ApiKey {
+  key: string;
+}
 
 export interface WebhookEndpoint {
   id: number;
@@ -29,7 +31,9 @@ export interface WebhookEndpoint {
   createdAt: string;
   secretHint?: string;
 }
-export interface CreatedEndpoint extends WebhookEndpoint { secret: string }
+export interface CreatedEndpoint extends WebhookEndpoint {
+  secret: string;
+}
 
 export interface WebhookDelivery {
   id: number;
@@ -46,21 +50,45 @@ export interface WebhookDelivery {
 export class DeveloperApi {
   private readonly http = inject(HttpClient);
 
-  private req<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Observable<T> {
+  private req<T>(
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ): Observable<T> {
     return this.http.request<T>(method, path, { body }).pipe(catchError(toMessage));
   }
 
-  keys() { return this.req<{ keys: ApiKey[]; scopes: string[] }>('GET', '/api/api-keys'); }
-  createKey(body: { name: string; scopes: string[] }) { return this.req<{ key: CreatedApiKey }>('POST', '/api/api-keys', body); }
-  revokeKey(id: number) { return this.req<{ key: ApiKey }>('DELETE', `/api/api-keys/${id}`); }
+  keys() {
+    return this.req<{ keys: ApiKey[]; scopes: string[] }>('GET', '/api/api-keys');
+  }
+  createKey(body: { name: string; scopes: string[] }) {
+    return this.req<{ key: CreatedApiKey }>('POST', '/api/api-keys', body);
+  }
+  revokeKey(id: number) {
+    return this.req<{ key: ApiKey }>('DELETE', `/api/api-keys/${id}`);
+  }
 
-  endpoints() { return this.req<{ endpoints: WebhookEndpoint[]; events: string[] }>('GET', '/api/webhook-endpoints'); }
-  createEndpoint(body: { url: string; events: string[] }) { return this.req<{ endpoint: CreatedEndpoint }>('POST', '/api/webhook-endpoints', body); }
+  endpoints() {
+    return this.req<{ endpoints: WebhookEndpoint[]; events: string[] }>(
+      'GET',
+      '/api/webhook-endpoints',
+    );
+  }
+  createEndpoint(body: { url: string; events: string[] }) {
+    return this.req<{ endpoint: CreatedEndpoint }>('POST', '/api/webhook-endpoints', body);
+  }
   updateEndpoint(id: number, body: Partial<Pick<WebhookEndpoint, 'url' | 'events' | 'isActive'>>) {
     return this.req<{ endpoint: WebhookEndpoint }>('PUT', `/api/webhook-endpoints/${id}`, body);
   }
-  deleteEndpoint(id: number) { return this.req<{ deleted: number }>('DELETE', `/api/webhook-endpoints/${id}`); }
-  deliveries(id: number) { return this.req<{ deliveries: WebhookDelivery[] }>('GET', `/api/webhook-endpoints/${id}/deliveries`); }
+  deleteEndpoint(id: number) {
+    return this.req<{ deleted: number }>('DELETE', `/api/webhook-endpoints/${id}`);
+  }
+  deliveries(id: number) {
+    return this.req<{ deliveries: WebhookDelivery[] }>(
+      'GET',
+      `/api/webhook-endpoints/${id}/deliveries`,
+    );
+  }
 }
 
 function toMessage(error: HttpErrorResponse) {

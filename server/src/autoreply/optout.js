@@ -8,10 +8,11 @@ export const OPTOUT_KEYWORDS = new Set([
 ]);
 export const OPTIN_KEYWORDS = new Set(['start', 'unstop', 'subscribe', 'optin', 'opt in', 'resubscribe']);
 
-export async function processOptOut(db, transport, msg) {
+/** `platformWords`: policy `autoReplies.optOutWords`, always honoured on top of the built-in list. */
+export async function processOptOut(db, transport, msg, platformWords = []) {
     const text = normalizeInboundText(msg.body).replace(/['’]/g, '').replace(/[-_\s]+/g, ' ').trim();
 
-    if (OPTOUT_KEYWORDS.has(text)) {
+    if (OPTOUT_KEYWORDS.has(text) || platformWords.some((w) => w.toLowerCase().replace(/['’]/g, '').replace(/[-_\s]+/g, ' ').trim() === text)) {
         db.addOptOut(msg.sender, 'user_keyword_stop');
         if (transport?.isConnected?.()) {
             await transport.sendMessage(

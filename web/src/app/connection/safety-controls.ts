@@ -1,4 +1,12 @@
-import { Component, ElementRef, computed, inject, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  computed,
+  inject,
+  output,
+  signal,
+} from '@angular/core';
 import { DatePipe } from '@angular/common';
 
 import { Api, CustomSafetyView, SafetyPolicy } from '../core/api';
@@ -14,6 +22,7 @@ import { SAFETY_GROUPS, SafetyField, safetyRisk } from '../core/safety-fields';
   imports: [DatePipe],
   templateUrl: './safety-controls.html',
   styleUrl: './safety-controls.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SafetyControls {
   private readonly api = inject(Api);
@@ -31,24 +40,34 @@ export class SafetyControls {
   protected readonly resetConfirm = signal(false);
   protected readonly groups = SAFETY_GROUPS;
 
-  // Consent form
+  // Consent form: all three must be filled before the API is even called.
   protected readonly understood = signal(false);
   protected readonly fullName = signal('');
   protected readonly confirmation = signal('');
-  protected readonly consentReady = computed(() => this.understood() && this.fullName().trim().length > 1
-    && this.confirmation().trim().toLowerCase() === 'i accept');
+  protected readonly consentReady = computed(
+    () =>
+      this.understood() &&
+      this.fullName().trim().length > 1 &&
+      this.confirmation().trim().toLowerCase() === 'i accept',
+  );
 
-  // Editor
+  // Editor: a local copy, so Cancel discards without touching the server.
   protected readonly draft = signal<SafetyPolicy | null>(null);
+  /** Field key -> why that value raises the ban risk; only risky keys present. */
   protected readonly risks = computed(() => {
     const draft = this.draft();
     if (!draft) return {} as Record<string, string>;
-    return Object.fromEntries((Object.keys(draft) as (keyof SafetyPolicy)[])
-      .map((key) => [key, safetyRisk(key, draft[key], draft)]).filter(([, why]) => why));
+    return Object.fromEntries(
+      (Object.keys(draft) as (keyof SafetyPolicy)[])
+        .map((key) => [key, safetyRisk(key, draft[key], draft)])
+        .filter(([, why]) => why),
+    );
   });
   protected readonly riskCount = computed(() => Object.keys(this.risks()).length);
   protected readonly needsConsent = computed(() => !this.view()?.consent);
-  protected readonly hasOverrides = computed(() => Object.keys(this.view()?.overrides ?? {}).length > 0);
+  protected readonly hasOverrides = computed(
+    () => Object.keys(this.view()?.overrides ?? {}).length > 0,
+  );
 
   constructor() {
     this.load();
@@ -88,20 +107,25 @@ export class SafetyControls {
     if (!view || !this.consentReady()) return;
     this.busy.set(true);
     this.error.set('');
-    this.api.acceptSafetyRisk({
-      accept: true, version: view.consentVersion, fullName: this.fullName().trim(), confirmation: this.confirmation().trim(),
-    }).subscribe({
-      next: (next) => {
-        this.busy.set(false);
-        this.show(next);
-        this.draft.set({ ...next.policy });
-        this.changed.emit(); // stored overrides may apply now
-      },
-      error: (err: Error) => {
-        this.busy.set(false);
-        this.error.set(err.message);
-      },
-    });
+    this.api
+      .acceptSafetyRisk({
+        accept: true,
+        version: view.consentVersion,
+        fullName: this.fullName().trim(),
+        confirmation: this.confirmation().trim(),
+      })
+      .subscribe({
+        next: (next) => {
+          this.busy.set(false);
+          this.show(next);
+          this.draft.set({ ...next.policy });
+          this.changed.emit(); // stored overrides may apply now
+        },
+        error: (err: Error) => {
+          this.busy.set(false);
+          this.error.set(err.message);
+        },
+      });
   }
 
   protected setValue<K extends keyof SafetyPolicy>(key: K, value: SafetyPolicy[K]): void {
@@ -130,9 +154,11 @@ export class SafetyControls {
     const draft = this.draft();
     if (!view || !draft) return;
     // Only what differs from the platform, plus anything already overridden.
-    const patch = Object.fromEntries((Object.keys(draft) as (keyof SafetyPolicy)[])
-      .filter((key) => draft[key] !== view.platform[key] || key in view.overrides)
-      .map((key) => [key, draft[key]]));
+    const patch = Object.fromEntries(
+      (Object.keys(draft) as (keyof SafetyPolicy)[])
+        .filter((key) => draft[key] !== view.platform[key] || key in view.overrides)
+        .map((key) => [key, draft[key]]),
+    );
     if (!Object.keys(patch).length) {
       this.open.set(false);
       return;

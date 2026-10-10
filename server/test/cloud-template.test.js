@@ -9,7 +9,7 @@ import { it } from 'node:test';
 import { CampaignManager } from '../src/campaign/manager.js';
 import { CampaignStore } from '../src/campaigns/store.js';
 import { ContactStore } from '../src/contactStore.js';
-import { DEFAULTS, TRANSPORT_CLOUD_API, TRANSPORT_WEB_JS } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_CLOUD_API, TRANSPORT_BAILEYS } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { ErrorCode, friendlyError, normalizeError } from '../src/messaging/errors.js';
 import { metaTemplateFor, prepareTemplateSend, resolveTemplate } from '../src/messaging/templateSend.js';
@@ -194,7 +194,7 @@ it('stores language + mapping and only offers approved templates on a Cloud API 
         const picked = metaTemplateFor(store, cloudChannel, t.id, { body: [{ fallback: 'x' }] });
         assert.equal(picked.template.providerTemplateName, 'order_update');
         assert.deepEqual(picked.params, { body: [{ fallback: 'x' }] });
-        assert.throws(() => metaTemplateFor(store, { id: 1, provider: TRANSPORT_WEB_JS }, t.id), /WhatsApp Web/);
+        assert.throws(() => metaTemplateFor(store, { id: 1, provider: TRANSPORT_BAILEYS }, t.id), /WhatsApp Web/);
         assert.equal(metaTemplateFor(store, cloudChannel, null), null);
     } finally {
         db.close();
@@ -230,7 +230,7 @@ it('a stored campaign in Meta template mode hands the template (and fallback) to
         assert.equal(calls[0].fallbackTemplate.template.id, t.id);
 
         // Not on a Cloud API channel -> refused before anything is queued.
-        store.channel = () => ({ id: 1, provider: TRANSPORT_WEB_JS });
+        store.channel = () => ({ id: 1, provider: TRANSPORT_BAILEYS });
         const other = store.create({ name: 'Web', templateId: t.id, audience: [{ name: 'A', phone: '919000000001' }],
             options: { templateMode: 'meta' } });
         assert.throws(() => store.start(other.id), /WhatsApp Web/);

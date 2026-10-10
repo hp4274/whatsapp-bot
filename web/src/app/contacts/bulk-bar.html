@@ -1,4 +1,9 @@
-<div class="bar" role="region" aria-label="Bulk actions" (keydown.escape)="mode() ? cancel() : clear.emit()">
+<div
+  class="bar"
+  role="region"
+  aria-label="Bulk actions"
+  (keydown.escape)="mode() ? cancel() : clear.emit()"
+>
   <div class="count">
     <span class="badge" aria-hidden="true">{{ count() > 999 ? '999+' : count() }}</span>
     <span>
@@ -6,31 +11,70 @@
       @if (allMatching()) {
         <span class="muted">every match of this view</span>
       } @else if (pageAll() && total() > count()) {
-        <button type="button" class="link" (click)="selectAll.emit()">Select all {{ total().toLocaleString() }} matching</button>
+        <button type="button" class="link" (click)="selectAll.emit()">
+          Select all {{ total().toLocaleString() }} matching
+        </button>
       }
     </span>
   </div>
 
   <div class="actions" role="group" aria-label="Apply to selection">
-    <button class="btn sm" type="button" [attr.aria-pressed]="mode() === 'addTags'" [disabled]="busy()" (click)="start('addTags')">
-      <span class="ms" aria-hidden="true">new_label</span> Tag
+    <button
+      class="btn sm"
+      type="button"
+      [attr.aria-pressed]="mode() === 'addTags'"
+      [disabled]="busy()"
+      (click)="start('addTags')"
+    >
+      <i class="ti ti-tag" aria-hidden="true"></i> Tag
     </button>
-    <button class="btn sm" type="button" [attr.aria-pressed]="mode() === 'removeTags'" [disabled]="busy()" (click)="start('removeTags')">
-      <span class="ms" aria-hidden="true">label_off</span> Untag
+    <button
+      class="btn sm"
+      type="button"
+      [attr.aria-pressed]="mode() === 'removeTags'"
+      [disabled]="busy()"
+      (click)="start('removeTags')"
+    >
+      <i class="ti ti-tag-off" aria-hidden="true"></i> Untag
     </button>
-    <button class="btn sm" type="button" [attr.aria-pressed]="mode() === 'optOut'" [disabled]="busy()" (click)="start('optOut')">
-      <span class="ms" aria-hidden="true">block</span> Opt out
+    <button
+      class="btn sm"
+      type="button"
+      [attr.aria-pressed]="mode() === 'optOut'"
+      [disabled]="busy()"
+      (click)="start('optOut')"
+    >
+      <i class="ti ti-ban" aria-hidden="true"></i> Opt out
     </button>
-    <button class="btn sm" type="button" [attr.aria-pressed]="mode() === 'optIn'" [disabled]="busy()" (click)="start('optIn')">
-      <span class="ms" aria-hidden="true">how_to_reg</span> Opt in
+    <button
+      class="btn sm"
+      type="button"
+      [attr.aria-pressed]="mode() === 'optIn'"
+      [disabled]="busy()"
+      (click)="start('optIn')"
+    >
+      <i class="ti ti-user-check" aria-hidden="true"></i> Opt in
     </button>
     <button class="btn sm" type="button" [disabled]="busy()" (click)="export.emit()">
-      <span class="ms" aria-hidden="true">download</span> CSV
+      <i class="ti ti-download" aria-hidden="true"></i> CSV
     </button>
-    <button class="btn sm danger-ghost" type="button" [attr.aria-pressed]="mode() === 'delete'" [disabled]="busy()" (click)="start('delete')">
-      <span class="ms" aria-hidden="true">delete</span> Delete
+    <button
+      class="btn sm danger-ghost"
+      type="button"
+      [attr.aria-pressed]="mode() === 'delete'"
+      [disabled]="busy()"
+      (click)="start('delete')"
+    >
+      <i class="ti ti-trash" aria-hidden="true"></i> Delete
     </button>
-    <button class="btn ghost icon" type="button" aria-label="Clear selection" (click)="clear.emit()"><span class="ms">close</span></button>
+    <button
+      class="btn ghost icon"
+      type="button"
+      aria-label="Clear selection"
+      (click)="clear.emit()"
+    >
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
   </div>
 
   @switch (mode()) {
@@ -38,10 +82,20 @@
       <form class="step" (submit)="submit($event)">
         <label for="bulk-tags">Add tags to {{ plural(count()) }}</label>
         <div class="row">
-          <input #field id="bulk-tags" name="tags" list="bulk-tag-list" placeholder="vip, follow-up" autocomplete="off"
-                 [ngModel]="text()" (ngModelChange)="text.set($event)" />
-          <button class="btn primary sm" type="submit" [disabled]="!text().trim() || busy()">Add</button>
-          <button class="btn ghost sm" type="button" (click)="cancel()">Cancel</button>
+          <input
+            #field
+            id="bulk-tags"
+            name="tags"
+            list="bulk-tag-list"
+            placeholder="vip, follow-up"
+            autocomplete="off"
+            [ngModel]="text()"
+            (ngModelChange)="text.set($event)"
+          />
+          <button class="btn primary sm" type="submit" [disabled]="!text().trim() || busy()">
+            Add
+          </button>
+          <button class="btn sm" type="button" (click)="cancel()">Cancel</button>
         </div>
       </form>
     }
@@ -49,45 +103,81 @@
       <form class="step" (submit)="submit($event)">
         <label for="bulk-untag">Remove tags from {{ plural(count()) }}</label>
         <div class="row">
-          <input #field id="bulk-untag" name="tags" list="bulk-tag-list" placeholder="Tag to remove" autocomplete="off"
-                 [ngModel]="text()" (ngModelChange)="text.set($event)" />
-          <button class="btn primary sm" type="submit" [disabled]="!text().trim() || busy()">Remove</button>
-          <button class="btn ghost sm" type="button" (click)="cancel()">Cancel</button>
+          <input
+            #field
+            id="bulk-untag"
+            name="tags"
+            list="bulk-tag-list"
+            placeholder="Tag to remove"
+            autocomplete="off"
+            [ngModel]="text()"
+            (ngModelChange)="text.set($event)"
+          />
+          <button class="btn primary sm" type="submit" [disabled]="!text().trim() || busy()">
+            Remove
+          </button>
+          <button class="btn sm" type="button" (click)="cancel()">Cancel</button>
         </div>
       </form>
     }
     @case ('optOut') {
-      <form class="step warn" (submit)="submit($event)" role="alertdialog" aria-labelledby="bulk-optout-title">
-        <label id="bulk-optout-title" for="bulk-reason">Opt out {{ plural(count()) }}? They will not receive any message until opted back in.</label>
+      <form
+        class="step warn"
+        (submit)="submit($event)"
+        role="alertdialog"
+        aria-labelledby="bulk-optout-title"
+      >
+        <label id="bulk-optout-title" for="bulk-reason"
+          >Opt out {{ plural(count()) }}? They will not receive any message until opted back
+          in.</label
+        >
         <div class="row">
-          <input #field id="bulk-reason" name="reason" maxlength="200" placeholder="Reason (e.g. asked by phone)"
-                 [ngModel]="text()" (ngModelChange)="text.set($event)" />
+          <input
+            #field
+            id="bulk-reason"
+            name="reason"
+            maxlength="200"
+            placeholder="Reason (e.g. asked by phone)"
+            [ngModel]="text()"
+            (ngModelChange)="text.set($event)"
+          />
           <button class="btn danger sm" type="submit" [disabled]="busy()">Opt out</button>
-          <button class="btn ghost sm" type="button" (click)="cancel()">Cancel</button>
+          <button class="btn sm" type="button" (click)="cancel()">Cancel</button>
         </div>
       </form>
     }
     @case ('optIn') {
       <div class="step warn" role="alertdialog" aria-labelledby="bulk-optin-title">
-        <p id="bulk-optin-title">Opt {{ plural(count()) }} back in? Only do this if they have asked to hear from you again.</p>
+        <p id="bulk-optin-title">
+          Opt {{ plural(count()) }} back in? Only do this if they have asked to hear from you again.
+        </p>
         <div class="row">
-          <button class="btn primary sm" type="button" [disabled]="busy()" (click)="submit()">Opt in</button>
-          <button class="btn ghost sm" type="button" (click)="cancel()">Cancel</button>
+          <button class="btn primary sm" type="button" [disabled]="busy()" (click)="submit()">
+            Opt in
+          </button>
+          <button class="btn sm" type="button" (click)="cancel()">Cancel</button>
         </div>
       </div>
     }
     @case ('delete') {
       <div class="step bad" role="alertdialog" aria-labelledby="bulk-delete-title">
-        <p id="bulk-delete-title">Delete {{ plural(count()) }} for good? Their message history stays, but tags and fields are lost.</p>
+        <p id="bulk-delete-title">
+          Delete {{ plural(count()) }} for good? Their message history stays, but tags and fields
+          are lost.
+        </p>
         <div class="row">
-          <button class="btn danger sm" type="button" [disabled]="busy()" (click)="submit()">Delete {{ plural(count()) }}</button>
-          <button class="btn ghost sm" type="button" (click)="cancel()">Keep them</button>
+          <button class="btn danger sm" type="button" [disabled]="busy()" (click)="submit()">
+            Delete {{ plural(count()) }}
+          </button>
+          <button class="btn sm" type="button" (click)="cancel()">Keep them</button>
         </div>
       </div>
     }
   }
 
   <datalist id="bulk-tag-list">
-    @for (t of knownTags(); track t.tag) { <option [value]="t.tag"></option> }
+    @for (t of knownTags(); track t.tag) {
+      <option [value]="t.tag"></option>
+    }
   </datalist>
 </div>

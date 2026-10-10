@@ -5,6 +5,7 @@
   --wa-bar: #008069;
   --wa-tick: #53bdeb;
   --wa-chip: #ffffff;
+  --wa-muted: #667781;
   display: grid;
   gap: var(--space-md);
   justify-items: center;
@@ -16,6 +17,7 @@
   --wa-out-text: #e9edef;
   --wa-bar: #202c33;
   --wa-chip: #182229;
+  --wa-muted: #8696a0;
 }
 
 .stage {
@@ -35,7 +37,7 @@
   display: grid;
   grid-template-rows: auto 1fr;
   overflow: hidden;
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background: var(--wa-wall);
   background-image:
     radial-gradient(color-mix(in srgb, var(--wa-out-text) 6%, transparent) 1px, transparent 1.2px);
@@ -51,7 +53,7 @@
       0 28px 60px -18px rgba(8, 20, 30, 0.55),
       0 10px 22px -10px rgba(8, 20, 30, 0.35);
     transform-style: preserve-3d;
-    transform: rotateY(calc(-7deg + var(--px) * 14deg)) rotateX(calc(4deg - var(--py) * 10deg));
+    transform: rotateY(calc(-6deg + var(--px) * 12deg)) rotateX(calc(3deg - var(--py) * 8deg));
     transition: transform 600ms var(--ease);
 
     /* Notch */
@@ -92,7 +94,7 @@
   color: #fff;
   background: var(--wa-bar);
 
-  .ms { font-size: 20px; opacity: 0.9; }
+  .ti { font-size: 20px; opacity: 0.9; }
   .back { margin-right: -2px; }
 }
 
@@ -102,7 +104,7 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  font-weight: 800;
+  font-weight: 600;
   color: var(--wa-bar);
   background: linear-gradient(145deg, #e9fbe9, #b6efc9);
 }
@@ -154,7 +156,7 @@
   bottom: 4px;
   color: var(--wa-tick);
 
-  .ms { font-size: 15px; }
+  .ti { font-size: 15px; }
 }
 
 .tag {
@@ -163,8 +165,8 @@
   padding: 2px 10px;
   border-radius: 8px;
   font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
+  font-weight: 500;
+  color: var(--wa-muted);
   background: var(--wa-chip);
   box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
 }
@@ -198,7 +200,7 @@
   color: var(--wa-out-text);
   overflow-wrap: anywhere;
 
-  .ms { font-size: 26px; color: #e5534b; }
+  .ti { font-size: 26px; color: #e5534b; }
 }
 
 .empty {
@@ -207,31 +209,33 @@
   gap: 6px;
   margin: 60px 0;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--wa-muted);
 
-  .ms { font-size: 30px; opacity: 0.5; }
+  .ti { font-size: 30px; opacity: 0.6; }
 }
 
-/* Labelled switch for the WhatsApp Web (numbered) rendering. */
+/* Labelled switch for the WhatsApp Web (numbered) rendering: an app control,
+   so it is the Kardlyz toggle rather than WhatsApp's own. */
 .webview {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-strong);
   cursor: pointer;
 
-  small { font-weight: 400; }
+  small { font-weight: 400; color: var(--text-muted); }
 
   input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 
   .track {
     position: relative;
-    width: 34px;
-    height: 20px;
+    flex: none;
+    width: 40px;
+    height: 24px;
     border-radius: 999px;
-    background: var(--border);
+    background: color-mix(in srgb, var(--text-muted) 35%, transparent);
     transition: background var(--fast) var(--ease);
   }
 
@@ -239,17 +243,17 @@
     position: absolute;
     top: 3px;
     left: 3px;
-    width: 14px;
-    height: 14px;
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
-    background: var(--surface);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(16, 16, 24, 0.25);
     transition: transform var(--fast) var(--ease);
   }
 
   input:checked + .track { background: var(--primary); }
-  input:checked + .track .thumb { transform: translateX(14px); }
-  input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input:checked + .track .thumb { transform: translateX(16px); }
+  input:focus-visible + .track { outline: 2px solid var(--primary); outline-offset: 2px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

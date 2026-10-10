@@ -1,6 +1,7 @@
 @use 'kit';
 
 @include kit.base;
+@include kit.pickers;
 
 .grid {
   display: grid;
@@ -15,8 +16,6 @@
     > :nth-child(2) { grid-row: auto; }
   }
 }
-
-.pay { --tone: var(--accent); }
 
 .auto {
   display: grid;
@@ -39,9 +38,9 @@
   padding: 0;
   display: grid;
   gap: 6px;
-  transition: opacity var(--base) var(--ease), filter var(--base) var(--ease);
+  transition: opacity var(--base) var(--ease);
 
-  &.off { opacity: 0.4; filter: grayscale(1); }
+  &.off { opacity: 0.4; }
 
   li {
     display: grid;
@@ -49,19 +48,18 @@
     gap: 10px;
     align-items: center;
     font-size: 12px;
-    animation: rise 380ms var(--ease) backwards;
+    animation: s-rise 380ms var(--ease) backwards;
     animation-delay: calc(var(--i, 0) * 30ms);
   }
 
   code {
-    font-family: var(--mono);
-    font-weight: 700;
+    font-family: var(--font-mono);
+    font-weight: 500;
     text-align: center;
     padding: 4px 6px;
     border-radius: 6px;
-    color: var(--primary);
-    background: var(--primary-soft);
-    box-shadow: 0 3px 0 color-mix(in srgb, var(--primary) 35%, transparent);
+    color: var(--primary-text);
+    background: var(--primary-tint);
   }
 
   span { color: var(--text-muted); }
@@ -80,12 +78,11 @@
   justify-content: space-between;
   gap: var(--space-md);
   padding: 12px 16px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--surface-card) 88%, transparent);
   backdrop-filter: blur(10px);
-  box-shadow: var(--shadow);
-  transition: border-color var(--base) var(--ease), transform var(--base) var(--ease);
+  transition: border-color var(--base) var(--ease), transform var(--base) var(--ease), box-shadow var(--base) var(--ease);
 
-  &.dirty { border-color: var(--primary); transform: translateY(-2px); }
+  &.dirty { border-color: var(--primary); transform: translateY(-2px); box-shadow: var(--shadow-lift); }
 }

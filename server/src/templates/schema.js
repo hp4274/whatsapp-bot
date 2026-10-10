@@ -6,6 +6,8 @@
  * tenant first. One owner for one fact beats two columns that can disagree.
  */
 
+import { ensureLibrary } from './library.js';
+
 export const TEMPLATES_SCHEMA = `
 CREATE TABLE IF NOT EXISTS templates (
     id                     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,9 +63,16 @@ const ADDED_COLUMNS = [
     // The Meta template name itself is provider_template_name.
     ['language', "TEXT NOT NULL DEFAULT ''"],
     ['param_mapping', "TEXT NOT NULL DEFAULT '{}'"],
+    // Platform review (policy templates.requireApproval): '' never reviewed,
+    // pending | approved | rejected. Separate from approval_status, which is
+    // Meta's verdict on a Cloud API template.
+    ['review_status', "TEXT NOT NULL DEFAULT ''"],
+    ['review_note', "TEXT NOT NULL DEFAULT ''"],
+    ['reviewed_at', 'TEXT'],
 ];
 
 export function migrateTemplates(db) {
+    ensureLibrary(db);
     const cols = db.prepare('PRAGMA table_info(templates)').all().map((c) => c.name);
     if (!cols.length) return;
     for (const [name, type] of ADDED_COLUMNS) {

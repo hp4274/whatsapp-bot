@@ -1,125 +1,250 @@
-<header class="head">
+<header class="s-head">
   <div>
-    <span class="eyebrow"><span class="ms">workspace_premium</span> Results</span>
+    <span class="eyebrow"><i class="ti ti-crown" aria-hidden="true"></i> Results</span>
     <h2>Marksheets, delivered privately.</h2>
     <p>Upload a CSV, check the numbers, then send each parent only their own child's result.</p>
   </div>
-  <p class="note"><span class="ms">chat</span><span>Parents can text <code>RESULT</code> to get the latest one again.</span></p>
+  <p class="note">
+    <i class="ti ti-message" aria-hidden="true"></i
+    ><span>Parents can text <code>RESULT</code> to get the latest one again.</span>
+  </p>
 </header>
 
 @if (error()) {
-  <div class="banner" role="alert"><span class="ms">error</span>{{ error() }}</div>
+  <div class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ error() }}</span>
+    <button class="btn sm" type="button" (click)="error.set(''); load(cls(), exam())">
+      Try again
+    </button>
+  </div>
 }
 
 <div class="split">
-  <form class="panel" style="--i: 0" (ngSubmit)="upload()">
-    <h3><span class="ms">upload</span> Upload marksheet</h3>
+  <form class="s-card" style="--i: 0" (ngSubmit)="upload()">
+    <h3><i class="ti ti-upload" aria-hidden="true"></i> Upload marksheet</h3>
     <div class="form">
       <div class="field">
         <label for="r-exam">Exam name</label>
-        <input id="r-exam" name="exam" list="r-exams" placeholder="Half-yearly 2026" [ngModel]="upExam()" (ngModelChange)="upExam.set($event)" required />
-        <datalist id="r-exams">@for (e of exams(); track e) { <option [value]="e"></option> }</datalist>
+        <input
+          id="r-exam"
+          name="exam"
+          list="r-exams"
+          placeholder="Half-yearly 2026"
+          [ngModel]="upExam()"
+          (ngModelChange)="upExam.set($event)"
+          required
+        />
+        <datalist id="r-exams">
+          @for (e of exams(); track e) {
+            <option [value]="e"></option>
+          }
+        </datalist>
       </div>
       <div class="field">
         <label for="r-class">Class</label>
-        <select id="r-class" name="upClass" [ngModel]="upClass()" (ngModelChange)="upClass.set($event)">
-          @for (c of classes(); track c.key) { <option [value]="c.key">{{ c.key }}</option> }
+        <select
+          id="r-class"
+          name="upClass"
+          [ngModel]="upClass()"
+          (ngModelChange)="upClass.set($event)"
+        >
+          @for (c of classes(); track c.key) {
+            <option [value]="c.key">{{ c.key }}</option>
+          }
         </select>
       </div>
       <div class="field wide">
         <span class="lbl">CSV file</span>
         @if (upFile(); as f) {
-          <span class="chip"><span class="ms">table_view</span><span class="name">{{ f.name }}</span>
-            <button type="button" (click)="upFile.set(null)" aria-label="Remove file"><span class="ms">close</span></button></span>
+          <span class="chip"
+            ><i class="ti ti-table" aria-hidden="true"></i><span class="name">{{ f.name }}</span>
+            <button type="button" (click)="upFile.set(null)" aria-label="Remove file">
+              <i class="ti ti-x" aria-hidden="true"></i></button
+          ></span>
         } @else {
-          <label class="drop tall"><input type="file" accept=".csv,text/csv" (change)="pick($event)" /><span class="ms">table_view</span> Choose marksheet CSV</label>
+          <label class="drop tall"
+            ><input type="file" accept=".csv,text/csv" (change)="pick($event)" /><i
+              class="ti ti-table"
+              aria-hidden="true"
+            ></i>
+            Choose marksheet CSV</label
+          >
         }
-        <span class="hint">Columns: roll, then one column per subject (e.g. <code>Maths/100</code>).</span>
+        <span class="hint"
+          >Columns: roll, then one column per subject (e.g. <code>Maths/100</code>).</span
+        >
       </div>
     </div>
     <div class="actions foot">
-      <button class="btn primary" type="submit" [disabled]="uploading() || !upFile() || !upExam().trim() || !upClass()">
-        @if (uploading()) { <span class="spinner"></span> } @else { <span class="ms">cloud_upload</span> } Import
+      <button
+        class="btn primary"
+        type="submit"
+        [disabled]="uploading() || !upFile() || !upExam().trim() || !upClass()"
+      >
+        @if (uploading()) {
+          <span class="spinner"></span>
+        } @else {
+          <i class="ti ti-cloud-upload" aria-hidden="true"></i>
+        }
+        Import
       </button>
     </div>
     <div aria-live="polite">
       @if (importResult(); as ir) {
-        <div class="banner" [class.ok]="!ir.errors.length" [class.warn]="ir.errors.length">
-          <span class="ms">{{ ir.errors.length ? 'warning' : 'task_alt' }}</span>
+        <div
+          class="s-banner"
+          [class.tone-ok]="!ir.errors.length"
+          [class.tone-warn]="ir.errors.length"
+        >
+          <i
+            class="ti ti-{{ ir.errors.length ? 'alert-triangle' : 'circle-check' }}"
+            aria-hidden="true"
+          ></i>
           {{ ir.imported }} imported · {{ ir.updated }} updated · {{ ir.errors.length }} errors
         </div>
         @if (ir.errors.length) {
-          <div class="tbl errs"><table>
-            <thead><tr><th>Row</th><th>Problem</th></tr></thead>
-            <tbody>@for (e of ir.errors; track $index) { <tr [style.--i]="$index"><td class="num">{{ e.row }}</td><td>{{ e.error }}</td></tr> }</tbody>
-          </table></div>
+          <div class="s-table errs">
+            <table>
+              <thead>
+                <tr>
+                  <th>Row</th>
+                  <th>Problem</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (e of ir.errors; track $index) {
+                  <tr [style.--i]="$index">
+                    <td class="num">{{ e.row }}</td>
+                    <td>{{ e.error }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
         }
       }
     </div>
   </form>
 
-  <aside class="panel info" style="--i: 1">
-    <h3><span class="ms">lock</span> What one parent receives</h3>
+  <aside class="s-card" style="--i: 1">
+    <h3><i class="ti ti-lock" aria-hidden="true"></i> What one parent receives</h3>
     @if (sample()) {
-      <div class="phone"><div class="bubble">{{ sample() }}<time>now</time></div></div>
-      <p class="note"><span class="ms">shield_person</span><span>Each parent only ever sees their own child's marks.</span></p>
+      <div class="phone">
+        <div class="bubble">{{ sample() }}<time>now</time></div>
+      </div>
+      <p class="note">
+        <i class="ti ti-shield-check" aria-hidden="true"></i
+        ><span>Each parent only ever sees their own child's marks.</span>
+      </p>
     } @else {
-      <div class="empty"><span class="ms">preview</span><strong>No preview yet</strong>Pick an exam with results.</div>
+      <div class="s-empty">
+        <i class="ti ti-eye" aria-hidden="true"></i><strong>No preview yet</strong>
+        <p>Pick an exam with results.</p>
+      </div>
     }
   </aside>
 </div>
 
-<section class="panel" style="--i: 2">
+<section class="s-card" style="--i: 2">
   <div class="bar">
     <div class="filters">
       <label class="sr" for="rv-class">Class</label>
       <select id="rv-class" [ngModel]="cls()" (ngModelChange)="cls.set($event)">
-        @for (c of classes(); track c.key) { <option [value]="c.key">{{ c.key }}</option> }
+        @for (c of classes(); track c.key) {
+          <option [value]="c.key">{{ c.key }}</option>
+        }
       </select>
       <label class="sr" for="rv-exam">Exam</label>
       <select id="rv-exam" [ngModel]="exam()" (ngModelChange)="exam.set($event)">
-        @if (!exams().length) { <option value="">No exams yet</option> }
-        @for (e of exams(); track e) { <option [value]="e">{{ e }}</option> }
+        @if (!exams().length) {
+          <option value="">No exams yet</option>
+        }
+        @for (e of exams(); track e) {
+          <option [value]="e">{{ e }}</option>
+        }
       </select>
     </div>
-    <button class="btn" type="button" [class.primary]="!confirmDispatch()" [class.danger]="confirmDispatch()" [disabled]="dispatching() || !exam() || !results().length" (click)="dispatch()">
-      @if (dispatching()) { <span class="spinner"></span> } @else { <span class="ms">forward_to_inbox</span> }
-      {{ confirmDispatch() ? 'Confirm - send to ' + results().length + ' parents' : 'Dispatch results privately to parents' }}
+    <button
+      class="btn"
+      type="button"
+      [class.primary]="!confirmDispatch()"
+      [class.danger]="confirmDispatch()"
+      [disabled]="dispatching() || !exam() || !results().length"
+      (click)="dispatch()"
+    >
+      @if (dispatching()) {
+        <span class="spinner"></span>
+      } @else {
+        <i class="ti ti-mail-forward" aria-hidden="true"></i>
+      }
+      {{
+        confirmDispatch()
+          ? 'Confirm - send to ' + results().length + ' parents'
+          : 'Dispatch results privately to parents'
+      }}
     </button>
   </div>
 
   <div aria-live="polite">
     @if (dispatchResult(); as d) {
-      <div class="banner ok"><span class="ms">send</span>{{ d.sent }} sent · {{ d.skipped }} skipped · {{ d.failed }} failed</div>
+      <div class="s-banner tone-ok">
+        <i class="ti ti-send" aria-hidden="true"></i>{{ d.sent }} sent · {{ d.skipped }} skipped ·
+        {{ d.failed }} failed
+      </div>
     }
   </div>
 
   @if (loading()) {
-    @for (s of [0, 1, 2, 3]; track s) { <div class="skel"></div> }
+    <div aria-busy="true">
+      @for (s of [0, 1, 2, 3]; track s) {
+        <div class="s-skel"></div>
+      }
+    </div>
   } @else if (!results().length) {
-    <div class="empty"><span class="ms">grading</span><strong>No results for this selection</strong>Upload a marksheet to get started.</div>
+    <div class="s-empty">
+      <i class="ti ti-list-numbers" aria-hidden="true"></i
+      ><strong>No results for this selection</strong>
+      <p>Upload a marksheet to get started.</p>
+    </div>
   } @else {
     <p class="muted small">{{ results().length }} students · {{ pending() }} not yet dispatched</p>
-    <div class="tbl">
+    <div class="s-table">
       <table>
         <thead>
           <tr>
-            <th>Roll</th><th>Name</th>
-            @for (s of subjects(); track s) { <th class="num">{{ s }}</th> }
-            <th class="num">Total</th><th>Grade</th><th>Sent</th>
+            <th>Roll</th>
+            <th>Name</th>
+            @for (s of subjects(); track s) {
+              <th class="num">{{ s }}</th>
+            }
+            <th class="num">Total</th>
+            <th>Grade</th>
+            <th>Sent</th>
           </tr>
         </thead>
         <tbody>
           @for (r of results(); track r.id; let i = $index) {
             <tr [style.--i]="i">
               <td>{{ r.rollNumber }}</td>
-              <td><strong>{{ r.studentName }}</strong></td>
-              @for (s of subjects(); track s) { <td class="num">{{ mark(r, s) }}</td> }
-              <td class="num"><strong>{{ r.marks }}</strong><span class="muted">/{{ r.totalMarks }}</span></td>
-              <td><span class="grade">{{ r.grade }}</span></td>
               <td>
-                @if (r.dispatchedAt) { <span class="pill ok" [title]="r.dispatchedAt | date: 'medium'">sent</span> }
-                @else { <span class="pill mute">not sent</span> }
+                <strong>{{ r.studentName }}</strong>
+              </td>
+              @for (s of subjects(); track s) {
+                <td class="num">{{ mark(r, s) }}</td>
+              }
+              <td class="num">
+                <strong>{{ r.marks }}</strong
+                ><span class="muted">/{{ r.totalMarks }}</span>
+              </td>
+              <td>
+                <span class="grade">{{ r.grade }}</span>
+              </td>
+              <td>
+                @if (r.dispatchedAt) {
+                  <span class="s-pill tone-ok" [title]="r.dispatchedAt | date: 'medium'">sent</span>
+                } @else {
+                  <span class="s-pill tone-mute">not sent</span>
+                }
               </td>
             </tr>
           }

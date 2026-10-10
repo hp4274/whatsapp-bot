@@ -6,101 +6,94 @@
 .empty {
   display: grid;
   justify-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-xl);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
+  gap: 6px;
+  padding: 32px 16px;
+  border: 1px dashed var(--border-hover);
+  border-radius: var(--radius-lg);
   color: var(--text-muted);
   text-align: center;
 
-  .ms {
-    font-size: 28px;
+  .ti {
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    background: var(--accent-soft);
     color: var(--accent);
+    font-size: 24px;
   }
 
-  p {
-    margin: 0;
-  }
+  p { margin: 0; max-width: 40ch; font-size: 13.5px; line-height: 1.6; }
 }
 
+// One card per option (`.card` gives the 24px hairline surface).
 .rule {
   display: grid;
   gap: var(--space-sm);
-  padding: var(--space-md);
-  transition: transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+  padding: 18px;
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
 
-  &:focus-within {
-    box-shadow: 0 0 0 1px var(--accent), var(--shadow);
-  }
-
-  &.any {
-    border-style: dashed;
-  }
+  &:hover { border-color: var(--border-hover); }
+  &:focus-within { border-color: color-mix(in srgb, var(--primary) 45%, var(--border-color)); box-shadow: var(--shadow-card); }
+  &.any { border-style: dashed; }
 }
 
 .rule-head {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: var(--space-sm);
+  gap: 12px;
   align-items: center;
 }
 
 .badge {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  background: var(--primary-soft);
-  color: var(--primary);
-  transform: perspective(200px) rotateY(-12deg);
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--primary-tint);
+  color: var(--primary-text);
+  font-size: 17px;
 }
 
-.any .badge {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
+.any .badge { background: var(--accent-soft); color: var(--accent); }
 
 .titles {
   min-width: 0;
 
   h4 {
     margin: 0;
-    font-size: 14px;
     overflow: hidden;
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--text-strong);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  code {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--text-muted);
-  }
+  code { font-family: var(--mono); font-size: 11.5px; color: var(--hint); }
 }
 
 .add {
   width: auto;
-  padding: 7px 10px;
-  font-weight: 600;
+  padding: 7px 12px;
+  border-radius: 10px;
   font-size: 13px;
-  color: var(--primary);
+  font-weight: 500;
+  color: var(--text-strong);
   cursor: pointer;
 }
 
-.none {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-muted);
-}
+.none { margin: 0; font-size: 12.5px; color: var(--text-muted); }
 
 .action {
   display: grid;
   gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md) var(--space-md);
-  border-left: 3px solid var(--primary);
-  border-radius: var(--radius-sm);
-  background: var(--surface-alt);
+  padding: 10px 14px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  box-shadow: inset 3px 0 0 var(--primary);
   animation: fade-in-up var(--base) var(--ease) both;
 }
 
@@ -110,9 +103,8 @@
   gap: var(--space-sm);
   font-size: 13px;
 
-  .ms {
-    color: var(--primary);
-  }
+  strong { font-weight: 600; color: var(--text-strong); }
+  .ti { color: var(--primary-text); }
 }
 
 .remove {
@@ -122,25 +114,15 @@
   height: 28px;
   margin-left: auto;
   border: 0;
-  border-radius: 50%;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-muted);
   transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
 
-  &:hover {
-    color: var(--danger);
-    background: var(--danger-soft);
-  }
+  &:hover { color: var(--danger-text); background: var(--danger-soft); }
 }
 
-textarea {
-  resize: vertical;
-}
-
-input,
-textarea {
-  background: var(--surface);
-}
+textarea { resize: vertical; }
 
 .pair {
   display: grid;
@@ -149,30 +131,25 @@ textarea {
   align-items: end;
 }
 
-.narrow {
-  max-width: 160px;
-}
+.narrow { max-width: 160px; }
 
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-xs);
+  gap: 6px;
 }
 
 .chip {
-  padding: 3px 9px;
-  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
   border-radius: 999px;
-  background: var(--surface);
+  background: var(--surface-card);
   color: var(--accent);
   font-family: var(--mono);
   font-size: 12px;
   transition: background var(--fast) var(--ease), transform var(--fast) var(--ease);
 
-  &:hover {
-    background: var(--accent-soft);
-    transform: translateY(-1px);
-  }
+  &:hover { background: var(--accent-soft); transform: translateY(-1px); }
 }
 
 .check {
@@ -183,21 +160,7 @@ textarea {
   font-size: 13px;
   cursor: pointer;
 
-  input {
-    width: 16px;
-    height: 16px;
-    accent-color: var(--primary);
-  }
+  input { width: 16px; height: 16px; }
 }
 
-.hint {
-  margin: 0;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .badge {
-    transform: none;
-  }
-}
+.hint { margin: 0; font-size: 12px; color: var(--text-muted); }

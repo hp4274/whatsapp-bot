@@ -1,64 +1,128 @@
+<!--
+  Templates. Kardlyz header, then error / skeleton / empty / content. Content
+  is the category rail, a search + type filter bar and the card grid. The
+  drawer holds either the editor (fields left, phone preview right) or the
+  version history.
+-->
 <header class="s-head">
   <div>
+    <p class="eyebrow"><i class="ti ti-template" aria-hidden="true"></i> Messaging</p>
     <h2>Templates</h2>
-    <p>Reusable WhatsApp messages with <code>{{ '{' }}variables{{ '}' }}</code>, media headers and tappable buttons — every edit is versioned, so you can always roll back.</p>
+    <p>
+      Reusable WhatsApp messages with <code>{{ '{' }}variables{{ '}' }}</code
+      >, media headers and tappable buttons — every edit is versioned, so you can always roll back.
+    </p>
   </div>
   @if (!readOnly()) {
-    <button class="btn primary" type="button" (click)="openNew()"><span class="ms" aria-hidden="true">add</span> New template</button>
+    <div class="hacts">
+      <button class="btn" type="button" (click)="openLibrary()">
+        <i class="ti ti-books" aria-hidden="true"></i> Start from library
+      </button>
+      <button class="btn primary" type="button" (click)="openNew()">
+        <i class="ti ti-plus" aria-hidden="true"></i> New template
+      </button>
+    </div>
   }
 </header>
 
 @if (readOnly()) {
   <div class="s-banner tone-info" role="status">
-    <span class="ms" aria-hidden="true">visibility</span> Read-only: only admins can create or change templates.
+    <i class="ti ti-eye" aria-hidden="true"></i> Read-only: only admins can create or change
+    templates.
   </div>
 }
 
 @if (error()) {
   <div class="s-banner" role="alert">
-    <span class="ms" aria-hidden="true">error</span> {{ error() }}
-    <button class="btn sm" type="button" (click)="load()">Retry</button>
+    <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+    <span class="grow">{{ error() }}</span>
+    <button class="link" type="button" (click)="load()">Try again</button>
   </div>
 }
 
 @if (loading()) {
   <div class="grid" aria-busy="true" aria-label="Loading templates">
     @for (k of [0, 1, 2]; track k) {
-      <div class="tcard"><div class="s-skel" style="width: 45%"></div><div class="s-skel" style="height: 64px"></div><div class="s-skel" style="width: 30%"></div></div>
+      <div class="tcard skel">
+        <div class="s-skel" style="width: 45%"></div>
+        <div class="s-skel" style="height: 64px; border-radius: 14px"></div>
+        <div class="s-skel" style="width: 30%"></div>
+      </div>
     }
   </div>
 } @else if (!error() && templates().length === 0) {
   <div class="s-empty">
-    <span class="ms" aria-hidden="true">forum</span>
+    <i class="ti ti-messages" aria-hidden="true"></i>
     <strong>No templates yet</strong>
-    <p>Save the messages you send again and again — greetings, reminders, receipts, one-time codes — and reuse them in campaigns and replies.</p>
+    <p>
+      Save the messages you send again and again — greetings, reminders, receipts, one-time codes —
+      and reuse them in campaigns and replies.
+    </p>
     @if (!readOnly()) {
-      <button class="btn primary" type="button" (click)="openNew()"><span class="ms" aria-hidden="true">add</span> Create your first template</button>
+      <div class="hacts">
+        <button class="btn" type="button" (click)="openLibrary()">
+          <i class="ti ti-books" aria-hidden="true"></i> Start from library
+        </button>
+        <button class="btn primary" type="button" (click)="openNew()">
+          <i class="ti ti-plus" aria-hidden="true"></i> Create your first template
+        </button>
+      </div>
     }
   </div>
 } @else if (templates().length) {
   <div class="cats" role="group" aria-label="Filter by Meta category">
-    <button class="cat" type="button" [attr.aria-pressed]="categoryFilter() === ''" (click)="categoryFilter.set('')">
-      <span class="ms" aria-hidden="true">apps</span><span>All</span><b>{{ templates().length }}</b>
+    <button
+      class="cat"
+      type="button"
+      [attr.aria-pressed]="categoryFilter() === ''"
+      (click)="categoryFilter.set('')"
+    >
+      <i class="ti ti-apps" aria-hidden="true"></i><span>All</span><b>{{ templates().length }}</b>
     </button>
     @for (c of categories; track c) {
-      <button class="cat" type="button" [class]="cat[c].tone" [attr.aria-pressed]="categoryFilter() === c" (click)="categoryFilter.set(c)">
-        <span class="ms" aria-hidden="true">{{ cat[c].icon }}</span><span>{{ cat[c].label }}</span><b>{{ categoryCounts()[c] }}</b>
+      <button
+        class="cat"
+        type="button"
+        [class]="cat[c].tone"
+        [attr.aria-pressed]="categoryFilter() === c"
+        (click)="categoryFilter.set(c)"
+      >
+        <i class="ti ti-{{ cat[c].icon }}" aria-hidden="true"></i><span>{{ cat[c].label }}</span
+        ><b>{{ categoryCounts()[c] }}</b>
       </button>
     }
   </div>
 
   <div class="bar">
     <label class="search">
-      <span class="ms" aria-hidden="true">search</span>
+      <i class="ti ti-search" aria-hidden="true"></i>
       <span class="sr-only">Search templates</span>
-      <input type="search" placeholder="Search by name or wording" [ngModel]="query()" (ngModelChange)="query.set($event)" />
+      <input
+        type="search"
+        placeholder="Search by name or wording"
+        [ngModel]="query()"
+        (ngModelChange)="query.set($event)"
+      />
     </label>
     @if (presentTypes().length > 1) {
       <div class="chips" role="group" aria-label="Filter by type">
-        <button class="s-chip" type="button" [attr.aria-pressed]="typeFilter() === ''" (click)="typeFilter.set('')">Any type</button>
+        <button
+          class="s-chip"
+          type="button"
+          [attr.aria-pressed]="typeFilter() === ''"
+          (click)="typeFilter.set('')"
+        >
+          Any type
+        </button>
         @for (t of presentTypes(); track t) {
-          <button class="s-chip" type="button" [attr.aria-pressed]="typeFilter() === t" (click)="typeFilter.set(t)">{{ meta[t].label }}</button>
+          <button
+            class="s-chip"
+            type="button"
+            [attr.aria-pressed]="typeFilter() === t"
+            (click)="typeFilter.set(t)"
+          >
+            {{ meta[t].label }}
+          </button>
         }
       </div>
     }
@@ -66,7 +130,7 @@
 
   @if (filtered().length === 0) {
     <div class="s-empty">
-      <span class="ms" aria-hidden="true">search_off</span>
+      <i class="ti ti-search-off" aria-hidden="true"></i>
       <strong>Nothing matches</strong>
       <button class="btn sm" type="button" (click)="clearFilters()">Clear filters</button>
     </div>
@@ -74,9 +138,14 @@
 
   <div class="grid">
     @for (t of filtered(); track t.id; let i = $index) {
-      <article class="tcard s-enter" [class]="cat[t.category].tone" [style.--i]="i" [schoolTilt]="4">
+      <article
+        class="tcard s-enter"
+        [class]="cat[t.category].tone"
+        [style.--i]="i"
+        [schoolTilt]="4"
+      >
         <div class="top">
-          <span class="ico ms" aria-hidden="true">{{ meta[t.templateType].icon }}</span>
+          <i class="ti ti-{{ meta[t.templateType].icon }} ico" aria-hidden="true"></i>
           <div class="ttl">
             <h3>{{ t.name }}</h3>
             <span class="muted">v{{ t.currentVersion }} · edited {{ ago(t.updatedAt) }}</span>
@@ -84,31 +153,105 @@
           <span class="s-pill" [class]="cat[t.category].tone">{{ cat[t.category].label }}</span>
         </div>
         <p class="bubble">{{ t.body || 'Empty body' }}</p>
+        @if (t.reviewStatus === 'rejected' && t.reviewNote) {
+          <p class="rnote"><i class="ti ti-message-report" aria-hidden="true"></i>{{ t.reviewNote }}</p>
+        }
         <div class="tags">
+          @if (t.reviewStatus) {
+            <span class="s-pill" [class]="review[t.reviewStatus].tone" [attr.title]="t.reviewNote || null"
+              ><i class="ti ti-{{ review[t.reviewStatus].icon }}" aria-hidden="true"></i>
+              {{ review[t.reviewStatus].label }}</span
+            >
+          }
           @if (t.templateType === 'provider_template') {
-            <span class="s-pill" [class]="t.approvalStatus === 'approved' ? 'tone-ok' : t.approvalStatus === 'rejected' ? 'tone-bad' : 'tone-warn'">{{ t.approvalStatus }}</span>
+            <span
+              class="s-pill"
+              [class]="
+                t.approvalStatus === 'approved'
+                  ? 'tone-ok'
+                  : t.approvalStatus === 'rejected'
+                    ? 'tone-bad'
+                    : 'tone-warn'
+              "
+              >{{ t.approvalStatus }}</span
+            >
           }
-          @if (t.headerMediaId) { <span class="tag"><span class="ms" aria-hidden="true">attach_file</span>Media header</span> }
+          @if (t.headerMediaId) {
+            <span class="tag"><i class="ti ti-paperclip" aria-hidden="true"></i>Media header</span>
+          }
           @if (t.interactive) {
-            <span class="tag"><span class="ms" aria-hidden="true">smart_button</span>{{ t.interactive.type === 'list' ? 'List menu' : t.interactive.type === 'cta' ? 'Call to action' : 'Quick replies' }}</span>
+            <span class="tag"
+              ><i class="ti ti-hand-click" aria-hidden="true"></i
+              >{{
+                t.interactive.type === 'list'
+                  ? 'List menu'
+                  : t.interactive.type === 'cta'
+                    ? 'Call to action'
+                    : 'Quick replies'
+              }}</span
+            >
           }
-          @for (v of t.variables; track v) { <code>{{ '{' + v + '}' }}</code> }
+          @for (v of t.variables; track v) {
+            <code>{{ '{' + v + '}' }}</code>
+          }
         </div>
         <div class="usage" [class.idle]="!t.useCount">
-          <span class="ms" aria-hidden="true">{{ t.useCount ? 'trending_up' : 'hourglass_empty' }}</span>
-          @if (t.useCount) { <span>Sent <b>{{ t.useCount }}</b>× · last {{ ago(t.lastUsedAt) }}</span> } @else { <span>Not used yet</span> }
+          <i
+            class="ti ti-{{ t.useCount ? 'trending-up' : 'hourglass-empty' }}"
+            aria-hidden="true"
+          ></i>
+          @if (t.useCount) {
+            <span
+              >Sent <b>{{ t.useCount }}</b
+              >× · last {{ ago(t.lastUsedAt) }}</span
+            >
+          } @else {
+            <span>Not used yet</span>
+          }
         </div>
         <div class="acts">
           @if (confirmDelete() === t.id) {
             <span class="ask" role="alert">Delete “{{ t.name }}” and its history?</span>
-            <button class="btn sm danger" type="button" [disabled]="busy()" (click)="remove(t)">Delete</button>
-            <button class="btn sm ghost" type="button" (click)="confirmDelete.set(null)">Keep</button>
+            <button class="btn sm danger" type="button" [disabled]="busy()" (click)="remove(t)">
+              Delete
+            </button>
+            <button class="btn sm ghost" type="button" (click)="confirmDelete.set(null)">
+              Keep
+            </button>
           } @else {
-            <button class="btn sm primary" type="button" (click)="useInCampaign(t)" [attr.aria-label]="'Use ' + t.name + ' in a campaign'"><span class="ms" aria-hidden="true">send</span> Use</button>
-            <button class="btn sm ghost" type="button" (click)="openHistory(t)" [attr.aria-label]="'Version history for ' + t.name"><span class="ms" aria-hidden="true">history</span> History</button>
+            <button
+              class="btn sm primary"
+              type="button"
+              (click)="useInCampaign(t)"
+              [attr.aria-label]="'Use ' + t.name + ' in a campaign'"
+            >
+              <i class="ti ti-send" aria-hidden="true"></i> Use
+            </button>
+            <button
+              class="btn sm ghost"
+              type="button"
+              (click)="openHistory(t)"
+              [attr.aria-label]="'Version history for ' + t.name"
+            >
+              <i class="ti ti-history" aria-hidden="true"></i> History
+            </button>
             @if (!readOnly()) {
-              <button class="btn sm icon" type="button" (click)="openEdit(t)" [attr.aria-label]="'Edit ' + t.name"><span class="ms" aria-hidden="true">edit</span></button>
-              <button class="btn sm icon danger-ghost" type="button" (click)="confirmDelete.set(t.id)" [attr.aria-label]="'Delete ' + t.name"><span class="ms" aria-hidden="true">delete</span></button>
+              <button
+                class="btn sm icon"
+                type="button"
+                (click)="openEdit(t)"
+                [attr.aria-label]="'Edit ' + t.name"
+              >
+                <i class="ti ti-pencil" aria-hidden="true"></i>
+              </button>
+              <button
+                class="btn sm icon danger-ghost"
+                type="button"
+                (click)="confirmDelete.set(t.id)"
+                [attr.aria-label]="'Delete ' + t.name"
+              >
+                <i class="ti ti-trash" aria-hidden="true"></i>
+              </button>
             }
           }
         </div>
@@ -119,25 +262,108 @@
 
 @if (panel(); as p) {
   <button class="s-scrim" type="button" aria-label="Close panel" (click)="close()"></button>
-  <aside class="s-drawer" [class.wide]="p.mode === 'edit'" role="dialog" aria-modal="true" aria-labelledby="tp-title">
+  <aside
+    class="s-drawer"
+    [class.wide]="p.mode === 'edit'"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="tp-title"
+  >
     <div class="dhead">
       <h3 id="tp-title">
-        @if (p.mode === 'edit') { {{ p.id == null ? 'New template' : 'Edit template' }} } @else { History · {{ p.template.name }} }
+        @if (p.mode === 'edit') {
+          {{ p.id == null ? 'New template' : 'Edit template' }}
+        } @else if (p.mode === 'library') {
+          Start from library
+        } @else {
+          History · {{ p.template.name }}
+        }
       </h3>
-      <button class="btn icon ghost" type="button" aria-label="Close" (click)="close()"><span class="ms" aria-hidden="true">close</span></button>
+      <button class="btn icon ghost" type="button" aria-label="Close" (click)="close()">
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
     </div>
 
     @if (panelError()) {
-      <div class="s-banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ panelError() }}</div>
+      <div class="s-banner" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ panelError() }}
+      </div>
     }
 
-    @if (p.mode === 'edit') {
+    @if (p.mode === 'library') {
+      <p class="muted">
+        Ready-made messages from the platform. Copying one adds it to your templates, where you can
+        reword it before sending.
+      </p>
+      @if (starters(); as list) {
+        <ul class="starters">
+          @for (s of list; track s.id) {
+            <li class="starter" [class]="cat[s.category].tone">
+              <div class="top">
+                <div class="ttl">
+                  <h3>{{ s.name }}</h3>
+                  @if (s.description) {
+                    <span class="muted">{{ s.description }}</span>
+                  }
+                </div>
+                <span class="s-pill" [class]="cat[s.category].tone">{{ cat[s.category].label }}</span>
+              </div>
+              <p class="bubble">{{ s.body }}</p>
+              <button
+                class="btn sm primary"
+                type="button"
+                [disabled]="copying() != null"
+                (click)="copyStarter(s)"
+                [attr.aria-label]="'Copy ' + s.name + ' into my templates'"
+              >
+                @if (copying() === s.id) {
+                  <span class="spinner"></span>
+                } @else {
+                  <i class="ti ti-copy" aria-hidden="true"></i>
+                }
+                Copy into my templates
+              </button>
+            </li>
+          } @empty {
+            <li class="s-empty">
+              <i class="ti ti-books" aria-hidden="true"></i>
+              <strong>No starters yet</strong>
+            </li>
+          }
+        </ul>
+      } @else {
+        <div aria-busy="true" aria-label="Loading starters">
+          <div class="s-skel" style="height: 96px"></div>
+          <div class="s-skel" style="height: 96px"></div>
+        </div>
+      }
+    } @else if (p.mode === 'edit') {
       @if (editing(); as e) {
+        @if (e.reviewStatus === 'pending') {
+          <div class="s-banner tone-warn" role="status">
+            <i class="ti ti-hourglass" aria-hidden="true"></i> Waiting for platform review - it
+            can't be sent until it is approved. Changing the wording sends it for review again.
+          </div>
+        } @else if (e.reviewStatus === 'rejected') {
+          <div class="s-banner tone-bad" role="status">
+            <i class="ti ti-circle-x" aria-hidden="true"></i> Rejected by the platform{{
+              e.reviewNote ? ': ' + e.reviewNote : ''
+            }}. Edit the wording and save to send it for review again.
+          </div>
+        }
         <div class="stats">
-          <span><b>v{{ e.currentVersion }}</b> current</span>
-          <span><b>{{ e.useCount }}</b> sent</span>
-          <span><b>{{ ago(e.lastUsedAt) }}</b> last used</span>
-          <button class="btn sm" type="button" (click)="useInCampaign(e)"><span class="ms" aria-hidden="true">send</span> Use in campaign</button>
+          <span
+            ><b>v{{ e.currentVersion }}</b> current</span
+          >
+          <span
+            ><b>{{ e.useCount }}</b> sent</span
+          >
+          <span
+            ><b>{{ ago(e.lastUsedAt) }}</b> last used</span
+          >
+          <button class="btn sm" type="button" (click)="useInCampaign(e)">
+            <i class="ti ti-send" aria-hidden="true"></i> Use in campaign
+          </button>
         </div>
       }
       <form class="ed" (ngSubmit)="save()">
@@ -145,12 +371,27 @@
           <div class="row">
             <div class="field">
               <label for="tp-name">Name</label>
-              <input id="tp-name" name="name" required maxlength="80" [ngModel]="draft().name" (ngModelChange)="patch({ name: $event })" placeholder="e.g. order_shipped" />
+              <input
+                id="tp-name"
+                name="name"
+                required
+                maxlength="80"
+                [ngModel]="draft().name"
+                (ngModelChange)="patch({ name: $event })"
+                placeholder="e.g. order_shipped"
+              />
             </div>
             <div class="field">
               <label for="tp-type">Type</label>
-              <select id="tp-type" name="type" [ngModel]="draft().templateType" (ngModelChange)="patch({ templateType: $event })">
-                @for (t of types; track t) { <option [value]="t">{{ meta[t].label }}</option> }
+              <select
+                id="tp-type"
+                name="type"
+                [ngModel]="draft().templateType"
+                (ngModelChange)="patch({ templateType: $event })"
+              >
+                @for (t of types; track t) {
+                  <option [value]="t">{{ meta[t].label }}</option>
+                }
               </select>
             </div>
           </div>
@@ -159,57 +400,129 @@
             <legend>Meta category</legend>
             <div class="opts" role="radiogroup" aria-label="Meta category">
               @for (c of categories; track c) {
-                <button type="button" role="radio" class="opt" [class]="cat[c].tone" [attr.aria-checked]="draft().category === c" (click)="patch({ category: c })">
-                  <span class="ms" aria-hidden="true">{{ cat[c].icon }}</span>{{ cat[c].label }}
+                <button
+                  type="button"
+                  role="radio"
+                  class="opt"
+                  [class]="cat[c].tone"
+                  [attr.aria-checked]="draft().category === c"
+                  (click)="patch({ category: c })"
+                >
+                  <i class="ti ti-{{ cat[c].icon }}" aria-hidden="true"></i>{{ cat[c].label }}
                 </button>
               }
             </div>
-            <p class="guide" aria-live="polite"><span class="ms" aria-hidden="true">info</span>{{ cat[draft().category].guide }}</p>
+            <p class="guide" aria-live="polite">
+              <i class="ti ti-info-circle" aria-hidden="true"></i>{{ cat[draft().category].guide }}
+            </p>
           </fieldset>
 
           @if (draft().templateType === 'provider_template') {
             <div class="row">
               <div class="field">
                 <label for="tp-pname">Meta template name</label>
-                <input id="tp-pname" name="pname" [ngModel]="draft().providerTemplateName" (ngModelChange)="patch({ providerTemplateName: $event })" />
+                <input
+                  id="tp-pname"
+                  name="pname"
+                  [ngModel]="draft().providerTemplateName"
+                  (ngModelChange)="patch({ providerTemplateName: $event })"
+                />
               </div>
               <div class="field">
                 <label for="tp-appr">Approval</label>
-                <select id="tp-appr" name="appr" [ngModel]="draft().approvalStatus" (ngModelChange)="patch({ approvalStatus: $event })">
-                  @for (s of statuses; track s) { <option [value]="s">{{ s }}</option> }
+                <select
+                  id="tp-appr"
+                  name="appr"
+                  [ngModel]="draft().approvalStatus"
+                  (ngModelChange)="patch({ approvalStatus: $event })"
+                >
+                  @for (s of statuses; track s) {
+                    <option [value]="s">{{ s }}</option>
+                  }
                 </select>
               </div>
             </div>
-            <app-meta-mapping [body]="draft().body" [vars]="vars()"
-                              [language]="draft().language ?? ''" (languageChange)="patch({ language: $event })"
-                              [mapping]="draft().paramMapping ?? {}" (mappingChange)="patch({ paramMapping: $event })" />
+            <app-meta-mapping
+              [body]="draft().body"
+              [vars]="vars()"
+              [language]="draft().language ?? ''"
+              (languageChange)="patch({ language: $event })"
+              [mapping]="draft().paramMapping ?? {}"
+              (mappingChange)="patch({ paramMapping: $event })"
+            />
           }
 
           <section class="block" aria-labelledby="tp-media-h">
-            <h4 id="tp-media-h"><span class="ms" aria-hidden="true">perm_media</span> Header media <small>optional</small></h4>
+            <h4 id="tp-media-h">
+              <i class="ti ti-photo-video" aria-hidden="true"></i> Header media
+              <small>optional</small>
+            </h4>
             @if (draft().headerMediaId) {
               <div class="mediarow">
                 <span class="thumb" aria-hidden="true">
-                  @if (media()?.kind === 'image' && media()?.url) { <img [src]="media()!.url" alt="" /> }
-                  @else { <span class="ms">{{ media()?.kind === 'video' ? 'movie' : media()?.kind === 'document' ? 'description' : 'image' }}</span> }
+                  @if (media()?.kind === 'image' && media()?.url) {
+                    <img [src]="media()!.url" alt="" />
+                  } @else {
+                    <i
+                      class="ti ti-{{
+                        media()?.kind === 'video'
+                          ? 'movie'
+                          : media()?.kind === 'document'
+                            ? 'file-text'
+                            : 'photo'
+                      }}"
+                      aria-hidden="true"
+                    ></i>
+                  }
                 </span>
-                <span class="mname"><b>{{ media()?.name ?? draft().headerMediaId }}</b><small>{{ draft().headerMediaId }}</small></span>
-                <button class="btn sm danger-ghost" type="button" (click)="removeMedia()"><span class="ms" aria-hidden="true">delete</span> Remove</button>
+                <span class="mname"
+                  ><b>{{ media()?.name ?? draft().headerMediaId }}</b
+                  ><small>{{ draft().headerMediaId }}</small></span
+                >
+                <button class="btn sm danger-ghost" type="button" (click)="removeMedia()">
+                  <i class="ti ti-trash" aria-hidden="true"></i> Remove
+                </button>
               </div>
             } @else {
               <div class="mediapick">
                 <label class="drop" [class.busy]="uploading()">
-                  <input #file type="file" accept="image/jpeg,image/png,video/mp4,video/3gpp,application/pdf,.doc,.docx" (change)="onFile(file)" [disabled]="uploading()" />
-                  @if (uploading()) { <span class="spinner"></span> Uploading… } @else { <span class="ms" aria-hidden="true">upload</span> Upload image, video or PDF }
+                  <input
+                    #file
+                    type="file"
+                    accept="image/jpeg,image/png,video/mp4,video/3gpp,application/pdf,.doc,.docx"
+                    (change)="onFile(file)"
+                    [disabled]="uploading()"
+                  />
+                  @if (uploading()) {
+                    <span class="spinner"></span> Uploading…
+                  } @else {
+                    <i class="ti ti-upload" aria-hidden="true"></i> Upload image, video or PDF
+                  }
                 </label>
                 <div class="paste">
                   <label class="sr-only" for="tp-mid">Existing media id</label>
-                  <input id="tp-mid" name="mid" placeholder="or paste a media id (med_…)" [ngModel]="pasteId()" (ngModelChange)="pasteId.set($event)" (keydown.enter)="$event.preventDefault(); attachPasted()" />
-                  <button class="btn sm" type="button" [disabled]="!pasteId().trim()" (click)="attachPasted()">Attach</button>
+                  <input
+                    id="tp-mid"
+                    name="mid"
+                    placeholder="or paste a media id (med_…)"
+                    [ngModel]="pasteId()"
+                    (ngModelChange)="pasteId.set($event)"
+                    (keydown.enter)="$event.preventDefault(); attachPasted()"
+                  />
+                  <button
+                    class="btn sm"
+                    type="button"
+                    [disabled]="!pasteId().trim()"
+                    (click)="attachPasted()"
+                  >
+                    Attach
+                  </button>
                 </div>
               </div>
             }
-            @if (mediaError()) { <span class="err" role="alert">{{ mediaError() }}</span> }
+            @if (mediaError()) {
+              <span class="err" role="alert">{{ mediaError() }}</span>
+            }
           </section>
 
           <div class="field">
@@ -217,54 +530,116 @@
             <div class="fmt" role="toolbar" aria-label="Formatting">
               <button type="button" (click)="wrap(area, '*')" aria-label="Bold"><b>B</b></button>
               <button type="button" (click)="wrap(area, '_')" aria-label="Italic"><i>I</i></button>
-              <button type="button" (click)="wrap(area, '~')" aria-label="Strikethrough"><s>S</s></button>
-              <button type="button" (click)="wrap(area, '```')" aria-label="Monospace"><span class="ms" aria-hidden="true">code</span></button>
-              <button type="button" class="var" (click)="insertVar(area)"><span class="ms" aria-hidden="true">data_object</span> Variable</button>
+              <button type="button" (click)="wrap(area, '~')" aria-label="Strikethrough">
+                <s>S</s>
+              </button>
+              <button type="button" (click)="wrap(area, '```')" aria-label="Monospace">
+                <i class="ti ti-code" aria-hidden="true"></i>
+              </button>
+              <button type="button" class="var" (click)="insertVar(area)">
+                <i class="ti ti-braces" aria-hidden="true"></i> Variable
+              </button>
             </div>
-            <textarea #area id="tp-body" name="body" rows="6" [ngModel]="draft().body" (ngModelChange)="patch({ body: $event })"
-                      placeholder="Hi {name}, your order *{order_id}* is on its way!"></textarea>
-            <span class="hint">Use <code>{{ '{' }}key{{ '}' }}</code> or <code>{{ '{' }}key|fallback{{ '}' }}</code> · {{ draft().body.length }} / 1024</span>
-            @for (m of problems(); track m) { <span class="err">{{ m }}</span> }
+            <textarea
+              #area
+              id="tp-body"
+              name="body"
+              rows="6"
+              [ngModel]="draft().body"
+              (ngModelChange)="patch({ body: $event })"
+              placeholder="Hi {name}, your order *{order_id}* is on its way!"
+            ></textarea>
+            <span class="hint"
+              >Use <code>{{ '{' }}key{{ '}' }}</code> or
+              <code>{{ '{' }}key|fallback{{ '}' }}</code> · {{ draft().body.length }} / 1024</span
+            >
+            @if (spam(); as sp) {
+              <span class="spam" aria-live="polite">
+                <span class="s-pill" [class]="spamTone()" [attr.title]="spamWhy() || null"
+                  ><i class="ti ti-gauge" aria-hidden="true"></i> Spam score {{ sp.score }}{{
+                    sp.limit < 100 ? ' / ' + sp.limit : ''
+                  }}</span
+                >
+                @if (sp.reasons.length) {
+                  <small class="muted">{{ spamWhy() }}</small>
+                }
+              </span>
+            }
+            @for (m of problems(); track m) {
+              <span class="err">{{ m }}</span>
+            }
           </div>
 
           @if (vars().length) {
             <fieldset class="samples">
-              <legend>Sample values <small>shown in the preview, sent to Meta as examples</small></legend>
+              <legend>
+                Sample values <small>shown in the preview, sent to Meta as examples</small>
+              </legend>
               @for (v of vars(); track v) {
                 <div class="field">
-                  <label [for]="'tp-s-' + v"><code>{{ '{' + v + '}' }}</code></label>
-                  <input [id]="'tp-s-' + v" [name]="'s-' + v" [ngModel]="draft().sampleValues[v] ?? ''" (ngModelChange)="setSample(v, $event)" [placeholder]="'Example ' + v" />
+                  <label [for]="'tp-s-' + v"
+                    ><code>{{ '{' + v + '}' }}</code></label
+                  >
+                  <input
+                    [id]="'tp-s-' + v"
+                    [name]="'s-' + v"
+                    [ngModel]="draft().sampleValues[v] ?? ''"
+                    (ngModelChange)="setSample(v, $event)"
+                    [placeholder]="'Example ' + v"
+                  />
                 </div>
               }
             </fieldset>
           }
 
           <section class="block" aria-labelledby="tp-btn-h">
-            <h4 id="tp-btn-h"><span class="ms" aria-hidden="true">touch_app</span> Buttons</h4>
-            <app-buttons-editor [value]="draft().interactive" (valueChange)="patch({ interactive: $event })" />
+            <h4 id="tp-btn-h"><i class="ti ti-hand-finger" aria-hidden="true"></i> Buttons</h4>
+            <app-buttons-editor
+              [value]="draft().interactive"
+              (valueChange)="patch({ interactive: $event })"
+            />
           </section>
         </div>
 
         <div class="side">
           <span class="plabel">Live preview</span>
-          <app-template-preview [text]="preview()" [media]="draft().headerMediaId ? media() : null" [interactive]="draft().interactive" />
+          <app-template-preview
+            [text]="preview()"
+            [media]="draft().headerMediaId ? media() : null"
+            [interactive]="draft().interactive"
+          />
         </div>
 
         <div class="foot">
           <button class="btn ghost" type="button" (click)="close()">Cancel</button>
-          <button class="btn primary" type="submit" [disabled]="busy() || uploading() || problems().length > 0 || ixProblems().length > 0">
-            @if (busy()) { <span class="spinner"></span> } Save
+          <button
+            class="btn primary"
+            type="submit"
+            [disabled]="busy() || uploading() || problems().length > 0 || ixProblems().length > 0"
+          >
+            @if (busy()) {
+              <span class="spinner"></span>
+            }
+            Save
           </button>
         </div>
       </form>
     } @else {
       @for (c of compat(); track c) {
-        <div class="s-banner tone-warn"><span class="ms" aria-hidden="true">warning</span> {{ c }}</div>
+        <div class="s-banner tone-warn">
+          <i class="ti ti-alert-triangle" aria-hidden="true"></i> {{ c }}
+        </div>
       }
       <div class="stats">
-        <span><b>{{ p.template.useCount }}</b> sent</span>
-        <span><b>{{ ago(p.template.lastUsedAt) }}</b> last used</span>
-        <button class="btn sm" type="button" (click)="useInCampaign(p.template)"><span class="ms" aria-hidden="true">send</span> Use in campaign</button>
+        <span
+          ><b>{{ p.template.useCount }}</b> sent</span
+        >
+        <span
+          ><b>{{ ago(p.template.lastUsedAt) }}</b> last used</span
+        >
+        <button class="btn sm" type="button" (click)="useInCampaign(p.template)">
+          <i class="ti ti-send" aria-hidden="true"></i> Use in campaign
+        </button>
       </div>
       @if (versions(); as vs) {
         <ol class="timeline">
@@ -276,7 +651,14 @@
                 @if (v.version === p.template.currentVersion) {
                   <span class="s-pill tone-ok">current</span>
                 } @else if (!readOnly()) {
-                  <button class="btn sm" type="button" [disabled]="busy()" (click)="revert(p.template, v.version)"><span class="ms" aria-hidden="true">undo</span> Restore</button>
+                  <button
+                    class="btn sm"
+                    type="button"
+                    [disabled]="busy()"
+                    (click)="revert(p.template, v.version)"
+                  >
+                    <i class="ti ti-arrow-back-up" aria-hidden="true"></i> Restore
+                  </button>
                 }
               </div>
               <p class="bubble">{{ v.body || 'Empty body' }}</p>
@@ -286,7 +668,8 @@
           }
         </ol>
       } @else {
-        <div class="s-skel" style="height: 72px"></div><div class="s-skel" style="height: 72px"></div>
+        <div class="s-skel" style="height: 72px"></div>
+        <div class="s-skel" style="height: 72px"></div>
       }
     }
   </aside>

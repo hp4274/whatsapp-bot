@@ -1,0 +1,164 @@
+<!-- Kill-switch card, then header + status filter, then error / skeleton / table-or-empty; one native confirm dialog. -->
+<section class="panel" aria-labelledby="campaigns-title">
+  <article class="kill" [class.on]="killSwitch()" aria-labelledby="kill-title">
+    <span class="badge" aria-hidden="true"><i class="ti ti-hand-stop"></i></span>
+    <div class="kill-body">
+      <div class="kill-top">
+        <h3 id="kill-title">Stop all bulk sending</h3>
+        @if (killSwitch() !== null) {
+          <span class="s-pill" [class.tone-bad]="killSwitch()" [class.tone-ok]="!killSwitch()">
+            Kill switch {{ killSwitch() ? 'On — all bulk paused' : 'Off' }}
+          </span>
+        }
+      </div>
+      <p>
+        Stops every running bulk send on the platform immediately and drops the messages still queued. Use it when a
+        send is going wrong and there is no time to find it.
+      </p>
+      <p class="hint">
+        <i class="ti ti-settings" aria-hidden="true"></i>
+        To keep bulk off permanently, turn on Bulk messages → Kill switch in the policy settings. This panel does not
+        change policy.
+      </p>
+    </div>
+    <button type="button" class="btn danger" [disabled]="stopping()" (click)="askStopAll()">
+      <i class="ti ti-player-stop" aria-hidden="true"></i>{{ stopping() ? 'Stopping…' : 'Stop all now' }}
+    </button>
+  </article>
+
+  <header class="head">
+    <div>
+      <p class="eyebrow">Bulk campaigns</p>
+      <h2 id="campaigns-title">Every campaign, every business</h2>
+      <p class="lede">Watch failure rates and step in on a send before it hurts a number.</p>
+    </div>
+    <div class="tools">
+      <div class="s-seg" role="group" aria-label="Filter by status">
+        @for (f of filters; track f.value) {
+          <button type="button" [attr.aria-pressed]="filter() === f.value" (click)="setFilter(f.value)">
+            {{ f.label }}
+          </button>
+        }
+      </div>
+      <button type="button" class="btn sm icon" aria-label="Refresh" [disabled]="loading()" (click)="load()">
+        <i class="ti ti-refresh" aria-hidden="true"></i>
+      </button>
+    </div>
+  </header>
+
+  @if (notice(); as n) {
+    <p class="s-banner" [class.tone-ok]="n.tone === 'ok'" [attr.role]="n.tone === 'ok' ? 'status' : 'alert'">
+      <i class="ti" [class.ti-circle-check]="n.tone === 'ok'" [class.ti-alert-circle]="n.tone === 'bad'" aria-hidden="true"></i>
+      <span class="msg">{{ n.text }}</span>
+      <button type="button" class="btn sm ghost icon" aria-label="Dismiss" (click)="notice.set(null)">
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
+    </p>
+  }
+
+  @if (error()) {
+    <p class="s-banner" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i>
+      <span class="msg">{{ error() }}</span>
+      <button type="button" class="btn sm" (click)="load()">Try again</button>
+    </p>
+  } @else if (loading() && !rows().length) {
+    <div class="card" aria-busy="true" aria-label="Loading campaigns">
+      @for (i of [1, 2, 3, 4]; track i) {
+        <div class="s-skel" style="height: 18px"></div>
+      }
+    </div>
+  } @else if (!rows().length) {
+    <div class="card s-empty">
+      <i class="ti ti-speakerphone" aria-hidden="true"></i>
+      <strong>{{ filter() === 'all' ? 'No campaigns yet' : 'No ' + filter() + ' campaigns' }}</strong>
+      <p>Campaigns appear here once a business sends a bulk message.</p>
+    </div>
+  } @else {
+    <div class="card">
+      <div class="s-table">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Business</th>
+              <th scope="col">Campaign</th>
+              <th scope="col">Status</th>
+              <th scope="col" class="num">Sent / Failed / Total</th>
+              <th scope="col">Failure rate</th>
+              <th scope="col">Started</th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of rows(); track row.id) {
+              <tr>
+                <td><span class="strong">{{ row.tenantName }}</span></td>
+                <td class="name">
+                  <span class="strong">{{ row.name }}</span>
+                  @if (row.statusReason) {
+                    <span class="sub" [title]="row.statusReason">{{ row.statusReason }}</span>
+                  }
+                </td>
+                <td><span class="s-pill" [class]="statusTone(row.status)">{{ row.status }}</span></td>
+                <td class="num">
+                  <span class="strong">{{ row.sent }}</span>
+                  <span class="sub"> / {{ row.failed }} / {{ row.total }}</span>
+                </td>
+                <td><span class="s-pill" [class]="rateTone(row.failureRate)">{{ row.failureRate }}%</span></td>
+                <td><span class="sub">{{ when(row.startedAt) }}</span></td>
+                <td class="acts">
+                  @if (row.status === 'running') {
+                    <button type="button" class="btn sm" [disabled]="busy() === row.id" (click)="pause(row)">
+                      <i class="ti ti-player-pause" aria-hidden="true"></i>Pause
+                    </button>
+                  }
+                  @if (row.status === 'paused') {
+                    <button type="button" class="btn sm" [disabled]="busy() === row.id" (click)="resume(row)">
+                      <i class="ti ti-player-play" aria-hidden="true"></i>Resume
+                    </button>
+                  }
+                  @if (canCancel(row)) {
+                    <button
+                      type="button"
+                      class="btn sm danger-ghost"
+                      [attr.aria-label]="'Cancel ' + row.name"
+                      [disabled]="busy() === row.id"
+                      (click)="askCancel(row)"
+                    >
+                      <i class="ti ti-ban" aria-hidden="true"></i>Cancel
+                    </button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+</section>
+
+<dialog #dialog class="dlg" aria-labelledby="dlg-title" (close)="dismiss()">
+  @if (pending(); as p) {
+    <form method="dialog" (submit)="$event.preventDefault(); confirm()">
+      <span class="dlg-badge" aria-hidden="true"><i class="ti ti-alert-triangle"></i></span>
+      @if (p.kind === 'stop-all') {
+        <h3 id="dlg-title">Stop all bulk sending?</h3>
+        <p>
+          Every running campaign on the platform is cancelled and its queued messages are dropped. Messages already
+          sent stay sent. This cannot be undone.
+        </p>
+      } @else {
+        <h3 id="dlg-title">Cancel {{ p.row.name }}?</h3>
+        <p>
+          {{ p.row.tenantName }}'s campaign stops for good and its remaining messages are not sent. This cannot be
+          undone.
+        </p>
+      }
+      <div class="dlg-acts">
+        <button type="button" class="btn" (click)="dismiss()">Keep sending</button>
+        <button type="submit" class="btn danger">{{ p.kind === 'stop-all' ? 'Stop all now' : 'Cancel campaign' }}</button>
+      </div>
+    </form>
+  }
+</dialog>

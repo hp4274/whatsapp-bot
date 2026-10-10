@@ -1,25 +1,42 @@
 <section class="wf">
-  <header class="wf-head">
+  <header class="s-head">
     <div>
-      <span class="eyebrow"><span class="ms">account_tree</span> Automations</span>
-      <h1>Workflows</h1>
+      <span class="eyebrow"><i class="ti ti-hierarchy-3" aria-hidden="true"></i> Automations</span>
+      <h2>Workflows</h2>
       <p>Trigger-driven journeys that message, tag and route your contacts on their own.</p>
     </div>
-    <div class="tabs" role="tablist" aria-label="Workflow sections" (keydown)="tabKey($event)">
-      <button id="wf-tab-mine" role="tab" type="button" [attr.aria-selected]="tab() === 'mine'"
-              aria-controls="wf-panel" [tabindex]="tab() === 'mine' ? 0 : -1" (click)="select('mine')">
-        <span class="ms">bolt</span> My workflows <span class="count">{{ counts()['all'] }}</span>
+    <div class="s-seg" role="tablist" aria-label="Workflow sections" (keydown)="tabKey($event)">
+      <button
+        id="wf-tab-mine"
+        role="tab"
+        type="button"
+        [attr.aria-selected]="tab() === 'mine'"
+        aria-controls="wf-panel"
+        [tabindex]="tab() === 'mine' ? 0 : -1"
+        (click)="select('mine')"
+      >
+        <i class="ti ti-bolt" aria-hidden="true"></i> My workflows
+        <span class="count">{{ counts()['all'] }}</span>
       </button>
-      <button id="wf-tab-gallery" role="tab" type="button" [attr.aria-selected]="tab() === 'gallery'"
-              aria-controls="wf-panel" [tabindex]="tab() === 'gallery' ? 0 : -1" (click)="select('gallery')">
-        <span class="ms">auto_awesome</span> Recipe gallery
+      <button
+        id="wf-tab-gallery"
+        role="tab"
+        type="button"
+        [attr.aria-selected]="tab() === 'gallery'"
+        aria-controls="wf-panel"
+        [tabindex]="tab() === 'gallery' ? 0 : -1"
+        (click)="select('gallery')"
+      >
+        <i class="ti ti-sparkles" aria-hidden="true"></i> Recipe gallery
       </button>
     </div>
   </header>
 
   <div class="toast-slot" aria-live="polite">
     @if (toast(); as t) {
-      <div class="toast" role="status"><span class="ms">check_circle</span> {{ t }}</div>
+      <div class="toast" role="status">
+        <i class="ti ti-circle-check" aria-hidden="true"></i> {{ t }}
+      </div>
     }
   </div>
 
@@ -28,77 +45,127 @@
       <!-- ================================================= My workflows -->
       <div class="chips" role="group" aria-label="Filter by status">
         @for (f of filters; track f) {
-          <button type="button" class="chip" [attr.aria-pressed]="filter() === f" (click)="filter.set(f)">
+          <button
+            type="button"
+            class="s-chip"
+            [attr.aria-pressed]="filter() === f"
+            (click)="filter.set(f)"
+          >
             {{ f ? humanize(f) : 'All' }} <span class="count">{{ counts()[f ?? 'all'] }}</span>
           </button>
         }
       </div>
 
       @if (error(); as err) {
-        <div class="banner" role="alert">
-          <span class="ms">{{ disabled() ? 'block' : 'error' }}</span>
-          <span>{{ err }}</span>
-          <button type="button" class="btn sm" (click)="load()">Retry</button>
+        <div class="s-banner" role="alert">
+          <i class="ti ti-{{ disabled() ? 'ban' : 'alert-circle' }}" aria-hidden="true"></i>
+          <span class="msg">{{ err }}</span>
+          <button type="button" class="btn sm" (click)="load()">Try again</button>
         </div>
       } @else if (loading()) {
         <div class="list" aria-busy="true" aria-label="Loading workflows">
           @for (i of [0, 1, 2]; track i) {
-            <div class="row card skel-row"><span class="skel" style="width: 40%"></span><span class="skel" style="width: 22%"></span></div>
+            <div class="row card skel-row">
+              <span class="s-skel" style="width: 40%"></span
+              ><span class="s-skel" style="width: 22%"></span>
+            </div>
           }
         </div>
       } @else if (!workflows().length) {
-        <div class="empty card">
-          <span class="ms orb">rocket_launch</span>
+        <div class="s-card s-empty">
+          <i class="ti ti-rocket" aria-hidden="true"></i>
           <strong>No workflows yet</strong>
-          <p>Start from a ready-made recipe — order confirmations, reminders, follow-ups — and tweak it later.</p>
+          <p>
+            Start from a ready-made recipe — order confirmations, reminders, follow-ups — and tweak
+            it later.
+          </p>
           <button type="button" class="btn primary" (click)="select('gallery')">
-            <span class="ms">auto_awesome</span> Install a recipe
+            <i class="ti ti-sparkles" aria-hidden="true"></i> Install a recipe
           </button>
         </div>
       } @else if (!visible().length) {
-        <div class="empty card">
-          <span class="ms orb">filter_alt_off</span>
+        <div class="s-card s-empty tone-info">
+          <i class="ti ti-filter-off" aria-hidden="true"></i>
           <strong>Nothing {{ filter() }} right now</strong>
           <button type="button" class="btn" (click)="filter.set(null)">Show all</button>
         </div>
       } @else {
         <ul class="list">
           @for (w of visible(); track w.id; let i = $index) {
-            <li class="row card enter-i" [class.hl]="highlightId() === w.id" [class.open]="expanded() === w.id"
-                [style.--i]="i">
+            <li
+              class="row card s-enter"
+              [class.hl]="highlightId() === w.id"
+              [class.open]="expanded() === w.id"
+              [style.--i]="i"
+            >
               <div class="row-main">
-                <span class="ms trig-ic" aria-hidden="true">{{ triggerIcon(w.trigger.type) }}</span>
+                <span class="tile" aria-hidden="true"
+                  ><i class="ti ti-{{ triggerIcon(w.trigger.type) }}"></i
+                ></span>
                 <div class="row-text">
                   <strong>{{ w.name }}</strong>
                   <span class="meta">
-                    {{ humanize(w.trigger.type) }} · {{ w.steps.length }} step{{ w.steps.length === 1 ? '' : 's' }}
+                    {{ humanize(w.trigger.type) }} · {{ w.steps.length }} step{{
+                      w.steps.length === 1 ? '' : 's'
+                    }}
                     · v{{ w.version }} · updated {{ ago(w.updatedAt) }}
                   </span>
                 </div>
-                <span class="badge" [class]="'badge st-' + w.status">{{ w.status }}</span>
+                <span [class]="'s-pill st-' + w.status">{{ w.status }}</span>
                 <div class="actions">
                   @if (confirmId() === w.id) {
                     <span class="confirm" role="group" aria-label="Confirm delete">
                       Delete?
-                      <button type="button" class="btn sm danger" [disabled]="busy() === w.id" (click)="remove(w)">Yes</button>
+                      <button
+                        type="button"
+                        class="btn sm danger"
+                        [disabled]="busy() === w.id"
+                        (click)="remove(w)"
+                      >
+                        Yes
+                      </button>
                       <button type="button" class="btn sm" (click)="confirmId.set(null)">No</button>
                     </span>
                   } @else {
                     @if (w.status === 'active') {
-                      <button type="button" class="btn sm" [disabled]="busy() === w.id" (click)="setStatus(w, 'paused')">
-                        <span class="ms">pause</span> Pause
+                      <button
+                        type="button"
+                        class="btn sm"
+                        [disabled]="busy() === w.id"
+                        (click)="setStatus(w, 'paused')"
+                      >
+                        <i class="ti ti-player-pause" aria-hidden="true"></i> Pause
                       </button>
                     } @else {
-                      <button type="button" class="btn sm primary" [disabled]="busy() === w.id" (click)="setStatus(w, 'active')">
-                        <span class="ms">play_arrow</span> Activate
+                      <button
+                        type="button"
+                        class="btn sm primary"
+                        [disabled]="busy() === w.id"
+                        (click)="setStatus(w, 'active')"
+                      >
+                        <i class="ti ti-player-play" aria-hidden="true"></i> Activate
                       </button>
                     }
-                    <button type="button" class="btn sm icon" [attr.aria-label]="'Delete ' + w.name"
-                            [disabled]="busy() === w.id" (click)="confirmId.set(w.id)"><span class="ms">delete</span></button>
+                    <button
+                      type="button"
+                      class="btn sm icon"
+                      [attr.aria-label]="'Delete ' + w.name"
+                      [disabled]="busy() === w.id"
+                      (click)="confirmId.set(w.id)"
+                    >
+                      <i class="ti ti-trash" aria-hidden="true"></i>
+                    </button>
                   }
-                  <button type="button" class="btn sm icon" [attr.aria-expanded]="expanded() === w.id"
-                          [attr.aria-controls]="'wf-detail-' + w.id" [attr.aria-label]="'Details and runs for ' + w.name"
-                          (click)="toggle(w)"><span class="ms chev">expand_more</span></button>
+                  <button
+                    type="button"
+                    class="btn sm icon"
+                    [attr.aria-expanded]="expanded() === w.id"
+                    [attr.aria-controls]="'wf-detail-' + w.id"
+                    [attr.aria-label]="'Details and runs for ' + w.name"
+                    (click)="toggle(w)"
+                  >
+                    <i class="ti ti-chevron-down chev" aria-hidden="true"></i>
+                  </button>
                 </div>
               </div>
               @if (rowError()?.id === w.id) {
@@ -111,8 +178,11 @@
                     <h3>Flow</h3>
                     <ol>
                       <li class="node trig">
-                        <span class="ms dot">{{ triggerIcon(w.trigger.type) }}</span>
-                        <div><strong>When: {{ humanize(w.trigger.type) }}</strong>
+                        <span class="dot" aria-hidden="true"
+                          ><i class="ti ti-{{ triggerIcon(w.trigger.type) }}"></i
+                        ></span>
+                        <div>
+                          <strong>When: {{ humanize(w.trigger.type) }}</strong>
                           @if (w.trigger.conditions.length) {
                             <small>{{ w.trigger.conditions.length }} condition(s) must match</small>
                           }
@@ -120,9 +190,14 @@
                       </li>
                       @for (s of w.steps; track s.id) {
                         <li class="node">
-                          <span class="ms dot">{{ actionIcon(s.action) }}</span>
-                          <div><strong>{{ humanize(s.action) }}</strong>
-                            @if (stepDetail(s); as d) { <small>{{ d }}</small> }
+                          <span class="dot" aria-hidden="true"
+                            ><i class="ti ti-{{ actionIcon(s.action) }}"></i
+                          ></span>
+                          <div>
+                            <strong>{{ humanize(s.action) }}</strong>
+                            @if (stepDetail(s); as d) {
+                              <small>{{ d }}</small>
+                            }
                           </div>
                         </li>
                       }
@@ -130,45 +205,86 @@
                   </div>
 
                   <div class="runs">
-                    <h3>Recent runs
-                      <button type="button" class="btn sm icon" aria-label="Refresh runs" (click)="loadRuns(w.id)">
-                        <span class="ms">refresh</span></button>
+                    <h3>
+                      Recent runs
+                      <button
+                        type="button"
+                        class="btn sm icon"
+                        aria-label="Refresh runs"
+                        (click)="loadRuns(w.id)"
+                      >
+                        <i class="ti ti-refresh" aria-hidden="true"></i>
+                      </button>
                     </h3>
                     @if (runsError(); as re) {
-                      <div class="banner" role="alert"><span class="ms">error</span> {{ re }}</div>
+                      <div class="s-banner" role="alert">
+                        <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ re }}
+                      </div>
                     }
                     @if (runsLoading()) {
-                      @for (i of [0, 1]; track i) { <span class="skel run-skel"></span> }
+                      @for (i of [0, 1]; track i) {
+                        <span class="s-skel run-skel"></span>
+                      }
                     } @else if (!runs().length) {
-                      <p class="muted">No runs yet. Runs appear once the trigger fires{{ w.status === 'active' ? '' : ' — activate the workflow first' }}.</p>
+                      <p class="muted">
+                        No runs yet. Runs appear once the trigger fires{{
+                          w.status === 'active' ? '' : ' — activate the workflow first'
+                        }}.
+                      </p>
                     } @else {
                       <ul class="run-list">
                         @for (r of runs(); track r.runId) {
                           <li>
                             <div class="run">
-                              <button type="button" class="run-btn" [attr.aria-expanded]="openRun()?.run?.runId === r.runId"
-                                      (click)="showRun(r)">
-                                <span class="badge" [class]="'badge tone-' + runTone(r.status)">{{ r.status }}</span>
+                              <button
+                                type="button"
+                                class="run-btn"
+                                [attr.aria-expanded]="openRun()?.run?.runId === r.runId"
+                                (click)="showRun(r)"
+                              >
+                                <span [class]="'s-pill tone-' + runTone(r.status)">{{
+                                  r.status
+                                }}</span>
                                 <span>{{ ago(r.startedAt) }}</span>
                                 <small class="muted">v{{ r.workflowVersion }}</small>
-                                @if (runLoading() === r.runId) { <span class="spinner"></span> }
+                                @if (runLoading() === r.runId) {
+                                  <span class="spinner" aria-hidden="true"></span>
+                                }
                               </button>
                               @if (r.status === 'failed') {
-                                <button type="button" class="btn sm" [disabled]="retrying() === r.runId" (click)="retry(r)">
-                                  <span class="ms">replay</span> Retry
+                                <button
+                                  type="button"
+                                  class="btn sm"
+                                  [disabled]="retrying() === r.runId"
+                                  (click)="retry(r)"
+                                >
+                                  <i class="ti ti-reload" aria-hidden="true"></i> Retry
                                 </button>
                               }
                             </div>
-                            @if (r.error) { <p class="err">{{ r.error }}</p> }
+                            @if (r.error) {
+                              <p class="err">{{ r.error }}</p>
+                            }
                             @if (openRun()?.run?.runId === r.runId) {
                               <ol class="steps">
                                 @for (st of openRun()?.steps ?? []; track st.id) {
                                   <li>
-                                    <span class="badge" [class]="'badge tone-' + runTone(st.status)">{{ st.status }}</span>
-                                    <span>{{ st.stepId }} · {{ humanize(st.action) }}@if (st.attempt > 1) { (try {{ st.attempt }})}</span>
-                                    @if (st.error) { <small class="err">{{ st.error }}</small> }
+                                    <span [class]="'s-pill tone-' + runTone(st.status)">{{
+                                      st.status
+                                    }}</span>
+                                    <span
+                                      >{{ st.stepId }} · {{ humanize(st.action) }}
+                                      @if (st.attempt > 1) {
+                                        (try {{ st.attempt }})
+                                      }
+                                    </span>
+                                    @if (st.error) {
+                                      <small class="err">{{ st.error }}</small>
+                                    }
                                   </li>
-                                } @empty { <li class="muted">No steps recorded.</li> }
+                                } @empty {
+                                  <li class="muted">No steps recorded.</li>
+                                }
                               </ol>
                             }
                           </li>
@@ -185,52 +301,84 @@
     } @else {
       <!-- ================================================ Recipe gallery -->
       @if (recipesError(); as err) {
-        <div class="banner" role="alert">
-          <span class="ms">{{ disabled() ? 'block' : 'error' }}</span>
-          <span>{{ err }}</span>
-          <button type="button" class="btn sm" (click)="loadRecipes()">Retry</button>
+        <div class="s-banner" role="alert">
+          <i class="ti ti-{{ disabled() ? 'ban' : 'alert-circle' }}" aria-hidden="true"></i>
+          <span class="msg">{{ err }}</span>
+          <button type="button" class="btn sm" (click)="loadRecipes()">Try again</button>
         </div>
       } @else if (recipesLoading()) {
         <div class="grid" aria-busy="true" aria-label="Loading recipes">
-          @for (i of [0, 1, 2, 3]; track i) { <div class="card recipe skel-card"><span class="skel"></span><span class="skel" style="width: 70%"></span></div> }
+          @for (i of [0, 1, 2, 3]; track i) {
+            <div class="card recipe skel-card">
+              <span class="s-skel"></span><span class="s-skel" style="width: 70%"></span>
+            </div>
+          }
         </div>
       } @else if (!recipes().length) {
-        <div class="empty card"><span class="ms orb">inventory_2</span><strong>No recipes available</strong></div>
+        <div class="s-card s-empty">
+          <i class="ti ti-archive" aria-hidden="true"></i><strong>No recipes available</strong>
+        </div>
       } @else {
         @for (g of groups(); track g.industry) {
           <h2 class="industry">{{ g.industry }}</h2>
           <div class="grid">
             @for (r of g.items; track r.key; let i = $index) {
-              <article class="card recipe enter-i" [schoolTilt]="4" [style.--i]="i">
-                <span class="ms recipe-ic" aria-hidden="true">{{ triggerIcon(r.trigger) }}</span>
+              <article class="card recipe s-enter" [schoolTilt]="4" [style.--i]="i">
+                <span class="tile recipe-ic" aria-hidden="true"
+                  ><i class="ti ti-{{ triggerIcon(r.trigger) }}"></i
+                ></span>
                 <h3>{{ r.name }}</h3>
                 <p>{{ r.description }}</p>
                 <div class="tags">
-                  <span class="tag trig"><span class="ms">bolt</span>{{ humanize(r.trigger) }}</span>
-                  @if (r.requires.objectType; as o) { <span class="tag"><span class="ms">database</span>{{ o }}</span> }
-                  @for (t of r.requires.templates; track t) { <span class="tag"><span class="ms">description</span>{{ t }}</span> }
+                  <span class="tag trig"
+                    ><i class="ti ti-bolt" aria-hidden="true"></i>{{ humanize(r.trigger) }}</span
+                  >
+                  @if (r.requires.objectType; as o) {
+                    <span class="tag"
+                      ><i class="ti ti-database" aria-hidden="true"></i>{{ o }}</span
+                    >
+                  }
+                  @for (t of r.requires.templates; track t) {
+                    <span class="tag"
+                      ><i class="ti ti-file-text" aria-hidden="true"></i>{{ t }}</span
+                    >
+                  }
                 </div>
                 @if (installKey() === r.key) {
                   <form class="install" (ngSubmit)="install(r)">
                     <div class="field">
                       <label [for]="'name-' + r.key">Name (optional)</label>
-                      <input [id]="'name-' + r.key" name="name" [(ngModel)]="installName" [placeholder]="r.name" maxlength="120" />
+                      <input
+                        [id]="'name-' + r.key"
+                        name="name"
+                        [(ngModel)]="installName"
+                        [placeholder]="r.name"
+                        maxlength="120"
+                      />
                     </div>
                     <label class="toggle">
                       <input type="checkbox" name="activate" [(ngModel)]="installActivate" />
                       <span class="track" aria-hidden="true"></span> Activate now
                     </label>
-                    @if (installError(); as ie) { <p class="err" role="alert">{{ ie }}</p> }
+                    @if (installError(); as ie) {
+                      <p class="err" role="alert">{{ ie }}</p>
+                    }
                     <div class="form-actions">
-                      <button type="button" class="btn sm" (click)="installKey.set(null)">Cancel</button>
+                      <button type="button" class="btn sm" (click)="installKey.set(null)">
+                        Cancel
+                      </button>
                       <button type="submit" class="btn sm primary" [disabled]="installing()">
-                        @if (installing()) { <span class="spinner"></span> Installing… } @else { Install }
+                        @if (installing()) {
+                          <span class="spinner" aria-hidden="true"></span> Installing…
+                        } @else {
+                          Install
+                        }
                       </button>
                     </div>
                   </form>
                 } @else {
                   <button type="button" class="btn primary install-btn" (click)="openInstall(r)">
-                    <span class="ms">download</span> Install
+                    <i class="ti ti-download" aria-hidden="true"></i> Install
                   </button>
                 }
               </article>

@@ -1,63 +1,130 @@
-<header class="page-head">
+<!-- Header, error banner, then the people table beside the invite form. -->
+<header class="s-head">
   <div>
+    <p class="eyebrow"><i class="ti ti-users" aria-hidden="true"></i> Workspace</p>
     <h2>Team</h2>
-    <p class="muted">Who can sign in to this workspace, and what they may do.</p>
+    <p>Who can sign in to this workspace, and what they may do.</p>
   </div>
 </header>
 
 @if (error()) {
-  <p class="error" role="alert">{{ error() }}</p>
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span>{{ error() }}</span>
+    <button class="btn sm" type="button" (click)="refresh()">Try again</button>
+  </p>
 }
 
 <div class="split">
-  <section class="card people">
-    <table>
-      <thead>
-        <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr>
-      </thead>
-      <tbody>
-        @for (user of users(); track user.id) {
-          <tr [class.off]="user.disabled">
-            <td>{{ user.name || '-' }}</td>
-            <td class="mono">{{ user.email }}</td>
-            <td><span class="pill role">{{ user.role }}</span></td>
-            <td>{{ user.disabled ? 'Disabled' : 'Active' }}</td>
-            <td class="right">
-              @if (canManage(user)) {
-                <button class="btn small" [class.danger]="!user.disabled" type="button" (click)="toggle(user)">
-                  {{ user.disabled ? 'Enable' : 'Disable' }}
-                </button>
-              }
-            </td>
-          </tr>
-        } @empty {
-          <tr><td colspan="5" class="muted">No users yet.</td></tr>
+  <section class="s-card people" aria-labelledby="team-people">
+    <h3 id="team-people">People</h3>
+    @if (loading()) {
+      <div aria-busy="true" aria-label="Loading team">
+        @for (n of skeletonRows; track n) {
+          <div class="s-skel"></div>
         }
-      </tbody>
-    </table>
+      </div>
+    } @else {
+      <div class="s-table">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Email</th>
+              <th scope="col">Role</th>
+              <th scope="col">Status</th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (user of users(); track user.id; let i = $index) {
+              <tr [class.off]="user.disabled" [style.--i]="i">
+                <td class="strong">{{ user.name || '-' }}</td>
+                <td class="mono">{{ user.email }}</td>
+                <td>
+                  <span class="s-pill tone-info">{{ user.role }}</span>
+                </td>
+                <td>
+                  <span
+                    class="s-pill"
+                    [class.tone-ok]="!user.disabled"
+                    [class.tone-mute]="user.disabled"
+                  >
+                    {{ user.disabled ? 'Disabled' : 'Active' }}
+                  </span>
+                </td>
+                <td class="right">
+                  @if (canManage(user)) {
+                    <button
+                      class="btn sm"
+                      [class.danger]="!user.disabled"
+                      type="button"
+                      (click)="toggle(user)"
+                    >
+                      {{ user.disabled ? 'Enable' : 'Disable' }}
+                    </button>
+                  }
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="5">
+                  <div class="s-empty">
+                    <i class="ti ti-user-plus" aria-hidden="true"></i>
+                    <strong>No users yet</strong>
+                    <p>Add the first teammate with the form.</p>
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
   </section>
 
-  <form class="card invite" (submit)="add($event)" novalidate>
-    <h3>Add a user</h3>
-    <div class="field">
+  <form class="s-card invite" aria-labelledby="team-invite" (submit)="add($event)" novalidate>
+    <h3 id="team-invite">Add a user</h3>
+    <div class="s-field">
       <label for="u-name">Name</label>
-      <input id="u-name" name="name" [ngModel]="draft().name"
-             (ngModelChange)="draft.set({ ...draft(), name: $event })" />
+      <input
+        id="u-name"
+        name="name"
+        [ngModel]="draft().name"
+        (ngModelChange)="draft.set({ ...draft(), name: $event })"
+      />
     </div>
-    <div class="field">
+    <div class="s-field">
       <label for="u-email">Email</label>
-      <input id="u-email" name="email" type="email" required [ngModel]="draft().email"
-             (ngModelChange)="draft.set({ ...draft(), email: $event })" />
+      <input
+        id="u-email"
+        name="email"
+        type="email"
+        required
+        [ngModel]="draft().email"
+        (ngModelChange)="draft.set({ ...draft(), email: $event })"
+      />
     </div>
-    <div class="field">
-      <label for="u-pass">Password <small class="muted">8+ characters</small></label>
-      <input id="u-pass" name="password" type="password" required [ngModel]="draft().password"
-             (ngModelChange)="draft.set({ ...draft(), password: $event })" />
+    <div class="s-field">
+      <label for="u-pass">Password</label>
+      <input
+        id="u-pass"
+        name="password"
+        type="password"
+        required
+        [ngModel]="draft().password"
+        (ngModelChange)="draft.set({ ...draft(), password: $event })"
+      />
+      <span class="hint">8+ characters</span>
     </div>
-    <div class="field">
+    <div class="s-field">
       <label for="u-role">Role</label>
-      <select id="u-role" name="role" [ngModel]="draft().role"
-              (ngModelChange)="draft.set({ ...draft(), role: $event })">
+      <select
+        id="u-role"
+        name="role"
+        [ngModel]="draft().role"
+        (ngModelChange)="draft.set({ ...draft(), role: $event })"
+      >
         @for (role of assignable(); track role) {
           <option [value]="role">{{ role }}</option>
         }

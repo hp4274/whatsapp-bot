@@ -1,24 +1,58 @@
-import { Component, output, computed, effect, inject, input, signal, untracked } from '@angular/core';
-import { Store } from '../../core/store';
-import { Subscription } from 'rxjs';
-
 import {
-  AttendanceRow, AttendanceStatus, ClassInfo, ImportResult, SchoolApi, SchoolArea, SchoolMe, SendResult, StudentAttendance,
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+  untracked,
+} from '@angular/core';
+import type { Subscription } from 'rxjs';
+
+import { Store } from '../../core/store';
+import { SchoolApi } from '../school-api';
+import type {
+  AttendanceRow,
+  AttendanceStatus,
+  ClassInfo,
+  ImportResult,
+  SchoolArea,
+  SchoolMe,
+  SendResult,
+  StudentAttendance,
 } from '../school-api';
 import { Tilt } from '../tilt';
 
-const STATUSES: { value: AttendanceStatus; label: string; short: string; tone: string }[] = [
-  { value: 'present', label: 'Present', short: 'P', tone: 'tone-ok' },
-  { value: 'absent', label: 'Absent', short: 'A', tone: 'tone-bad' },
-  { value: 'late', label: 'Late', short: 'L', tone: 'tone-warn' },
-  { value: 'excused', label: 'Excused', short: 'E', tone: 'tone-info' },
-];
+/**
+ * The four marks, in the order teachers tap them. `tone` drives every colour
+ * for the status (summary tile, segmented button, row stripe, calendar cell):
+ * present = success, absent = danger, late = warning, excused = info.
+ */
+const STATUSES: readonly { value: AttendanceStatus; label: string; short: string; tone: string }[] =
+  [
+    { value: 'present', label: 'Present', short: 'P', tone: 'tone-ok' },
+    { value: 'absent', label: 'Absent', short: 'A', tone: 'tone-bad' },
+    { value: 'late', label: 'Late', short: 'L', tone: 'tone-warn' },
+    { value: 'excused', label: 'Excused', short: 'E', tone: 'tone-info' },
+  ];
 
+/**
+ * Daily roll call for one class: mark each student, save the sheet, then
+ * WhatsApp the parents of anyone absent (optionally late).
+ *
+ * Marks stay local until saved, so live store refreshes are skipped while the
+ * sheet is dirty, and alerts are blocked until it is saved — otherwise parents
+ * would be messaged from stale marks. Already-alerted students are skipped
+ * server-side, so re-sending is safe.
+ */
 @Component({
   selector: 'school-attendance',
   imports: [Tilt],
   templateUrl: './attendance.html',
   styleUrl: './attendance.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AttendanceTab {
   private readonly api = inject(SchoolApi);
@@ -47,6 +81,7 @@ export class AttendanceTab {
   protected readonly notifyResult = signal<SendResult | null>(null);
   protected readonly notifyError = signal('');
 
+  /** Student whose monthly history drawer is open; null = drawer closed. */
   protected readonly student = signal<AttendanceRow | null>(null);
   protected readonly month = signal(new Date().toLocaleDateString('en-CA').slice(0, 7));
   protected readonly history = signal<StudentAttendance | null>(null);
@@ -62,8 +97,12 @@ export class AttendanceTab {
     for (const r of this.rows()) out[r.status ?? 'unmarked']++;
     return out;
   });
-  protected readonly toAlert = computed(() =>
-    this.rows().filter((r) => (r.status === 'absent' || (this.notifyLate() && r.status === 'late')) && !r.alertedAt).length,
+  protected readonly toAlert = computed(
+    () =>
+      this.rows().filter(
+        (r) =>
+          (r.status === 'absent' || (this.notifyLate() && r.status === 'late')) && !r.alertedAt,
+      ).length,
   );
   protected readonly calendar = computed(() => {
     const h = this.history();
@@ -81,6 +120,7 @@ export class AttendanceTab {
     return cells;
   });
 
+  /** In-flight sheet request, cancelled when class/date changes so a slow old response can't overwrite the new sheet. */
   private sub?: Subscription;
 
   constructor() {
@@ -126,25 +166,39 @@ export class AttendanceTab {
   }
 
   protected set(row: AttendanceRow, status: AttendanceStatus) {
-    this.rows.update((rows) => rows.map((r) => (r.studentId === row.studentId ? { ...r, status, arrivedAt: status === 'late' ? r.arrivedAt : null } : r)));
+    this.rows.update((rows) =>
+      rows.map((r) =>
+        r.studentId === row.studentId
+          ? { ...r, status, arrivedAt: status === 'late' ? r.arrivedAt : null }
+          : r,
+      ),
+    );
     this.dirty.set(true);
   }
 
   protected setArrival(row: AttendanceRow, e: Event) {
     const arrivedAt = (e.target as HTMLInputElement).value || null;
-    this.rows.update((rows) => rows.map((r) => (r.studentId === row.studentId ? { ...r, arrivedAt } : r)));
+    this.rows.update((rows) =>
+      rows.map((r) => (r.studentId === row.studentId ? { ...r, arrivedAt } : r)),
+    );
     this.dirty.set(true);
   }
 
   protected allPresent() {
-    this.rows.update((rows) => rows.map((r) => ({ ...r, status: 'present' as const, arrivedAt: null })));
+    this.rows.update((rows) =>
+      rows.map((r) => ({ ...r, status: 'present' as const, arrivedAt: null })),
+    );
     this.dirty.set(true);
   }
 
   protected save() {
     const marks = this.rows()
       .filter((r) => r.status)
-      .map((r) => ({ studentId: r.studentId, status: r.status!, arrivedAt: r.status === 'late' ? r.arrivedAt : null }));
+      .map((r) => ({
+        studentId: r.studentId,
+        status: r.status!,
+        arrivedAt: r.status === 'late' ? r.arrivedAt : null,
+      }));
     if (!marks.length) {
       this.message.set('Mark at least one student first.');
       return;
@@ -217,7 +271,7 @@ export class AttendanceTab {
     this.loadHistory();
   }
 
-  private loadHistory() {
+  protected loadHistory() {
     const row = this.student();
     if (!row) return;
     this.historyLoading.set(true);

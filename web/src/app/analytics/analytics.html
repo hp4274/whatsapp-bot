@@ -1,23 +1,45 @@
-<header class="head">
+<!--
+  Analytics: Kardlyz header, then range-bound sections (KPI tiles, trend,
+  campaigns, response times, auto-replies, status) that dim while a new range
+  loads, then the range-free "Right now" sections.
+-->
+<header class="s-head">
   <div>
-    <p class="eyebrow"><span class="ms" aria-hidden="true">insights</span> Analytics</p>
-    <h1>How your messages <em>perform</em></h1>
-    <p class="muted sub">
+    <p class="eyebrow"><i class="ti ti-chart-line" aria-hidden="true"></i> Analytics</p>
+    <h1>How your messages perform</h1>
+    <p>
       This number · last {{ days() }} days
-      @if (updatedAt(); as at) { · updated {{ at | date: 'shortTime' }} }
+      @if (updatedAt(); as at) {
+        · updated {{ at | date: 'shortTime' }}
+      }
     </p>
   </div>
   <div class="controls">
     <div class="segmented" role="group" aria-label="Date range">
       @for (d of ranges; track d) {
-        <button type="button" [class.on]="days() === d" [attr.aria-pressed]="days() === d" (click)="setDays(d)">
+        <button
+          type="button"
+          [class.on]="days() === d"
+          [attr.aria-pressed]="days() === d"
+          (click)="setDays(d)"
+        >
           {{ d }}<span class="u">&nbsp;days</span>
         </button>
       }
       <i class="thumb" aria-hidden="true" [style.--pos]="ranges.indexOf(days())"></i>
     </div>
-    <button type="button" class="btn icon" (click)="load()" [disabled]="loading() || stale()" aria-label="Refresh analytics">
-      @if (loading() || stale()) { <span class="spinner" aria-hidden="true"></span> } @else { <span class="ms" aria-hidden="true">refresh</span> }
+    <button
+      type="button"
+      class="btn icon"
+      (click)="load()"
+      [disabled]="loading() || stale()"
+      aria-label="Refresh analytics"
+    >
+      @if (loading() || stale()) {
+        <span class="spinner" aria-hidden="true"></span>
+      } @else {
+        <i class="ti ti-refresh" aria-hidden="true"></i>
+      }
     </button>
   </div>
 </header>
@@ -25,25 +47,41 @@
 <p class="sr-only" aria-live="polite">{{ loading() || stale() ? 'Loading analytics' : '' }}</p>
 
 @if (loading()) {
-  <div class="kpis" aria-hidden="true">
-    @for (i of [0, 1, 2, 3, 4, 5]; track i) { <div class="card kpi sk"><i class="shim w40"></i><i class="shim w70 tall"></i><i class="shim w55"></i></div> }
-  </div>
-  <div class="charts" aria-hidden="true">
-    <div class="card panel wide sk"><i class="shim w40"></i><div class="shim chart-sk"></div></div>
-    <div class="card panel wide sk"><i class="shim w40"></i><div class="shim chart-sk short"></div></div>
+  <div class="range" aria-busy="true">
+    <div class="kpis" aria-hidden="true">
+      @for (i of [0, 1, 2, 3, 4, 5]; track i) {
+        <div class="card kpi sk">
+          <i class="skeleton w40"></i><i class="skeleton w70 tall"></i><i class="skeleton w55"></i>
+        </div>
+      }
+    </div>
+    <div class="charts" aria-hidden="true">
+      <div class="card panel wide sk">
+        <i class="skeleton w40"></i><i class="skeleton chart-sk"></i>
+      </div>
+      <div class="card panel wide sk">
+        <i class="skeleton w40"></i><i class="skeleton chart-sk short"></i>
+      </div>
+    </div>
   </div>
 } @else if (allFailed()) {
-  <div class="card banner" role="alert">
-    <span class="ms" aria-hidden="true">cloud_off</span>
-    <div><strong>Analytics could not load.</strong><p class="muted">None of the data sources answered. Check your connection and try again.</p></div>
-    <button type="button" class="btn primary" (click)="load()">Retry</button>
+  <div class="s-banner" role="alert">
+    <i class="ti ti-cloud-off" aria-hidden="true"></i>
+    <div>
+      <strong>Analytics could not load.</strong>
+      <p>None of the data sources answered. Check your connection and try again.</p>
+    </div>
+    <button type="button" class="btn sm" (click)="load()">Try again</button>
   </div>
 } @else {
   @if (ovError(); as err) {
-    <div class="card banner" role="alert">
-      <span class="ms" aria-hidden="true">error</span>
-      <div><strong>Message analytics could not load.</strong><p class="muted">{{ err }}</p></div>
-      <button type="button" class="btn primary" (click)="load()">Retry</button>
+    <div class="s-banner" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i>
+      <div>
+        <strong>Message analytics could not load.</strong>
+        <p>{{ err }}</p>
+      </div>
+      <button type="button" class="btn sm" (click)="load()">Try again</button>
     </div>
   }
 
@@ -51,10 +89,16 @@
     @if (quiet()) {
       <div class="card hint">
         <div class="hint-art" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-        <div><strong>No activity in the last {{ o.range.days }} days</strong>
-          <p class="muted">Figures fill in as soon as this number sends or receives messages.</p></div>
-        @if (o.range.days !== 90) { <button type="button" class="btn" (click)="setDays(90)">Try 90 days</button> }
-        <a class="btn primary" routerLink="/campaign"><span class="ms" aria-hidden="true">send</span> Send a campaign</a>
+        <div>
+          <strong>No activity in the last {{ o.range.days }} days</strong>
+          <p class="muted">Figures fill in as soon as this number sends or receives messages.</p>
+        </div>
+        @if (o.range.days !== 90) {
+          <button type="button" class="btn" (click)="setDays(90)">Try 90 days</button>
+        }
+        <a class="btn primary" routerLink="/campaign"
+          ><i class="ti ti-send" aria-hidden="true"></i> Send a campaign</a
+        >
       </div>
     }
 
@@ -62,15 +106,25 @@
       <!-- KPI tiles -->
       <section class="kpis" aria-label="Key figures for the selected range">
         @for (k of kpis(); track k.key; let i = $index) {
-          <article class="card kpi tone-{{ k.tone }}" [schoolTilt]="5" style="--i: {{ i }}">
-            <span class="ms k-icon" aria-hidden="true">{{ k.icon }}</span>
+          <article class="card kpi tone-{{ k.tone }}" [schoolTilt]="3" style="--i: {{ i }}">
+            <i class="ti ti-{{ k.icon }} k-icon" aria-hidden="true"></i>
             <p class="k-label">{{ k.label }}</p>
             <p class="k-value">
-              @if (k.text !== null) { {{ k.text }} } @else { <span [countUp]="k.value" [decimals]="k.decimals" [suffix]="k.suffix"></span> }
+              @if (k.text !== null) {
+                {{ k.text }}
+              } @else {
+                <span [countUp]="k.value" [decimals]="k.decimals" [suffix]="k.suffix"></span>
+              }
             </p>
             <p class="k-foot muted">{{ k.foot }}</p>
             @if (k.spark; as sp) {
-              <svg class="spark" viewBox="0 0 100 32" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+              <svg
+                class="spark"
+                viewBox="0 0 100 32"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+                focusable="false"
+              >
                 <path class="sa" [attr.d]="sp.area" />
                 <path class="sl" [attr.d]="sp.line" vector-effect="non-scaling-stroke" />
               </svg>
@@ -82,27 +136,58 @@
       <div class="charts">
         <section class="card panel wide" aria-labelledby="t-trend">
           <div class="p-head">
-            <div><h2 id="t-trend">Daily trend</h2><span class="muted">UTC days · last {{ o.range.days }} days</span></div>
-            <button type="button" class="btn sm" (click)="exportDaily()" aria-label="Export the daily series as CSV">
-              <span class="ms" aria-hidden="true">download</span> CSV
+            <div>
+              <h2 id="t-trend">Daily trend</h2>
+              <span class="muted">UTC days · last {{ o.range.days }} days</span>
+            </div>
+            <button
+              type="button"
+              class="btn sm"
+              (click)="exportDaily()"
+              aria-label="Export the daily series as CSV"
+            >
+              <i class="ti ti-download" aria-hidden="true"></i> CSV
             </button>
           </div>
           <app-trend-chart [points]="o.daily" />
         </section>
 
-        <app-campaign-table class="card panel wide" role="region" aria-labelledby="t-campaigns" [rows]="o.campaigns" [days]="o.range.days" />
+        <app-campaign-table
+          class="card panel wide"
+          role="region"
+          aria-labelledby="t-campaigns"
+          [rows]="o.campaigns"
+          [days]="o.range.days"
+        />
 
-        <app-response-times class="card panel" role="region" aria-labelledby="t-response" [data]="o.responseTimes" [days]="o.range.days" />
+        <app-response-times
+          class="card panel"
+          role="region"
+          aria-labelledby="t-response"
+          [data]="o.responseTimes"
+          [days]="o.range.days"
+        />
 
         <section class="card panel" aria-labelledby="t-auto">
           <div class="p-head">
             <h2 id="t-auto">Auto-replies</h2>
-            <a class="link" routerLink="/auto-replies">Manage rules <span class="ms" aria-hidden="true">arrow_forward</span></a>
+            <a class="link" routerLink="/auto-replies"
+              >Manage rules <i class="ti ti-arrow-right" aria-hidden="true"></i
+            ></a>
           </div>
           <dl class="facts three">
-            <div><dt>Replies sent</dt><dd>{{ o.autoReplies.messages | number }}</dd></div>
-            <div><dt>Inbound</dt><dd>{{ o.autoReplies.inbound | number }}</dd></div>
-            <div><dt>Matched a rule</dt><dd>{{ o.autoReplies.matchRate === null ? '—' : o.autoReplies.matchRate + '%' }}</dd></div>
+            <div>
+              <dt>Replies sent</dt>
+              <dd>{{ o.autoReplies.messages | number }}</dd>
+            </div>
+            <div>
+              <dt>Inbound</dt>
+              <dd>{{ o.autoReplies.inbound | number }}</dd>
+            </div>
+            <div>
+              <dt>Matched a rule</dt>
+              <dd>{{ o.autoReplies.matchRate === null ? '—' : o.autoReplies.matchRate + '%' }}</dd>
+            </div>
           </dl>
           @if (ruleBars().length) {
             <h3 class="g-name">Top rules</h3>
@@ -122,24 +207,47 @@
 
         @if (statusBars().length) {
           <section class="card panel" aria-labelledby="t-status">
-            <div class="p-head"><h2 id="t-status">By status</h2><span class="muted">Last {{ o.range.days }} days</span></div>
+            <div class="p-head">
+              <h2 id="t-status">By status</h2>
+              <span class="muted">Last {{ o.range.days }} days</span>
+            </div>
             <ul class="hbars">
               @for (b of statusBars(); track b.label; let i = $index) {
                 <li style="--i: {{ i }}">
                   <span class="h-label">{{ b.label }}</span>
-                  <span class="h-track"><i class="h-fill {{ b.tone }}" [style.width.%]="b.pct"></i></span>
-                  <span class="h-num">{{ b.n | number }} <small class="muted">{{ b.pct }}%</small></span>
+                  <span class="h-track"
+                    ><i class="h-fill {{ b.tone }}" [style.width.%]="b.pct"></i
+                  ></span>
+                  <span class="h-num"
+                    >{{ b.n | number }} <small class="muted">{{ b.pct }}%</small></span
+                  >
                 </li>
               }
             </ul>
           </section>
         }
 
-        @if (data().months; as mo) { <app-monthly-usage class="card panel" role="region" aria-labelledby="t-months" [months]="mo" [usage]="data().usage" /> }
+        @if (data().months; as mo) {
+          <app-monthly-usage
+            class="card panel"
+            role="region"
+            aria-labelledby="t-months"
+            [months]="mo"
+            [usage]="data().usage"
+          />
+        }
       </div>
     </div>
   } @else if (data().months; as mo) {
-    <div class="charts"><app-monthly-usage class="card panel" role="region" aria-labelledby="t-months" [months]="mo" [usage]="data().usage" /></div>
+    <div class="charts">
+      <app-monthly-usage
+        class="card panel"
+        role="region"
+        aria-labelledby="t-months"
+        [months]="mo"
+        [usage]="data().usage"
+      />
+    </div>
   }
 
   <!-- Range-free: records, support, queue -->
@@ -148,16 +256,35 @@
     <div class="charts">
       @if (recordTypes().length) {
         <section class="card panel" aria-labelledby="t-rec">
-          <div class="p-head"><h2 id="t-rec">Records</h2><span class="muted">By type and status</span></div>
+          <div class="p-head">
+            <h2 id="t-rec">Records</h2>
+            <span class="muted">By type and status</span>
+          </div>
           <ul class="rbars">
             @for (t of recordTypes(); track t.label; let i = $index) {
               <li style="--i: {{ i }}">
-                <div class="r-top"><strong>{{ t.label }}</strong><span class="muted">{{ t.total | number }}</span></div>
-                <div class="r-track" [style.width.%]="t.width" role="img" [attr.aria-label]="t.summary">
-                  @for (s of t.segs; track s.label) { <i class="r-seg {{ s.tone }}" [style.flex-grow]="s.n" [title]="s.label + ': ' + s.n"></i> }
+                <div class="r-top">
+                  <strong>{{ t.label }}</strong
+                  ><span class="muted">{{ t.total | number }}</span>
+                </div>
+                <div
+                  class="r-track"
+                  [style.width.%]="t.width"
+                  role="img"
+                  [attr.aria-label]="t.summary"
+                >
+                  @for (s of t.segs; track s.label) {
+                    <i
+                      class="r-seg {{ s.tone }}"
+                      [style.flex-grow]="s.n"
+                      [title]="s.label + ': ' + s.n"
+                    ></i>
+                  }
                 </div>
                 <p class="r-keys muted">
-                  @for (s of t.segs; track s.label) { <span><i class="sw {{ s.tone }}"></i>{{ s.label }} {{ s.n }}</span> }
+                  @for (s of t.segs; track s.label) {
+                    <span><i class="sw {{ s.tone }}"></i>{{ s.label }} {{ s.n }}</span>
+                  }
                 </p>
               </li>
             }
@@ -167,10 +294,15 @@
 
       @if (supportGroups().length) {
         <section class="card panel" aria-labelledby="t-support">
-          <div class="p-head"><h2 id="t-support">Support</h2>
+          <div class="p-head">
+            <h2 id="t-support">Support</h2>
             <span class="muted">
-              @if (openTickets() !== null) { {{ openTickets() }} open tickets }
-              @if (medianResolve(); as mr) { · median resolve {{ mr }} }
+              @if (openTickets() !== null) {
+                {{ openTickets() }} open tickets
+              }
+              @if (medianResolve(); as mr) {
+                · median resolve {{ mr }}
+              }
             </span>
           </div>
           @for (group of supportGroups(); track group.name) {
@@ -179,24 +311,50 @@
               @for (b of group.rows; track b.label; let i = $index) {
                 <li style="--i: {{ i }}">
                   <span class="h-label">{{ b.label }}</span>
-                  <span class="h-track"><i class="h-fill {{ b.tone }}" [style.width.%]="b.pct"></i></span>
+                  <span class="h-track"
+                    ><i class="h-fill {{ b.tone }}" [style.width.%]="b.pct"></i
+                  ></span>
                   <span class="h-num">{{ b.n | number }}</span>
                 </li>
               }
             </ul>
           }
-          @if (data().inbox; as ib) { <p class="note muted">{{ ib.unread }} unread · {{ ib.unassigned }} unassigned conversations</p> }
+          @if (data().inbox; as ib) {
+            <p class="note muted">
+              {{ ib.unread }} unread · {{ ib.unassigned }} unassigned conversations
+            </p>
+          }
         </section>
       }
 
       @if (data().campaign; as c) {
         <section class="card panel" aria-labelledby="t-camp">
-          <div class="p-head"><h2 id="t-camp">Sending queue</h2><span class="pill q-{{ c.state }}">{{ statusLabel(c.state) }}</span></div>
+          <div class="p-head">
+            <h2 id="t-camp">Sending queue</h2>
+            <span class="pill q-{{ c.state }}">{{ statusLabel(c.state) }}</span>
+          </div>
           <dl class="facts">
-            <div><dt>Pending</dt><dd>{{ c.pending | number }}</dd></div>
-            <div><dt>Sent this run</dt><dd>{{ c.successful | number }}</dd></div>
-            <div><dt>Failed this run</dt><dd>{{ c.failed | number }}</dd></div>
-            <div><dt>Today</dt><dd>{{ c.safety.used | number }}@if (c.safety.enabled && c.safety.limit) {<small class="muted"> / {{ c.safety.limit | number }}</small>}</dd></div>
+            <div>
+              <dt>Pending</dt>
+              <dd>{{ c.pending | number }}</dd>
+            </div>
+            <div>
+              <dt>Sent this run</dt>
+              <dd>{{ c.successful | number }}</dd>
+            </div>
+            <div>
+              <dt>Failed this run</dt>
+              <dd>{{ c.failed | number }}</dd>
+            </div>
+            <div>
+              <dt>Today</dt>
+              <dd>
+                {{ c.safety.used | number }}
+                @if (c.safety.enabled && c.safety.limit) {
+                  <small class="muted"> / {{ c.safety.limit | number }}</small>
+                }
+              </dd>
+            </div>
           </dl>
         </section>
       }

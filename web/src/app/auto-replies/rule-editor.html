@@ -4,18 +4,45 @@
   <form class="editor" (submit)="$event.preventDefault(); trySave()" aria-label="Rule editor">
     <header class="head">
       <div class="title">
-        <span class="eyebrow">{{ d.id === null ? 'New rule' : 'Editing rule' }} @if (dirty()) { <span class="dot" title="Unsaved changes"></span> }</span>
-        <input class="name" [value]="d.name" (input)="patch({ name: v($event) })" placeholder="Name this rule, e.g. Pricing enquiry" aria-label="Rule name" />
+        <span class="eyebrow"
+          >{{ d.id === null ? 'New rule' : 'Editing rule' }}
+          @if (dirty()) {
+            <span class="dot" title="Unsaved changes"></span>
+          }
+        </span>
+        <input
+          class="name"
+          [value]="d.name"
+          (input)="patch({ name: v($event) })"
+          placeholder="Name this rule, e.g. Pricing enquiry"
+          aria-label="Rule name"
+        />
       </div>
-      <ar-switch label="Active" [checked]="d.isActive" (checkedChange)="patch({ isActive: $event })" />
+      <ar-switch
+        label="Active"
+        [checked]="d.isActive"
+        (checkedChange)="patch({ isActive: $event })"
+      />
     </header>
 
     @if (d.id !== null && stats(); as s) {
       <dl class="stats">
-        <div><dt>Total hits</dt><dd>{{ s.hits }}</dd></div>
-        <div><dt>Today</dt><dd>{{ s.today }}</dd></div>
-        <div><dt>This week</dt><dd>{{ s.week }}</dd></div>
-        <div><dt>Last fired</dt><dd class="sm">{{ ago(s.lastTriggeredAt) }}</dd></div>
+        <div>
+          <dt>Total hits</dt>
+          <dd>{{ s.hits }}</dd>
+        </div>
+        <div>
+          <dt>Today</dt>
+          <dd>{{ s.today }}</dd>
+        </div>
+        <div>
+          <dt>This week</dt>
+          <dd>{{ s.week }}</dd>
+        </div>
+        <div>
+          <dt>Last fired</dt>
+          <dd class="sm">{{ ago(s.lastTriggeredAt) }}</dd>
+        </div>
       </dl>
     }
 
@@ -25,8 +52,14 @@
       <div class="mtypes" role="radiogroup" aria-label="Match type">
         @for (m of matchTypes; track m.value) {
           <label class="mt" [class.on]="d.matchType === m.value">
-            <input type="radio" name="matchType" [value]="m.value" [checked]="d.matchType === m.value" (change)="patch({ matchType: m.value })" />
-            <span class="ms" aria-hidden="true">{{ m.icon }}</span>
+            <input
+              type="radio"
+              name="matchType"
+              [value]="m.value"
+              [checked]="d.matchType === m.value"
+              (change)="patch({ matchType: m.value })"
+            />
+            <i class="ti ti-{{ m.icon }}" aria-hidden="true"></i>
             <strong>{{ m.label }}</strong>
             <small>{{ m.hint }}</small>
           </label>
@@ -34,30 +67,54 @@
       </div>
       @if (d.matchType !== 'FALLBACK') {
         <div class="field enter">
-          <label for="re-kw">{{ d.matchType === 'REGEX' ? 'Patterns' : 'Keywords' }} <span class="hint">Enter or comma adds · {{ hint() }}</span></label>
-          <ar-chips inputId="re-kw" [value]="d.keywords" (valueChange)="patch({ keywords: $event })"
-                    [placeholder]="d.matchType === 'REGEX' ? '^(price|cost)s?$' : 'price, pricing, cost'" />
+          <label for="re-kw"
+            >{{ d.matchType === 'REGEX' ? 'Patterns' : 'Keywords' }}
+            <span class="hint">Enter or comma adds · {{ hint() }}</span></label
+          >
+          <ar-chips
+            inputId="re-kw"
+            [value]="d.keywords"
+            (valueChange)="patch({ keywords: $event })"
+            [placeholder]="d.matchType === 'REGEX' ? '^(price|cost)s?$' : 'price, pricing, cost'"
+          />
         </div>
       } @else {
-        <p class="note"><span class="ms" aria-hidden="true">info</span> Fires only when no keyword rule above matched the message.</p>
+        <p class="note">
+          <i class="ti ti-info-circle" aria-hidden="true"></i> Fires only when no keyword rule above
+          matched the message.
+        </p>
       }
     </section>
 
     <!-- 2 Reply -->
     <section class="sec">
       <h3><span class="step">2</span> Reply</h3>
-      <ar-variants [value]="d.variants" (valueChange)="patch({ variants: $event })" placeholder="Hi {first_name|there}! Our plans start at ₹499." />
+      <ar-variants
+        [value]="d.variants"
+        (valueChange)="patch({ variants: $event })"
+        placeholder="Hi {first_name|there}! Our plans start at ₹499."
+      />
       <ar-media [value]="d.media" (valueChange)="patch({ media: $event })" />
     </section>
 
     <!-- 3 Buttons & menu -->
     <section class="sec">
       <h3><span class="step">3</span> Buttons &amp; menu <span class="opt">optional</span></h3>
-      <app-interactive-editor [value]="d.interactive" (valueChange)="patch({ interactive: $event })" [variables]="variables" />
+      <app-interactive-editor
+        [value]="d.interactive"
+        (valueChange)="patch({ interactive: $event })"
+        [variables]="variables"
+      />
       @if (options().length) {
         <div class="sub enter">
-          <h4><span class="ms" aria-hidden="true">account_tree</span> Follow-up for each option</h4>
-          <ar-menu-editor [interactive]="d.interactive" [depth]="1" [variables]="variables" [value]="d.menu" (valueChange)="patch({ menu: $event })" />
+          <h4><i class="ti ti-hierarchy-3" aria-hidden="true"></i> Follow-up for each option</h4>
+          <ar-menu-editor
+            [interactive]="d.interactive"
+            [depth]="1"
+            [variables]="variables"
+            [value]="d.menu"
+            (valueChange)="patch({ menu: $event })"
+          />
         </div>
       }
     </section>
@@ -69,16 +126,36 @@
       <div class="field">
         <span class="lbl" id="re-aud">Audience</span>
         <div class="seg" role="radiogroup" aria-labelledby="re-aud">
-          @for (a of [{ v: 'all', l: 'Everyone', i: 'groups' }, { v: 'new', l: 'New contacts', i: 'person_add' }, { v: 'tag', l: 'Tagged', i: 'sell' }]; track a.v) {
+          @for (
+            a of [
+              { v: 'all', l: 'Everyone', i: 'users-group' },
+              { v: 'new', l: 'New contacts', i: 'user-plus' },
+              { v: 'tag', l: 'Tagged', i: 'tag' },
+            ];
+            track a.v
+          ) {
             <label [class.on]="d.audience.type === a.v">
-              <input type="radio" name="audience" [checked]="d.audience.type === a.v" (change)="patch({ audience: { type: $any(a.v), tag: d.audience.tag } })" />
-              <span class="ms" aria-hidden="true">{{ a.i }}</span> {{ a.l }}
+              <input
+                type="radio"
+                name="audience"
+                [checked]="d.audience.type === a.v"
+                (change)="patch({ audience: { type: $any(a.v), tag: d.audience.tag } })"
+              />
+              <i class="ti ti-{{ a.i }}" aria-hidden="true"></i> {{ a.l }}
             </label>
           }
         </div>
-        @if (d.audience.type === 'new') { <span class="hint">First seen in the last 24 hours.</span> }
+        @if (d.audience.type === 'new') {
+          <span class="hint">First seen in the last 24 hours.</span>
+        }
         @if (d.audience.type === 'tag') {
-          <input class="enter tagin" [value]="d.audience.tag ?? ''" (input)="patch({ audience: { type: 'tag', tag: v($event) } })" placeholder="Tag, e.g. vip" aria-label="Audience tag" />
+          <input
+            class="enter tagin"
+            [value]="d.audience.tag ?? ''"
+            (input)="patch({ audience: { type: 'tag', tag: v($event) } })"
+            placeholder="Tag, e.g. vip"
+            aria-label="Audience tag"
+          />
         }
       </div>
     </section>
@@ -89,30 +166,57 @@
       <div class="grid2">
         <div class="field">
           <label for="re-tag">Add tag to contact</label>
-          <input id="re-tag" [value]="d.actions.addTag ?? ''" (input)="patchActions({ addTag: v($event) })" placeholder="e.g. pricing-lead" />
+          <input
+            id="re-tag"
+            [value]="d.actions.addTag ?? ''"
+            (input)="patchActions({ addTag: v($event) })"
+            placeholder="e.g. pricing-lead"
+          />
         </div>
         <div class="field">
           <span class="lbl">Set contact field</span>
           <div class="kv">
-            <input [value]="d.actions.setField?.key ?? ''" (input)="setField('key', v($event))" placeholder="key" aria-label="Field key" />
+            <input
+              [value]="d.actions.setField?.key ?? ''"
+              (input)="setField('key', v($event))"
+              placeholder="key"
+              aria-label="Field key"
+            />
             <span aria-hidden="true">=</span>
-            <input [value]="d.actions.setField?.value ?? ''" (input)="setField('value', v($event))" placeholder="value" aria-label="Field value" />
+            <input
+              [value]="d.actions.setField?.value ?? ''"
+              (input)="setField('value', v($event))"
+              placeholder="value"
+              aria-label="Field value"
+            />
           </div>
         </div>
       </div>
       <div class="checks">
-        <ar-switch label="Escalate to a human" [checked]="!!d.actions.escalate" (checkedChange)="patchActions({ escalate: $event })" />
-        <span class="hint">Opens the conversation in the inbox and pauses the bot for this contact.</span>
+        <ar-switch
+          label="Escalate to a human"
+          [checked]="!!d.actions.escalate"
+          (checkedChange)="patchActions({ escalate: $event })"
+        />
+        <span class="hint"
+          >Opens the conversation in the inbox and pauses the bot for this contact.</span
+        >
       </div>
       <label class="check">
-        <input type="checkbox" [checked]="d.actions.stop" (change)="patchActions({ stop: !d.actions.stop })" />
+        <input
+          type="checkbox"
+          [checked]="d.actions.stop"
+          (change)="patchActions({ stop: !d.actions.stop })"
+        />
         Stop further rules after this one fires
       </label>
     </section>
 
     @if (attempted() && problems().length) {
       <ul class="problems" role="alert">
-        @for (p of problems(); track p) { <li><span class="ms" aria-hidden="true">error</span> {{ p }}</li> }
+        @for (p of problems(); track p) {
+          <li><i class="ti ti-alert-circle" aria-hidden="true"></i> {{ p }}</li>
+        }
       </ul>
     }
 
@@ -121,17 +225,29 @@
         @if (confirmDelete()) {
           <span class="confirm enter" role="group" aria-label="Confirm delete">
             Delete this rule?
-            <button type="button" class="btn danger sm" (click)="remove.emit(); confirmDelete.set(false)">Delete</button>
+            <button
+              type="button"
+              class="btn danger sm"
+              (click)="remove.emit(); confirmDelete.set(false)"
+            >
+              Delete
+            </button>
             <button type="button" class="btn sm" (click)="confirmDelete.set(false)">Keep</button>
           </span>
         } @else {
-          <button type="button" class="btn ghost" (click)="confirmDelete.set(true)"><span class="ms" aria-hidden="true">delete</span> Delete</button>
+          <button type="button" class="btn ghost" (click)="confirmDelete.set(true)">
+            <i class="ti ti-trash" aria-hidden="true"></i> Delete
+          </button>
         }
       } @else {
         <button type="button" class="btn ghost" (click)="cancel.emit()">Discard</button>
       }
       <button type="submit" class="btn primary" [disabled]="saving()">
-        @if (saving()) { <span class="spinner" aria-hidden="true"></span> } @else { <span class="ms" aria-hidden="true">save</span> }
+        @if (saving()) {
+          <span class="spinner" aria-hidden="true"></span>
+        } @else {
+          <i class="ti ti-device-floppy" aria-hidden="true"></i>
+        }
         {{ d.id === null ? 'Create rule' : 'Save changes' }}
       </button>
     </footer>
@@ -141,10 +257,16 @@
     <div class="pv-head">
       <span class="eyebrow"><span class="live-dot"></span> Live preview</span>
       @if (options().length) {
-        <select [value]="previewPath()" (change)="previewPath.set(v($event))" aria-label="Preview step">
+        <select
+          [value]="previewPath()"
+          (change)="previewPath.set(v($event))"
+          aria-label="Preview step"
+        >
           <option value="">Main reply</option>
           @for (o of options(); track o.id) {
-            @if (d.menu[o.id]) { <option [value]="o.id">After “{{ o.title }}”</option> }
+            @if (d.menu[o.id]) {
+              <option [value]="o.id">After “{{ o.title }}”</option>
+            }
           }
         </select>
       }

@@ -1,15 +1,13 @@
+/* Settings drawer: Kardlyz form rows — label and hint on the left, an orange
+ * switch on the right, hairlines between rows. */
 :host {
   display: grid;
-  gap: var(--space-lg);
+  gap: var(--space-xl);
 }
 
 .block {
   display: grid;
   gap: var(--space-sm);
-  padding: var(--space-md);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--surface-alt) 55%, transparent);
-  border: 1px solid var(--border);
 }
 
 .block-head {
@@ -21,33 +19,33 @@
   h4 {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 7px;
     margin: 0;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-strong);
 
-    .ms {
+    .ti {
       font-size: 16px;
+      color: var(--hint);
     }
   }
 }
 
 .count {
-  padding: 1px 7px;
+  padding: 1px 8px;
   border-radius: 999px;
-  font-size: 11px;
-  letter-spacing: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .sub {
   margin: 0;
-  font-size: 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
   color: var(--text-muted);
 }
 
@@ -60,9 +58,9 @@
   border: 0;
   padding: 0;
   background: none;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--primary-text);
 
   &:hover:not(:disabled) {
     text-decoration: underline;
@@ -76,11 +74,14 @@
 
 .switches {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
+  border-top: 1px solid var(--border-color);
+
+  li {
+    border-bottom: 1px solid var(--border-color);
+  }
 }
 
 /* A switch reads as off until you turn it on, so an accidental
@@ -89,24 +90,19 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-sm);
+  gap: var(--space-md);
   width: 100%;
-  min-height: 44px;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--surface);
-  color: var(--text);
+  min-height: 52px;
+  padding: 10px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-color);
   text-align: left;
-  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease);
+  transition: background var(--fast) var(--ease);
 
   &:hover:not(:disabled) {
-    border-color: color-mix(in srgb, var(--primary) 50%, var(--border));
-    box-shadow: 0 2px 8px rgba(13, 27, 36, 0.08);
-  }
-
-  &:active:not(:disabled) {
-    transform: scale(0.985);
+    background: var(--surface-sunken);
   }
 
   &:disabled {
@@ -115,16 +111,18 @@
 
   .text {
     display: grid;
+    gap: 2px;
     min-width: 0;
   }
 
   .name {
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 500;
+    color: var(--text-strong);
   }
 
   .hint {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-muted);
   }
 }
@@ -132,11 +130,10 @@
 .track {
   position: relative;
   flex: none;
-  width: 34px;
+  width: 36px;
   height: 20px;
   border-radius: 999px;
-  background: var(--border);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+  background: var(--border-hover);
   transition: background var(--base) var(--ease);
 }
 
@@ -148,19 +145,17 @@
   height: 16px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-sm);
   transition: transform var(--base) cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .switch.on {
-  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
-
   .track {
     background: var(--primary);
   }
 
   .thumb {
-    transform: translateX(14px);
+    transform: translateX(16px);
   }
 }
 
@@ -172,15 +167,17 @@
 }
 
 .confirm {
+  --c: var(--warning);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-sm);
   width: 100%;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  background: var(--warning-soft);
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-color);
+  background: color-mix(in srgb, var(--c) 10%, transparent);
   animation: fade-in-up var(--base) var(--ease) both;
 
   span {
@@ -188,29 +185,26 @@
   }
 
   &.danger-zone {
-    background: var(--danger-soft);
+    --c: var(--danger);
   }
 }
 
 .btn.small {
-  padding: 6px 12px;
-  font-size: 12px;
-
-  .ms {
-    font-size: 16px;
-  }
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12.5px;
 }
 
 .ghost-danger {
-  color: var(--danger);
+  color: var(--danger-text);
 
   &:hover:not(:disabled) {
-    background: var(--danger-soft) !important;
-    border-color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    border-color: color-mix(in srgb, var(--danger) 35%, transparent);
   }
 }
 
 .note {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--text-muted);
 }

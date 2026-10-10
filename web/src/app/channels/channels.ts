@@ -1,4 +1,15 @@
-import { Component, DestroyRef, ElementRef, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
@@ -7,20 +18,33 @@ import { Store } from '../core/store';
 import { ChannelCard } from './channel-card';
 import { liveState, localZone, timeZones, transportMeta } from './channel-meta';
 
+/** Only the active number streams live events; the rest are polled this often. */
 const POLL_MS = 30_000;
 
-const emptyDraft = () => ({ displayName: '', phoneNumber: '', transport: 'cloud_api', timezone: localZone() });
+const emptyDraft = () => ({
+  displayName: '',
+  phoneNumber: '',
+  transport: 'cloud_api',
+  timezone: localZone(),
+});
 
+/**
+ * Every WhatsApp number the tenant owns, as a rack of cards. Adding a number
+ * only records it; credentials and QR login live on the Connection page, so
+ * the form stays short and cannot half-connect a number.
+ */
 @Component({
   selector: 'app-channels',
   imports: [FormsModule, ChannelCard],
   templateUrl: './channels.html',
   styleUrl: './channels.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ChannelsView {
   private readonly api = inject(ChannelsApi);
   private readonly store = inject(Store);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly channels = signal<Channel[]>([]);
   protected readonly capabilities = signal<string[]>([]);
@@ -38,6 +62,7 @@ export class ChannelsView {
 
   private readonly firstField = viewChild<ElementRef<HTMLInputElement>>('firstField');
 
+  /** Header strip counts; "attention" is an active number that is offline or flagged for quality. */
   protected readonly summary = computed(() => {
     const list = this.channels();
     const usage = list.map((c) => c.health?.usage?.sentToday ?? 0);
@@ -45,13 +70,18 @@ export class ChannelsView {
       total: list.length,
       connected: list.filter((c) => liveState(c) === 'connected').length,
       sentToday: usage.reduce((a, b) => a + b, 0),
-      attention: list.filter((c) => c.status === 'active'
-        && (liveState(c) === 'disconnected' || ['warn', 'bad'].includes(c.health?.quality?.level ?? 'ok'))).length,
+      attention: list.filter(
+        (c) =>
+          c.status === 'active' &&
+          (liveState(c) === 'disconnected' ||
+            ['warn', 'bad'].includes(c.health?.quality?.level ?? 'ok')),
+      ).length,
     };
   });
 
   protected readonly transportOptions = computed(() =>
-    this.transports().map((value) => ({ value, ...transportMeta(value) })));
+    this.transports().map((value) => ({ value, ...transportMeta(value) })),
+  );
 
   constructor() {
     this.refresh();
@@ -60,14 +90,16 @@ export class ChannelsView {
     // Connection events arrive for the number in use; reflect them on its card.
     effect(() => {
       this.store.connection().connected;
-      untracked(() => { if (!this.loading()) this.refresh(); });
+      untracked(() => {
+        if (!this.loading()) this.refresh();
+      });
     });
 
     // Other numbers do not stream events here, so poll gently while visible.
     const timer = setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') this.refresh();
     }, POLL_MS);
-    inject(DestroyRef).onDestroy(() => clearInterval(timer));
+    this.destroyRef.onDestroy(() => clearInterval(timer));
   }
 
   protected refresh() {
@@ -99,7 +131,10 @@ export class ChannelsView {
     }
   }
 
-  protected setDraft<K extends keyof ReturnType<typeof emptyDraft>>(key: K, value: ReturnType<typeof emptyDraft>[K]) {
+  protected setDraft<K extends keyof ReturnType<typeof emptyDraft>>(
+    key: K,
+    value: ReturnType<typeof emptyDraft>[K],
+  ) {
     this.draft.update((d) => ({ ...d, [key]: value }));
   }
 

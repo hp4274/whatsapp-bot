@@ -4,9 +4,15 @@ import { emptyDraft, toPayload } from './rule-editor';
 describe('auto-replies helpers', () => {
   it('renders variables, fallbacks and unknown fields', () => {
     const at = new Date(2026, 0, 5, 9, 0);
-    const out = renderTemplate('{time_greeting} {first_name}, {city|friend} from {business_name}', {
-      name: 'Aarav Sharma', phone: '91', businessName: 'Acme',
-    }, at);
+    const out = renderTemplate(
+      '{time_greeting} {first_name}, {city|friend} from {business_name}',
+      {
+        name: 'Aarav Sharma',
+        phone: '91',
+        businessName: 'Acme',
+      },
+      at,
+    );
     expect(out).toBe('Good morning Aarav, friend from Acme');
   });
 

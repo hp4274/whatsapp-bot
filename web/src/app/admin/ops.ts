@@ -1,4 +1,14 @@
-import { Component, DestroyRef, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
@@ -7,41 +17,74 @@ import { OpsAudit } from './ops-audit';
 import { ChannelDetail, LiveState, OpsApi, PlanRow, UsageBucket, UsageSummary } from './ops-api';
 import { serviceMeta } from './service-meta';
 
+/** Which ops page the route renders; one component serves all five. */
 type PageKind = 'plans' | 'usage' | 'health' | 'audit' | 'channels';
 type Range = 'today' | 'd7' | 'd30';
 
 const COPY: Record<PageKind, { title: string; lede: string; icon: string }> = {
-  plans: { title: 'Plans', lede: 'What each business may use, and how close it is to its limits.', icon: 'workspace_premium' },
-  usage: { title: 'Usage', lede: 'Messages sent, delivered, read and failed per business. Days are UTC.', icon: 'monitoring' },
-  health: { title: 'Health', lede: 'Live state of every number. Problems are listed first; refreshes every 30 seconds.', icon: 'health_and_safety' },
-  audit: { title: 'Audit logs', lede: 'Every change made on the platform, newest first.', icon: 'manage_search' },
-  channels: { title: 'Channels', lede: 'Every WhatsApp number on the platform, its transport and today\'s sending budget.', icon: 'smartphone' },
+  plans: {
+    title: 'Plans',
+    lede: 'What each business may use, and how close it is to its limits.',
+    icon: 'crown',
+  },
+  usage: {
+    title: 'Usage',
+    lede: 'Messages sent, delivered, read and failed per business. Days are UTC.',
+    icon: 'chart-histogram',
+  },
+  health: {
+    title: 'Health',
+    lede: 'Live state of every number. Problems are listed first; refreshes every 30 seconds.',
+    icon: 'heart-rate-monitor',
+  },
+  audit: {
+    title: 'Audit logs',
+    lede: 'Every change made on the platform, newest first.',
+    icon: 'list-search',
+  },
+  channels: {
+    title: 'Channels',
+    lede: "Every WhatsApp number on the platform, its transport and today's sending budget.",
+    icon: 'device-mobile',
+  },
 };
 
 const STATE_COPY: Record<LiveState, { label: string; icon: string }> = {
-  connected: { label: 'Connected', icon: 'check_circle' },
-  connecting: { label: 'Connecting', icon: 'sync' },
-  qr: { label: 'QR scan needed', icon: 'qr_code_2' },
-  auth_failure: { label: 'Login rejected', icon: 'gpp_bad' },
-  error: { label: 'Error', icon: 'error' },
-  disconnected: { label: 'Disconnected', icon: 'link_off' },
-  idle: { label: 'Not started', icon: 'pause_circle' },
-  disabled: { label: 'Disabled', icon: 'block' },
+  connected: { label: 'Connected', icon: 'circle-check' },
+  connecting: { label: 'Connecting', icon: 'refresh' },
+  qr: { label: 'QR scan needed', icon: 'qrcode' },
+  auth_failure: { label: 'Login rejected', icon: 'shield-x' },
+  error: { label: 'Error', icon: 'alert-circle' },
+  disconnected: { label: 'Disconnected', icon: 'link-off' },
+  idle: { label: 'Not started', icon: 'player-pause' },
+  disabled: { label: 'Disabled', icon: 'ban' },
 };
 
-const PROVIDERS: Record<string, string> = { cloud_api: 'Cloud API', whatsapp_web: 'WhatsApp Web', sandbox: 'Sandbox' };
+/** Transport ids from the server mapped to what an operator would call them. */
+const PROVIDERS: Record<string, string> = { cloud_api: 'Cloud API', baileys: 'WhatsApp QR' };
 
+/**
+ * Read-only platform pages for the super admin: plans, usage, health,
+ * audit logs and channels.
+ *
+ * The live pages (usage, health, channels) poll every 30 seconds because
+ * `/api/admin` is not part of the tenant event stream. Polls are quiet: they
+ * never flash the skeleton or clear a shown error until they succeed.
+ */
 @Component({
   selector: 'app-admin-ops',
   imports: [RouterLink, OpsAudit],
   templateUrl: './ops.html',
   styleUrl: './ops.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AdminOpsView {
   private readonly api = inject(OpsApi);
+  private readonly route = inject(ActivatedRoute);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly auditView = viewChild(OpsAudit);
   protected readonly kind = toSignal(
-    inject(ActivatedRoute).data.pipe(map((data) => data['kind'] as PageKind)),
+    this.route.data.pipe(map((data) => data['kind'] as PageKind)),
     { initialValue: 'plans' as PageKind },
   );
 
@@ -59,7 +102,9 @@ export class AdminOpsView {
   protected readonly updatedAt = signal('');
 
   // ---- plans ----
-  protected readonly shownPlans = computed(() => this.match(this.plans(), (p) => `${p.name} ${p.slug}`));
+  protected readonly shownPlans = computed(() =>
+    this.match(this.plans(), (p) => `${p.name} ${p.slug}`),
+  );
   protected readonly planTotals = computed(() => {
     const p = this.plans();
     return {
@@ -71,13 +116,18 @@ export class AdminOpsView {
   });
 
   // ---- usage ----
-  protected readonly usageTotals = computed<UsageBucket | null>(() => this.usage()?.totals[this.range()] ?? null);
+  protected readonly usageTotals = computed<UsageBucket | null>(
+    () => this.usage()?.totals[this.range()] ?? null,
+  );
   protected readonly ranked = computed(() => {
     const w = this.range();
-    return this.match([...(this.usage()?.tenants ?? [])], (t) => `${t.name} ${t.slug}`)
-      .sort((a, b) => b[w].total - a[w].total || a.name.localeCompare(b.name));
+    return this.match([...(this.usage()?.tenants ?? [])], (t) => `${t.name} ${t.slug}`).sort(
+      (a, b) => b[w].total - a[w].total || a.name.localeCompare(b.name),
+    );
   });
-  protected readonly maxWindow = computed(() => Math.max(1, ...this.ranked().map((t) => t[this.range()].total)));
+  protected readonly maxWindow = computed(() =>
+    Math.max(1, ...this.ranked().map((t) => t[this.range()].total)),
+  );
   protected readonly platformDaily = computed(() => {
     const u = this.usage();
     if (!u) return [];
@@ -94,18 +144,30 @@ export class AdminOpsView {
     const c = this.channels();
     const of = (s: string) => c.filter((x) => x.severity === s).length;
     return {
-      all: c.length, bad: of('bad'), warn: of('warn'), ok: of('ok'), off: of('off'),
+      all: c.length,
+      bad: of('bad'),
+      warn: of('warn'),
+      ok: of('ok'),
+      off: of('off'),
       connected: c.filter((x) => x.state === 'connected').length,
       warming: c.filter((x) => x.warmup?.active).length,
       waiting: c.reduce((n, x) => n + x.waiting, 0),
     };
   });
   protected readonly shownHealth = computed(() =>
-    this.problemsOnly() ? this.channels().filter((c) => c.severity === 'bad' || c.severity === 'warn') : this.channels());
-  protected readonly providers = computed(() => [...new Set(this.channels().map((c) => c.provider))].sort());
+    this.problemsOnly()
+      ? this.channels().filter((c) => c.severity === 'bad' || c.severity === 'warn')
+      : this.channels(),
+  );
+  protected readonly providers = computed(() =>
+    [...new Set(this.channels().map((c) => c.provider))].sort(),
+  );
   protected readonly shownChannels = computed(() => {
     const p = this.provider();
-    return this.match(this.channels(), (c) => `${c.displayName} ${c.tenantName} ${c.phoneNumber} ${c.account}`)
+    return this.match(
+      this.channels(),
+      (c) => `${c.displayName} ${c.tenantName} ${c.phoneNumber} ${c.account}`,
+    )
       .filter((c) => !p || c.provider === p)
       .sort((a, b) => a.tenantName.localeCompare(b.tenantName) || a.id - b.id);
   });
@@ -117,9 +179,10 @@ export class AdminOpsView {
     });
     // /api/admin is not broadcast; poll the live pages quietly.
     const timer = setInterval(() => {
-      if (['usage', 'health', 'channels'].includes(this.kind()) && !document.hidden) this.load(true);
+      if (['usage', 'health', 'channels'].includes(this.kind()) && !document.hidden)
+        this.load(true);
     }, 30_000);
-    inject(DestroyRef).onDestroy(() => clearInterval(timer));
+    this.destroyRef.onDestroy(() => clearInterval(timer));
   }
 
   protected load(quiet = false) {
@@ -133,17 +196,40 @@ export class AdminOpsView {
       this.loading.set(true);
       this.error.set('');
     }
-    const fail = (err: Error) => { this.error.set(err.message); this.loading.set(false); };
-    const done = (at: string) => { this.updatedAt.set(at); this.loading.set(false); if (quiet) this.error.set(''); };
+    const fail = (err: Error) => {
+      this.error.set(err.message);
+      this.loading.set(false);
+    };
+    const done = (at: string) => {
+      this.updatedAt.set(at);
+      this.loading.set(false);
+      if (quiet) this.error.set('');
+    };
     if (kind === 'plans') {
       this.api.plans().subscribe({
-        next: ({ services, tenants }) => { this.services.set(services); this.plans.set(tenants); done(new Date().toISOString()); },
+        next: ({ services, tenants }) => {
+          this.services.set(services);
+          this.plans.set(tenants);
+          done(new Date().toISOString());
+        },
         error: fail,
       });
     } else if (kind === 'usage') {
-      this.api.usage(14).subscribe({ next: (u) => { this.usage.set(u); done(u.generatedAt); }, error: fail });
+      this.api.usage(14).subscribe({
+        next: (u) => {
+          this.usage.set(u);
+          done(u.generatedAt);
+        },
+        error: fail,
+      });
     } else {
-      this.api.health().subscribe({ next: (h) => { this.channels.set(h.channels); done(h.generatedAt); }, error: fail });
+      this.api.health().subscribe({
+        next: (h) => {
+          this.channels.set(h.channels);
+          done(h.generatedAt);
+        },
+        error: fail,
+      });
     }
   }
 
@@ -174,18 +260,22 @@ export class AdminOpsView {
   }
 
   protected stateCopy(s: LiveState) {
-    return STATE_COPY[s] ?? { label: s, icon: 'help' };
+    return STATE_COPY[s] ?? { label: s, icon: 'help-circle' };
   }
 
   /** Usage against a plan cap. A cap of 0 means no limit. */
   protected planMeters(p: PlanRow) {
     const meter = (label: string, icon: string, used: number, cap: number) => ({
-      label, icon, used, cap, pct: cap ? Math.min(100, Math.round((used / cap) * 100)) : 0,
+      label,
+      icon,
+      used,
+      cap,
+      pct: cap ? Math.min(100, Math.round((used / cap) * 100)) : 0,
     });
     return [
-      meter('Numbers', 'smartphone', p.usage.channels, p.limits.maxChannels),
-      meter('Users', 'group', p.usage.users, p.limits.maxUsers),
-      meter('Templates', 'description', p.usage.templates, p.limits.maxTemplates),
+      meter('Numbers', 'device-mobile', p.usage.channels, p.limits.maxChannels),
+      meter('Users', 'users', p.usage.users, p.limits.maxUsers),
+      meter('Templates', 'file-text', p.usage.templates, p.limits.maxTemplates),
     ];
   }
 
@@ -211,13 +301,17 @@ export class AdminOpsView {
 
   /** SVG paths for a sparkline in a 140x36 box (2px inset so the stroke is not clipped). */
   protected spark(values: number[], failed: number[] = []) {
-    const w = 140, h = 36, pad = 2;
+    const w = 140,
+      h = 36,
+      pad = 2;
     const max = Math.max(1, ...values);
     const step = values.length > 1 ? (w - pad * 2) / (values.length - 1) : 0;
     const pts = values.map((v, i) => [pad + i * step, h - pad - (v / max) * (h - pad * 2)]);
     const line = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('');
     const area = pts.length ? `${line}L${pts[pts.length - 1][0].toFixed(1)},${h}L${pad},${h}Z` : '';
-    const bars = failed.map((f, i) => ({ x: pad + i * step - 1.5, hgt: (f / max) * (h - pad * 2) })).filter((b) => b.hgt > 0);
+    const bars = failed
+      .map((f, i) => ({ x: pad + i * step - 1.5, hgt: (f / max) * (h - pad * 2) }))
+      .filter((b) => b.hgt > 0);
     const last = pts[pts.length - 1];
     return { line, area, bars, last, h };
   }

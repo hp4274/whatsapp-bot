@@ -21,7 +21,13 @@ import type { MetaMapping } from '../templates/meta-mapping';
 import type { Template } from '../templates/templates-api';
 import { InteractiveDraft, validateInteractive } from './interactive/interactive.model';
 import {
-  blank, hasVariation, plainPlaceholders, renderTemplateText, substitute, withFallbacks, zonedTimeToUtc,
+  blank,
+  hasVariation,
+  plainPlaceholders,
+  renderTemplateText,
+  substitute,
+  withFallbacks,
+  zonedTimeToUtc,
 } from './wa-format';
 
 export type TemplateMode = 'free' | 'meta';
@@ -51,7 +57,8 @@ export interface SendResult {
   error?: string;
 }
 
-export const DEFAULT_MESSAGE = '{Hi|Hello} {name}, ';
+export const DEFAULT_MESSAGE = 'Hi {name}, ';
+/** Stand-in contact for the preview before any audience is loaded. */
 const SAMPLE: Contact = { name: 'Asha', phone: '919876543210', extra: {} };
 
 function today(): string {
@@ -85,14 +92,17 @@ export class CampaignDraft {
   readonly preview = signal<ImportPreview | null>(null);
   readonly mapping = signal<{ phone: string; name: string }>({ phone: '', name: '' });
   readonly countryCode = signal('91');
-  readonly autoClean = signal(false);
+  readonly autoClean = signal(true);
   readonly dedupeDays = signal(0);
   readonly audit = signal<ImportAudit | null>(null);
   readonly excludedRows = signal<number[]>([]);
 
   // Retarget / segment
-  readonly retarget = signal<{ campaignId: number | null; filter: RetargetFilter; optionId: string }>(
-    { campaignId: null, filter: 'failed', optionId: '' });
+  readonly retarget = signal<{
+    campaignId: number | null;
+    filter: RetargetFilter;
+    optionId: string;
+  }>({ campaignId: null, filter: 'failed', optionId: '' });
   readonly retargetCampaign = signal<Campaign | null>(null);
   readonly segmentId = signal<number | null>(null);
   readonly segment = signal<Segment | null>(null);
@@ -135,7 +145,13 @@ export class CampaignDraft {
     const preview = this.preview();
     if (this.source() !== 'file' || !preview) return ['name', 'phone'];
     const { phone, name } = this.mapping();
-    return ['name', 'phone', ...preview.columns.map((c) => c.slug).filter((s) => s !== phone && s !== name && s !== 'name' && s !== 'phone')];
+    return [
+      'name',
+      'phone',
+      ...preview.columns
+        .map((c) => c.slug)
+        .filter((s) => s !== phone && s !== name && s !== 'name' && s !== 'phone'),
+    ];
   });
 
   readonly validContacts = computed<Contact[]>(() => {
@@ -146,28 +162,36 @@ export class CampaignDraft {
     const { phone, name } = this.mapping();
     const phoneAt = preview.columns.findIndex((c) => c.slug === phone);
     const nameAt = preview.columns.findIndex((c) => c.slug === name);
-    return audit.valid.filter((v) => !excluded.has(v.row)).map((v) => {
-      const row = preview.rows[v.row] ?? [];
-      const extra: Record<string, string> = {};
-      preview.columns.forEach((c, j) => {
-        if (j !== phoneAt && j !== nameAt) extra[c.slug] = String(row[j] ?? '');
+    return audit.valid
+      .filter((v) => !excluded.has(v.row))
+      .map((v) => {
+        const row = preview.rows[v.row] ?? [];
+        const extra: Record<string, string> = {};
+        preview.columns.forEach((c, j) => {
+          if (j !== phoneAt && j !== nameAt) extra[c.slug] = String(row[j] ?? '');
+        });
+        return { name: v.name, phone: v.phone, extra };
       });
-      return { name: v.name, phone: v.phone, extra };
-    });
   });
 
   /** Recipients the composer can count now (retarget audiences resolve at send time). */
   readonly audienceSize = computed(() => {
     switch (this.source()) {
-      case 'file': return this.validContacts().length;
-      case 'segment': return this.segment()?.count ?? 0;
-      default: return 0;
+      case 'file':
+        return this.validContacts().length;
+      case 'segment':
+        return this.segment()?.count ?? 0;
+      default:
+        return 0;
     }
   });
 
   /** Best estimate for pacing/safety, including the retarget source campaign's size. */
   readonly estimatedSize = computed(() =>
-    this.source() === 'retarget' ? (this.retargetCampaign()?.audienceSize ?? 0) : this.audienceSize());
+    this.source() === 'retarget'
+      ? (this.retargetCampaign()?.audienceSize ?? 0)
+      : this.audienceSize(),
+  );
 
   readonly previewTotal = computed(() => Math.max(1, this.validContacts().length));
 
@@ -179,14 +203,23 @@ export class CampaignDraft {
 
   readonly previewContext = computed(() => this.contextFor(this.previewContact()));
 
-  readonly rendered = computed(() => substitute(this.message(), this.previewContext(), this.fallbacks(), this.seed()));
+  readonly rendered = computed(() =>
+    substitute(this.message(), this.previewContext(), this.fallbacks(), this.seed()),
+  );
 
   /** Meta mode: the approved body filled for the preview contact. */
   readonly metaRendered = computed(() =>
-    renderTemplateText(this.metaTemplate()?.body ?? '', this.templateParams().body ?? [], this.previewContext()));
+    renderTemplateText(
+      this.metaTemplate()?.body ?? '',
+      this.templateParams().body ?? [],
+      this.previewContext(),
+    ),
+  );
 
   /** What the phone preview shows: the free-form message or the filled template. */
-  readonly previewText = computed(() => (this.metaMode() ? this.metaRendered().text : this.message()));
+  readonly previewText = computed(() =>
+    this.metaMode() ? this.metaRendered().text : this.message(),
+  );
 
   /** Meta mode: recipients the server will skip because a {{n}} comes out empty. */
   readonly metaSkipped = computed(() => {
@@ -195,7 +228,9 @@ export class CampaignDraft {
     const slots = this.templateParams().body ?? [];
     const list = this.validContacts();
     if (!list.length) return this.metaRendered().missing.length ? this.estimatedSize() : 0;
-    return list.filter((c) => renderTemplateText(tpl.body, slots, this.contextFor(c)).missing.length).length;
+    return list.filter(
+      (c) => renderTemplateText(tpl.body, slots, this.contextFor(c)).missing.length,
+    ).length;
   });
   readonly unresolved = computed(() => this.rendered().missing);
   readonly hasVariation = computed(() => hasVariation(this.message()));
@@ -227,7 +262,8 @@ export class CampaignDraft {
   });
 
   readonly usedFallbacks = computed(() =>
-    this.usedVariables().filter((v) => !blank(this.fallbacks()[v])));
+    this.usedVariables().filter((v) => !blank(this.fallbacks()[v])),
+  );
 
   readonly interactiveErrors = computed(() => validateInteractive(this.interactive()));
 
@@ -236,20 +272,30 @@ export class CampaignDraft {
     const size = this.estimatedSize();
     if (this.metaMode()) {
       // Meta fixes the wording, so spintax/variation advice does not apply.
-      if (!this.metaTemplate()) out.push({ tone: 'danger', text: 'Pick an approved Meta template.' });
+      if (!this.metaTemplate())
+        out.push({ tone: 'danger', text: 'Pick an approved Meta template.' });
       const skipped = this.metaSkipped();
       if (skipped > 0) {
-        out.push({ tone: 'warning', text: `${skipped} contact${skipped === 1 ? '' : 's'} would be skipped - a template slot (${this.metaRendered().missing.join(', ') || 'one'}) has no value or fallback.` });
+        out.push({
+          tone: 'warning',
+          text: `${skipped} contact${skipped === 1 ? '' : 's'} would be skipped - a template slot (${this.metaRendered().missing.join(', ') || 'one'}) has no value or fallback.`,
+        });
       }
       return out;
     }
     if (!this.message().trim()) out.push({ tone: 'danger', text: 'The message is empty.' });
     const missing = this.contactsMissing();
     if (missing > 0) {
-      out.push({ tone: 'warning', text: `${missing} contact${missing === 1 ? '' : 's'} would get a blank placeholder - add a fallback for ${this.unresolvedKeysAll().join(', ') || 'it'}.` });
+      out.push({
+        tone: 'warning',
+        text: `${missing} contact${missing === 1 ? '' : 's'} would get a blank placeholder - add a fallback for ${this.unresolvedKeysAll().join(', ') || 'it'}.`,
+      });
     }
     if (size > 50 && !this.hasVariation()) {
-      out.push({ tone: 'warning', text: `Identical text to ${size} people is a spam signal - add {name} or {Hi|Hello}.` });
+      out.push({
+        tone: 'warning',
+        text: `Identical text to ${size} people is a spam signal - add {name} or {Hi|Hello}.`,
+      });
     }
     for (const e of this.interactiveErrors()) out.push({ tone: 'danger', text: `Buttons: ${e}` });
     return out;
@@ -264,12 +310,17 @@ export class CampaignDraft {
   });
 
   readonly scheduledAt = computed(() =>
-    this.scheduleMode() === 'later' ? zonedTimeToUtc(this.date(), this.time(), this.timezone()) : null);
+    this.scheduleMode() === 'later'
+      ? zonedTimeToUtc(this.date(), this.time(), this.timezone())
+      : null,
+  );
 
   readonly audienceReady = computed(() => {
     switch (this.source()) {
-      case 'file': return this.validContacts().length > 0;
-      case 'segment': return this.segmentId() !== null;
+      case 'file':
+        return this.validContacts().length > 0;
+      case 'segment':
+        return this.segmentId() !== null;
       case 'retarget': {
         const r = this.retarget();
         return r.campaignId !== null && (r.filter !== 'clicked' || r.optionId.trim() !== '');
@@ -277,9 +328,11 @@ export class CampaignDraft {
     }
   });
 
-  readonly messageReady = computed(() => (this.metaMode()
-    ? this.metaTemplate() !== null
-    : this.message().trim().length > 0 && this.interactiveErrors().length === 0));
+  readonly messageReady = computed(() =>
+    this.metaMode()
+      ? this.metaTemplate() !== null
+      : this.message().trim().length > 0 && this.interactiveErrors().length === 0,
+  );
 
   /** Load the tenant's default country code once. */
   init(): void {
@@ -297,6 +350,7 @@ export class CampaignDraft {
     });
   }
 
+  /** A contact's own values keyed by slug, before fallbacks. */
   rawContext(contact: Contact): Record<string, string> {
     return { name: contact.name ?? '', phone: contact.phone ?? '', ...(contact.extra ?? {}) };
   }
@@ -315,6 +369,7 @@ export class CampaignDraft {
     this.step.set(step);
   }
 
+  /** Step the previewed contact, wrapping at both ends. */
   movePreview(delta: number): void {
     const total = this.previewTotal();
     this.previewIndex.update((i) => (i + delta + total) % total);
@@ -324,6 +379,7 @@ export class CampaignDraft {
     this.seed.update((s) => s + 1);
   }
 
+  /** Swap the attachment, revoking the old object URL so previews do not leak memory. */
   setAttachment(next: DraftAttachment | null): void {
     const current = this.attachment();
     if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
@@ -359,12 +415,16 @@ export class CampaignDraft {
       options: {
         templateMode: 'free',
         interactive: this.interactive(),
-        fallbacks: Object.fromEntries(Object.entries(this.fallbacks()).filter(([, v]) => !blank(v))),
+        fallbacks: Object.fromEntries(
+          Object.entries(this.fallbacks()).filter(([, v]) => !blank(v)),
+        ),
         pacing: this.pacing(),
         timezone: this.timezone(),
         dedupeDays: this.dedupeDays(),
         variables: this.usedVariables(),
-        mediaMeta: attachment ? { filename: attachment.filename, mimetype: attachment.mimetype, size: attachment.size } : null,
+        mediaMeta: attachment
+          ? { filename: attachment.filename, mimetype: attachment.mimetype, size: attachment.size }
+          : null,
       },
     };
     const meta = this.metaTemplate();
@@ -372,11 +432,20 @@ export class CampaignDraft {
       // The approved body goes in `body` for history; the server sends the template.
       body.body = meta.body;
       body.templateId = meta.id;
-      body.options = { ...body.options, templateMode: 'meta', templateParams: this.templateParams(), interactive: null };
+      body.options = {
+        ...body.options,
+        templateMode: 'meta',
+        templateParams: this.templateParams(),
+        interactive: null,
+      };
     }
     const fallback = this.fallbackTemplate();
     if (this.cloudApi() && !this.metaMode() && fallback) {
-      body.options = { ...body.options, fallbackTemplateId: fallback.id, fallbackTemplateParams: this.fallbackTemplateParams() };
+      body.options = {
+        ...body.options,
+        fallbackTemplateId: fallback.id,
+        fallbackTemplateParams: this.fallbackTemplateParams(),
+      };
     }
     if (source === 'file') {
       const preview = this.preview();
@@ -395,7 +464,11 @@ export class CampaignDraft {
     } else if (source === 'retarget') {
       const r = this.retarget();
       body.audience = {
-        retarget: { campaignId: r.campaignId ?? 0, filter: r.filter, ...(r.filter === 'clicked' ? { optionId: r.optionId.trim() } : {}) },
+        retarget: {
+          campaignId: r.campaignId ?? 0,
+          filter: r.filter,
+          ...(r.filter === 'clicked' ? { optionId: r.optionId.trim() } : {}),
+        },
       };
     } else if (this.segmentId() !== null) {
       body.segmentId = this.segmentId()!;
@@ -418,7 +491,7 @@ export class CampaignDraft {
     this.step.set(1);
     this.source.set('file');
     this.countryCode.set(this.defaultCc);
-    this.autoClean.set(false);
+    this.autoClean.set(true);
     this.dedupeDays.set(0);
     this.retarget.set({ campaignId: null, filter: 'failed', optionId: '' });
     this.retargetCampaign.set(null);

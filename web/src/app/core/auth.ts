@@ -12,7 +12,9 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 import { Observable, catchError, map, of, retry, tap, throwError, timer } from 'rxjs';
 
+/** Lowest to highest privilege; `ROLE_RANK` is the ladder. */
 export type Role = 'agent' | 'admin' | 'owner' | 'super_admin';
+/** Position on the ladder is the privilege level, so comparisons use `indexOf`. */
 export const ROLE_RANK: Role[] = ['agent', 'admin', 'owner', 'super_admin'];
 
 export interface User {
@@ -41,6 +43,7 @@ export interface Tenant {
   users?: number;
 }
 
+/** Per-tenant kill switches the platform admin can flip. */
 export interface TenantControls {
   sendingEnabled: boolean;
   inboundEnabled: boolean;
@@ -67,6 +70,7 @@ export interface TenantChannelSummary {
   };
 }
 
+/** Rolled-up counts across a tenant's numbers, for the Tenants cards. */
 export interface TenantHealth {
   channels: number;
   connected: number;
@@ -78,10 +82,12 @@ export interface TenantHealth {
   queued: number;
 }
 
+/** localStorage keys; the token is the only value trusted across reloads. */
 const TOKEN_KEY = 'wsender.token';
 const TENANT_KEY = 'wsender.tenant';
 const CHANNEL_KEY = 'wsender.channel';
 
+/** Session state as signals: token, user, tenant and the number requests act on. */
 @Injectable({ providedIn: 'root' })
 export class Auth {
   private readonly http = inject(HttpClient);
@@ -97,7 +103,9 @@ export class Auth {
   readonly ready = signal(false);
 
   readonly isSuperAdmin = computed(() => this.user()?.role === 'super_admin');
-  readonly tenantId = computed(() => (this.isSuperAdmin() ? this.actingTenantId() : this.user()?.tenantId ?? null));
+  readonly tenantId = computed(() =>
+    this.isSuperAdmin() ? this.actingTenantId() : (this.user()?.tenantId ?? null),
+  );
 
   /** True when the signed-in user is at least `role` on the role ladder. */
   atLeast(role: Role): boolean {
@@ -105,9 +113,16 @@ export class Auth {
     return current ? ROLE_RANK.indexOf(current) >= ROLE_RANK.indexOf(role) : false;
   }
 
-  login(email: string, password: string): Observable<{ token: string; user: User; tenant: Tenant | null }> {
+  /** Signs in and stores the token; the error carries the server's first message. */
+  login(
+    email: string,
+    password: string,
+  ): Observable<{ token: string; user: User; tenant: Tenant | null }> {
     return this.http
-      .post<{ token: string; user: User; tenant: Tenant | null }>('/api/auth/login', { email, password })
+      .post<{ token: string; user: User; tenant: Tenant | null }>('/api/auth/login', {
+        email,
+        password,
+      })
       .pipe(
         tap((res) => {
           localStorage.setItem(TOKEN_KEY, res.token);
@@ -131,7 +146,8 @@ export class Auth {
       // revoked session, so wait it out instead of signing everyone out on deploy.
       retry({
         count: 20,
-        delay: (error: HttpErrorResponse) => (error.status === 401 || error.status === 403 ? throwError(() => error) : timer(1500)),
+        delay: (error: HttpErrorResponse) =>
+          error.status === 401 || error.status === 403 ? throwError(() => error) : timer(1500),
       }),
       catchError((error: HttpErrorResponse) => {
         if (error.status === 401 || error.status === 403) this.clear();
@@ -146,12 +162,14 @@ export class Auth {
     );
   }
 
+  /** Ends the session locally and tells the server on a best-effort basis. */
   logout(): void {
     // Best effort: the local session is gone either way.
     this.http.post('/api/auth/logout', {}).subscribe({ error: () => undefined });
     this.clear();
   }
 
+  /** Super admins only: work inside another tenant. */
   actAs(tenantId: number | null): void {
     this.actingTenantId.set(tenantId);
     if (tenantId === null) localStorage.removeItem(TENANT_KEY);
@@ -160,12 +178,14 @@ export class Auth {
     this.useChannel(null);
   }
 
+  /** Pick which WhatsApp number later requests act on (null = tenant default). */
   useChannel(channelId: number | null): void {
     this.channelId.set(channelId);
     if (channelId === null) localStorage.removeItem(CHANNEL_KEY);
     else localStorage.setItem(CHANNEL_KEY, String(channelId));
   }
 
+  /** Forget the session and everything tied to it. */
   clear(): void {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(TENANT_KEY);
@@ -208,6 +228,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   );
 };
 
+/** Sends anonymous visitors to the login page. */
 export const authGuard: CanActivateFn = () => {
   const auth = inject(Auth);
   const router = inject(Router);
@@ -215,12 +236,14 @@ export const authGuard: CanActivateFn = () => {
 };
 
 /** Routes that need a minimum role. Super admins must pick a tenant first. */
-export const roleGuard = (min: Role): CanActivateFn => () => {
-  const auth = inject(Auth);
-  const router = inject(Router);
-  if (!auth.user()) return router.createUrlTree(['/login']);
-  return auth.atLeast(min) ? true : router.createUrlTree(['/connection']);
-};
+export const roleGuard =
+  (min: Role): CanActivateFn =>
+  () => {
+    const auth = inject(Auth);
+    const router = inject(Router);
+    if (!auth.user()) return router.createUrlTree(['/login']);
+    return auth.atLeast(min) ? true : router.createUrlTree(['/connection']);
+  };
 
 function readNumber(key: string): number | null {
   const raw = localStorage.getItem(key);

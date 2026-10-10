@@ -1,0 +1,181 @@
+// Patterns shared by the contacts page and its overlays. Mixins only — nothing
+// here emits CSS until a component includes it, so each stylesheet pays only
+// for what it uses (the 16kB component budget).
+
+@mixin sr-only {
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+// Initials avatar. The hue is per-contact data, not a theme colour, so it is the
+// one place an hsl() appears: a 14% tint behind, and the glyph mixed toward
+// --text-strong so it darkens on white and lightens on navy without a dark rule.
+@mixin avatar($size: 34px) {
+  .avatar {
+    --h: 150;
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: $size;
+    height: $size;
+    border-radius: 50%;
+    font-size: calc(#{$size} * 0.36);
+    font-weight: 600;
+    letter-spacing: -0.2px;
+    color: color-mix(in srgb, hsl(var(--h) 62% 42%) 78%, var(--text-strong));
+    background: hsl(var(--h) 70% 50% / 0.14);
+    box-shadow: inset 0 0 0 1px hsl(var(--h) 60% 45% / 0.18);
+  }
+}
+
+// Neutral tag chip: sunken ground, muted type — Kardlyz keeps colour for status.
+@mixin tag {
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-color);
+    background: var(--surface-sunken);
+    white-space: nowrap;
+
+    &:has(button) { padding-right: 4px; }
+    button {
+      display: grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--text-muted);
+      .ti { font-size: 13px; }
+      &:hover:not(:disabled) { background: var(--danger-soft); color: var(--danger-text); }
+    }
+  }
+}
+
+// A free-text tag field that looks like one input holding its chips.
+@mixin tag-editor {
+  .tag-editor {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    background: var(--surface-card);
+    transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+
+    &:hover:not(:focus-within) { border-color: var(--border-hover); }
+    &:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px var(--input-focus); }
+    input { flex: 1 1 140px; width: auto; border: 0; background: transparent; padding: 4px 6px; }
+    input:focus-visible { box-shadow: none; }
+  }
+}
+
+// Modal in Kardlyz's confirm-dialog language: blurred ink scrim, a 24px card,
+// hairline-separated head and foot, outline cancel beside an ink primary.
+@mixin dialog($width: 680px) {
+  .overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    background: rgba(16, 16, 24, 0.45);
+    backdrop-filter: blur(4px);
+    animation: dlg-fade 200ms var(--ease) both;
+  }
+
+  .dialog {
+    position: fixed;
+    z-index: 81;
+    left: 50%;
+    top: 50%;
+    width: min(#{$width}, calc(100vw - 32px));
+    max-height: calc(100dvh - 48px);
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    overflow: hidden;
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--border-color);
+    background: var(--surface-card);
+    box-shadow: 0 20px 50px rgba(16, 16, 24, 0.2), var(--shadow-lift);
+    translate: -50% -50%;
+    transform-origin: 50% 60%;
+    animation: dlg-rise 360ms var(--ease) both;
+  }
+
+  .top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-lg);
+    padding: 22px var(--space-xl) 18px;
+    border-bottom: 1px solid var(--border-color);
+
+    h3 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 18px;
+      font-weight: 500;
+      letter-spacing: -0.3px;
+      color: var(--text-strong);
+      .ti { font-size: 19px; color: var(--primary-text); }
+    }
+    p { margin: 6px 0 0; max-width: 60ch; font-size: 13.5px; line-height: 1.6; color: var(--text-muted); }
+  }
+
+  .dialog > .s-banner { margin: var(--space-md) var(--space-xl) 0; }
+
+  .body {
+    overflow-y: auto;
+    padding: var(--space-xl);
+    display: grid;
+    gap: var(--space-lg);
+    align-content: start;
+  }
+
+  .foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 16px var(--space-xl) 18px;
+    border-top: 1px solid var(--border-color);
+    .btn .ti { font-size: 16px; }
+    > :only-child { margin-left: auto; }
+  }
+
+  .muted { color: var(--text-muted); }
+  .mono { font-family: var(--font-mono); font-size: 12px; }
+
+  @keyframes dlg-fade { from { opacity: 0; } }
+  @keyframes dlg-rise {
+    from { opacity: 0; transform: perspective(1200px) rotateX(8deg) translateY(18px) scale(0.97); }
+    to { opacity: 1; transform: none; }
+  }
+
+  @media (max-width: 560px) {
+    .dialog {
+      top: auto;
+      bottom: 0;
+      translate: -50% 0;
+      width: 100vw;
+      max-height: 92dvh;
+      border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    }
+    .top, .body, .foot { padding-left: var(--space-lg); padding-right: var(--space-lg); }
+  }
+}

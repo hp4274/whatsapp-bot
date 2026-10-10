@@ -44,7 +44,12 @@ export interface ThreadItem {
   /** Inbound answered by an auto-reply rule: that rule's keyword. */
   repliedRule?: string | null;
   /** Inbound that was a tap on a campaign button (button_clicks). */
-  button?: { campaignId: string | null; optionId: string | null; title: string; payload: string | null } | null;
+  button?: {
+    campaignId: string | null;
+    optionId: string | null;
+    title: string;
+    payload: string | null;
+  } | null;
 }
 
 export interface ThreadMedia {
@@ -121,7 +126,9 @@ export class InboxApi {
     if (filter.botPaused) params = params.set('botPaused', 'true');
     if (filter.assignedTo != null) params = params.set('assignedTo', String(filter.assignedTo));
     if (filter.limit) params = params.set('limit', String(filter.limit));
-    return this.http.get<{ conversations: Conversation[] }>('/api/conversations', { params }).pipe(catchError(toMessage));
+    return this.http
+      .get<{ conversations: Conversation[] }>('/api/conversations', { params })
+      .pipe(catchError(toMessage));
   }
 
   stats(): Observable<{ stats: InboxStats }> {
@@ -129,21 +136,36 @@ export class InboxApi {
   }
 
   senders(): Observable<{ conversations: SenderSummary[] }> {
-    return this.http.get<{ conversations: SenderSummary[] }>('/api/inbox/conversations').pipe(catchError(toMessage));
-  }
-
-  get(id: number): Observable<{ conversation: Conversation; notes: ConversationNote[] }> {
-    return this.http.get<{ conversation: Conversation; notes: ConversationNote[] }>(`/api/conversations/${id}`)
+    return this.http
+      .get<{ conversations: SenderSummary[] }>('/api/inbox/conversations')
       .pipe(catchError(toMessage));
   }
 
-  thread(id: number, limit = 200): Observable<{ conversation: Conversation; thread: ThreadItem[] }> {
-    return this.http.get<{ conversation: Conversation; thread: ThreadItem[] }>(`/api/conversations/${id}/thread`, {
-      params: new HttpParams().set('limit', String(limit)),
-    }).pipe(catchError(toMessage));
+  get(id: number): Observable<{ conversation: Conversation; notes: ConversationNote[] }> {
+    return this.http
+      .get<{ conversation: Conversation; notes: ConversationNote[] }>(`/api/conversations/${id}`)
+      .pipe(catchError(toMessage));
   }
 
-  reply(id: number, text: string, mediaId: string | null = null): Observable<{ conversation: Conversation; messageId: string }> {
+  thread(
+    id: number,
+    limit = 200,
+  ): Observable<{ conversation: Conversation; thread: ThreadItem[] }> {
+    return this.http
+      .get<{ conversation: Conversation; thread: ThreadItem[] }>(
+        `/api/conversations/${id}/thread`,
+        {
+          params: new HttpParams().set('limit', String(limit)),
+        },
+      )
+      .pipe(catchError(toMessage));
+  }
+
+  reply(
+    id: number,
+    text: string,
+    mediaId: string | null = null,
+  ): Observable<{ conversation: Conversation; messageId: string }> {
     return this.post(id, 'reply', mediaId ? { text, mediaId } : { text });
   }
 
@@ -151,7 +173,8 @@ export class InboxApi {
   upload(file: File): Observable<HttpEvent<UploadedMedia>> {
     const form = new FormData();
     form.append('file', file);
-    return this.http.post<UploadedMedia>('/api/media/upload', form, { reportProgress: true, observe: 'events' })
+    return this.http
+      .post<UploadedMedia>('/api/media/upload', form, { reportProgress: true, observe: 'events' })
       .pipe(catchError(toMessage));
   }
 
@@ -161,12 +184,16 @@ export class InboxApi {
   }
 
   templates(): Observable<{ templates: QuickTemplate[] }> {
-    return this.http.get<{ templates: QuickTemplate[] }>('/api/templates').pipe(catchError(toMessage));
+    return this.http
+      .get<{ templates: QuickTemplate[] }>('/api/templates')
+      .pipe(catchError(toMessage));
   }
 
   /** ContactsApi has no single-contact read; this is GET /api/contacts/:id. */
   contact(id: number): Observable<{ contact: import('../core/api').Contact2 }> {
-    return this.http.get<{ contact: import('../core/api').Contact2 }>(`/api/contacts/${id}`).pipe(catchError(toMessage));
+    return this.http
+      .get<{ contact: import('../core/api').Contact2 }>(`/api/contacts/${id}`)
+      .pipe(catchError(toMessage));
   }
 
   /** userId null unassigns. */
@@ -182,12 +209,18 @@ export class InboxApi {
     return this.post(id, 'read', {});
   }
 
-  tags(id: number, add: string[] = [], remove: string[] = []): Observable<{ conversation: Conversation }> {
+  tags(
+    id: number,
+    add: string[] = [],
+    remove: string[] = [],
+  ): Observable<{ conversation: Conversation }> {
     return this.post(id, 'tags', { add, remove });
   }
 
   notes(id: number): Observable<{ notes: ConversationNote[] }> {
-    return this.http.get<{ notes: ConversationNote[] }>(`/api/conversations/${id}/notes`).pipe(catchError(toMessage));
+    return this.http
+      .get<{ notes: ConversationNote[] }>(`/api/conversations/${id}/notes`)
+      .pipe(catchError(toMessage));
   }
 
   addNote(id: number, body: string): Observable<{ note: Record<string, unknown> }> {
@@ -205,7 +238,9 @@ export class InboxApi {
   }
 
   private post<T>(id: number, action: string, body: object): Observable<T> {
-    return this.http.post<T>(`/api/conversations/${id}/${action}`, body).pipe(catchError(toMessage));
+    return this.http
+      .post<T>(`/api/conversations/${id}/${action}`, body)
+      .pipe(catchError(toMessage));
   }
 }
 
@@ -215,12 +250,17 @@ const REASONS: Record<string, string> = {
   duplicate: 'That reply was already sent.',
   bot_paused: 'The bot is paused for this conversation.',
   channel_disabled: 'This WhatsApp number is disabled. Re-enable it under Connection to reply.',
-  capability_disabled: 'This number is not enabled for transactional messages, so replies cannot be sent.',
+  capability_disabled:
+    'This number is not enabled for transactional messages, so replies cannot be sent.',
 };
 
 function toMessage(error: HttpErrorResponse) {
   const body = error.error as { errors?: string[]; reason?: string } | null;
   const reason = body?.reason ? REASONS[body.reason] : undefined;
-  const text = reason ?? (body?.errors?.map((e) => REASONS[e] ?? e).join(' ') || error.message || 'Request failed');
-  return throwError(() => new Error(error.status === 0 ? 'Server not reachable. Check your connection.' : text));
+  const text =
+    reason ??
+    (body?.errors?.map((e) => REASONS[e] ?? e).join(' ') || error.message || 'Request failed');
+  return throwError(
+    () => new Error(error.status === 0 ? 'Server not reachable. Check your connection.' : text),
+  );
 }

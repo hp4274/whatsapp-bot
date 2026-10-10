@@ -1,79 +1,202 @@
+<!--
+  Two detached panels on the page ground, after the Kardlyz dashboard layout:
+  a sidebar (brand, workspace + status, navigation, account pinned at the
+  foot) and a content panel holding the routed page. The gap between them is
+  the ground showing through, which is what makes them read as two surfaces.
+
+  The shell is exactly one viewport and clips. Inside each panel the scrolling
+  region is the one with `flex: 1; min-height: 0; overflow-y: auto`, so long
+  navigation or a long page scrolls in place instead of growing the screen.
+
+  Below `lg` the sidebar is an off-canvas drawer and the content panel keeps a
+  slim top bar to open it. At `lg` and up the sidebar can fold to an icon rail.
+-->
 @if (bare()) {
   <router-outlet />
 } @else {
-  <div class="shell">
-    <header class="app-header">
-      <img class="brand" src="logo.png" alt="WhatsApp Sender" width="48" height="48" />
-      <div class="titles">
-        <h1>{{ workspace() }}</h1>
-        <p class="muted">{{ subtitle() }}</p>
+  <div class="shell" [class.is-collapsed]="collapsed()" [class.is-drawer-open]="navOpen()">
+    <aside class="side" id="app-sidebar" aria-label="Sidebar">
+      <div class="side-brand">
+        <a class="brand" routerLink="/" aria-label="WhatsApp Sender — home">
+          <span class="brand-mark" aria-hidden="true"><i class="ti ti-brand-whatsapp"></i></span>
+          <span class="brand-word">WhatsApp <span>Sender</span></span>
+        </a>
+
+        <!--
+          Rail toggle, wide screens only. Open, it sits at the end of the brand
+          row; on the rail there is no room beside the mark, so it becomes a
+          round button centred on the sidebar's right edge, level with the mark.
+        -->
+        <button
+          type="button"
+          class="rail-toggle"
+          aria-controls="app-sidebar"
+          [attr.aria-expanded]="!collapsed()"
+          [attr.aria-label]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+          [attr.title]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+          (click)="toggleCollapsed()"
+        >
+          <i
+            class="ti"
+            [class.ti-layout-sidebar-left-collapse]="!collapsed()"
+            [class.ti-layout-sidebar-left-expand]="collapsed()"
+            aria-hidden="true"
+          ></i>
+        </button>
+
+        <button
+          type="button"
+          class="drawer-close"
+          aria-label="Close navigation"
+          (click)="closeNav()"
+        >
+          <i class="ti ti-x" aria-hidden="true"></i>
+        </button>
       </div>
 
-      <div class="modes" role="group" aria-label="Colour theme">
-        @for (mode of themes; track mode.value) {
-          <button
-            type="button"
-            class="mode"
-            [class.active]="store.theme() === mode.value"
-            [attr.aria-pressed]="store.theme() === mode.value"
-            (click)="store.setTheme(mode.value)"
-          >
-            {{ mode.label }}
-          </button>
+      <!-- Where you are working and whether its number is live. -->
+      <div class="side-ws" [attr.title]="collapsed() ? workspace() + ' · ' + subtitle() : null">
+        <p class="ws-name">{{ workspace() }}</p>
+        <span class="status-pill" role="status" [attr.title]="subtitle()">
+          <span
+            class="dot"
+            [class.live-dot]="store.connection().connected"
+            [style.background]="toneColor()"
+          ></span>
+          <span class="status-text">{{ subtitle() }}</span>
+        </span>
+        <!-- Only when it adds something: connected, it repeats the pill word for word. -->
+        @if (store.statusLine() !== 'Ready.' && store.statusLine() !== subtitle()) {
+          <p class="ws-line">{{ store.statusLine() }}</p>
         }
       </div>
+
+      <nav class="side-nav" aria-label="Sections">
+        @for (section of sections(); track section.heading) {
+          <p class="nav-section">{{ section.heading }}</p>
+          @for (item of section.items; track item.path) {
+            <a
+              class="nav-link"
+              [routerLink]="item.path"
+              routerLinkActive="active"
+              ariaCurrentWhenActive="page"
+              [attr.title]="collapsed() ? item.label : null"
+            >
+              <span class="nav-bar" aria-hidden="true"></span>
+              <span class="nav-pill">
+                <i class="ti ti-{{ item.icon }}" aria-hidden="true"></i>
+                <span class="nav-label">{{ item.label }}</span>
+              </span>
+            </a>
+          }
+        }
+      </nav>
 
       @if (auth.user(); as user) {
-        <div class="account">
-          <div class="who">
-            <strong>{{ user.name || user.email }}</strong>
-            <small class="muted">{{ user.role }}</small>
+        <!--
+          Account, pinned under the scrolling links. Open: avatar and name with
+          leave-tenant and sign-out beside them, then the theme control. On the
+          rail it stacks to icons, and the theme becomes one cycling button.
+        -->
+        <div class="side-foot">
+          <div class="who" [attr.title]="collapsed() ? user.name || user.email : null">
+            <span class="avatar" aria-hidden="true">{{ initials() }}</span>
+            <span class="who-text">
+              <strong>{{ user.name || user.email }}</strong>
+              <small>{{ roleLabel() }} · {{ workspace() }}</small>
+            </span>
           </div>
-          @if (auth.isSuperAdmin() && auth.actingTenantId() !== null) {
-            <button class="btn small" type="button" (click)="leaveTenant()">Leave tenant</button>
-          }
-          <button class="btn small" type="button" (click)="signOut()">Sign out</button>
-        </div>
-      }
-    </header>
 
-    <nav class="rail" aria-label="Sections">
-      @for (item of navigation(); track item.heading ?? item.path) {
-        @if (item.heading) {
-          <details class="nav-group" open>
-            <summary class="nav-heading">{{ item.heading }}</summary>
-            @for (child of item.children; track child.path) {
-              <a class="nav" [routerLink]="child.path" routerLinkActive="active">
-                <span class="ms nav-icon" aria-hidden="true">{{ child.icon }}</span>
-                {{ child.label }}
-              </a>
+          <div class="foot-actions">
+            @if (auth.isSuperAdmin() && auth.actingTenantId() !== null) {
+              <button
+                type="button"
+                class="icon-btn"
+                aria-label="Leave tenant"
+                title="Leave tenant"
+                (click)="leaveTenant()"
+              >
+                <i class="ti ti-door-exit" aria-hidden="true"></i>
+              </button>
             }
-          </details>
-        } @else {
-          <a class="nav" [routerLink]="item.path" routerLinkActive="active">
-            <span class="ms nav-icon" aria-hidden="true">{{ item.icon }}</span>
-            {{ item.label }}
-          </a>
-        }
-      }
+            <button
+              type="button"
+              class="icon-btn theme-cycle"
+              [attr.aria-label]="'Theme: ' + store.theme() + '. Change theme'"
+              [attr.title]="'Theme: ' + store.theme()"
+              (click)="cycleTheme()"
+            >
+              <i class="ti ti-{{ themeIcon() }}" aria-hidden="true"></i>
+            </button>
+            <button
+              type="button"
+              class="icon-btn danger"
+              aria-label="Sign out"
+              title="Sign out"
+              (click)="signOut()"
+            >
+              <i class="ti ti-logout" aria-hidden="true"></i>
+            </button>
+          </div>
 
-      <div class="rail-foot card">
-        <span
-          class="dot"
-          [class.live-dot]="store.connection().connected"
-          [style.background]="toneColor()"
-        ></span>
-        <div>
-          <strong>{{ store.statusLine() }}</strong>
-          <small class="muted">WhatsApp Sender v1.0</small>
+          <div class="modes" role="group" aria-label="Colour theme">
+            @for (mode of themes; track mode.value) {
+              <button
+                type="button"
+                class="mode"
+                [class.active]="store.theme() === mode.value"
+                [attr.aria-pressed]="store.theme() === mode.value"
+                (click)="store.setTheme(mode.value)"
+              >
+                <i class="ti ti-{{ mode.icon }}" aria-hidden="true"></i>
+                {{ mode.label }}
+              </button>
+            }
+          </div>
         </div>
-      </div>
-    </nav>
+      }
+    </aside>
 
-    <main class="content">
-      <router-outlet />
-    </main>
+    <!-- Scrim behind the drawer, below `lg` only. -->
+    <div class="scrim" aria-hidden="true" (click)="closeNav()"></div>
+
+    <div class="panel">
+      <!-- Below `lg` only: the sidebar is a drawer there, so something has to open it. -->
+      <header class="topbar">
+        <button
+          type="button"
+          class="menu-btn"
+          aria-controls="app-sidebar"
+          [attr.aria-expanded]="navOpen()"
+          aria-label="Open navigation"
+          (click)="navOpen.set(!navOpen())"
+        >
+          <i class="ti ti-menu-2" aria-hidden="true"></i>
+        </button>
+        <span class="brand-mark small" aria-hidden="true"
+          ><i class="ti ti-brand-whatsapp"></i
+        ></span>
+        <div class="topbar-titles">
+          <strong>{{ workspace() }}</strong>
+          <span class="status-pill">
+            <span
+              class="dot"
+              [class.live-dot]="store.connection().connected"
+              [style.background]="toneColor()"
+            ></span>
+            <span class="status-text">{{ subtitle() }}</span>
+          </span>
+        </div>
+      </header>
+
+      <!-- The page. The only element that scrolls. -->
+      <main class="page" id="main-content">
+        <router-outlet />
+      </main>
+    </div>
   </div>
-  @if (auth.user()) { <app-send-island /> }
 
+  @if (auth.user()) {
+    <app-send-island />
+  }
 }

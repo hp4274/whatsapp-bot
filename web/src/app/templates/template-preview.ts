@@ -1,4 +1,4 @@
-import { Component, computed, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
 
 import { InteractiveDraft, formatWhatsApp } from './templates-api';
 
@@ -9,13 +9,19 @@ export interface HeaderMedia {
   url: string | null;
 }
 
-const CTA_ICONS = { url: 'open_in_new', call: 'call', copy: 'content_copy' } as const;
+/** Tabler icon per call-to-action kind, matching the glyphs WhatsApp shows. */
+const CTA_ICONS = { url: 'external-link', call: 'phone', copy: 'copy' } as const;
 
-/** A phone mock that renders a template the way a customer sees it. Pure display. */
+/**
+ * A phone mock that renders a template the way a customer sees it. Pure
+ * display; the chat uses WhatsApp's own colours on purpose, only the frame
+ * around it follows the app theme.
+ */
 @Component({
   selector: 'app-template-preview',
   templateUrl: './template-preview.html',
   styleUrl: './template-preview.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TemplatePreview {
   readonly text = input('');
@@ -24,6 +30,10 @@ export class TemplatePreview {
 
   protected readonly ctaIcons = CTA_ICONS;
   protected readonly sheetOpen = signal(false);
-  protected readonly time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  /** Fixed at creation: a ticking clock would re-render the bubble for nothing. */
+  protected readonly time = new Date().toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
   protected readonly html = computed(() => formatWhatsApp(this.text()));
 }

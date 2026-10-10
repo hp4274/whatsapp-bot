@@ -1,5 +1,16 @@
 import {
-  Component, ElementRef, Injector, OnDestroy, afterNextRender, computed, effect, inject, signal, untracked, viewChild,
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
@@ -10,38 +21,70 @@ import { Auth, User } from '../core/auth';
 import { Store } from '../core/store';
 import { InboxComposer } from './inbox-composer';
 import { InboxContactPanel, ThreadContext } from './inbox-contact-panel';
-import { Conversation, ConversationFilter, ConversationNote, InboxApi, InboxStats, SenderSummary, ThreadItem } from './inbox-api';
+import {
+  Conversation,
+  ConversationFilter,
+  ConversationNote,
+  InboxApi,
+  InboxStats,
+  SenderSummary,
+  ThreadItem,
+} from './inbox-api';
 import { InboxList, Row, Segment, SegmentCounts, StatusFilter, hue, initials } from './inbox-list';
 import { InboxMedia } from './inbox-media';
 
+/** One bubble: who sent it decides its side and colour; `day` is set on the first message of a day. */
 type Entry = { item: ThreadItem; who: 'in' | 'human' | 'bot'; day: string | null };
 
+/** Fallback poll for when the SSE stream drops without telling us. */
 const POLL_MS = 30_000;
+/** Delivery receipt per message status: icon, accessible label and colour hook. */
 const TICKS: Record<string, { icon: string; label: string; tone?: string }> = {
-  QUEUED: { icon: 'schedule', label: 'Queued' }, PENDING: { icon: 'schedule', label: 'Pending' },
-  SCHEDULED: { icon: 'schedule', label: 'Scheduled' }, SENDING: { icon: 'schedule', label: 'Sending' },
-  SENT: { icon: 'done', label: 'Sent' }, SANDBOX: { icon: 'science', label: 'Sandbox (not delivered)' },
-  DELIVERED: { icon: 'done_all', label: 'Delivered' }, READ: { icon: 'done_all', label: 'Read', tone: 'read' },
-  FAILED: { icon: 'error', label: 'Failed', tone: 'fail' }, CANCELLED: { icon: 'block', label: 'Cancelled', tone: 'fail' },
+  QUEUED: { icon: 'clock', label: 'Queued' },
+  PENDING: { icon: 'clock', label: 'Pending' },
+  SCHEDULED: { icon: 'clock', label: 'Scheduled' },
+  SENDING: { icon: 'clock', label: 'Sending' },
+  SENT: { icon: 'check', label: 'Sent' },
+  SANDBOX: { icon: 'flask', label: 'Sandbox (not delivered)' },
+  DELIVERED: { icon: 'checks', label: 'Delivered' },
+  READ: { icon: 'checks', label: 'Read', tone: 'read' },
+  FAILED: { icon: 'alert-circle', label: 'Failed', tone: 'fail' },
+  CANCELLED: { icon: 'ban', label: 'Cancelled', tone: 'fail' },
 };
-const SHORTCUTS: [string[], string][] = [
-  [['j'], 'Next conversation'], [['k'], 'Previous conversation'], [['r'], 'Reply'], [['/'], 'Quick replies'],
-  [['e'], 'Close conversation'], [['i'], 'Toggle contact details'], [['Esc'], 'Leave field / close panel'], [['?'], 'This help'],
+/** The help dialog's table; `runShortcut` is the source of truth for what each key does. */
+const SHORTCUTS: readonly [string[], string][] = [
+  [['j'], 'Next conversation'],
+  [['k'], 'Previous conversation'],
+  [['r'], 'Reply'],
+  [['/'], 'Quick replies'],
+  [['e'], 'Close conversation'],
+  [['i'], 'Toggle contact details'],
+  [['Esc'], 'Leave field / close panel'],
+  [['?'], 'This help'],
 ];
 
+/**
+ * Shared team inbox: list, thread and contact details side by side.
+ *
+ * Live updates arrive over SSE (via the store), with a 30s poll as a safety
+ * net. The open thread only auto-scrolls when the agent is already at the
+ * bottom, so reading history is never yanked away by a new message.
+ */
 @Component({
   selector: 'app-inbox',
   imports: [RouterLink, InboxList, InboxComposer, InboxContactPanel, InboxMedia],
   templateUrl: './inbox.html',
   styleUrl: './inbox.scss',
   host: { '(document:keydown)': 'shortcut($event)' },
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class InboxView implements OnDestroy {
+export class InboxView {
   private readonly api = inject(InboxApi);
   private readonly core = inject(TenancyApi);
   private readonly auth = inject(Auth);
   protected readonly store = inject(Store);
   private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   private readonly composer = viewChild(InboxComposer);
   private readonly helpClose = viewChild<ElementRef<HTMLButtonElement>>('helpClose');
@@ -66,25 +109,48 @@ export class InboxView implements OnDestroy {
     const names = this.senders();
     const q = this.search().trim().toLowerCase();
     return this.items()
-      .map((c) => ({ ...c, name: names.get(c.phone)?.senderName || '', preview: names.get(c.phone)?.lastBody || '' }))
-      .filter((r) => !q || r.phone.includes(q) || r.name.toLowerCase().includes(q) || r.preview.toLowerCase().includes(q));
+      .map((c) => ({
+        ...c,
+        name: names.get(c.phone)?.senderName || '',
+        preview: names.get(c.phone)?.lastBody || '',
+      }))
+      .filter(
+        (r) =>
+          !q ||
+          r.phone.includes(q) ||
+          r.name.toLowerCase().includes(q) ||
+          r.preview.toLowerCase().includes(q),
+      );
   });
   protected readonly counts = computed<SegmentCounts>(() => {
     const s = this.stats();
-    return s ? { unread: s.unread, mine: s.mine, unassigned: s.unassigned, paused: s.botPaused } : {};
+    return s
+      ? { unread: s.unread, mine: s.mine, unassigned: s.unassigned, paused: s.botPaused }
+      : {};
   });
-  protected readonly isFirstRun = computed(() => (this.stats()?.total ?? 0) === 0 && this.items().length === 0
-    && this.segment() === 'all' && this.status() === 'all');
+  protected readonly isFirstRun = computed(
+    () =>
+      (this.stats()?.total ?? 0) === 0 &&
+      this.items().length === 0 &&
+      this.segment() === 'all' &&
+      this.status() === 'all',
+  );
 
   // Selected conversation -------------------------------------------------
   protected readonly selectedId = signal<number | null>(null);
-  protected readonly selected = computed(() => this.items().find((c) => c.id === this.selectedId()) ?? null);
-  protected readonly selectedRow = computed(() => this.rows().find((r) => r.id === this.selectedId()) ?? null);
+  protected readonly selected = computed(
+    () => this.items().find((c) => c.id === this.selectedId()) ?? null,
+  );
+  protected readonly selectedRow = computed(
+    () => this.rows().find((r) => r.id === this.selectedId()) ?? null,
+  );
   protected readonly thread = signal<ThreadItem[]>([]);
   protected readonly threadLoading = signal(false);
   protected readonly threadError = signal('');
   protected readonly notes = signal<ConversationNote[]>([]);
-  protected readonly panelOpen = signal(typeof matchMedia === 'function' && matchMedia('(min-width: 1280px)').matches);
+  protected readonly panelOpen = signal(
+    typeof matchMedia === 'function' && matchMedia('(min-width: 1280px)').matches,
+  );
   protected readonly contact = signal<Contact2 | null>(null);
   protected readonly contactLoading = signal(false);
   protected readonly actionError = signal('');
@@ -113,22 +179,42 @@ export class InboxView implements OnDestroy {
     const rules: ThreadContext['rules'] = [];
     const buttons: ThreadContext['buttons'] = [];
     for (const t of this.thread()) {
-      if (t.button) buttons.push({ title: t.button.title || t.body, campaignId: t.button.campaignId, at: t.at });
+      if (t.button)
+        buttons.push({
+          title: t.button.title || t.body,
+          campaignId: t.button.campaignId,
+          at: t.at,
+        });
       if (t.campaignId) campaigns.set(t.campaignId, t.at);
       if (t.repliedRule) rules.push({ rule: t.repliedRule, body: t.body.slice(0, 60), at: t.at });
     }
-    return { campaigns: [...campaigns].map(([id, at]) => ({ id, at })).reverse().slice(0, 5), rules: rules.reverse().slice(0, 5), buttons: buttons.reverse().slice(0, 5) };
+    return {
+      campaigns: [...campaigns]
+        .map(([id, at]) => ({ id, at }))
+        .reverse()
+        .slice(0, 5),
+      rules: rules.reverse().slice(0, 5),
+      buttons: buttons.reverse().slice(0, 5),
+    };
   });
 
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** Request counters: a response older than the latest request is dropped. */
   private listSeq = 0;
   private threadSeq = 0;
+  /** Last SSE history revision seen; -1 until the first, which must not trigger a reload. */
   private lastRevision = -1;
+  /** Contact id currently loaded (or loading) into the panel, to skip duplicate fetches. */
   private contactFor: number | null = null;
 
   constructor() {
     if (this.auth.atLeast('admin')) {
-      this.core.users().subscribe({ next: ({ users }) => this.team.set(users.filter((u) => !u.disabled)), error: () => undefined });
+      this.core
+        .users()
+        .subscribe({
+          next: ({ users }) => this.team.set(users.filter((u) => !u.disabled)),
+          error: () => undefined,
+        });
     }
     // Filter chips and status are server-side: refetch when either changes (and once on start).
     effect(() => {
@@ -150,15 +236,14 @@ export class InboxView implements OnDestroy {
       this.now.set(Date.now());
       if (typeof document === 'undefined' || !document.hidden) this.tick();
     }, POLL_MS);
+    this.destroyRef.onDestroy(() => {
+      if (this.timer) clearInterval(this.timer);
+    });
     // The contact record behind the open conversation (feeds the panel and quick-reply placeholders).
     effect(() => {
       const id = this.selected()?.contactId ?? null;
       untracked(() => this.loadContact(id));
     });
-  }
-
-  ngOnDestroy() {
-    if (this.timer) clearInterval(this.timer);
   }
 
   private tick() {
@@ -174,7 +259,9 @@ export class InboxView implements OnDestroy {
     forkJoin({
       list: this.api.list(this.filter()),
       stats: this.api.stats().pipe(catchError(() => of({ stats: null }))),
-      senders: this.api.senders().pipe(catchError(() => of({ conversations: [] as SenderSummary[] }))),
+      senders: this.api
+        .senders()
+        .pipe(catchError(() => of({ conversations: [] as SenderSummary[] }))),
     }).subscribe({
       next: ({ list, stats, senders }) => {
         if (seq !== this.listSeq) return;
@@ -219,7 +306,12 @@ export class InboxView implements OnDestroy {
     }
     if (row.unreadCount > 0) {
       this.patch({ ...row, unreadCount: 0 });
-      this.api.markRead(row.id).subscribe({ next: ({ conversation }) => this.patch(conversation), error: () => undefined });
+      this.api
+        .markRead(row.id)
+        .subscribe({
+          next: ({ conversation }) => this.patch(conversation),
+          error: () => undefined,
+        });
     }
   }
 
@@ -229,7 +321,12 @@ export class InboxView implements OnDestroy {
   }
 
   protected loadNotes(id: number) {
-    this.api.notes(id).subscribe({ next: ({ notes }) => this.selectedId() === id && this.notes.set(notes), error: () => undefined });
+    this.api
+      .notes(id)
+      .subscribe({
+        next: ({ notes }) => this.selectedId() === id && this.notes.set(notes),
+        error: () => undefined,
+      });
   }
 
   private loadContact(id: number | null) {
@@ -258,7 +355,10 @@ export class InboxView implements OnDestroy {
     this.api.thread(id).subscribe({
       next: ({ conversation, thread }) => {
         if (seq !== this.threadSeq || this.selectedId() !== id) return;
-        const fresh = silent && lastId !== undefined ? thread.slice(thread.findIndex((t) => t.messageId === lastId) + 1) : [];
+        const fresh =
+          silent && lastId !== undefined
+            ? thread.slice(thread.findIndex((t) => t.messageId === lastId) + 1)
+            : [];
         this.thread.set(thread);
         this.patch(conversation);
         this.threadLoading.set(false);
@@ -272,7 +372,9 @@ export class InboxView implements OnDestroy {
         if (!silent || (fresh.length && pinned)) this.scrollToBottom(!silent);
         else if (fresh.length) this.newBelow.set(true);
         if (silent && conversation.unreadCount > 0 && !document.hidden) {
-          this.api.markRead(id).subscribe({ next: (r) => this.patch(r.conversation), error: () => undefined });
+          this.api
+            .markRead(id)
+            .subscribe({ next: (r) => this.patch(r.conversation), error: () => undefined });
         }
       },
       error: (err: Error) => {
@@ -294,13 +396,16 @@ export class InboxView implements OnDestroy {
 
   protected scrollToBottom(instant: boolean) {
     this.newBelow.set(false);
-    afterNextRender({
-      read: () => {
-        const el = this.scroller()?.nativeElement;
-        const still = instant || matchMedia('(prefers-reduced-motion: reduce)').matches;
-        el?.scrollTo({ top: el.scrollHeight, behavior: still ? 'auto' : 'smooth' });
+    afterNextRender(
+      {
+        read: () => {
+          const el = this.scroller()?.nativeElement;
+          const still = instant || matchMedia('(prefers-reduced-motion: reduce)').matches;
+          el?.scrollTo({ top: el.scrollHeight, behavior: still ? 'auto' : 'smooth' });
+        },
       },
-    }, { injector: this.injector });
+      { injector: this.injector },
+    );
   }
 
   protected patch(conversation: Conversation) {
@@ -366,46 +471,65 @@ export class InboxView implements OnDestroy {
   protected shortcut(e: KeyboardEvent) {
     if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
     const target = e.target as HTMLElement | null;
-    const typing = !!target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable);
+    const typing =
+      !!target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable);
     if (e.key === 'Escape') {
       if (this.helpOpen()) this.helpOpen.set(false);
-      else if (this.composer()?.closeQuick()) { /* closed the picker */ }
-      else if (typing) target!.blur();
+      else if (this.composer()?.closeQuick()) {
+        /* closed the picker */
+      } else if (typing) target!.blur();
       else if (this.panelOpen()) this.panelOpen.set(false);
       else return;
       e.preventDefault();
       return;
     }
-    if (typing || this.helpOpen() && e.key !== '?') return;
+    if (typing || (this.helpOpen() && e.key !== '?')) return;
     const handled = this.runShortcut(e.key);
     if (handled) e.preventDefault();
   }
 
   private runShortcut(key: string): boolean {
     switch (key) {
-      case 'j': case 'k': {
+      case 'j':
+      case 'k': {
         const rows = this.rows();
         if (!rows.length) return false;
         const at = rows.findIndex((r) => r.id === this.selectedId());
-        const next = at < 0 ? 0 : Math.min(rows.length - 1, Math.max(0, at + (key === 'j' ? 1 : -1)));
+        const next =
+          at < 0 ? 0 : Math.min(rows.length - 1, Math.max(0, at + (key === 'j' ? 1 : -1)));
         this.open(rows[next]);
         return true;
       }
-      case 'r': this.composer()?.focus(); return !!this.composer();
-      case '/': this.composer()?.openQuick(); return !!this.composer();
-      case 'e': this.resolve(); return !!this.selected();
-      case 'i': this.panelOpen.update((v) => !v); return !!this.selected();
+      case 'r':
+        this.composer()?.focus();
+        return !!this.composer();
+      case '/':
+        this.composer()?.openQuick();
+        return !!this.composer();
+      case 'e':
+        this.resolve();
+        return !!this.selected();
+      case 'i':
+        this.panelOpen.update((v) => !v);
+        return !!this.selected();
       case '?':
         this.helpOpen.update((v) => !v);
-        if (this.helpOpen()) afterNextRender({ write: () => this.helpClose()?.nativeElement.focus() }, { injector: this.injector });
+        if (this.helpOpen())
+          afterNextRender(
+            { write: () => this.helpClose()?.nativeElement.focus() },
+            { injector: this.injector },
+          );
         return true;
-      default: return false;
+      default:
+        return false;
     }
   }
 
   // View helpers ----------------------------------------------------------
   protected tick$(status: string | null) {
-    return status ? TICKS[status.toUpperCase()] ?? { icon: 'done', label: status.toLowerCase() } : null;
+    return status
+      ? (TICKS[status.toUpperCase()] ?? { icon: 'check', label: status.toLowerCase() })
+      : null;
   }
 
   protected initials(row: { name: string; phone: string }): string {

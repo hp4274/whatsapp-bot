@@ -2,20 +2,22 @@
 
 @include kit.base;
 
-:host > .seg { justify-self: start; }
-.seg button { text-transform: capitalize; }
+:host > .s-seg { justify-self: start; }
+.s-seg button { text-transform: capitalize; }
 
 .count {
   display: inline-grid;
   place-items: center;
   min-width: 20px;
   height: 20px;
+  margin-left: 6px;
   padding: 0 6px;
   border-radius: 999px;
   background: var(--primary);
-  color: var(--on-primary);
+  color: var(--brand-ink); // white is 2.8:1 on orange; ink clears AA in both themes
   font-size: 11px;
-  animation: rise 300ms var(--ease) backwards;
+  font-weight: 600;
+  animation: s-pop 300ms var(--ease) backwards;
 }
 
 .grid {
@@ -30,12 +32,11 @@
   display: grid;
   gap: 12px;
   align-content: start;
-  padding: var(--space-lg) var(--space-xl) var(--space-xl);
   --tone: var(--warning);
   transition: transform 420ms var(--ease), opacity 420ms var(--ease), box-shadow 360ms var(--ease);
 
-  &.out-ok { --tone: var(--primary); transform: translateX(40px) rotateY(-18deg) scale(0.94) !important; opacity: 0; }
-  &.out-bad { --tone: var(--danger); transform: translateX(-40px) rotateY(18deg) scale(0.94) !important; opacity: 0; }
+  &.out-ok { --tone: var(--success); transform: translateX(40px) rotateY(-18deg) scale(0.94) !important; opacity: 0; }
+  &.out-bad { --tone: var(--danger-text); transform: translateX(-40px) rotateY(18deg) scale(0.94) !important; opacity: 0; }
 }
 
 .top {
@@ -45,7 +46,7 @@
   align-items: center;
 
   div { display: grid; min-width: 0; }
-  strong { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  strong { font-size: 15px; font-weight: 500; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 
 .avatar {
@@ -54,9 +55,9 @@
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: linear-gradient(135deg, var(--primary), var(--accent));
-  color: var(--on-primary);
-  font-weight: 800;
+  background: var(--primary-tint);
+  color: var(--primary-text);
+  font-weight: 600;
   font-size: 16px;
   transform: translateZ(18px);
 }
@@ -65,14 +66,16 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-weight: 700;
+  font-weight: 500;
+  color: var(--text-strong);
 
   .days {
     margin-left: auto;
     padding: 2px 8px;
     border-radius: 6px;
-    background: var(--surface-alt);
+    background: var(--surface-sunken);
     font-size: 12px;
+    font-variant-numeric: tabular-nums;
   }
 }
 
@@ -92,7 +95,7 @@ blockquote {
   gap: 4px;
   font-size: 12px;
 
-  .ms { font-size: 15px; }
+  .ti { font-size: 15px; }
 }
 
 .btns .btn { flex: 1; }
@@ -101,14 +104,13 @@ blockquote {
   display: grid;
   gap: 8px;
   padding: 12px;
-  border-radius: var(--radius);
-  background: var(--primary-soft);
-  animation: rise 260ms var(--ease) backwards;
+  border-radius: var(--radius-md);
+  background: var(--primary-tint);
+  animation: s-pop 260ms var(--ease) backwards;
 
-  &.rej { background: var(--danger-soft); }
+  &.rej { background: color-mix(in srgb, var(--danger) 8%, transparent); }
 
-  label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
-  input { background: var(--surface); }
+  label { font-size: 13px; font-weight: 500; color: var(--text-strong); }
 }
 
 .toast {
@@ -121,15 +123,16 @@ blockquote {
   gap: 8px;
   padding: 12px 18px;
   border-radius: 999px;
-  background: var(--text);
-  color: var(--surface);
-  font-weight: 600;
-  box-shadow: 0 18px 40px -10px color-mix(in srgb, var(--text) 50%, transparent);
+  background: var(--text-strong);
+  color: var(--surface-card);
+  font-size: 13.5px;
+  font-weight: 500;
+  box-shadow: var(--shadow-lift);
   transform: translate(-50%, 140%) rotateX(40deg);
   opacity: 0;
   pointer-events: none;
   transition: transform 420ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 260ms var(--ease);
 
   &.show { transform: translate(-50%, 0); opacity: 1; }
-  .ms { color: var(--primary); }
+  .ti { color: var(--success); }
 }

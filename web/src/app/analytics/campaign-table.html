@@ -5,7 +5,7 @@
   </div>
   <button type="button" class="btn ghost sm" (click)="exportCsv()" [disabled]="!rows().length"
     aria-label="Export the campaign table as CSV">
-    <span class="ms" aria-hidden="true">download</span> CSV
+    <i class="ti ti-download" aria-hidden="true"></i> CSV
   </button>
 </div>
 
@@ -19,7 +19,7 @@
             <th scope="col" [class.num]="c.numeric" [attr.aria-sort]="ariaSort(c.key)">
               <button type="button" class="sort" [class.on]="sortKey() === c.key" (click)="sortBy(c.key)">
                 {{ c.label }}
-                <span class="ms" aria-hidden="true">{{ sortKey() === c.key ? (dir() === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more' }}</span>
+                <i class="ti ti-{{ sortKey() === c.key ? (dir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'selector' }}" aria-hidden="true"></i>
               </button>
             </th>
           }
@@ -58,8 +58,8 @@
   </div>
 } @else {
   <div class="ct-empty">
-    <span class="ms" aria-hidden="true">campaign</span>
+    <i class="ti ti-speakerphone" aria-hidden="true"></i>
     <p><strong>No campaign sends in this range.</strong><br /><span class="muted">Results appear here as soon as a campaign starts sending.</span></p>
-    <a class="btn primary sm" routerLink="/campaign"><span class="ms" aria-hidden="true">send</span> New campaign</a>
+    <a class="btn primary sm" routerLink="/campaign"><i class="ti ti-send" aria-hidden="true"></i> New campaign</a>
   </div>
 }

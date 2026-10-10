@@ -1,4 +1,5 @@
-/* School portal shared primitives (Part A + Part B).
+/* Shared design kit in the Kardlyz visual language — used by school, contacts,
+ * templates, tickets and admin.
  *
  * Usage in a tab:   @use '../school-shared' as s;   then   @include s.all;
  * (or include single mixins: s.card, s.stat, s.pill, s.seg, s.table, s.field,
@@ -14,7 +15,7 @@
  *   .s-table     wrapper that scrolls a <table> horizontally inside its card
  *   .s-field     label + control stack (.hint, .err for messages)
  *   .btn.ghost / .btn.sm / .btn.icon   extra variants on the global .btn
- *   .s-empty     friendly empty state (icon .ms, strong, p)
+ *   .s-empty     friendly empty state (icon .ti, strong, p)
  *   .s-skel      shimmering skeleton bar (set height/width inline)
  *   .s-banner    inline result/error banner (default danger; add a tone class)
  *   .s-chip      small rounded chip (button or span)
@@ -43,10 +44,10 @@
 }
 
 @mixin tones {
-  .tone-ok { --tone: var(--primary); }
+  .tone-ok { --tone: var(--success); }
   .tone-warn { --tone: var(--warning); }
-  .tone-bad { --tone: var(--danger); }
-  .tone-info { --tone: var(--accent); }
+  .tone-bad { --tone: var(--danger-text); }
+  .tone-info { --tone: var(--info); }
   .tone-mute { --tone: var(--text-muted); }
 }
 
@@ -58,29 +59,34 @@
 }
 
 @mixin head {
+  // Kardlyz page header: eyebrow, title and lede over a hairline rule.
   .s-head {
     display: flex;
     flex-wrap: wrap;
-    align-items: end;
+    align-items: flex-end;
     justify-content: space-between;
     gap: var(--space-lg);
+    padding-bottom: 26px;
+    border-bottom: 1px solid var(--border-color);
 
     .eyebrow {
-      display: none;
+      display: flex;
       align-items: center;
       gap: 6px;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.01em;
-      color: var(--tone, var(--primary));
+      margin: 0 0 10px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--primary-text);
     }
-    h2 {
-      margin-top: 4px;
-      font-size: clamp(22px, 3vw, 32px);
-      font-weight: 800;
-      letter-spacing: -0.03em;
+    h1, h2 {
+      margin: 0;
+      font-size: clamp(26px, 3vw, 32px);
+      font-weight: 500;
+      line-height: 1.15;
+      letter-spacing: -1px;
+      color: var(--text-strong);
     }
-    p { margin: 6px 0 0; max-width: 62ch; color: var(--text-muted); }
+    p { margin: 8px 0 0; max-width: 62ch; font-size: 14px; line-height: 1.7; color: var(--text-muted); }
   }
 }
 
@@ -89,33 +95,21 @@
     position: relative;
     min-width: 0;
     padding: var(--space-xl);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: calc(var(--radius) + 6px);
-    box-shadow: var(--shadow);
-    isolation: isolate;
-
-    &::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      z-index: -1;
-      border-radius: inherit;
-      pointer-events: none;
-      background:
-        radial-gradient(120% 60% at 0% 0%, color-mix(in srgb, var(--tone, var(--primary)) 10%, transparent), transparent 60%),
-        linear-gradient(180deg, color-mix(in srgb, var(--text) 3%, transparent), transparent 35%);
-    }
+    background: var(--surface-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-xl);
 
     > h3 {
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 15px;
+      font-size: 17px;
+      font-weight: 500;
+      color: var(--text-strong);
       margin-bottom: var(--space-lg);
     }
 
-    @media (max-width: 560px) { padding: var(--space-lg); }
+    @media (max-width: 560px) { padding: 20px; }
   }
 }
 
@@ -124,37 +118,43 @@
     position: relative;
     overflow: hidden;
     min-width: 0;
-    padding: var(--space-lg) var(--space-xl);
-    border-radius: calc(var(--radius) + 4px);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow);
+    padding: 20px var(--space-xl);
+    border-radius: var(--radius-xl);
+    background: var(--surface-card);
+    border: 1px solid var(--border-color);
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
 
     small {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.01em;
-      color: var(--tone, var(--text-muted));
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+
+      &::before {
+        content: '';
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--tone, var(--primary));
+      }
     }
     b {
       display: block;
-      margin-top: 4px;
-      font-size: 28px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
+      margin-top: 8px;
+      font-size: 34px;
+      font-weight: 500;
+      line-height: 1;
+      letter-spacing: -1.5px;
+      color: var(--text-strong);
       font-variant-numeric: tabular-nums;
     }
-    &::after {
-      content: '';
-      position: absolute;
-      right: -30px;
-      top: -30px;
-      width: 110px;
-      height: 110px;
-      border-radius: 50%;
-      background: radial-gradient(circle, color-mix(in srgb, var(--tone, var(--primary)) 26%, transparent), transparent 70%);
-      pointer-events: none;
-    }
+    &:is(button, a):hover { border-color: var(--border-hover); box-shadow: var(--shadow-lift); }
+    &[aria-pressed='true'] { border-color: var(--tone, var(--primary)); }
   }
 }
 
@@ -163,13 +163,13 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 10px;
+    padding: 4px 11px;
     border-radius: 999px;
-    font-size: 11px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 500;
     text-transform: capitalize;
     white-space: nowrap;
-    background: color-mix(in srgb, var(--tone, var(--text-muted)) 14%, transparent);
+    background: color-mix(in srgb, var(--tone, var(--text-muted)) 12%, transparent);
     color: var(--tone, var(--text-muted));
 
     &::before {
@@ -187,51 +187,53 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 5px 12px;
+    padding: 6px 13px;
     border-radius: 999px;
-    border: 1px solid var(--border);
-    background: var(--surface-alt);
-    color: var(--text);
-    font-size: 12px;
-    font-weight: 600;
+    border: 1px solid var(--border-color);
+    background: var(--surface-card);
+    color: var(--text-muted);
+    font-size: 12.5px;
+    font-weight: 500;
     white-space: nowrap;
-    transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), transform var(--fast) var(--ease);
+    transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease);
 
+    &:is(button):hover { color: var(--text-strong); background: var(--surface-sunken); }
     &[aria-pressed='true'] {
-      background: var(--primary-soft);
-      border-color: var(--primary);
-      color: var(--primary);
-      transform: translateY(-1px);
+      background: var(--primary-tint);
+      border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+      color: var(--primary-text);
     }
-    b { font-variant-numeric: tabular-nums; color: var(--text-muted); }
+    b { font-variant-numeric: tabular-nums; color: inherit; opacity: 0.75; }
   }
 }
 
 @mixin seg {
+  // Kardlyz tab strip: sunken track, the active item lifts onto the card surface.
   .s-seg {
     display: inline-flex;
     gap: 2px;
     padding: 3px;
-    border-radius: 999px;
-    background: var(--surface-alt);
-    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface-sunken);
 
     button {
       border: 0;
       background: transparent;
       color: var(--text-muted);
-      border-radius: 999px;
-      padding: 5px 12px;
-      font-size: 12px;
-      font-weight: 700;
+      border-radius: 9px;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-weight: 500;
       white-space: nowrap;
-      transition: background var(--base) var(--ease), color var(--base) var(--ease), box-shadow var(--base) var(--ease);
+      transition: background var(--fast) var(--ease), color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
 
-      &:hover { color: var(--text); }
-      &[aria-pressed='true'] {
-        background: var(--tone, var(--surface));
-        color: var(--on-tone, var(--text));
-        box-shadow: 0 3px 10px color-mix(in srgb, var(--tone, var(--text)) 30%, transparent);
+      &:hover { color: var(--text-strong); }
+      &[aria-pressed='true'],
+      &[aria-selected='true'] {
+        background: var(--surface-card);
+        color: var(--text-strong);
+        font-weight: 600;
+        box-shadow: var(--shadow-sm);
       }
     }
   }
@@ -246,29 +248,31 @@
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th {
       text-align: left;
-      font-size: 11px;
-      letter-spacing: 0.01em;
-      color: var(--text-muted);
-      padding: 8px 10px;
-      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--hint);
+      padding: 10px;
+      border-bottom: 1px solid var(--border-color);
       white-space: nowrap;
     }
     td {
-      padding: 11px 10px;
-      border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+      padding: 12px 10px;
+      border-bottom: 1px solid var(--border-color);
+      color: var(--text-color);
       white-space: nowrap;
     }
     tbody tr {
       animation: s-rise 400ms var(--ease) both;
       animation-delay: calc(min(var(--i, 0), 20) * 25ms);
       transition: background var(--fast) var(--ease);
-      &:hover { background: color-mix(in srgb, var(--primary) 5%, transparent); }
+      &:hover { background: var(--surface-sunken); }
+      &:last-child td { border-bottom: 0; }
     }
     .num { text-align: right; font-variant-numeric: tabular-nums; }
 
     @media (max-width: 560px) {
-      margin: 0 calc(var(--space-lg) * -1);
-      padding: 0 var(--space-lg);
+      margin: 0 -20px;
+      padding: 0 20px;
     }
   }
 }
@@ -276,25 +280,26 @@
 @mixin field {
   .s-field {
     display: grid;
-    gap: 6px;
+    gap: 7px;
     min-width: 0;
 
-    label, .label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
-    .hint { font-size: 11px; color: var(--text-muted); }
-    .err { font-size: 11px; font-weight: 600; color: var(--danger); }
+    label, .label { font-size: 13px; font-weight: 500; color: var(--text-strong); }
+    .hint { font-size: 12px; color: var(--text-muted); }
+    .err { font-size: 12px; font-weight: 500; color: var(--danger-text); }
     input.invalid, select.invalid { border-color: var(--danger); }
   }
 }
 
 @mixin buttons {
-  .btn.ghost { background: transparent; }
-  .btn.sm { padding: 6px 10px; font-size: 12px; }
-  .btn.icon { padding: 6px; border-radius: 50%; }
+  .btn.ghost { background: transparent; border-color: transparent; }
+  .btn.sm { min-height: 32px; padding: 0 11px; font-size: 12.5px; }
+  .btn.icon { width: 38px; padding: 0; }
+  .btn.sm.icon { width: 32px; }
   .btn.danger-ghost {
     background: transparent;
-    color: var(--danger);
-    border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-    &:hover:not(:disabled) { background: var(--danger-soft); }
+    color: var(--danger-text);
+    border-color: rgba(220, 38, 38, 0.35);
+    &:hover:not(:disabled) { background: rgba(239, 68, 68, 0.08); }
   }
 }
 
@@ -307,46 +312,53 @@
     text-align: center;
     color: var(--text-muted);
 
-    .ms {
-      font-size: 40px;
-      color: var(--tone, var(--primary));
+    .ti {
+      display: grid;
+      place-items: center;
+      width: 56px;
+      height: 56px;
+      margin-bottom: 6px;
+      border-radius: 16px;
+      font-size: 26px;
+      background: color-mix(in srgb, var(--tone, var(--primary)) 12%, transparent);
+      color: var(--tone, var(--primary-text));
       animation: s-float 3.2s var(--ease) infinite;
     }
-    strong { color: var(--text); font-size: 15px; }
-    p { margin: 0; max-width: 44ch; }
+    strong { color: var(--text-strong); font-size: 15px; font-weight: 500; }
+    p { margin: 0; max-width: 44ch; font-size: 13.5px; line-height: 1.6; }
   }
 }
 
 @mixin skeleton {
   .s-skel {
-    height: 18px;
-    border-radius: 6px;
-    background: linear-gradient(90deg, var(--surface-alt) 25%, color-mix(in srgb, var(--surface-alt) 40%, var(--surface)) 50%, var(--surface-alt) 75%);
-    background-size: 200% 100%;
-    animation: s-shimmer 1.2s linear infinite;
-    margin: 10px 0;
+    height: 14px;
+    border-radius: 999px;
+    background: var(--surface-sunken);
+    animation: s-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    margin: 12px 0;
   }
+  @keyframes s-pulse { 50% { opacity: 0.5; } }
 }
 
 @mixin banner {
   .s-banner {
-    --tone: var(--danger);
+    --tone: var(--danger-text);
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: 10px;
     margin: 0;
-    padding: 12px 16px;
-    border-radius: var(--radius);
-    border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent);
-    background: color-mix(in srgb, var(--tone) 10%, var(--surface));
+    padding: 12px 14px;
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--tone) 10%, transparent);
     color: var(--tone);
-    font-weight: 600;
+    font-size: 13.5px;
     animation: s-pop 280ms var(--ease) both;
 
-    &.tone-ok { --tone: var(--primary); }
+    .ti { font-size: 16px; }
+    &.tone-ok { --tone: var(--success); }
     &.tone-warn { --tone: var(--warning); }
-    &.tone-info { --tone: var(--accent); }
+    &.tone-info { --tone: var(--info); }
   }
 }
 
@@ -358,7 +370,7 @@
     transition: transform 380ms var(--ease), box-shadow 380ms var(--ease);
     will-change: transform;
 
-    &:hover { box-shadow: 0 18px 40px color-mix(in srgb, var(--text) 14%, transparent); }
+    &:hover { box-shadow: var(--shadow-lift); }
   }
 }
 
@@ -368,8 +380,8 @@
     inset: 0;
     z-index: 70;
     border: 0;
-    background: color-mix(in srgb, var(--text) 35%, transparent);
-    backdrop-filter: blur(2px);
+    background: rgba(16, 16, 24, 0.45);
+    backdrop-filter: blur(4px);
     animation: s-pop 200ms var(--ease) both;
   }
   .s-drawer {
@@ -384,9 +396,9 @@
     align-content: start;
     gap: var(--space-lg);
     padding: var(--space-xl);
-    background: var(--surface);
-    border-left: 1px solid var(--border);
-    box-shadow: -20px 0 50px color-mix(in srgb, var(--text) 18%, transparent);
+    background: var(--surface-card);
+    border-left: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lift);
     animation: s-drawer-in 320ms var(--ease) both;
   }
   @keyframes s-drawer-in {

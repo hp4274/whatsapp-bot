@@ -3,21 +3,15 @@
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, throwError } from 'rxjs';
-
-import { Role, Tenant, TenantControls, User } from './auth';
 import { catchError } from 'rxjs/operators';
 
+import { Role, Tenant, TenantControls, User } from './auth';
+
 export type MessageStatus =
-  | 'QUEUED'
-  | 'SENDING'
-  | 'SENT'
-  | 'DELIVERED'
-  | 'READ'
-  | 'FAILED'
-  | 'SANDBOX';
+  'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | 'SANDBOX';
 
 export interface AppConfig {
-  transport: 'cloud_api' | 'whatsapp_web' | 'baileys' | 'sandbox';
+  transport: 'cloud_api' | 'baileys';
   graphVersion: string;
   phoneNumberId: string;
   accessToken: string;
@@ -157,13 +151,20 @@ export type AutoReplyRulePayload = Omit<AutoReplyRule, 'id' | 'createdAt' | 'upd
   id?: number;
 };
 
+/** Messaging endpoints for the active WhatsApp number: connection, sending, history, config and media. */
 @Injectable({ providedIn: 'root' })
 export class Api {
   private readonly http = inject(HttpClient);
 
-  getConfig(): Observable<{ config: AppConfig; transports: string[]; warnings: Record<string, string> }> {
+  getConfig(): Observable<{
+    config: AppConfig;
+    transports: string[];
+    warnings: Record<string, string>;
+  }> {
     return this.http
-      .get<{ config: AppConfig; transports: string[]; warnings: Record<string, string> }>('/api/config')
+      .get<{ config: AppConfig; transports: string[]; warnings: Record<string, string> }>(
+        '/api/config',
+      )
       .pipe(catchError(toMessage));
   }
 
@@ -188,7 +189,9 @@ export class Api {
   }
 
   logout(): Observable<ConnectionState> {
-    return this.http.post<ConnectionState>('/api/connection/logout', {}).pipe(catchError(toMessage));
+    return this.http
+      .post<ConnectionState>('/api/connection/logout', {})
+      .pipe(catchError(toMessage));
   }
 
   sendMessage(
@@ -197,16 +200,30 @@ export class Api {
     name = '',
   ): Observable<{ messageId: string; recipient: string; message: string }> {
     return this.http
-      .post<{ messageId: string; recipient: string; message: string }>('/api/messages',
-        { recipient, message, name })
+      .post<{ messageId: string; recipient: string; message: string }>('/api/messages', {
+        recipient,
+        message,
+        name,
+      })
       .pipe(catchError(toMessage));
   }
 
-  uploadMedia(file: File): Observable<{ mediaId: string; filename: string; mimetype: string; size: number; url: string }> {
+  uploadMedia(
+    file: File,
+  ): Observable<{
+    mediaId: string;
+    filename: string;
+    mimetype: string;
+    size: number;
+    url: string;
+  }> {
     const form = new FormData();
     form.append('file', file);
     return this.http
-      .post<{ mediaId: string; filename: string; mimetype: string; size: number; url: string }>('/api/media/upload', form)
+      .post<{ mediaId: string; filename: string; mimetype: string; size: number; url: string }>(
+        '/api/media/upload',
+        form,
+      )
       .pipe(catchError(toMessage));
   }
 
@@ -226,11 +243,21 @@ export class Api {
 
   sendPaymentReminders(
     reminders: PaymentReminder[],
-  ): Observable<{ queued: number; skipped: number; campaignId: string; overQuota: number;
-    safety: SafetyStatus }> {
+  ): Observable<{
+    queued: number;
+    skipped: number;
+    campaignId: string;
+    overQuota: number;
+    safety: SafetyStatus;
+  }> {
     return this.http
-      .post<{ queued: number; skipped: number; campaignId: string; overQuota: number;
-        safety: SafetyStatus }>('/api/payment-reminders/send', { reminders })
+      .post<{
+        queued: number;
+        skipped: number;
+        campaignId: string;
+        overQuota: number;
+        safety: SafetyStatus;
+      }>('/api/payment-reminders/send', { reminders })
       .pipe(catchError(toMessage));
   }
 
@@ -239,11 +266,21 @@ export class Api {
     template: string,
     onePerNumber: boolean,
     mediaId: string | null = null,
-  ): Observable<{ queued: number; skipped: number; campaignId: string; overQuota: number;
-    safety: SafetyStatus }> {
+  ): Observable<{
+    queued: number;
+    skipped: number;
+    campaignId: string;
+    overQuota: number;
+    safety: SafetyStatus;
+  }> {
     return this.http
-      .post<{ queued: number; skipped: number; campaignId: string; overQuota: number;
-        safety: SafetyStatus }>('/api/campaign/start', {
+      .post<{
+        queued: number;
+        skipped: number;
+        campaignId: string;
+        overQuota: number;
+        safety: SafetyStatus;
+      }>('/api/campaign/start', {
         contacts,
         template,
         onePerNumber,
@@ -270,9 +307,15 @@ export class Api {
     return this.http.get<CustomSafetyView>('/api/safety/custom').pipe(catchError(toMessage));
   }
 
-  acceptSafetyRisk(body: { accept: boolean; version: string; fullName: string; confirmation: string }):
-    Observable<CustomSafetyView> {
-    return this.http.post<CustomSafetyView>('/api/safety/custom/consent', body).pipe(catchError(toMessage));
+  acceptSafetyRisk(body: {
+    accept: boolean;
+    version: string;
+    fullName: string;
+    confirmation: string;
+  }): Observable<CustomSafetyView> {
+    return this.http
+      .post<CustomSafetyView>('/api/safety/custom/consent', body)
+      .pipe(catchError(toMessage));
   }
 
   setCustomSafety(patch: Partial<SafetyPolicy>): Observable<CustomSafetyView> {
@@ -284,28 +327,43 @@ export class Api {
   }
 
   stats(): Observable<{ stats: CampaignStats }> {
-    return this.http.get<{ stats: CampaignStats }>('/api/campaign/stats').pipe(catchError(toMessage));
+    return this.http
+      .get<{ stats: CampaignStats }>('/api/campaign/stats')
+      .pipe(catchError(toMessage));
   }
 
   autoReplies(): Observable<{ rules: AutoReplyRule[] }> {
-    return this.http.get<{ rules: AutoReplyRule[] }>('/api/auto-replies').pipe(catchError(toMessage));
+    return this.http
+      .get<{ rules: AutoReplyRule[] }>('/api/auto-replies')
+      .pipe(catchError(toMessage));
   }
 
   createAutoReply(rule: AutoReplyRulePayload): Observable<{ rule: AutoReplyRule }> {
-    return this.http.post<{ rule: AutoReplyRule }>('/api/auto-replies', rule).pipe(catchError(toMessage));
+    return this.http
+      .post<{ rule: AutoReplyRule }>('/api/auto-replies', rule)
+      .pipe(catchError(toMessage));
   }
 
-  updateAutoReply(id: number, rule: Partial<AutoReplyRulePayload>): Observable<{ rule: AutoReplyRule }> {
+  updateAutoReply(
+    id: number,
+    rule: Partial<AutoReplyRulePayload>,
+  ): Observable<{ rule: AutoReplyRule }> {
     return this.http
       .put<{ rule: AutoReplyRule }>(`/api/auto-replies/${id}`, rule)
       .pipe(catchError(toMessage));
   }
 
   deleteAutoReply(id: number): Observable<{ deleted: number }> {
-    return this.http.delete<{ deleted: number }>(`/api/auto-replies/${id}`).pipe(catchError(toMessage));
+    return this.http
+      .delete<{ deleted: number }>(`/api/auto-replies/${id}`)
+      .pipe(catchError(toMessage));
   }
 
-  previewAutoReply(template: string, sender: string, senderName: string): Observable<{ preview: string }> {
+  previewAutoReply(
+    template: string,
+    sender: string,
+    senderName: string,
+  ): Observable<{ preview: string }> {
     return this.http
       .post<{ preview: string }>('/api/auto-replies/preview', { template, sender, senderName })
       .pipe(catchError(toMessage));
@@ -329,9 +387,10 @@ export class Api {
 /** Surface the server's own words, not "Http failure response for ...". */
 function toMessage(error: HttpErrorResponse) {
   const errors = error.error?.errors;
-  const message = Array.isArray(errors) && errors.length
-    ? errors.join('\n')
-    : error.error?.message || error.message || 'Request failed';
+  const message =
+    Array.isArray(errors) && errors.length
+      ? errors.join('\n')
+      : error.error?.message || error.message || 'Request failed';
   return throwError(() => new Error(message));
 }
 
@@ -447,12 +506,15 @@ export interface HealthStatus {
   [key: string]: unknown;
 }
 
+/** Tenant, user and platform-admin endpoints. Super-admin calls carry the acting tenant via `authInterceptor`. */
 @Injectable({ providedIn: 'root' })
 export class TenancyApi {
   private readonly http = inject(HttpClient);
 
   tenants(): Observable<{ tenants: Tenant[]; services: string[] }> {
-    return this.http.get<{ tenants: Tenant[]; services: string[] }>('/api/admin/tenants').pipe(catchError(toMessage));
+    return this.http
+      .get<{ tenants: Tenant[]; services: string[] }>('/api/admin/tenants')
+      .pipe(catchError(toMessage));
   }
 
   createTenant(body: {
@@ -462,14 +524,22 @@ export class TenancyApi {
     controls?: TenantControls;
     owner: { email: string; name?: string; password: string };
   }): Observable<{ tenant: Tenant; owner: User }> {
-    return this.http.post<{ tenant: Tenant; owner: User }>('/api/admin/tenants', body).pipe(catchError(toMessage));
+    return this.http
+      .post<{ tenant: Tenant; owner: User }>('/api/admin/tenants', body)
+      .pipe(catchError(toMessage));
   }
 
   updateTenant(
     id: number,
-    patch: Partial<{ status: Tenant['status']; services: string[]; controls: Partial<TenantControls> }>,
+    patch: Partial<{
+      status: Tenant['status'];
+      services: string[];
+      controls: Partial<TenantControls>;
+    }>,
   ): Observable<{ tenant: Tenant }> {
-    return this.http.patch<{ tenant: Tenant }>(`/api/admin/tenants/${id}`, patch).pipe(catchError(toMessage));
+    return this.http
+      .patch<{ tenant: Tenant }>(`/api/admin/tenants/${id}`, patch)
+      .pipe(catchError(toMessage));
   }
 
   setTenantStatus(id: number, status: Tenant['status']): Observable<{ tenant: Tenant }> {
@@ -477,28 +547,35 @@ export class TenancyApi {
   }
 
   safety(id: number): Observable<{ safety: SafetyPolicy; custom: CustomSafetyState }> {
-    return this.http.get<{ safety: SafetyPolicy; custom: CustomSafetyState }>(`/api/admin/tenants/${id}/safety`)
+    return this.http
+      .get<{ safety: SafetyPolicy; custom: CustomSafetyState }>(`/api/admin/tenants/${id}/safety`)
       .pipe(catchError(toMessage));
   }
 
   /** Drop a tenant's own limits and take the permission back. */
   revokeCustomSafety(id: number): Observable<{ safety: SafetyPolicy; custom: CustomSafetyState }> {
-    return this.http.delete<{ safety: SafetyPolicy; custom: CustomSafetyState }>(`/api/admin/tenants/${id}/custom-safety`)
+    return this.http
+      .delete<{ safety: SafetyPolicy; custom: CustomSafetyState }>(
+        `/api/admin/tenants/${id}/custom-safety`,
+      )
       .pipe(catchError(toMessage));
   }
 
   setSafety(id: number, patch: Partial<SafetyPolicy>): Observable<{ safety: SafetyPolicy }> {
-    return this.http.put<{ safety: SafetyPolicy }>(`/api/admin/tenants/${id}/safety`, patch)
+    return this.http
+      .put<{ safety: SafetyPolicy }>(`/api/admin/tenants/${id}/safety`, patch)
       .pipe(catchError(toMessage));
   }
 
   setLimits(id: number, patch: Partial<TenantLimits>): Observable<{ limits: TenantLimits }> {
-    return this.http.put<{ limits: TenantLimits }>(`/api/admin/tenants/${id}/limits`, patch)
+    return this.http
+      .put<{ limits: TenantLimits }>(`/api/admin/tenants/${id}/limits`, patch)
       .pipe(catchError(toMessage));
   }
 
   deleteTenant(id: number): Observable<{ tenant: Tenant; deleted: number }> {
-    return this.http.delete<{ tenant: Tenant; deleted: number }>(`/api/admin/tenants/${id}`)
+    return this.http
+      .delete<{ tenant: Tenant; deleted: number }>(`/api/admin/tenants/${id}`)
       .pipe(catchError(toMessage));
   }
 
@@ -506,30 +583,43 @@ export class TenancyApi {
     return this.http.get<SchoolCatalog>('/api/admin/school/catalog').pipe(catchError(toMessage));
   }
 
-  provisionSchool(id: number, body: { recipes?: string[]; templates?: boolean; status?: 'draft' | 'active' }):
-    Observable<SchoolProvisionResult> {
-    return this.http.post<SchoolProvisionResult>(`/api/admin/tenants/${id}/school/provision`, body)
+  provisionSchool(
+    id: number,
+    body: { recipes?: string[]; templates?: boolean; status?: 'draft' | 'active' },
+  ): Observable<SchoolProvisionResult> {
+    return this.http
+      .post<SchoolProvisionResult>(`/api/admin/tenants/${id}/school/provision`, body)
       .pipe(catchError(toMessage));
   }
 
   /** Fill a tenant with demo content for its enabled services. Idempotent; never sends. */
   seedTenant(id: number): Observable<{ created: Record<string, number>; skipped: string[] }> {
-    return this.http.post<{ created: Record<string, number>; skipped: string[] }>(`/api/admin/tenants/${id}/seed`, {})
+    return this.http
+      .post<{ created: Record<string, number>; skipped: string[] }>(
+        `/api/admin/tenants/${id}/seed`,
+        {},
+      )
       .pipe(catchError(toMessage));
   }
 
   auditLogs(tenantId?: number | null): Observable<{ logs: AuditLog[] }> {
     const params = tenantId ? new HttpParams().set('tenant', tenantId) : undefined;
-    return this.http.get<{ logs: AuditLog[] }>('/api/admin/audit-logs', { params }).pipe(catchError(toMessage));
+    return this.http
+      .get<{ logs: AuditLog[] }>('/api/admin/audit-logs', { params })
+      .pipe(catchError(toMessage));
   }
 
   plans(): Observable<{ plans: BillingPlan[] }> {
-    return this.http.get<{ plans: BillingPlan[] }>('/api/billing/plans').pipe(catchError(toMessage));
+    return this.http
+      .get<{ plans: BillingPlan[] }>('/api/billing/plans')
+      .pipe(catchError(toMessage));
   }
 
   usage(period?: string): Observable<{ usage: BillingUsage }> {
     const params = period ? new HttpParams().set('period', period) : undefined;
-    return this.http.get<{ usage: BillingUsage }>('/api/billing/usage', { params }).pipe(catchError(toMessage));
+    return this.http
+      .get<{ usage: BillingUsage }>('/api/billing/usage', { params })
+      .pipe(catchError(toMessage));
   }
 
   usageHistory(months = 6): Observable<{ history: BillingUsage[] }> {
@@ -545,15 +635,24 @@ export class TenancyApi {
   }
 
   users(): Observable<{ users: User[]; roles: Role[] }> {
-    return this.http.get<{ users: User[]; roles: Role[] }>('/api/users').pipe(catchError(toMessage));
+    return this.http
+      .get<{ users: User[]; roles: Role[] }>('/api/users')
+      .pipe(catchError(toMessage));
   }
 
-  createUser(body: { email: string; name?: string; password: string; role: Role }): Observable<{ user: User }> {
+  createUser(body: {
+    email: string;
+    name?: string;
+    password: string;
+    role: Role;
+  }): Observable<{ user: User }> {
     return this.http.post<{ user: User }>('/api/users', body).pipe(catchError(toMessage));
   }
 
   setUserDisabled(id: number, disabled: boolean): Observable<{ user: User }> {
-    return this.http.patch<{ user: User }>(`/api/users/${id}`, { disabled }).pipe(catchError(toMessage));
+    return this.http
+      .patch<{ user: User }>(`/api/users/${id}`, { disabled })
+      .pipe(catchError(toMessage));
   }
 }
 
@@ -651,6 +750,7 @@ export type ChannelPatch = Partial<{
   isDefault: boolean;
 }>;
 
+/** CRUD and health for a tenant's WhatsApp numbers. These routes are tenant-level, never channel-scoped. */
 @Injectable({ providedIn: 'root' })
 export class ChannelsApi {
   private readonly http = inject(HttpClient);
@@ -664,11 +764,15 @@ export class ChannelsApi {
   }
 
   update(id: number, patch: ChannelPatch): Observable<{ channel: Channel }> {
-    return this.http.patch<{ channel: Channel }>(`/api/channels/${id}`, patch).pipe(catchError(toMessage));
+    return this.http
+      .patch<{ channel: Channel }>(`/api/channels/${id}`, patch)
+      .pipe(catchError(toMessage));
   }
 
   makeDefault(id: number): Observable<{ channel: Channel }> {
-    return this.http.post<{ channel: Channel }>(`/api/channels/${id}/default`, {}).pipe(catchError(toMessage));
+    return this.http
+      .post<{ channel: Channel }>(`/api/channels/${id}/default`, {})
+      .pipe(catchError(toMessage));
   }
 
   remove(id: number): Observable<{ deleted: number }> {
@@ -739,7 +843,11 @@ export interface ImportPreview {
 export interface ImportResult {
   errors: string[];
   duplicates: number;
-  saved?: { created: number; updated: number; failed: { row: number; phone: string; error: string }[] };
+  saved?: {
+    created: number;
+    updated: number;
+    failed: { row: number; phone: string; error: string }[];
+  };
 }
 
 export interface ContactFilter {
@@ -770,6 +878,7 @@ export interface ContactList {
   fieldKeys: string[];
 }
 
+/** Contacts, tags, custom fields and imports. */
 @Injectable({ providedIn: 'root' })
 export class ContactsApi {
   private readonly http = inject(HttpClient);
@@ -787,13 +896,21 @@ export class ContactsApi {
   }
 
   /** One action over many contacts: explicit ids, or every match of `filter`. */
-  bulk(body: { ids?: number[]; filter?: ContactFilter; action: BulkAction; tags?: string[]; reason?: string }): Observable<BulkResult> {
+  bulk(body: {
+    ids?: number[];
+    filter?: ContactFilter;
+    action: BulkAction;
+    tags?: string[];
+    reason?: string;
+  }): Observable<BulkResult> {
     return this.http.post<BulkResult>('/api/contacts/bulk', body).pipe(catchError(toMessage));
   }
 
   /** Opt out (with a reason) or back in; keeps opt_outs and opt-in status in step. */
   consent(id: number, optedOut: boolean, reason = ''): Observable<{ contact: Contact2 }> {
-    return this.http.post<{ contact: Contact2 }>(`/api/contacts/${id}/consent`, { optedOut, reason }).pipe(catchError(toMessage));
+    return this.http
+      .post<{ contact: Contact2 }>(`/api/contacts/${id}/consent`, { optedOut, reason })
+      .pipe(catchError(toMessage));
   }
 
   get(id: number): Observable<{ contact: Contact2 }> {
@@ -801,27 +918,40 @@ export class ContactsApi {
   }
 
   /** CSV of the given ids, or of everything matching the filter. */
-  exportCsv(target: { ids?: number[]; filter?: ContactFilter; sort?: ContactSort | ''; dir?: 'asc' | 'desc' }): Observable<Blob> {
+  exportCsv(target: {
+    ids?: number[];
+    filter?: ContactFilter;
+    sort?: ContactSort | '';
+    dir?: 'asc' | 'desc';
+  }): Observable<Blob> {
     let params = new HttpParams();
     if (target.ids?.length) params = params.set('ids', target.ids.join(','));
-    else if (target.filter && Object.keys(target.filter).length) params = params.set('filter', JSON.stringify(target.filter));
+    else if (target.filter && Object.keys(target.filter).length)
+      params = params.set('filter', JSON.stringify(target.filter));
     if (target.sort) params = params.set('sort', target.sort).set('dir', target.dir ?? 'asc');
-    return this.http.get('/api/contacts/export', { params, responseType: 'blob' }).pipe(catchError(toMessage));
+    return this.http
+      .get('/api/contacts/export', { params, responseType: 'blob' })
+      .pipe(catchError(toMessage));
   }
 
   duplicates(): Observable<{ total: number; groups: DuplicateGroup[] }> {
-    return this.http.get<{ total: number; groups: DuplicateGroup[] }>('/api/contacts/duplicates').pipe(catchError(toMessage));
+    return this.http
+      .get<{ total: number; groups: DuplicateGroup[] }>('/api/contacts/duplicates')
+      .pipe(catchError(toMessage));
   }
 
   merge(keepId: number, mergeIds: number[]): Observable<{ contact: Contact2; removed: number[] }> {
-    return this.http.post<{ contact: Contact2; removed: number[] }>('/api/contacts/merge', { keepId, mergeIds })
+    return this.http
+      .post<{ contact: Contact2; removed: number[] }>('/api/contacts/merge', { keepId, mergeIds })
       .pipe(catchError(toMessage));
   }
 
   importPreview(file: File): Observable<ImportPreview> {
     const form = new FormData();
     form.append('file', file);
-    return this.http.post<ImportPreview>('/api/contacts/import/preview', form).pipe(catchError(toMessage));
+    return this.http
+      .post<ImportPreview>('/api/contacts/import/preview', form)
+      .pipe(catchError(toMessage));
   }
 
   /** Commit an import with an explicit column mapping (one target per header). */
@@ -831,7 +961,9 @@ export class ContactsApi {
     form.append('file', file);
     let params = new HttpParams().set('save', 'true');
     if (tags.length) params = params.set('tags', tags.join(','));
-    return this.http.post<ImportResult>('/api/contacts/import', form, { params }).pipe(catchError(toMessage));
+    return this.http
+      .post<ImportResult>('/api/contacts/import', form, { params })
+      .pipe(catchError(toMessage));
   }
 
   save(body: Partial<Contact2>): Observable<{ contact: Contact2 }> {
@@ -839,7 +971,9 @@ export class ContactsApi {
   }
 
   update(id: number, body: Partial<Contact2>): Observable<{ contact: Contact2 }> {
-    return this.http.put<{ contact: Contact2 }>(`/api/contacts/${id}`, body).pipe(catchError(toMessage));
+    return this.http
+      .put<{ contact: Contact2 }>(`/api/contacts/${id}`, body)
+      .pipe(catchError(toMessage));
   }
 
   remove(id: number): Observable<{ deleted: number }> {
@@ -847,40 +981,64 @@ export class ContactsApi {
   }
 
   tag(id: number, add: string[] = [], remove: string[] = []): Observable<{ contact: Contact2 }> {
-    return this.http.post<{ contact: Contact2 }>(`/api/contacts/${id}/tags`, { add, remove }).pipe(catchError(toMessage));
+    return this.http
+      .post<{ contact: Contact2 }>(`/api/contacts/${id}/tags`, { add, remove })
+      .pipe(catchError(toMessage));
   }
 
   timeline(id: number): Observable<{ timeline: TimelineEntry[] }> {
-    return this.http.get<{ timeline: TimelineEntry[] }>(`/api/contacts/${id}/timeline`).pipe(catchError(toMessage));
+    return this.http
+      .get<{ timeline: TimelineEntry[] }>(`/api/contacts/${id}/timeline`)
+      .pipe(catchError(toMessage));
   }
 
   segments(): Observable<{ segments: Segment[] }> {
     return this.http.get<{ segments: Segment[] }>('/api/segments').pipe(catchError(toMessage));
   }
 
-  saveSegment(body: { name: string; filter: ContactFilter }): Observable<{ segment: Segment; count: number }> {
-    return this.http.post<{ segment: Segment; count: number }>('/api/segments', body).pipe(catchError(toMessage));
+  saveSegment(body: {
+    name: string;
+    filter: ContactFilter;
+  }): Observable<{ segment: Segment; count: number }> {
+    return this.http
+      .post<{ segment: Segment; count: number }>('/api/segments', body)
+      .pipe(catchError(toMessage));
   }
 
   deleteSegment(id: number): Observable<{ deleted: number }> {
     return this.http.delete<{ deleted: number }>(`/api/segments/${id}`).pipe(catchError(toMessage));
   }
 
-  importFile(file: File, tags: string[] = []): Observable<{ saved?: { created: number; updated: number; failed: unknown[] } }> {
+  importFile(
+    file: File,
+    tags: string[] = [],
+  ): Observable<{ saved?: { created: number; updated: number; failed: unknown[] } }> {
     const form = new FormData();
     form.append('file', file);
     let params = new HttpParams().set('save', 'true');
     if (tags.length) params = params.set('tags', tags.join(','));
-    return this.http.post<{ saved?: { created: number; updated: number; failed: unknown[] } }>(
-      '/api/contacts/import', form, { params }).pipe(catchError(toMessage));
+    return this.http
+      .post<{ saved?: { created: number; updated: number; failed: unknown[] } }>(
+        '/api/contacts/import',
+        form,
+        { params },
+      )
+      .pipe(catchError(toMessage));
   }
 }
 
 /* Campaigns v2: import wizard, persistent campaigns, analytics ------------ */
 
 export type ImportIssueReason =
-  | 'empty' | 'letters' | 'too_short' | 'too_long' | 'bad_country_code' | 'invalid'
-  | 'duplicate' | 'opted_out' | 'recent';
+  | 'empty'
+  | 'letters'
+  | 'too_short'
+  | 'too_long'
+  | 'bad_country_code'
+  | 'invalid'
+  | 'duplicate'
+  | 'opted_out'
+  | 'recent';
 
 export interface ImportPreview {
   importId: string;
@@ -916,7 +1074,14 @@ export interface ImportIssue {
 }
 
 export interface ImportAudit {
-  counts: { total: number; valid: number; invalid: number; duplicate: number; optedOut: number; recent: number };
+  counts: {
+    total: number;
+    valid: number;
+    invalid: number;
+    duplicate: number;
+    optedOut: number;
+    recent: number;
+  };
   issues: ImportIssue[];
   /** Row index + normalised phone for every row that passed. */
   valid: { row: number; phone: string; name: string }[];
@@ -932,10 +1097,7 @@ export interface RetargetAudience {
 
 /** What `POST /api/campaigns` accepts as `audience`. */
 export type CampaignAudienceInput =
-  | Contact[]
-  | ImportAuditOptions
-  | RetargetAudience
-  | ContactFilter;
+  Contact[] | ImportAuditOptions | RetargetAudience | ContactFilter;
 
 export interface CampaignOptions {
   interactive?: unknown | null;
@@ -968,7 +1130,13 @@ export interface Campaign {
   scheduledAt: string | null;
   startedAt: string | null;
   finishedAt: string | null;
-  stats: { total?: number; pending?: number; failed?: number; sent?: number; byStatus?: Record<string, number> };
+  stats: {
+    total?: number;
+    pending?: number;
+    failed?: number;
+    sent?: number;
+    byStatus?: Record<string, number>;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -986,16 +1154,31 @@ export interface CampaignCreate {
 
 export interface CampaignAnalytics {
   campaign: Campaign;
-  funnel: { audience: number; queued: number; sent: number; delivered: number; read: number; replied: number; failed: number };
+  funnel: {
+    audience: number;
+    queued: number;
+    sent: number;
+    delivered: number;
+    read: number;
+    replied: number;
+    failed: number;
+  };
   failures: { code: string; label: string; count: number }[];
   /** Null when the interactive module has not recorded anything for this campaign. */
   clicks: { id: string; title: string; count: number }[] | null;
   recipients: {
-    phone: string; name: string; status: MessageStatus; updatedAt: string;
-    error: string | null; errorCode: string | null; clicked: string | null; replied: boolean;
+    phone: string;
+    name: string;
+    status: MessageStatus;
+    updatedAt: string;
+    error: string | null;
+    errorCode: string | null;
+    clicked: string | null;
+    replied: boolean;
   }[];
 }
 
+/** Campaign creation, audiences and per-campaign results. */
 @Injectable({ providedIn: 'root' })
 export class CampaignsApi {
   private readonly http = inject(HttpClient);
@@ -1004,11 +1187,15 @@ export class CampaignsApi {
     const form = new FormData();
     form.append('file', file);
     if (countryCode) form.append('countryCode', countryCode);
-    return this.http.post<ImportPreview>('/api/campaign/import/preview', form).pipe(catchError(toMessage));
+    return this.http
+      .post<ImportPreview>('/api/campaign/import/preview', form)
+      .pipe(catchError(toMessage));
   }
 
   importAudit(body: ImportAuditOptions): Observable<ImportAudit> {
-    return this.http.post<ImportAudit>('/api/campaign/import/audit', body).pipe(catchError(toMessage));
+    return this.http
+      .post<ImportAudit>('/api/campaign/import/audit', body)
+      .pipe(catchError(toMessage));
   }
 
   list(): Observable<{ campaigns: Campaign[] }> {
@@ -1016,53 +1203,88 @@ export class CampaignsApi {
   }
 
   get(id: number): Observable<{ campaign: Campaign }> {
-    return this.http.get<{ campaign: Campaign }>(`/api/campaigns/${id}`).pipe(catchError(toMessage));
-  }
-
-  create(body: CampaignCreate): Observable<{ campaign: Campaign }> {
-    return this.http.post<{ campaign: Campaign }>('/api/campaigns', body).pipe(catchError(toMessage));
-  }
-
-  remove(id: number): Observable<{ deleted: boolean }> {
-    return this.http.delete<{ deleted: boolean }>(`/api/campaigns/${id}`).pipe(catchError(toMessage));
-  }
-
-  action(id: number, action: 'start' | 'pause' | 'resume' | 'cancel'):
-    Observable<{ campaign: Campaign; stats?: CampaignStats | null; queued?: number; skipped?: number; safety?: SafetyStatus }> {
     return this.http
-      .post<{ campaign: Campaign; stats?: CampaignStats | null; queued?: number; skipped?: number; safety?: SafetyStatus }>(
-        `/api/campaigns/${id}/${action}`, {})
+      .get<{ campaign: Campaign }>(`/api/campaigns/${id}`)
       .pipe(catchError(toMessage));
   }
 
-  speed(id: number, pacing: PacingPreset): Observable<{ campaign: Campaign; safety: SafetyStatus }> {
-    return this.http.post<{ campaign: Campaign; safety: SafetyStatus }>(`/api/campaigns/${id}/speed`, { pacing })
+  create(body: CampaignCreate): Observable<{ campaign: Campaign }> {
+    return this.http
+      .post<{ campaign: Campaign }>('/api/campaigns', body)
+      .pipe(catchError(toMessage));
+  }
+
+  remove(id: number): Observable<{ deleted: boolean }> {
+    return this.http
+      .delete<{ deleted: boolean }>(`/api/campaigns/${id}`)
+      .pipe(catchError(toMessage));
+  }
+
+  action(
+    id: number,
+    action: 'start' | 'pause' | 'resume' | 'cancel',
+  ): Observable<{
+    campaign: Campaign;
+    stats?: CampaignStats | null;
+    queued?: number;
+    skipped?: number;
+    safety?: SafetyStatus;
+  }> {
+    return this.http
+      .post<{
+        campaign: Campaign;
+        stats?: CampaignStats | null;
+        queued?: number;
+        skipped?: number;
+        safety?: SafetyStatus;
+      }>(`/api/campaigns/${id}/${action}`, {})
+      .pipe(catchError(toMessage));
+  }
+
+  speed(
+    id: number,
+    pacing: PacingPreset,
+  ): Observable<{ campaign: Campaign; safety: SafetyStatus }> {
+    return this.http
+      .post<{ campaign: Campaign; safety: SafetyStatus }>(`/api/campaigns/${id}/speed`, { pacing })
       .pipe(catchError(toMessage));
   }
 
   retryFailed(id: number): Observable<{ campaign: Campaign; queued: number }> {
-    return this.http.post<{ campaign: Campaign; queued: number }>(`/api/campaigns/${id}/retry-failed`, {})
+    return this.http
+      .post<{ campaign: Campaign; queued: number }>(`/api/campaigns/${id}/retry-failed`, {})
       .pipe(catchError(toMessage));
   }
 
   analytics(id: number): Observable<CampaignAnalytics> {
-    return this.http.get<CampaignAnalytics>(`/api/campaigns/${id}/analytics`).pipe(catchError(toMessage));
+    return this.http
+      .get<CampaignAnalytics>(`/api/campaigns/${id}/analytics`)
+      .pipe(catchError(toMessage));
   }
 
   /** The CSV export URL; opened with the bearer token by `download()`. */
   exportCsv(id: number): Observable<Blob> {
-    return this.http.get(`/api/campaigns/${id}/export.csv`, { responseType: 'blob' }).pipe(catchError(toMessage));
+    return this.http
+      .get(`/api/campaigns/${id}/export.csv`, { responseType: 'blob' })
+      .pipe(catchError(toMessage));
   }
 
   /** Safety preview for a batch under a pacing preset. */
-  safetyFor(contacts: number, pacing: PacingPreset = 'balanced'): Observable<{ safety: SafetyStatus }> {
-    return this.http.get<{ safety: SafetyStatus }>('/api/safety', {
-      params: new HttpParams().set('contacts', contacts).set('pacing', pacing),
-    }).pipe(catchError(toMessage));
+  safetyFor(
+    contacts: number,
+    pacing: PacingPreset = 'balanced',
+  ): Observable<{ safety: SafetyStatus }> {
+    return this.http
+      .get<{ safety: SafetyStatus }>('/api/safety', {
+        params: new HttpParams().set('contacts', contacts).set('pacing', pacing),
+      })
+      .pipe(catchError(toMessage));
   }
 
   /** Adjust the live engine's speed (legacy single-run controls). */
   liveSpeed(pacing: PacingPreset): Observable<{ stats: CampaignStats }> {
-    return this.http.post<{ stats: CampaignStats }>('/api/campaign/speed', { pacing }).pipe(catchError(toMessage));
+    return this.http
+      .post<{ stats: CampaignStats }>('/api/campaign/speed', { pacing })
+      .pipe(catchError(toMessage));
   }
 }

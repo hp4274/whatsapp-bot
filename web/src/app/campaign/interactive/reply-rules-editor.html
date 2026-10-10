@@ -1,22 +1,38 @@
 @if (!cards().length) {
   <div class="empty">
-    <span class="ms" aria-hidden="true">alt_route</span>
+    <i class="ti ti-route-alt-left" aria-hidden="true"></i>
     <p>Add reply buttons or a list menu to set up reply rules.</p>
   </div>
 } @else {
   @for (card of cards(); track card.id; let ci = $index) {
-    <section class="card rule enter" [class.any]="card.id === 'any'" [attr.aria-labelledby]="uid + '-t' + ci">
+    <section
+      class="card rule enter"
+      [class.any]="card.id === 'any'"
+      [attr.aria-labelledby]="uid + '-t' + ci"
+    >
       <header class="rule-head">
         <span class="badge" aria-hidden="true">
-          <span class="ms">{{ card.id === 'any' ? 'forum' : 'reply' }}</span>
+          <i
+            class="ti ti-{{ card.id === 'any' ? 'messages' : 'arrow-back-up' }}"
+            aria-hidden="true"
+          ></i>
         </span>
         <div class="titles">
           <h4 [id]="uid + '-t' + ci">{{ card.title }}</h4>
-          @if (card.id !== 'any') { <code>{{ card.id }}</code> }
+          @if (card.id !== 'any') {
+            <code>{{ card.id }}</code>
+          }
         </div>
-        <select #add class="add" [attr.aria-label]="'Add action for ' + card.title" (change)="addAction(add, card)">
+        <select
+          #add
+          class="add"
+          [attr.aria-label]="'Add action for ' + card.title"
+          (change)="addAction(add, card)"
+        >
           <option value="">+ Add action</option>
-          @for (a of actionTypes; track a.type) { <option [value]="a.type">{{ a.label }}</option> }
+          @for (a of actionTypes; track a.type) {
+            <option [value]="a.type">{{ a.label }}</option>
+          }
         </select>
       </header>
 
@@ -28,11 +44,15 @@
         @let id = uid + '-' + ci + '-' + i;
         <div class="action">
           <div class="action-head">
-            <span class="ms" aria-hidden="true">{{ icon(action.type) }}</span>
+            <i class="ti ti-{{ icon(action.type) }}" aria-hidden="true"></i>
             <strong>{{ label(action.type) }}</strong>
-            <button type="button" class="remove" [attr.aria-label]="'Remove ' + label(action.type) + ' from ' + card.title"
-                    (click)="removeAction(card, i)">
-              <span class="ms" aria-hidden="true">close</span>
+            <button
+              type="button"
+              class="remove"
+              [attr.aria-label]="'Remove ' + label(action.type) + ' from ' + card.title"
+              (click)="removeAction(card, i)"
+            >
+              <i class="ti ti-x" aria-hidden="true"></i>
             </button>
           </div>
 
@@ -40,49 +60,85 @@
             @case ('send_message') {
               <div class="field">
                 <label [for]="id">Message</label>
-                <textarea [id]="id" rows="3" [value]="$any(action).text" placeholder="Thanks {name}, you picked {option}."
-                          (input)="updateAction(card, i, { text: text($event) })"></textarea>
+                <textarea
+                  [id]="id"
+                  rows="3"
+                  [value]="$any(action).text"
+                  placeholder="Thanks {name}, you picked {option}."
+                  (input)="updateAction(card, i, { text: text($event) })"
+                ></textarea>
                 <div class="chips" role="group" aria-label="Insert variable">
                   @for (v of chips(); track v) {
-                    <button type="button" class="chip" (click)="insertVar(card, i, $any(action).text, v)">{{ '{' + v + '}' }}</button>
+                    <button
+                      type="button"
+                      class="chip"
+                      (click)="insertVar(card, i, $any(action).text, v)"
+                    >
+                      {{ '{' + v + '}' }}
+                    </button>
                   }
                 </div>
-                <span class="hint">{{ '{name}' }} and {{ '{option}' }} are filled in per contact.</span>
+                <span class="hint"
+                  >{{ '{name}' }} and {{ '{option}' }} are filled in per contact.</span
+                >
               </div>
             }
             @case ('add_tag') {
               <div class="field">
                 <label [for]="id">Tags (comma separated)</label>
-                <input [id]="id" [value]="$any(action).tags.join(', ')" placeholder="interested, vip"
-                       (change)="updateAction(card, i, { tags: tags($event) })" />
+                <input
+                  [id]="id"
+                  [value]="$any(action).tags.join(', ')"
+                  placeholder="interested, vip"
+                  (change)="updateAction(card, i, { tags: tags($event) })"
+                />
               </div>
             }
             @case ('remove_tag') {
               <div class="field">
                 <label [for]="id">Tags (comma separated)</label>
-                <input [id]="id" [value]="$any(action).tags.join(', ')" placeholder="cold-lead"
-                       (change)="updateAction(card, i, { tags: tags($event) })" />
+                <input
+                  [id]="id"
+                  [value]="$any(action).tags.join(', ')"
+                  placeholder="cold-lead"
+                  (change)="updateAction(card, i, { tags: tags($event) })"
+                />
               </div>
             }
             @case ('set_field') {
               <div class="pair">
                 <div class="field">
                   <label [for]="id + 'k'">Field</label>
-                  <input [id]="id + 'k'" [value]="$any(action).key" placeholder="status"
-                         (input)="updateAction(card, i, { key: text($event) })" />
+                  <input
+                    [id]="id + 'k'"
+                    [value]="$any(action).key"
+                    placeholder="status"
+                    (input)="updateAction(card, i, { key: text($event) })"
+                  />
                 </div>
                 <div class="field">
                   <label [for]="id + 'v'">Value</label>
-                  <input [id]="id + 'v'" [value]="$any(action).value" placeholder="Interested"
-                         (input)="updateAction(card, i, { value: text($event) })" />
+                  <input
+                    [id]="id + 'v'"
+                    [value]="$any(action).value"
+                    placeholder="Interested"
+                    (input)="updateAction(card, i, { value: text($event) })"
+                  />
                 </div>
               </div>
             }
             @case ('mute_days') {
               <div class="field narrow">
                 <label [for]="id">Days (1-365)</label>
-                <input [id]="id" type="number" min="1" max="365" step="1" [value]="$any(action).days"
-                       (change)="updateAction(card, i, { days: days($event) })" />
+                <input
+                  [id]="id"
+                  type="number"
+                  min="1"
+                  max="365"
+                  step="1"
+                  [value]="$any(action).days"
+                  (change)="updateAction(card, i, { days: days($event) })"
+                />
               </div>
             }
             @case ('opt_out') {
@@ -92,12 +148,19 @@
               <div class="pair">
                 <div class="field">
                   <label [for]="id">Assign to (optional)</label>
-                  <input [id]="id" [value]="$any(action).assignTo ?? ''" placeholder="agent@company.com or user id"
-                         (input)="updateAction(card, i, { assignTo: text($event) || undefined })" />
+                  <input
+                    [id]="id"
+                    [value]="$any(action).assignTo ?? ''"
+                    placeholder="agent@company.com or user id"
+                    (input)="updateAction(card, i, { assignTo: text($event) || undefined })"
+                  />
                 </div>
                 <label class="check">
-                  <input type="checkbox" [checked]="!!$any(action).ticket"
-                         (change)="updateAction(card, i, { ticket: !$any(action).ticket })" />
+                  <input
+                    type="checkbox"
+                    [checked]="!!$any(action).ticket"
+                    (change)="updateAction(card, i, { ticket: !$any(action).ticket })"
+                  />
                   Also open a ticket
                 </label>
               </div>

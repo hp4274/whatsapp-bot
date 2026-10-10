@@ -48,7 +48,7 @@ export function channelUsage(channel, { db, config, policy = {}, now = new Date(
     if (days > 0) {
         const firstAt = scoped.firstSentAt();
         const age = firstAt ? Math.max(0, Math.round((dayStart(now) - dayStart(new Date(firstAt))) / DAY_MS)) : 0;
-        const ramp = WARMUP_START * 2 ** Math.min(age, 30);
+        const ramp = (Number(config.warmupStart) || WARMUP_START) * 2 ** Math.min(age, 30);
         warmup = {
             active: age < days,
             day: Math.min(age + 1, days),

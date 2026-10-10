@@ -1,14 +1,30 @@
-import { Component, ElementRef, afterNextRender, inject, input, output, signal, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  afterNextRender,
+  inject,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 
 import { Contact2, ContactsApi, DuplicateGroup } from '../core/api';
 import { displayPhone, hue, initials, relativeTime } from './contact-util';
 
-/** Review numbers stored more than once and fold each group into one contact. */
+/**
+ * Review numbers stored more than once and fold each group into one contact.
+ *
+ * Opens on the banner's cached groups so it is never empty on first paint, then
+ * swaps in the server's current list; a group merged elsewhere simply vanishes.
+ */
 @Component({
   selector: 'app-merge-dialog',
   templateUrl: './merge-dialog.html',
   styleUrl: './merge-dialog.scss',
   host: { '(document:keydown.escape)': 'close()' },
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MergeDialog {
   private readonly api = inject(ContactsApi);
@@ -29,7 +45,9 @@ export class MergeDialog {
   protected readonly ago = relativeTime;
 
   private readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
+  /** Focus goes back here on close, so keyboard users land where they started. */
   private readonly opener = document.activeElement as HTMLElement | null;
+  /** Set once the server answered, so the cached `initial` groups never overwrite it. */
   private fresh = false;
 
   constructor() {
@@ -38,14 +56,18 @@ export class MergeDialog {
         this.groups.set(this.initial());
         this.keep.set(Object.fromEntries(this.initial().map((g) => [g.key, g.suggestedKeepId])));
       }
-      queueMicrotask(() => this.panel()?.nativeElement.querySelector<HTMLElement>('input, button')?.focus());
+      queueMicrotask(() =>
+        this.panel()?.nativeElement.querySelector<HTMLElement>('input, button')?.focus(),
+      );
     });
     // Always show the server's current view, not a stale banner count.
     this.api.duplicates().subscribe({
       next: ({ groups }) => {
         this.fresh = true;
         this.groups.set(groups);
-        this.keep.set(Object.fromEntries(groups.map((g) => [g.key, this.keep()[g.key] ?? g.suggestedKeepId])));
+        this.keep.set(
+          Object.fromEntries(groups.map((g) => [g.key, this.keep()[g.key] ?? g.suggestedKeepId])),
+        );
       },
       error: (err: Error) => this.error.set(err.message),
     });

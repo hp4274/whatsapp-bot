@@ -16,7 +16,7 @@
  * refuse an incomplete configuration, and they still do.
  */
 
-import { DEFAULTS, TRANSPORTS, mergeConfig } from './config.js';
+import { DEFAULTS, TRANSPORTS, currentTransport, mergeConfig } from './config.js';
 import { utcNow } from './protocol.js';
 import { SECRET_SETTING_KEYS, openSettings, sealSettings } from './security/crypto.js';
 
@@ -82,8 +82,8 @@ export class Channels {
      * sending appointment reminders down a number set up for campaigns is the
      * kind of surprise that gets a number banned.
      */
-    route({ channelId = null, capability = null } = {}) {
-        const channel = channelId == null ? this.getDefault() : this.get(channelId);
+    route({ channelId = null, capability = null, rule = 'default', remaining = null } = {}) {
+        const channel = channelId == null ? this.pick(rule, capability, remaining) : this.get(channelId);
         if (!channel) throw new ChannelError('channel not found', 404);
         if (channel.status !== 'active') throw new ChannelError(`channel ${channel.id} is disabled`, 409);
         if (capability && !channel.capabilities.includes(capability)) {
@@ -92,10 +92,28 @@ export class Channels {
         return channel;
     }
 
-    create({ displayName, phoneNumber = '', settings = {}, capabilities, timezone = 'UTC', businessHours = null, isDefault = false }) {
+    /**
+     * The sender rule (`channels.routing` policy) for a send that names no
+     * number: the fixed default, round-robin over active numbers, or the one
+     * with most of today's quota left (`remaining(channel)`, ties to the default).
+     */
+    pick(rule, capability, remaining) {
+        if (rule !== 'round_robin' && rule !== 'quota') return this.getDefault();
+        const pool = this.list().filter((c) => c.status === 'active' && (!capability || c.capabilities.includes(capability)));
+        if (pool.length < 2) return pool[0] ?? this.getDefault();
+        if (rule === 'round_robin') {
+            this.turn = ((this.turn ?? -1) + 1) % pool.length; // ponytail: per process, resets on restart
+            return pool[this.turn];
+        }
+        pool.sort((a, b) => Number(b.isDefault) - Number(a.isDefault));
+        return pool.reduce((best, c) => (remaining(c) > remaining(best) ? c : best));
+    }
+
+    create({ displayName, phoneNumber = '', settings = {}, capabilities, timezone = 'UTC', businessHours = null, isDefault = false, safety = {} }) {
         const name = String(displayName ?? '').trim();
         if (!name) throw new ChannelError('display name is required');
-        const merged = mergeConfig(DEFAULTS, settings);
+        // `safety`: the platform's starting values for a new number (policy/channelOps.js newNumberSafety).
+        const merged = { ...mergeConfig(DEFAULTS, settings), ...safety };
 
         const first = this.list().length === 0;
         const now = utcNow();
@@ -219,13 +237,13 @@ function toChannel(row) {
     return {
         id: row.id,
         tenantId: row.tenant_id,
-        provider: row.provider,
+        provider: currentTransport(row.provider),
         phoneNumber: row.phone_number,
         providerAccountId: row.provider_account_id ?? '',
         providerPhoneNumberId: row.provider_phone_number_id ?? '',
         status: row.status,
         displayName: row.display_name,
-        settings: openSettings(parse(row.settings, DEFAULTS)),
+        settings: retire(openSettings(parse(row.settings, DEFAULTS))),
         capabilities: parse(row.capabilities, [...CAPABILITIES]),
         timezone: row.timezone || 'UTC',
         businessHours: parse(row.business_hours, null),
@@ -233,6 +251,10 @@ function toChannel(row) {
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };
+}
+
+function retire(settings) {
+    return { ...settings, transport: currentTransport(settings.transport) };
 }
 
 function parse(value, fallback) {

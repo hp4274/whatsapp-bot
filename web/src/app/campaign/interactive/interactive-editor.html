@@ -2,9 +2,15 @@
 
 <div class="seg" role="radiogroup" aria-label="Interactive message type">
   @for (t of types; track t.value) {
-    <button type="button" role="radio" class="seg-opt" [class.on]="type() === t.value"
-            [attr.aria-checked]="type() === t.value" (click)="setType(t.value)">
-      <span class="ms" aria-hidden="true">{{ t.icon }}</span>{{ t.label }}
+    <button
+      type="button"
+      role="radio"
+      class="seg-opt"
+      [class.on]="type() === t.value"
+      [attr.aria-checked]="type() === t.value"
+      (click)="setType(t.value)"
+    >
+      <i class="ti ti-{{ t.icon }}" aria-hidden="true"></i>{{ t.label }}
     </button>
   }
 </div>
@@ -12,14 +18,32 @@
 @if (draft) {
   <div class="grid2">
     <div class="field">
-      <label [for]="uid + '-header'">Header <span class="count" [class.over]="len(draft.header) > limits.header">{{ len(draft.header) }}/{{ limits.header }}</span></label>
-      <input [id]="uid + '-header'" [value]="draft.header ?? ''" placeholder="Optional bold title"
-             (input)="patch({ header: text($event) })" />
+      <label [for]="uid + '-header'"
+        >Header
+        <span class="count" [class.over]="len(draft.header) > limits.header"
+          >{{ len(draft.header) }}/{{ limits.header }}</span
+        ></label
+      >
+      <input
+        [id]="uid + '-header'"
+        [value]="draft.header ?? ''"
+        placeholder="Optional bold title"
+        (input)="patch({ header: text($event) })"
+      />
     </div>
     <div class="field">
-      <label [for]="uid + '-footer'">Footer <span class="count" [class.over]="len(draft.footer) > limits.footer">{{ len(draft.footer) }}/{{ limits.footer }}</span></label>
-      <input [id]="uid + '-footer'" [value]="draft.footer ?? ''" placeholder="Optional small print"
-             (input)="patch({ footer: text($event) })" />
+      <label [for]="uid + '-footer'"
+        >Footer
+        <span class="count" [class.over]="len(draft.footer) > limits.footer"
+          >{{ len(draft.footer) }}/{{ limits.footer }}</span
+        ></label
+      >
+      <input
+        [id]="uid + '-footer'"
+        [value]="draft.footer ?? ''"
+        placeholder="Optional small print"
+        (input)="patch({ footer: text($event) })"
+      />
     </div>
   </div>
 
@@ -30,30 +54,62 @@
           <div class="item enter">
             <span class="num" aria-hidden="true">{{ i + 1 }}</span>
             <div class="field">
-              <label [for]="uid + '-bt' + i">Button {{ i + 1 }} title <span class="count" [class.over]="len(b.title) > limits.buttonTitle">{{ len(b.title) }}/{{ limits.buttonTitle }}</span></label>
-              <input [id]="uid + '-bt' + i" [value]="b.title" (input)="updateButton(i, { title: text($event) })" />
+              <label [for]="uid + '-bt' + i"
+                >Button {{ i + 1 }} title
+                <span class="count" [class.over]="len(b.title) > limits.buttonTitle"
+                  >{{ len(b.title) }}/{{ limits.buttonTitle }}</span
+                ></label
+              >
+              <input
+                [id]="uid + '-bt' + i"
+                [value]="b.title"
+                (input)="updateButton(i, { title: text($event) })"
+              />
             </div>
             <div class="field">
-              <label [for]="uid + '-bp' + i">Payload <span class="muted">({{ b.id }})</span></label>
+              <label [for]="uid + '-bp' + i"
+                >Payload <span class="muted">({{ b.id }})</span></label
+              >
               <div class="with-var">
-                <input [id]="uid + '-bp' + i" [value]="b.payload ?? ''" placeholder="CONFIRM_ORDER_{order_id}"
-                       (input)="updateButton(i, { payload: text($event) })" />
+                <input
+                  [id]="uid + '-bp' + i"
+                  [value]="b.payload ?? ''"
+                  placeholder="CONFIRM_ORDER_{order_id}"
+                  (input)="updateButton(i, { payload: text($event) })"
+                />
                 @if (variables().length) {
-                  <select #bv class="var" [attr.aria-label]="'Insert variable into button ' + (i + 1) + ' payload'"
-                          (change)="insertButtonVar(bv, i)">
+                  <select
+                    #bv
+                    class="var"
+                    [attr.aria-label]="'Insert variable into button ' + (i + 1) + ' payload'"
+                    (change)="insertButtonVar(bv, i)"
+                  >
                     <option value="">{{ '{x}' }}</option>
-                    @for (v of variables(); track v) { <option [value]="v">{{ '{' + v + '}' }}</option> }
+                    @for (v of variables(); track v) {
+                      <option [value]="v">{{ '{' + v + '}' }}</option>
+                    }
                   </select>
                 }
               </div>
             </div>
-            <button type="button" class="icon" [attr.aria-label]="'Remove button ' + (i + 1)" (click)="removeButton(i)">
-              <span class="ms" aria-hidden="true">delete</span>
+            <button
+              type="button"
+              class="icon"
+              [attr.aria-label]="'Remove button ' + (i + 1)"
+              (click)="removeButton(i)"
+            >
+              <i class="ti ti-trash" aria-hidden="true"></i>
             </button>
           </div>
         }
-        <button type="button" class="btn add" [disabled]="buttons().length >= limits.buttons" (click)="addButton()">
-          <span class="ms" aria-hidden="true">add</span> Add button <span class="muted">{{ buttons().length }}/{{ limits.buttons }}</span>
+        <button
+          type="button"
+          class="btn add"
+          [disabled]="buttons().length >= limits.buttons"
+          (click)="addButton()"
+        >
+          <i class="ti ti-plus" aria-hidden="true"></i> Add button
+          <span class="muted">{{ buttons().length }}/{{ limits.buttons }}</span>
         </button>
       </div>
     }
@@ -65,43 +121,82 @@
             <span class="num" aria-hidden="true">{{ i + 1 }}</span>
             <div class="field">
               <label [for]="uid + '-ck' + i">Kind</label>
-              <select [id]="uid + '-ck' + i" [value]="c.kind" (change)="updateCta(i, { kind: $any(text($event)) })">
+              <select
+                [id]="uid + '-ck' + i"
+                [value]="c.kind"
+                (change)="updateCta(i, { kind: $any(text($event)) })"
+              >
                 <option value="url">Open link</option>
                 <option value="call">Call number</option>
                 <option value="copy">Copy code</option>
               </select>
             </div>
             <div class="field">
-              <label [for]="uid + '-ct' + i">Title <span class="count" [class.over]="len(c.title) > limits.ctaTitle">{{ len(c.title) }}/{{ limits.ctaTitle }}</span></label>
-              <input [id]="uid + '-ct' + i" [value]="c.title" (input)="updateCta(i, { title: text($event) })" />
+              <label [for]="uid + '-ct' + i"
+                >Title
+                <span class="count" [class.over]="len(c.title) > limits.ctaTitle"
+                  >{{ len(c.title) }}/{{ limits.ctaTitle }}</span
+                ></label
+              >
+              <input
+                [id]="uid + '-ct' + i"
+                [value]="c.title"
+                (input)="updateCta(i, { title: text($event) })"
+              />
             </div>
             <div class="field wide">
               <label [for]="uid + '-cv' + i">{{ ctaHints[c.kind].label }}</label>
               <div class="with-var">
-                <input [id]="uid + '-cv' + i" [value]="c.value" [placeholder]="ctaHints[c.kind].placeholder"
-                       [attr.inputmode]="c.kind === 'call' ? 'tel' : c.kind === 'url' ? 'url' : null"
-                       (input)="updateCta(i, { value: text($event) })" />
+                <input
+                  [id]="uid + '-cv' + i"
+                  [value]="c.value"
+                  [placeholder]="ctaHints[c.kind].placeholder"
+                  [attr.inputmode]="c.kind === 'call' ? 'tel' : c.kind === 'url' ? 'url' : null"
+                  (input)="updateCta(i, { value: text($event) })"
+                />
                 @if (c.kind === 'url' && variables().length) {
-                  <select #cv class="var" [attr.aria-label]="'Insert variable into link ' + (i + 1)" (change)="insertCtaVar(cv, i)">
+                  <select
+                    #cv
+                    class="var"
+                    [attr.aria-label]="'Insert variable into link ' + (i + 1)"
+                    (change)="insertCtaVar(cv, i)"
+                  >
                     <option value="">{{ '{x}' }}</option>
-                    @for (v of variables(); track v) { <option [value]="v">{{ '{' + v + '}' }}</option> }
+                    @for (v of variables(); track v) {
+                      <option [value]="v">{{ '{' + v + '}' }}</option>
+                    }
                   </select>
                 }
               </div>
               @if (c.kind === 'url') {
-                <span class="hint">A dynamic suffix works, e.g. https://shop.com/track/{{ '{order_id}' }}</span>
+                <span class="hint"
+                  >A dynamic suffix works, e.g. https://shop.com/track/{{ '{order_id}' }}</span
+                >
               }
             </div>
-            <button type="button" class="icon" [attr.aria-label]="'Remove call-to-action ' + (i + 1)" (click)="removeCta(i)">
-              <span class="ms" aria-hidden="true">delete</span>
+            <button
+              type="button"
+              class="icon"
+              [attr.aria-label]="'Remove call-to-action ' + (i + 1)"
+              (click)="removeCta(i)"
+            >
+              <i class="ti ti-trash" aria-hidden="true"></i>
             </button>
           </div>
         }
-        <button type="button" class="btn add" [disabled]="ctas().length >= limits.cta" (click)="addCta()">
-          <span class="ms" aria-hidden="true">add</span> Add call-to-action <span class="muted">{{ ctas().length }}/{{ limits.cta }}</span>
+        <button
+          type="button"
+          class="btn add"
+          [disabled]="ctas().length >= limits.cta"
+          (click)="addCta()"
+        >
+          <i class="ti ti-plus" aria-hidden="true"></i> Add call-to-action
+          <span class="muted">{{ ctas().length }}/{{ limits.cta }}</span>
         </button>
-        <p class="note"><span class="ms" aria-hidden="true">info</span>
-          Call and copy buttons are sent as text on WhatsApp Web and as text fallback on Cloud API.</p>
+        <p class="note">
+          <i class="ti ti-info-circle" aria-hidden="true"></i> Call and copy buttons are sent as
+          text on WhatsApp Web and as text fallback on Cloud API.
+        </p>
       </div>
     }
 
@@ -109,11 +204,22 @@
       <div class="stack">
         <div class="list-head">
           <div class="field">
-            <label [for]="uid + '-lb'">List button label <span class="count" [class.over]="len(draft.list?.button) > limits.listButton">{{ len(draft.list?.button) }}/{{ limits.listButton }}</span></label>
-            <input [id]="uid + '-lb'" [value]="draft.list?.button ?? ''" placeholder="View options"
-                   (input)="setListButton(text($event))" />
+            <label [for]="uid + '-lb'"
+              >List button label
+              <span class="count" [class.over]="len(draft.list?.button) > limits.listButton"
+                >{{ len(draft.list?.button) }}/{{ limits.listButton }}</span
+              ></label
+            >
+            <input
+              [id]="uid + '-lb'"
+              [value]="draft.list?.button ?? ''"
+              placeholder="View options"
+              (input)="setListButton(text($event))"
+            />
           </div>
-          <span class="total" [class.over]="rowCount() > limits.rows" aria-live="polite">{{ rowCount() }}/{{ limits.rows }} options</span>
+          <span class="total" [class.over]="rowCount() > limits.rows" aria-live="polite"
+            >{{ rowCount() }}/{{ limits.rows }} options</span
+          >
         </div>
 
         @for (s of sections(); track $index; let si = $index) {
@@ -121,52 +227,110 @@
             <legend class="sr-only">Section {{ si + 1 }}</legend>
             <div class="section-head">
               <div class="field">
-                <label [for]="uid + '-st' + si">Section {{ si + 1 }} title <span class="count" [class.over]="len(s.title) > limits.sectionTitle">{{ len(s.title) }}/{{ limits.sectionTitle }}</span></label>
-                <input [id]="uid + '-st' + si" [value]="s.title" (input)="updateSection(si, text($event))" />
+                <label [for]="uid + '-st' + si"
+                  >Section {{ si + 1 }} title
+                  <span class="count" [class.over]="len(s.title) > limits.sectionTitle"
+                    >{{ len(s.title) }}/{{ limits.sectionTitle }}</span
+                  ></label
+                >
+                <input
+                  [id]="uid + '-st' + si"
+                  [value]="s.title"
+                  (input)="updateSection(si, text($event))"
+                />
               </div>
-              <button type="button" class="icon" [attr.aria-label]="'Remove section ' + (si + 1)" (click)="removeSection(si)">
-                <span class="ms" aria-hidden="true">delete</span>
+              <button
+                type="button"
+                class="icon"
+                [attr.aria-label]="'Remove section ' + (si + 1)"
+                (click)="removeSection(si)"
+              >
+                <i class="ti ti-trash" aria-hidden="true"></i>
               </button>
             </div>
 
             @for (r of s.rows; track $index; let ri = $index) {
               <div class="item row">
                 <div class="field">
-                  <label [for]="uid + '-rt' + si + '-' + ri">Option title <span class="count" [class.over]="len(r.title) > limits.rowTitle">{{ len(r.title) }}/{{ limits.rowTitle }}</span></label>
-                  <input [id]="uid + '-rt' + si + '-' + ri" [value]="r.title" (input)="updateRow(si, ri, { title: text($event) })" />
+                  <label [for]="uid + '-rt' + si + '-' + ri"
+                    >Option title
+                    <span class="count" [class.over]="len(r.title) > limits.rowTitle"
+                      >{{ len(r.title) }}/{{ limits.rowTitle }}</span
+                    ></label
+                  >
+                  <input
+                    [id]="uid + '-rt' + si + '-' + ri"
+                    [value]="r.title"
+                    (input)="updateRow(si, ri, { title: text($event) })"
+                  />
                 </div>
                 <div class="field">
-                  <label [for]="uid + '-rd' + si + '-' + ri">Description <span class="count" [class.over]="len(r.description) > limits.rowDescription">{{ len(r.description) }}/{{ limits.rowDescription }}</span></label>
-                  <input [id]="uid + '-rd' + si + '-' + ri" [value]="r.description ?? ''" placeholder="Optional"
-                         (input)="updateRow(si, ri, { description: text($event) })" />
+                  <label [for]="uid + '-rd' + si + '-' + ri"
+                    >Description
+                    <span class="count" [class.over]="len(r.description) > limits.rowDescription"
+                      >{{ len(r.description) }}/{{ limits.rowDescription }}</span
+                    ></label
+                  >
+                  <input
+                    [id]="uid + '-rd' + si + '-' + ri"
+                    [value]="r.description ?? ''"
+                    placeholder="Optional"
+                    (input)="updateRow(si, ri, { description: text($event) })"
+                  />
                 </div>
                 <div class="field">
-                  <label [for]="uid + '-rp' + si + '-' + ri">Payload <span class="muted">({{ r.id }})</span></label>
+                  <label [for]="uid + '-rp' + si + '-' + ri"
+                    >Payload <span class="muted">({{ r.id }})</span></label
+                  >
                   <div class="with-var">
-                    <input [id]="uid + '-rp' + si + '-' + ri" [value]="r.payload ?? ''" placeholder="PICK_{order_id}"
-                           (input)="updateRow(si, ri, { payload: text($event) })" />
+                    <input
+                      [id]="uid + '-rp' + si + '-' + ri"
+                      [value]="r.payload ?? ''"
+                      placeholder="PICK_{order_id}"
+                      (input)="updateRow(si, ri, { payload: text($event) })"
+                    />
                     @if (variables().length) {
-                      <select #rv class="var" [attr.aria-label]="'Insert variable into option ' + (ri + 1) + ' payload'"
-                              (change)="insertRowVar(rv, si, ri)">
+                      <select
+                        #rv
+                        class="var"
+                        [attr.aria-label]="'Insert variable into option ' + (ri + 1) + ' payload'"
+                        (change)="insertRowVar(rv, si, ri)"
+                      >
                         <option value="">{{ '{x}' }}</option>
-                        @for (v of variables(); track v) { <option [value]="v">{{ '{' + v + '}' }}</option> }
+                        @for (v of variables(); track v) {
+                          <option [value]="v">{{ '{' + v + '}' }}</option>
+                        }
                       </select>
                     }
                   </div>
                 </div>
-                <button type="button" class="icon" [attr.aria-label]="'Remove option ' + (ri + 1) + ' from section ' + (si + 1)"
-                        (click)="removeRow(si, ri)">
-                  <span class="ms" aria-hidden="true">close</span>
+                <button
+                  type="button"
+                  class="icon"
+                  [attr.aria-label]="'Remove option ' + (ri + 1) + ' from section ' + (si + 1)"
+                  (click)="removeRow(si, ri)"
+                >
+                  <i class="ti ti-x" aria-hidden="true"></i>
                 </button>
               </div>
             }
-            <button type="button" class="btn add ghost" [disabled]="rowCount() >= limits.rows" (click)="addRow(si)">
-              <span class="ms" aria-hidden="true">add</span> Add option
+            <button
+              type="button"
+              class="btn add ghost"
+              [disabled]="rowCount() >= limits.rows"
+              (click)="addRow(si)"
+            >
+              <i class="ti ti-plus" aria-hidden="true"></i> Add option
             </button>
           </fieldset>
         }
-        <button type="button" class="btn add" [disabled]="rowCount() >= limits.rows" (click)="addSection()">
-          <span class="ms" aria-hidden="true">playlist_add</span> Add section
+        <button
+          type="button"
+          class="btn add"
+          [disabled]="rowCount() >= limits.rows"
+          (click)="addSection()"
+        >
+          <i class="ti ti-playlist-add" aria-hidden="true"></i> Add section
         </button>
       </div>
     }
@@ -174,7 +338,7 @@
 
   <div class="errors" role="alert" aria-live="polite">
     @for (e of errors(); track e) {
-      <p><span class="ms" aria-hidden="true">error</span>{{ e }}</p>
+      <p><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ e }}</p>
     }
   </div>
 }

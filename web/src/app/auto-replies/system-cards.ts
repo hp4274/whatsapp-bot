@@ -1,4 +1,12 @@
-import { Component, computed, inject, input, model, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  model,
+  signal,
+} from '@angular/core';
 
 import { ArChips, ArMedia, ArSwitch, ArText } from './ar-fields';
 import {
@@ -13,21 +21,44 @@ import {
   ago,
 } from './auto-replies.api';
 
-const CARDS: { key: SystemKey; title: string; icon: string; blurb: string }[] = [
-  { key: 'welcome', title: 'Welcome', icon: 'waving_hand', blurb: 'First message from a brand-new contact' },
-  { key: 'away', title: 'Away / hours', icon: 'bedtime', blurb: 'Outside business hours and on holidays' },
-  { key: 'fallback', title: 'Default fallback', icon: 'help', blurb: 'When nothing else matched' },
-  { key: 'handoff', title: 'Human handoff', icon: 'support_agent', blurb: 'Customer asks for a person' },
+/** The fixed set of built-in replies, in the order a conversation meets them. */
+const CARDS: readonly { key: SystemKey; title: string; icon: string; blurb: string }[] = [
+  {
+    key: 'welcome',
+    title: 'Welcome',
+    icon: 'hand-move',
+    blurb: 'First message from a brand-new contact',
+  },
+  {
+    key: 'away',
+    title: 'Away / hours',
+    icon: 'moon',
+    blurb: 'Outside business hours and on holidays',
+  },
+  {
+    key: 'fallback',
+    title: 'Default fallback',
+    icon: 'help-circle',
+    blurb: 'When nothing else matched',
+  },
+  { key: 'handoff', title: 'Human handoff', icon: 'headset', blurb: 'Customer asks for a person' },
 ];
 
 type Draft = AutoReplySettings[SystemKey];
 
-/** The four built-in replies: compact tiles, one expanded editor below. */
+/**
+ * The four built-in replies: compact tiles, one expanded editor below.
+ *
+ * The on/off switch on a tile saves immediately (and reverts on failure);
+ * everything inside the expanded editor is a draft until Save, so a half-typed
+ * message never goes live.
+ */
 @Component({
   selector: 'ar-system-cards',
   imports: [ArSwitch, ArText, ArMedia, ArChips],
   templateUrl: './system-cards.html',
   styleUrl: './system-cards.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SystemCards {
   private readonly api = inject(AutoRepliesApi);
@@ -42,6 +73,7 @@ export class SystemCards {
   protected readonly open = signal<SystemKey | null>(null);
   protected readonly draft = signal<Draft | null>(null);
   protected readonly saving = signal(false);
+  /** In-progress business name; null when the field shows the saved value. */
   protected readonly bizName = signal<string | null>(null);
 
   protected readonly openCard = computed(() => CARDS.find((c) => c.key === this.open()) ?? null);
@@ -51,9 +83,15 @@ export class SystemCards {
   });
 
   // Typed views of the draft for the card-specific fields.
-  protected readonly away = computed(() => (this.open() === 'away' ? (this.draft() as AutoReplySettings['away']) : null));
-  protected readonly fallback = computed(() => (this.open() === 'fallback' ? (this.draft() as AutoReplySettings['fallback']) : null));
-  protected readonly handoff = computed(() => (this.open() === 'handoff' ? (this.draft() as AutoReplySettings['handoff']) : null));
+  protected readonly away = computed(() =>
+    this.open() === 'away' ? (this.draft() as AutoReplySettings['away']) : null,
+  );
+  protected readonly fallback = computed(() =>
+    this.open() === 'fallback' ? (this.draft() as AutoReplySettings['fallback']) : null,
+  );
+  protected readonly handoff = computed(() =>
+    this.open() === 'handoff' ? (this.draft() as AutoReplySettings['handoff']) : null,
+  );
 
   protected snippet(key: SystemKey): string {
     const s = this.settings()[key];
@@ -76,7 +114,8 @@ export class SystemCards {
 
   protected setDay(day: Weekday, p: Partial<DayHours>): void {
     const a = this.away();
-    if (a) this.patch({ hours: { ...a.hours, [day]: { ...a.hours[day], ...p } } } as Partial<Draft>);
+    if (a)
+      this.patch({ hours: { ...a.hours, [day]: { ...a.hours[day], ...p } } } as Partial<Draft>);
   }
 
   protected num(e: Event): number {
@@ -92,7 +131,11 @@ export class SystemCards {
     this.settings.set({ ...prev, [key]: { ...prev[key], enabled } });
     if (this.open() === key) this.patch({ enabled });
     const title = CARDS.find((c) => c.key === key)?.title;
-    this.put({ [key]: { enabled } }, `${title} ${enabled ? 'on' : 'off'}`, (ok) => ok || this.settings.set(prev));
+    this.put(
+      { [key]: { enabled } },
+      `${title} ${enabled ? 'on' : 'off'}`,
+      (ok) => ok || this.settings.set(prev),
+    );
   }
 
   protected saveCard(): void {

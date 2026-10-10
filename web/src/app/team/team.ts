@@ -1,23 +1,35 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { TenancyApi } from '../core/api';
 import { Auth, ROLE_RANK, Role, User } from '../core/auth';
 
+/** Placeholder rows shown while the first user list loads. */
+const SKELETON_ROWS: readonly number[] = [0, 1, 2];
+
+/**
+ * Who can sign in to the workspace.
+ *
+ * Role rules are mirrored here only to hide controls the server would reject
+ * anyway; the server remains the authority on who may create or disable whom.
+ */
 @Component({
   selector: 'app-team',
   imports: [FormsModule],
   templateUrl: './team.html',
   styleUrl: './team.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TeamView {
   private readonly api = inject(TenancyApi);
   private readonly auth = inject(Auth);
 
+  protected readonly skeletonRows = SKELETON_ROWS;
   protected readonly users = signal<User[]>([]);
   protected readonly roles = signal<Role[]>([]);
   protected readonly error = signal('');
   protected readonly busy = signal(false);
+  protected readonly loading = signal(true);
   protected readonly me = this.auth.user;
 
   protected readonly draft = signal({ name: '', email: '', password: '', role: 'agent' as Role });
@@ -35,12 +47,17 @@ export class TeamView {
   }
 
   protected refresh() {
+    this.error.set('');
     this.api.users().subscribe({
       next: ({ users, roles }) => {
         this.users.set(users);
         this.roles.set(roles);
+        this.loading.set(false);
       },
-      error: (err: Error) => this.error.set(err.message),
+      error: (err: Error) => {
+        this.loading.set(false);
+        this.error.set(err.message);
+      },
     });
   }
 
@@ -50,7 +67,12 @@ export class TeamView {
     this.busy.set(true);
     this.error.set('');
     this.api
-      .createUser({ email: d.email.trim(), name: d.name.trim(), password: d.password, role: d.role })
+      .createUser({
+        email: d.email.trim(),
+        name: d.name.trim(),
+        password: d.password,
+        role: d.role,
+      })
       .subscribe({
         next: () => {
           this.busy.set(false);

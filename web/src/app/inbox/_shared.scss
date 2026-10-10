@@ -8,21 +8,42 @@ $b: var(--base) var(--ease);
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   kbd {
     display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px;
-    border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 6px;
-    background: var(--surface); color: var(--text); font: 600 11px/1 var(--mono, monospace);
+    border: 1px solid var(--border-color); border-bottom-width: 2px; border-radius: 6px;
+    background: var(--surface-card); color: var(--text-color); font: 500 11px/1 var(--font-mono);
   }
+  // Initials avatar: the per-contact hue is data, so it is tinted rather than a
+  // token; the glyph mixes toward --text-strong to stay legible in both themes.
   .av {
     display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 50%;
-    font-size: 13px; font-weight: 700; color: #fff;
-    background: linear-gradient(140deg, hsl(var(--h, 150) 55% 50%), hsl(calc(var(--h, 150) + 40) 60% 38%));
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), 0 3px 8px rgb(0 0 0 / 0.12);
+    font-size: 13.5px; font-weight: 600; letter-spacing: -0.2px;
+    color: color-mix(in srgb, hsl(var(--h, 150) 62% 42%) 78%, var(--text-strong));
+    background: hsl(var(--h, 150) 70% 50% / 0.14);
+    box-shadow: inset 0 0 0 1px hsl(var(--h, 150) 60% 45% / 0.18);
   }
   .icon-btn {
     position: relative; display: grid; place-items: center; width: 36px; height: 36px; flex: none;
-    border: 0; border-radius: 50%; background: none; color: var(--text-muted); cursor: pointer;
+    border: 0; border-radius: 10px; background: none; color: var(--text-muted); cursor: pointer;
     transition: background $f, color $f, transform $f;
-    &:hover, &.on { background: var(--surface-alt); color: var(--text); }
+    &:hover, &.on { background: var(--surface-sunken); color: var(--text-strong); }
     &:active { transform: scale(0.94); }
     &:disabled { opacity: 0.5; cursor: default; }
   }
+  // Inline error strip with a dismiss button (thread actions, composer, panel).
+  .x-err {
+    display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-radius: var(--radius-md);
+    background: var(--danger-soft); color: var(--danger-text); font-size: 13px;
+    .icon-btn { margin-left: auto; width: 28px; height: 28px; color: inherit; &:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); } }
+  }
+}
+
+// Kardlyz tab strip: sunken track, the active item lifts onto the card surface.
+@mixin seg-track {
+  display: flex; gap: 2px; padding: 3px; border-radius: 12px; background: var(--surface-sunken);
+}
+@mixin seg-item {
+  border: 0; border-radius: 9px; background: none; color: var(--text-muted); cursor: pointer;
+  font-size: 12.5px; font-weight: 500; white-space: nowrap;
+  transition: background $f, color $f, box-shadow $f;
+  &:hover { color: var(--text-strong); }
+  &.on { background: var(--surface-card); color: var(--text-strong); font-weight: 600; box-shadow: var(--shadow-sm); }
 }

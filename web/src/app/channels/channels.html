@@ -1,12 +1,21 @@
-<header class="page-head">
-  <div class="title">
-    <span class="eyebrow"><span class="ms" aria-hidden="true">sim_card</span> Channels</span>
+<!--
+  Channels: Kardlyz header, a summary strip, the add form (toggled), then the
+  card rack with its loading / error / empty states.
+-->
+<header class="s-head">
+  <div>
+    <p class="eyebrow"><i class="ti ti-device-sim" aria-hidden="true"></i> Channels</p>
     <h2>WhatsApp numbers</h2>
-    <p class="muted">Each number runs on its own connection, daily budget and hours.</p>
+    <p>Each number runs on its own connection, daily budget and hours.</p>
   </div>
-  <button class="btn primary add" type="button" (click)="toggleForm()" [attr.aria-expanded]="showForm()"
-          aria-controls="add-number">
-    <span class="ms" aria-hidden="true">{{ showForm() ? 'close' : 'add' }}</span>
+  <button
+    class="btn primary add"
+    type="button"
+    (click)="toggleForm()"
+    [attr.aria-expanded]="showForm()"
+    aria-controls="add-number"
+  >
+    <i class="ti ti-{{ showForm() ? 'x' : 'plus' }}" aria-hidden="true"></i>
     {{ showForm() ? 'Cancel' : 'Add number' }}
   </button>
 </header>
@@ -14,17 +23,35 @@
 @if (!loading() && channels().length) {
   @let s = summary();
   <ul class="stats" aria-label="Summary">
-    <li><span class="ms" aria-hidden="true">sim_card</span><strong>{{ s.total }}</strong> number{{ s.total === 1 ? '' : 's' }}</li>
-    <li class="ok"><span class="ms" aria-hidden="true">wifi_tethering</span><strong>{{ s.connected }}</strong> connected</li>
-    <li><span class="ms" aria-hidden="true">send</span><strong>{{ s.sentToday }}</strong> sent today</li>
+    <li>
+      <i class="ti ti-device-sim" aria-hidden="true"></i><strong>{{ s.total }}</strong> number{{
+        s.total === 1 ? '' : 's'
+      }}
+    </li>
+    <li class="ok">
+      <i class="ti ti-access-point" aria-hidden="true"></i
+      ><strong>{{ s.connected }}</strong> connected
+    </li>
+    <li>
+      <i class="ti ti-send" aria-hidden="true"></i><strong>{{ s.sentToday }}</strong> sent today
+    </li>
     @if (s.attention) {
-      <li class="warn"><span class="ms" aria-hidden="true">priority_high</span><strong>{{ s.attention }}</strong> need{{ s.attention === 1 ? 's' : '' }} attention</li>
+      <li class="warn">
+        <i class="ti ti-exclamation-mark" aria-hidden="true"></i
+        ><strong>{{ s.attention }}</strong> need{{ s.attention === 1 ? 's' : '' }} attention
+      </li>
     }
   </ul>
 }
 
 @if (showForm()) {
-  <form id="add-number" class="card new" (submit)="create($event)" novalidate aria-labelledby="add-h">
+  <form
+    id="add-number"
+    class="card new"
+    (submit)="create($event)"
+    novalidate
+    aria-labelledby="add-h"
+  >
     <div class="new-head">
       <h3 id="add-h">Add a number</h3>
       <p class="muted">Credentials and QR login happen on the Connection page once it exists.</p>
@@ -33,19 +60,40 @@
     <div class="grid">
       <div class="field">
         <label for="c-name">Label</label>
-        <input #firstField id="c-name" name="displayName" required maxlength="80" placeholder="e.g. Sales line"
-               [ngModel]="draft().displayName" (ngModelChange)="setDraft('displayName', $event)"
-               [attr.aria-invalid]="!!formError() && !draft().displayName.trim()" />
+        <input
+          #firstField
+          id="c-name"
+          name="displayName"
+          required
+          maxlength="80"
+          placeholder="e.g. Sales line"
+          [ngModel]="draft().displayName"
+          (ngModelChange)="setDraft('displayName', $event)"
+          [attr.aria-invalid]="!!formError() && !draft().displayName.trim()"
+        />
       </div>
       <div class="field">
         <label for="c-phone">Phone number <span class="opt">optional</span></label>
-        <input id="c-phone" name="phoneNumber" inputmode="tel" placeholder="+91 98765 43210"
-               [ngModel]="draft().phoneNumber" (ngModelChange)="setDraft('phoneNumber', $event)" />
+        <input
+          id="c-phone"
+          name="phoneNumber"
+          inputmode="tel"
+          placeholder="+91 98765 43210"
+          [ngModel]="draft().phoneNumber"
+          (ngModelChange)="setDraft('phoneNumber', $event)"
+        />
       </div>
       <div class="field">
         <label for="c-tz">Timezone</label>
-        <select id="c-tz" name="timezone" [ngModel]="draft().timezone" (ngModelChange)="setDraft('timezone', $event)">
-          @for (z of zones; track z) { <option [value]="z">{{ z.split('_').join(' ') }}</option> }
+        <select
+          id="c-tz"
+          name="timezone"
+          [ngModel]="draft().timezone"
+          (ngModelChange)="setDraft('timezone', $event)"
+        >
+          @for (z of zones; track z) {
+            <option [value]="z">{{ z.split('_').join(' ') }}</option>
+          }
         </select>
       </div>
     </div>
@@ -55,28 +103,41 @@
       <div class="options">
         @for (t of transportOptions(); track t.value) {
           <label class="option" [class.on]="draft().transport === t.value">
-            <input type="radio" name="transport" [value]="t.value" [checked]="draft().transport === t.value"
-                   (change)="setDraft('transport', t.value)" />
-            <span class="ms" aria-hidden="true">{{ t.icon }}</span>
+            <input
+              type="radio"
+              name="transport"
+              [value]="t.value"
+              [checked]="draft().transport === t.value"
+              (change)="setDraft('transport', t.value)"
+            />
+            <i class="ti ti-{{ t.icon }}" aria-hidden="true"></i>
             <span class="opt-text">
               <strong>{{ t.label }}</strong>
-              @if (t.hint) { <small>{{ t.hint }}</small> }
+              @if (t.hint) {
+                <small>{{ t.hint }}</small>
+              }
             </span>
           </label>
         }
       </div>
       @if (warnings()[draft().transport]; as warning) {
-        <p class="tos"><span class="ms" aria-hidden="true">gavel</span>{{ warning }}</p>
+        <p class="tos"><i class="ti ti-gavel" aria-hidden="true"></i>{{ warning }}</p>
       }
     </fieldset>
 
     @if (formError()) {
-      <p class="error" role="alert">{{ formError() }}</p>
+      <p class="s-banner" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i>{{ formError() }}
+      </p>
     }
 
     <div class="new-foot">
       <button class="btn primary" type="submit" [disabled]="busy()">
-        @if (busy()) { <span class="spinner" aria-hidden="true"></span> Adding... } @else { Add number }
+        @if (busy()) {
+          <span class="spinner" aria-hidden="true"></span> Adding...
+        } @else {
+          Add number
+        }
       </button>
       <button class="btn" type="button" (click)="toggleForm()">Cancel</button>
     </div>
@@ -86,23 +147,27 @@
 @if (loading()) {
   <div class="rack" aria-busy="true" aria-label="Loading numbers">
     @for (i of [1, 2, 3]; track i) {
-      <div class="skeleton" aria-hidden="true">
-        <i class="s-line short"></i><i class="s-line"></i><i class="s-block"></i><i class="s-line mid"></i>
+      <div class="skel-card" aria-hidden="true">
+        <i class="s-line short"></i><i class="s-line"></i><i class="s-block"></i
+        ><i class="s-line mid"></i>
       </div>
     }
   </div>
 } @else if (loadError() && !channels().length) {
-  <div class="card state error-state" role="alert">
-    <span class="ms big" aria-hidden="true">cloud_off</span>
-    <h3>Couldn't load your numbers</h3>
-    <p class="muted">{{ loadError() }}</p>
-    <button class="btn primary" type="button" (click)="loading.set(true); refresh()">
-      <span class="ms" aria-hidden="true">refresh</span> Try again
+  <div class="s-banner" role="alert">
+    <i class="ti ti-cloud-off" aria-hidden="true"></i>
+    <span class="grow">Couldn't load your numbers: {{ loadError() }}</span>
+    <button class="btn sm" type="button" (click)="loading.set(true); refresh()">
+      <i class="ti ti-refresh" aria-hidden="true"></i> Try again
     </button>
   </div>
 } @else {
   @if (loadError()) {
-    <p class="error" role="alert">Showing the last loaded data - {{ loadError() }}</p>
+    <p class="s-banner tone-warn" role="alert">
+      <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+      <span class="grow">Showing the last loaded data: {{ loadError() }}</span>
+      <button class="btn sm" type="button" (click)="refresh()">Try again</button>
+    </p>
   }
   <div class="rack">
     @for (channel of channels(); track channel.id) {
@@ -116,12 +181,12 @@
         (connect)="connect(channel)"
       />
     } @empty {
-      <div class="card state empty">
-        <div class="phone-3d" aria-hidden="true"><span class="ms">chat</span></div>
-        <h3>No numbers yet</h3>
-        <p class="muted">Add your first WhatsApp number to start sending campaigns and replying to customers.</p>
+      <div class="card state s-empty">
+        <i class="ti ti-message" aria-hidden="true"></i>
+        <strong>No numbers yet</strong>
+        <p>Add your first WhatsApp number to start sending campaigns and replying to customers.</p>
         <button class="btn primary" type="button" (click)="toggleForm()">
-          <span class="ms" aria-hidden="true">add</span> Add number
+          <i class="ti ti-plus" aria-hidden="true"></i> Add number
         </button>
       </div>
     }

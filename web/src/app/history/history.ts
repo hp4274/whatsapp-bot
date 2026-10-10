@@ -1,22 +1,61 @@
-import { Component, effect, inject, signal, untracked } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { Api, MessageRecord } from '../core/api';
 import { Store } from '../core/store';
 
-const STATUSES = ['ALL', 'QUEUED', 'SENDING', 'SENT', 'DELIVERED', 'READ', 'FAILED', 'SANDBOX'];
+/** Filter options; `ALL` is a UI-only value the server treats as "no filter". */
+const STATUSES: readonly string[] = [
+  'ALL',
+  'QUEUED',
+  'SENDING',
+  'SENT',
+  'DELIVERED',
+  'READ',
+  'FAILED',
+  'SANDBOX',
+];
 
+/** Placeholder rows shown while the first page loads. */
+const SKELETON_ROWS: readonly number[] = [0, 1, 2, 3, 4];
+
+/** Pill tone per delivery status, matching the colour the global `.status-*` classes use. */
+const STATUS_TONE: Readonly<Record<string, string>> = {
+  SENT: 'tone-ok',
+  DELIVERED: 'tone-ok',
+  READ: 'tone-ok',
+  SENDING: 'tone-info',
+  FAILED: 'tone-bad',
+  SANDBOX: 'tone-warn',
+};
+
+/**
+ * Every message the app sent, with the status the transport really reported.
+ *
+ * Nothing polls: the server's event stream bumps `Store.historyRevision`, and
+ * a signature lets the server answer 204 when the page the browser holds is
+ * still current.
+ */
 @Component({
   selector: 'app-history',
   imports: [FormsModule],
   templateUrl: './history.html',
   styleUrl: './history.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HistoryView {
   private readonly api = inject(Api);
   private readonly store = inject(Store);
 
   protected readonly statuses = STATUSES;
+  protected readonly skeletonRows = SKELETON_ROWS;
   protected readonly status = signal('ALL');
   protected readonly recipient = signal('');
   protected readonly records = signal<MessageRecord[]>([]);
@@ -41,6 +80,7 @@ export class HistoryView {
   protected load(force = false): void {
     if (force) this.signature = '';
     this.loading.set(true);
+    this.error.set('');
     this.api
       .history({
         status: this.status(),
@@ -71,5 +111,9 @@ export class HistoryView {
     return Object.entries(this.counts())
       .map(([status, n]) => ({ status, n }))
       .sort((a, b) => a.status.localeCompare(b.status));
+  }
+
+  protected toneFor(status: string): string {
+    return STATUS_TONE[status] ?? 'tone-mute';
   }
 }

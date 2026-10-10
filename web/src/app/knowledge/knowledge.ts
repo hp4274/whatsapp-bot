@@ -1,16 +1,35 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet } from '@angular/common';
 import { Observable } from 'rxjs';
 
 import { Auth } from '../core/auth';
 import { Store } from '../core/store';
+import { Tilt } from '../school/tilt';
 import {
-  FaqCategory, FaqInput, FaqItem, FaqMiss, KnowledgeApi, KnowledgeDashboard, MATCH_TYPES, MatchResult, MatchType, similarity,
+  FaqCategory,
+  FaqInput,
+  FaqItem,
+  FaqMiss,
+  KnowledgeApi,
+  KnowledgeDashboard,
+  MATCH_TYPES,
+  MatchResult,
+  MatchType,
+  similarity,
 } from './knowledge-api';
 
+/** Sections of the knowledge base, one tab each. */
 type Tab = 'questions' | 'categories' | 'test' | 'gaps';
 
+/** The FAQ editor's working copy; `keywords` stays a comma string until save. */
 interface Draft {
   id: number | null;
   question: string;
@@ -25,6 +44,7 @@ interface Draft {
   fromMissId: number | null;
 }
 
+/** One-line explanation shown under the match-type select, so admins know what they are choosing. */
 const MATCH_HINTS: Record<MatchType, string> = {
   CONTAINS: 'Fires when the message contains the question or any keyword.',
   EXACT: 'Fires only when the whole message equals the question or a keyword.',
@@ -33,24 +53,34 @@ const MATCH_HINTS: Record<MatchType, string> = {
   FALLBACK: 'Answers anything nothing else matched. Use for one catch-all at most.',
 };
 
+/**
+ * The FAQ engine's editor: questions, categories, a dry-run tester and the
+ * gap report of what customers asked that nothing answered.
+ *
+ * One screen with tabs (not routes) because the tester and the gap list jump
+ * straight into the editor with a prefilled draft; keeping them in one
+ * component lets that hand-off be a signal write.
+ */
 @Component({
   selector: 'app-knowledge',
-  imports: [FormsModule, NgTemplateOutlet],
+  imports: [FormsModule, NgTemplateOutlet, Tilt],
   templateUrl: './knowledge.html',
   styleUrl: './knowledge.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class KnowledgeView {
   private readonly api = inject(KnowledgeApi);
   private readonly auth = inject(Auth);
   private readonly store = inject(Store);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly matchTypes = MATCH_TYPES;
   protected readonly matchHints = MATCH_HINTS;
   protected readonly tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: 'questions', label: 'Questions', icon: 'quiz' },
+    { id: 'questions', label: 'Questions', icon: 'help-octagon' },
     { id: 'categories', label: 'Categories', icon: 'folder' },
-    { id: 'test', label: 'Test', icon: 'science' },
-    { id: 'gaps', label: 'Gaps', icon: 'troubleshoot' },
+    { id: 'test', label: 'Test', icon: 'flask' },
+    { id: 'gaps', label: 'Gaps', icon: 'zoom-question' },
   ];
 
   protected readonly canWrite = computed(() => this.auth.atLeast('admin'));
@@ -83,7 +113,9 @@ export class KnowledgeView {
   protected readonly stats = computed(() => this.data()?.stats ?? null);
   protected readonly misses = computed(() => this.data()?.misses ?? []);
   protected readonly threshold = computed(() => this.data()?.similarityThreshold ?? 0.6);
-  protected readonly uncategorised = computed(() => this.items().filter((i) => i.categoryId == null).length);
+  protected readonly uncategorised = computed(
+    () => this.items().filter((i) => i.categoryId == null).length,
+  );
   protected readonly coverage = computed(() => Math.round((this.stats()?.coverage ?? 0) * 100));
 
   protected readonly visible = computed(() => {
@@ -93,8 +125,11 @@ export class KnowledgeView {
       if (f === 'none' && i.categoryId != null) return false;
       if (typeof f === 'number' && i.categoryId !== f) return false;
       if (!q) return true;
-      return i.question.toLowerCase().includes(q) || i.answer.toLowerCase().includes(q)
-        || i.keywords.some((k) => k.toLowerCase().includes(q));
+      return (
+        i.question.toLowerCase().includes(q) ||
+        i.answer.toLowerCase().includes(q) ||
+        i.keywords.some((k) => k.toLowerCase().includes(q))
+      );
     });
   });
 
@@ -106,13 +141,19 @@ export class KnowledgeView {
       const items = list.filter((i) => i.categoryId === c.id);
       if (items.length) out.push({ key: `c${c.id}`, name: c.name, items });
     }
-    const loose = list.filter((i) => i.categoryId == null || !this.categories().some((c) => c.id === i.categoryId));
+    const loose = list.filter(
+      (i) => i.categoryId == null || !this.categories().some((c) => c.id === i.categoryId),
+    );
     if (loose.length) out.push({ key: 'none', name: 'Uncategorised', items: loose });
     return out;
   });
 
   protected readonly nearMisses = computed(() =>
-    this.items().filter((i) => i.missCount > 0).sort((a, b) => b.missCount - a.missCount).slice(0, 8));
+    this.items()
+      .filter((i) => i.missCount > 0)
+      .sort((a, b) => b.missCount - a.missCount)
+      .slice(0, 8),
+  );
 
   protected readonly maxMiss = computed(() => Math.max(1, ...this.misses().map((m) => m.count)));
 
@@ -130,6 +171,7 @@ export class KnowledgeView {
   });
 
   constructor() {
+    this.destroyRef.onDestroy(() => clearTimeout(this.flashTimer));
     this.load();
     this.store.watch(['faq', 'knowledge'], () => this.load());
   }
@@ -138,16 +180,24 @@ export class KnowledgeView {
     this.loading.set(!this.data());
     this.error.set('');
     this.api.dashboard().subscribe({
-      next: (d) => { this.data.set(d); this.loading.set(false); },
-      error: (e: Error) => { this.error.set(e.message); this.loading.set(false); },
+      next: (d) => {
+        this.data.set(d);
+        this.loading.set(false);
+      },
+      error: (e: Error) => {
+        this.error.set(e.message);
+        this.loading.set(false);
+      },
     });
   }
 
   protected categoryName(id: number | null) {
-    return id == null ? '' : this.categories().find((c) => c.id === id)?.name ?? '';
+    return id == null ? '' : (this.categories().find((c) => c.id === id)?.name ?? '');
   }
 
-  protected pct(score: number) { return Math.round(score * 100); }
+  protected pct(score: number) {
+    return Math.round(score * 100);
+  }
 
   protected setFilter(value: string) {
     this.filter.set(value === 'all' || value === 'none' ? value : Number(value));
@@ -159,8 +209,18 @@ export class KnowledgeView {
     this.formError.set('');
     this.tab.set('questions');
     this.draft.set({
-      id: null, question: '', answer: '', keywords: '', categoryId: typeof f === 'number' ? f : null,
-      matchType: 'CONTAINS', locale: '', isActive: true, priority: 0, outOfHours: false, fromMissId: null, ...prefill,
+      id: null,
+      question: '',
+      answer: '',
+      keywords: '',
+      categoryId: typeof f === 'number' ? f : null,
+      matchType: 'CONTAINS',
+      locale: '',
+      isActive: true,
+      priority: 0,
+      outOfHours: false,
+      fromMissId: null,
+      ...prefill,
     });
     this.focusEditor();
   }
@@ -169,9 +229,17 @@ export class KnowledgeView {
     this.formError.set('');
     this.tab.set('questions');
     this.draft.set({
-      id: item.id, question: item.question, answer: item.answer, keywords: item.keywords.join(', '),
-      categoryId: item.categoryId, matchType: item.matchType, locale: item.locale, isActive: item.isActive,
-      priority: item.priority, outOfHours: item.outOfHours, fromMissId: null,
+      id: item.id,
+      question: item.question,
+      answer: item.answer,
+      keywords: item.keywords.join(', '),
+      categoryId: item.categoryId,
+      matchType: item.matchType,
+      locale: item.locale,
+      isActive: item.isActive,
+      priority: item.priority,
+      outOfHours: item.outOfHours,
+      fromMissId: null,
     });
     this.focusEditor();
   }
@@ -185,7 +253,10 @@ export class KnowledgeView {
     if (d) this.draft.set({ ...d, [key]: value });
   }
 
-  protected cancel() { this.draft.set(null); this.formError.set(''); }
+  protected cancel() {
+    this.draft.set(null);
+    this.formError.set('');
+  }
 
   protected save() {
     const d = this.draft();
@@ -193,27 +264,45 @@ export class KnowledgeView {
     if (!d.question.trim()) return this.formError.set('Write the question a customer would ask.');
     if (!d.answer.trim()) return this.formError.set('Write the answer the bot should send.');
     const body: FaqInput = {
-      question: d.question.trim(), answer: d.answer.trim(),
-      keywords: d.keywords.split(/[,\n]/).map((k) => k.trim()).filter(Boolean),
-      categoryId: d.categoryId, matchType: d.matchType, locale: d.locale.trim(),
-      isActive: d.isActive, priority: Number(d.priority) || 0, outOfHours: d.outOfHours,
+      question: d.question.trim(),
+      answer: d.answer.trim(),
+      keywords: d.keywords
+        .split(/[,\n]/)
+        .map((k) => k.trim())
+        .filter(Boolean),
+      categoryId: d.categoryId,
+      matchType: d.matchType,
+      locale: d.locale.trim(),
+      isActive: d.isActive,
+      priority: Number(d.priority) || 0,
+      outOfHours: d.outOfHours,
     };
-    const req: Observable<unknown> = d.id == null ? this.api.createItem(body) : this.api.updateItem(d.id, body);
+    const req: Observable<unknown> =
+      d.id == null ? this.api.createItem(body) : this.api.updateItem(d.id, body);
     this.busy.set(true);
     req.subscribe({
       next: () => {
         this.busy.set(false);
         this.draft.set(null);
         this.flash('ok', d.id == null ? 'Question added.' : 'Changes saved.');
-        if (d.fromMissId != null) this.api.dismissMiss(d.fromMissId).subscribe({ next: () => this.load(), error: () => this.load() });
+        if (d.fromMissId != null)
+          this.api
+            .dismissMiss(d.fromMissId)
+            .subscribe({ next: () => this.load(), error: () => this.load() });
         else this.load();
       },
-      error: (e: Error) => { this.busy.set(false); this.formError.set(e.message); },
+      error: (e: Error) => {
+        this.busy.set(false);
+        this.formError.set(e.message);
+      },
     });
   }
 
   protected toggle(item: FaqItem) {
-    this.mutate(this.api.updateItem(item.id, { isActive: !item.isActive }), item.isActive ? 'Question paused.' : 'Question live.');
+    this.mutate(
+      this.api.updateItem(item.id, { isActive: !item.isActive }),
+      item.isActive ? 'Question paused.' : 'Question live.',
+    );
   }
 
   protected remove(item: FaqItem) {
@@ -227,13 +316,17 @@ export class KnowledgeView {
     const name = this.newCategory().trim();
     if (!name) return;
     const pos = Math.max(-1, ...this.categories().map((c) => c.position)) + 1;
-    this.mutate(this.api.createCategory(name, pos), `Category "${name}" added.`, () => this.newCategory.set(''));
+    this.mutate(this.api.createCategory(name, pos), `Category "${name}" added.`, () =>
+      this.newCategory.set(''),
+    );
   }
 
   protected saveRename() {
     const r = this.renaming();
     if (!r?.name.trim()) return;
-    this.mutate(this.api.updateCategory(r.id, { name: r.name.trim() }), 'Category renamed.', () => this.renaming.set(null));
+    this.mutate(this.api.updateCategory(r.id, { name: r.name.trim() }), 'Category renamed.', () =>
+      this.renaming.set(null),
+    );
   }
 
   protected setRename(name: string) {
@@ -255,8 +348,18 @@ export class KnowledgeView {
     if (!left) return this.busy.set(false);
     for (const { c, i } of writes) {
       this.api.updateCategory(c.id, { position: i }).subscribe({
-        next: () => { if (--left === 0) { this.busy.set(false); this.load(); } },
-        error: (e: Error) => { this.busy.set(false); this.flash('bad', e.message); this.load(); left = -1; },
+        next: () => {
+          if (--left === 0) {
+            this.busy.set(false);
+            this.load();
+          }
+        },
+        error: (e: Error) => {
+          this.busy.set(false);
+          this.flash('bad', e.message);
+          this.load();
+          left = -1;
+        },
       });
     }
   }
@@ -264,7 +367,10 @@ export class KnowledgeView {
   protected removeCategory(c: FaqCategory) {
     this.confirmId.set(null);
     if (this.filter() === c.id) this.filter.set('all');
-    this.mutate(this.api.deleteCategory(c.id), `Category deleted. Its questions are now uncategorised.`);
+    this.mutate(
+      this.api.deleteCategory(c.id),
+      `Category deleted. Its questions are now uncategorised.`,
+    );
   }
 
   // ------------------------------------------------------------------ test --
@@ -273,8 +379,15 @@ export class KnowledgeView {
     if (!text || this.testing()) return;
     this.testing.set(true);
     this.api.match(text, this.ignoreHours()).subscribe({
-      next: (r) => { this.result.set(r); this.testedText.set(text); this.testing.set(false); },
-      error: (e: Error) => { this.testing.set(false); this.flash('bad', e.message); },
+      next: (r) => {
+        this.result.set(r);
+        this.testedText.set(text);
+        this.testing.set(false);
+      },
+      error: (e: Error) => {
+        this.testing.set(false);
+        this.flash('bad', e.message);
+      },
     });
   }
 
@@ -294,8 +407,16 @@ export class KnowledgeView {
     if (this.busy()) return;
     this.busy.set(true);
     req.subscribe({
-      next: () => { this.busy.set(false); after?.(); this.flash('ok', success); this.load(); },
-      error: (e: Error) => { this.busy.set(false); this.flash('bad', e.message); },
+      next: () => {
+        this.busy.set(false);
+        after?.();
+        this.flash('ok', success);
+        this.load();
+      },
+      error: (e: Error) => {
+        this.busy.set(false);
+        this.flash('bad', e.message);
+      },
     });
   }
 
@@ -308,20 +429,5 @@ export class KnowledgeView {
 
   private focusEditor() {
     setTimeout(() => document.getElementById('kb-question')?.focus({ preventScroll: false }), 0);
-  }
-
-  // ------------------------------------------------------------ hero tilt --
-  protected tilt(e: PointerEvent) {
-    if (e.pointerType === 'touch' || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const el = e.currentTarget as HTMLElement;
-    const r = el.getBoundingClientRect();
-    el.style.setProperty('--px', ((e.clientX - r.left) / r.width - 0.5).toFixed(3));
-    el.style.setProperty('--py', ((e.clientY - r.top) / r.height - 0.5).toFixed(3));
-  }
-
-  protected untilt(e: PointerEvent) {
-    const el = e.currentTarget as HTMLElement;
-    el.style.removeProperty('--px');
-    el.style.removeProperty('--py');
   }
 }

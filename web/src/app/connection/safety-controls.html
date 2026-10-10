@@ -1,56 +1,101 @@
 @if (view(); as v) {
   @if (v.active && v.consent; as consent) {
     <div class="sc-banner" role="status">
-      <span class="ms" aria-hidden="true">gpp_maybe</span>
+      <i class="ti ti-shield-exclamation" aria-hidden="true"></i>
       <div>
         <strong>Custom sending limits active</strong>
-        <span>Accepted by {{ consent.fullName || consent.email }} on {{ consent.acceptedAt | date: 'mediumDate' }}. Your business is responsible for what happens to your number.</span>
+        <span
+          >Accepted by {{ consent.fullName || consent.email }} on
+          {{ consent.acceptedAt | date: 'mediumDate' }}. Your business is responsible for what
+          happens to your number.</span
+        >
       </div>
     </div>
   } @else if (v.allowed && !v.consent && hasOverrides()) {
-    <p class="sc-note"><span class="ms" aria-hidden="true">info</span>The sending terms changed. Your saved limits are paused until someone accepts the new terms.</p>
+    <p class="sc-note">
+      <i class="ti ti-info-circle" aria-hidden="true"></i>The sending terms changed. Your saved
+      limits are paused until someone accepts the new terms.
+    </p>
   }
 
   @if (v.allowed) {
     <div class="sc-actions">
       <p class="muted">
-        {{ v.active ? 'You are using your own limits instead of the platform defaults.' : 'Pacing, daily cap, rate and retry limits are set by the platform admin to keep your number safe. You may change them at your own risk.' }}
+        {{
+          v.active
+            ? 'You are using your own limits instead of the platform defaults.'
+            : 'Pacing, daily cap, rate and retry limits are set by the platform admin to keep your number safe. You may change them at your own risk.'
+        }}
       </p>
       <button class="btn" type="button" (click)="openEditor()">
-        <span class="ms" aria-hidden="true">tune</span>{{ v.active ? 'Edit limits' : 'Customize' }}
+        <i class="ti ti-adjustments-horizontal" aria-hidden="true"></i
+        >{{ v.active ? 'Edit limits' : 'Customize' }}
       </button>
     </div>
   } @else {
-    <p class="muted">Pacing, daily cap, rate and retry limits are set by the platform admin to keep your number safe.</p>
+    <p class="muted">
+      Pacing, daily cap, rate and retry limits are set by the platform admin to keep your number
+      safe.
+    </p>
   }
 } @else {
-  <p class="muted">Pacing, daily cap, rate and retry limits are set by the platform admin to keep your number safe.</p>
+  <p class="muted">
+    Pacing, daily cap, rate and retry limits are set by the platform admin to keep your number safe.
+  </p>
 }
 
 @if (open() && view(); as v) {
   <div class="sc-backdrop" (click)="close()"></div>
-  <aside class="sc-drawer" role="dialog" aria-modal="true" aria-labelledby="sc-title" (keydown.escape)="close()">
+  <aside
+    class="sc-drawer"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="sc-title"
+    (keydown.escape)="close()"
+  >
     <header>
       <div>
-        <h3 id="sc-title" tabindex="-1">{{ needsConsent() ? 'Before you change sending limits' : 'Your sending limits' }}</h3>
-        <p class="muted">{{ needsConsent() ? 'Read this carefully. It is recorded with your name and the time.' : 'Values differ from the platform where marked. Risky values are flagged in red.' }}</p>
+        <h3 id="sc-title" tabindex="-1">
+          {{ needsConsent() ? 'Before you change sending limits' : 'Your sending limits' }}
+        </h3>
+        <p class="muted">
+          {{
+            needsConsent()
+              ? 'Read this carefully. It is recorded with your name and the time.'
+              : 'Values differ from the platform where marked. Risky values are flagged in red.'
+          }}
+        </p>
       </div>
-      <button class="btn icon" type="button" (click)="close()" [disabled]="busy()" aria-label="Close">
-        <span class="ms" aria-hidden="true">close</span>
+      <button
+        class="btn icon"
+        type="button"
+        (click)="close()"
+        [disabled]="busy()"
+        aria-label="Close"
+      >
+        <i class="ti ti-x" aria-hidden="true"></i>
       </button>
     </header>
 
     <div class="sc-body">
       @if (error()) {
-        <p class="sc-error" role="alert"><span class="ms" aria-hidden="true">error</span>{{ error() }}</p>
+        <p class="sc-error" role="alert">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}
+        </p>
       }
 
       @if (needsConsent()) {
         <div class="sc-warning">
-          <div class="sc-shield" aria-hidden="true"><span class="ms">warning</span></div>
+          <div class="sc-shield" aria-hidden="true">
+            <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+          </div>
           <div>
             <strong>Your WhatsApp number can be restricted or permanently banned.</strong>
-            <p>WhatsApp watches for fast, high-volume and unsolicited messaging. The platform's limits exist to keep you under that radar. Loosening them is entirely your decision and your risk.</p>
+            <p>
+              WhatsApp watches for fast, high-volume and unsolicited messaging. The platform's
+              limits exist to keep you under that radar. Loosening them is entirely your decision
+              and your risk.
+            </p>
           </div>
         </div>
 
@@ -62,60 +107,127 @@
 
         <div class="sc-recommended">
           <strong>Recommended (current platform values)</strong>
-          <span>{{ v.platform.dailyLimit || 'No' }} messages per day, {{ v.platform.pacingMode }} pacing, {{ v.platform.rateLimitPerSecond }}/s, rest every {{ v.platform.restEvery || '-' }} messages.</span>
+          <span
+            >{{ v.platform.dailyLimit || 'No' }} messages per day,
+            {{ v.platform.pacingMode }} pacing, {{ v.platform.rateLimitPerSecond }}/s, rest every
+            {{ v.platform.restEvery || '-' }} messages.</span
+          >
         </div>
 
         <label class="sc-check">
-          <input type="checkbox" [checked]="understood()" (change)="understood.set(checked($event))" />
-          <span>I understand and accept full responsibility. The platform is not liable if our number is restricted or banned.</span>
+          <input
+            type="checkbox"
+            [checked]="understood()"
+            (change)="understood.set(checked($event))"
+          />
+          <span
+            >I understand and accept full responsibility. The platform is not liable if our number
+            is restricted or banned.</span
+          >
         </label>
 
         <div class="field">
           <label for="sc-name">Your full name</label>
-          <input id="sc-name" type="text" autocomplete="name" [value]="fullName()" (input)="fullName.set($any($event.target).value)" />
+          <input
+            id="sc-name"
+            type="text"
+            autocomplete="name"
+            [value]="fullName()"
+            (input)="fullName.set($any($event.target).value)"
+          />
         </div>
         <div class="field">
           <label for="sc-confirm">Type <strong>I ACCEPT</strong> to confirm</label>
-          <input id="sc-confirm" type="text" autocomplete="off" spellcheck="false" [value]="confirmation()"
-                 (input)="confirmation.set($any($event.target).value)" aria-describedby="sc-confirm-hint" />
+          <input
+            id="sc-confirm"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            [value]="confirmation()"
+            (input)="confirmation.set($any($event.target).value)"
+            aria-describedby="sc-confirm-hint"
+          />
           <span class="hint" id="sc-confirm-hint">Terms version {{ v.consentVersion }}</span>
         </div>
       } @else if (draft(); as d) {
         @if (riskCount()) {
-          <p class="sc-error" role="status"><span class="ms" aria-hidden="true">warning</span>{{ riskCount() }} risky value{{ riskCount() === 1 ? '' : 's' }} below. Each one raises the chance of a ban.</p>
+          <p class="sc-error" role="status">
+            <i class="ti ti-alert-triangle" aria-hidden="true"></i>{{ riskCount() }} risky value{{
+              riskCount() === 1 ? '' : 's'
+            }}
+            below. Each one raises the chance of a ban.
+          </p>
         }
 
-        <div class="sc-row" [class.risky]="risks()['safetyEnabled']">
-          <label class="sc-check">
-            <input type="checkbox" [checked]="d.safetyEnabled" (change)="setValue('safetyEnabled', checked($event))" />
-            <span><strong>Sending safety enforced</strong></span>
-          </label>
-          @if (risks()['safetyEnabled']; as why) { <span class="sc-risk">{{ why }}</span> }
-        </div>
+        <div class="sc-rows">
+          <div class="sc-row" [class.risky]="risks()['safetyEnabled']">
+            <div class="sc-label">
+              <label for="sc-enabled">Sending safety enforced</label>
+              <span class="hint">platform: {{ platformValue('safetyEnabled') }}</span>
+            </div>
+            <input
+              id="sc-enabled"
+              class="sc-switch"
+              type="checkbox"
+              role="switch"
+              [checked]="d.safetyEnabled"
+              (change)="setValue('safetyEnabled', checked($event))"
+            />
+            @if (risks()['safetyEnabled']; as why) {
+              <span class="sc-risk">{{ why }}</span>
+            }
+          </div>
 
-        <div class="field" [class.risky]="risks()['pacingMode']">
-          <label for="sc-pacing">Pacing mode <span class="sc-platform">platform: {{ platformValue('pacingMode') }}</span></label>
-          <select id="sc-pacing" [value]="d.pacingMode" (change)="setValue('pacingMode', $any($event.target).value)">
-            <option value="adaptive">Adaptive - vary the gap, widen it as the batch grows</option>
-            <option value="fixed">Fixed - rate limit only (faster, easier to spot)</option>
-          </select>
-          @if (risks()['pacingMode']; as why) { <span class="sc-risk">{{ why }}</span> }
+          <div class="sc-row" [class.risky]="risks()['pacingMode']">
+            <div class="sc-label">
+              <label for="sc-pacing">Pacing mode</label>
+              <span class="hint">platform: {{ platformValue('pacingMode') }}</span>
+            </div>
+            <select
+              id="sc-pacing"
+              [value]="d.pacingMode"
+              (change)="setValue('pacingMode', $any($event.target).value)"
+            >
+              <option value="adaptive">Adaptive - vary the gap, widen it as the batch grows</option>
+              <option value="fixed">Fixed - rate limit only (faster, easier to spot)</option>
+            </select>
+            @if (risks()['pacingMode']; as why) {
+              <span class="sc-risk">{{ why }}</span>
+            }
+          </div>
         </div>
 
         @for (group of groups; track group.title) {
           <fieldset class="sc-group">
             <legend>{{ group.title }}</legend>
-            <div class="sc-fields">
+            <div class="sc-rows">
               @for (f of group.fields; track f.key) {
-                <div class="field" [class.risky]="risks()[f.key]" [class.changed]="changedFromPlatform(f)">
-                  <label [for]="'sc-' + f.key">{{ f.label }}</label>
-                  <input [id]="'sc-' + f.key" type="number" min="0" [step]="f.step ?? 1" [value]="d[f.key]"
-                         (input)="setNumber(f.key, $any($event.target).value)"
-                         [attr.aria-describedby]="'sc-h-' + f.key" />
-                  <span class="hint" [id]="'sc-h-' + f.key">
-                    {{ f.help }} · <span class="sc-platform">platform: {{ platformValue(f.key) }}</span>
-                  </span>
-                  @if (risks()[f.key]; as why) { <span class="sc-risk"><span class="ms" aria-hidden="true">warning</span>{{ why }}</span> }
+                <div
+                  class="sc-row"
+                  [class.risky]="risks()[f.key]"
+                  [class.changed]="changedFromPlatform(f)"
+                >
+                  <div class="sc-label">
+                    <label [for]="'sc-' + f.key">{{ f.label }}</label>
+                    <span class="hint" [id]="'sc-h-' + f.key">
+                      {{ f.help }} ·
+                      <span class="sc-platform">platform: {{ platformValue(f.key) }}</span>
+                    </span>
+                  </div>
+                  <input
+                    [id]="'sc-' + f.key"
+                    type="number"
+                    min="0"
+                    [step]="f.step ?? 1"
+                    [value]="d[f.key]"
+                    (input)="setNumber(f.key, $any($event.target).value)"
+                    [attr.aria-describedby]="'sc-h-' + f.key"
+                  />
+                  @if (risks()[f.key]; as why) {
+                    <span class="sc-risk"
+                      ><i class="ti ti-alert-triangle" aria-hidden="true"></i>{{ why }}</span
+                    >
+                  }
                 </div>
               }
             </div>
@@ -127,12 +239,25 @@
     <footer>
       @if (needsConsent()) {
         <button class="btn" type="button" (click)="close()" [disabled]="busy()">Cancel</button>
-        <button class="btn danger" type="button" (click)="accept()" [disabled]="busy() || !consentReady()">
-          <span class="ms" aria-hidden="true">gavel</span>{{ busy() ? 'Recording...' : 'Accept and continue' }}
+        <button
+          class="btn danger"
+          type="button"
+          (click)="accept()"
+          [disabled]="busy() || !consentReady()"
+        >
+          <i class="ti ti-gavel" aria-hidden="true"></i
+          >{{ busy() ? 'Recording...' : 'Accept and continue' }}
         </button>
       } @else {
-        <button class="btn" type="button" [class.danger]="resetConfirm()" (click)="reset()" [disabled]="busy()">
-          <span class="ms" aria-hidden="true">restart_alt</span>{{ resetConfirm() ? 'Click again to reset' : 'Reset to platform defaults' }}
+        <button
+          class="btn"
+          type="button"
+          [class.danger]="resetConfirm()"
+          (click)="reset()"
+          [disabled]="busy()"
+        >
+          <i class="ti ti-rotate" aria-hidden="true"></i
+          >{{ resetConfirm() ? 'Click again to reset' : 'Reset to platform defaults' }}
         </button>
         <span class="spacer"></span>
         <button class="btn" type="button" (click)="close()" [disabled]="busy()">Cancel</button>

@@ -1,66 +1,97 @@
-<section class="card toolbar enter">
-  <header class="card-head">
-    <span class="badge primary">
-      <span class="ms" aria-hidden="true">history</span>
-    </span>
-    <div>
-      <h3>Message History</h3>
-      <p class="muted">Every message this app sent, with the status it really reported</p>
-    </div>
-  </header>
+<!-- Header, filter bar, error banner, then the message table (skeleton on first load). -->
+<header class="s-head">
+  <div>
+    <p class="eyebrow"><i class="ti ti-history" aria-hidden="true"></i> Activity</p>
+    <h2>Message History</h2>
+    <p>Every message this app sent, with the status it really reported.</p>
+  </div>
+  <button type="button" class="btn" (click)="load(true)" [disabled]="loading()">
+    @if (loading()) {
+      <span class="spinner" aria-hidden="true"></span>
+    } @else {
+      <i class="ti ti-refresh" aria-hidden="true"></i>
+    }
+    Refresh
+  </button>
+</header>
 
-  <div class="filters">
-    <button type="button" class="btn" (click)="load(true)" [disabled]="loading()">
-      @if (loading()) { <span class="spinner"></span> }
-      Refresh
-    </button>
-    <select [ngModel]="status()" (ngModelChange)="status.set($event); onFilter()"
-            aria-label="Filter by status">
-      @for (option of statuses; track option) { <option [value]="option">{{ option }}</option> }
-    </select>
-    <input [ngModel]="recipient()" (ngModelChange)="recipient.set($event)"
-           (keyup.enter)="onFilter()" placeholder="Filter by recipient" aria-label="Filter by recipient" />
-    <div class="counts">
-      @for (entry of countEntries(); track entry.status) {
-        <span [class]="'status-' + entry.status">{{ entry.status }}: {{ entry.n }}</span>
-      }
-    </div>
+<section class="filters" aria-label="Filters">
+  <select
+    [ngModel]="status()"
+    (ngModelChange)="status.set($event); onFilter()"
+    aria-label="Filter by status"
+  >
+    @for (option of statuses; track option) {
+      <option [value]="option">{{ option }}</option>
+    }
+  </select>
+  <input
+    [ngModel]="recipient()"
+    (ngModelChange)="recipient.set($event)"
+    (keyup.enter)="onFilter()"
+    placeholder="Filter by recipient"
+    aria-label="Filter by recipient"
+  />
+  <div class="counts">
+    @for (entry of countEntries(); track entry.status) {
+      <span class="s-pill" [class]="toneFor(entry.status)"
+        >{{ entry.status }} <b>{{ entry.n }}</b></span
+      >
+    }
   </div>
 </section>
 
-@if (error()) { <p class="card notice" role="alert">{{ error() }}</p> }
+@if (error()) {
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span>{{ error() }}</span>
+    <button class="btn sm" type="button" (click)="load(true)">Try again</button>
+  </p>
+}
 
-<section class="card table-wrap enter">
-  <table>
-    <thead>
-      <tr>
-        <th>Recipient</th>
-        <th>Name</th>
-        <th>Message</th>
-        <th>Status</th>
-        <th>Try</th>
-        <th>Updated</th>
-        <th>Error</th>
-      </tr>
-    </thead>
-    <tbody>
-      @for (record of records(); track record.messageId) {
-        <tr>
-          <td class="mono">+{{ record.recipient }}</td>
-          <td>{{ record.name || '-' }}</td>
-          <td class="message" [title]="record.message">{{ record.message }}</td>
-          <td [class]="'status-' + record.status"><strong>{{ record.status }}</strong></td>
-          <td>{{ record.attempt }}</td>
-          <td class="mono">{{ record.updatedAt }}</td>
-          <td class="error">{{ record.error || '' }}</td>
-        </tr>
-      } @empty {
-        <tr>
-          <td colspan="7" class="empty muted">
-            No messages yet. Send one from the Messaging &amp; Campaign page.
-          </td>
-        </tr>
+<section class="s-card table-card" aria-label="Messages">
+  @if (loading() && !records().length) {
+    <div aria-busy="true" aria-label="Loading messages">
+      @for (n of skeletonRows; track n) {
+        <div class="s-skel"></div>
       }
-    </tbody>
-  </table>
+    </div>
+  } @else if (!records().length) {
+    <div class="s-empty">
+      <i class="ti ti-message-off" aria-hidden="true"></i>
+      <strong>No messages yet</strong>
+      <p>Send one from the Messaging &amp; Campaign page and it will appear here.</p>
+    </div>
+  } @else {
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Recipient</th>
+            <th scope="col">Name</th>
+            <th scope="col">Message</th>
+            <th scope="col">Status</th>
+            <th scope="col">Try</th>
+            <th scope="col">Updated</th>
+            <th scope="col">Error</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (record of records(); track record.messageId) {
+            <tr>
+              <td class="mono">+{{ record.recipient }}</td>
+              <td>{{ record.name || '-' }}</td>
+              <td class="message" [title]="record.message">{{ record.message }}</td>
+              <td>
+                <span class="s-pill" [class]="toneFor(record.status)">{{ record.status }}</span>
+              </td>
+              <td>{{ record.attempt }}</td>
+              <td class="mono">{{ record.updatedAt }}</td>
+              <td class="error">{{ record.error || '' }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
 </section>

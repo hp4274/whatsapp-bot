@@ -1,46 +1,75 @@
-<div class="stage" [class.framed]="framed()" (pointermove)="tilt($event)" (pointerleave)="untilt($event)">
+<div
+  class="stage"
+  [class.framed]="framed()"
+  (pointermove)="tilt($event)"
+  (pointerleave)="untilt($event)"
+>
   <div class="phone">
     @if (framed()) {
       <div class="bar">
-        <span class="ms back" aria-hidden="true">arrow_back</span>
+        <i class="ti ti-arrow-left back" aria-hidden="true"></i>
         <span class="avatar" aria-hidden="true">{{ title().charAt(0) || 'B' }}</span>
-        <span class="who"><strong>{{ title() }}</strong><small>online</small></span>
-        <span class="ms" aria-hidden="true">videocam</span>
-        <span class="ms" aria-hidden="true">call</span>
+        <span class="who"
+          ><strong>{{ title() }}</strong
+          ><small>online</small></span
+        >
+        <i class="ti ti-video" aria-hidden="true"></i>
+        <i class="ti ti-phone" aria-hidden="true"></i>
       </div>
     }
 
     <div class="chat" role="log" aria-label="WhatsApp preview">
       @for (t of turns(); track $index) {
         @if (t.incoming) {
-          <div class="out enter">{{ t.incoming }}<span class="tick"><span class="ms" aria-hidden="true">done_all</span></span></div>
+          <div class="out enter">
+            {{ t.incoming
+            }}<span class="tick"><i class="ti ti-checks" aria-hidden="true"></i></span>
+          </div>
         }
         @for (r of t.replies; track $index) {
-          @if (r.label) { <div class="tag">{{ r.label }}</div> }
+          @if (r.label) {
+            <div class="tag">{{ r.label }}</div>
+          }
           @if (r.media; as m) {
             <div class="media enter">
               @if (isImage(m) && m.url) {
                 <img [src]="m.url" [alt]="m.filename || 'Attached image'" />
               } @else {
-                <div class="doc"><span class="ms" aria-hidden="true">{{ icon(m) }}</span><span>{{ m.filename || 'Attachment' }}</span></div>
+                <div class="doc">
+                  <i class="ti ti-{{ icon(m) }}" aria-hidden="true"></i
+                  ><span>{{ m.filename || 'Attachment' }}</span>
+                </div>
               }
             </div>
           }
           @if (r.text || r.interactive) {
-            <app-interactive-preview class="enter" [text]="r.text" [interactive]="r.interactive" [showToggle]="false" [fallback]="fallback()" />
+            <app-interactive-preview
+              class="enter"
+              [text]="r.text"
+              [interactive]="r.interactive"
+              [showToggle]="false"
+              [fallback]="fallback()"
+            />
           }
         }
       } @empty {
-        <p class="empty"><span class="ms" aria-hidden="true">chat_bubble</span>Replies appear here</p>
+        <p class="empty">
+          <i class="ti ti-message-circle" aria-hidden="true"></i>Replies appear here
+        </p>
       }
     </div>
   </div>
 </div>
 
 @if (showToggle()) {
-<label class="webview">
-  <input type="checkbox" role="switch" [checked]="fallback()" (change)="fallback.set(!fallback())" />
-  <span class="track" aria-hidden="true"><span class="thumb"></span></span>
-  WhatsApp Web view <small>(numbered text)</small>
-</label>
+  <label class="webview">
+    <input
+      type="checkbox"
+      role="switch"
+      [checked]="fallback()"
+      (change)="fallback.set(!fallback())"
+    />
+    <span class="track" aria-hidden="true"><span class="thumb"></span></span>
+    WhatsApp Web view <small>(numbered text)</small>
+  </label>
 }

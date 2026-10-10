@@ -1,11 +1,15 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, computed, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
 
 import { DailyPoint } from './analytics-api';
 import { dayLabel, niceMax } from './analytics-util';
 
 type Key = 'sent' | 'delivered' | 'read' | 'failed';
-interface Series { key: Key; label: string; kind: 'area' | 'line' | 'dash' | 'bar' }
+interface Series {
+  key: Key;
+  label: string;
+  kind: 'area' | 'line' | 'dash' | 'bar';
+}
 
 const SERIES: Series[] = [
   { key: 'sent', label: 'Sent', kind: 'area' },
@@ -28,6 +32,7 @@ const H = 300;
   imports: [DecimalPipe],
   templateUrl: './trend-chart.html',
   styleUrl: './trend-chart.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TrendChart {
   readonly points = input.required<DailyPoint[]>();
@@ -55,7 +60,10 @@ export class TrendChart {
 
   protected readonly paths = computed(() => {
     const pts = this.points();
-    const line = (k: Key) => pts.map((p, i) => `${i ? 'L' : 'M'}${this.x(i).toFixed(1)},${this.y(p[k]).toFixed(1)}`).join('');
+    const line = (k: Key) =>
+      pts
+        .map((p, i) => `${i ? 'L' : 'M'}${this.x(i).toFixed(1)},${this.y(p[k]).toFixed(1)}`)
+        .join('');
     const sent = line('sent');
     const barW = Math.max(2, Math.min(18, (W / Math.max(1, pts.length)) * 0.45));
     return {
@@ -64,7 +72,13 @@ export class TrendChart {
       delivered: line('delivered'),
       read: line('read'),
       failed: pts
-        .map((p, i) => ({ x: this.x(i) - barW / 2, y: this.y(p.failed), w: barW, h: H - this.y(p.failed), n: p.failed }))
+        .map((p, i) => ({
+          x: this.x(i) - barW / 2,
+          y: this.y(p.failed),
+          w: barW,
+          h: H - this.y(p.failed),
+          n: p.failed,
+        }))
         .filter((b) => b.n > 0),
     };
   });
@@ -92,8 +106,10 @@ export class TrendChart {
       left,
       date: dayLabel(p.date, { weekday: 'short', day: 'numeric', month: 'short' }),
       flip: left > 62,
-      dots: SERIES.filter((s) => !hide.has(s.key) && s.kind !== 'bar')
-        .map((s) => ({ key: s.key, bottom: (p[s.key] / this.max()) * 100 })),
+      dots: SERIES.filter((s) => !hide.has(s.key) && s.kind !== 'bar').map((s) => ({
+        key: s.key,
+        bottom: (p[s.key] / this.max()) * 100,
+      })),
     };
   });
 
@@ -108,8 +124,11 @@ export class TrendChart {
     const t = this.totals();
     if (!pts.length) return 'No data';
     const peak = pts.reduce((a, b) => (b.sent > a.sent ? b : a), pts[0]);
-    return `Daily messages over ${pts.length} days: ${t.sent} sent, ${t.delivered} delivered, ${t.read} read, ` +
-      `${t.failed} failed.` + (peak.sent ? ` Busiest day ${dayLabel(peak.date)} with ${peak.sent} sent.` : '');
+    return (
+      `Daily messages over ${pts.length} days: ${t.sent} sent, ${t.delivered} delivered, ${t.read} read, ` +
+      `${t.failed} failed.` +
+      (peak.sent ? ` Busiest day ${dayLabel(peak.date)} with ${peak.sent} sent.` : '')
+    );
   });
 
   protected readonly empty = computed(() => this.points().every((p) => p.total === 0));
@@ -137,8 +156,18 @@ export class TrendChart {
     const n = this.points().length;
     if (!n) return;
     const cur = this.active() ?? n - 1;
-    const next = e.key === 'ArrowLeft' ? cur - 1 : e.key === 'ArrowRight' ? cur + 1
-      : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : e.key === 'Escape' ? null : undefined;
+    const next =
+      e.key === 'ArrowLeft'
+        ? cur - 1
+        : e.key === 'ArrowRight'
+          ? cur + 1
+          : e.key === 'Home'
+            ? 0
+            : e.key === 'End'
+              ? n - 1
+              : e.key === 'Escape'
+                ? null
+                : undefined;
     if (next === undefined) return;
     e.preventDefault();
     this.active.set(next === null ? null : Math.min(n - 1, Math.max(0, next)));

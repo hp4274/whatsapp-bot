@@ -1,8 +1,25 @@
-import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
-import { Campaign, CampaignsApi, ContactsApi, ImportIssueReason, RetargetFilter, Segment } from '../../core/api';
+import {
+  Campaign,
+  CampaignsApi,
+  ContactsApi,
+  ImportIssueReason,
+  RetargetFilter,
+  Segment,
+} from '../../core/api';
 import { AudienceSource, CampaignDraft } from '../draft';
+import { CampaignPolicy } from '../policy-api';
 
 const REASONS: Record<ImportIssueReason, string> = {
   empty: 'Empty',
@@ -16,10 +33,26 @@ const REASONS: Record<ImportIssueReason, string> = {
   recent: 'Messaged recently',
 };
 
+/** Where recipients can come from; the order is the order of the choice cards. */
 const SOURCES: { value: AudienceSource; icon: string; title: string; text: string }[] = [
-  { value: 'file', icon: 'upload_file', title: 'Upload a file', text: 'CSV or Excel - every column becomes a variable' },
-  { value: 'retarget', icon: 'replay', title: 'Re-target a campaign', text: 'Follow up on failed, unread or clicked' },
-  { value: 'segment', icon: 'groups', title: 'Saved segment', text: 'A filter over your contacts' },
+  {
+    value: 'file',
+    icon: 'file-upload',
+    title: 'Upload a file',
+    text: 'CSV or Excel - every column becomes a variable',
+  },
+  {
+    value: 'retarget',
+    icon: 'reload',
+    title: 'Re-target a campaign',
+    text: 'Follow up on failed, unread or clicked',
+  },
+  {
+    value: 'segment',
+    icon: 'users-group',
+    title: 'Saved segment',
+    text: 'A filter over your contacts',
+  },
 ];
 
 const FILTERS: { value: RetargetFilter; label: string; hint: string }[] = [
@@ -30,19 +63,31 @@ const FILTERS: { value: RetargetFilter; label: string; hint: string }[] = [
   { value: 'clicked', label: 'Picked a button', hint: 'Chose a specific reply option' },
 ];
 
+/** "Skip if messaged within N days" choices; 0 turns the check off. */
 export const DEDUPE_PRESETS = [0, 7, 30, 90];
+/** Rows rendered in the skipped-rows table; the CSV download carries the rest. */
 const ISSUE_LIMIT = 200;
 
+/**
+ * Step 1: pick who gets the campaign — an uploaded file, a re-target of a past
+ * campaign, or a saved segment. Uploaded files are audited on the server
+ * (debounced) every time the mapping or cleaning rules change, so the count
+ * shown is always what will actually be sent.
+ */
 @Component({
   selector: 'app-audience-step',
   imports: [FormsModule],
   templateUrl: './audience-step.html',
   styleUrl: './audience-step.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AudienceStep {
   protected readonly draft = inject(CampaignDraft);
   private readonly campaignsApi = inject(CampaignsApi);
   private readonly contactsApi = inject(ContactsApi);
+  private readonly destroyRef = inject(DestroyRef);
+  /** Re-targeting is a follow-up campaign, which a plan can switch off. */
+  protected readonly policy = inject(CampaignPolicy);
 
   protected readonly sources = SOURCES;
   protected readonly filters = FILTERS;
@@ -69,15 +114,28 @@ export class AudienceStep {
       .map((c, i) => ({ ...c, sample: String(first[i] ?? '') }))
       .filter((c) => c.slug !== phone && c.slug !== name);
     const nameAt = preview.columns.findIndex((c) => c.slug === name);
-    return [{ header: 'Name column', slug: 'name', sample: nameAt >= 0 ? String(first[nameAt] ?? '') : '' }, ...out];
+    return [
+      {
+        header: 'Name column',
+        slug: 'name',
+        sample: nameAt >= 0 ? String(first[nameAt] ?? '') : '',
+      },
+      ...out,
+    ];
   });
-  protected readonly issues = computed(() => (this.draft.audit()?.issues ?? []).slice(0, ISSUE_LIMIT));
-  protected readonly moreIssues = computed(() => Math.max(0, (this.draft.audit()?.issues.length ?? 0) - ISSUE_LIMIT));
+  protected readonly issues = computed(() =>
+    (this.draft.audit()?.issues ?? []).slice(0, ISSUE_LIMIT),
+  );
+  protected readonly moreIssues = computed(() =>
+    Math.max(0, (this.draft.audit()?.issues.length ?? 0) - ISSUE_LIMIT),
+  );
 
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** Bumped per audit request so a slow, stale response never overwrites a newer one. */
   private auditSeq = 0;
 
   constructor() {
+    this.policy.load();
     // Re-audit (debounced) whenever the file, mapping or cleaning rules change.
     effect(() => {
       const preview = this.draft.preview();
@@ -88,52 +146,86 @@ export class AudienceStep {
       untracked(() => {
         if (this.timer) clearTimeout(this.timer);
         if (!preview || !mapping.phone || !/^\d{1,4}$/.test(countryCode)) return;
-        this.timer = setTimeout(() => this.runAudit(preview.importId, mapping, countryCode, autoClean, dedupeDays), 350);
+        this.timer = setTimeout(
+          () => this.runAudit(preview.importId, mapping, countryCode, autoClean, dedupeDays),
+          350,
+        );
       });
     });
     effect(() => {
       const source = this.draft.source();
       untracked(() => this.loadFor(source));
     });
-    inject(DestroyRef).onDestroy(() => { if (this.timer) clearTimeout(this.timer); });
+    this.destroyRef.onDestroy(() => {
+      if (this.timer) clearTimeout(this.timer);
+    });
   }
 
-  private runAudit(importId: string, mapping: { phone: string; name: string }, countryCode: string,
-    autoClean: boolean, dedupeDays: number): void {
+  private runAudit(
+    importId: string,
+    mapping: { phone: string; name: string },
+    countryCode: string,
+    autoClean: boolean,
+    dedupeDays: number,
+  ): void {
     const seq = ++this.auditSeq;
     this.auditing.set(true);
-    this.campaignsApi.importAudit({
-      importId, mapping: { phone: mapping.phone, name: mapping.name || null }, countryCode, autoClean, dedupeDays,
-    }).subscribe({
-      next: (audit) => {
-        if (seq !== this.auditSeq) return;
-        this.auditing.set(false);
-        this.error.set('');
-        this.draft.audit.set(audit);
-        this.draft.excludedRows.set([]);
-        this.draft.previewIndex.set(0);
-      },
-      error: (err: Error) => {
-        if (seq !== this.auditSeq) return;
-        this.auditing.set(false);
-        this.error.set(err.message);
-      },
-    });
+    this.campaignsApi
+      .importAudit({
+        importId,
+        mapping: { phone: mapping.phone, name: mapping.name || null },
+        countryCode,
+        autoClean,
+        dedupeDays,
+      })
+      .subscribe({
+        next: (audit) => {
+          if (seq !== this.auditSeq) return;
+          this.auditing.set(false);
+          this.error.set('');
+          this.draft.audit.set(audit);
+          this.draft.excludedRows.set([]);
+          this.draft.previewIndex.set(0);
+        },
+        error: (err: Error) => {
+          if (seq !== this.auditSeq) return;
+          this.auditing.set(false);
+          this.error.set(err.message);
+        },
+      });
   }
 
   private loadFor(source: AudienceSource): void {
     if (source === 'retarget' && !this.campaigns()) {
       this.campaignsApi.list().subscribe({
-        next: ({ campaigns }) => this.campaigns.set(campaigns.filter((c) => c.status !== 'draft' && c.status !== 'scheduled')),
-        error: (err: Error) => { this.campaigns.set([]); this.error.set(err.message); },
+        next: ({ campaigns }) =>
+          this.campaigns.set(
+            campaigns.filter((c) => c.status !== 'draft' && c.status !== 'scheduled'),
+          ),
+        error: (err: Error) => {
+          this.campaigns.set([]);
+          this.error.set(err.message);
+        },
       });
     }
     if (source === 'segment' && !this.segments()) {
       this.contactsApi.segments().subscribe({
         next: ({ segments }) => this.segments.set(segments),
-        error: (err: Error) => { this.segments.set([]); this.error.set(err.message); },
+        error: (err: Error) => {
+          this.segments.set([]);
+          this.error.set(err.message);
+        },
       });
     }
+  }
+
+  /** Reload the list behind the current source after a failed load. */
+  protected retry(): void {
+    const source = this.draft.source();
+    this.error.set('');
+    if (source === 'retarget') this.campaigns.set(null);
+    if (source === 'segment') this.segments.set(null);
+    this.loadFor(source);
   }
 
   protected pickSource(source: AudienceSource): void {
@@ -162,19 +254,27 @@ export class AudienceStep {
     }
     this.uploading.set(true);
     this.error.set('');
-    this.campaignsApi.importPreview(file, this.ccValid() ? this.draft.countryCode() : '').subscribe({
-      next: (preview) => {
-        this.uploading.set(false);
-        this.draft.clearImport();
-        this.draft.preview.set(preview);
-        this.draft.mapping.set({ phone: preview.guess.phone ?? '', name: preview.guess.name ?? '' });
-        if (!preview.guess.phone) this.error.set('We could not tell which column holds the phone number - pick it below.');
-      },
-      error: (err: Error) => {
-        this.uploading.set(false);
-        this.error.set(err.message);
-      },
-    });
+    this.campaignsApi
+      .importPreview(file, this.ccValid() ? this.draft.countryCode() : '')
+      .subscribe({
+        next: (preview) => {
+          this.uploading.set(false);
+          this.draft.clearImport();
+          this.draft.preview.set(preview);
+          this.draft.mapping.set({
+            phone: preview.guess.phone ?? '',
+            name: preview.guess.name ?? '',
+          });
+          if (!preview.guess.phone)
+            this.error.set(
+              'We could not tell which column holds the phone number - pick it below.',
+            );
+        },
+        error: (err: Error) => {
+          this.uploading.set(false);
+          this.error.set(err.message);
+        },
+      });
   }
 
   protected setMapping(key: 'phone' | 'name', value: string): void {
@@ -182,14 +282,20 @@ export class AudienceStep {
   }
 
   protected setCountry(value: string): void {
-    this.draft.countryCode.set(String(value ?? '').replace(/[^\d]/g, '').slice(0, 4));
+    this.draft.countryCode.set(
+      String(value ?? '')
+        .replace(/[^\d]/g, '')
+        .slice(0, 4),
+    );
   }
 
   protected copy(slug: string): void {
     const text = `{${slug}}`;
     const done = () => {
       this.copied.set(slug);
-      setTimeout(() => { if (this.copied() === slug) this.copied.set(null); }, 1400);
+      setTimeout(() => {
+        if (this.copied() === slug) this.copied.set(null);
+      }, 1400);
     };
     if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done, done);
     else done();
@@ -202,9 +308,19 @@ export class AudienceStep {
       const s = v === null || v === undefined ? '' : String(v);
       return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const lines = [['row', 'raw', 'name', 'reason', 'detail'],
-      ...audit.issues.map((i) => [i.row + 2, i.raw, i.name, REASONS[i.reason] ?? i.reason, i.detail])];
-    const blob = new Blob([lines.map((l) => l.map(cell).join(',')).join('\r\n') + '\r\n'], { type: 'text/csv' });
+    const lines = [
+      ['row', 'raw', 'name', 'reason', 'detail'],
+      ...audit.issues.map((i) => [
+        i.row + 2,
+        i.raw,
+        i.name,
+        REASONS[i.reason] ?? i.reason,
+        i.detail,
+      ]),
+    ];
+    const blob = new Blob([lines.map((l) => l.map(cell).join(',')).join('\r\n') + '\r\n'], {
+      type: 'text/csv',
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

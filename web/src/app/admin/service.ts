@@ -1,29 +1,48 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 
 import { SchoolCatalog, SchoolProvisionResult, TenancyApi } from '../core/api';
 import { Tenant } from '../core/auth';
+import { POLICY_SERVICES } from './policy-api';
+import { CampaignsOps } from './campaigns-ops';
+import { ChannelsOps } from './channels-ops';
+import { TemplateReview } from './template-review';
+import { PolicyEditor } from './policy-editor';
 import { serviceMeta } from './service-meta';
 
+/** Daily cap shown when a tenant has no override; mirrors the server's default policy. */
 const DEFAULT_DAILY_CAP = 250;
 const SCHOOL_SERVICE = 'school_whatsapp_bot';
+/** Placeholder rows shown while the tenant list loads. */
+const SKELETON_ROWS: readonly number[] = [0, 1, 2];
+/** One sample line under the header in the downloadable student CSV. */
 const STUDENT_EXAMPLE_ROW = '24,Aarav Mehta,10,A,Rakesh Mehta,Neha Mehta,9876512001,4,No';
 
-/** One service, across every tenant: who has it, and the limits that bound it. */
+/**
+ * One service, across every tenant: who has it, and the limits that bound it.
+ *
+ * The service key comes from the route, so one component serves every
+ * `/admin/services/:service` page; only the school service shows the pack.
+ */
 @Component({
   selector: 'app-admin-service',
+  imports: [PolicyEditor, ChannelsOps, TemplateReview, CampaignsOps],
   templateUrl: './service.html',
   styleUrl: './service.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ServiceView {
   private readonly api = inject(TenancyApi);
-  private readonly key = toSignal(
-    inject(ActivatedRoute).paramMap.pipe(map((params) => params.get('service') ?? '')),
+  private readonly route = inject(ActivatedRoute);
+  protected readonly key = toSignal(
+    this.route.paramMap.pipe(map((params) => params.get('service') ?? '')),
     { initialValue: '' },
   );
 
+  protected readonly skeletonRows = SKELETON_ROWS;
+  protected readonly loading = signal(true);
   protected readonly tenants = signal<Tenant[]>([]);
   protected readonly busyId = signal<number | null>(null);
   protected readonly error = signal('');
@@ -33,6 +52,8 @@ export class ServiceView {
   protected readonly showTemplates = signal(false);
   protected readonly provisioningId = signal<number | null>(null);
   protected readonly results = signal<Record<number, SchoolProvisionResult | string>>({});
+  /** Only services that declare platform rules get a Rules section. */
+  protected readonly hasRules = computed(() => POLICY_SERVICES.includes(this.key()));
   protected readonly isSchool = computed(() => this.key() === SCHOOL_SERVICE);
   protected readonly enabledCount = computed(
     () => this.tenants().filter((tenant) => this.has(tenant)).length,
@@ -83,7 +104,9 @@ export class ServiceView {
 
   protected downloadStudentCsv() {
     const columns = this.catalog()?.studentColumns ?? [];
-    const blob = new Blob([columns.join(',') + '\n' + STUDENT_EXAMPLE_ROW + '\n'], { type: 'text/csv' });
+    const blob = new Blob([columns.join(',') + '\n' + STUDENT_EXAMPLE_ROW + '\n'], {
+      type: 'text/csv',
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -123,10 +146,16 @@ export class ServiceView {
     return (event.target as HTMLInputElement).checked;
   }
 
-  private refresh() {
+  protected refresh() {
     this.api.tenants().subscribe({
-      next: ({ tenants }) => this.tenants.set(tenants),
-      error: (err: Error) => this.error.set(err.message),
+      next: ({ tenants }) => {
+        this.tenants.set(tenants);
+        this.loading.set(false);
+      },
+      error: (err: Error) => {
+        this.loading.set(false);
+        this.error.set(err.message);
+      },
     });
   }
 }

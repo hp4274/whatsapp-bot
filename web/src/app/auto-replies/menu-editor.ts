@@ -1,4 +1,4 @@
-import { Component, computed, input, model } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, model } from '@angular/core';
 
 import { InteractiveEditor } from '../campaign/interactive/interactive-editor';
 import { interactiveOptions } from '../campaign/interactive/interactive.model';
@@ -8,17 +8,23 @@ import { Interactive, MenuNode } from './auto-replies.api';
 /** Follow-up nesting allowed below the rule's own menu (rule menu = depth 1). */
 export const MAX_MENU_DEPTH = 2;
 
+/** A node's reply variants, falling back to the legacy single `replyBody`. */
 export function nodeTexts(n: MenuNode | undefined): string[] {
   if (n?.variants?.length) return n.variants;
   return [n?.replyBody ?? ''];
 }
 
-/** Follow-up replies keyed by interactive option id; recursive one level deep. */
+/**
+ * Follow-up replies keyed by interactive option id; recursive one level deep.
+ * Capped at MAX_MENU_DEPTH because deeper trees are hard to test and harder
+ * for a customer to navigate on a phone.
+ */
 @Component({
   selector: 'ar-menu-editor',
   imports: [ArVariants, ArMedia, ArSwitch, InteractiveEditor],
   templateUrl: './menu-editor.html',
   styleUrl: './menu-editor.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MenuEditor {
   readonly interactive = input<Interactive | null>(null);

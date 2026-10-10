@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -7,26 +7,56 @@ import { Store } from '../core/store';
 import { SafetyControls } from './safety-controls';
 
 interface FieldSpec {
-  key: keyof AppConfig;
-  label: string;
-  help: string;
-  type?: 'text' | 'number' | 'password';
-  cloudOnly?: boolean;
+  readonly key: keyof AppConfig;
+  readonly label: string;
+  readonly help: string;
+  readonly type?: 'text' | 'number' | 'password';
+  readonly cloudOnly?: boolean;
 }
 
-const CREDENTIAL_FIELDS: FieldSpec[] = [
+/** Meta Cloud API credentials; the QR transport needs none of these. */
+const CREDENTIAL_FIELDS: readonly FieldSpec[] = [
   { key: 'phoneNumberId', label: 'Phone Number ID', help: 'From your Meta app', cloudOnly: true },
-  { key: 'accessToken', label: 'Access Token', help: 'whatsapp_business_messaging token', type: 'password', cloudOnly: true },
-  { key: 'graphVersion', label: 'Graph API version', help: 'Graph API version to call', cloudOnly: true },
-  { key: 'templateName', label: 'Template name', help: 'Used outside the 24h window', cloudOnly: true },
-  { key: 'templateLanguage', label: 'Template language', help: 'Language code, e.g. en_US', cloudOnly: true },
+  {
+    key: 'accessToken',
+    label: 'Access Token',
+    help: 'whatsapp_business_messaging token',
+    type: 'password',
+    cloudOnly: true,
+  },
+  {
+    key: 'graphVersion',
+    label: 'Graph API version',
+    help: 'Graph API version to call',
+    cloudOnly: true,
+  },
+  {
+    key: 'templateName',
+    label: 'Template name',
+    help: 'Used outside the 24h window',
+    cloudOnly: true,
+  },
+  {
+    key: 'templateLanguage',
+    label: 'Template language',
+    help: 'Language code, e.g. en_US',
+    cloudOnly: true,
+  },
 ];
 
+/**
+ * Where a business links its WhatsApp number and sets how it sends.
+ *
+ * Live connection state comes from the shared Store (pushed by the server);
+ * the config form is loaded once and only ever replaced by an explicit save,
+ * so a background update never overwrites what the operator is typing.
+ */
 @Component({
   selector: 'app-connection',
   imports: [FormsModule, DatePipe, SafetyControls],
   templateUrl: './connection.html',
   styleUrl: './connection.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ConnectionView {
   private readonly api = inject(Api);
@@ -41,37 +71,58 @@ export class ConnectionView {
   protected readonly customSafety = signal(false);
 
   protected readonly transports = [
-    { value: 'cloud_api', label: 'WhatsApp Business Cloud API', hint: 'Real delivery, needs an access token' },
-    { value: 'baileys', label: 'WhatsApp (no browser, QR)', hint: 'Real delivery, QR login, no token - most reliable for images, PDFs and videos' },
-    { value: 'whatsapp_web', label: 'WhatsApp Web / whatsapp-web.js', hint: 'Real delivery, QR login, no token, needs Chrome on the server' },
-    { value: 'sandbox', label: 'Local sandbox', hint: 'Testing only - NOT delivered' },
+    {
+      value: 'cloud_api',
+      label: 'WhatsApp Business Cloud API',
+      hint: 'Real delivery, needs an access token',
+    },
+    {
+      value: 'baileys',
+      label: 'WhatsApp QR (Baileys)',
+      hint: 'Real delivery, QR login, no token, no browser - sends images, PDFs and videos',
+    },
   ];
 
   protected readonly isCloud = computed(() => this.config()?.transport === 'cloud_api');
 
   /** Progressive disclosure: Cloud API fields only exist for the Cloud API. */
-  protected readonly fields = computed(() => [
-    ...(this.isCloud() ? CREDENTIAL_FIELDS : []),
-  ]);
+  protected readonly fields = computed(() => [...(this.isCloud() ? CREDENTIAL_FIELDS : [])]);
 
   protected readonly advisory = computed(() => {
     const config = this.config();
     if (!config) return '';
-    if (config.transport === 'sandbox') {
-      return 'SANDBOX selected: messages are written to a local file, not delivered.';
-    }
-    if (config.transport === 'whatsapp_web' || config.transport === 'baileys') {
+    if (config.transport === 'baileys') {
       return this.warnings()[config.transport] ?? '';
     }
     return 'Cloud API selected: messages are delivered by Meta.';
   });
 
-  protected readonly transportLabel = computed(() =>
-    ({ cloud_api: 'Cloud API', whatsapp_web: 'WhatsApp Web', baileys: 'WhatsApp (no browser)', sandbox: 'Sandbox' })[
-      this.config()?.transport ?? 'cloud_api'
-    ]);
+  protected readonly transportLabel = computed(
+    () =>
+      ({ cloud_api: 'Cloud API', baileys: 'WhatsApp QR (Baileys)' })[
+        this.config()?.transport ?? 'cloud_api'
+      ],
+  );
+
+  /** Pill tone for the header: connecting is in-between, not an error. */
+  protected readonly statusTone = computed(() =>
+    this.store.connecting()
+      ? 'tone-warn'
+      : this.store.connection().connected
+        ? 'tone-ok'
+        : 'tone-bad',
+  );
 
   constructor() {
+    this.loadConfig();
+    this.refreshSafety();
+    // Only safety is refreshed live: `config` is the editable form and must not be clobbered.
+    // store.watch unregisters itself through the caller's DestroyRef.
+    this.store.watch(['config', 'connection'], () => this.refreshSafety());
+  }
+
+  protected loadConfig(): void {
+    this.errors.set([]);
     this.api.getConfig().subscribe({
       next: ({ config, warnings }) => {
         this.config.set(config);
@@ -79,9 +130,6 @@ export class ConnectionView {
       },
       error: (err: Error) => this.errors.set([err.message]),
     });
-    this.refreshSafety();
-    // Only safety is refreshed live: `config` is the editable form and must not be clobbered.
-    this.store.watch(['config', 'connection'], () => this.refreshSafety());
   }
 
   protected refreshSafety(): void {

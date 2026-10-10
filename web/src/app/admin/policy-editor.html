@@ -1,0 +1,221 @@
+<!-- Scope strip (or the tenant's plan), one hairline card per field group, sticky save bar. -->
+@if (error()) {
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="msg">{{ error() }}</span>
+    <button type="button" class="btn sm" (click)="load()">Try again</button>
+  </p>
+} @else if (loading()) {
+  <div class="skel" aria-busy="true" aria-label="Loading rules">
+    <div class="s-skel" style="height: 40px; width: 60%; border-radius: 12px"></div>
+    <div class="s-skel" style="height: 180px; border-radius: 24px"></div>
+  </div>
+} @else {
+  @if (tenantId() == null) {
+    <div class="scopes" role="group" aria-label="Rules scope">
+      <button
+        type="button"
+        [attr.aria-pressed]="scope() === 'global'"
+        [disabled]="dirtyCount() > 0 && scope() !== 'global'"
+        (click)="pickScope('global')"
+      >
+        <i class="ti ti-world" aria-hidden="true"></i>Platform default
+      </button>
+      @for (plan of plans(); track plan.key) {
+        <button
+          type="button"
+          [attr.aria-pressed]="scope() === planScope(plan.key)"
+          [disabled]="dirtyCount() > 0 && scope() !== planScope(plan.key)"
+          (click)="pickScope(planScope(plan.key))"
+        >
+          {{ plan.name }}
+        </button>
+      }
+    </div>
+    <p class="lede">
+      @if (scope() === 'global') {
+        Applies to every business unless its plan or the business itself says otherwise.
+      } @else {
+        Applies to businesses on this plan. Anything not overridden follows the platform default.
+      }
+      @if (dirtyCount()) {
+        Save or discard your changes to switch scope.
+      }
+    </p>
+  } @else {
+    <p class="lede">
+      <span class="s-pill tone-info">
+        <i class="ti ti-building-store" aria-hidden="true"></i>
+        {{ tenantPlan() ? tenantPlan() + ' plan' : 'No plan' }}
+      </span>
+      Overrides here apply to this business only and beat its plan and the platform default.
+    </p>
+  }
+
+  @for (group of groups(); track group.name; let gi = $index) {
+    <section class="group s-enter" [style.--i]="gi" [attr.aria-labelledby]="group.rows[0].id + '-g'">
+      <h3 [id]="group.rows[0].id + '-g'">{{ group.name }}</h3>
+      @for (row of group.rows; track row.field.key) {
+        <div class="row" [class.wide]="row.field.type === 'list'" [class.dirty]="row.dirty">
+          <div class="text">
+            <label [id]="row.id + '-l'" [for]="row.id">{{ row.field.label }}</label>
+            @if (row.field.hint) {
+              <span class="hint" [id]="row.id + '-h'">{{ row.field.hint }}</span>
+            }
+            <span class="source" [id]="row.id + '-s'">
+              @if (row.overridden) {
+                <span class="s-pill tone-warn">Override</span>
+                <span>Otherwise {{ format(row.field, row.inherited) }} from {{ row.inheritedFrom }}</span>
+                <button
+                  type="button"
+                  class="reset"
+                  (click)="reset(row)"
+                  [attr.aria-label]="'Reset ' + row.field.label + ' to ' + row.inheritedFrom"
+                >
+                  <i class="ti ti-arrow-back-up" aria-hidden="true"></i>Reset
+                </button>
+              } @else {
+                <span>{{
+                  row.inheritedFrom === 'Built-in default'
+                    ? 'Built-in default'
+                    : 'Inherited from ' + row.inheritedFrom
+                }}</span>
+              }
+              @if (row.dirty) {
+                <span class="unsaved">Unsaved</span>
+              }
+            </span>
+          </div>
+
+          <div class="control">
+            @switch (row.field.type) {
+              @case ('bool') {
+                <button
+                  type="button"
+                  role="switch"
+                  class="switch"
+                  [id]="row.id"
+                  [class.on]="row.value"
+                  [attr.aria-checked]="!!row.value"
+                  [attr.aria-describedby]="desc(row)"
+                  (click)="set(row, !row.value)"
+                >
+                  <span class="thumb"></span>
+                </button>
+              }
+              @case ('int') {
+                <input
+                  type="number"
+                  inputmode="numeric"
+                  step="1"
+                  [id]="row.id"
+                  [min]="row.field.min ?? 0"
+                  [max]="row.field.max ?? null"
+                  [value]="row.value"
+                  [attr.aria-describedby]="desc(row, isUnlimited(row) ? row.id + '-u' : '')"
+                  (input)="setNumber(row, $any($event.target).value)"
+                />
+                @if (isUnlimited(row)) {
+                  <span class="unlimited" [id]="row.id + '-u'">
+                    <i class="ti ti-infinity" aria-hidden="true"></i>No limit
+                  </span>
+                }
+              }
+              @case ('enum') {
+                @if (isSeg(row.field)) {
+                  <div
+                    class="s-seg"
+                    role="group"
+                    [id]="row.id"
+                    [attr.aria-labelledby]="row.id + '-l'"
+                    [attr.aria-describedby]="desc(row)"
+                  >
+                    @for (opt of row.field.options; track opt.value) {
+                      <button
+                        type="button"
+                        [attr.aria-pressed]="row.value === opt.value"
+                        (click)="set(row, opt.value)"
+                      >
+                        {{ opt.label }}
+                      </button>
+                    }
+                  </div>
+                } @else {
+                  <select
+                    [id]="row.id"
+                    [attr.aria-describedby]="desc(row)"
+                    (change)="set(row, $any($event.target).value)"
+                  >
+                    @for (opt of row.field.options; track opt.value) {
+                      <option [value]="opt.value" [selected]="row.value === opt.value">
+                        {{ opt.label }}
+                      </option>
+                    }
+                  </select>
+                }
+              }
+              @case ('list') {
+                <textarea
+                  rows="4"
+                  placeholder="One per line"
+                  [id]="row.id"
+                  [value]="asList(row.value)"
+                  [attr.aria-describedby]="desc(row)"
+                  (change)="setList(row, $any($event.target).value)"
+                ></textarea>
+              }
+              @default {
+                <input
+                  type="text"
+                  [id]="row.id"
+                  [value]="row.value"
+                  [attr.aria-describedby]="desc(row)"
+                  (input)="set(row, $any($event.target).value)"
+                />
+              }
+            }
+          </div>
+        </div>
+      }
+    </section>
+  } @empty {
+    <div class="s-empty">
+      <i class="ti ti-list-check" aria-hidden="true"></i>
+      <strong>No rules for this service</strong>
+      <p>This service has no platform rules to set.</p>
+    </div>
+  }
+
+  @if (dirtyCount() || saveError()) {
+    <div class="savebar" role="region" aria-label="Unsaved rule changes">
+      @if (saveError()) {
+        <p class="s-banner" role="alert">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i>
+          <span class="msg">{{ saveError() }}</span>
+        </p>
+      }
+      <div class="bar">
+        <span class="count" aria-live="polite">
+          {{ dirtyCount() }} change{{ dirtyCount() === 1 ? '' : 's' }}
+        </span>
+        <button type="button" class="btn sm" (click)="discard()" [disabled]="saving()">
+          Discard
+        </button>
+        <button
+          type="button"
+          class="btn sm primary"
+          (click)="save()"
+          [disabled]="saving() || !dirtyCount()"
+        >
+          <i class="ti ti-check" aria-hidden="true"></i>{{ saving() ? 'Saving...' : 'Save' }}
+        </button>
+      </div>
+    </div>
+  }
+}
+
+<p class="flash" role="status" aria-live="polite">
+  @if (flash()) {
+    <span><i class="ti ti-circle-check" aria-hidden="true"></i>{{ flash() }}</span>
+  }
+</p>

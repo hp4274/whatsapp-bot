@@ -42,7 +42,12 @@ export interface FaqItem {
   updatedAt: string;
 }
 
-export interface FaqMiss { id: number; text: string; count: number; lastSeenAt: string }
+export interface FaqMiss {
+  id: number;
+  text: string;
+  count: number;
+  lastSeenAt: string;
+}
 
 export interface FaqStats {
   items: number;
@@ -88,22 +93,38 @@ export interface MatchResult {
 export class KnowledgeApi {
   private readonly http = inject(HttpClient);
 
-  dashboard() { return this.wrap(this.http.get<KnowledgeDashboard>('/api/knowledge')); }
+  dashboard() {
+    return this.wrap(this.http.get<KnowledgeDashboard>('/api/knowledge'));
+  }
 
-  createItem(body: FaqInput) { return this.wrap(this.http.post<{ item: FaqItem }>('/api/faq', body)); }
-  updateItem(id: number, body: Partial<FaqInput>) { return this.wrap(this.http.put<{ item: FaqItem }>(`/api/faq/${id}`, body)); }
-  deleteItem(id: number) { return this.wrap(this.http.delete<{ deleted: boolean }>(`/api/faq/${id}`)); }
+  createItem(body: FaqInput) {
+    return this.wrap(this.http.post<{ item: FaqItem }>('/api/faq', body));
+  }
+  updateItem(id: number, body: Partial<FaqInput>) {
+    return this.wrap(this.http.put<{ item: FaqItem }>(`/api/faq/${id}`, body));
+  }
+  deleteItem(id: number) {
+    return this.wrap(this.http.delete<{ deleted: boolean }>(`/api/faq/${id}`));
+  }
 
   createCategory(name: string, position: number) {
-    return this.wrap(this.http.post<{ category: FaqCategory }>('/api/faq/categories', { name, position }));
+    return this.wrap(
+      this.http.post<{ category: FaqCategory }>('/api/faq/categories', { name, position }),
+    );
   }
   updateCategory(id: number, body: { name?: string; position?: number }) {
     return this.wrap(this.http.put<{ category: FaqCategory }>(`/api/faq/categories/${id}`, body));
   }
-  deleteCategory(id: number) { return this.wrap(this.http.delete<{ deleted: boolean }>(`/api/faq/categories/${id}`)); }
+  deleteCategory(id: number) {
+    return this.wrap(this.http.delete<{ deleted: boolean }>(`/api/faq/categories/${id}`));
+  }
 
-  misses(limit = 100) { return this.wrap(this.http.get<{ misses: FaqMiss[] }>(`/api/faq/misses?limit=${limit}`)); }
-  dismissMiss(id: number) { return this.wrap(this.http.delete<{ deleted: boolean }>(`/api/faq/misses/${id}`)); }
+  misses(limit = 100) {
+    return this.wrap(this.http.get<{ misses: FaqMiss[] }>(`/api/faq/misses?limit=${limit}`));
+  }
+  dismissMiss(id: number) {
+    return this.wrap(this.http.delete<{ deleted: boolean }>(`/api/faq/misses/${id}`));
+  }
 
   /** Dry run: never records analytics, never sends. */
   match(text: string, ignoreBusinessHours: boolean) {
@@ -111,20 +132,29 @@ export class KnowledgeApi {
   }
 
   private wrap<T>(source: Observable<T>): Observable<T> {
-    return source.pipe(catchError((error: HttpErrorResponse) => {
-      const body = error.error as { errors?: string[] } | null;
-      const message = error.status === 403 && !body?.errors?.length
-        ? 'You do not have permission to do that.'
-        : body?.errors?.join(' ') || (error.status === 0 ? 'Server unreachable. Check your connection.' : error.message) || 'Request failed';
-      return throwError(() => Object.assign(new Error(message), { status: error.status }));
-    }));
+    return source.pipe(
+      catchError((error: HttpErrorResponse) => {
+        const body = error.error as { errors?: string[] } | null;
+        const message =
+          error.status === 403 && !body?.errors?.length
+            ? 'You do not have permission to do that.'
+            : body?.errors?.join(' ') ||
+              (error.status === 0 ? 'Server unreachable. Check your connection.' : error.message) ||
+              'Request failed';
+        return throwError(() => Object.assign(new Error(message), { status: error.status }));
+      }),
+    );
   }
 }
 
 /* Client-side mirror of server/src/knowledge/matcher.js nearestFaq(), used only
  * to list the runner-up candidates the match endpoint does not return. */
 export function normalizeText(text: string): string {
-  return String(text ?? '').toLowerCase().replace(/[^\p{L}\p{N}\s]+/gu, ' ').replace(/\s+/g, ' ').trim();
+  return String(text ?? '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 const tokens = (text: string) => new Set(normalizeText(text).split(' ').filter(Boolean));

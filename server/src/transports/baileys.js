@@ -4,7 +4,7 @@
  * puppeteer, no Chrome: media is encrypted and uploaded by this process, which
  * is why attachments are far more reliable here than through whatsapp-web.js.
  *
- * Same interface and the same events as transports/whatsappWeb.js, so app.js
+ * Same interface and events as the other transports (see base.js), so app.js
  * wiring is unchanged: 'qr' | 'state' | 'ready' | 'disconnected' | 'receipt' | 'inbound'.
  *
  * Status mapping (proto.WebMessageInfo.Status):

@@ -21,6 +21,7 @@
 import { personalize } from '../protocol.js';
 import { matchReply, personalizeInteractive, renderFallbackText } from '../messaging/interactive.js';
 import { fold, hasWord, matchRules } from './match.js';
+import { inQuietHours, kindAllowed } from './policy.js';
 import { AutoReplyStore } from './store.js';
 
 const HOUR = 3_600_000;
@@ -36,7 +37,7 @@ export class AutoReplyEngine {
         // the transport directly, which is what the unit tests use.
         this.service = options.service ?? null;
         this.random = options.random ?? Math.random;
-        this.deps = { contacts: null, conversations: null, channel: () => null, media: () => null, businessName: () => '' };
+        this.deps = { contacts: null, conversations: null, channel: () => null, media: () => null, businessName: () => '', platformPolicy: () => ({}) };
         this.store = db?.db ? new AutoReplyStore(db) : null;
     }
 
@@ -75,6 +76,11 @@ export class AutoReplyEngine {
         if (!first) return null;
         const rule = first.ruleId ? this.store?.get(first.ruleId) ?? { id: first.ruleId, keyword: first.ruleName } : { id: null, keyword: first.source };
         return { rule, responseText: first.text, result: first.result, replies: sent, actions: plan.actions };
+    }
+
+    /** Platform quiet hours right now (channel time zone)? FAQ answers use this too. */
+    quiet(now = new Date()) {
+        return inQuietHours(this.deps.platformPolicy(), localClock(now, this.deps.channel?.()?.timezone || 'UTC'));
     }
 
     // ----------------------------------------------------------- decisions --
@@ -121,7 +127,7 @@ export class AutoReplyEngine {
         const session = sessionOverride !== undefined ? sessionOverride : this.store.session(phone, now);
         if (hasText && session && (!session.expiresAt || new Date(session.expiresAt) > now)) {
             const rule = this.store.get(session.ruleId);
-            const node = rule?.isActive ? nodeAt(rule, session.path ?? []) : null;
+            const node = rule?.isActive && kindAllowed(rule, this.deps.platformPolicy()) ? nodeAt(rule, session.path ?? []) : null;
             const shown = node?.interactive ? personalizeInteractive(node.interactive, ctx.vars) : null;
             const pick = shown ? matchReply(shown, { body: msg.body, replyId: msg.replyId ?? null }) : null;
             const next = pick && (node.menu?.[pick.id] ?? node.menu?.[pick.payload] ?? node.menu?.[String(pick.index + 1)]);
@@ -173,7 +179,9 @@ export class AutoReplyEngine {
 
     #main(msg, ctx, out) {
         if (!fold(msg.body)) return;
-        const rules = this.store.list({ activeOnly: true });
+        const policy = this.deps.platformPolicy();
+        // Rules of a kind the plan no longer includes stay stored but never fire.
+        const rules = this.store.list({ activeOnly: true }).filter((r) => kindAllowed(r, policy));
         let answered = false;
         for (const hit of matchRules(msg.body, rules)) {
             const { rule } = hit;
@@ -264,9 +272,16 @@ export class AutoReplyEngine {
     async execute(msg, plan, now = new Date()) {
         const results = [];
         if (!plan.replies.length) return results;
+        // Platform rules: quiet hours, and a per-contact hourly cap against bot-to-bot loops.
+        const policy = this.deps.platformPolicy();
+        if (this.quiet(now)) return results;
+        const cap = Number(policy['autoReplies.maxPerContactHour'] ?? 0);
+        let budget = cap > 0 ? cap - this.store.hitsSince(msg.sender, new Date(now.getTime() - HOUR)) : Infinity;
+        if (budget <= 0) return results;
         await this.#delay();
         let accepted = false;
         for (const reply of plan.replies) {
+            if (budget <= 0) break;
             const idempotencyKey = reply.source === 'rule'
                 ? `reply.${msg.messageId}.${reply.ruleId}` : `reply.${msg.messageId}.${reply.key ?? reply.source}`;
             const media = reply.media ? (this.deps.media?.(reply.media.mediaId) ?? null) : null;
@@ -290,6 +305,7 @@ export class AutoReplyEngine {
             }
             if (ok) {
                 accepted = true;
+                budget -= 1;
                 this.store?.recordHit(reply.key ?? reply.source, msg.sender, now);
             }
             results.push({ ...reply, accepted: ok, result });

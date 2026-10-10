@@ -1,4 +1,11 @@
-import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { TenancyApi } from '../core/api';
@@ -6,26 +13,64 @@ import { Auth, User } from '../core/auth';
 import { Store } from '../core/store';
 import { Tilt } from '../school/tilt';
 import {
-  SLA_HOURS, TICKET_PRIORITIES, TICKET_STATUSES, Ticket, TicketDraft, TicketEvent, TicketFilter,
-  TicketPatch, TicketPriority, TicketStats, TicketStatus, TicketsApi,
+  SLA_HOURS,
+  TICKET_PRIORITIES,
+  TICKET_STATUSES,
+  Ticket,
+  TicketDraft,
+  TicketEvent,
+  TicketFilter,
+  TicketPatch,
+  TicketPriority,
+  TicketStats,
+  TicketStatus,
+  TicketsApi,
 } from './tickets-api';
 
 const CLOSED: TicketStatus[] = ['RESOLVED', 'CLOSED'];
 const STATUS_LABEL: Record<TicketStatus, string> = {
-  OPEN: 'Open', IN_PROGRESS: 'In progress', WAITING_CUSTOMER: 'Waiting on customer', RESOLVED: 'Resolved', CLOSED: 'Closed',
+  OPEN: 'Open',
+  IN_PROGRESS: 'In progress',
+  WAITING_CUSTOMER: 'Waiting on customer',
+  RESOLVED: 'Resolved',
+  CLOSED: 'Closed',
 };
 const STATUS_TONE: Record<TicketStatus, string> = {
-  OPEN: 'tone-info', IN_PROGRESS: 'tone-ok', WAITING_CUSTOMER: 'tone-warn', RESOLVED: 'tone-mute', CLOSED: 'tone-mute',
+  OPEN: 'tone-info',
+  IN_PROGRESS: 'tone-ok',
+  WAITING_CUSTOMER: 'tone-warn',
+  RESOLVED: 'tone-mute',
+  CLOSED: 'tone-mute',
 };
-const PRIORITY_TONE: Record<TicketPriority, string> = { low: 'tone-mute', normal: 'tone-info', high: 'tone-warn', urgent: 'tone-bad' };
+const PRIORITY_TONE: Record<TicketPriority, string> = {
+  low: 'tone-mute',
+  normal: 'tone-info',
+  high: 'tone-warn',
+  urgent: 'tone-bad',
+};
 
-const blankDraft = (): TicketDraft => ({ subject: '', category: '', priority: 'normal', assignedTo: null, contactId: null });
+const blankDraft = (): TicketDraft => ({
+  subject: '',
+  category: '',
+  priority: 'normal',
+  assignedTo: null,
+  contactId: null,
+});
 
+/**
+ * Every customer issue in one queue, with the SLA clock running on each.
+ *
+ * A ticket opens in a side drawer rather than a route so the queue (and its
+ * filters) stays put while an agent works through several in a row. Resolving
+ * or closing asks for confirmation inline because it is the one change the
+ * customer may be told about on WhatsApp.
+ */
 @Component({
   selector: 'app-tickets',
   imports: [FormsModule, Tilt],
   templateUrl: './tickets.html',
   styleUrl: './tickets.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:keydown.escape)': 'closeDetail()' },
 })
 export class TicketsView {
@@ -33,6 +78,7 @@ export class TicketsView {
   private readonly auth = inject(Auth);
   private readonly store = inject(Store);
   private readonly tenancy = inject(TenancyApi);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly statuses = TICKET_STATUSES;
   protected readonly priorities = TICKET_PRIORITIES;
@@ -46,7 +92,12 @@ export class TicketsView {
   protected readonly stats = signal<TicketStats | null>(null);
   protected readonly loading = signal(true);
   protected readonly error = signal('');
-  protected readonly filter = signal<TicketFilter>({ status: '', priority: '', assignedTo: '', overdue: false });
+  protected readonly filter = signal<TicketFilter>({
+    status: '',
+    priority: '',
+    assignedTo: '',
+    overdue: false,
+  });
   protected readonly search = signal('');
   protected readonly team = signal<User[]>([]);
   /** Ticks every 30s so SLA countdowns stay honest without a reload. */
@@ -73,7 +124,9 @@ export class TicketsView {
   protected readonly visible = computed(() => {
     const q = this.search().trim().toLowerCase();
     if (!q) return this.tickets();
-    return this.tickets().filter((t) => `${t.reference} ${t.subject} ${t.category}`.toLowerCase().includes(q));
+    return this.tickets().filter((t) =>
+      `${t.reference} ${t.subject} ${t.category}`.toLowerCase().includes(q),
+    );
   });
 
   protected readonly openCount = computed(() => {
@@ -93,10 +146,15 @@ export class TicketsView {
 
   constructor() {
     const timer = setInterval(() => this.now.set(Date.now()), 30_000);
-    inject(DestroyRef).onDestroy(() => clearInterval(timer));
+    this.destroyRef.onDestroy(() => clearInterval(timer));
     // /api/users is admin-only; agents can still assign to themselves.
     if (this.auth.atLeast('admin')) {
-      this.tenancy.users().subscribe({ next: (r) => this.team.set(r.users.filter((u) => !u.disabled)), error: () => {} });
+      this.tenancy
+        .users()
+        .subscribe({
+          next: (r) => this.team.set(r.users.filter((u) => !u.disabled)),
+          error: () => {},
+        });
     }
     this.load();
     this.store.watch(['tickets'], () => this.load(true));
@@ -107,8 +165,14 @@ export class TicketsView {
     if (!quiet) this.loading.set(true);
     this.error.set('');
     this.api.list(this.filter()).subscribe({
-      next: (list) => { this.tickets.set(list); this.loading.set(false); },
-      error: (e: Error) => { this.error.set(e.message); this.loading.set(false); },
+      next: (list) => {
+        this.tickets.set(list);
+        this.loading.set(false);
+      },
+      error: (e: Error) => {
+        this.error.set(e.message);
+        this.loading.set(false);
+      },
     });
     this.loadStats();
   }
@@ -128,7 +192,8 @@ export class TicketsView {
   }
 
   // ------------------------------------------------------------- helpers --
-  protected assignees = computed(() => {
+  /** Team members an agent may assign to; always includes the signed-in user. */
+  protected readonly assignees = computed(() => {
     const me = this.me();
     const list = [...this.team()];
     if (me && !list.some((u) => u.id === me.id)) list.unshift(me);
@@ -145,7 +210,12 @@ export class TicketsView {
   protected initials(id: number | null): string {
     const name = this.userName(id);
     if (id == null) return '?';
-    return name.split(/\s+/).map((p) => p[0]).join('').slice(0, 2).toUpperCase();
+    return name
+      .split(/\s+/)
+      .map((p) => p[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase();
   }
 
   /** Assigned to someone outside the visible team list (agents cannot list users). */
@@ -182,17 +252,32 @@ export class TicketsView {
 
   protected describe(e: TicketEvent): string {
     switch (e.kind) {
-      case 'created': return 'opened the ticket';
-      case 'status': return `moved ${STATUS_LABEL[e.from as TicketStatus] ?? e.from} to ${STATUS_LABEL[e.to as TicketStatus] ?? e.to}`;
-      case 'priority': return `changed priority ${e.from} to ${e.to}`;
-      case 'assigned': return e.to ? `assigned to ${this.userName(Number(e.to))}` : 'unassigned the ticket';
-      case 'message': return 'messaged the customer';
-      default: return e.body && !e.from && !e.to ? 'added a note' : 'updated the ticket';
+      case 'created':
+        return 'opened the ticket';
+      case 'status':
+        return `moved ${STATUS_LABEL[e.from as TicketStatus] ?? e.from} to ${STATUS_LABEL[e.to as TicketStatus] ?? e.to}`;
+      case 'priority':
+        return `changed priority ${e.from} to ${e.to}`;
+      case 'assigned':
+        return e.to ? `assigned to ${this.userName(Number(e.to))}` : 'unassigned the ticket';
+      case 'message':
+        return 'messaged the customer';
+      default:
+        return e.body && !e.from && !e.to ? 'added a note' : 'updated the ticket';
     }
   }
 
   protected eventIcon(kind: TicketEvent['kind']): string {
-    return { created: 'add_circle', status: 'swap_horiz', priority: 'flag', assigned: 'person', message: 'chat', note: 'sticky_note_2' }[kind] ?? 'history';
+    return (
+      {
+        created: 'circle-plus',
+        status: 'arrows-exchange',
+        priority: 'flag',
+        assigned: 'user',
+        message: 'message',
+        note: 'note',
+      }[kind] ?? 'history'
+    );
   }
 
   protected actor(e: TicketEvent): string {
@@ -215,8 +300,14 @@ export class TicketsView {
   private loadEvents(id: number) {
     this.eventsLoading.set(true);
     this.api.events(id).subscribe({
-      next: (ev) => { this.events.set(ev); this.eventsLoading.set(false); },
-      error: (e: Error) => { this.detailError.set(e.message); this.eventsLoading.set(false); },
+      next: (ev) => {
+        this.events.set(ev);
+        this.eventsLoading.set(false);
+      },
+      error: (e: Error) => {
+        this.detailError.set(e.message);
+        this.eventsLoading.set(false);
+      },
     });
   }
 
@@ -248,7 +339,10 @@ export class TicketsView {
         this.loadEvents(ticket.id);
         this.loadStats();
       },
-      error: (e: Error) => { this.saving.set(false); this.detailError.set(e.message); },
+      error: (e: Error) => {
+        this.saving.set(false);
+        this.detailError.set(e.message);
+      },
     });
   }
 
@@ -261,16 +355,30 @@ export class TicketsView {
     if (!body) return;
     this.saving.set(true);
     this.api.addNote(t.id, body).subscribe({
-      next: (ev) => { this.saving.set(false); this.note.set(''); this.events.update((list) => [...list, ev]); },
-      error: (e: Error) => { this.saving.set(false); this.detailError.set(e.message); },
+      next: (ev) => {
+        this.saving.set(false);
+        this.note.set('');
+        this.events.update((list) => [...list, ev]);
+      },
+      error: (e: Error) => {
+        this.saving.set(false);
+        this.detailError.set(e.message);
+      },
     });
   }
 
   protected rate(t: Ticket, score: number) {
     this.saving.set(true);
     this.api.satisfaction(t.id, score).subscribe({
-      next: (ticket) => { this.saving.set(false); this.replace(ticket); this.loadEvents(ticket.id); },
-      error: (e: Error) => { this.saving.set(false); this.detailError.set(e.message); },
+      next: (ticket) => {
+        this.saving.set(false);
+        this.replace(ticket);
+        this.loadEvents(ticket.id);
+      },
+      error: (e: Error) => {
+        this.saving.set(false);
+        this.detailError.set(e.message);
+      },
     });
   }
 
@@ -305,7 +413,10 @@ export class TicketsView {
         this.loadStats();
         this.open(ticket);
       },
-      error: (e: Error) => { this.saving.set(false); this.createError.set(e.message); },
+      error: (e: Error) => {
+        this.saving.set(false);
+        this.createError.set(e.message);
+      },
     });
   }
 }
