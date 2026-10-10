@@ -71,6 +71,7 @@
   font-size: 13.5px;
   color: var(--text-muted);
 
+  .s-pill { text-transform: none; }
   .s-pill .ti { font-size: 14px; }
 }
 
@@ -260,9 +261,13 @@
 @container (max-width: 520px) {
   .group { padding: var(--space-xs) var(--space-lg); }
   .row.dirty::before { left: calc(-1 * var(--space-lg)); }
-  .row { grid-template-columns: 1fr; gap: var(--space-sm); }
-  .control { align-items: flex-start; }
-  .control select, .control input[type='text'] { width: 100%; }
+  // Only wide controls (selects, segmented, text) drop under their label; a
+  // switch or a number stays on the right so short rows stay short.
+  .row { gap: var(--space-md); }
+  .row.stack { grid-template-columns: 1fr; gap: var(--space-sm); }
+  .row.stack .control { align-items: flex-start; }
+  .control input[type='number'] { width: 96px; }
+  .row.stack .control select, .row.stack .control input[type='text'] { width: 100%; }
   .s-seg { flex-wrap: wrap; }
 }
 

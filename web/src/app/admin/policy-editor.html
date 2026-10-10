@@ -56,7 +56,12 @@
     <section class="group s-enter" [style.--i]="gi" [attr.aria-labelledby]="group.rows[0].id + '-g'">
       <h3 [id]="group.rows[0].id + '-g'">{{ group.name }}</h3>
       @for (row of group.rows; track row.field.key) {
-        <div class="row" [class.wide]="row.field.type === 'list'" [class.dirty]="row.dirty">
+        <div
+          class="row"
+          [class.wide]="row.field.type === 'list'"
+          [class.stack]="row.field.type === 'enum' || row.field.type === 'text'"
+          [class.dirty]="row.dirty"
+        >
           <div class="text">
             <label [id]="row.id + '-l'" [for]="row.id">{{ row.field.label }}</label>
             @if (row.field.hint) {

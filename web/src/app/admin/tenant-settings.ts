@@ -82,8 +82,8 @@ const LIMIT_FIELDS: readonly LimitField[] = [
 
 const TABS: readonly { id: SettingsTab; label: string; icon: string }[] = [
   { id: 'general', label: 'General', icon: 'adjustments-horizontal' },
-  { id: 'limits', label: 'Limits and quotas', icon: 'chart-donut' },
-  { id: 'safety', label: 'Anti-ban safety', icon: 'shield' },
+  { id: 'limits', label: 'Limits', icon: 'chart-donut' },
+  { id: 'safety', label: 'Anti-ban', icon: 'shield' },
   { id: 'rules', label: 'Rules', icon: 'list-check' },
   { id: 'accounts', label: 'Accounts', icon: 'users' },
 ];

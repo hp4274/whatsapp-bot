@@ -49,8 +49,9 @@ footer {
   border-bottom: 1px solid var(--border-color);
 }
 footer { justify-content: flex-end; border-top: 1px solid var(--border-color); border-bottom: 0; }
-h3 { margin: 2px 0 3px; font-size: 20px; font-weight: 500; letter-spacing: -0.3px; }
-h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(--text-strong); }
+header { align-items: flex-start; padding-block: 20px; }
+h3 { margin: 4px 0 6px; font-size: 20px; font-weight: 500; line-height: 1.2; letter-spacing: -0.4px; }
+h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); }
 
 // Tab strip: sunken track, active tab on the card surface (Kardlyz tabs).
 .tabs {
@@ -58,20 +59,19 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   align-self: start;
   gap: 2px;
   padding: 3px;
-  // Wraps instead of scrolling: with the scrollbar hidden, overflowing tabs were
-  // cut off with no hint that more existed.
-  flex-wrap: wrap;
-  margin: var(--space-md) var(--space-xl) 0;
+  // Short labels keep all five on one row; equal widths keep them on a grid.
+  margin: var(--space-lg) var(--space-xl) 0;
   border-radius: 12px;
   background: var(--surface-sunken);
 
   button {
     display: inline-flex;
-    flex: 1 0 auto;
+    flex: 1 1 0;
+    min-width: 0;
     align-items: center;
     justify-content: center;
     gap: 6px;
-    padding: 8px 14px;
+    padding: 8px 6px;
     border: 0;
     border-radius: 9px;
     background: transparent;
@@ -81,7 +81,7 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
     white-space: nowrap;
     transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
 
-    .ti { font-size: 17px; }
+    .ti { font-size: 16px; }
     &:hover { color: var(--text-strong); }
     &.on { background: var(--surface-card); color: var(--text-strong); font-weight: 600; box-shadow: var(--shadow-sm); }
   }
@@ -94,28 +94,42 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   padding: var(--space-xl);
   overflow: auto;
 
+  // One rhythm: 12px inside a section, a hairline and 24px between sections,
+  // and the description tucked under its heading rather than floating between.
+  gap: 0;
   section { display: grid; gap: var(--space-md); }
+  section + section { margin-top: var(--space-xl); padding-top: var(--space-xl); border-top: 1px solid var(--border-color); }
+  section > h4 + .compact { margin-top: -6px; line-height: 1.55; }
 }
 
-.switches { display: grid; gap: 8px; }
+// Options read as one list: a single hairline card with rows split by hairlines.
+// The checkbox carries the state, so rows no longer flood orange when on.
+.switches {
+  display: grid;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  > .switch + .switch { border-top: 1px solid var(--border-color); }
+}
 
 .switch {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  gap: 12px;
+  min-height: 46px;
+  padding: 11px 14px;
+  line-height: 1.4;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-strong);
   transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
 
   input { width: 16px; height: 16px; flex: 0 0 16px; }
-  &:hover { border-color: var(--border-hover); }
-  &:has(input:checked) { background: var(--primary-tint); border-color: color-mix(in srgb, var(--primary) 40%, transparent); }
+  cursor: pointer;
+  &:hover { background: var(--surface-sunken); }
 }
+// The lone switch in a section head stays a bare control.
+.section-head .switch { min-height: 0; padding: 0; &:hover { background: none; } }
 
 .section-head { display: flex; align-items: center; justify-content: space-between; h4 { margin: 0; } }
 
@@ -130,9 +144,15 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   legend { padding: 0 6px; font-size: 12px; font-weight: 500; color: var(--text-muted); }
 }
 
-.safety-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); }
+.safety-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-lg) var(--space-md); }
 
-.unit { display: flex; align-items: center; gap: var(--space-sm); input { flex: 1; min-width: 0; } span { flex: none; font-size: 12px; } }
+// Unit sits inside the input, so every input in the grid is the same width
+// whatever its unit word is.
+.unit {
+  position: relative;
+  input { padding-right: 92px; }
+  span { position: absolute; top: 50%; right: 14px; transform: translateY(-50%); font-size: 12px; pointer-events: none; }
+}
 
 // Whether the business has layered its own limits over the platform's.
 .custom-safety {
