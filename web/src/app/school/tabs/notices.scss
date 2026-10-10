@@ -1,6 +1,9 @@
 @use 'kit';
 
 @include kit.base;
+@include kit.pickers;
+
+.s-banner .btn { margin-left: auto; }
 
 .cal { --tone: var(--accent); }
 
@@ -19,21 +22,19 @@
   width: 168px;
   padding: 14px 16px;
   scroll-snap-align: start;
-  border-radius: calc(var(--radius) + 4px);
-  background:
-    linear-gradient(160deg, color-mix(in srgb, var(--tone) 18%, var(--surface)), var(--surface) 70%);
-  border: 1px solid color-mix(in srgb, var(--tone) 35%, var(--border));
-  box-shadow: 0 10px 24px -12px color-mix(in srgb, var(--tone) 60%, transparent);
-  animation: rise 480ms var(--ease) backwards;
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  border: 1px solid color-mix(in srgb, var(--tone) 35%, var(--border-color));
+  animation: s-rise 480ms var(--ease) backwards;
   animation-delay: calc(var(--i, 0) * 50ms);
 
-  .mon { font-size: 11px; font-weight: 800; letter-spacing: 0.01em; color: var(--tone); }
-  .day { font-size: 40px; font-weight: 800; line-height: 1; letter-spacing: -0.04em; transform: translateZ(20px); }
+  .mon { font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: var(--tone); }
+  .day { font-size: 40px; font-weight: 500; line-height: 1; letter-spacing: -0.04em; color: var(--text-strong); transform: translateZ(20px); }
   .wk { font-size: 12px; color: var(--text-muted); }
-  strong { margin: 6px 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pill { justify-self: start; }
+  strong { margin: 6px 0; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .s-pill { justify-self: start; }
 
-  &.skel-card { height: 150px; background: var(--surface-alt); border-color: var(--border); box-shadow: none; animation: none; opacity: 0.6; }
+  &.skel-card { height: 150px; margin: 0; border-radius: var(--radius-lg); border-color: var(--border-color); animation: s-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 }
 
 .kinds {
@@ -50,24 +51,24 @@
   justify-items: start;
   gap: 6px;
   padding: 12px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--surface-alt);
-  color: var(--text);
-  font-weight: 700;
-  font-size: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--surface-card);
+  color: var(--text-color);
+  font-weight: 500;
+  font-size: 12.5px;
   text-align: left;
-  transition: transform var(--base) var(--ease), border-color var(--base) var(--ease), background var(--base) var(--ease);
+  transition: transform var(--base) var(--ease), border-color var(--base) var(--ease), background var(--base) var(--ease), box-shadow var(--base) var(--ease);
 
-  .ms { font-size: 22px; color: var(--tone); }
+  .ti { font-size: 22px; color: var(--tone); }
 
-  &:hover { transform: translateY(-2px); }
+  &:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
 
   &[aria-checked='true'] {
     border-color: var(--tone);
-    background: color-mix(in srgb, var(--tone) 12%, var(--surface));
+    background: color-mix(in srgb, var(--tone) 10%, var(--surface-card));
+    color: var(--text-strong);
     transform: translateY(-3px) rotateX(8deg);
-    box-shadow: 0 12px 20px -14px var(--tone);
   }
 }
 
@@ -80,7 +81,7 @@
   input { flex: 1 1 180px; width: auto; }
 }
 
-.seg + .picks, .seg + .routes { margin-top: 10px; }
+.s-seg + .picks, .s-seg + .routes { margin-top: 10px; }
 
 .toggles {
   display: flex;
@@ -108,16 +109,18 @@
     padding: 10px 8px;
     border-radius: var(--radius-sm);
     border-left: 3px solid var(--tone);
-    animation: rise 380ms var(--ease) backwards;
+    animation: s-rise 380ms var(--ease) backwards;
     animation-delay: calc(var(--i, 0) * 35ms);
     transition: background var(--fast) var(--ease), transform var(--fast) var(--ease);
 
-    &:hover { background: var(--surface-alt); transform: translateX(3px); }
+    &:hover { background: var(--surface-sunken); transform: translateX(3px); }
   }
 
   .ic { color: var(--tone); font-size: 22px; }
   .body { display: grid; min-width: 0; }
   .body > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .body strong { font-weight: 500; }
 }
 
-.arch .pill:not(.ok, .info) { --tone: var(--text-muted); }
+/* The row's tone colours its stripe and icon; the pill carries its own status tone. */
+.arch .s-pill:not(.tone-ok, .tone-info) { --tone: var(--text-muted); }

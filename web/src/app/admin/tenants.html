@@ -1,49 +1,84 @@
-<header class="page-head">
+<!--
+  Tenant console: header, error banner, optional create form, then a search and
+  filter toolbar over the tenant cards (grid or list). Drawers and the delete
+  dialog are rendered last so they stack above the page.
+-->
+<header class="s-head">
   <div>
+    <p class="eyebrow"><i class="ti ti-building" aria-hidden="true"></i> Platform</p>
     <h2>Tenants</h2>
-    <p class="muted">Every business on this platform, and the controls behind it.</p>
+    <p>Every business on this platform, and the controls behind it.</p>
   </div>
   <button class="btn primary" type="button" (click)="showForm.set(!showForm())">
-    <span class="ms" aria-hidden="true">{{ showForm() ? 'close' : 'add' }}</span>
+    <i class="ti ti-{{ showForm() ? 'x' : 'plus' }}" aria-hidden="true"></i>
     {{ showForm() ? 'Cancel' : 'New tenant' }}
   </button>
 </header>
 
 @if (error()) {
-  <p class="error" role="alert">{{ error() }}</p>
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="msg">{{ error() }}</span>
+    <button class="btn sm" type="button" (click)="refresh()">Try again</button>
+  </p>
 }
 
 @if (showForm()) {
-  <form class="card new" (submit)="create($event)" novalidate>
-    <h3>New tenant</h3>
+  <form class="card new" aria-labelledby="new-tenant-title" (submit)="create($event)" novalidate>
+    <h3 id="new-tenant-title">New tenant</h3>
     <div class="grid">
       <div class="field">
         <label for="t-name">Business name</label>
-        <input id="t-name" name="name" required [ngModel]="draft().name"
-               (ngModelChange)="draft.set({ ...draft(), name: $event })" />
+        <input
+          id="t-name"
+          name="name"
+          required
+          [ngModel]="draft().name"
+          (ngModelChange)="draft.set({ ...draft(), name: $event })"
+        />
       </div>
       <div class="field">
         <label for="t-slug">Slug <small class="muted">optional</small></label>
-        <input id="t-slug" name="slug" [ngModel]="draft().slug"
-               (ngModelChange)="draft.set({ ...draft(), slug: $event })" />
+        <input
+          id="t-slug"
+          name="slug"
+          [ngModel]="draft().slug"
+          (ngModelChange)="draft.set({ ...draft(), slug: $event })"
+        />
         @if (duplicateDraftSlug()) {
           <small class="field-error">Already in use</small>
         }
       </div>
       <div class="field">
         <label for="t-owner">Owner name</label>
-        <input id="t-owner" name="ownerName" [ngModel]="draft().ownerName"
-               (ngModelChange)="draft.set({ ...draft(), ownerName: $event })" />
+        <input
+          id="t-owner"
+          name="ownerName"
+          [ngModel]="draft().ownerName"
+          (ngModelChange)="draft.set({ ...draft(), ownerName: $event })"
+        />
       </div>
       <div class="field">
         <label for="t-email">Owner email</label>
-        <input id="t-email" name="email" type="email" required [ngModel]="draft().email"
-               (ngModelChange)="draft.set({ ...draft(), email: $event })" />
+        <input
+          id="t-email"
+          name="email"
+          type="email"
+          required
+          [ngModel]="draft().email"
+          (ngModelChange)="draft.set({ ...draft(), email: $event })"
+        />
       </div>
       <div class="field">
         <label for="t-pass">Owner password <small class="muted">8+ characters</small></label>
-        <input id="t-pass" name="password" type="password" required [ngModel]="draft().password"
-               (ngModelChange)="draft.set({ ...draft(), password: $event })" />
+        <input
+          id="t-pass"
+          name="password"
+          type="password"
+          required
+          [ngModel]="draft().password"
+          (ngModelChange)="draft.set({ ...draft(), password: $event })"
+        />
       </div>
     </div>
 
@@ -63,8 +98,11 @@
         <div class="switches">
           @for (control of controlKeys; track control) {
             <label class="switch">
-              <input type="checkbox" [checked]="draft().controls[control]"
-                     (change)="toggleDraftControl(control, checked($event))" />
+              <input
+                type="checkbox"
+                [checked]="draft().controls[control]"
+                (change)="toggleDraftControl(control, checked($event))"
+              />
               <span>{{ controlLabel(control) }}</span>
             </label>
           }
@@ -80,32 +118,62 @@
 
 <div class="toolbar">
   <label class="search">
-    <span class="ms" aria-hidden="true">search</span>
-    <input type="search" placeholder="Search tenants by name or slug..." aria-label="Search tenants"
-           [value]="query()" (input)="query.set($any($event.target).value)" />
+    <i class="ti ti-search" aria-hidden="true"></i>
+    <input
+      type="search"
+      placeholder="Search tenants by name or slug..."
+      aria-label="Search tenants"
+      [value]="query()"
+      (input)="query.set($any($event.target).value)"
+    />
   </label>
-  <select class="status-select" aria-label="Filter by status" [value]="statusFilter()"
-          (change)="setStatusFilter($any($event.target).value)">
+  <select
+    class="status-select"
+    aria-label="Filter by status"
+    [value]="statusFilter()"
+    (change)="setStatusFilter($any($event.target).value)"
+  >
     <option value="all">All status</option>
     <option value="active">Active</option>
     <option value="suspended">Suspended</option>
   </select>
   <div class="view-toggle" role="group" aria-label="Layout">
-    <button type="button" [class.on]="view() === 'grid'" [attr.aria-pressed]="view() === 'grid'"
-            (click)="setView('grid')" aria-label="Grid view" title="Grid view">
-      <span class="ms" aria-hidden="true">grid_view</span>
+    <button
+      type="button"
+      [class.on]="view() === 'grid'"
+      [attr.aria-pressed]="view() === 'grid'"
+      (click)="setView('grid')"
+      aria-label="Grid view"
+      title="Grid view"
+    >
+      <i class="ti ti-layout-grid" aria-hidden="true"></i>
     </button>
-    <button type="button" [class.on]="view() === 'list'" [attr.aria-pressed]="view() === 'list'"
-            (click)="setView('list')" aria-label="List view" title="List view">
-      <span class="ms" aria-hidden="true">view_list</span>
+    <button
+      type="button"
+      [class.on]="view() === 'list'"
+      [attr.aria-pressed]="view() === 'list'"
+      (click)="setView('list')"
+      aria-label="List view"
+      title="List view"
+    >
+      <i class="ti ti-list" aria-hidden="true"></i>
     </button>
   </div>
 </div>
 
-<div class="tenants" [class.list]="view() === 'list'">
-  @for (tenant of visible(); track tenant.id) {
-    <article class="card tenant" [class.suspended]="tenant.status === 'suspended'"
-             [class.acting]="actingId() === tenant.id">
+<div class="tenants" [class.list]="view() === 'list'" [attr.aria-busy]="loading()">
+  @if (loading()) {
+    @for (n of skeletonRows; track n) {
+      <div class="skeleton" style="height: 220px; border-radius: 24px"></div>
+    }
+  }
+  @for (tenant of visible(); track tenant.id; let i = $index) {
+    <article
+      class="tenant"
+      [class.suspended]="tenant.status === 'suspended'"
+      [class.acting]="actingId() === tenant.id"
+      [style.--i]="i < 12 ? i : 12"
+    >
       <div class="top">
         <span class="avatar" aria-hidden="true">{{ tenant.name.charAt(0) }}</span>
         <div class="who">
@@ -113,19 +181,41 @@
           <h3>{{ tenant.name }}</h3>
           <p class="muted">{{ tenant.slug }} &middot; {{ tenant.users }} user(s)</p>
         </div>
-        <span class="state" [class.live]="tenant.status === 'active'">{{ tenant.status }}</span>
+        <span
+          class="s-pill"
+          [class.tone-ok]="tenant.status === 'active'"
+          [class.tone-warn]="tenant.status === 'suspended'"
+          [class.tone-mute]="tenant.status === 'archived'"
+          >{{ tenant.status }}</span
+        >
         <div class="menu-wrap">
-          <button class="icon-btn" type="button" (click)="toggleMenu(tenant)" aria-label="More actions"
-                  aria-haspopup="menu" [attr.aria-expanded]="menuId() === tenant.id">
-            <span class="ms" aria-hidden="true">more_vert</span>
+          <button
+            class="icon-btn"
+            type="button"
+            (click)="toggleMenu(tenant)"
+            aria-label="More actions"
+            aria-haspopup="menu"
+            [attr.aria-expanded]="menuId() === tenant.id"
+          >
+            <i class="ti ti-dots-vertical" aria-hidden="true"></i>
           </button>
           @if (menuId() === tenant.id) {
             <div class="menu-backdrop" (click)="menuId.set(null)"></div>
             <div class="menu" role="menu">
-              <button type="button" role="menuitem" (click)="toggleStatus(tenant)" [disabled]="savingId() === tenant.id">
+              <button
+                type="button"
+                role="menuitem"
+                (click)="toggleStatus(tenant)"
+                [disabled]="savingId() === tenant.id"
+              >
                 {{ tenant.status === 'active' ? 'Suspend tenant' : 'Activate tenant' }}
               </button>
-              <button type="button" role="menuitem" (click)="askSeed(tenant)" [disabled]="seedingId() === tenant.id">
+              <button
+                type="button"
+                role="menuitem"
+                (click)="askSeed(tenant)"
+                [disabled]="seedingId() === tenant.id"
+              >
                 Fill with demo data
               </button>
             </div>
@@ -135,42 +225,64 @@
 
       <div class="stats">
         <div class="stat">
-          <span class="ms" aria-hidden="true">send</span>
-          <strong>{{ tenant.health?.sent ?? 0 }}</strong><span>Sent</span>
+          <i class="ti ti-send" aria-hidden="true"></i>
+          <strong>{{ tenant.health?.sent ?? 0 }}</strong
+          ><span>Sent</span>
         </div>
         <div class="stat" [class.bad]="(tenant.health?.failed ?? 0) > 0">
-          <span class="ms" aria-hidden="true">close</span>
-          <strong>{{ tenant.health?.failed ?? 0 }}</strong><span>Failed</span>
+          <i class="ti ti-x" aria-hidden="true"></i>
+          <strong>{{ tenant.health?.failed ?? 0 }}</strong
+          ><span>Failed</span>
         </div>
         <div class="stat">
-          <span class="ms" aria-hidden="true">link</span>
-          <strong>{{ tenant.health?.connected ?? 0 }}</strong><span>Connected</span>
+          <i class="ti ti-link" aria-hidden="true"></i>
+          <strong>{{ tenant.health?.connected ?? 0 }}</strong
+          ><span>Connected</span>
         </div>
         <div class="stat">
-          <span class="ms" aria-hidden="true">schedule</span>
-          <strong>{{ tenant.health?.queued ?? 0 }}</strong><span>Queued</span>
+          <i class="ti ti-clock" aria-hidden="true"></i>
+          <strong>{{ tenant.health?.queued ?? 0 }}</strong
+          ><span>Queued</span>
         </div>
       </div>
 
-      <button class="services-row" type="button" (click)="openTenantServices(tenant)"
-              [disabled]="savingId() === tenant.id">
-        <span class="ms" aria-hidden="true">apps</span>
+      <button
+        class="services-row"
+        type="button"
+        (click)="openTenantServices(tenant)"
+        [disabled]="savingId() === tenant.id"
+      >
+        <i class="ti ti-apps" aria-hidden="true"></i>
         <strong>Services</strong>
         <span class="muted">{{ serviceSummary(tenant.services) }}</span>
-        <span class="ms chev" aria-hidden="true">chevron_right</span>
+        <i class="ti ti-chevron-right chev" aria-hidden="true"></i>
       </button>
 
       @if (seedConfirmId() === tenant.id) {
         <div class="seed-confirm" role="group" aria-label="Confirm demo data">
-          <span class="ms seed-icon" aria-hidden="true">auto_awesome</span>
-          <p>Add sample contacts, records and content for the {{ tenant.services.length }} enabled services?
-            <span class="muted">Existing data stays; nothing is sent.</span></p>
+          <i class="ti ti-sparkles" aria-hidden="true"></i>
+          <p>
+            Add sample contacts, records and content for the {{ tenant.services.length }} enabled
+            services? <span class="muted">Existing data stays; nothing is sent.</span>
+          </p>
           <div class="seed-buttons">
-            <button class="btn" type="button" (click)="seedConfirmId.set(null)" [disabled]="seedingId() === tenant.id">Cancel</button>
-            <button class="btn primary" type="button" (click)="seed(tenant)" [disabled]="seedingId() === tenant.id"
-                    [attr.aria-busy]="seedingId() === tenant.id">
+            <button
+              class="btn"
+              type="button"
+              (click)="seedConfirmId.set(null)"
+              [disabled]="seedingId() === tenant.id"
+            >
+              Cancel
+            </button>
+            <button
+              class="btn primary"
+              type="button"
+              (click)="seed(tenant)"
+              [disabled]="seedingId() === tenant.id"
+              [attr.aria-busy]="seedingId() === tenant.id"
+            >
               @if (seedingId() === tenant.id) {
-                <span class="seed-spin" aria-hidden="true"></span> Filling...
+                <span class="spinner" aria-hidden="true"></span> Filling...
               } @else {
                 Fill now
               }
@@ -181,283 +293,167 @@
       @if (seedResult(); as result) {
         @if (result.id === tenant.id) {
           <p class="seed-result" [class.bad]="!result.ok" role="status">
-            <span class="ms" aria-hidden="true">{{ result.ok ? 'check_circle' : 'error' }}</span>
+            <i
+              class="ti ti-{{ result.ok ? 'circle-check' : 'alert-circle' }}"
+              aria-hidden="true"
+            ></i>
             <span>{{ result.text }}</span>
-            <button class="icon-btn" type="button" aria-label="Dismiss" (click)="seedResult.set(null)">
-              <span class="ms" aria-hidden="true">close</span>
+            <button
+              class="icon-btn"
+              type="button"
+              aria-label="Dismiss"
+              (click)="seedResult.set(null)"
+            >
+              <i class="ti ti-x" aria-hidden="true"></i>
             </button>
           </p>
         }
       }
 
       <div class="actions">
-        <button class="btn primary open" type="button" (click)="open(tenant)" [disabled]="tenant.status !== 'active'">
-          <span class="ms" aria-hidden="true">arrow_outward</span>
+        <button
+          class="btn primary open"
+          type="button"
+          (click)="open(tenant)"
+          [disabled]="tenant.status !== 'active'"
+        >
+          <i class="ti ti-arrow-up-right" aria-hidden="true"></i>
           Open as tenant
         </button>
-        <button class="btn square" type="button" (click)="openSettings(tenant)" aria-label="Tenant settings"
-                title="Controls and sending safety" [disabled]="savingId() === tenant.id">
-          <span class="ms" aria-hidden="true">settings</span>
+        <button
+          class="btn square"
+          type="button"
+          (click)="openSettings(tenant)"
+          aria-label="Tenant settings"
+          title="Controls and sending safety"
+          [disabled]="savingId() === tenant.id"
+        >
+          <i class="ti ti-settings" aria-hidden="true"></i>
         </button>
-        <button class="btn square danger-ghost" type="button" (click)="deleteTenant(tenant)"
-                [disabled]="savingId() === tenant.id" aria-label="Delete tenant" title="Delete tenant">
-          <span class="ms" aria-hidden="true">delete</span>
+        <button
+          class="btn square danger-ghost"
+          type="button"
+          (click)="askDelete(tenant)"
+          [disabled]="savingId() === tenant.id"
+          aria-label="Delete tenant"
+          title="Delete tenant"
+        >
+          <i class="ti ti-trash" aria-hidden="true"></i>
         </button>
       </div>
     </article>
   } @empty {
-    <p class="muted">{{ tenants().length ? 'No tenant matches this filter.' : 'No tenants yet.' }}</p>
+    @if (!loading()) {
+      <div class="s-empty">
+        <i class="ti ti-building" aria-hidden="true"></i>
+        <strong>{{ tenants().length ? 'No tenant matches this filter' : 'No tenants yet' }}</strong>
+        <p>
+          {{
+            tenants().length
+              ? 'Loosen the search or status filter.'
+              : 'Create the first business with New tenant.'
+          }}
+        </p>
+      </div>
+    }
   }
 </div>
 
-<section class="card audit">
-  <div class="audit-head">
-    <h3>Recent activity</h3>
-    <a class="all" routerLink="/admin/audit-logs">See all <span class="ms" aria-hidden="true">arrow_forward</span></a>
-  </div>
-  <ul class="feed">
-    @for (log of recentLogs(); track log.id) {
-      <li>
-        <span class="dot" aria-hidden="true"></span>
-        <code>{{ log.action }}</code>
-        <span class="muted">{{ log.detail || log.target }}</span>
-        <time class="muted" [title]="log.createdAt">{{ ago(log.createdAt) }}</time>
-      </li>
-    } @empty {
-      <li class="muted">Nothing recorded yet.</li>
-    }
-  </ul>
-</section>
+<app-tenant-activity [logs]="logs()" />
 
 @if (serviceDrawer(); as drawer) {
   <div class="drawer-backdrop" (click)="closeServiceDrawer()"></div>
-  <aside class="service-drawer" role="dialog" aria-modal="true" aria-labelledby="service-drawer-title">
+  <aside
+    class="service-drawer"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="service-drawer-title"
+  >
     <header>
       <div>
-        <span class="mono muted">{{ drawer.mode === 'tenant' ? '#' + drawer.tenant.id : 'NEW' }}</span>
+        <span class="mono muted">{{
+          drawer.mode === 'tenant' ? '#' + drawer.tenant.id : 'NEW'
+        }}</span>
         <h3 id="service-drawer-title">
-          {{ drawer.mode === 'tenant' ? drawer.tenant.name : (draft().name || 'New tenant') }}
+          {{ drawer.mode === 'tenant' ? drawer.tenant.name : draft().name || 'New tenant' }}
         </h3>
         <p class="muted compact">{{ serviceSummary(drawer.services) }}</p>
       </div>
-      <button class="btn icon" type="button" (click)="closeServiceDrawer()" [disabled]="serviceDrawerBusy()"
-              aria-label="Close services">
-        <span class="ms" aria-hidden="true">close</span>
+      <button
+        class="btn icon"
+        type="button"
+        (click)="closeServiceDrawer()"
+        [disabled]="serviceDrawerBusy()"
+        aria-label="Close services"
+      >
+        <i class="ti ti-x" aria-hidden="true"></i>
       </button>
     </header>
 
     <div class="drawer-checks">
       @for (service of services(); track service) {
         <label class="check drawer-check">
-          <input type="checkbox" [checked]="drawer.services.includes(service)" [disabled]="serviceDrawerBusy()"
-                 (change)="toggleDrawerService(service, checked($event))" />
+          <input
+            type="checkbox"
+            [checked]="drawer.services.includes(service)"
+            [disabled]="serviceDrawerBusy()"
+            (change)="toggleDrawerService(service, checked($event))"
+          />
           <span>{{ serviceLabel(service) }}</span>
         </label>
       }
     </div>
 
     <footer>
-      <button class="btn" type="button" (click)="closeServiceDrawer()" [disabled]="serviceDrawerBusy()">Cancel</button>
-      <button class="btn primary" type="button" (click)="saveServices()" [disabled]="serviceDrawerBusy()">
+      <button
+        class="btn"
+        type="button"
+        (click)="closeServiceDrawer()"
+        [disabled]="serviceDrawerBusy()"
+      >
+        Cancel
+      </button>
+      <button
+        class="btn primary"
+        type="button"
+        (click)="saveServices()"
+        [disabled]="serviceDrawerBusy()"
+      >
         {{ serviceDrawerBusy() ? 'Saving...' : 'Save services' }}
       </button>
     </footer>
   </aside>
 }
 
-@if (settings(); as s) {
-  <div class="drawer-backdrop" (click)="closeSettings()"></div>
-  <aside class="service-drawer wide-drawer" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-    <header>
-      <div>
-        <span class="mono muted">#{{ s.tenant.id }}</span>
-        <h3 id="settings-title">{{ s.tenant.name }}</h3>
-        <p class="muted compact">What this business may do, how much, and how fast. Only the platform admin can change these.</p>
-      </div>
-      <button class="btn icon" type="button" (click)="closeSettings()" [disabled]="savingId() !== null"
-              aria-label="Close settings"><span class="ms" aria-hidden="true">close</span></button>
-    </header>
-
-    <nav class="tabs" role="tablist" aria-label="Tenant settings">
-      @for (t of settingsTabs; track t.id) {
-        <button type="button" role="tab" [class.on]="settingsTab() === t.id" [attr.aria-selected]="settingsTab() === t.id"
-                (click)="settingsTab.set(t.id)">
-          <span class="ms" aria-hidden="true">{{ t.icon }}</span>{{ t.label }}
+@if (deleteTarget(); as target) {
+  <div class="dialog-wrap" (click)="cancelDelete()">
+    <div
+      class="dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="delete-title"
+      aria-describedby="delete-desc"
+      (click)="$event.stopPropagation()"
+    >
+      <h3 id="delete-title">Delete {{ target.name }}?</h3>
+      <p id="delete-desc">This archives the tenant and removes it from this list.</p>
+      <div class="dialog-actions">
+        <button class="btn" type="button" (click)="cancelDelete()">Cancel</button>
+        <button class="btn danger-fill" type="button" (click)="deleteTenant(target)">
+          Delete tenant
         </button>
-      }
-    </nav>
-
-    <div class="settings-body">
-      @switch (settingsTab()) {
-        @case ('general') {
-          <section>
-            <h4>Operations</h4>
-            <div class="switches">
-              @for (control of controlKeys; track control) {
-                <label class="switch drawer-check">
-                  <input type="checkbox" [checked]="s.controls[control]"
-                         (change)="setSettingsControl(control, checked($event))" />
-                  <span>{{ controlLabel(control) }}</span>
-                </label>
-              }
-            </div>
-          </section>
-
-          <section>
-            <h4>Connection types</h4>
-            <p class="muted compact">Which ways this business may connect a WhatsApp number. Turn off WhatsApp Web to allow only the official Meta Cloud API.</p>
-            <div class="switches">
-              <label class="switch drawer-check">
-                <input type="checkbox" [checked]="s.limits.allowCloudApi" (change)="setLimit('allowCloudApi', checked($event))" />
-                <span>Meta Cloud API (official)</span>
-              </label>
-              <label class="switch drawer-check">
-                <input type="checkbox" [checked]="s.limits.allowWhatsappWeb" (change)="setLimit('allowWhatsappWeb', checked($event))" />
-                <span>WhatsApp Web (QR code)</span>
-              </label>
-            </div>
-          </section>
-
-          <section>
-            <h4>Sending limits</h4>
-            <p class="muted compact">Off: only you set this business's anti-ban limits. On: their owner or admins can change them after accepting, in writing, that a banned number is their responsibility.</p>
-            <div class="switches">
-              <label class="switch drawer-check">
-                <input type="checkbox" [checked]="s.limits.allowCustomSafety"
-                       (change)="setLimit('allowCustomSafety', checked($event))" />
-                <span>Let this business change its own sending limits (they must accept the risk)</span>
-              </label>
-            </div>
-          </section>
-
-          <section>
-            <h4>Services</h4>
-            <p class="muted compact">{{ serviceSummary(s.tenant.services) }}</p>
-            <button class="btn" type="button" (click)="openTenantServices(s.tenant)">Choose services</button>
-          </section>
-        }
-
-        @case ('limits') {
-          <section>
-            <h4>Limits and quotas</h4>
-            <p class="muted compact">Set 0 for no limit. Each limit is checked where the business does the thing, and the message they see names the limit.</p>
-            <div class="safety-fields">
-              @for (f of limitFields; track f.key) {
-                <div class="field">
-                  <label [for]="'l-' + f.key">{{ f.label }}</label>
-                  <div class="unit">
-                    <input [id]="'l-' + f.key" type="number" min="0" step="1" [value]="s.limits[f.key]"
-                           (input)="setLimitNumber(f.key, $any($event.target).value)" />
-                    <span class="muted">{{ f.unit }}</span>
-                  </div>
-                </div>
-              }
-              @if (s.safety; as safety) {
-                <div class="field">
-                  <label for="l-daily">Messages per day</label>
-                  <div class="unit">
-                    <input id="l-daily" type="number" min="0" step="1" [value]="safety.dailyLimit"
-                           (input)="setSafetyNumber('dailyLimit', $any($event.target).value)" />
-                    <span class="muted">per number</span>
-                  </div>
-                </div>
-              }
-            </div>
-          </section>
-
-          <section>
-            <h4>Blocked words</h4>
-            <p class="muted compact">Templates and campaigns containing any of these are refused. Separate with commas.</p>
-            <div class="field">
-              <label for="l-words" class="sr-only">Blocked words</label>
-              <textarea id="l-words" rows="3" placeholder="casino, lottery, crypto giveaway"
-                        [value]="s.limits.blockedWords" (input)="setLimit('blockedWords', $any($event.target).value)"></textarea>
-            </div>
-          </section>
-        }
-
-        @case ('safety') {
-          <section>
-            <div class="section-head">
-              <h4>Sending safety</h4>
-              @if (s.safety; as safety) {
-                <label class="switch">
-                  <input type="checkbox" [checked]="safety.safetyEnabled"
-                         (change)="setSafetyValue('safetyEnabled', checked($event))" />
-                  <span>Enforced</span>
-                </label>
-              }
-            </div>
-            <p class="muted compact">Bulk sending gets numbers banned. These limits apply to every number of this tenant.</p>
-
-            @if (s.custom; as custom) {
-              <div class="custom-safety" [class.on]="custom.active" role="status">
-                <span class="ms" aria-hidden="true">{{ custom.active ? 'gpp_maybe' : 'verified_user' }}</span>
-                <div>
-                  <strong>
-                    @if (custom.active) {
-                      Business limits active: {{ overrideCount(custom) }} value{{ overrideCount(custom) === 1 ? '' : 's' }} override yours
-                    } @else if (!custom.allowed) {
-                      Only you set these limits
-                    } @else if (overrideCount(custom)) {
-                      Business limits saved but not applied
-                    } @else {
-                      Business may customise - nothing changed yet
-                    }
-                  </strong>
-                  @if (custom.consent; as consent) {
-                    <span class="muted">Risk accepted by {{ consent.fullName }} ({{ consent.email }}) on {{ consent.acceptedAt.slice(0, 10) }}, terms v{{ consent.version }}</span>
-                  } @else if (custom.allowed) {
-                    <span class="muted">No one has accepted the current terms (v{{ custom.consentVersion }}) yet.</span>
-                  }
-                </div>
-                @if (custom.allowed || overrideCount(custom)) {
-                  <button class="btn" type="button" [class.danger]="revokeConfirm()" (click)="revokeCustomSafety()"
-                          [disabled]="savingId() !== null">
-                    <span class="ms" aria-hidden="true">block</span>{{ revokeConfirm() ? 'Click again to revoke' : 'Revoke custom limits' }}
-                  </button>
-                }
-              </div>
-            }
-
-            @if (s.safety; as safety) {
-              <div class="field">
-                <label for="s-pacing">Pacing mode</label>
-                <select id="s-pacing" [value]="safety.pacingMode"
-                        (change)="setSafetyValue('pacingMode', $any($event.target).value)">
-                  <option value="adaptive">Adaptive - vary the gap, widen it as the batch grows</option>
-                  <option value="fixed">Fixed - rate limit only (faster, easier to spot)</option>
-                </select>
-              </div>
-
-              @for (group of safetyGroups; track group.title) {
-                <fieldset class="safety-group">
-                  <legend>{{ group.title }}</legend>
-                  <div class="safety-fields">
-                    @for (f of group.fields; track f.key) {
-                      <div class="field">
-                        <label [for]="'s-' + f.key">{{ f.label }}</label>
-                        <input [id]="'s-' + f.key" type="number" min="0" [step]="f.step ?? 1"
-                               [value]="safety[f.key]" (input)="setSafetyNumber(f.key, $any($event.target).value)" />
-                        <span class="hint">{{ f.help }}</span>
-                      </div>
-                    }
-                  </div>
-                </fieldset>
-              }
-            } @else {
-              <p class="muted">Loading limits...</p>
-            }
-          </section>
-        }
-      }
+      </div>
     </div>
+  </div>
+}
 
-    <footer>
-      <button class="btn" type="button" (click)="resetSettings()" [disabled]="savingId() !== null">Reset</button>
-      <button class="btn primary" type="button" (click)="saveSettings()" [disabled]="savingId() !== null || !s.safety">
-        {{ savingId() !== null ? 'Saving...' : 'Save settings' }}
-      </button>
-    </footer>
-  </aside>
+@if (settingsTenant(); as tenant) {
+  <app-tenant-settings
+    [tenant]="tenant"
+    [initialTab]="settingsTab()"
+    [serviceCount]="services().length"
+    (closed)="settingsTenant.set(null)"
+    (saved)="refresh()"
+    (chooseServices)="openTenantServices($event)"
+  />
 }

@@ -1,16 +1,23 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 
 import { Api, PaymentReminder, SafetyStatus } from '../core/api';
 import { Store } from '../core/store';
 
+/**
+ * Turns an Excel sheet of payment dues into queued WhatsApp reminders.
+ *
+ * Import and send are separate steps so the operator can read the generated
+ * messages and the daily-budget forecast before anything leaves the building.
+ */
 @Component({
   selector: 'app-payment-reminder',
   templateUrl: './payment-reminder.html',
   styleUrl: './payment-reminder.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PaymentReminderView {
   private readonly api = inject(Api);
-  protected readonly store = inject(Store);
+  private readonly store = inject(Store);
 
   protected readonly reminders = signal<PaymentReminder[]>([]);
   protected readonly fileName = signal('');
@@ -74,7 +81,10 @@ export class PaymentReminderView {
       next: ({ queued, skipped, safety }) => {
         this.busy.set(false);
         this.plan.set(safety);
-        this.store.setStatus(`Payment reminders started: ${queued} queued, ${skipped} skipped`, 'primary');
+        this.store.setStatus(
+          `Payment reminders started: ${queued} queued, ${skipped} skipped`,
+          'primary',
+        );
       },
       error: (err: Error) => {
         this.busy.set(false);

@@ -25,6 +25,7 @@ import { MessageQueue, QueueState, queueItem } from './queue.js';
 import {
     DailyQuota, SafetyError, estimateSeconds, nextDelay, paceFor, pickPreset, variationError,
 } from './safety.js';
+import { capReachedText, clampPreset } from '../policy/campaignOps.js';
 
 export class CampaignManager extends EventEmitter {
     constructor(db, transport, config) {
@@ -53,6 +54,13 @@ export class CampaignManager extends EventEmitter {
         // (sending window + quiet hours). Bulk outside it waits, it does not fail.
         this.bulkWindowOpen = null;
         this.holding = false;
+        // Platform policy hooks, set by policy/campaignOps.js attachCampaignPolicy.
+        this.bulkPolicy = null;        // () => rules (caps, opt-in, speed ceiling, ...)
+        this.killSwitch = null;        // () => reason text while bulk must stop, else null
+        this.policyWindowOpen = null;  // () => false outside the platform's sending hours
+        this.stopReason = 'Stopped by operator';
+        this.resumeRefusal = null;     // why a policy hold cannot be resumed yet
+        this.current = null;
     }
 
     applyConfig(config) {
@@ -65,7 +73,8 @@ export class CampaignManager extends EventEmitter {
 
     /** Change the speed preset of the current run (live): recomputes the gap range. */
     setPace(preset, batchSize = this.pace.batchSize) {
-        this.pacePreset = pickPreset(preset);
+        const ceiling = this.bulkPolicy?.()?.maxSpeed;
+        this.pacePreset = ceiling ? clampPreset(pickPreset(preset), ceiling) : pickPreset(preset);
         this.pace = paceFor(batchSize, this.config, this.pacePreset);
         this.#emitStats();
         return this.pace;
@@ -128,6 +137,33 @@ export class CampaignManager extends EventEmitter {
     } = {}) {
         // Throws InteractiveError (status 400) before anything is queued.
         const block = normalizeInteractive(interactive);
+        // Platform policy (policy/campaignOps.js): refusals before anything is queued.
+        const rules = this.bulkPolicy?.() ?? null;
+        let skippedNoOptIn = 0;
+        let pacingClamped = null;
+        if (rules) {
+            if (this.killSwitch?.()) throw new SafetyError('Bulk sending is switched off right now, so a new send cannot start.', 409);
+            if (block && rules.allowInteractive === false) throw new SafetyError('Interactive buttons are not on your plan.', 403);
+            const count = Array.isArray(contacts) ? contacts.length : 0;
+            if (rules.maxRecipients && count > rules.maxRecipients) {
+                throw new SafetyError(`A send can reach ${rules.maxRecipients} recipients on your plan; this one has ${count}.`, 403);
+            }
+            if (rules.notOptedIn) {
+                const no = rules.notOptedIn();
+                const kept = contacts.filter((c) => !no.has(String(c?.phone ?? '').replace(/\D/g, '')));
+                skippedNoOptIn = contacts.length - kept.length;
+                contacts = kept;
+            }
+            const cap = rules.capRemaining?.();
+            if (cap && contacts.length > cap.left) {
+                throw new SafetyError(`This send has ${contacts.length} recipients, but your business has only ${cap.left} `
+                    + `messages left of its ${cap.period} cap of ${cap.cap}.`, 403);
+            }
+            const wanted = pickPreset(pacing);
+            const applied = clampPreset(wanted, rules.maxSpeed);
+            if (applied !== wanted) pacingClamped = { requested: wanted, applied };
+            pacing = applied;
+        }
         // Meta fixes an approved template's wording; variation is not ours to add.
         const unvaried = this.config.safetyEnabled === false || metaTemplate ? null : variationError(template, contacts, this.config);
         if (unvaried) throw new SafetyError(unvaried);
@@ -217,9 +253,15 @@ export class CampaignManager extends EventEmitter {
         this.#emitStats();
         // Say up front how much of this batch today's budget actually covers.
         const remaining = this.quota.remaining();
+        const policyNotes = [];
+        if (skippedNoOptIn) policyNotes.push(`${skippedNoOptIn} contacts were skipped because they have not opted in.`);
+        if (pacingClamped) policyNotes.push(`Speed was lowered to "${pacingClamped.applied}", the fastest your plan allows.`);
         return {
             queued,
-            skipped,
+            skipped: skipped + skippedNoOptIn,
+            skippedNoOptIn,
+            pacingClamped,
+            policyNotes,
             skippedOptOut,
             skippedFrequency,
             skippedMuted,
@@ -308,6 +350,14 @@ export class CampaignManager extends EventEmitter {
     }
 
     resume() {
+        if (this.resumeRefusal) {
+            const cap = this.bulkPolicy?.()?.capRemaining?.();
+            if (cap && cap.left <= 0) {
+                this.emit('event', { type: 'policyHold', reason: this.resumeRefusal });
+                return false;
+            }
+            this.resumeRefusal = null;
+        }
         if (this.pausedByQuota && this.quota.exhausted()) {
             // Resuming into an exhausted budget would just re-pause.
             this.emit('event', {
@@ -325,11 +375,12 @@ export class CampaignManager extends EventEmitter {
     }
 
     /** Stop the campaign and drop everything still queued. */
-    stop() {
+    stop(reason = 'Stopped by operator') {
+        this.stopReason = reason;
         const dropped = this.queue.stop();
         for (const item of dropped) {
             this.db.updateStatus(item.messageId, Status.FAILED,
-                { attempt: item.attempt, error: 'Stopped by operator' });
+                { attempt: item.attempt, error: reason });
         }
         this.stats.failed += dropped.length;
         this.stats.processed += dropped.length;
@@ -339,6 +390,8 @@ export class CampaignManager extends EventEmitter {
     }
 
     resetStats() {
+        this.stopReason = 'Stopped by operator';
+        this.resumeRefusal = null;
         this.stats = { total: 0, successful: 0, failed: 0, processed: 0, skippedOptOut: 0 };
         this.#emitStats();
     }
@@ -367,6 +420,15 @@ export class CampaignManager extends EventEmitter {
     }
 
     #stopped() {
+        // Kill switch: a bulk run stops mid-wait, not after its next long pause.
+        if (!this.queue.isStopped && this.current?.messageType === 'campaign') {
+            const kill = this.killSwitch?.();
+            if (kill) {
+                const campaignId = this.current.campaignId;
+                this.stop(kill);
+                this.emit('event', { type: 'policyStop', reason: kill, campaignId });
+            }
+        }
         return this.shuttingDown || this.queue.isStopped;
     }
 
@@ -416,12 +478,30 @@ export class CampaignManager extends EventEmitter {
         return true;
     }
 
+    /**
+     * Platform daily/monthly cap for the whole business (all its numbers).
+     * Like the daily quota it PAUSES: the rest stays queued, with the reason.
+     */
+    #capBlocked(item) {
+        if (item.messageType !== 'campaign' || !this.transport?.realDelivery) return false;
+        const cap = this.bulkPolicy?.()?.capRemaining?.();
+        if (!cap || cap.left > 0) return false;
+        this.queue.putFront(item);
+        this.queue.pause();
+        this.resumeRefusal = capReachedText(cap);
+        this.emit('event', { type: 'policyHold', reason: this.resumeRefusal, campaignId: item.campaignId });
+        this.#emitStats();
+        return true;
+    }
+
     async #process(item) {
         this.inFlight += 1;
+        this.current = item;
         try {
             await this.#attempt(item);
         } finally {
             this.inFlight -= 1;
+            this.current = null;
         }
     }
 
@@ -431,8 +511,10 @@ export class CampaignManager extends EventEmitter {
      * Returns true when the item was held.
      */
     async #heldOutsideWindow(item) {
-        const held = item.messageType === 'campaign' && this.config.safetyEnabled
-            && this.transport?.realDelivery && this.bulkWindowOpen?.() === false;
+        const bulk = item.messageType === 'campaign' && this.transport?.realDelivery;
+        // The platform's sending hours apply whatever the tenant's own safety switch says.
+        const held = bulk && ((this.config.safetyEnabled && this.bulkWindowOpen?.() === false)
+            || this.policyWindowOpen?.() === false);
         if (held !== this.holding) {
             this.holding = Boolean(held);
             if (held) this.emit('event', { type: 'pacing', seconds: 0, resting: true, reason: 'quiet hours - bulk sending resumes when the window opens' });
@@ -447,18 +529,19 @@ export class CampaignManager extends EventEmitter {
     async #attempt(item) {
         for (;;) {
             if (this.#stopped()) {
-                this.#finish(item, Status.FAILED, { error: 'Stopped by operator' });
+                this.#finish(item, Status.FAILED, { error: this.stopReason });
                 return;
             }
             if (await this.#heldOutsideWindow(item)) return;
             if (this.#quotaBlocked(item)) return;
+            if (this.#capBlocked(item)) return;
             if (!await this.#paceBeforeSend(item)) {
                 this.queue.putFront(item);   // stopped while pacing: keep the row queued
                 return;
             }
             // Rate limit sits between the queue and the transport.
             if (!await this.rateLimiter.acquire(() => this.#stopped())) {
-                this.#finish(item, Status.FAILED, { error: 'Stopped by operator' });
+                this.#finish(item, Status.FAILED, { error: this.stopReason });
                 return;
             }
 
@@ -521,7 +604,7 @@ export class CampaignManager extends EventEmitter {
                     attempt: item.attempt, error: errorText,
                 });
                 if (!await interruptibleSleep(delay, () => this.#stopped())) {
-                    this.#finish(item, Status.FAILED, { error: 'Stopped by operator' });
+                    this.#finish(item, Status.FAILED, { error: this.stopReason });
                     return;
                 }
                 continue; // same item, next attempt
@@ -561,13 +644,15 @@ export class CampaignManager extends EventEmitter {
    * blocked number, and carrying on makes it worse. Pause, keep the rest queued.
    */
   #stopOnFailures(item) {
-    const limit = Number(this.config.failureStopPercent) || 0;
+    // Tenant setting vs platform campaigns.autoPauseFailurePct: the stricter (lower, non-zero) wins.
+    const limits = [Number(this.config.failureStopPercent) || 0, this.bulkPolicy?.()?.autoPauseFailurePct || 0].filter(Boolean);
+    const limit = limits.length ? Math.min(...limits) : 0;
     const { processed, failed } = this.stats;
     if (!limit || item.messageType !== 'campaign' || processed < 20 ) return;
     if ((failed / processed) * 100 <= limit || this.queue.isPaused || this.queue.isStopped) return;
     this.queue.pause();
     this.emit('event', {
-      type: 'failureStop', failed, processed,
+      type: 'failureStop', failed, processed, campaignId: item.campaignId,
       message: `Paused: ${failed} of ${processed} messages failed (limit ${limit}%).`,
     });
   }

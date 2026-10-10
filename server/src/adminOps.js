@@ -7,6 +7,7 @@
 import { Channels, withinSendingWindow } from './channels.js';
 import { DailyQuota, dayStart } from './campaign/safety.js';
 import { DEFAULTS } from './config.js';
+import { PolicyStore } from './policy/index.js';
 import { TENANT_SERVICES } from './tenancy.js';
 
 const DAY_MS = 86_400_000;
@@ -38,7 +39,7 @@ const VERB_SQL = `CASE
     ELSE 'change' END`;
 export const AUDIT_VERBS = Object.freeze(['create', 'change', 'remove', 'other']);
 
-export function createAdminOps({ db, tenancy, runtimes }) {
+export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore(db) }) {
     const raw = tenancy.db;
     const countBy = (sql) => new Map(raw.prepare(sql).all().map((r) => [r.tenant_id, r.n]));
 
@@ -129,9 +130,19 @@ export function createAdminOps({ db, tenancy, runtimes }) {
             GROUP BY tenant_id, channel_id`).all(hourAgo, hourAgo)
             .map((r) => [`${r.tenant_id}:${r.channel_id}`, r]));
 
+        // Pause reason, quality and last-seen come from policy/channelOps.js (absent until it has run).
+        let ops = new Map();
+        try {
+            ops = new Map(raw.prepare('SELECT * FROM channel_ops').all().map((r) => [r.channel_id, r]));
+        } catch { /* table not created yet */ }
+        const lastIn = new Map(raw.prepare(`SELECT tenant_id, channel_id, MAX(received_at) AS at
+            FROM inbound_messages WHERE channel_id IS NOT NULL GROUP BY tenant_id, channel_id`).all()
+            .map((r) => [`${r.tenant_id}:${r.channel_id}`, r.at]));
+
         const channels = [];
         for (const tenant of tenancy.listTenants()) {
             const scoped = db.forTenant(tenant.id);
+            const offlineMs = (policy.resolve(tenant.id).values['channels.offlineAfterMinutes'] ?? 30) * 60_000;
             for (const ch of new Channels(scoped).list()) {
                 const state = runtimes.get(tenant.id)?.runtimes.get(ch.id)?.state;
                 const s = stats.get(`${tenant.id}:${ch.id}`) ?? {};
@@ -169,6 +180,14 @@ export function createAdminOps({ db, tenancy, runtimes }) {
                 else if (hourFailed && failureRate >= 5) flag('warn', `${failureRate}% failed in the last hour`);
                 if (budget.enabled && budget.limit && budget.remaining === 0) flag('warn', 'Daily cap reached');
                 if (!inWindow && waiting && ch.status === 'active') flag('warn', `Outside sending window, ${waiting} waiting`);
+                const op = ops.get(ch.id) ?? {};
+                const lastSeenAt = live === 'connected' ? stamp(now)
+                    : [op.last_seen_at, s.last_sent, lastIn.get(`${tenant.id}:${ch.id}`)]
+                        .filter(Boolean).sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
+                const online = Boolean(lastSeenAt) && now - Date.parse(lastSeenAt) < offlineMs;
+                const qualityRating = info?.qualityRating ?? op.quality_rating ?? null;
+                const pausedReason = ch.status !== 'active' ? (op.paused_reason ?? null) : null;
+                if (pausedReason) flag('bad', pausedReason);
                 const severity = live === 'disabled' ? 'off'
                     : problems.some((p) => p.level === 'bad') ? 'bad'
                         : problems.length ? 'warn' : 'ok';
@@ -185,6 +204,8 @@ export function createAdminOps({ db, tenancy, runtimes }) {
                     lastHour: { total: hourTotal, failed: hourFailed, failureRate },
                     quota: { enabled: budget.enabled, limit: budget.limit, used: budget.used, remaining: budget.remaining },
                     warmup: warmDays ? { days: warmDays, day: age + 1, active: age < warmDays, started: Boolean(first) } : null,
+                    online, lastSeenAt, qualityRating, pausedReason,
+                    pausedBy: pausedReason ? op.paused_by : null, pausedAt: pausedReason ? op.paused_at : null,
                     problems, severity,
                 });
             }

@@ -4,18 +4,18 @@
 
 .win {
   display: grid;
-  gap: var(--space-md);
+  gap: var(--space-lg);
 }
 
+/* Kardlyz segmented control: sunken track, active item on the card surface. */
 .mode {
   display: inline-grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
   gap: 2px;
   padding: 3px;
-  border-radius: 10px;
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
   justify-self: start;
 }
 
@@ -25,38 +25,46 @@
   justify-content: center;
   gap: 6px;
   border: 0;
-  border-radius: 7px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 600;
+  border-radius: 9px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-muted);
   background: transparent;
-  transition: background var(--fast) var(--ease), color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+  transition:
+    background var(--fast) var(--ease),
+    color var(--fast) var(--ease),
+    box-shadow var(--fast) var(--ease);
 
-  .ms {
-    font-size: 16px;
+  .ti {
+    font-size: 15px;
+  }
+
+  &:hover {
+    color: var(--text-strong);
   }
 
   &.on {
-    background: var(--surface);
-    color: var(--text);
-    box-shadow: 0 1px 2px rgba(13, 27, 36, 0.12), 0 2px 6px rgba(13, 27, 36, 0.08);
+    background: var(--surface-card);
+    color: var(--text-strong);
+    font-weight: 600;
+    box-shadow: var(--shadow-sm);
   }
 }
 
 .days {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
   padding: 0;
   border: 0;
 
   legend {
     padding: 0;
-    margin-bottom: 6px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-muted);
+    margin-bottom: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-strong);
   }
 }
 
@@ -68,17 +76,21 @@
 
 .chip {
   min-height: 34px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 600;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 500;
   color: var(--text-muted);
-  background: var(--surface);
-  transition: background var(--fast) var(--ease), color var(--fast) var(--ease),
-    border-color var(--fast) var(--ease), transform var(--fast) var(--ease);
+  background: var(--surface-card);
+  transition:
+    background var(--fast) var(--ease),
+    color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
 
   &:hover {
-    border-color: var(--primary);
+    border-color: var(--border-hover);
+    color: var(--text-strong);
   }
 
   &:active {
@@ -86,10 +98,9 @@
   }
 
   &.on {
-    background: var(--primary);
-    border-color: var(--primary);
-    color: var(--on-primary);
-    box-shadow: 0 3px 8px color-mix(in srgb, var(--primary) 30%, transparent);
+    background: var(--primary-tint);
+    border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+    color: var(--primary-text);
   }
 }
 
@@ -102,15 +113,13 @@
   border: 0;
   padding: 0;
   background: none;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--primary-text);
 
   &:hover {
-    text-decoration-color: currentColor;
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
 }
 
@@ -121,41 +130,44 @@
   gap: var(--space-sm);
 
   .dash {
-    padding-bottom: 10px;
-    color: var(--text-muted);
+    padding-bottom: 11px;
+    color: var(--hint);
   }
 }
 
 .now {
+  --c: var(--success);
   display: flex;
   align-items: flex-start;
   gap: 8px;
   margin: 0;
   padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  line-height: 1.45;
-  background: var(--primary-soft);
-  color: var(--text);
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  line-height: 1.5;
+  background: color-mix(in srgb, var(--c) 10%, transparent);
+  color: var(--text-color);
 
-  .ms {
+  .ti {
     font-size: 16px;
-    color: var(--primary);
+    color: var(--c);
+  }
+
+  strong {
+    font-weight: 500;
+    color: var(--text-strong);
   }
 
   &.closed {
-    background: var(--warning-soft);
-
-    .ms {
-      color: var(--warning);
-    }
+    --c: var(--warning);
   }
 }
 
 .problem {
   margin: 0;
-  font-size: 12px;
-  color: var(--danger);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--danger-text);
 }
 
 .foot {
@@ -165,8 +177,9 @@
 }
 
 .btn.small {
-  padding: 6px 12px;
-  font-size: 12px;
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12.5px;
 }
 
 .spinner {

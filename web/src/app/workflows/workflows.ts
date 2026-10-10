@@ -1,38 +1,86 @@
-import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
-import { Store } from '../core/store';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
+import { Store } from '../core/store';
 import { Tilt } from '../school/tilt';
 import {
-  ApiError, Recipe, RunStep, RunStatus, Workflow, WorkflowRun, WorkflowStatus, WorkflowStep, WorkflowsApi,
+  ApiError,
+  Recipe,
+  RunStep,
+  RunStatus,
+  Workflow,
+  WorkflowRun,
+  WorkflowStatus,
+  WorkflowStep,
+  WorkflowsApi,
 } from './workflows-api';
 
+/** `mine` lists installed workflows; `gallery` is the recipe catalogue they come from. */
 type Tab = 'mine' | 'gallery';
 type Filter = WorkflowStatus | null;
 
+/** Tabler icon per trigger family (the part of the event name before the dot). */
 const TRIGGER_ICONS: Record<string, string> = {
-  appointment: 'event', order: 'shopping_cart', payment: 'payments', lead: 'person_search',
-  subscription: 'autorenew', event: 'celebration', student: 'school', attendance: 'fact_check',
-  homework: 'menu_book', exam_result: 'workspace_premium', fee: 'receipt_long', message: 'chat',
-  contact: 'contacts', ticket: 'confirmation_number', timetable: 'calendar_view_week', notice: 'campaign',
+  appointment: 'calendar-event',
+  order: 'shopping-cart',
+  payment: 'cash',
+  lead: 'user-search',
+  subscription: 'refresh',
+  event: 'confetti',
+  student: 'school',
+  attendance: 'checklist',
+  homework: 'book-2',
+  exam_result: 'crown',
+  fee: 'receipt',
+  message: 'message',
+  contact: 'address-book',
+  ticket: 'ticket',
+  timetable: 'calendar-week',
+  notice: 'speakerphone',
 };
+/** Tabler icon per step action. */
 const ACTION_ICONS: Record<string, string> = {
-  send_template: 'description', send_message: 'send', wait: 'hourglass_top', condition: 'rule',
-  branch: 'call_split', add_tag: 'sell', remove_tag: 'label_off', update_contact: 'person',
-  create_ticket: 'confirmation_number', assign_agent: 'support_agent', webhook: 'webhook',
-  stop_workflow: 'stop_circle', start_workflow: 'play_circle',
+  send_template: 'file-text',
+  send_message: 'send',
+  wait: 'hourglass-high',
+  condition: 'list-details',
+  branch: 'arrows-split',
+  add_tag: 'tag',
+  remove_tag: 'tag-off',
+  update_contact: 'user',
+  create_ticket: 'ticket',
+  assign_agent: 'headset',
+  webhook: 'webhook',
+  stop_workflow: 'player-stop',
+  start_workflow: 'player-play',
 };
 
-/** Workflows the tenant runs, plus the recipe gallery they install from. */
+/**
+ * Workflows the tenant runs, plus the recipe gallery they install from.
+ *
+ * Each row expands in place to show its flow and recent runs, so an operator
+ * can find out why a message did or did not go out without leaving the list.
+ * Store-driven refreshes are quiet (no skeleton) to avoid the list flickering
+ * while runs are being written.
+ */
 @Component({
   selector: 'app-workflows',
   imports: [FormsModule, Tilt],
   templateUrl: './workflows.html',
   styleUrl: './workflows.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class WorkflowsView implements OnDestroy {
+export class WorkflowsView {
   private readonly api = inject(WorkflowsApi);
   private readonly store = inject(Store);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly tab = signal<Tab>('mine');
   protected readonly filters: Filter[] = [null, 'active', 'paused', 'draft'];
@@ -91,6 +139,9 @@ export class WorkflowsView implements OnDestroy {
   });
 
   constructor() {
+    this.destroyRef.onDestroy(() => {
+      if (this.toastTimer) clearTimeout(this.toastTimer);
+    });
     this.load();
     this.store.watch(['workflows', 'workflow-runs', 'recipes', 'objects'], () => {
       this.load(true);
@@ -98,10 +149,6 @@ export class WorkflowsView implements OnDestroy {
       if (id != null) this.loadRuns(id, true);
       if (this.recipes().length) this.loadRecipes(true);
     });
-  }
-
-  ngOnDestroy(): void {
-    if (this.toastTimer) clearTimeout(this.toastTimer);
   }
 
   // ------------------------------------------------------------- tabs --
@@ -260,28 +307,39 @@ export class WorkflowsView implements OnDestroy {
     this.installing.set(true);
     this.installError.set('');
     const name = this.installName.trim();
-    this.api.install(r.key, { ...(name ? { name } : {}), status: this.installActivate ? 'active' : 'draft' }).subscribe({
-      next: ({ workflow, templates }) => {
-        this.installing.set(false);
-        this.installKey.set(null);
-        this.workflows.update((list) => [workflow, ...list.filter((w) => w.id !== workflow.id)]);
-        this.filter.set(null);
-        this.tab.set('mine');
-        this.highlightId.set(workflow.id);
-        setTimeout(() => this.highlightId.set(null), 2400);
-        const made = templates.length ? ` and ${templates.length} template${templates.length === 1 ? '' : 's'}` : '';
-        this.flash(`Installed ${workflow.name}${made}${workflow.status === 'active' ? '' : ' as a draft. Activate it when ready'}.`);
-      },
-      error: (err: ApiError) => {
-        this.installing.set(false);
-        this.installError.set(err.message);
-      },
-    });
+    this.api
+      .install(r.key, {
+        ...(name ? { name } : {}),
+        status: this.installActivate ? 'active' : 'draft',
+      })
+      .subscribe({
+        next: ({ workflow, templates }) => {
+          this.installing.set(false);
+          this.installKey.set(null);
+          this.workflows.update((list) => [workflow, ...list.filter((w) => w.id !== workflow.id)]);
+          this.filter.set(null);
+          this.tab.set('mine');
+          this.highlightId.set(workflow.id);
+          setTimeout(() => this.highlightId.set(null), 2400);
+          const made = templates.length
+            ? ` and ${templates.length} template${templates.length === 1 ? '' : 's'}`
+            : '';
+          this.flash(
+            `Installed ${workflow.name}${made}${workflow.status === 'active' ? '' : ' as a draft. Activate it when ready'}.`,
+          );
+        },
+        error: (err: ApiError) => {
+          this.installing.set(false);
+          this.installError.set(err.message);
+        },
+      });
   }
 
   // ---------------------------------------------------------- display --
   protected humanize(value: string | null | undefined): string {
-    const text = String(value ?? '').replace(/[._]+/g, ' ').trim();
+    const text = String(value ?? '')
+      .replace(/[._]+/g, ' ')
+      .trim();
     return text ? text[0].toUpperCase() + text.slice(1) : '';
   }
 

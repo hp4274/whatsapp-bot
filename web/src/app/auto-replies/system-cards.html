@@ -3,33 +3,69 @@
 <div class="bar">
   <h2>System replies</h2>
   <div class="biz">
-    <label for="sc-biz"><span class="ms" aria-hidden="true">storefront</span> Business name</label>
-    <input id="sc-biz" [value]="bizName() ?? s.businessName" (input)="bizName.set(v($event))" (blur)="saveBizName()"
-           (keydown.enter)="saveBizName()" placeholder="Shown as {business_name}" />
-    @if (s.timezone) { <span class="tz" title="Time zone comes from the channel"><span class="ms" aria-hidden="true">public</span>{{ s.timezone }}</span> }
+    <label for="sc-biz"
+      ><i class="ti ti-building-store" aria-hidden="true"></i> Business name</label
+    >
+    <input
+      id="sc-biz"
+      [value]="bizName() ?? s.businessName"
+      (input)="bizName.set(v($event))"
+      (blur)="saveBizName()"
+      (keydown.enter)="saveBizName()"
+      placeholder="Shown as {business_name}"
+    />
+    @if (s.timezone) {
+      <span class="tz" title="Time zone comes from the channel"
+        ><i class="ti ti-world" aria-hidden="true"></i>{{ s.timezone }}</span
+      >
+    }
   </div>
 </div>
 
 <div class="tiles">
   @for (c of cards; track c.key; let i = $index) {
     @let st = stats()?.[c.key];
-    <article class="tile" [class.on]="s[c.key].enabled" [class.open]="open() === c.key" [style.--i]="i">
+    <article
+      class="tile"
+      [class.on]="s[c.key].enabled"
+      [class.open]="open() === c.key"
+      [style.--i]="i"
+    >
       <div class="tile-top">
-        <span class="badge" aria-hidden="true"><span class="ms">{{ c.icon }}</span></span>
-        <ar-switch [checked]="s[c.key].enabled" [ariaLabel]="c.title + ' enabled'" (checkedChange)="setEnabled(c.key, $event)" />
+        <span class="badge" aria-hidden="true"
+          ><i class="ti ti-{{ c.icon }}" aria-hidden="true"></i
+        ></span>
+        <ar-switch
+          [checked]="s[c.key].enabled"
+          [ariaLabel]="c.title + ' enabled'"
+          (checkedChange)="setEnabled(c.key, $event)"
+        />
       </div>
       <h3>{{ c.title }}</h3>
       <p class="blurb">{{ c.blurb }}</p>
       <p class="snip">
-        @if (s[c.key].media) { <span class="ms" aria-label="Has media">attach_file</span> }
+        @if (s[c.key].media) {
+          <i class="ti ti-paperclip" aria-label="Has media" aria-hidden="true"></i>
+        }
         {{ snippet(c.key) }}
       </p>
       <div class="tile-foot">
         <span class="hits" title="Hits this week / total">
-          <span class="ms" aria-hidden="true">bolt</span>{{ st?.week ?? 0 }}<small>/wk · {{ st?.hits ?? 0 }} total · {{ ago(st?.lastTriggeredAt ?? null) }}</small>
+          <i class="ti ti-bolt" aria-hidden="true"></i>{{ st?.week ?? 0
+          }}<small>/wk · {{ st?.hits ?? 0 }} total · {{ ago(st?.lastTriggeredAt ?? null) }}</small>
         </span>
-        <button type="button" class="cfg" (click)="toggleOpen(c.key)" [attr.aria-expanded]="open() === c.key" [attr.aria-controls]="'sc-panel'">
-          {{ open() === c.key ? 'Close' : 'Configure' }} <span class="ms" aria-hidden="true">{{ open() === c.key ? 'expand_less' : 'tune' }}</span>
+        <button
+          type="button"
+          class="cfg"
+          (click)="toggleOpen(c.key)"
+          [attr.aria-expanded]="open() === c.key"
+          [attr.aria-controls]="'sc-panel'"
+        >
+          {{ open() === c.key ? 'Close' : 'Configure' }}
+          <i
+            class="ti ti-{{ open() === c.key ? 'chevron-up' : 'adjustments-horizontal' }}"
+            aria-hidden="true"
+          ></i>
         </button>
       </div>
     </article>
@@ -41,20 +77,36 @@
   <section id="sc-panel" class="panel enter" [attr.aria-label]="c.title + ' settings'">
     @if (d) {
       <header>
-        <h3><span class="ms" aria-hidden="true">{{ c.icon }}</span> {{ c.title }}</h3>
-        <ar-switch label="Enabled" [checked]="d.enabled" (checkedChange)="patch({ enabled: $event })" />
+        <h3><i class="ti ti-{{ c.icon }}" aria-hidden="true"></i> {{ c.title }}</h3>
+        <ar-switch
+          label="Enabled"
+          [checked]="d.enabled"
+          (checkedChange)="patch({ enabled: $event })"
+        />
       </header>
 
       @if (handoff(); as h) {
         <div class="field">
           <label for="sc-hk">Trigger keywords <span class="hint">Enter or comma adds</span></label>
-          <ar-chips inputId="sc-hk" [value]="h.keywords" (valueChange)="patch({ keywords: $event })" placeholder="agent, human, talk to someone" />
+          <ar-chips
+            inputId="sc-hk"
+            [value]="h.keywords"
+            (valueChange)="patch({ keywords: $event })"
+            placeholder="agent, human, talk to someone"
+          />
         </div>
       }
 
       <div class="field">
-        <label [for]="'sc-text-' + c.key">{{ c.key === 'handoff' ? 'Confirmation message' : 'Message' }}</label>
-        <ar-text [inputId]="'sc-text-' + c.key" [value]="d.text" (valueChange)="patch({ text: $event })" [rows]="3" />
+        <label [for]="'sc-text-' + c.key">{{
+          c.key === 'handoff' ? 'Confirmation message' : 'Message'
+        }}</label>
+        <ar-text
+          [inputId]="'sc-text-' + c.key"
+          [value]="d.text"
+          (valueChange)="patch({ text: $event })"
+          [rows]="3"
+        />
       </div>
       <ar-media [value]="d.media" (valueChange)="patch({ media: $event })" />
 
@@ -64,11 +116,25 @@
           @for (day of days; track day.key) {
             @let h = a.hours[day.key];
             <div class="day" [class.closed]="!h.open">
-              <ar-switch [label]="day.label" [checked]="h.open" (checkedChange)="setDay(day.key, { open: $event })" />
+              <ar-switch
+                [label]="day.label"
+                [checked]="h.open"
+                (checkedChange)="setDay(day.key, { open: $event })"
+              />
               @if (h.open) {
-                <input type="time" [value]="h.start" (change)="setDay(day.key, { start: v($event) })" [attr.aria-label]="day.label + ' opens'" />
+                <input
+                  type="time"
+                  [value]="h.start"
+                  (change)="setDay(day.key, { start: v($event) })"
+                  [attr.aria-label]="day.label + ' opens'"
+                />
                 <span aria-hidden="true">–</span>
-                <input type="time" [value]="h.end" (change)="setDay(day.key, { end: v($event) })" [attr.aria-label]="day.label + ' closes'" />
+                <input
+                  type="time"
+                  [value]="h.end"
+                  (change)="setDay(day.key, { end: v($event) })"
+                  [attr.aria-label]="day.label + ' closes'"
+                />
               } @else {
                 <span class="closed-l">Closed all day</span>
               }
@@ -78,11 +144,24 @@
         <div class="row2">
           <div class="field">
             <label for="sc-hol">Holidays <span class="hint">Pick a date, press Enter</span></label>
-            <ar-chips inputId="sc-hol" type="date" [value]="a.holidays" (valueChange)="patch({ holidays: $event })" />
+            <ar-chips
+              inputId="sc-hol"
+              type="date"
+              [value]="a.holidays"
+              (valueChange)="patch({ holidays: $event })"
+            />
           </div>
           <div class="field">
             <label for="sc-thr">Send at most once every</label>
-            <div class="unit"><input id="sc-thr" type="number" min="0" [value]="a.throttleHours" (change)="patch({ throttleHours: num($event) })" /><span>hours per contact</span></div>
+            <div class="unit">
+              <input
+                id="sc-thr"
+                type="number"
+                min="0"
+                [value]="a.throttleHours"
+                (change)="patch({ throttleHours: num($event) })"
+              /><span>hours per contact</span>
+            </div>
           </div>
         </div>
       }
@@ -90,15 +169,35 @@
       @if (fallback(); as f) {
         <div class="field">
           <label for="sc-fthr">Only once per</label>
-          <div class="unit"><input id="sc-fthr" type="number" min="0" [value]="f.throttleHours" (change)="patch({ throttleHours: num($event) })" /><span>hours per contact <em>(0 = every time)</em></span></div>
+          <div class="unit">
+            <input
+              id="sc-fthr"
+              type="number"
+              min="0"
+              [value]="f.throttleHours"
+              (change)="patch({ throttleHours: num($event) })"
+            /><span>hours per contact <em>(0 = every time)</em></span>
+          </div>
         </div>
       }
 
       <footer>
-        @if (dirty()) { <span class="unsaved"><span class="dot"></span> Unsaved changes</span> }
+        @if (dirty()) {
+          <span class="unsaved"><span class="dot"></span> Unsaved changes</span>
+        }
         <button type="button" class="btn" (click)="open.set(null)">Close</button>
-        <button type="button" class="btn primary" (click)="saveCard()" [disabled]="saving() || !dirty()">
-          @if (saving()) { <span class="spinner" aria-hidden="true"></span> } @else { <span class="ms" aria-hidden="true">save</span> } Save
+        <button
+          type="button"
+          class="btn primary"
+          (click)="saveCard()"
+          [disabled]="saving() || !dirty()"
+        >
+          @if (saving()) {
+            <span class="spinner" aria-hidden="true"></span>
+          } @else {
+            <i class="ti ti-device-floppy" aria-hidden="true"></i>
+          }
+          Save
         </button>
       </footer>
     }

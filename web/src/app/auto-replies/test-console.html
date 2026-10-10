@@ -1,14 +1,16 @@
 <section class="console" aria-labelledby="tc-h">
   <header class="head">
     <div>
-      <span class="eyebrow"><span class="ms" aria-hidden="true">science</span> Sandbox</span>
+      <span class="eyebrow"><i class="ti ti-flask" aria-hidden="true"></i> Sandbox</span>
       <h2 id="tc-h">Test console</h2>
       <p class="muted">Simulate an incoming message. Nothing is sent; stats are not counted.</p>
     </div>
     @if (menuRule(); as m) {
       <span class="menu-pill enter" role="status">
-        <span class="ms" aria-hidden="true">account_tree</span> In menu: <strong>{{ m }}</strong>
-        <button type="button" (click)="reset()" aria-label="Reset menu session"><span class="ms" aria-hidden="true">restart_alt</span></button>
+        <i class="ti ti-hierarchy-3" aria-hidden="true"></i> In menu: <strong>{{ m }}</strong>
+        <button type="button" (click)="reset()" aria-label="Reset menu session">
+          <i class="ti ti-rotate" aria-hidden="true"></i>
+        </button>
       </span>
     }
   </header>
@@ -18,19 +20,43 @@
       <div class="field">
         <label for="tc-body">Message</label>
         <div class="send">
-          <input id="tc-body" [value]="body()" (input)="body.set(v($event))" placeholder="Type what the customer sends, e.g. menu" autocomplete="off" />
-          <button type="submit" class="btn primary" [disabled]="running() || !body().trim()" aria-label="Run test">
-            @if (running()) { <span class="spinner" aria-hidden="true"></span> } @else { <span class="ms" aria-hidden="true">send</span> }
+          <input
+            id="tc-body"
+            [value]="body()"
+            (input)="body.set(v($event))"
+            placeholder="Type what the customer sends, e.g. menu"
+            autocomplete="off"
+          />
+          <button
+            type="submit"
+            class="btn primary"
+            [disabled]="running() || !body().trim()"
+            aria-label="Run test"
+          >
+            @if (running()) {
+              <span class="spinner" aria-hidden="true"></span>
+            } @else {
+              <i class="ti ti-send" aria-hidden="true"></i>
+            }
             Run
           </button>
         </div>
       </div>
       <div class="two">
-        <div class="field"><label for="tc-ph">Sender phone</label><input id="tc-ph" [value]="sender()" (input)="sender.set(v($event))" inputmode="tel" /></div>
-        <div class="field"><label for="tc-nm">Sender name</label><input id="tc-nm" [value]="senderName()" (input)="senderName.set(v($event))" /></div>
+        <div class="field">
+          <label for="tc-ph">Sender phone</label
+          ><input id="tc-ph" [value]="sender()" (input)="sender.set(v($event))" inputmode="tel" />
+        </div>
+        <div class="field">
+          <label for="tc-nm">Sender name</label
+          ><input id="tc-nm" [value]="senderName()" (input)="senderName.set(v($event))" />
+        </div>
       </div>
       <div class="two">
-        <div class="field"><label for="tc-at">Date &amp; time</label><input id="tc-at" type="datetime-local" [value]="at()" (change)="at.set(v($event))" /></div>
+        <div class="field">
+          <label for="tc-at">Date &amp; time</label
+          ><input id="tc-at" type="datetime-local" [value]="at()" (change)="at.set(v($event))" />
+        </div>
         <div class="field">
           <label for="tc-first">First-time contact</label>
           <select id="tc-first" [value]="first()" (change)="first.set($any(v($event)))">
@@ -42,28 +68,55 @@
       </div>
       <div class="field">
         <label for="tc-tags">Contact tags <span class="hint">optional</span></label>
-        <ar-chips inputId="tc-tags" [value]="tags()" (valueChange)="tags.set($event)" placeholder="vip, lead" />
+        <ar-chips
+          inputId="tc-tags"
+          [value]="tags()"
+          (valueChange)="tags.set($event)"
+          placeholder="vip, lead"
+        />
       </div>
 
       @if (result(); as r) {
         <div class="out enter" aria-live="polite">
           <div class="ctx">
-            <span [class.ok]="r.context.withinHours"><span class="ms" aria-hidden="true">{{ r.context.withinHours ? 'storefront' : 'bedtime' }}</span>{{ r.context.withinHours ? 'Open' : 'Closed' }} · {{ r.context.localTime }}</span>
-            @if (r.context.firstContact) { <span class="ok"><span class="ms" aria-hidden="true">waving_hand</span>First contact</span> }
-            @if (r.context.newContact) { <span><span class="ms" aria-hidden="true">person_add</span>New (24h)</span> }
-            @for (t of r.context.tags; track t) { <span><span class="ms" aria-hidden="true">sell</span>{{ t }}</span> }
+            <span [class.ok]="r.context.withinHours"
+              ><i
+                class="ti ti-{{ r.context.withinHours ? 'building-store' : 'moon' }}"
+                aria-hidden="true"
+              ></i
+              >{{ r.context.withinHours ? 'Open' : 'Closed' }} · {{ r.context.localTime }}</span
+            >
+            @if (r.context.firstContact) {
+              <span class="ok"
+                ><i class="ti ti-hand-move" aria-hidden="true"></i>First contact</span
+              >
+            }
+            @if (r.context.newContact) {
+              <span><i class="ti ti-user-plus" aria-hidden="true"></i>New (24h)</span>
+            }
+            @for (t of r.context.tags; track t) {
+              <span><i class="ti ti-tag" aria-hidden="true"></i>{{ t }}</span>
+            }
           </div>
 
           @if (r.matched; as m) {
-            <p class="matched"><span class="ms" aria-hidden="true">target</span> Matched <code>{{ m.matchType }}</code> on “{{ m.keyword }}” · score {{ m.score }}</p>
+            <p class="matched">
+              <i class="ti ti-target" aria-hidden="true"></i> Matched
+              <code>{{ m.matchType }}</code> on “{{ m.keyword }}” · score {{ m.score }}
+            </p>
           } @else if (!r.replies.length) {
-            <p class="matched none"><span class="ms" aria-hidden="true">block</span> No reply would be sent.</p>
+            <p class="matched none">
+              <i class="ti ti-ban" aria-hidden="true"></i> No reply would be sent.
+            </p>
           }
 
           @if (r.replies.length) {
             <ul class="fired">
               @for (rep of r.replies; track $index) {
-                <li><span class="src" [attr.data-src]="rep.source">{{ source(rep) }}</span> {{ rep.ruleName }}</li>
+                <li>
+                  <span class="src" [attr.data-src]="rep.source">{{ source(rep) }}</span>
+                  {{ rep.ruleName }}
+                </li>
               }
             </ul>
           }
@@ -71,15 +124,33 @@
           @if (r.actions.length) {
             <ul class="acts" aria-label="Actions">
               @for (a of r.actions; track $index) {
-                <li><span class="ms" aria-hidden="true">{{ a.type === 'tag' ? 'sell' : a.type === 'field' ? 'edit_note' : a.type === 'escalate' ? 'support_agent' : 'account_tree' }}</span>{{ a.detail }}</li>
+                <li>
+                  <i
+                    class="ti ti-{{
+                      a.type === 'tag'
+                        ? 'tag'
+                        : a.type === 'field'
+                          ? 'notes'
+                          : a.type === 'escalate'
+                            ? 'headset'
+                            : 'hierarchy-3'
+                    }}"
+                    aria-hidden="true"
+                  ></i
+                  >{{ a.detail }}
+                </li>
               }
             </ul>
           }
 
           <details class="trace">
-            <summary>Trace <span class="muted">({{ r.trace.length }} steps)</span></summary>
+            <summary>
+              Trace <span class="muted">({{ r.trace.length }} steps)</span>
+            </summary>
             <ol>
-              @for (t of r.trace; track $index) { <li>{{ t }}</li> }
+              @for (t of r.trace; track $index) {
+                <li>{{ t }}</li>
+              }
             </ol>
           </details>
         </div>
@@ -87,17 +158,26 @@
     </form>
 
     <div class="chat">
-      <ar-wa-preview [turns]="turns()" [framed]="false" [title]="businessName()" [(fallback)]="fallbackView" />
+      <ar-wa-preview
+        [turns]="turns()"
+        [framed]="false"
+        [title]="businessName()"
+        [(fallback)]="fallbackView"
+      />
       @if (taps().length) {
         <div class="taps" role="group" aria-label="Tap a button">
           <span>Tap:</span>
           @for (t of taps(); track t.id) {
-            <button type="button" (click)="run(t)" [disabled]="running()"><span class="ms" aria-hidden="true">touch_app</span>{{ t.title }}</button>
+            <button type="button" (click)="run(t)" [disabled]="running()">
+              <i class="ti ti-hand-finger" aria-hidden="true"></i>{{ t.title }}
+            </button>
           }
         </div>
       }
       @if (turns().length) {
-        <button type="button" class="clear" (click)="reset()"><span class="ms" aria-hidden="true">delete_sweep</span> Clear conversation</button>
+        <button type="button" class="clear" (click)="reset()">
+          <i class="ti ti-trash-x" aria-hidden="true"></i> Clear conversation
+        </button>
       }
     </div>
   </div>

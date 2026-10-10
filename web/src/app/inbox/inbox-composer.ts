@@ -1,5 +1,16 @@
 import { HttpEventType } from '@angular/common/http';
-import { Component, ElementRef, OnDestroy, computed, inject, input, output, signal, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { Subscription } from 'rxjs';
 
 import { Contact2 } from '../core/api';
@@ -7,8 +18,16 @@ import { Conversation, InboxApi, QuickTemplate } from './inbox-api';
 import { kindOf } from './inbox-media';
 
 /** What the server accepts (ALLOWED_MEDIA_TYPES in app.js); Word files are allowed there too. */
-const ACCEPT = ['image/jpeg', 'image/png', 'application/pdf', 'video/mp4', 'video/3gpp',
-  'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+const ACCEPT = [
+  'image/jpeg',
+  'image/png',
+  'application/pdf',
+  'video/mp4',
+  'video/3gpp',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+];
+/** WhatsApp's own caps: 16 MB for images and documents, 64 MB for video. */
 const MAX_BYTES = 16 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 64 * 1024 * 1024;
 
@@ -20,14 +39,21 @@ interface Attachment {
   error: string;
 }
 
-/** Reply box: text, quick replies from templates ("/" or the bolt button) and one attachment. */
+/**
+ * Reply box: text, quick replies from templates ("/" or the bolt button) and one attachment.
+ *
+ * The attachment uploads as soon as it is chosen so Send is instant; a few
+ * methods are public because the page drives them from shortcuts and drops.
+ */
 @Component({
   selector: 'app-inbox-composer',
   templateUrl: './inbox-composer.html',
   styleUrl: './inbox-composer.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class InboxComposer implements OnDestroy {
+export class InboxComposer {
   private readonly api = inject(InboxApi);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly box = viewChild<ElementRef<HTMLTextAreaElement>>('box');
   private readonly picker = viewChild<ElementRef<HTMLInputElement>>('picker');
 
@@ -41,7 +67,9 @@ export class InboxComposer implements OnDestroy {
   protected readonly sending = signal(false);
   protected readonly error = signal('');
   protected readonly attachment = signal<Attachment | null>(null);
-  protected readonly rows = computed(() => Math.min(6, Math.max(1, this.draft().split('\n').length)));
+  protected readonly rows = computed(() =>
+    Math.min(6, Math.max(1, this.draft().split('\n').length)),
+  );
   protected readonly uploading = computed(() => {
     const a = this.attachment();
     return !!a && !a.mediaId && !a.error;
@@ -61,12 +89,22 @@ export class InboxComposer implements OnDestroy {
   protected readonly matches = computed(() => {
     const q = this.quickQuery().trim().toLowerCase();
     return (this.templates() ?? [])
-      .filter((t) => t.body.trim() && (!q || t.name.toLowerCase().includes(q) || t.body.toLowerCase().includes(q)))
+      .filter(
+        (t) =>
+          t.body.trim() &&
+          (!q || t.name.toLowerCase().includes(q) || t.body.toLowerCase().includes(q)),
+      )
       .slice(0, 30);
   });
   /** True while the draft is the "/query" that opened the picker, so picking replaces it. */
   protected readonly slashFilter = signal(false);
+  /** The in-flight upload, cancelled when the attachment is removed or replaced. */
   private upload: Subscription | null = null;
+
+  constructor() {
+    // Abort any upload and free the preview's object URL when the thread changes.
+    this.destroyRef.onDestroy(() => this.removeAttachment());
+  }
 
   focus() {
     this.box()?.nativeElement.focus();
@@ -124,9 +162,15 @@ export class InboxComposer implements OnDestroy {
   /** Same placeholders `personalize` substitutes: {key} and {key|fallback}. Unknown keys stay visible. */
   private fill(body: string): string {
     const c = this.contact();
-    const ctx: Record<string, string> = { ...(c?.customFields ?? {}), name: c?.name || this.name(), phone: this.conversation().phone };
+    const ctx: Record<string, string> = {
+      ...(c?.customFields ?? {}),
+      name: c?.name || this.name(),
+      phone: this.conversation().phone,
+    };
     return body
-      .replace(/\{(\w+)\|([^{}]*)\}/g, (m, key: string, fb: string) => (key in ctx ? ctx[key] || fb : m))
+      .replace(/\{(\w+)\|([^{}]*)\}/g, (m, key: string, fb: string) =>
+        key in ctx ? ctx[key] || fb : m,
+      )
       .replace(/\{(\w+)\}/g, (m, key: string) => (ctx[key] ? ctx[key] : m));
   }
 
@@ -225,7 +269,9 @@ export class InboxComposer implements OnDestroy {
   }
 
   protected size(bytes: number): string {
-    return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    return bytes < 1024 * 1024
+      ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+      : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
 
   // Send ------------------------------------------------------------------
@@ -247,9 +293,5 @@ export class InboxComposer implements OnDestroy {
         this.error.set(err.message);
       },
     });
-  }
-
-  ngOnDestroy() {
-    this.removeAttachment();
   }
 }

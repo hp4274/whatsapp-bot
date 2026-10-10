@@ -4,9 +4,12 @@
 <div class="device">
   <div class="screen">
     <div class="appbar" aria-hidden="true">
-      <span class="ms">arrow_back</span>
-      <span class="avatar"><span class="ms">storefront</span></span>
-      <span class="who"><b>Your business <span class="ms tick">verified</span></b><small>Business account</small></span>
+      <i class="ti ti-arrow-left" aria-hidden="true"></i>
+      <span class="avatar"><i class="ti ti-building-store" aria-hidden="true"></i></span>
+      <span class="who"
+        ><b>Your business <i class="ti ti-discount-check tick" aria-hidden="true"></i></b
+        ><small>Business account</small></span
+      >
     </div>
 
     <div class="chat">
@@ -18,18 +21,37 @@
               @if (m.kind === 'image' && m.url) {
                 <img [src]="m.url" [alt]="'Header image: ' + m.name" />
               } @else if (m.kind === 'video') {
-                @if (m.url) { <video [src]="m.url" muted playsinline preload="metadata" [attr.aria-label]="'Header video: ' + m.name"></video> }
-                <span class="play ms" aria-hidden="true">play_arrow</span>
+                @if (m.url) {
+                  <video
+                    [src]="m.url"
+                    muted
+                    playsinline
+                    preload="metadata"
+                    [attr.aria-label]="'Header video: ' + m.name"
+                  ></video>
+                }
+                <i class="ti ti-player-play play" aria-hidden="true"></i>
               } @else if (m.kind === 'document') {
-                <span class="doc"><span class="ms" aria-hidden="true">description</span><span class="fname">{{ m.name }}</span></span>
+                <span class="doc"
+                  ><i class="ti ti-file-text" aria-hidden="true"></i
+                  ><span class="fname">{{ m.name }}</span></span
+                >
               } @else {
-                <span class="ph ms" aria-hidden="true">image</span>
+                <i class="ti ti-photo ph" aria-hidden="true"></i>
               }
             </div>
           }
-          @if (ix?.header) { <div class="htext">{{ ix?.header }}</div> }
-          <div class="body" aria-live="polite" [innerHTML]="html() || 'Start typing to see your message.'"></div>
-          @if (ix?.footer) { <div class="footer">{{ ix?.footer }}</div> }
+          @if (ix?.header) {
+            <div class="htext">{{ ix?.header }}</div>
+          }
+          <div
+            class="body"
+            aria-live="polite"
+            [innerHTML]="html() || 'Start typing to see your message.'"
+          ></div>
+          @if (ix?.footer) {
+            <div class="footer">{{ ix?.footer }}</div>
+          }
           <span class="time">{{ time }}</span>
         </div>
 
@@ -38,21 +60,31 @@
             @case ('buttons') {
               <div class="actions">
                 @for (b of ix.buttons ?? []; track $index) {
-                  <div class="wa-btn"><span class="ms" aria-hidden="true">reply</span>{{ b.title || 'Button' }}</div>
+                  <div class="wa-btn">
+                    <i class="ti ti-arrow-back-up" aria-hidden="true"></i>{{ b.title || 'Button' }}
+                  </div>
                 }
               </div>
             }
             @case ('cta') {
               <div class="actions">
                 @for (c of ix.cta ?? []; track $index) {
-                  <div class="wa-btn"><span class="ms" aria-hidden="true">{{ ctaIcons[c.kind] }}</span>{{ c.title || 'Button' }}</div>
+                  <div class="wa-btn">
+                    <i class="ti ti-{{ ctaIcons[c.kind] }}" aria-hidden="true"></i
+                    >{{ c.title || 'Button' }}
+                  </div>
                 }
               </div>
             }
             @case ('list') {
               <div class="actions">
-                <button type="button" class="wa-btn" [attr.aria-expanded]="sheetOpen()" (click)="sheetOpen.set(!sheetOpen())">
-                  <span class="ms" aria-hidden="true">format_list_bulleted</span>{{ ix.list?.button || 'Choose' }}
+                <button
+                  type="button"
+                  class="wa-btn"
+                  [attr.aria-expanded]="sheetOpen()"
+                  (click)="sheetOpen.set(!sheetOpen())"
+                >
+                  <i class="ti ti-list" aria-hidden="true"></i>{{ ix.list?.button || 'Choose' }}
                 </button>
               </div>
             }
@@ -65,14 +97,28 @@
       <div class="sheet" role="group" [attr.aria-label]="ix?.list?.button || 'Options'">
         <div class="grab" aria-hidden="true"></div>
         <div class="sheet-head">
-          <button type="button" class="close" aria-label="Close options" (click)="sheetOpen.set(false)"><span class="ms" aria-hidden="true">close</span></button>
+          <button
+            type="button"
+            class="close"
+            aria-label="Close options"
+            (click)="sheetOpen.set(false)"
+          >
+            <i class="ti ti-x" aria-hidden="true"></i>
+          </button>
           <strong>{{ ix?.list?.button || 'Choose' }}</strong>
         </div>
         @for (s of ix?.list?.sections ?? []; track $index) {
-          @if (s.title) { <div class="sec">{{ s.title }}</div> }
+          @if (s.title) {
+            <div class="sec">{{ s.title }}</div>
+          }
           @for (r of s.rows; track $index) {
             <div class="row">
-              <span class="rt"><span>{{ r.title || 'Option' }}</span>@if (r.description) { <small>{{ r.description }}</small> }</span>
+              <span class="rt"
+                ><span>{{ r.title || 'Option' }}</span>
+                @if (r.description) {
+                  <small>{{ r.description }}</small>
+                }
+              </span>
               <span class="radio" aria-hidden="true"></span>
             </div>
           }

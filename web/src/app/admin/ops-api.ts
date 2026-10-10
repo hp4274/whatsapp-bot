@@ -21,7 +21,13 @@ export interface PlanRow {
 }
 
 export interface UsageBucket {
-  sent: number; delivered: number; read: number; failed: number; queued: number; sandbox: number; total: number;
+  sent: number;
+  delivered: number;
+  read: number;
+  failed: number;
+  queued: number;
+  sandbox: number;
+  total: number;
 }
 
 export interface UsageRow {
@@ -47,7 +53,15 @@ export interface UsageSummary {
   tenants: UsageRow[];
 }
 
-export type LiveState = 'connected' | 'connecting' | 'qr' | 'auth_failure' | 'error' | 'disconnected' | 'idle' | 'disabled';
+export type LiveState =
+  | 'connected'
+  | 'connecting'
+  | 'qr'
+  | 'auth_failure'
+  | 'error'
+  | 'disconnected'
+  | 'idle'
+  | 'disabled';
 export type Severity = 'bad' | 'warn' | 'ok' | 'off';
 
 export interface ChannelDetail {
@@ -107,14 +121,21 @@ export interface AuditPage {
 
 const toMessage = (error: HttpErrorResponse) => {
   const errors = error.error?.errors;
-  return throwError(() => new Error(Array.isArray(errors) && errors.length
-    ? errors.join('\n') : error.error?.message || error.message || 'Request failed'));
+  return throwError(
+    () =>
+      new Error(
+        Array.isArray(errors) && errors.length
+          ? errors.join('\n')
+          : error.error?.message || error.message || 'Request failed',
+      ),
+  );
 };
 
 const filterParams = (filter: AuditFilter, extra: Record<string, string | number> = {}) => {
   let params = new HttpParams();
   for (const [key, value] of Object.entries({ ...filter, ...extra })) {
-    if (value !== undefined && value !== null && value !== '') params = params.set(key, String(value));
+    if (value !== undefined && value !== null && value !== '')
+      params = params.set(key, String(value));
   }
   return params;
 };
@@ -124,25 +145,36 @@ export class OpsApi {
   private readonly http = inject(HttpClient);
 
   plans(): Observable<{ services: string[]; tenants: PlanRow[] }> {
-    return this.http.get<{ services: string[]; tenants: PlanRow[] }>('/api/admin/plans').pipe(catchError(toMessage));
+    return this.http
+      .get<{ services: string[]; tenants: PlanRow[] }>('/api/admin/plans')
+      .pipe(catchError(toMessage));
   }
 
   usage(days = 14): Observable<UsageSummary> {
-    return this.http.get<UsageSummary>('/api/admin/usage-summary', { params: { days } }).pipe(catchError(toMessage));
+    return this.http
+      .get<UsageSummary>('/api/admin/usage-summary', { params: { days } })
+      .pipe(catchError(toMessage));
   }
 
   health(): Observable<{ generatedAt: string; channels: ChannelDetail[] }> {
-    return this.http.get<{ generatedAt: string; channels: ChannelDetail[] }>('/api/admin/health-detail')
+    return this.http
+      .get<{ generatedAt: string; channels: ChannelDetail[] }>('/api/admin/health-detail')
       .pipe(catchError(toMessage));
   }
 
   audit(filter: AuditFilter, before?: number | null, limit = 50): Observable<AuditPage> {
     const params = filterParams(filter, before ? { before, limit } : { limit });
-    return this.http.get<AuditPage>('/api/admin/audit-logs', { params }).pipe(catchError(toMessage));
+    return this.http
+      .get<AuditPage>('/api/admin/audit-logs', { params })
+      .pipe(catchError(toMessage));
   }
 
   auditCsv(filter: AuditFilter): Observable<string> {
-    return this.http.get('/api/admin/audit-logs', { params: filterParams(filter, { format: 'csv', limit: 10000 }), responseType: 'text' })
+    return this.http
+      .get('/api/admin/audit-logs', {
+        params: filterParams(filter, { format: 'csv', limit: 10000 }),
+        responseType: 'text',
+      })
       .pipe(catchError(toMessage));
   }
 }

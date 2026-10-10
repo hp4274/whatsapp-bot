@@ -5,6 +5,9 @@ import { Directive, ElementRef, inject, input } from '@angular/core';
  * Writes --rx / --ry (rotation) and --mx / --my (pointer position, 0-100%) on the
  * host; `.s-tilt` from school-shared.scss turns them into a perspective rotate.
  * Mouse/pen only, and inert under prefers-reduced-motion.
+ *
+ * Writing custom properties (not `transform`) leaves the transform itself in
+ * CSS, so it composes with the kit's entrance animation and hover lift.
  */
 @Directive({
   selector: '[schoolTilt]',
@@ -15,10 +18,13 @@ import { Directive, ElementRef, inject, input } from '@angular/core';
   },
 })
 export class Tilt {
+  /** Maximum rotation in degrees; small values keep the depth a hint, not a wobble. */
   readonly schoolTilt = input(6, { transform: (v: unknown) => Number(v) || 6 });
 
   private readonly el = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
-  private readonly still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /** Read once: the tilt is decoration, so reduced-motion users never get it. */
+  private readonly still =
+    typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   protected move(e: PointerEvent) {
     if (this.still || e.pointerType === 'touch') return;

@@ -1,4 +1,12 @@
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
@@ -6,6 +14,7 @@ import { forkJoin } from 'rxjs';
 import { Api, CampaignsApi, PacingPreset, SafetyStatus } from '../../core/api';
 import { Store } from '../../core/store';
 import { CampaignDraft } from '../draft';
+import { CampaignPolicy } from '../policy-api';
 import { formatDuration } from '../wa-format';
 
 /** The server may add quiet-hours info to the safety preview. */
@@ -16,15 +25,28 @@ type Safety = SafetyStatus & {
   withinSendingWindow?: boolean;
 };
 
+/** Pacing presets; the server owns the actual delays and returns them per preset. */
 const PRESETS: { value: PacingPreset; label: string; icon: string; text: string }[] = [
   { value: 'safe', label: 'Safe', icon: 'shield', text: 'Slowest, most human' },
-  { value: 'balanced', label: 'Balanced', icon: 'balance', text: 'Recommended' },
+  { value: 'balanced', label: 'Balanced', icon: 'scale', text: 'Recommended' },
   { value: 'fast', label: 'Fast', icon: 'bolt', text: 'Down to the policy floor' },
 ];
 
-const FALLBACK_ZONES = ['UTC', 'Asia/Kolkata', 'Asia/Dubai', 'Asia/Singapore', 'Europe/London', 'Europe/Berlin',
-  'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Australia/Sydney'];
+/** Used when the browser cannot list IANA zones (Intl.supportedValuesOf is missing). */
+const FALLBACK_ZONES = [
+  'UTC',
+  'Asia/Kolkata',
+  'Asia/Dubai',
+  'Asia/Singapore',
+  'Europe/London',
+  'Europe/Berlin',
+  'America/New_York',
+  'America/Chicago',
+  'America/Los_Angeles',
+  'Australia/Sydney',
+];
 
+/** Every IANA zone the browser knows, with the current one guaranteed in the list. */
 function zones(current: string): string[] {
   let list: string[] = [];
   try {
@@ -37,17 +59,25 @@ function zones(current: string): string[] {
   return list.includes(current) ? list : [current, ...list];
 }
 
+/**
+ * Step 3: name, pace and timing, then send. Safety previews for all three
+ * presets load together so switching pace is instant; blockers keep the send
+ * button honest about why it is disabled.
+ */
 @Component({
   selector: 'app-review-step',
   imports: [FormsModule, RouterLink],
   templateUrl: './review-step.html',
   styleUrl: './review-step.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ReviewStep {
   protected readonly draft = inject(CampaignDraft);
   protected readonly store = inject(Store);
   private readonly api = inject(Api);
   private readonly campaignsApi = inject(CampaignsApi);
+  /** Plan rules: presets above the speed ceiling and scheduling can be switched off. */
+  protected readonly policy = inject(CampaignPolicy);
 
   protected readonly presets = PRESETS;
   protected readonly zones = zones(this.draft.timezone());
@@ -67,9 +97,19 @@ export class ReviewStep {
 
   protected readonly quiet = computed(() => {
     const s = this.current();
-    if (!s || s.quietHoursStart === undefined || s.quietHoursEnd === undefined || s.quietHoursStart === s.quietHoursEnd) return null;
+    if (
+      !s ||
+      s.quietHoursStart === undefined ||
+      s.quietHoursEnd === undefined ||
+      s.quietHoursStart === s.quietHoursEnd
+    )
+      return null;
     const hh = (h: number) => `${String(h).padStart(2, '0')}:00`;
-    return { from: hh(s.quietHoursStart), to: hh(s.quietHoursEnd), open: s.withinWindow ?? s.withinSendingWindow ?? true };
+    return {
+      from: hh(s.quietHoursStart),
+      to: hh(s.quietHoursEnd),
+      open: s.withinWindow ?? s.withinSendingWindow ?? true,
+    };
   });
 
   protected readonly buttonsLabel = computed(() => {
@@ -77,9 +117,12 @@ export class ReviewStep {
     if (meta) return `Meta template: ${meta.name}`;
     const block = this.draft.interactive();
     if (!block) return 'None';
-    const n = block.type === 'buttons' ? block.buttons?.length ?? 0
-      : block.type === 'cta' ? block.cta?.length ?? 0
-        : (block.list?.sections ?? []).reduce((t, s) => t + s.rows.length, 0);
+    const n =
+      block.type === 'buttons'
+        ? (block.buttons?.length ?? 0)
+        : block.type === 'cta'
+          ? (block.cta?.length ?? 0)
+          : (block.list?.sections ?? []).reduce((t, s) => t + s.rows.length, 0);
     return `${{ buttons: 'Reply buttons', cta: 'Call-to-action', list: 'List menu' }[block.type]} (${n})`;
   });
 
@@ -89,17 +132,25 @@ export class ReviewStep {
     const tz = this.draft.timezone();
     return {
       at,
-      zoned: at.toLocaleString(undefined, { timeZone: tz, dateStyle: 'medium', timeStyle: 'short' }),
+      zoned: at.toLocaleString(undefined, {
+        timeZone: tz,
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }),
       local: at.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }),
       past: at.getTime() < Date.now() + 60_000,
     };
   });
 
+  /** Reasons sending is not allowed yet, most important first; the first is shown under the button. */
   protected readonly blockers = computed(() => {
     const out: string[] = [];
     const d = this.draft;
     if (!d.audienceReady()) out.push('Choose an audience first.');
     if (!d.messageReady()) out.push('Finish the message (and fix any button errors).');
+    if (d.interactive() && !this.policy.allowInteractive()) {
+      out.push('Interactive buttons are not on your plan - remove them in the message step.');
+    }
     if (d.scheduleMode() === 'later') {
       const s = this.sendsAt();
       if (!s) out.push('Pick a valid date, time and time zone.');
@@ -109,6 +160,15 @@ export class ReviewStep {
   });
 
   constructor() {
+    this.policy.load();
+    // A draft from before the rules loaded (or changed) is pulled back inside them.
+    effect(() => {
+      const d = this.draft;
+      if (this.policy.tooFast(d.pacing())) untracked(() => d.pacing.set(this.policy.maxSpeed()));
+      if (!this.policy.allowScheduling() && d.scheduleMode() === 'later') {
+        untracked(() => d.scheduleMode.set('now'));
+      }
+    });
     effect(() => {
       const size = this.size();
       untracked(() => this.loadSafety(size));
@@ -140,6 +200,7 @@ export class ReviewStep {
   }
 
   protected pickPacing(preset: PacingPreset): void {
+    if (this.policy.tooFast(preset)) return;
     this.draft.pacing.set(preset);
     if (!this.safety()[preset]) this.loadSafety(this.size());
   }
@@ -166,17 +227,34 @@ export class ReviewStep {
         if (!now) {
           this.busy.set(false);
           d.result.set({ campaign, started: false });
-          this.store.setStatus(`Campaign "${campaign.name}" scheduled for ${this.sendsAt()?.zoned ?? campaign.scheduledAt}`, 'primary');
+          this.store.setStatus(
+            `Campaign "${campaign.name}" scheduled for ${this.sendsAt()?.zoned ?? campaign.scheduledAt}`,
+            'primary',
+          );
           d.goTo(4);
           return;
         }
         this.campaignsApi.action(campaign.id, 'start').subscribe({
           next: (res) => {
             this.busy.set(false);
-            const overQuota = res.safety && res.safety.remaining !== null ? Math.max(0, (res.queued ?? 0) - res.safety.remaining) : 0;
-            d.result.set({ campaign: res.campaign ?? campaign, started: true, queued: res.queued, skipped: res.skipped, overQuota });
+            const overQuota =
+              res.safety && res.safety.remaining !== null
+                ? Math.max(0, (res.queued ?? 0) - res.safety.remaining)
+                : 0;
+            d.result.set({
+              campaign: res.campaign ?? campaign,
+              started: true,
+              queued: res.queued,
+              skipped: res.skipped,
+              overQuota,
+            });
             if (res.stats) this.store.stats.set(res.stats);
-            this.store.setStatus(`Campaign started: ${res.queued ?? 0} queued, ${res.skipped ?? 0} skipped`, 'primary');
+            // Plan rules applied at send time (opt-in skips, speed lowered) - say so.
+            const notes = (res as { policyNotes?: string[] }).policyNotes ?? [];
+            this.store.setStatus(
+              `Campaign started: ${res.queued ?? 0} queued, ${res.skipped ?? 0} skipped${notes.length ? '. ' + notes.join(' ') : ''}`,
+              'primary',
+            );
             d.goTo(4);
           },
           error: (err: Error) => {

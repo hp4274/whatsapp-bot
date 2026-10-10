@@ -1,56 +1,108 @@
 <nav class="crumbs" aria-label="Breadcrumb">
-  <a routerLink="/campaigns"><span class="ms" aria-hidden="true">arrow_back</span>All campaigns</a>
+  <a routerLink="/campaigns"><i class="ti ti-arrow-left" aria-hidden="true"></i>All campaigns</a>
 </nav>
 
 @if (notFound()) {
-  <section class="card lost enter" role="alert">
-    <span class="ms big" aria-hidden="true">search_off</span>
-    <h2>Campaign not found</h2>
-    <p class="muted">It may have been deleted, or it belongs to another number or workspace.</p>
-    <a class="btn primary" routerLink="/campaigns">Back to campaigns</a>
+  <section class="s-card s-enter" role="alert">
+    <div class="s-empty">
+      <i class="ti ti-search-off" aria-hidden="true"></i>
+      <strong>Campaign not found</strong>
+      <p>It may have been deleted, or it belongs to another number or workspace.</p>
+      <a class="btn primary" routerLink="/campaigns">Back to campaigns</a>
+    </div>
   </section>
 } @else if (loading() && !campaign()) {
-  <section class="card skeleton" aria-busy="true" aria-label="Loading campaign">
-    <div class="sk sk-title"></div>
-    <div class="sk sk-line"></div>
-    <div class="sk sk-block"></div>
+  <section class="loading" aria-busy="true" aria-label="Loading campaign">
+    <div class="s-skel sk-title"></div>
+    <div class="s-skel sk-line"></div>
+    <div class="s-card"><div class="s-skel sk-block"></div></div>
   </section>
 } @else if (campaign(); as c) {
-  <header class="card hero enter">
-    <div class="hero-top">
+  <header class="s-head s-enter">
+    <div>
+      <p class="eyebrow">
+        <i class="ti ti-speakerphone" aria-hidden="true"></i>Campaign #{{ c.id }}
+      </p>
       <div class="title">
         <h2>{{ c.name || 'Untitled campaign' }}</h2>
         <app-campaign-status [status]="c.status" />
-        <span class="muted mono">#{{ c.id }}</span>
-      </div>
-      <div class="audience">
-        <strong>{{ audience() }}</strong>
-        <span class="muted">recipients</span>
       </div>
     </div>
+    <div class="audience">
+      <strong>{{ audience() }}</strong>
+      <span>recipients</span>
+    </div>
+  </header>
 
+  @if (statusReason(); as reason) {
+    <p class="s-banner tone-warn" role="status">
+      <i class="ti ti-player-pause" aria-hidden="true"></i>
+      <span class="grow">{{ reason }}</span>
+    </p>
+  }
+
+  @if (error()) {
+    <p class="s-banner" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i>
+      <span class="grow">{{ error() }}</span>
+      <button type="button" class="btn sm" (click)="error.set(''); reload()">Try again</button>
+      <button type="button" class="btn sm icon ghost" (click)="error.set('')" aria-label="Dismiss">
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
+    </p>
+  }
+
+  <section class="s-card overview s-enter" style="--i: 1" aria-label="Campaign overview">
     <dl class="meta">
-      <div><dt>Created</dt><dd>{{ localTime(c.createdAt) }}</dd></div>
+      <div>
+        <dt>Created</dt>
+        <dd>{{ localTime(c.createdAt) }}</dd>
+      </div>
       <div>
         <dt>Scheduled</dt>
-        <dd>{{ localTime(c.scheduledAt) }}
-          @if (c.scheduledAt && c.status === 'scheduled') { <small>{{ relativeTime(c.scheduledAt) }}</small> }
+        <dd>
+          {{ localTime(c.scheduledAt) }}
+          @if (c.scheduledAt && c.status === 'scheduled') {
+            <small>{{ relativeTime(c.scheduledAt) }}</small>
+          }
         </dd>
       </div>
-      <div><dt>Started</dt><dd>{{ localTime(c.startedAt) }}</dd></div>
-      <div><dt>Finished</dt><dd>{{ localTime(c.finishedAt) }}</dd></div>
-      <div><dt>Pacing</dt><dd class="cap">{{ pacing() }}</dd></div>
+      <div>
+        <dt>Started</dt>
+        <dd>{{ localTime(c.startedAt) }}</dd>
+      </div>
+      <div>
+        <dt>Finished</dt>
+        <dd>{{ localTime(c.finishedAt) }}</dd>
+      </div>
+      <div>
+        <dt>Pacing</dt>
+        <dd class="cap">{{ pacing() }}</dd>
+      </div>
     </dl>
 
     @if (live(); as p) {
-      <div class="progress" role="progressbar" aria-label="Sending progress"
-           [attr.aria-valuenow]="p.processed" aria-valuemin="0" [attr.aria-valuemax]="p.total">
+      <div
+        class="progress"
+        role="progressbar"
+        aria-label="Sending progress"
+        [attr.aria-valuenow]="p.processed"
+        aria-valuemin="0"
+        [attr.aria-valuemax]="p.total"
+      >
         <div class="track"><div class="fill" [style.width.%]="p.pct"></div></div>
         <div class="progress-text">
-          <span><span class="live-dot" aria-hidden="true"></span> {{ p.processed }} / {{ p.total }} processed ({{ p.pct }}%)</span>
-          <span class="muted">{{ p.successful }} ok · {{ p.failed }} failed · {{ p.pending }} pending</span>
+          <span
+            ><span class="live-dot" aria-hidden="true"></span> {{ p.processed }} /
+            {{ p.total }} processed ({{ p.pct }}%)</span
+          >
+          <span class="muted"
+            >{{ p.successful }} ok · {{ p.failed }} failed · {{ p.pending }} pending</span
+          >
           @if (store.pacing(); as wait) {
-            <span class="muted">{{ wait.resting ? 'Resting' : 'Next in' }} {{ wait.seconds }}s</span>
+            <span class="muted"
+              >{{ wait.resting ? 'Resting' : 'Next in' }} {{ wait.seconds }}s</span
+            >
           }
         </div>
       </div>
@@ -59,66 +111,83 @@
     <div class="controls" role="toolbar" aria-label="Campaign controls">
       @if (c.status === 'draft' || c.status === 'scheduled') {
         <button type="button" class="btn primary" [disabled]="!!busy()" (click)="act('start')">
-          <span class="ms" aria-hidden="true">play_arrow</span>Start now
+          <i class="ti ti-player-play" aria-hidden="true"></i>Start now
         </button>
       }
       @if (c.status === 'running') {
         <button type="button" class="btn" [disabled]="!!busy()" (click)="act('pause')">
-          <span class="ms" aria-hidden="true">pause</span>Pause
+          <i class="ti ti-player-pause" aria-hidden="true"></i>Pause
         </button>
       }
       @if (c.status === 'paused') {
         <button type="button" class="btn primary" [disabled]="!!busy()" (click)="act('resume')">
-          <span class="ms" aria-hidden="true">play_arrow</span>Resume
+          <i class="ti ti-player-play" aria-hidden="true"></i>Resume
         </button>
       }
       @if (canCancel()) {
-        <button type="button" class="btn" [class.danger]="confirmCancel()" [disabled]="!!busy()"
-                (click)="cancel()" (blur)="confirmCancel.set(false)">
-          <span class="ms" aria-hidden="true">block</span>
+        <button
+          type="button"
+          class="btn"
+          [class.danger]="confirmCancel()"
+          [disabled]="!!busy()"
+          (click)="cancel()"
+          (blur)="confirmCancel.set(false)"
+        >
+          <i class="ti ti-ban" aria-hidden="true"></i>
           {{ confirmCancel() ? 'Confirm: cancel pending?' : 'Cancel pending' }}
         </button>
       }
 
       <div class="retry">
-        <button type="button" class="btn" [disabled]="!canRetry() || !!busy()" (click)="retry()"
-                aria-describedby="retry-hint">
-          @if (busy() === 'retry') { <span class="spinner" aria-hidden="true"></span> }
-          @else { <span class="ms" aria-hidden="true">replay</span> }
+        <button
+          type="button"
+          class="btn"
+          [disabled]="!canRetry() || !!busy()"
+          (click)="retry()"
+          aria-describedby="retry-hint"
+        >
+          @if (busy() === 'retry') {
+            <span class="spinner" aria-hidden="true"></span>
+          } @else {
+            <i class="ti ti-reload" aria-hidden="true"></i>
+          }
           Retry failed only
         </button>
         <small id="retry-hint" class="muted">
           @if (failedCount() > 0) {
-            Re-queues {{ failedCount() }} failed recipient{{ failedCount() === 1 ? '' : 's' }} with the same message and attachment
-          } @else { No failed recipients to retry }
+            Re-queues {{ failedCount() }} failed recipient{{ failedCount() === 1 ? '' : 's' }} with
+            the same message and attachment
+          } @else {
+            No failed recipients to retry
+          }
         </small>
       </div>
 
-      <div class="segmented" role="radiogroup" aria-label="Sending speed">
+      <div class="s-seg speed" role="radiogroup" aria-label="Sending speed">
         @for (s of speeds; track s.key) {
-          <button type="button" role="radio" [attr.aria-checked]="pacing() === s.key"
-                  [class.on]="pacing() === s.key" [disabled]="busy() === 'speed'" (click)="setSpeed(s.key)">
-            <span class="ms" aria-hidden="true">{{ s.icon }}</span>{{ s.label }}
+          <button
+            type="button"
+            role="radio"
+            [attr.aria-checked]="pacing() === s.key"
+            [disabled]="busy() === 'speed' || policy.tooFast(s.key)"
+            [attr.title]="policy.tooFast(s.key) ? 'Not on your plan' : null"
+            (click)="setSpeed(s.key)"
+          >
+            <i class="ti ti-{{ s.icon }}" aria-hidden="true"></i>{{ s.label }}
           </button>
         }
       </div>
 
       <button type="button" class="btn" [disabled]="busy() === 'export'" (click)="exportCsv()">
-        @if (busy() === 'export') { <span class="spinner" aria-hidden="true"></span> }
-        @else { <span class="ms" aria-hidden="true">download</span> }
+        @if (busy() === 'export') {
+          <span class="spinner" aria-hidden="true"></span>
+        } @else {
+          <i class="ti ti-download" aria-hidden="true"></i>
+        }
         Export CSV
       </button>
     </div>
-  </header>
-
-  @if (error()) {
-    <p class="card notice" role="alert">
-      <span class="ms" aria-hidden="true">error</span>{{ error() }}
-      <button type="button" class="btn" (click)="error.set('')" aria-label="Dismiss">
-        <span class="ms" aria-hidden="true">close</span>
-      </button>
-    </p>
-  }
+  </section>
 
   @if (analytics(); as a) {
     <app-campaign-insights [analytics]="a" [campaignId]="c.id" />

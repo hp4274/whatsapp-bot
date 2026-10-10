@@ -14,9 +14,10 @@
  * went out at version 3 must stay readable at version 3 forever.
  */
 
-import { TRANSPORT_CLOUD_API, TRANSPORT_WEB_JS } from '../config.js';
+import { TRANSPORT_CLOUD_API, QR_TRANSPORTS } from '../config.js';
 import { InteractiveError, normalizeInteractive } from '../messaging/interactive.js';
 import { personalize, utcNow } from '../protocol.js';
+import { spamScore } from './policy.js';
 
 export const TEMPLATE_TYPES = Object.freeze([
     'text', 'media', 'provider_template', 'interactive', 'notification',
@@ -167,6 +168,24 @@ export class TemplateStore {
         if (!old) throw new TemplateError(`template version ${version} not found`, 404);
         if (old.version === template.currentVersion) return template;
         return this.update(template.id, { body: old.body, variables: old.variables });
+    }
+
+    /** Platform review verdict (see templates/policy.js). Never touches Meta's approval_status. */
+    setReview(id, status, note = '') {
+        const template = this.#require(id);
+        this.db.prepare('UPDATE templates SET review_status = ?, review_note = ?, reviewed_at = ? WHERE id = ? AND tenant_id = ?')
+            .run(status, String(note ?? '').trim().slice(0, 500), status === 'pending' ? null : utcNow(), template.id, this.tenantId);
+        return this.get(template.id);
+    }
+
+    /**
+     * Why this template may not be sent right now, or null. `sendGate` is set
+     * by the channel runtime (policy + live channel); every send path that
+     * resolves a stored template asks here.
+     */
+    sendBlock(idOrTemplate) {
+        const template = typeof idOrTemplate === 'object' ? idOrTemplate : this.#require(idOrTemplate);
+        return this.sendGate?.(template) ?? null;
     }
 
     remove(id) {
@@ -353,7 +372,7 @@ export function compatibility(template, channel) {
     }
 
     if (template.templateType === 'provider_template') {
-        if (transport === TRANSPORT_WEB_JS || transport === 'baileys') {
+        if (QR_TRANSPORTS.includes(transport)) {
             problems.push('a WhatsApp Web channel cannot send provider templates');
         } else if (transport !== TRANSPORT_CLOUD_API) {
             problems.push('provider templates need a Cloud API channel');
@@ -455,6 +474,10 @@ function toTemplate(row) {
         interactive: parse(row.interactive, null),
         language: row.language ?? '',
         paramMapping: parse(row.param_mapping, {}),
+        reviewStatus: row.review_status ?? '',
+        reviewNote: row.review_note ?? '',
+        reviewedAt: row.reviewed_at ?? null,
+        spam: spamScore({ body: row.body, interactive: parse(row.interactive, null) }),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };

@@ -39,7 +39,7 @@
     inset 0 0 0 1.5px rgba(255, 255, 255, 0.08),
     0 2px 4px rgba(0, 0, 0, 0.12),
     24px 30px 50px -18px rgba(0, 0, 0, 0.35),
-    0 50px 80px -40px color-mix(in srgb, var(--primary) 45%, transparent);
+    0 50px 80px -40px color-mix(in srgb, var(--primary) 30%, transparent);
   transform: rotateY(-9deg) rotateX(5deg) rotateZ(0.6deg);
   transform-style: preserve-3d;
   transition: transform 600ms var(--ease), box-shadow 600ms var(--ease);
@@ -83,7 +83,7 @@
   background: var(--wa-bar);
   color: #fff;
 
-  > .ms { font-size: 20px; }
+  > .ti { font-size: 20px; }
   .avatar {
     display: grid;
     place-items: center;
@@ -91,7 +91,7 @@
     height: 32px;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.22);
-    .ms { font-size: 18px; }
+    .ti { font-size: 18px; }
   }
   .who { display: grid; line-height: 1.2; min-width: 0; }
   b { display: inline-flex; align-items: center; gap: 3px; font-size: 14px; }
@@ -177,7 +177,7 @@
   gap: 8px;
   padding: 10px;
   background: color-mix(in srgb, var(--wa-muted) 12%, transparent);
-  .ms { font-size: 30px; color: #e5534b; }
+  .ti { font-size: 30px; color: #e5534b; }
   .fname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 }
 
@@ -219,7 +219,7 @@
   box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
   transform: translateZ(12px);
 
-  .ms { font-size: 18px; }
+  .ti { font-size: 18px; }
   &:last-child { border-radius: 4px 4px 8px 8px; }
 }
 

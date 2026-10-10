@@ -29,8 +29,17 @@ export function createCampaignRouter({ db, state }) {
         canSend: () => Boolean(state.transport?.isConnected?.()),
         media: (id) => state.media?.get(id) ?? null,
         interactiveStats: (key) => state.interactiveStats?.(key) ?? null,
+        policy: () => state.platformPolicy?.() ?? {},
     });
     state.campaigns = campaigns;
+    // The manager halted a run on a platform rule: the record says so, and why.
+    state.manager?.on?.('event', (event) => {
+        const halt = { failureStop: 'paused', policyHold: 'paused', policyStop: 'cancelled' }[event.type];
+        if (!halt || !event.campaignId) return;
+        const reason = event.type === 'failureStop' ? `Auto-paused: ${event.message.replace(/^Paused: /, '')}` : event.reason;
+        const campaign = campaigns.policyHalt(event.campaignId, halt, reason);
+        if (campaign) announce('campaignUpdated', campaign);
+    });
     campaigns.channel = () => state.channel;   // Meta template mode needs the live transport
 
     const fail = (res, err) => {

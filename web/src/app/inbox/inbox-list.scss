@@ -1,73 +1,91 @@
+@use '../school/school-shared' as s;
 @use './shared' as *;
 
-:host { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--surface); }
+:host { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border-color); background: var(--surface-card); }
 @include base;
-.ms.tiny { font-size: 15px; color: var(--warning); }
+@include s.keyframes;
+@include s.empty;
+.ti.tiny { font-size: 15px; color: var(--warning); }
 
-.ib-tools { display: grid; gap: var(--space-sm); padding: var(--space-md); border-bottom: 1px solid var(--border); }
+.ib-tools { display: grid; gap: 10px; padding: 14px 14px 12px; border-bottom: 1px solid var(--border-color); }
 .ib-search-row { display: flex; gap: 6px; }
 .ib-search {
   position: relative; flex: 1; min-width: 0;
-  .ms { position: absolute; left: 10px; top: 50%; translate: 0 -50%; color: var(--text-muted); pointer-events: none; }
-  input { padding-left: 36px; width: 100%; }
+  .ti { position: absolute; left: 12px; top: 50%; translate: 0 -50%; font-size: 17px; color: var(--hint); pointer-events: none; }
+  input { padding-left: 36px; width: 100%; font-size: 13.5px; }
 }
-.ib-status select { width: auto; max-width: 118px; font-size: 12.5px; }
+.ib-status select { width: auto; max-width: 118px; font-size: 13px; padding-left: 10px; padding-right: 8px; }
 
+// Segments: the Kardlyz tab strip, scrolling sideways when it runs out of room.
 .ib-chips {
-  display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 calc(var(--space-md) * -1); padding: 2px var(--space-md);
+  @include seg-track;
+  overflow-x: auto; scrollbar-width: none;
   &::-webkit-scrollbar { display: none; }
 }
 .chip {
-  display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 5px 10px 5px 8px;
-  border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-muted);
-  font-size: 12px; font-weight: 600; cursor: pointer; transition: background $f, color $f, border-color $f, transform $f, box-shadow $f;
-  .ms { font-size: 15px; }
-  .n { min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--surface-alt); color: var(--text); font-size: 10.5px; text-align: center; }
-  &:hover { color: var(--text); transform: translateY(-1px); }
-  &.on {
-    border-color: color-mix(in srgb, var(--primary) 40%, transparent); background: var(--primary-soft); color: var(--primary);
-    box-shadow: 0 4px 12px color-mix(in srgb, var(--primary) 18%, transparent);
-    .n { background: var(--primary); color: var(--on-primary); }
+  @include seg-item;
+  display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 6px 10px 6px 8px;
+  .ti { font-size: 15px; }
+  .n {
+    min-width: 18px; padding: 1px 5px; border-radius: 999px; background: var(--surface-band); color: var(--text-muted);
+    font-size: 11px; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums;
   }
+  &.on .n { background: var(--primary); color: #fff; }
 }
 
-.ib-rows { flex: 1; overflow-y: auto; padding: 6px; }
+.ib-rows { flex: 1; overflow-y: auto; display: grid; align-content: start; gap: 2px; padding: 8px; }
+
+// Kardlyz nav item: 10px radius, sunken hover, active sunken + semibold + 3px orange bar.
 .ib-row {
-  position: relative; display: flex; align-items: center; gap: var(--space-md); width: 100%; padding: 10px;
-  border: 0; border-radius: var(--radius-sm); background: none; color: inherit; text-align: left; cursor: pointer;
+  position: relative; display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 10px 10px 12px;
+  border: 0; border-radius: 10px; background: none; color: inherit; text-align: left; cursor: pointer;
   transition: background $f, transform $f;
-  &:hover { background: var(--surface-alt); transform: translateX(2px); }
-  &.on { background: var(--primary-soft); box-shadow: inset 3px 0 0 var(--primary); }
-  &.unread b { font-weight: 800; }
+  &::before {
+    content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0;
+    background: var(--primary); opacity: 0; transform: scaleY(0.4); transition: opacity $f, transform $b;
+  }
+  &:hover { background: var(--surface-sunken); transform: translateX(2px); }
+  &.on {
+    background: var(--surface-sunken);
+    &::before { opacity: 1; transform: none; }
+    b { font-weight: 600; }
+  }
   .lines { display: grid; flex: 1; min-width: 0; gap: 2px; }
   .top, .bot { display: flex; align-items: center; gap: 6px; min-width: 0; }
-  b { flex: 1; @include ellipsis; font-weight: 600; }
-  time { font-size: 11px; color: var(--text-muted); }
-  &.unread time { color: var(--primary); font-weight: 700; }
+  b { flex: 1; @include ellipsis; font-size: 13.5px; font-weight: 500; color: var(--text-strong); }
+  time { font-size: 11.5px; color: var(--hint); font-variant-numeric: tabular-nums; }
   .pv { flex: 1; @include ellipsis; font-size: 12.5px; color: var(--text-muted); }
-  .badge {
-    min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--primary); color: var(--on-primary);
-    font-size: 11px; font-weight: 700; text-align: center; animation: ib-badge var(--base) var(--ease) both;
+  &.unread {
+    b { font-weight: 600; }
+    time { color: var(--primary-text); font-weight: 600; }
+    .pv { color: var(--text-color); }
   }
-  .st { position: absolute; top: 4px; right: 8px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+  .badge {
+    min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--primary); color: #fff;
+    font-size: 11px; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums;
+    animation: ib-badge var(--base) var(--ease) both;
+  }
+  .st {
+    position: absolute; top: 4px; right: 10px; font-size: 10.5px; font-weight: 500; text-transform: capitalize; color: var(--hint);
+  }
   .st-pending { color: var(--warning); }
   &.skel {
     pointer-events: none;
-    .av, i { background: linear-gradient(90deg, var(--surface-alt), var(--border), var(--surface-alt)) 0 0 / 200% 100%; animation: ib-shimmer 1.2s linear infinite; box-shadow: none; }
-    i { display: block; height: 10px; border-radius: 6px; width: 70%; & + i { width: 45%; } }
+    .av, i { background: var(--surface-sunken); box-shadow: none; animation: ib-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    i { display: block; height: 10px; border-radius: 999px; width: 70%; & + i { width: 45%; } }
   }
 }
-@keyframes ib-shimmer { to { background-position: -200% 0; } }
+@keyframes ib-pulse { 50% { opacity: 0.5; } }
 @keyframes ib-badge { from { transform: scale(0.4); opacity: 0; } }
 
-.ib-none {
-  display: grid; justify-items: center; gap: var(--space-md); text-align: center; padding: 40px var(--space-lg); color: var(--text-muted);
-  p { margin: 0; max-width: 46ch; }
+.s-empty { padding: 36px 16px; }
+.ib-kbd-hint {
+  display: flex; align-items: center; gap: 4px; margin: 0; padding: 8px 14px; border-top: 1px solid var(--border-color);
+  font-size: 11.5px; color: var(--hint);
 }
-.ib-kbd-hint { display: flex; align-items: center; gap: 4px; margin: 0; padding: 6px var(--space-md); border-top: 1px solid var(--border); font-size: 11px; }
 
 @media (max-width: 768px) {
   :host { border-right: 0; }
   .ib-kbd-hint { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { .ib-row .badge { animation: none; } .ib-row:hover, .chip:hover { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .ib-row .badge { animation: none; } .ib-row:hover { transform: none; } }

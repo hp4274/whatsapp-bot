@@ -22,7 +22,7 @@
 import { withinSendingWindow } from '../channels.js';
 import { SUCCESS_STATUSES } from '../protocol.js';
 
-/** Day-one cap for a new number under warm-up; it doubles each day after. */
+/** Day-one cap for a new number under warm-up (unless `config.warmupStart`); it doubles each day after. */
 export const WARMUP_START = 30;
 const DAY_MS = 24 * 3600 * 1000;
 
@@ -195,7 +195,7 @@ export class DailyQuota {
         const first = this.db.firstSentAt?.();
         const age = first ? Math.max(0, Math.round((dayStart(now) - dayStart(new Date(first))) / DAY_MS)) : 0;
         if (age >= days) return base;
-        const ramp = WARMUP_START * 2 ** age;
+        const ramp = (Number(this.config.warmupStart) || WARMUP_START) * 2 ** age;
         return base ? Math.min(base, ramp) : ramp;
     }
 

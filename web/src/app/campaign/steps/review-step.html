@@ -4,7 +4,7 @@
 
 <section class="card panel">
   <div class="ph">
-    <span class="badge"><span class="ms" aria-hidden="true">checklist</span></span>
+    <span class="badge"><i class="ti ti-list-check" aria-hidden="true"></i></span>
     <div>
       <h3>Review</h3>
       <p class="muted">Last look before it goes out</p>
@@ -16,95 +16,136 @@
     <input id="rv-name" [ngModel]="d.name()" (ngModelChange)="d.name.set($event)" maxlength="120" />
   </div>
 
-  <div class="tiles">
-    <div class="tile hero">
-      <span class="ms" aria-hidden="true">group</span>
-      @if (d.source() === 'retarget') {
-        <strong>{{ size() || '?' }}</strong><small>max recipients - resolved at send</small>
-      } @else {
-        <strong>{{ size() }}</strong><small>recipients</small>
-      }
-    </div>
-    <div class="tile">
-      <span class="ms" aria-hidden="true">attach_file</span>
-      <strong class="t">{{ file ? file.filename : 'None' }}</strong><small>attachment</small>
-    </div>
-    <div class="tile">
-      <span class="ms" aria-hidden="true">smart_button</span>
-      <strong class="t">{{ buttonsLabel() }}</strong><small>buttons</small>
-    </div>
-    <div class="tile">
-      <span class="ms" aria-hidden="true">data_object</span>
-      <strong>{{ d.usedVariables().length }}</strong><small>variables used</small>
-    </div>
-    <div class="tile">
-      <span class="ms" aria-hidden="true">auto_fix_high</span>
-      <strong>{{ d.usedFallbacks().length }}</strong><small>fallbacks used</small>
-    </div>
-  </div>
+  <p class="recap">
+    <i class="ti ti-users" aria-hidden="true"></i>
+    @if (d.source() === 'retarget') {
+      Up to <strong>{{ size() || '?' }}</strong> people (worked out at send time)
+    } @else {
+      <strong>{{ size() }}</strong> {{ size() === 1 ? 'person' : 'people' }}
+    }
+    @if (file) {
+      <span class="muted">- with {{ file.filename }}</span>
+    }
+    @if (d.interactive()) {
+      <span class="muted">- {{ buttonsLabel() }}</span>
+    }
+  </p>
 
   @for (w of d.warnings(); track w.text) {
-    <p class="banner" [class.danger]="w.tone === 'danger'"><span class="ms" aria-hidden="true">{{ w.tone === 'danger' ? 'error' : 'warning' }}</span>{{ w.text }}</p>
+    <p class="banner" [class.danger]="w.tone === 'danger'">
+      <i
+        class="ti ti-{{ w.tone === 'danger' ? 'alert-circle' : 'alert-triangle' }}"
+        aria-hidden="true"
+      ></i
+      ><span>{{ w.text }}</span>
+    </p>
   }
   @if (overQuota() > 0) {
-    <p class="banner"><span class="ms" aria-hidden="true">hourglass_top</span>
-      {{ overQuota() }} message(s) go over today's limit - they wait in the queue until the budget resets.</p>
+    <p class="banner">
+      <i class="ti ti-hourglass-high" aria-hidden="true"></i>
+      <span
+        >{{ overQuota() }} message(s) go over today's limit - they wait in the queue until the
+        budget resets.</span
+      >
+    </p>
   }
 </section>
 
 <section class="card panel">
   <div class="ph">
-    <span class="badge accent"><span class="ms" aria-hidden="true">speed</span></span>
+    <span class="badge accent"><i class="ti ti-gauge" aria-hidden="true"></i></span>
     <div>
-      <h3>Pace &amp; safety</h3>
-      <p class="muted">Never faster than your plan's safety policy</p>
+      <h3>Sending speed</h3>
+      <p class="muted">Slower is safer for your number</p>
     </div>
-    @if (loadingSafety()) { <span class="spinner" aria-label="Loading"></span> }
+    @if (loadingSafety()) {
+      <span class="spinner" aria-label="Loading"></span>
+    }
   </div>
 
   <div class="seg" role="radiogroup" aria-label="Sending pace">
     @for (p of presets; track p.value) {
       @let ps = safety()[p.value];
-      <button type="button" role="radio" class="opt" [class.on]="d.pacing() === p.value"
-              [attr.aria-checked]="d.pacing() === p.value" (click)="pickPacing(p.value)">
-        <span class="ms" aria-hidden="true">{{ p.icon }}</span>
+      <button
+        type="button"
+        role="radio"
+        class="opt"
+        [class.on]="d.pacing() === p.value"
+        [attr.aria-checked]="d.pacing() === p.value"
+        [disabled]="policy.tooFast(p.value)"
+        (click)="pickPacing(p.value)"
+      >
+        <i class="ti ti-{{ p.icon }}" aria-hidden="true"></i>
         <strong>{{ p.label }}</strong>
-        <small>{{ ps ? ps.minSeconds + '-' + ps.maxSeconds + 's apart' : p.text }}</small>
+        <small>{{
+          policy.tooFast(p.value)
+            ? 'Not on your plan'
+            : ps
+              ? ps.minSeconds + '-' + ps.maxSeconds + 's apart'
+              : p.text
+        }}</small>
       </button>
     }
   </div>
 
+  @if (!s && loadingSafety()) {
+    <span class="skel" aria-busy="true" aria-label="Loading send estimate"></span>
+  }
   @if (s) {
-    <div class="stats">
-      <div>
-        <small>Daily budget</small>
-        <strong>{{ s.remaining === null ? 'No limit' : s.remaining + ' left' }}</strong>
-        <span class="muted">{{ s.limit ? 'of ' + s.limit + ' - ' : '' }}{{ s.used }} sent today</span>
-        @if (s.limit) {
-          <span class="meter" aria-hidden="true"><span [style.width.%]="(s.used / s.limit) * 100"></span></span>
-        }
+    <p class="muted eta">
+      {{ size() > 1 ? 'Takes about ' + duration(s.estimateSeconds.typical) : 'Sends right away'
+      }}{{ overQuota() > 0 ? ' - ' + overQuota() + ' wait for tomorrow (daily limit)' : '' }}
+    </p>
+    <details class="more">
+      <summary>Details</summary>
+      <div class="stats">
+        <div>
+          <small>Daily budget</small>
+          <strong>{{ s.remaining === null ? 'No limit' : s.remaining + ' left' }}</strong>
+          <span class="muted"
+            >{{ s.limit ? 'of ' + s.limit + ' - ' : '' }}{{ s.used }} sent today</span
+          >
+          @if (s.limit) {
+            <span class="meter" aria-hidden="true"
+              ><span [style.width.%]="(s.used / s.limit) * 100"></span
+            ></span>
+          }
+        </div>
+        <div>
+          <small>Estimated duration</small>
+          <strong>{{
+            size() > 1 ? 'about ' + duration(s.estimateSeconds.typical) : 'instant'
+          }}</strong>
+          @if (size() > 1) {
+            <span class="muted"
+              >{{ duration(s.estimateSeconds.min) }} - {{ duration(s.estimateSeconds.max) }}</span
+            >
+          }
+        </div>
+        <div>
+          <small>Over today's limit</small>
+          <strong [class.bad]="overQuota() > 0">{{ overQuota() }}</strong>
+          <span class="muted">{{
+            s.restEvery ? 'rests every ' + s.restEvery + ' messages' : 'no rests'
+          }}</span>
+        </div>
       </div>
-      <div>
-        <small>Estimated duration</small>
-        <strong>{{ size() > 1 ? 'about ' + duration(s.estimateSeconds.typical) : 'instant' }}</strong>
-        @if (size() > 1) { <span class="muted">{{ duration(s.estimateSeconds.min) }} - {{ duration(s.estimateSeconds.max) }}</span> }
-      </div>
-      <div>
-        <small>Over today's limit</small>
-        <strong [class.bad]="overQuota() > 0">{{ overQuota() }}</strong>
-        <span class="muted">{{ s.restEvery ? 'rests every ' + s.restEvery + ' messages' : 'no rests' }}</span>
-      </div>
-    </div>
+    </details>
   }
   @if (quiet(); as q) {
-    <p class="banner info"><span class="ms" aria-hidden="true">bedtime</span>
-      Quiet hours {{ q.from }}-{{ q.to }}{{ q.open ? '' : ' are on now' }}. Messages due inside quiet hours are held until the window opens, then continue at the same pace.</p>
+    <p class="banner info">
+      <i class="ti ti-moon" aria-hidden="true"></i>
+      <span
+        >Quiet hours {{ q.from }}-{{ q.to }}{{ q.open ? '' : ' are on now' }}. Messages due inside
+        quiet hours are held until the window opens, then continue at the same pace.</span
+      >
+    </p>
   }
 </section>
 
 <section class="card panel">
   <div class="ph">
-    <span class="badge"><span class="ms" aria-hidden="true">event</span></span>
+    <span class="badge"><i class="ti ti-calendar-event" aria-hidden="true"></i></span>
     <div>
       <h3>When</h3>
       <p class="muted">Send right away or pick a time in any time zone</p>
@@ -112,10 +153,30 @@
   </div>
 
   <div class="seg two" role="radiogroup" aria-label="When to send">
-    <button type="button" role="radio" class="opt" [class.on]="d.scheduleMode() === 'now'" [attr.aria-checked]="d.scheduleMode() === 'now'"
-            (click)="d.scheduleMode.set('now')"><span class="ms" aria-hidden="true">send</span><strong>Send now</strong></button>
-    <button type="button" role="radio" class="opt" [class.on]="d.scheduleMode() === 'later'" [attr.aria-checked]="d.scheduleMode() === 'later'"
-            (click)="d.scheduleMode.set('later')"><span class="ms" aria-hidden="true">schedule_send</span><strong>Schedule</strong></button>
+    <button
+      type="button"
+      role="radio"
+      class="opt"
+      [class.on]="d.scheduleMode() === 'now'"
+      [attr.aria-checked]="d.scheduleMode() === 'now'"
+      (click)="d.scheduleMode.set('now')"
+    >
+      <i class="ti ti-send" aria-hidden="true"></i><strong>Send now</strong>
+    </button>
+    <button
+      type="button"
+      role="radio"
+      class="opt"
+      [class.on]="d.scheduleMode() === 'later'"
+      [attr.aria-checked]="d.scheduleMode() === 'later'"
+      [disabled]="!policy.allowScheduling()"
+      (click)="d.scheduleMode.set('later')"
+    >
+      <i class="ti ti-clock-share" aria-hidden="true"></i><strong>Schedule</strong>
+      @if (!policy.allowScheduling()) {
+        <small>Not on your plan</small>
+      }
+    </button>
   </div>
 
   @if (d.scheduleMode() === 'later') {
@@ -131,32 +192,56 @@
       <div class="field">
         <label for="rv-tz">Time zone</label>
         <select id="rv-tz" [ngModel]="d.timezone()" (ngModelChange)="d.timezone.set($event)">
-          @for (z of zones; track z) { <option [value]="z">{{ z }}</option> }
+          @for (z of zones; track z) {
+            <option [value]="z">{{ z }}</option>
+          }
         </select>
       </div>
     </div>
     @if (sendsAt(); as at) {
       <p class="resolved" [class.bad]="at.past">
-        <span class="ms" aria-hidden="true">{{ at.past ? 'error' : 'alarm' }}</span>
+        <i class="ti ti-{{ at.past ? 'alert-circle' : 'alarm' }}" aria-hidden="true"></i>
         Sends at <strong>{{ at.zoned }}</strong> ({{ d.timezone() }})
-        @if (at.local !== at.zoned) { <span class="muted">- {{ at.local }} your time</span> }
+        @if (at.local !== at.zoned) {
+          <span class="muted">- {{ at.local }} your time</span>
+        }
       </p>
     }
   } @else if (!connected()) {
-    <p class="banner danger"><span class="ms" aria-hidden="true">link_off</span>
-      <span>No WhatsApp number is connected. <a routerLink="/connection">Connect one</a> to send now - scheduling still works.</span></p>
+    <p class="banner danger">
+      <i class="ti ti-link-off" aria-hidden="true"></i>
+      <span
+        >No WhatsApp number is connected. <a routerLink="/connection">Connect one</a> to send now -
+        scheduling still works.</span
+      >
+    </p>
   }
 
-  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  @if (error()) {
+    <p class="error" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ error() }}</span>
+    </p>
+  }
 </section>
 
 <div class="foot">
-  <button type="button" class="btn" (click)="d.goTo(2)"><span class="ms" aria-hidden="true">arrow_back</span> Message</button>
+  <button type="button" class="btn" (click)="d.goTo(2)">
+    <i class="ti ti-arrow-left" aria-hidden="true"></i> Message
+  </button>
   <span class="grow"></span>
-  <button type="button" class="btn primary go" (click)="send()"
-          [disabled]="busy() || blockers().length > 0 || (d.scheduleMode() === 'now' && !connected())">
-    @if (busy()) { <span class="spinner"></span> } @else {
-      <span class="ms" aria-hidden="true">{{ d.scheduleMode() === 'now' ? 'send' : 'schedule_send' }}</span>
+  <button
+    type="button"
+    class="btn primary go"
+    (click)="send()"
+    [disabled]="busy() || blockers().length > 0 || (d.scheduleMode() === 'now' && !connected())"
+  >
+    @if (busy()) {
+      <span class="spinner"></span>
+    } @else {
+      <i
+        class="ti ti-{{ d.scheduleMode() === 'now' ? 'send' : 'clock-share' }}"
+        aria-hidden="true"
+      ></i>
     }
     {{ d.scheduleMode() === 'now' ? 'Send now' : 'Schedule' }}
   </button>

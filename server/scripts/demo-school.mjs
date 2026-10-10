@@ -1,7 +1,9 @@
 /**
  * Isolated demo server for looking at the school portal: temp data dir, a
  * sandbox transport, seeded roster/attendance/fees/results. Never touches
- * ~/.whatsapp_sender_web.   node scripts/demo-school.mjs  ->  http://127.0.0.1:3100
+ * ~/.whatsapp_sender_web.
+ *   node --import ./test/isolate-home.js scripts/demo-school.mjs  ->  http://127.0.0.1:3100
+ * (isolate-home.js turns the test-only sandbox transport on.)
  */
 
 import fs from 'node:fs';

@@ -1,73 +1,96 @@
 <section class="rec" [attr.aria-busy]="loading()">
-  <header class="hero" #hero (pointermove)="tilt($event, hero)" (pointerleave)="untilt(hero)">
-    <div class="hero-badge" aria-hidden="true">
-      <span class="ms">{{ icon() }}</span>
-    </div>
-    <div class="hero-text">
-      <p class="eyebrow">Records</p>
-      <h1>{{ pluralLabel() }}</h1>
-      <p class="hero-sub">
-        @if (loading()) { Loading… } @else {
-          <strong>{{ total() }}</strong> {{ total() === 1 ? label().toLowerCase() : pluralLabel().toLowerCase() }}
-          @if (total() > objects().length) { <span class="muted">· showing latest {{ objects().length }}</span> }
+  <header class="s-head">
+    <div>
+      <span class="eyebrow"><i class="ti ti-{{ icon() }}" aria-hidden="true"></i> Records</span>
+      <h2>{{ pluralLabel() }}</h2>
+      <p>
+        @if (loading()) {
+          Loading…
+        } @else {
+          <strong>{{ total() }}</strong>
+          {{ total() === 1 ? label().toLowerCase() : pluralLabel().toLowerCase() }}
+          @if (total() > objects().length) {
+            <span>· showing latest {{ objects().length }}</span>
+          }
         }
       </p>
     </div>
     <button type="button" class="btn primary" (click)="openNew()" [disabled]="!spec()">
-      <span class="ms">add</span> New {{ label() }}
+      <i class="ti ti-plus" aria-hidden="true"></i> New {{ label() }}
     </button>
   </header>
 
   @if (error()) {
-    <div class="banner" role="alert">
-      <span class="ms">error</span>
+    <div class="s-banner" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i>
       <span class="banner-msg">{{ error() }}</span>
-      <button type="button" class="btn ghost sm" (click)="reload()"><span class="ms">refresh</span> Retry</button>
+      <button type="button" class="btn sm" (click)="reload()">
+        <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+      </button>
     </div>
   }
 
   @if (spec() && !error()) {
     <div class="toolbar">
       <div class="chips" role="group" aria-label="Filter by status">
-        <button type="button" class="chip" [class.on]="!statusFilter()" [attr.aria-pressed]="!statusFilter()"
-                (click)="statusFilter.set('')">
+        <button
+          type="button"
+          class="s-chip"
+          [attr.aria-pressed]="!statusFilter()"
+          (click)="statusFilter.set('')"
+        >
           All <span class="count">{{ objects().length }}</span>
         </button>
         @for (s of spec()!.statuses; track s) {
-          <button type="button" class="chip" [class.on]="statusFilter() === s" [class.closed]="isClosed(s)"
-                  [attr.aria-pressed]="statusFilter() === s" (click)="statusFilter.set(statusFilter() === s ? '' : s)">
+          <button
+            type="button"
+            class="s-chip"
+            [class.closed]="isClosed(s)"
+            [attr.aria-pressed]="statusFilter() === s"
+            (click)="statusFilter.set(statusFilter() === s ? '' : s)"
+          >
             {{ humanize(s) }} <span class="count">{{ statusCounts()[s] ?? 0 }}</span>
           </button>
         }
       </div>
       <label class="search">
-        <span class="ms" aria-hidden="true">search</span>
-        <input type="search" [ngModel]="query()" (ngModelChange)="query.set($event)"
-               [placeholder]="'Search ' + pluralLabel().toLowerCase()" [attr.aria-label]="'Search ' + pluralLabel().toLowerCase()" />
+        <i class="ti ti-search" aria-hidden="true"></i>
+        <input
+          type="search"
+          [ngModel]="query()"
+          (ngModelChange)="query.set($event)"
+          [placeholder]="'Search ' + pluralLabel().toLowerCase()"
+          [attr.aria-label]="'Search ' + pluralLabel().toLowerCase()"
+        />
       </label>
     </div>
   }
 
-  <div class="card">
+  <div class="card tbl">
     @if (loading()) {
-      <div class="skeleton" aria-label="Loading records">
+      <div class="skeleton" aria-busy="true" aria-label="Loading records">
         @for (i of [1, 2, 3, 4, 5, 6]; track i) {
-          <div class="sk-row"><span></span><span></span><span></span><span></span></div>
+          <div class="sk-row">
+            <span class="s-skel"></span><span class="s-skel"></span><span class="s-skel"></span
+            ><span class="s-skel"></span>
+          </div>
         }
       </div>
     } @else if (!error() && spec()) {
       @if (!objects().length) {
-        <div class="empty">
-          <div class="empty-orb" aria-hidden="true"><span class="ms">{{ icon() }}</span></div>
+        <div class="s-empty">
+          <i class="ti ti-{{ icon() }}" aria-hidden="true"></i>
           <h2>No {{ pluralLabel().toLowerCase() }} yet</h2>
           <p>Create one here, or let a workflow add them as conversations happen.</p>
-          <button type="button" class="btn primary" (click)="openNew()"><span class="ms">add</span> New {{ label() }}</button>
+          <button type="button" class="btn primary" (click)="openNew()">
+            <i class="ti ti-plus" aria-hidden="true"></i> New {{ label() }}
+          </button>
         </div>
       } @else if (!visible().length) {
-        <div class="empty">
+        <div class="s-empty">
           <h2>No matches</h2>
           <p>Nothing matches the current filter or search.</p>
-          <button type="button" class="btn ghost" (click)="clearFilters()">Clear filters</button>
+          <button type="button" class="btn" (click)="clearFilters()">Clear filters</button>
         </div>
       } @else {
         <div class="table-wrap">
@@ -84,14 +107,28 @@
             </thead>
             <tbody>
               @for (o of visible(); track o.id) {
-                <tr tabindex="0" [class.active]="selected()?.id === o.id && drawerOpen()"
-                    (click)="openRecord(o)" (keydown.enter)="openRecord(o)" (keydown.space)="$event.preventDefault(); openRecord(o)"
-                    [attr.aria-label]="'Open ' + label() + ' ' + o.reference">
-                  <td class="ref"><span class="mono">{{ o.reference }}</span></td>
+                <tr
+                  tabindex="0"
+                  [class.active]="selected()?.id === o.id && drawerOpen()"
+                  (click)="openRecord(o)"
+                  (keydown.enter)="openRecord(o)"
+                  (keydown.space)="$event.preventDefault(); openRecord(o)"
+                  [attr.aria-label]="'Open ' + label() + ' ' + o.reference"
+                >
+                  <td class="ref">
+                    <span class="mono">{{ o.reference }}</span>
+                  </td>
                   @for (f of keyFields(); track f.name) {
                     <td [class.num]="f.kind === 'number'">{{ display(o, f) }}</td>
                   }
-                  <td><span class="pill" [class.closed]="isClosed(o.status)">{{ humanize(o.status) }}</span></td>
+                  <td>
+                    <span
+                      class="s-pill"
+                      [class.open]="!isClosed(o.status)"
+                      [class.tone-mute]="isClosed(o.status)"
+                      >{{ humanize(o.status) }}</span
+                    >
+                  </td>
                   <td class="right muted" [title]="o.updatedAt">{{ relative(o.updatedAt) }}</td>
                 </tr>
               }
@@ -106,18 +143,32 @@
 <!-- Drawer lives at the component root: no transformed ancestor may contain a fixed element. -->
 @if (drawerOpen()) {
   <div class="scrim" (click)="closeDrawer()" aria-hidden="true"></div>
-  <aside class="drawer" #panel role="dialog" aria-modal="true" aria-labelledby="rec-drawer-title" tabindex="-1">
+  <aside
+    class="drawer"
+    #panel
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="rec-drawer-title"
+    tabindex="-1"
+  >
     <header class="drawer-head">
       <div>
-        <p class="eyebrow">{{ selected() ? label() : 'New ' + label().toLowerCase() }}</p>
-        <h2 id="rec-drawer-title">{{ selected()?.reference || 'Untitled ' + label().toLowerCase() }}</h2>
+        <p class="eyebrow-sm">{{ selected() ? label() : 'New ' + label().toLowerCase() }}</p>
+        <h2 id="rec-drawer-title">
+          {{ selected()?.reference || 'Untitled ' + label().toLowerCase() }}
+        </h2>
       </div>
-      <button type="button" class="icon-btn" (click)="closeDrawer()" aria-label="Close"><span class="ms">close</span></button>
+      <button type="button" class="icon-btn" (click)="closeDrawer()" aria-label="Close">
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
     </header>
 
     <form class="drawer-body" (ngSubmit)="save()" novalidate>
       @if (formError()) {
-        <div class="banner sm" role="alert"><span class="ms">error</span><span class="banner-msg">{{ formError() }}</span></div>
+        <div class="s-banner" role="alert">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i
+          ><span class="banner-msg">{{ formError() }}</span>
+        </div>
       }
 
       <div class="grid">
@@ -126,8 +177,14 @@
           @if (selected()) {
             <input type="text" [value]="draftRef()" readonly />
           } @else {
-            <input type="text" name="reference" [ngModel]="draftRef()" (ngModelChange)="draftRef.set($event)"
-                   placeholder="Auto-generated if blank" autocomplete="off" />
+            <input
+              type="text"
+              name="reference"
+              [ngModel]="draftRef()"
+              (ngModelChange)="draftRef.set($event)"
+              placeholder="Auto-generated if blank"
+              autocomplete="off"
+            />
           }
         </label>
         <label class="field">
@@ -142,28 +199,66 @@
         @for (f of fields(); track f.name) {
           @if (f.kind === 'boolean') {
             <label class="field check">
-              <input type="checkbox" [name]="f.name" [ngModel]="draft()[f.name]" (ngModelChange)="setField(f.name, $event)" />
+              <input
+                type="checkbox"
+                [name]="f.name"
+                [ngModel]="draft()[f.name]"
+                (ngModelChange)="setField(f.name, $event)"
+              />
               <span class="lbl">{{ f.label }}</span>
             </label>
           } @else {
-            <label class="field" [class.wide]="f.name === 'notes'" [class.invalid]="fieldErrors()[f.name]">
-              <span class="lbl">{{ f.label }} @if (f.required) { <span class="req" aria-hidden="true">*</span> }</span>
+            <label
+              class="field"
+              [class.wide]="f.name === 'notes'"
+              [class.invalid]="fieldErrors()[f.name]"
+            >
+              <span class="lbl"
+                >{{ f.label }}
+                @if (f.required) {
+                  <span class="req" aria-hidden="true">*</span>
+                }
+              </span>
               @switch (f.kind) {
                 @case ('number') {
-                  <input type="number" step="any" [name]="f.name" [ngModel]="draft()[f.name]" (ngModelChange)="setField(f.name, $event)"
-                         [required]="f.required" [attr.aria-invalid]="!!fieldErrors()[f.name]" [attr.aria-describedby]="'err-' + f.name" />
+                  <input
+                    type="number"
+                    step="any"
+                    [name]="f.name"
+                    [ngModel]="draft()[f.name]"
+                    (ngModelChange)="setField(f.name, $event)"
+                    [required]="f.required"
+                    [attr.aria-invalid]="!!fieldErrors()[f.name]"
+                    [attr.aria-describedby]="'err-' + f.name"
+                  />
                 }
                 @case ('datetime') {
-                  <input type="datetime-local" [name]="f.name" [ngModel]="draft()[f.name]" (ngModelChange)="setField(f.name, $event)"
-                         [required]="f.required" [attr.aria-invalid]="!!fieldErrors()[f.name]" [attr.aria-describedby]="'err-' + f.name" />
+                  <input
+                    type="datetime-local"
+                    [name]="f.name"
+                    [ngModel]="draft()[f.name]"
+                    (ngModelChange)="setField(f.name, $event)"
+                    [required]="f.required"
+                    [attr.aria-invalid]="!!fieldErrors()[f.name]"
+                    [attr.aria-describedby]="'err-' + f.name"
+                  />
                 }
                 @default {
-                  <input type="text" [name]="f.name" [ngModel]="draft()[f.name]" (ngModelChange)="setField(f.name, $event)"
-                         [required]="f.required" [attr.aria-invalid]="!!fieldErrors()[f.name]" [attr.aria-describedby]="'err-' + f.name"
-                         autocomplete="off" />
+                  <input
+                    type="text"
+                    [name]="f.name"
+                    [ngModel]="draft()[f.name]"
+                    (ngModelChange)="setField(f.name, $event)"
+                    [required]="f.required"
+                    [attr.aria-invalid]="!!fieldErrors()[f.name]"
+                    [attr.aria-describedby]="'err-' + f.name"
+                    autocomplete="off"
+                  />
                 }
               }
-              @if (fieldErrors()[f.name]) { <span class="err" [id]="'err-' + f.name">{{ fieldErrors()[f.name] }}</span> }
+              @if (fieldErrors()[f.name]) {
+                <span class="err" [id]="'err-' + f.name">{{ fieldErrors()[f.name] }}</span>
+              }
             </label>
           }
         }
@@ -174,19 +269,30 @@
           @if (confirmDelete()) {
             <div class="confirm" role="group" aria-label="Confirm delete">
               <span>Delete for good?</span>
-              <button type="button" class="btn danger sm" (click)="remove()" [disabled]="deleting()">
+              <button
+                type="button"
+                class="btn danger sm"
+                (click)="remove()"
+                [disabled]="deleting()"
+              >
                 {{ deleting() ? 'Deleting…' : 'Delete' }}
               </button>
-              <button type="button" class="btn ghost sm" (click)="confirmDelete.set(false)">Keep</button>
+              <button type="button" class="btn ghost sm" (click)="confirmDelete.set(false)">
+                Keep
+              </button>
             </div>
           } @else {
-            <button type="button" class="btn ghost danger-text" (click)="remove()"><span class="ms">delete</span> Delete</button>
+            <button type="button" class="btn danger-ghost" (click)="remove()">
+              <i class="ti ti-trash" aria-hidden="true"></i> Delete
+            </button>
           }
         }
         <span class="spacer"></span>
         <button type="button" class="btn ghost" (click)="closeDrawer()">Cancel</button>
         <button type="submit" class="btn primary" [disabled]="saving()">
-          {{ saving() ? 'Saving…' : selected() ? 'Save changes' : 'Create ' + label().toLowerCase() }}
+          {{
+            saving() ? 'Saving…' : selected() ? 'Save changes' : 'Create ' + label().toLowerCase()
+          }}
         </button>
       </div>
 
@@ -194,17 +300,24 @@
         <section class="timeline" aria-labelledby="rec-activity">
           <h3 id="rec-activity">Activity</h3>
           @if (eventsLoading()) {
-            <div class="skeleton tight"><div class="sk-row"><span></span><span></span></div><div class="sk-row"><span></span><span></span></div></div>
+            <div class="skeleton tight" aria-busy="true">
+              <div class="sk-row"><span class="s-skel"></span><span class="s-skel"></span></div>
+              <div class="sk-row"><span class="s-skel"></span><span class="s-skel"></span></div>
+            </div>
           } @else if (!events().length) {
             <p class="muted">No activity recorded.</p>
           } @else {
             <ol>
               @for (e of events(); track e.id) {
                 <li>
-                  <span class="dot"><span class="ms">{{ eventIcon(e) }}</span></span>
+                  <span class="dot"
+                    ><i class="ti ti-{{ eventIcon(e) }}" aria-hidden="true"></i
+                  ></span>
                   <div>
                     <p class="ev-title">{{ eventTitle(e) }}</p>
-                    @if (eventDetail(e); as d) { <p class="ev-detail">{{ d }}</p> }
+                    @if (eventDetail(e); as d) {
+                      <p class="ev-detail">{{ d }}</p>
+                    }
                     <p class="ev-meta">{{ formatDate(e.at) }} · {{ e.source }}</p>
                   </div>
                 </li>

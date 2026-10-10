@@ -1,0 +1,311 @@
+<!-- Tab strip, then one panel per tab; each panel runs error -> skeleton -> content/empty on its own. -->
+<div class="s-seg tabs" role="tablist" aria-label="Template moderation">
+  @for (t of tabs; track t.key) {
+    <button
+      type="button"
+      role="tab"
+      [id]="uid + '-tab-' + t.key"
+      [attr.aria-selected]="tab() === t.key"
+      [attr.aria-controls]="uid + '-panel'"
+      (click)="open(t.key)"
+    >
+      <i class="ti {{ t.icon }}" aria-hidden="true"></i>{{ t.label }}
+      @if (t.key === 'queue' && queue.data(); as list) {
+        @if (list.length) {
+          <span class="count">{{ list.length }}</span>
+        }
+      }
+    </button>
+  }
+</div>
+
+<section class="panel" role="tabpanel" [id]="uid + '-panel'" [attr.aria-labelledby]="uid + '-tab-' + tab()">
+  @switch (tab()) {
+    @case ('queue') {
+      <p class="lede">Baileys templates have no Meta review, so they wait here before tenants can send them.</p>
+      @if (queue.error()) {
+        <p class="s-banner" role="alert">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i>
+          <span class="msg">{{ queue.error() }}</span>
+          <button type="button" class="btn sm" (click)="reload('queue')">Try again</button>
+        </p>
+      } @else if (queue.loading()) {
+        <div class="grid" aria-busy="true" aria-label="Loading review queue">
+          <div class="s-skel sk"></div>
+          <div class="s-skel sk"></div>
+        </div>
+      } @else {
+        <div class="grid">
+          @for (t of queue.data(); track key(t); let i = $index) {
+            <article class="card s-enter" [style.--i]="i" [attr.aria-labelledby]="uid + '-q' + i">
+              <header class="top">
+                <h3 [id]="uid + '-q' + i">{{ t.name }}</h3>
+                <span
+                  class="s-pill {{ spamTone(t.spam.score) }}"
+                  [title]="spamTitle(t)"
+                  [attr.aria-label]="'Spam score ' + t.spam.score"
+                >
+                  Spam {{ t.spam.score }}
+                </span>
+              </header>
+              <div class="meta">
+                <span class="s-pill tone-info"><i class="ti ti-building-store" aria-hidden="true"></i>{{ t.tenantName }}</span>
+                <span class="s-pill tone-mute">{{ t.category }}</span>
+                <span class="mode">
+                  <i class="ti {{ t.mode === 'baileys' ? 'ti-device-mobile' : 'ti-world' }}" aria-hidden="true"></i>
+                  {{ t.mode === 'baileys' ? 'Baileys numbers only' : 'All numbers' }}
+                </span>
+              </div>
+
+              <div class="chat"><p class="bubble">{{ t.body }}</p></div>
+
+              @if (t.spam.reasons.length) {
+                <ul class="reasons" aria-label="Spam signals">
+                  @for (r of t.spam.reasons; track $index) {
+                    <li><b>+{{ r.points }}</b>{{ r.reason }}</li>
+                  }
+                </ul>
+              }
+
+              @if (deciding(); as d) {
+                @if (d.key === key(t)) {
+                  <div class="decide" [class.reject]="d.action === 'reject'">
+                    <label [for]="uid + '-n' + i">
+                      {{ d.action === 'approve' ? 'Note for the tenant (optional)' : 'Why is it rejected?' }}
+                    </label>
+                    <textarea
+                      rows="2"
+                      [id]="uid + '-n' + i"
+                      [value]="note()"
+                      [attr.aria-required]="d.action === 'reject'"
+                      [placeholder]="d.action === 'reject' ? 'The tenant sees this note' : ''"
+                      (input)="note.set($any($event.target).value)"
+                    ></textarea>
+                    @if (decideError()) {
+                      <p class="s-banner" role="alert">
+                        <i class="ti ti-alert-circle" aria-hidden="true"></i>
+                        <span class="msg">{{ decideError() }}</span>
+                      </p>
+                    }
+                    <div class="actions">
+                      <button type="button" class="btn sm" (click)="cancelDecision()" [disabled]="decidingBusy()">Cancel</button>
+                      <button
+                        type="button"
+                        class="btn sm"
+                        [class.primary]="d.action === 'approve'"
+                        [class.danger]="d.action === 'reject'"
+                        [disabled]="!canDecide()"
+                        (click)="confirmDecision(t)"
+                      >
+                        <i class="ti {{ d.action === 'approve' ? 'ti-check' : 'ti-x' }}" aria-hidden="true"></i>
+                        {{ decidingBusy() ? 'Saving...' : d.action === 'approve' ? 'Confirm approval' : 'Confirm rejection' }}
+                      </button>
+                    </div>
+                  </div>
+                }
+              }
+              @if (deciding()?.key !== key(t)) {
+                <div class="actions">
+                  <span class="when">Updated {{ t.updatedAt | date: 'd MMM, HH:mm' }}</span>
+                  <button type="button" class="btn sm danger" (click)="startDecision(t, 'reject')">
+                    <i class="ti ti-x" aria-hidden="true"></i>Reject
+                  </button>
+                  <button type="button" class="btn sm primary" (click)="startDecision(t, 'approve')">
+                    <i class="ti ti-check" aria-hidden="true"></i>Approve
+                  </button>
+                </div>
+              }
+            </article>
+          } @empty {
+            <div class="s-empty wide">
+              <i class="ti ti-circle-check" aria-hidden="true"></i>
+              <strong>Nothing waiting for review</strong>
+              <p>New Baileys templates show up here when a tenant submits one.</p>
+            </div>
+          }
+        </div>
+      }
+    }
+
+    @case ('library') {
+      <div class="bar">
+        <p class="lede">Curated templates every tenant can copy into their own account.</p>
+        <button type="button" class="btn primary" (click)="newStarter()">
+          <i class="ti ti-plus" aria-hidden="true"></i>New starter
+        </button>
+      </div>
+
+      @if (formOpen()) {
+        <form class="form s-card" (submit)="$event.preventDefault(); saveStarter()" [attr.aria-labelledby]="uid + '-fh'">
+          <h3 [id]="uid + '-fh'">{{ editId() == null ? 'New starter' : 'Edit starter' }}</h3>
+          <div class="fields">
+            <div class="s-field">
+              <label [for]="uid + '-fn'">Name</label>
+              <input type="text" [id]="uid + '-fn'" required [value]="fName()" (input)="fName.set($any($event.target).value)" />
+            </div>
+            <div class="s-field">
+              <label [for]="uid + '-fc'">Category</label>
+              <select [id]="uid + '-fc'" (change)="fCategory.set($any($event.target).value)">
+                @for (c of categories; track c) {
+                  <option [value]="c" [selected]="fCategory() === c">{{ c }}</option>
+                }
+              </select>
+            </div>
+            <div class="s-field full">
+              <label [for]="uid + '-fd'">Description</label>
+              <input type="text" [id]="uid + '-fd'" [value]="fDescription()" (input)="fDescription.set($any($event.target).value)" />
+            </div>
+            <div class="s-field full">
+              <label [for]="uid + '-fb'">Body</label>
+              <textarea
+                rows="5"
+                required
+                [id]="uid + '-fb'"
+                [attr.aria-describedby]="uid + '-fbh'"
+                [value]="fBody()"
+                (input)="fBody.set($any($event.target).value)"
+              ></textarea>
+              <span class="hint" [id]="uid + '-fbh'">{{ bodyHint }}</span>
+            </div>
+          </div>
+          @if (formError()) {
+            <p class="s-banner" role="alert">
+              <i class="ti ti-alert-circle" aria-hidden="true"></i>
+              <span class="msg">{{ formError() }}</span>
+            </p>
+          }
+          <div class="actions">
+            <button type="button" class="btn sm" (click)="closeForm()" [disabled]="saving()">Cancel</button>
+            <button type="submit" class="btn sm primary" [disabled]="!canSave()">
+              <i class="ti ti-check" aria-hidden="true"></i>{{ saving() ? 'Saving...' : 'Save starter' }}
+            </button>
+          </div>
+        </form>
+      }
+
+      @if (library.error()) {
+        <p class="s-banner" role="alert">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i>
+          <span class="msg">{{ library.error() }}</span>
+          <button type="button" class="btn sm" (click)="reload('library')">Try again</button>
+        </p>
+      } @else if (library.loading()) {
+        <div class="grid" aria-busy="true" aria-label="Loading starter library">
+          <div class="s-skel sk"></div>
+          <div class="s-skel sk"></div>
+          <div class="s-skel sk"></div>
+        </div>
+      } @else {
+        <div class="grid">
+          @for (s of library.data(); track s.id; let i = $index) {
+            <article class="card starter s-enter" schoolTilt="3" [style.--i]="i" [attr.aria-labelledby]="uid + '-s' + i">
+              <header class="top">
+                <h3 [id]="uid + '-s' + i">{{ s.name }}</h3>
+                <span class="s-pill" [class.tone-warn]="s.category === 'marketing'" [class.tone-info]="s.category === 'utility'" [class.tone-ok]="s.category === 'authentication'">
+                  {{ s.category }}
+                </span>
+              </header>
+              @if (s.description) {
+                <p class="desc">{{ s.description }}</p>
+              }
+              <div class="chat"><p class="bubble clamp">{{ s.body }}</p></div>
+              @if (confirmDelete() === s.id) {
+                @if (deleteError()) {
+                  <p class="s-banner" role="alert">
+                    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+                    <span class="msg">{{ deleteError() }}</span>
+                  </p>
+                }
+                <div class="actions">
+                  <span class="when">Delete this starter?</span>
+                  <button type="button" class="btn sm" (click)="askDelete(null)" [disabled]="deleting()">Keep</button>
+                  <button type="button" class="btn sm danger" (click)="deleteStarter(s)" [disabled]="deleting()">
+                    <i class="ti ti-trash" aria-hidden="true"></i>{{ deleting() ? 'Deleting...' : 'Delete' }}
+                  </button>
+                </div>
+              } @else {
+                <div class="actions">
+                  <span class="when">Updated {{ s.updatedAt | date: 'd MMM y' }}</span>
+                  <button type="button" class="btn sm icon" (click)="askDelete(s.id)" [attr.aria-label]="'Delete ' + s.name">
+                    <i class="ti ti-trash" aria-hidden="true"></i>
+                  </button>
+                  <button type="button" class="btn sm" (click)="editStarter(s)">
+                    <i class="ti ti-pencil" aria-hidden="true"></i>Edit
+                  </button>
+                </div>
+              }
+            </article>
+          } @empty {
+            <div class="s-empty wide">
+              <i class="ti ti-books" aria-hidden="true"></i>
+              <strong>No starters yet</strong>
+              <p>Add a starter so tenants have a ready-made template to begin from.</p>
+            </div>
+          }
+        </div>
+      }
+    }
+
+    @case ('meta') {
+      <p class="lede">Meta reviews Cloud API templates itself; these are the statuses stored per tenant.</p>
+      @if (meta.error()) {
+        <p class="s-banner" role="alert">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i>
+          <span class="msg">{{ meta.error() }}</span>
+          <button type="button" class="btn sm" (click)="reload('meta')">Try again</button>
+        </p>
+      } @else if (meta.loading()) {
+        <div class="s-card" aria-busy="true" aria-label="Loading Meta statuses">
+          <div class="s-skel"></div>
+          <div class="s-skel" style="width: 80%"></div>
+          <div class="s-skel" style="width: 65%"></div>
+        </div>
+      } @else {
+        @if (meta.data()?.length) {
+          <div class="s-card">
+            <div class="s-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Tenant</th>
+                    <th scope="col" class="num">Approved</th>
+                    <th scope="col" class="num">Pending</th>
+                    <th scope="col" class="num">Rejected</th>
+                    <th scope="col" class="num">Draft</th>
+                    <th scope="col" class="num">Total</th>
+                    <th scope="col">Last synced</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (m of meta.data(); track m.tenantId; let i = $index) {
+                    <tr [style.--i]="i" [class.idle]="!m.total">
+                      <td class="name">{{ m.tenantName }}</td>
+                      <td class="num" [class.ok]="m.approved">{{ m.approved }}</td>
+                      <td class="num" [class.warn]="m.pending">{{ m.pending }}</td>
+                      <td class="num" [class.bad]="m.rejected">{{ m.rejected }}</td>
+                      <td class="num">{{ m.draft }}</td>
+                      <td class="num total">{{ m.total }}</td>
+                      <td>{{ m.lastSynced ? (m.lastSynced | date: 'd MMM y, HH:mm') : 'Never' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        } @else {
+          <div class="s-empty">
+            <i class="ti ti-cloud" aria-hidden="true"></i>
+            <strong>No tenants yet</strong>
+            <p>Statuses appear once a tenant has Cloud API templates.</p>
+          </div>
+        }
+      }
+    }
+  }
+</section>
+
+<p class="flash" role="status" aria-live="polite">
+  @if (flash()) {
+    <span><i class="ti ti-circle-check" aria-hidden="true"></i>{{ flash() }}</span>
+  }
+</p>

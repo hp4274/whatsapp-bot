@@ -1,23 +1,67 @@
-import { Component, output, computed, effect, inject, input, signal, untracked } from '@angular/core';
-import { Store } from '../../core/store';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+  untracked,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
-import { ClassInfo, ImportResult, SchoolApi, SchoolArea, SchoolMe, Student } from '../school-api';
+import { Store } from '../../core/store';
+import { SchoolApi } from '../school-api';
+import type { ClassInfo, ImportResult, SchoolArea, SchoolMe, Student } from '../school-api';
 
-type Draft = Pick<Student, 'rollNumber' | 'name' | 'className' | 'section' | 'fatherName' | 'motherName' | 'parentPhone' | 'busRoute' | 'hostel'> & { id?: number };
+type Draft = Pick<
+  Student,
+  | 'rollNumber'
+  | 'name'
+  | 'className'
+  | 'section'
+  | 'fatherName'
+  | 'motherName'
+  | 'parentPhone'
+  | 'busRoute'
+  | 'hostel'
+> & { id?: number };
+/** An auto segment derived from the loaded students (bus route or hostel), usable as a filter. */
 type Chip = { kind: 'route' | 'hostel'; value: string; label: string; count: number };
 
-const EMPTY: Draft = { rollNumber: '', name: '', className: '', section: '', fatherName: '', motherName: '', parentPhone: '', busRoute: '', hostel: false };
-const TEMPLATE_HEADERS = 'Roll No,Student Name,Class,Section,Father Name,Mother Name,Parent Phone,Bus Route,Hostel';
+const EMPTY: Draft = {
+  rollNumber: '',
+  name: '',
+  className: '',
+  section: '',
+  fatherName: '',
+  motherName: '',
+  parentPhone: '',
+  busRoute: '',
+  hostel: false,
+};
+/** Must match the column names the server's importer expects. */
+const TEMPLATE_HEADERS =
+  'Roll No,Student Name,Class,Section,Father Name,Mother Name,Parent Phone,Bus Route,Hostel';
 /** 10 digits, or + country code and 8-15 digits. Spaces and dashes are ignored. */
 const PHONE = /^(\d{10}|\+\d{8,15})$/;
 
+/**
+ * The student directory and the parent WhatsApp numbers every broadcast goes to.
+ *
+ * Segments (class, bus route, hostel) are computed from the data rather than
+ * maintained by hand, so they always match who a broadcast would reach. Only
+ * the principal can add, edit, import or remove; validation shows after the
+ * first save attempt so the form doesn't open full of errors.
+ */
 @Component({
   selector: 'school-students',
   imports: [FormsModule],
   templateUrl: './students.html',
   styleUrl: './students.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class StudentsTab {
   private readonly api = inject(SchoolApi);
@@ -48,7 +92,9 @@ export class StudentsTab {
 
   protected readonly canEdit = computed(() => this.me()?.title === 'principal');
 
-  protected readonly classChips = computed(() => this.classes().map((c) => ({ key: c.key, label: `Grade-${c.key}`, count: c.students })));
+  protected readonly classChips = computed(() =>
+    this.classes().map((c) => ({ key: c.key, label: `Grade-${c.key}`, count: c.students })),
+  );
   protected readonly otherChips = computed<Chip[]>(() => {
     const routes = new Map<string, number>();
     let hostel = 0;
@@ -56,8 +102,14 @@ export class StudentsTab {
       if (s.busRoute) routes.set(s.busRoute, (routes.get(s.busRoute) ?? 0) + 1);
       if (s.hostel) hostel++;
     }
-    const chips: Chip[] = [...routes].sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
-      .map(([value, count]) => ({ kind: 'route', value, label: `Bus-Route-${value.replace(/^route\s*/i, '').replace(/\s+/g, '-')}`, count }));
+    const chips: Chip[] = [...routes]
+      .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+      .map(([value, count]) => ({
+        kind: 'route',
+        value,
+        label: `Bus-Route-${value.replace(/^route\s*/i, '').replace(/\s+/g, '-')}`,
+        count,
+      }));
     if (hostel) chips.push({ kind: 'hostel', value: 'hostel', label: 'Hostelers', count: hostel });
     return chips;
   });
@@ -69,8 +121,15 @@ export class StudentsTab {
       if (chip?.kind === 'route' && s.busRoute !== chip.value) return false;
       if (chip?.kind === 'hostel' && !s.hostel) return false;
       if (!q) return true;
-      return [s.name, s.rollNumber, s.fatherName, s.motherName, s.parentPhone, s.busRoute, s.classKey]
-        .some((v) => v?.toLowerCase().includes(q));
+      return [
+        s.name,
+        s.rollNumber,
+        s.fatherName,
+        s.motherName,
+        s.parentPhone,
+        s.busRoute,
+        s.classKey,
+      ].some((v) => v?.toLowerCase().includes(q));
     });
   });
 
@@ -85,9 +144,12 @@ export class StudentsTab {
     if (phone && !PHONE.test(phone)) e.parentPhone = 'Use 10 digits or +country code format';
     return e;
   });
-  protected readonly shownErrors = computed(() => (this.touched() ? this.errors() : {}) as Partial<Record<keyof Draft, string>>);
+  protected readonly shownErrors = computed(
+    () => (this.touched() ? this.errors() : {}) as Partial<Record<keyof Draft, string>>,
+  );
   protected readonly valid = computed(() => !Object.keys(this.errors()).length);
 
+  /** In-flight list load; cancelled when the class changes so a slow reply can't overwrite a newer one. */
   private sub?: Subscription;
 
   constructor() {
@@ -129,8 +191,16 @@ export class StudentsTab {
 
   protected edit(s: Student) {
     this.draft.set({
-      id: s.id, rollNumber: s.rollNumber, name: s.name, className: s.className, section: s.section,
-      fatherName: s.fatherName, motherName: s.motherName, parentPhone: s.parentPhone, busRoute: s.busRoute, hostel: s.hostel,
+      id: s.id,
+      rollNumber: s.rollNumber,
+      name: s.name,
+      className: s.className,
+      section: s.section,
+      fatherName: s.fatherName,
+      motherName: s.motherName,
+      parentPhone: s.parentPhone,
+      busRoute: s.busRoute,
+      hostel: s.hostel,
     });
     this.openDrawer();
   }
@@ -161,7 +231,9 @@ export class StudentsTab {
     this.saveError.set('');
     this.api.saveStudent(body).subscribe({
       next: ({ student }) => {
-        this.students.update((list) => (d.id ? list.map((s) => (s.id === student.id ? student : s)) : [student, ...list]));
+        this.students.update((list) =>
+          d.id ? list.map((s) => (s.id === student.id ? student : s)) : [student, ...list],
+        );
         this.saving.set(false);
         this.drawer.set(false);
         this.message.set(`${student.name} ${d.id ? 'updated' : 'added'}.`);
@@ -216,8 +288,13 @@ export class StudentsTab {
       '2,Diya Sharma,10,A,Anil Sharma,Kavita Sharma,9876512002,2,No',
       '3,Kabir Rao,10,B,Suresh Rao,Latha Rao,9876512003,4,Yes',
     ].join('\n');
-    const url = URL.createObjectURL(new Blob([`${TEMPLATE_HEADERS}\n${sample}\n`], { type: 'text/csv' }));
-    const a = Object.assign(document.createElement('a'), { href: url, download: 'students-template.csv' });
+    const url = URL.createObjectURL(
+      new Blob([`${TEMPLATE_HEADERS}\n${sample}\n`], { type: 'text/csv' }),
+    );
+    const a = Object.assign(document.createElement('a'), {
+      href: url,
+      download: 'students-template.csv',
+    });
     a.click();
     URL.revokeObjectURL(url);
   }

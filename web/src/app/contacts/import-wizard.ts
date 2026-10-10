@@ -1,4 +1,15 @@
-import { Component, ElementRef, computed, inject, input, output, signal, viewChild, afterNextRender } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  afterNextRender,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { ContactsApi, ImportPreview, ImportResult } from '../core/api';
@@ -6,22 +17,33 @@ import { splitTags } from './contact-util';
 
 type Step = 'upload' | 'map' | 'tags' | 'done';
 type Kind = 'phone' | 'name' | 'email' | 'tags' | 'custom' | 'ignore';
-interface Column { kind: Kind; key: string }
+interface Column {
+  kind: Kind;
+  key: string;
+}
 
-const STEPS: { id: Step; label: string }[] = [
+/** The stepper's order; `stepIndex` compares against it to tick finished steps. */
+const STEPS: readonly { id: Step; label: string }[] = [
   { id: 'upload', label: 'Upload' },
   { id: 'map', label: 'Map columns' },
   { id: 'tags', label: 'Tag' },
   { id: 'done', label: 'Result' },
 ];
 
-/** Upload a sheet, say which column is which, tag the batch, see what happened. */
+/**
+ * Upload a sheet, say which column is which, tag the batch, see what happened.
+ *
+ * The file is sent twice — once for a preview the user maps, once for the real
+ * import — so nothing is written until the mapping is valid and confirmed. It
+ * traps Tab inside itself because it is a true modal over the page.
+ */
 @Component({
   selector: 'app-import-wizard',
   imports: [FormsModule],
   templateUrl: './import-wizard.html',
   styleUrl: './import-wizard.scss',
   host: { '(document:keydown)': 'onKey($event)' },
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ImportWizard {
   private readonly api = inject(ContactsApi);
@@ -43,20 +65,26 @@ export class ImportWizard {
   protected readonly result = signal<ImportResult | null>(null);
 
   private readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
+  /** Focus goes back here on close. */
   private readonly opener = document.activeElement as HTMLElement | null;
 
   protected readonly stepIndex = computed(() => STEPS.findIndex((s) => s.id === this.step()));
 
   protected readonly targets = computed(() =>
-    this.columns().map((c) => (c.kind === 'custom' ? `custom:${c.key.trim()}` : c.kind)));
+    this.columns().map((c) => (c.kind === 'custom' ? `custom:${c.key.trim()}` : c.kind)),
+  );
 
   protected readonly mappingError = computed(() => {
     const cols = this.columns();
     const count = (k: Kind) => cols.filter((c) => c.kind === k).length;
-    if (count('phone') !== 1) return count('phone') ? 'Only one column can be the phone number.' : 'Choose which column holds the phone number.';
+    if (count('phone') !== 1)
+      return count('phone')
+        ? 'Only one column can be the phone number.'
+        : 'Choose which column holds the phone number.';
     if (count('name') > 1) return 'Only one column can be the name.';
     if (count('email') > 1) return 'Only one column can be the email.';
-    if (cols.some((c) => c.kind === 'custom' && !c.key.trim())) return 'Give every custom field a name.';
+    if (cols.some((c) => c.kind === 'custom' && !c.key.trim()))
+      return 'Give every custom field a name.';
     const keys = cols.filter((c) => c.kind === 'custom').map((c) => c.key.trim());
     if (new Set(keys).size !== keys.length) return 'Two columns map to the same custom field.';
     return '';
@@ -66,7 +94,9 @@ export class ImportWizard {
   protected readonly sample = computed(() => {
     const p = this.preview();
     if (!p) return { heads: [] as string[], rows: [] as string[][] };
-    const keep = this.columns().map((c, i) => (c.kind === 'ignore' ? -1 : i)).filter((i) => i >= 0);
+    const keep = this.columns()
+      .map((c, i) => (c.kind === 'ignore' ? -1 : i))
+      .filter((i) => i >= 0);
     return {
       heads: keep.map((i) => this.targetLabel(this.columns()[i])),
       rows: p.rows.slice(0, 5).map((row) => keep.map((i) => row[i] ?? '')),
@@ -81,11 +111,18 @@ export class ImportWizard {
   protected readonly problems = computed(() => {
     const r = this.result();
     if (!r) return [];
-    return [...r.errors, ...(r.saved?.failed ?? []).map((f) => `Row ${f.row}: ${f.error}`)].slice(0, 50);
+    return [...r.errors, ...(r.saved?.failed ?? []).map((f) => `Row ${f.row}: ${f.error}`)].slice(
+      0,
+      50,
+    );
   });
 
   protected readonly suggestions = computed(() =>
-    this.knownTags().map((t) => t.tag).filter((t) => !this.tags().includes(t)).slice(0, 8));
+    this.knownTags()
+      .map((t) => t.tag)
+      .filter((t) => !this.tags().includes(t))
+      .slice(0, 8),
+  );
 
   constructor() {
     afterNextRender(() => this.focusFirst());
@@ -135,12 +172,15 @@ export class ImportWizard {
   // ------------------------------------------------------------------- map --
   protected setKind(index: number, kind: Kind) {
     const header = this.preview()?.headers[index] ?? '';
-    this.columns.set(this.columns().map((c, i) => {
-      if (i === index) return { kind, key: kind === 'custom' ? (c.key || slug(header)) : c.key };
-      // Phone, name and email are one column each: picking one frees the other.
-      if (c.kind === kind && ['phone', 'name', 'email'].includes(kind)) return { kind: 'custom', key: c.key || slug(this.preview()?.headers[i] ?? '') };
-      return c;
-    }));
+    this.columns.set(
+      this.columns().map((c, i) => {
+        if (i === index) return { kind, key: kind === 'custom' ? c.key || slug(header) : c.key };
+        // Phone, name and email are one column each: picking one frees the other.
+        if (c.kind === kind && ['phone', 'name', 'email'].includes(kind))
+          return { kind: 'custom', key: c.key || slug(this.preview()?.headers[i] ?? '') };
+        return c;
+      }),
+    );
   }
 
   protected setKey(index: number, key: string) {
@@ -148,7 +188,10 @@ export class ImportWizard {
   }
 
   protected samples(index: number) {
-    return (this.preview()?.rows ?? []).map((r) => r[index]).filter(Boolean).slice(0, 3);
+    return (this.preview()?.rows ?? [])
+      .map((r) => r[index])
+      .filter(Boolean)
+      .slice(0, 3);
   }
 
   protected targetLabel(c: Column) {
@@ -165,7 +208,9 @@ export class ImportWizard {
   }
 
   protected toggleSuggestion(tag: string) {
-    this.tags.set(this.tags().includes(tag) ? this.tags().filter((t) => t !== tag) : [...this.tags(), tag]);
+    this.tags.set(
+      this.tags().includes(tag) ? this.tags().filter((t) => t !== tag) : [...this.tags(), tag],
+    );
   }
 
   protected removeTag(tag: string) {
@@ -238,8 +283,11 @@ export class ImportWizard {
   private focusables(): HTMLElement[] {
     const root = this.panel()?.nativeElement;
     if (!root) return [];
-    return [...root.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex="0"]')]
-      .filter((el) => el.offsetParent !== null);
+    return [
+      ...root.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex="0"]',
+      ),
+    ].filter((el) => el.offsetParent !== null);
   }
 
   private focusFirst() {
@@ -251,7 +299,17 @@ export class ImportWizard {
 
 function toColumn(target: string): Column {
   if (target.startsWith('custom:')) return { kind: 'custom', key: target.slice(7) };
-  return { kind: (['phone', 'name', 'email', 'tags', 'ignore'].includes(target) ? target : 'ignore') as Kind, key: '' };
+  return {
+    kind: (['phone', 'name', 'email', 'tags', 'ignore'].includes(target)
+      ? target
+      : 'ignore') as Kind,
+    key: '',
+  };
 }
 
-const slug = (header: string) => header.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+const slug = (header: string) =>
+  header
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');

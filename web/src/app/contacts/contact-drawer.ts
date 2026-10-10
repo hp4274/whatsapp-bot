@@ -1,5 +1,16 @@
 import {
-  Component, DestroyRef, ElementRef, computed, effect, inject, input, output, signal, untracked, viewChild,
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+  untracked,
+  viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
@@ -7,19 +18,29 @@ import { Contact2, ContactsApi, TimelineEntry } from '../core/api';
 import { Store } from '../core/store';
 import { absoluteTime, displayPhone, hue, initials, relativeTime, splitTags } from './contact-util';
 
-interface FieldRow { key: string; value: string }
+interface FieldRow {
+  key: string;
+  value: string;
+}
 
-/** Everything about one person: profile, tags, fields, consent and history. */
+/**
+ * Everything about one person: profile, tags, fields, consent and history.
+ *
+ * Reloads on live store events so a reply or opt-out shows up while it is open,
+ * but keeps an unsaved custom-field draft rather than clobbering it.
+ */
 @Component({
   selector: 'app-contact-drawer',
   imports: [FormsModule],
   templateUrl: './contact-drawer.html',
   styleUrl: './contact-drawer.scss',
   host: { '(document:keydown.escape)': 'onEscape()' },
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ContactDrawer {
   private readonly api = inject(ContactsApi);
   private readonly store = inject(Store);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly contactId = input.required<number>();
   readonly fieldKeys = input<string[]>([]);
@@ -49,7 +70,9 @@ export class ContactDrawer {
     return c ? JSON.stringify(toObject(this.fields())) !== JSON.stringify(c.customFields) : false;
   });
   protected readonly fieldError = computed(() => {
-    const keys = this.fields().map((f) => f.key.trim()).filter(Boolean);
+    const keys = this.fields()
+      .map((f) => f.key.trim())
+      .filter(Boolean);
     return new Set(keys).size !== keys.length ? 'Each field name can only be used once.' : '';
   });
 
@@ -60,6 +83,7 @@ export class ContactDrawer {
   protected readonly absolute = absoluteTime;
 
   private readonly closeBtn = viewChild<ElementRef<HTMLButtonElement>>('closeBtn');
+  /** Focus returns here when the drawer goes away, whoever closed it. */
   private readonly opener = document.activeElement as HTMLElement | null;
 
   constructor() {
@@ -75,10 +99,13 @@ export class ContactDrawer {
       });
     });
     effect(() => {
-      if (this.contact()) queueMicrotask(() => this.closeBtn()?.nativeElement.focus({ preventScroll: true }));
+      if (this.contact())
+        queueMicrotask(() => this.closeBtn()?.nativeElement.focus({ preventScroll: true }));
     });
-    this.store.watch(['contacts', 'optouts', 'messages', 'inbox', 'conversations'], () => this.load(this.contactId(), false));
-    inject(DestroyRef).onDestroy(() => this.opener?.focus?.());
+    this.store.watch(['contacts', 'optouts', 'messages', 'inbox', 'conversations'], () =>
+      this.load(this.contactId(), false),
+    );
+    this.destroyRef.onDestroy(() => this.opener?.focus?.());
   }
 
   private load(id: number, resetFields: boolean) {
@@ -169,14 +196,18 @@ export class ContactDrawer {
     this.tagText.set('');
     if (!c || !tags.length) return;
     this.saving.set(true);
-    this.api.tag(c.id, tags).subscribe({ next: ({ contact }) => this.done(contact), error: (e: Error) => this.fail(e) });
+    this.api
+      .tag(c.id, tags)
+      .subscribe({ next: ({ contact }) => this.done(contact), error: (e: Error) => this.fail(e) });
   }
 
   protected removeTag(tag: string) {
     const c = this.contact();
     if (!c) return;
     this.saving.set(true);
-    this.api.tag(c.id, [], [tag]).subscribe({ next: ({ contact }) => this.done(contact), error: (e: Error) => this.fail(e) });
+    this.api
+      .tag(c.id, [], [tag])
+      .subscribe({ next: ({ contact }) => this.done(contact), error: (e: Error) => this.fail(e) });
   }
 
   protected tagKey(event: KeyboardEvent) {
@@ -264,11 +295,11 @@ export class ContactDrawer {
 
   // ------------------------------------------------------------ timeline --
   protected icon(e: TimelineEntry) {
-    if (e.kind === 'button_click') return 'touch_app';
-    if (e.direction === 'inbound') return e.kind === 'media' ? 'image' : 'chat_bubble';
-    if (e.status === 'FAILED') return 'error';
-    if (e.status === 'READ') return 'done_all';
-    return e.kind === 'campaign' ? 'campaign' : 'send';
+    if (e.kind === 'button_click') return 'hand-finger';
+    if (e.direction === 'inbound') return e.kind === 'media' ? 'photo' : 'message-circle';
+    if (e.status === 'FAILED') return 'alert-circle';
+    if (e.status === 'READ') return 'checks';
+    return e.kind === 'campaign' ? 'speakerphone' : 'send';
   }
 
   protected label(e: TimelineEntry) {

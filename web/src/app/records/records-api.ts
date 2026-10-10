@@ -46,9 +46,9 @@ export interface BusinessObject {
 export interface ObjectEvent {
   id: number;
   objectId: number;
-  change: string;          // 'created' | 'updated' | ...
+  change: string; // 'created' | 'updated' | ...
   field: string | null;
-  from: string | null;     // encoded value (string) or null
+  from: string | null; // encoded value (string) or null
   to: string | null;
   source: string;
   at: string;
@@ -88,7 +88,10 @@ export class RecordsApi {
     return this.http.get<ObjectStats>('/api/objects-stats').pipe(catchError(toMessage));
   }
 
-  list(type: string, opts: { status?: string; limit?: number; offset?: number } = {}): Observable<{ objects: BusinessObject[]; total: number }> {
+  list(
+    type: string,
+    opts: { status?: string; limit?: number; offset?: number } = {},
+  ): Observable<{ objects: BusinessObject[]; total: number }> {
     let params = new HttpParams();
     if (opts.status) params = params.set('status', opts.status);
     if (opts.limit != null) params = params.set('limit', opts.limit);
@@ -113,7 +116,9 @@ export class RecordsApi {
   }
 
   remove(type: string, id: number): Observable<{ deleted: number }> {
-    return this.http.delete<{ deleted: number }>(`/api/objects/${enc(type)}/${id}`).pipe(catchError(toMessage));
+    return this.http
+      .delete<{ deleted: number }>(`/api/objects/${enc(type)}/${id}`)
+      .pipe(catchError(toMessage));
   }
 
   events(type: string, id: number): Observable<ObjectEvent[]> {
@@ -128,6 +133,7 @@ const enc = encodeURIComponent;
 
 function toMessage(error: HttpErrorResponse) {
   const body = error.error as { errors?: string[] } | null;
-  const fallback = error.status === 0 ? 'Cannot reach the server. Check your connection.' : error.message;
+  const fallback =
+    error.status === 0 ? 'Cannot reach the server. Check your connection.' : error.message;
   return throwError(() => new Error(body?.errors?.join(' ') || fallback || 'Request failed'));
 }

@@ -1,16 +1,22 @@
-<header class="head">
+<header class="s-head">
   <div>
-    <span class="eyebrow"><span class="ms">badge</span> Staff &amp; access</span>
+    <span class="eyebrow"
+      ><i class="ti ti-id-badge-2" aria-hidden="true"></i> Staff &amp; access</span
+    >
     <h2>The right desk for every person.</h2>
-    <p>Give each team member a school title. Titles decide which parts of the portal they can open.</p>
+    <p>
+      Give each team member a school title. Titles decide which parts of the portal they can open.
+    </p>
   </div>
-  <a class="btn primary" routerLink="/team"><span class="ms">person_add</span> Invite on Team page</a>
+  <a class="btn primary" routerLink="/team"
+    ><i class="ti ti-user-plus" aria-hidden="true"></i> Invite on Team page</a
+  >
 </header>
 
 <div class="legend">
   @for (t of titles; track t.id; let i = $index) {
-    <div class="role" schoolTilt [style.--i]="i">
-      <span class="ms">{{ t.icon }}</span>
+    <div class="s-card s-tilt role" schoolTilt [style.--i]="i">
+      <i class="ti ti-{{ t.icon }}" aria-hidden="true"></i>
       <strong>{{ t.label }}</strong>
       <small>{{ t.access }}</small>
     </div>
@@ -18,15 +24,23 @@
 </div>
 
 @if (error()) {
-  <div class="banner" role="alert"><span class="ms">error</span>{{ error() }}</div>
+  <div class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}
+    <button class="btn sm" type="button" (click)="reload()">Try again</button>
+  </div>
 }
 
-<section class="panel" style="--i: 4">
-  <h3><span class="ms">group</span> Team</h3>
+<section class="s-card" style="--i: 4" [attr.aria-busy]="loading()">
+  <h3><i class="ti ti-users" aria-hidden="true"></i> Team</h3>
   @if (loading()) {
-    @for (s of [0, 1, 2]; track s) { <div class="skel"></div> }
+    @for (s of [0, 1, 2]; track s) {
+      <div class="s-skel"></div>
+    }
   } @else if (!rows().length) {
-    <div class="empty"><span class="ms">group_add</span><strong>No staff yet</strong>Invite people from the Team page, then assign titles here.</div>
+    <div class="s-empty">
+      <i class="ti ti-users-plus" aria-hidden="true"></i><strong>No staff yet</strong>
+      <p>Invite people from the Team page, then assign titles here.</p>
+    </div>
   } @else {
     <ul class="people">
       @for (r of rows(); track r.id; let i = $index) {
@@ -37,25 +51,60 @@
             <small class="muted">{{ r.email }} · {{ r.role }}</small>
           </div>
           <div class="ctl">
-            <label class="sr" [for]="'title-' + r.id">Staff title for {{ r.name || r.email }}</label>
-            <span class="sel"><span class="ms">{{ titleOf(r.title).icon }}</span>
-              <select [id]="'title-' + r.id" [ngModel]="r.title" (ngModelChange)="setTitle(r, $event)">
-                @for (t of titles; track t.id) { <option [value]="t.id">{{ t.label }}</option> }
+            <label class="sr" [for]="'title-' + r.id"
+              >Staff title for {{ r.name || r.email }}</label
+            >
+            <span class="sel"
+              ><i class="ti ti-{{ titleOf(r.title).icon }}" aria-hidden="true"></i>
+              <select
+                [id]="'title-' + r.id"
+                [ngModel]="r.title"
+                (ngModelChange)="setTitle(r, $event)"
+              >
+                @for (t of titles; track t.id) {
+                  <option [value]="t.id">{{ t.label }}</option>
+                }
               </select>
             </span>
-            <button class="btn sm" type="button" [class.primary]="r.dirty" [disabled]="!r.dirty || r.saving" (click)="save(r)">
-              @if (r.saving) { <span class="spinner"></span> } @else if (r.saved) { <span class="ms">check</span> Saved } @else { Save }
+            <button
+              class="btn sm"
+              type="button"
+              [class.primary]="r.dirty"
+              [disabled]="!r.dirty || r.saving"
+              (click)="save(r)"
+            >
+              @if (r.saving) {
+                <span class="spinner"></span>
+              } @else if (r.saved) {
+                <i class="ti ti-check" aria-hidden="true"></i> Saved
+              } @else {
+                Save
+              }
             </button>
           </div>
           @if (r.title === 'class_teacher') {
-            <div class="picks" role="group" [attr.aria-label]="'Assigned classes for ' + (r.name || r.email)">
+            <div
+              class="picks"
+              role="group"
+              [attr.aria-label]="'Assigned classes for ' + (r.name || r.email)"
+            >
               @for (c of classes(); track c.key) {
-                <label><input type="checkbox" [checked]="r.classes.includes(c.key)" (change)="toggleClass(r, c.key, $any($event.target).checked)" />{{ c.key }}</label>
+                <label
+                  ><input
+                    type="checkbox"
+                    [checked]="r.classes.includes(c.key)"
+                    (change)="toggleClass(r, c.key, $any($event.target).checked)"
+                  />{{ c.key }}</label
+                >
               }
-              @if (!r.classes.length) { <small class="muted">No classes picked - they will see none.</small> }
+              @if (!r.classes.length) {
+                <small class="muted">No classes picked - they will see none.</small>
+              }
             </div>
           }
-          @if (r.error) { <p class="err" role="alert">{{ r.error }}</p> }
+          @if (r.error) {
+            <p class="err" role="alert">{{ r.error }}</p>
+          }
         </li>
       }
     </ul>

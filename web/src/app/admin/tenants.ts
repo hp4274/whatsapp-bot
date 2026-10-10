@@ -1,15 +1,15 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 
-import { forkJoin } from 'rxjs';
-
-import { AuditLog, CustomSafetyState, SafetyPolicy, TenancyApi, TenantLimits } from '../core/api';
-import { SAFETY_GROUPS } from '../core/safety-fields';
+import { AuditLog, TenancyApi } from '../core/api';
 import { Auth, Tenant, TenantControls } from '../core/auth';
 import { Store } from '../core/store';
 import { serviceMeta } from './service-meta';
+import { TenantActivity } from './tenant-activity';
+import { SettingsTab, TenantSettings } from './tenant-settings';
 
+/** The create-tenant form, kept as one signal so it survives the services drawer. */
 type TenantDraft = {
   name: string;
   slug: string;
@@ -20,11 +20,12 @@ type TenantDraft = {
   controls: TenantControls;
 };
 
+/** `draft` edits the unsaved form's services; `tenant` saves straight to the server. */
 type ServiceDrawer =
-  | { mode: 'draft'; services: string[] }
-  | { mode: 'tenant'; tenant: Tenant; services: string[] };
+  { mode: 'draft'; services: string[] } | { mode: 'tenant'; tenant: Tenant; services: string[] };
 
-const DEFAULT_SERVICES = [
+/** Fallback service list for when the server does not send its catalogue. */
+const DEFAULT_SERVICES: readonly string[] = [
   'school_whatsapp_bot',
   'whatsapp_channels',
   'contacts',
@@ -48,6 +49,7 @@ const DEFAULT_SERVICES = [
   'ai',
 ];
 
+/** New tenants start with everything on; the platform admin narrows from there. */
 const DEFAULT_CONTROLS: TenantControls = {
   sendingEnabled: true,
   inboundEnabled: true,
@@ -62,34 +64,10 @@ const CONTROL_LABELS: Record<keyof TenantControls, string> = {
   automationsEnabled: 'Automations',
 };
 
-type SettingsDrawer = {
-  tenant: Tenant;
-  controls: TenantControls;
-  safety: SafetyPolicy | null;
-  custom: CustomSafetyState | null;
-  limits: TenantLimits;
-};
+/** Placeholder cards shown while the first list loads. */
+const SKELETON_CARDS: readonly number[] = [0, 1, 2];
 
-type SettingsTab = 'general' | 'limits' | 'safety';
-
-const DEFAULT_LIMITS: TenantLimits = {
-  maxChannels: 0, maxUsers: 0, maxTemplates: 0, maxContactsPerCampaign: 0, maxMediaMb: 0,
-  allowCloudApi: true, allowWhatsappWeb: true, blockedWords: '', allowCustomSafety: false,
-};
-
-type LimitField = {
-  key: 'maxChannels' | 'maxUsers' | 'maxTemplates' | 'maxContactsPerCampaign' | 'maxMediaMb';
-  label: string;
-  unit: string;
-};
-const LIMIT_FIELDS: LimitField[] = [
-  { key: 'maxChannels', label: 'WhatsApp numbers', unit: 'numbers' },
-  { key: 'maxUsers', label: 'Team members', unit: 'seats' },
-  { key: 'maxTemplates', label: 'Saved templates', unit: 'templates' },
-  { key: 'maxContactsPerCampaign', label: 'Contacts per campaign', unit: 'contacts' },
-  { key: 'maxMediaMb', label: 'Largest upload', unit: 'MB' },
-];
-
+/** localStorage key remembering grid vs list. */
 const VIEW_KEY = 'wsender.tenantView';
 
 const emptyDraft = (): TenantDraft => ({
@@ -102,31 +80,31 @@ const emptyDraft = (): TenantDraft => ({
   controls: { ...DEFAULT_CONTROLS },
 });
 
+/**
+ * The super admin's tenant console: create, suspend, seed, delete, and open
+ * the settings drawer (controls, limits, anti-ban safety) for any business.
+ *
+ * The settings drawer is its own component (`TenantSettings`) with its own
+ * working copy, so a half-edited drawer never changes what a tenant may do.
+ */
 @Component({
   selector: 'app-admin-tenants',
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, TenantActivity, TenantSettings],
   templateUrl: './tenants.html',
   styleUrl: './tenants.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TenantsView {
   private readonly api = inject(TenancyApi);
   private readonly auth = inject(Auth);
   private readonly store = inject(Store);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   protected readonly tenants = signal<Tenant[]>([]);
   protected readonly logs = signal<AuditLog[]>([]);
-  protected readonly recentLogs = computed(() => this.logs().slice(0, 6));
-
-  protected ago(iso: string): string {
-    const then = new Date(iso).getTime();
-    if (Number.isNaN(then)) return iso;
-    const s = Math.max(0, (Date.now() - then) / 1000);
-    if (s < 60) return 'just now';
-    if (s < 3600) return `${Math.floor(s / 60)} min ago`;
-    if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
-    return new Date(then).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-  }
+  protected readonly skeletonRows = SKELETON_CARDS;
+  protected readonly loading = signal(true);
   protected readonly error = signal('');
   protected readonly busy = signal(false);
   protected readonly savingId = signal<number | null>(null);
@@ -144,26 +122,24 @@ export class TenantsView {
   protected readonly statusFilter = signal<'all' | 'active' | 'suspended'>('all');
   protected readonly view = signal<'grid' | 'list'>(readView());
   protected readonly menuId = signal<number | null>(null);
-  protected readonly settings = signal<SettingsDrawer | null>(null);
+  /** Tenant whose settings drawer is open, and the tab it opens on. */
+  protected readonly settingsTenant = signal<Tenant | null>(null);
+  protected readonly settingsTab = signal<SettingsTab>('general');
+  /** Tenant awaiting delete confirmation; null hides the dialog. */
+  protected readonly deleteTarget = signal<Tenant | null>(null);
   protected readonly seedConfirmId = signal<number | null>(null);
   protected readonly seedingId = signal<number | null>(null);
   protected readonly seedResult = signal<{ id: number; ok: boolean; text: string } | null>(null);
-  protected readonly safetyGroups = SAFETY_GROUPS;
-  protected readonly limitFields = LIMIT_FIELDS;
-  protected readonly settingsTab = signal<SettingsTab>('general');
-  protected readonly settingsTabs: { id: SettingsTab; label: string; icon: string }[] = [
-    { id: 'general', label: 'General', icon: 'tune' },
-    { id: 'limits', label: 'Limits and quotas', icon: 'data_usage' },
-    { id: 'safety', label: 'Anti-ban safety', icon: 'shield' },
-  ];
   protected readonly visible = computed(() => {
     const q = this.query().trim().toLowerCase();
     const status = this.statusFilter();
-    return this.tenants().filter((tenant) =>
-      (status === 'all' || tenant.status === status)
-      && (!q || `${tenant.name} ${tenant.slug}`.toLowerCase().includes(q)));
+    return this.tenants().filter(
+      (tenant) =>
+        (status === 'all' || tenant.status === status) &&
+        (!q || `${tenant.name} ${tenant.slug}`.toLowerCase().includes(q)),
+    );
   });
-  protected readonly controlKeys: (keyof TenantControls)[] = [
+  protected readonly controlKeys: readonly (keyof TenantControls)[] = [
     'sendingEnabled',
     'inboundEnabled',
     'campaignsEnabled',
@@ -173,15 +149,14 @@ export class TenantsView {
   constructor() {
     this.refresh();
     // /admin/tenants?settings=<id>[&tab=limits|safety] (linked from the ops pages) opens that drawer.
-    const query = inject(ActivatedRoute).snapshot.queryParamMap;
+    const query = this.route.snapshot.queryParamMap;
     const wanted = Number(query.get('settings'));
     const tab = query.get('tab');
     if (wanted) {
       this.api.tenants().subscribe(({ tenants }) => {
         const tenant = tenants.find((t) => t.id === wanted);
         if (!tenant) return;
-        this.openSettings(tenant);
-        if (tab === 'limits' || tab === 'safety') this.settingsTab.set(tab);
+        this.openSettings(tenant, tab === 'limits' || tab === 'safety' ? tab : 'general');
       });
     }
   }
@@ -191,8 +166,12 @@ export class TenantsView {
       next: ({ tenants, services }) => {
         this.services.set(services.length ? services : [...DEFAULT_SERVICES]);
         this.tenants.set(tenants);
+        this.loading.set(false);
       },
-      error: (err: Error) => this.error.set(err.message),
+      error: (err: Error) => {
+        this.loading.set(false);
+        this.error.set(err.message);
+      },
     });
     this.api.auditLogs().subscribe({ next: ({ logs }) => this.logs.set(logs.slice(0, 40)) });
   }
@@ -262,102 +241,9 @@ export class TenantsView {
     this.statusFilter.set(value === 'active' || value === 'suspended' ? value : 'all');
   }
 
-  protected openSettings(tenant: Tenant) {
-    this.revokeConfirm.set(false);
-    if (this.settings()?.tenant.id !== tenant.id) this.settingsTab.set('general');
-    this.settings.set({
-      tenant,
-      controls: { ...DEFAULT_CONTROLS, ...(tenant.controls ?? {}) },
-      safety: null,
-      custom: null,
-      limits: { ...DEFAULT_LIMITS, ...(tenant.limits ?? {}) },
-    });
-    this.api.safety(tenant.id).subscribe({
-      next: ({ safety, custom }) =>
-        this.settings.update((cur) => (cur?.tenant.id === tenant.id ? { ...cur, safety, custom } : cur)),
-      error: (err: Error) => this.error.set(err.message),
-    });
-  }
-
-  protected readonly revokeConfirm = signal(false);
-
-  /** Drop the tenant's own limits and take the permission back. Two clicks, no window.confirm. */
-  protected revokeCustomSafety() {
-    const cur = this.settings();
-    if (!cur) return;
-    if (!this.revokeConfirm()) {
-      this.revokeConfirm.set(true);
-      return;
-    }
-    this.revokeConfirm.set(false);
-    this.savingId.set(cur.tenant.id);
-    this.api.revokeCustomSafety(cur.tenant.id).subscribe({
-      next: ({ custom }) => {
-        this.savingId.set(null);
-        this.settings.update((s) => (s?.tenant.id === cur.tenant.id
-          ? { ...s, custom, limits: { ...s.limits, allowCustomSafety: false } } : s));
-        this.refresh();
-      },
-      error: (err: Error) => {
-        this.savingId.set(null);
-        this.error.set(err.message);
-      },
-    });
-  }
-
-  protected overrideCount(custom: CustomSafetyState): number {
-    return Object.keys(custom.overrides ?? {}).length;
-  }
-
-  protected closeSettings() {
-    if (this.savingId() === null) this.settings.set(null);
-  }
-
-  protected setSettingsControl(key: keyof TenantControls, checked: boolean) {
-    this.settings.update((cur) => (cur ? { ...cur, controls: { ...cur.controls, [key]: checked } } : cur));
-  }
-
-  protected setSafetyValue<K extends keyof SafetyPolicy>(key: K, value: SafetyPolicy[K]) {
-    this.settings.update((cur) => (cur?.safety ? { ...cur, safety: { ...cur.safety, [key]: value } } : cur));
-  }
-
-  protected setLimit<K extends keyof TenantLimits>(key: K, value: TenantLimits[K]) {
-    this.settings.update((cur) => (cur ? { ...cur, limits: { ...cur.limits, [key]: value } } : cur));
-  }
-
-  protected setLimitNumber(key: LimitField['key'], raw: string) {
-    this.setLimit(key, Math.max(0, Math.floor(Number(raw) || 0)));
-  }
-
-  protected setSafetyNumber(key: keyof SafetyPolicy, raw: string) {
-    this.setSafetyValue(key, Number(raw) as never);
-  }
-
-  protected resetSettings() {
-    const cur = this.settings();
-    if (cur) this.openSettings(cur.tenant);
-  }
-
-  protected saveSettings() {
-    const cur = this.settings();
-    if (!cur) return;
-    this.savingId.set(cur.tenant.id);
-    this.error.set('');
-    forkJoin([
-      this.api.updateTenant(cur.tenant.id, { controls: cur.controls }),
-      this.api.setLimits(cur.tenant.id, cur.limits),
-      ...(cur.safety ? [this.api.setSafety(cur.tenant.id, cur.safety)] : []),
-    ]).subscribe({
-      next: () => {
-        this.savingId.set(null);
-        this.settings.set(null);
-        this.refresh();
-      },
-      error: (err: Error) => {
-        this.savingId.set(null);
-        this.error.set(err.message);
-      },
-    });
+  protected openSettings(tenant: Tenant, tab: SettingsTab = 'general') {
+    this.settingsTab.set(tab);
+    this.settingsTenant.set(tenant);
   }
 
   protected toggleDraftService(service: string, checked: boolean) {
@@ -444,13 +330,17 @@ export class TenantsView {
     this.error.set('');
     this.api.seedTenant(tenant.id).subscribe({
       next: ({ created }) => {
-        const parts = Object.entries(created).map(([key, n]) => `${n} ${key.replace(/([A-Z])/g, ' $1').toLowerCase()}`);
+        const parts = Object.entries(created).map(
+          ([key, n]) => `${n} ${key.replace(/([A-Z])/g, ' $1').toLowerCase()}`,
+        );
         this.seedingId.set(null);
         this.seedConfirmId.set(null);
         this.seedResult.set({
           id: tenant.id,
           ok: true,
-          text: parts.length ? `Added ${parts.join(', ')}.` : 'Demo data is already in place - nothing new to add.',
+          text: parts.length
+            ? `Added ${parts.join(', ')}.`
+            : 'Demo data is already in place - nothing new to add.',
         });
         this.refresh();
       },
@@ -461,8 +351,17 @@ export class TenantsView {
     });
   }
 
+  protected askDelete(tenant: Tenant) {
+    this.deleteTarget.set(tenant);
+  }
+
+  protected cancelDelete() {
+    this.deleteTarget.set(null);
+  }
+
+  /** Archives the tenant; the dialog has already asked, so this does not ask again. */
   protected deleteTenant(tenant: Tenant) {
-    if (!window.confirm(`Delete ${tenant.name}? This archives the tenant and removes it from this list.`)) return;
+    this.deleteTarget.set(null);
     this.savingId.set(tenant.id);
     this.error.set('');
     this.api.deleteTenant(tenant.id).subscribe({
@@ -489,7 +388,11 @@ export class TenantsView {
   }
 
   protected slugFor(value: string): string {
-    return String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return String(value ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
   }
 
   /** Enter a tenant's workspace: every later request carries its id. */

@@ -1,0 +1,195 @@
+<!-- Header with filters, then error / skeleton / table-or-empty; one native dialog for disconnect + move. -->
+<section class="panel" aria-labelledby="numbers-title">
+  <header class="head">
+    <div>
+      <p class="eyebrow">WhatsApp numbers</p>
+      <h2 id="numbers-title">Every number, every business</h2>
+      <p class="lede">Online state, Meta quality and today's sends. Problems are listed first.</p>
+    </div>
+    <div class="tools">
+      <button type="button" class="s-chip" [attr.aria-pressed]="offlineOnly()" (click)="offlineOnly.set(!offlineOnly())">
+        <i class="ti ti-wifi-off" aria-hidden="true"></i>Offline only <b>{{ offlineCount() }}</b>
+      </button>
+      <button type="button" class="s-chip" [attr.aria-pressed]="pausedOnly()" (click)="pausedOnly.set(!pausedOnly())">
+        <i class="ti ti-player-pause" aria-hidden="true"></i>Paused only <b>{{ pausedCount() }}</b>
+      </button>
+      <button type="button" class="btn sm icon" aria-label="Refresh" [disabled]="loading()" (click)="load()">
+        <i class="ti ti-refresh" aria-hidden="true"></i>
+      </button>
+    </div>
+  </header>
+
+  @if (notice(); as n) {
+    <p class="s-banner" [class.tone-ok]="n.tone === 'ok'" role="status">
+      <i class="ti" [class.ti-circle-check]="n.tone === 'ok'" [class.ti-alert-circle]="n.tone === 'bad'" aria-hidden="true"></i>
+      <span class="msg">{{ n.text }}</span>
+      <button type="button" class="btn sm ghost icon" aria-label="Dismiss" (click)="notice.set(null)">
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
+    </p>
+  }
+
+  @if (error()) {
+    <p class="s-banner" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i>
+      <span class="msg">{{ error() }}</span>
+      <button type="button" class="btn sm" (click)="load()">Try again</button>
+    </p>
+  } @else if (loading() && !rows().length) {
+    <div class="card" aria-busy="true" aria-label="Loading numbers">
+      @for (i of [1, 2, 3, 4]; track i) {
+        <div class="s-skel" style="height: 18px"></div>
+      }
+    </div>
+  } @else if (!visible().length) {
+    <div class="card s-empty">
+      <i class="ti ti-device-mobile" aria-hidden="true"></i>
+      <strong>{{ rows().length ? 'Nothing matches these filters' : 'No WhatsApp numbers yet' }}</strong>
+      <p>
+        {{ rows().length ? 'Every number is online and running.' : 'Numbers appear here once a business adds one.' }}
+      </p>
+    </div>
+  } @else {
+    <div class="card">
+      <div class="s-table">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Business</th>
+              <th scope="col">Number</th>
+              <th scope="col">Provider</th>
+              <th scope="col">Online</th>
+              <th scope="col">Quality</th>
+              <th scope="col" class="num">Today / cap</th>
+              <th scope="col">Paused because</th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of visible(); track row.id; let i = $index) {
+              <tr [style.--i]="i" [class.off]="row.status !== 'active'">
+                <td>
+                  <span class="strong">{{ row.tenantName }}</span>
+                  @if (row.tenantStatus !== 'active') {
+                    <span class="s-pill tone-warn">{{ row.tenantStatus }}</span>
+                  }
+                </td>
+                <td>
+                  <span class="strong">{{ row.phoneNumber || '—' }}</span>
+                  <span class="sub">{{ row.displayName }}@if (row.isDefault) { · default }</span>
+                </td>
+                <td><span class="prov">{{ row.provider === 'cloud_api' ? 'Cloud API' : row.provider }}</span></td>
+                <td>
+                  <span class="s-pill" [class.tone-ok]="row.online" [class.tone-mute]="!row.online">
+                    {{ row.online ? 'Online' : 'Offline' }}
+                  </span>
+                  <span class="sub">Seen {{ ago(row.lastSeenAt) }}</span>
+                </td>
+                <td>
+                  @if (row.qualityRating) {
+                    <span class="s-pill" [class]="qualityTone(row.qualityRating)">{{ row.qualityRating.toLowerCase() }}</span>
+                  } @else {
+                    <span class="sub">—</span>
+                  }
+                </td>
+                <td class="num">
+                  <span class="strong">{{ row.quota.used }}</span>
+                  <span class="sub">/ {{ row.quota.limit || 'no cap' }}</span>
+                  @if (row.quota.limit) {
+                    <span class="meter" aria-hidden="true"><span [style.width.%]="capPct(row)"></span></span>
+                  }
+                </td>
+                <td class="reason">
+                  @if (row.pausedReason) {
+                    <span [title]="row.pausedReason">{{ row.pausedReason }}</span>
+                    <span class="sub">{{ row.pausedBy === 'ban_guard' ? 'Ban-risk guard' : 'Platform admin' }} · {{ ago(row.pausedAt) }}</span>
+                  } @else if (row.status !== 'active') {
+                    <span class="sub">Disabled by the business</span>
+                  } @else {
+                    <span class="sub">—</span>
+                  }
+                </td>
+                <td class="acts">
+                  @if (row.status === 'active') {
+                    <button type="button" class="btn sm" [disabled]="busy() === row.id" (click)="pause(row)">
+                      <i class="ti ti-player-pause" aria-hidden="true"></i>Pause
+                    </button>
+                  } @else {
+                    <button type="button" class="btn sm" [disabled]="busy() === row.id" (click)="resume(row)">
+                      <i class="ti ti-player-play" aria-hidden="true"></i>Resume
+                    </button>
+                  }
+                  <button
+                    type="button"
+                    class="btn sm icon danger-ghost"
+                    [attr.aria-label]="'Force disconnect ' + label(row)"
+                    title="Force disconnect"
+                    [disabled]="busy() === row.id"
+                    (click)="askDisconnect(row)"
+                  >
+                    <i class="ti ti-plug-connected-x" aria-hidden="true"></i>
+                  </button>
+                  <button
+                    type="button"
+                    class="btn sm icon"
+                    [attr.aria-label]="'Move ' + label(row) + ' to another business'"
+                    title="Move to business"
+                    [disabled]="busy() === row.id"
+                    (click)="askMove(row)"
+                  >
+                    <i class="ti ti-arrows-exchange" aria-hidden="true"></i>
+                  </button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+</section>
+
+<dialog #dialog class="dlg" aria-labelledby="dlg-title" (close)="cancel()">
+  @if (pending(); as p) {
+    <form method="dialog" (submit)="$event.preventDefault(); confirm()">
+      @if (p.kind === 'disconnect') {
+        <span class="badge tone-bad"><i class="ti ti-plug-connected-x" aria-hidden="true"></i></span>
+        <h3 id="dlg-title">Force disconnect {{ label(p.row) }}?</h3>
+        <p>
+          This logs the number out of WhatsApp and stops it reconnecting on its own. A QR-login number has to
+          scan a new code; {{ p.row.tenantName }} reconnects it from their Connection page.
+        </p>
+      } @else {
+        <span class="badge tone-info"><i class="ti ti-arrows-exchange" aria-hidden="true"></i></span>
+        <h3 id="dlg-title">Move {{ label(p.row) }}</h3>
+        <p>
+          The number and its settings move. Its message history stays with {{ p.row.tenantName }}. A QR-login
+          number has to scan again under the new business.
+        </p>
+        <label class="field">
+          <span>Move to</span>
+          <select required (change)="pickTarget($any($event.target).value)">
+            <option value="">Choose a business…</option>
+            @for (t of targets(); track t.tenantId) {
+              <option [value]="t.tenantId" [selected]="target() === t.tenantId">
+                {{ t.name }} — {{ t.usage.channels }}{{ t.limits.maxChannels ? ' / ' + t.limits.maxChannels : '' }} numbers
+              </option>
+            }
+          </select>
+        </label>
+      }
+      <div class="dlg-acts">
+        <button type="button" class="btn" (click)="cancel()">Cancel</button>
+        <button
+          type="submit"
+          class="btn"
+          [class.danger]="p.kind === 'disconnect'"
+          [class.primary]="p.kind === 'move'"
+          [disabled]="p.kind === 'move' && target() == null"
+        >
+          {{ p.kind === 'disconnect' ? 'Disconnect' : 'Move number' }}
+        </button>
+      </div>
+    </form>
+  }
+</dialog>

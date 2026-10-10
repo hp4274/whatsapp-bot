@@ -1,15 +1,38 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
-import { Store } from '../../core/store';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
-import { ClassInfo, ExamResult, ImportResult, SchoolApi, SchoolArea, SchoolMe, SendResult } from '../school-api';
+import { Store } from '../../core/store';
+import { SchoolApi } from '../school-api';
+import type {
+  ClassInfo,
+  ExamResult,
+  ImportResult,
+  SchoolArea,
+  SchoolMe,
+  SendResult,
+} from '../school-api';
 
+/**
+ * Exam results: import a marksheet CSV, review the numbers, then dispatch each
+ * parent only their own child's result. Dispatch is two-step (first press arms
+ * the button) because it messages every parent in the selection at once.
+ */
 @Component({
   selector: 'school-results',
   imports: [FormsModule, DatePipe],
   templateUrl: './results.html',
   styleUrl: './results.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ResultsTab {
   private readonly api = inject(SchoolApi);
@@ -61,7 +84,8 @@ export class ResultsTab {
     this.store.watch(['school', 'objects'], () => this.load(this.cls(), this.exam(), true));
   }
 
-  private load(cls: string, exam: string, quiet = false) {
+  /** `quiet` skips the skeleton for background refreshes. */
+  protected load(cls: string, exam: string, quiet = false) {
     if (!quiet) this.loading.set(true);
     this.api.results({ class: cls || undefined, exam: exam || undefined }).subscribe({
       next: (r) => {
@@ -70,7 +94,10 @@ export class ResultsTab {
         if (!exam && r.exams.length) this.exam.set(r.exams[0]);
         this.loading.set(false);
       },
-      error: (e: Error) => { this.error.set(e.message); this.loading.set(false); },
+      error: (e: Error) => {
+        this.error.set(e.message);
+        this.loading.set(false);
+      },
     });
   }
 
@@ -99,7 +126,10 @@ export class ResultsTab {
         this.cls.set(this.upClass());
         this.exam.set(this.upExam().trim());
       },
-      error: (e: Error) => { this.error.set(e.message); this.uploading.set(false); },
+      error: (e: Error) => {
+        this.error.set(e.message);
+        this.uploading.set(false);
+      },
     });
   }
 
@@ -112,13 +142,18 @@ export class ResultsTab {
     this.confirmDispatch.set(false);
     this.dispatching.set(true);
     this.error.set('');
-    this.api.dispatchResults({ examName: this.exam(), classKey: this.cls() || undefined }).subscribe({
-      next: (r) => {
-        this.dispatchResult.set(r);
-        this.dispatching.set(false);
-        this.load(this.cls(), this.exam());
-      },
-      error: (e: Error) => { this.error.set(e.message); this.dispatching.set(false); },
-    });
+    this.api
+      .dispatchResults({ examName: this.exam(), classKey: this.cls() || undefined })
+      .subscribe({
+        next: (r) => {
+          this.dispatchResult.set(r);
+          this.dispatching.set(false);
+          this.load(this.cls(), this.exam());
+        },
+        error: (e: Error) => {
+          this.error.set(e.message);
+          this.dispatching.set(false);
+        },
+      });
   }
 }

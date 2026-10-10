@@ -1,25 +1,50 @@
-import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  untracked,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { Observable } from 'rxjs';
+import type { Observable } from 'rxjs';
 
-import { Campaign, CampaignAnalytics, CampaignsApi, PacingPreset } from '../core/api';
+import {
+  type Campaign,
+  type CampaignAnalytics,
+  CampaignsApi,
+  type PacingPreset,
+} from '../core/api';
+import { CampaignPolicy } from '../campaign/policy-api';
 import { Store } from '../core/store';
 import { canCancel, localTime, percent, relativeTime } from './campaign-format';
 import { CampaignInsights } from './campaign-insights';
 import { CampaignRecipients } from './campaign-recipients';
 import { CampaignStatusPill } from './status-pill';
 
-const SPEEDS: { key: PacingPreset; label: string; icon: string }[] = [
+/** Pacing presets the engine accepts; changing one applies to the next send, mid-run. */
+const SPEEDS: readonly { key: PacingPreset; label: string; icon: string }[] = [
   { key: 'safe', label: 'Safe', icon: 'shield' },
-  { key: 'balanced', label: 'Balanced', icon: 'balance' },
+  { key: 'balanced', label: 'Balanced', icon: 'scale' },
   { key: 'fast', label: 'Fast', icon: 'bolt' },
 ];
 
+/**
+ * One campaign: its schedule, live progress and controls, then analytics.
+ *
+ * Analytics is the primary load because it carries the campaign too; if it
+ * fails the campaign is fetched on its own so the controls still work. Live
+ * progress comes from the store's engine stats, which describe whichever
+ * campaign is running, so it is only shown while this one is.
+ */
 @Component({
   selector: 'app-campaign-detail',
   imports: [RouterLink, CampaignStatusPill, CampaignInsights, CampaignRecipients],
   templateUrl: './campaign-detail.html',
   styleUrl: './campaign-detail.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CampaignDetailView {
   private readonly api = inject(CampaignsApi);
@@ -29,21 +54,35 @@ export class CampaignDetailView {
   readonly id = input.required<string>();
 
   protected readonly speeds = SPEEDS;
+  /** Plan rules: speeds above the ceiling are shown but disabled. */
+  protected readonly policy = inject(CampaignPolicy);
+  /**
+   * Why the platform paused or stopped this run (auto-pause on failures, the
+   * business's message cap, the kill switch, an admin action). Server-written.
+   */
+  protected readonly statusReason = computed(
+    () => (this.campaign()?.options as { statusReason?: string | null } | undefined)?.statusReason ?? null,
+  );
   protected readonly campaign = signal<Campaign | null>(null);
   protected readonly analytics = signal<CampaignAnalytics | null>(null);
   protected readonly loading = signal(true);
   protected readonly notFound = signal(false);
   protected readonly error = signal('');
+  /** Which control is in flight; every control disables while any one is. */
   protected readonly busy = signal<string | null>(null);
   protected readonly confirmCancel = signal(false);
 
   protected readonly numericId = computed(() => Number(this.id()));
   protected readonly status = computed(() => this.campaign()?.status ?? 'draft');
-  protected readonly pacing = computed<PacingPreset>(() => this.campaign()?.options?.pacing ?? 'balanced');
-  protected readonly audience = computed(() =>
-    this.analytics()?.funnel.audience || this.campaign()?.audienceSize || 0);
-  protected readonly failedCount = computed(() =>
-    this.analytics()?.funnel.failed ?? this.campaign()?.stats?.failed ?? 0);
+  protected readonly pacing = computed<PacingPreset>(
+    () => this.campaign()?.options?.pacing ?? 'balanced',
+  );
+  protected readonly audience = computed(
+    () => this.analytics()?.funnel.audience || this.campaign()?.audienceSize || 0,
+  );
+  protected readonly failedCount = computed(
+    () => this.analytics()?.funnel.failed ?? this.campaign()?.stats?.failed ?? 0,
+  );
   protected readonly canRetry = computed(() => {
     const s = this.status();
     return this.failedCount() > 0 && (s === 'done' || s === 'cancelled' || s === 'paused');
@@ -69,6 +108,7 @@ export class CampaignDetailView {
   protected readonly relativeTime = relativeTime;
 
   constructor() {
+    this.policy.load();
     effect(() => {
       this.id();
       untracked(() => {
@@ -132,7 +172,11 @@ export class CampaignDetailView {
   }
 
   protected act(action: 'start' | 'pause' | 'resume'): void {
-    const done = { start: 'Campaign started.', pause: 'Campaign paused.', resume: 'Campaign resumed.' };
+    const done = {
+      start: 'Campaign started.',
+      pause: 'Campaign paused.',
+      resume: 'Campaign resumed.',
+    };
     this.run(action, () => this.api.action(this.numericId(), action), done[action]);
   }
 
@@ -142,7 +186,11 @@ export class CampaignDetailView {
       return;
     }
     this.confirmCancel.set(false);
-    this.run('cancel', () => this.api.action(this.numericId(), 'cancel'), 'Pending messages cancelled.');
+    this.run(
+      'cancel',
+      () => this.api.action(this.numericId(), 'cancel'),
+      'Pending messages cancelled.',
+    );
   }
 
   protected retry(): void {
@@ -151,7 +199,10 @@ export class CampaignDetailView {
       next: ({ campaign, queued }) => {
         this.busy.set(null);
         this.campaign.set(campaign);
-        this.store.setStatus(`Re-queued ${queued} failed recipient${queued === 1 ? '' : 's'}.`, 'primary');
+        this.store.setStatus(
+          `Re-queued ${queued} failed recipient${queued === 1 ? '' : 's'}.`,
+          'primary',
+        );
         this.reload();
       },
       error: (err: Error) => {

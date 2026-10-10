@@ -22,7 +22,6 @@ import {
 import { campaignIdFromParam, normalizeReplyRules } from '../src/messaging/replies.js';
 import { CloudApiTransport, interactivePayload, nativeInteractive, parseInboundPayload } from '../src/transports/cloudApi.js';
 import { SandboxTransport } from '../src/transports/sandbox.js';
-import { WhatsAppWebTransport } from '../src/transports/whatsappWeb.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-interactive-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
@@ -179,25 +178,6 @@ describe('text fallback transports', () => {
         assert.match(JSON.parse(line[3]), /Reply with:\n1\. Yes, confirm\n2\. Not now/);
     });
 
-    it('WhatsApp Web sends the fallback as the text', async () => {
-        const sends = [];
-        class FakeClient extends EventEmitter {
-            info = { wid: { user: '15550000001' } };
-            async initialize() { setImmediate(() => this.emit('ready')); }
-            async destroy() {}
-            async getNumberId(n) { return { _serialized: `${n}@c.us` }; }
-            async sendMessage(chatId, content) {
-                sends.push(content);
-                return { id: { _serialized: 'wamid.web' } };
-            }
-        }
-        const t = new WhatsAppWebTransport({ ...DEFAULTS }, { createClient: async () => new FakeClient() });
-        await t.connect();
-        await waitFor(() => t.isConnected());
-        await t.sendMessage('919800000002', 'Pick one', { interactive: normalizeInteractive(LIST) });
-        assert.equal(sends[0], 'Pick one\n\nReply with:\n1. 9 AM - Front desk\n2. 11 AM');
-        await t.disconnect?.();
-    });
 });
 
 // ------------------------------------------------------------ rules ----

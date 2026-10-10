@@ -4,7 +4,7 @@
 
 <section class="card panel">
   <div class="ph">
-    <span class="badge"><span class="ms" aria-hidden="true">group_add</span></span>
+    <span class="badge"><i class="ti ti-users-plus" aria-hidden="true"></i></span>
     <div>
       <h3>Who gets this?</h3>
       <p class="muted">Pick where the recipients come from</p>
@@ -13,160 +13,248 @@
 
   <div class="sources" role="radiogroup" aria-label="Audience source">
     @for (s of sources; track s.value) {
-      <button type="button" class="source" role="radio" [attr.aria-checked]="d.source() === s.value"
-              [class.on]="d.source() === s.value" (click)="pickSource(s.value)">
-        <span class="ico"><span class="ms" aria-hidden="true">{{ s.icon }}</span></span>
+      <button
+        type="button"
+        class="source"
+        role="radio"
+        [attr.aria-checked]="d.source() === s.value"
+        [class.on]="d.source() === s.value"
+        [disabled]="s.value === 'retarget' && !policy.allowFollowUps()"
+        (click)="pickSource(s.value)"
+      >
+        <span class="ico"><i class="ti ti-{{ s.icon }}" aria-hidden="true"></i></span>
         <strong>{{ s.title }}</strong>
-        <small class="muted">{{ s.text }}</small>
-        <span class="ms dot" aria-hidden="true">check_circle</span>
+        <small class="muted">{{
+          s.value === 'retarget' && !policy.allowFollowUps() ? 'Not on your plan' : s.text
+        }}</small>
+        <i class="ti ti-circle-check dot" aria-hidden="true"></i>
       </button>
     }
   </div>
 
-  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  @if (error()) {
+    <div class="error" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i>
+      <span>{{ error() }}</span>
+      @if (d.source() !== 'file') {
+        <button type="button" class="btn small" (click)="retry()">
+          <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+        </button>
+      }
+    </div>
+  }
 </section>
 
 @switch (d.source()) {
   @case ('file') {
     <section class="card panel enter">
-      <label class="drop" for="aud-file" [class.over]="dragOver()" [class.has]="!!preview"
-             (dragover)="$event.preventDefault(); dragOver.set(true)" (dragleave)="dragOver.set(false)" (drop)="onDrop($event)">
+      <label
+        class="drop"
+        for="aud-file"
+        [class.over]="dragOver()"
+        [class.has]="!!preview"
+        (dragover)="$event.preventDefault(); dragOver.set(true)"
+        (dragleave)="dragOver.set(false)"
+        (drop)="onDrop($event)"
+      >
         @if (uploading()) {
           <span class="spinner"></span><strong>Reading your file...</strong>
         } @else if (preview) {
-          <span class="ms big" aria-hidden="true">task</span>
-          <span><strong>{{ preview.filename }}</strong> - {{ preview.total }} rows, {{ preview.columns.length }} columns
-            @if (preview.truncated) { <span class="warn-text">(only the first {{ preview.rows.length }} rows are used)</span> }</span>
+          <i class="ti ti-checkbox big" aria-hidden="true"></i>
+          <span
+            ><strong>{{ preview.filename }}</strong> - {{ preview.total }} rows,
+            {{ preview.columns.length }} columns
+            @if (preview.truncated) {
+              <span class="warn-text"
+                >(only the first {{ preview.rows.length }} rows are used)</span
+              >
+            }
+          </span>
           <span class="btn small">Replace file</span>
         } @else {
-          <span class="ms big" aria-hidden="true">cloud_upload</span>
+          <i class="ti ti-cloud-upload big" aria-hidden="true"></i>
           <strong>Drop a CSV or Excel file here</strong>
           <small class="muted">or click to browse - first row must be the column headers</small>
         }
       </label>
-      <input id="aud-file" type="file" accept=".csv,.xlsx,.xlsm" class="sr" (change)="onPick($event)" />
+      <input
+        id="aud-file"
+        type="file"
+        accept=".csv,.xlsx,.xlsm"
+        class="sr"
+        (change)="onPick($event)"
+      />
 
       @if (preview) {
         <div class="map">
           <div class="field">
-            <label for="map-phone">Phone column</label>
-            <select id="map-phone" [ngModel]="d.mapping().phone" (ngModelChange)="setMapping('phone', $event)">
+            <label for="map-phone">Phone number column</label>
+            <select
+              id="map-phone"
+              [ngModel]="d.mapping().phone"
+              (ngModelChange)="setMapping('phone', $event)"
+            >
               <option value="">Choose...</option>
-              @for (c of columns(); track c.slug) { <option [value]="c.slug">{{ c.header }}</option> }
+              @for (c of columns(); track c.slug) {
+                <option [value]="c.slug">{{ c.header }}</option>
+              }
             </select>
           </div>
           <div class="field">
             <label for="map-name">Name column</label>
-            <select id="map-name" [ngModel]="d.mapping().name" (ngModelChange)="setMapping('name', $event)">
+            <select
+              id="map-name"
+              [ngModel]="d.mapping().name"
+              (ngModelChange)="setMapping('name', $event)"
+            >
               <option value="">No name column</option>
               @for (c of columns(); track c.slug) {
-                @if (c.slug !== d.mapping().phone) { <option [value]="c.slug">{{ c.header }}</option> }
+                @if (c.slug !== d.mapping().phone) {
+                  <option [value]="c.slug">{{ c.header }}</option>
+                }
               }
             </select>
           </div>
           <div class="field">
-            <label for="map-cc">Default country code</label>
+            <label for="map-cc">Country code</label>
             <div class="cc" [class.bad]="!ccValid()">
-              <span class="chip">+{{ d.countryCode() || '?' }}</span>
-              <input id="map-cc" inputmode="numeric" maxlength="4" [ngModel]="d.countryCode()"
-                     (ngModelChange)="setCountry($event)" [attr.aria-invalid]="!ccValid()" aria-describedby="cc-hint" />
+              <span class="chip">+</span>
+              <input
+                id="map-cc"
+                inputmode="numeric"
+                maxlength="4"
+                [ngModel]="d.countryCode()"
+                (ngModelChange)="setCountry($event)"
+                [attr.aria-invalid]="!ccValid()"
+                aria-describedby="cc-hint"
+              />
             </div>
-            <small id="cc-hint" class="hint">{{ ccValid() ? 'Added to numbers without one' : '1-4 digits, e.g. 91' }}</small>
+            <small id="cc-hint" class="hint">{{
+              ccValid() ? 'For numbers written without one' : '1-4 digits, e.g. 91'
+            }}</small>
           </div>
         </div>
 
-        <div class="vars" role="region" aria-label="Variables from your file" tabindex="0">
-          <table>
-            <thead><tr><th>Column</th><th>Variable</th><th>Sample</th><th>Fallback when empty</th></tr></thead>
-            <tbody>
-              @for (c of varColumns(); track c.slug) {
-                <tr>
-                  <td>{{ c.header }}</td>
-                  <td>
-                    <span class="tag">{{ '{' + c.slug + '}' }}</span>
-                    <button type="button" class="copy" (click)="copy(c.slug)" [attr.aria-label]="'Copy {' + c.slug + '}'">
-                      <span class="ms" aria-hidden="true">{{ copied() === c.slug ? 'check' : 'content_copy' }}</span>
-                      {{ copied() === c.slug ? 'Copied' : 'Copy' }}
-                    </button>
-                  </td>
-                  <td class="muted sample">{{ c.sample || '-' }}</td>
-                  <td>
-                    <input [attr.aria-label]="'Fallback for ' + c.slug" [ngModel]="d.fallbacks()[c.slug] ?? ''"
-                           (ngModelChange)="d.setFallback(c.slug, $event)" placeholder="leave blank" />
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
+        <div class="cols">
+          <p class="muted">Use any column in your message - click to copy:</p>
+          <div class="chips">
+            @for (c of varColumns(); track c.slug) {
+              <button
+                type="button"
+                class="vchip"
+                (click)="copy(c.slug)"
+                [title]="c.sample ? 'e.g. ' + c.sample : c.header"
+                [attr.aria-label]="'Copy {' + c.slug + '} (' + c.header + ')'"
+              >
+                {{ copied() === c.slug ? 'Copied' : '{' + c.slug + '}' }}
+              </button>
+            }
+          </div>
         </div>
       }
     </section>
 
     @if (preview && d.mapping().phone) {
       <section class="card panel enter" aria-live="polite">
-        <div class="ph">
-          <span class="badge accent"><span class="ms" aria-hidden="true">fact_check</span></span>
-          <div>
-            <h3>List health</h3>
-            <p class="muted">Checked against opt-outs and your recent sends</p>
-          </div>
-          @if (auditing()) { <span class="spinner" aria-label="Checking"></span> }
-        </div>
-
         @if (audit) {
-          <div class="tiles">
-            <div class="tile ok"><strong>{{ audit.counts.valid }}</strong><span>Valid</span></div>
-            <div class="tile bad"><strong>{{ audit.counts.invalid }}</strong><span>Invalid</span></div>
-            <div class="tile"><strong>{{ audit.counts.duplicate }}</strong><span>Duplicates</span></div>
-            <div class="tile"><strong>{{ audit.counts.optedOut }}</strong><span>Opted out</span></div>
-            <div class="tile">
-              <strong>{{ audit.counts.recent }}</strong>
-              <span>Messaged in last
-                <select aria-label="Skip numbers messaged within" [ngModel]="d.dedupeDays()" (ngModelChange)="d.dedupeDays.set(+$event)">
-                  @for (p of dedupePresets; track p) { <option [ngValue]="p">{{ dedupeLabel(p) }}</option> }
-                </select>
-              </span>
-            </div>
+          <div class="summary">
+            <i class="ti ti-circle-check ok" aria-hidden="true"></i>
+            <strong>{{ d.validContacts().length }} will get the message</strong>
+            @if (auditing()) {
+              <span class="spinner" aria-label="Checking"></span>
+            }
           </div>
-
-          <label class="check">
-            <input type="checkbox" [ngModel]="d.autoClean()" (ngModelChange)="d.autoClean.set($event)" />
-            Auto-clean numbers (strip spaces, dashes, brackets and stray letters)
-          </label>
-
-          @if (issues().length) {
-            <div class="issues" role="region" aria-label="Rows with problems" tabindex="0">
-              <table>
-                <thead><tr><th>Row</th><th>Value</th><th>Reason</th><th>Detail</th></tr></thead>
-                <tbody>
-                  @for (i of issues(); track $index) {
-                    <tr>
-                      <td class="mono">{{ i.row + 2 }}</td>
-                      <td class="mono">{{ i.raw || '(empty)' }}</td>
-                      <td><span class="reason r-{{ i.reason }}">{{ reasons[i.reason] || i.reason }}</span></td>
-                      <td class="muted">{{ i.detail }}</td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-              @if (moreIssues()) { <p class="muted more">and {{ moreIssues() }} more - download the CSV for all of them.</p> }
-            </div>
+          @if (audit.issues.length) {
+            <p class="muted skipped">
+              Skipped:
+              @if (audit.counts.invalid) {
+                {{ audit.counts.invalid }} invalid
+              }
+              @if (audit.counts.duplicate) {
+                - {{ audit.counts.duplicate }} duplicate
+              }
+              @if (audit.counts.optedOut) {
+                - {{ audit.counts.optedOut }} opted out
+              }
+              @if (audit.counts.recent) {
+                - {{ audit.counts.recent }} messaged recently
+              }
+            </p>
           }
 
-          <div class="foot">
-            @if (audit.issues.length) {
+          <details class="more">
+            <summary>
+              {{ audit.issues.length ? 'See skipped rows and options' : 'Options' }}
+            </summary>
+            <label class="check">
+              <input
+                type="checkbox"
+                [ngModel]="d.autoClean()"
+                (ngModelChange)="d.autoClean.set($event)"
+              />
+              Fix messy numbers (spaces, dashes, brackets)
+            </label>
+            <label class="check">
+              Skip numbers already messaged in the last
+              <select
+                aria-label="Skip numbers messaged within"
+                [ngModel]="d.dedupeDays()"
+                (ngModelChange)="d.dedupeDays.set(+$event)"
+              >
+                @for (p of dedupePresets; track p) {
+                  <option [ngValue]="p">{{ dedupeLabel(p) }}</option>
+                }
+              </select>
+            </label>
+            @if (issues().length) {
+              <div class="issues" role="region" aria-label="Rows with problems" tabindex="0">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Row</th>
+                      <th>Value</th>
+                      <th>Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (i of issues(); track $index) {
+                      <tr>
+                        <td class="mono">{{ i.row + 2 }}</td>
+                        <td class="mono">{{ i.raw || '(empty)' }}</td>
+                        <td>
+                          <span class="reason r-{{ i.reason }}">{{
+                            reasons[i.reason] || i.reason
+                          }}</span>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+                @if (moreIssues()) {
+                  <p class="muted more">and {{ moreIssues() }} more in the download.</p>
+                }
+              </div>
               <button type="button" class="btn small" (click)="downloadBad()">
-                <span class="ms" aria-hidden="true">download</span> Download bad rows (CSV)
+                <i class="ti ti-download" aria-hidden="true"></i> Download skipped rows
               </button>
             }
+          </details>
+
+          <div class="foot">
             <span class="grow"></span>
-            <button type="button" class="btn primary" [disabled]="!d.audienceReady() || auditing()" (click)="proceed()">
-              Proceed with {{ d.validContacts().length }} valid row{{ d.validContacts().length === 1 ? '' : 's' }}
-              <span class="ms" aria-hidden="true">arrow_forward</span>
+            <button
+              type="button"
+              class="btn primary"
+              [disabled]="!d.audienceReady() || auditing()"
+              (click)="proceed()"
+            >
+              Next: write message <i class="ti ti-arrow-right" aria-hidden="true"></i>
             </button>
           </div>
-        } @else if (!auditing()) {
-          <p class="muted">Pick the phone column and a valid country code to check the list.</p>
+        } @else if (auditing()) {
+          <p class="muted"><span class="spinner"></span> Checking numbers...</p>
+        } @else {
+          <p class="muted">Pick the phone number column and a country code.</p>
         }
       </section>
     }
@@ -177,15 +265,23 @@
       <div class="field">
         <label for="rt-campaign">Past campaign</label>
         @if (campaigns(); as list) {
-          <select id="rt-campaign" [ngModel]="d.retarget().campaignId?.toString() ?? ''" (ngModelChange)="pickCampaign($event)">
+          <select
+            id="rt-campaign"
+            [ngModel]="d.retarget().campaignId?.toString() ?? ''"
+            (ngModelChange)="pickCampaign($event)"
+          >
             <option value="">Choose a campaign...</option>
             @for (c of list; track c.id) {
-              <option [value]="c.id.toString()">{{ c.name }} - {{ c.status }} - {{ c.audienceSize ?? '?' }} recipients</option>
+              <option [value]="c.id.toString()">
+                {{ c.name }} - {{ c.status }} - {{ c.audienceSize ?? '?' }} recipients
+              </option>
             }
           </select>
-          @if (!list.length) { <small class="hint">No sent campaigns yet.</small> }
+          @if (!list.length) {
+            <small class="hint">No sent campaigns yet.</small>
+          }
         } @else {
-          <span class="spinner"></span>
+          <span class="skel" aria-busy="true" aria-label="Loading campaigns"></span>
         }
       </div>
 
@@ -193,8 +289,16 @@
         <legend>Send to people who...</legend>
         @for (f of filters; track f.value) {
           <label class="filter" [class.on]="d.retarget().filter === f.value">
-            <input type="radio" name="rt-filter" [checked]="d.retarget().filter === f.value" (change)="setFilter(f.value)" />
-            <span><strong>{{ f.label }}</strong><small class="muted">{{ f.hint }}</small></span>
+            <input
+              type="radio"
+              name="rt-filter"
+              [checked]="d.retarget().filter === f.value"
+              (change)="setFilter(f.value)"
+            />
+            <span
+              ><strong>{{ f.label }}</strong
+              ><small class="muted">{{ f.hint }}</small></span
+            >
           </label>
         }
       </fieldset>
@@ -202,17 +306,32 @@
       @if (d.retarget().filter === 'clicked') {
         <div class="field">
           <label for="rt-option">Button / option id</label>
-          <input id="rt-option" [ngModel]="d.retarget().optionId" (ngModelChange)="setOption($event)" placeholder="e.g. YES_CONFIRM" />
+          <input
+            id="rt-option"
+            [ngModel]="d.retarget().optionId"
+            (ngModelChange)="setOption($event)"
+            placeholder="e.g. YES_CONFIRM"
+          />
         </div>
       }
 
-      <p class="banner info"><span class="ms" aria-hidden="true">schedule</span>
-        The audience is worked out when the campaign starts, so late replies and receipts are counted. Opted-out numbers are always skipped.</p>
+      <p class="banner info">
+        <i class="ti ti-clock" aria-hidden="true"></i>
+        <span
+          >The audience is worked out when the campaign starts, so late replies and receipts are
+          counted. Opted-out numbers are always skipped.</span
+        >
+      </p>
 
       <div class="foot">
         <span class="grow"></span>
-        <button type="button" class="btn primary" [disabled]="!d.audienceReady()" (click)="proceed()">
-          Continue <span class="ms" aria-hidden="true">arrow_forward</span>
+        <button
+          type="button"
+          class="btn primary"
+          [disabled]="!d.audienceReady()"
+          (click)="proceed()"
+        >
+          Continue <i class="ti ti-arrow-right" aria-hidden="true"></i>
         </button>
       </div>
     </section>
@@ -223,23 +342,41 @@
       <div class="field">
         <label for="seg">Segment</label>
         @if (segments(); as list) {
-          <select id="seg" [ngModel]="d.segmentId()?.toString() ?? ''" (ngModelChange)="pickSegment($event)">
+          <select
+            id="seg"
+            [ngModel]="d.segmentId()?.toString() ?? ''"
+            (ngModelChange)="pickSegment($event)"
+          >
             <option value="">Choose a segment...</option>
             @for (s of list; track s.id) {
-              <option [value]="s.id.toString()">{{ s.name }}{{ s.count != null ? ' - ' + s.count + ' contacts' : '' }}</option>
+              <option [value]="s.id.toString()">
+                {{ s.name }}{{ s.count != null ? ' - ' + s.count + ' contacts' : '' }}
+              </option>
             }
           </select>
-          @if (!list.length) { <small class="hint">No segments yet - save one on the Contacts page.</small> }
+          @if (!list.length) {
+            <small class="hint">No segments yet - save one on the Contacts page.</small>
+          }
         } @else {
-          <span class="spinner"></span>
+          <span class="skel" aria-busy="true" aria-label="Loading segments"></span>
         }
       </div>
-      <p class="banner info"><span class="ms" aria-hidden="true">info</span>
-        Only messageable contacts are sent to. Variables available: {{ '{name}' }} and {{ '{phone}' }}.</p>
+      <p class="banner info">
+        <i class="ti ti-info-circle" aria-hidden="true"></i>
+        <span
+          >Only messageable contacts are sent to. Variables available: {{ '{name}' }} and
+          {{ '{phone}' }}.</span
+        >
+      </p>
       <div class="foot">
         <span class="grow"></span>
-        <button type="button" class="btn primary" [disabled]="!d.audienceReady()" (click)="proceed()">
-          Continue <span class="ms" aria-hidden="true">arrow_forward</span>
+        <button
+          type="button"
+          class="btn primary"
+          [disabled]="!d.audienceReady()"
+          (click)="proceed()"
+        >
+          Continue <i class="ti ti-arrow-right" aria-hidden="true"></i>
         </button>
       </div>
     </section>

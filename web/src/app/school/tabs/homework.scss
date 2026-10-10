@@ -1,7 +1,10 @@
 @use 'kit';
 
 @include kit.base;
+@include kit.pickers;
 @include kit.bubble;
+
+.s-banner .btn { margin-left: auto; }
 
 .when {
   display: flex;
@@ -19,7 +22,7 @@
   margin-bottom: 6px;
   padding: 8px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-card) 70%, transparent);
   font-weight: 600;
   font-size: 12px;
 }
@@ -39,16 +42,16 @@
     align-items: center;
     gap: var(--space-md);
     padding: 10px 12px;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    background: var(--surface-alt);
-    animation: rise 420ms var(--ease) backwards;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    background: var(--surface-card);
+    animation: s-rise 420ms var(--ease) backwards;
     animation-delay: calc(var(--i, 0) * 40ms);
     transition: transform var(--base) var(--ease), opacity var(--base) var(--ease), box-shadow var(--base) var(--ease);
 
     &:hover {
-      transform: translateY(-2px) translateZ(10px);
-      box-shadow: var(--shadow);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-lift);
     }
 
     &.out { opacity: 0.3; transform: translateX(24px) scale(0.98); }
@@ -61,10 +64,10 @@
     height: 44px;
     padding: 0 8px;
     border-radius: 12px;
-    background: var(--primary-soft);
-    color: var(--primary);
+    background: var(--primary-tint);
+    color: var(--primary-text);
     font-size: 11px;
-    font-weight: 800;
+    font-weight: 600;
     max-width: 96px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -72,7 +75,7 @@
   }
 
   .body { display: grid; min-width: 0; }
-  .body strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .body strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 
   @media (max-width: 480px) {
     li { grid-template-columns: minmax(0, 1fr) auto; }

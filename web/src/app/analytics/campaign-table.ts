@@ -1,12 +1,16 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, computed, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { CampaignRow } from './analytics-api';
 import { downloadCsv, toCsv, today } from './analytics-util';
 
 type SortKey = 'name' | 'sent' | 'deliveryRate' | 'readRate' | 'failed' | 'lastSentAt';
-interface Column { key: SortKey; label: string; numeric: boolean }
+interface Column {
+  key: SortKey;
+  label: string;
+  numeric: boolean;
+}
 
 const COLUMNS: Column[] = [
   { key: 'name', label: 'Campaign', numeric: false },
@@ -23,6 +27,7 @@ const COLUMNS: Column[] = [
   imports: [RouterLink, DecimalPipe, DatePipe],
   templateUrl: './campaign-table.html',
   styleUrl: './campaign-table.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CampaignTable {
   readonly rows = input.required<CampaignRow[]>();
@@ -47,10 +52,36 @@ export class CampaignTable {
 
   /** The table as shown (current sort), plus the counts the columns summarise. */
   protected exportCsv() {
-    const header = ['Campaign', 'Campaign ID', 'Total', 'Attempted', 'Sent', 'Delivered', 'Read', 'Failed', 'Pending',
-      'Delivery rate %', 'Read rate %', 'First send (UTC)', 'Last send (UTC)'];
-    const rows = this.sorted().map((c) => [c.name, c.campaignId, c.total, c.attempted, c.sent, c.delivered, c.read,
-      c.failed, c.pending, c.deliveryRate ?? '', c.readRate ?? '', c.firstSentAt ?? '', c.lastSentAt ?? '']);
+    const header = [
+      'Campaign',
+      'Campaign ID',
+      'Total',
+      'Attempted',
+      'Sent',
+      'Delivered',
+      'Read',
+      'Failed',
+      'Pending',
+      'Delivery rate %',
+      'Read rate %',
+      'First send (UTC)',
+      'Last send (UTC)',
+    ];
+    const rows = this.sorted().map((c) => [
+      c.name,
+      c.campaignId,
+      c.total,
+      c.attempted,
+      c.sent,
+      c.delivered,
+      c.read,
+      c.failed,
+      c.pending,
+      c.deliveryRate ?? '',
+      c.readRate ?? '',
+      c.firstSentAt ?? '',
+      c.lastSentAt ?? '',
+    ]);
     downloadCsv(`campaigns-${this.days()}d-${today()}.csv`, toCsv(header, rows));
   }
 

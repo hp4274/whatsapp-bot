@@ -32,7 +32,8 @@ export interface RuleStats {
   week: number;
 }
 
-export type MatchType = 'EXACT' | 'CONTAINS' | 'STARTS_WITH' | 'REGEX' | 'ANY_OF' | 'FUZZY' | 'FALLBACK';
+export type MatchType =
+  'EXACT' | 'CONTAINS' | 'STARTS_WITH' | 'REGEX' | 'ANY_OF' | 'FUZZY' | 'FALLBACK';
 export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 
 export interface RuleSchedule {
@@ -75,7 +76,10 @@ export interface AutoReplyRule {
   updatedAt: string;
 }
 
-export type RulePayload = Omit<AutoReplyRule, 'id' | 'stats' | 'createdAt' | 'updatedAt' | 'priority'> & { priority?: number };
+export type RulePayload = Omit<
+  AutoReplyRule,
+  'id' | 'stats' | 'createdAt' | 'updatedAt' | 'priority'
+> & { priority?: number };
 
 export interface DayHours {
   open: boolean;
@@ -120,7 +124,8 @@ export interface TestRequest {
 }
 
 export interface TestReply {
-  source: 'welcome' | 'away' | 'handoff' | 'menu' | 'rule' | 'schedule' | 'fallback' | 'help' | 'faq';
+  source:
+    'welcome' | 'away' | 'handoff' | 'menu' | 'rule' | 'schedule' | 'fallback' | 'help' | 'faq';
   ruleId: number | null;
   ruleName: string;
   text: string;
@@ -134,7 +139,13 @@ export interface TestResult {
   actions: { type: 'tag' | 'field' | 'escalate' | 'menu'; detail: string }[];
   trace: string[];
   matched: { ruleId: number; matchType: string; keyword: string; score: number } | null;
-  context: { firstContact: boolean; newContact: boolean; withinHours: boolean; localTime: string; tags: string[] };
+  context: {
+    firstContact: boolean;
+    newContact: boolean;
+    withinHours: boolean;
+    localTime: string;
+    tags: string[];
+  };
   session: Session | null;
 }
 
@@ -151,24 +162,41 @@ export interface UploadedMedia extends Media {
 export class AutoRepliesApi {
   private readonly http = inject(HttpClient);
 
-  list(): Observable<{ rules: AutoReplyRule[] }> {
-    return this.http.get<{ rules: AutoReplyRule[] }>('/api/auto-replies').pipe(catchError(toMessage));
+  list(): Observable<{ rules: AutoReplyRule[]; platformOptOutWords?: string[] }> {
+    return this.http
+      .get<{ rules: AutoReplyRule[]; platformOptOutWords?: string[] }>('/api/auto-replies')
+      .pipe(catchError(toMessage));
+  }
+
+  /** The plan's platform rules (`GET /api/policy`); only the auto-reply keys are read. */
+  policy(): Observable<{ values: Record<string, unknown> }> {
+    return this.http
+      .get<{ values: Record<string, unknown> }>('/api/policy')
+      .pipe(catchError(toMessage));
   }
 
   create(rule: RulePayload): Observable<{ rule: AutoReplyRule }> {
-    return this.http.post<{ rule: AutoReplyRule }>('/api/auto-replies', rule).pipe(catchError(toMessage));
+    return this.http
+      .post<{ rule: AutoReplyRule }>('/api/auto-replies', rule)
+      .pipe(catchError(toMessage));
   }
 
   update(id: number, patch: Partial<RulePayload>): Observable<{ rule: AutoReplyRule }> {
-    return this.http.put<{ rule: AutoReplyRule }>(`/api/auto-replies/${id}`, patch).pipe(catchError(toMessage));
+    return this.http
+      .put<{ rule: AutoReplyRule }>(`/api/auto-replies/${id}`, patch)
+      .pipe(catchError(toMessage));
   }
 
   remove(id: number): Observable<{ deleted: number }> {
-    return this.http.delete<{ deleted: number }>(`/api/auto-replies/${id}`).pipe(catchError(toMessage));
+    return this.http
+      .delete<{ deleted: number }>(`/api/auto-replies/${id}`)
+      .pipe(catchError(toMessage));
   }
 
   reorder(ids: number[]): Observable<{ rules: AutoReplyRule[] }> {
-    return this.http.post<{ rules: AutoReplyRule[] }>('/api/auto-replies/reorder', { ids }).pipe(catchError(toMessage));
+    return this.http
+      .post<{ rules: AutoReplyRule[] }>('/api/auto-replies/reorder', { ids })
+      .pipe(catchError(toMessage));
   }
 
   settings(): Observable<{ settings: AutoReplySettings; stats: SystemStats }> {
@@ -178,7 +206,9 @@ export class AutoRepliesApi {
   }
 
   saveSettings(patch: Partial<AutoReplySettings>): Observable<{ settings: AutoReplySettings }> {
-    return this.http.put<{ settings: AutoReplySettings }>('/api/auto-replies/settings', patch).pipe(catchError(toMessage));
+    return this.http
+      .put<{ settings: AutoReplySettings }>('/api/auto-replies/settings', patch)
+      .pipe(catchError(toMessage));
   }
 
   test(req: TestRequest): Observable<TestResult> {
@@ -195,9 +225,10 @@ export class AutoRepliesApi {
 /** Surface the server's own words (same rule as core/api.ts). */
 function toMessage(error: HttpErrorResponse) {
   const errors = error.error?.errors;
-  const message = Array.isArray(errors) && errors.length
-    ? errors.join('\n')
-    : error.error?.message || error.message || 'Request failed';
+  const message =
+    Array.isArray(errors) && errors.length
+      ? errors.join('\n')
+      : error.error?.message || error.message || 'Request failed';
   return throwError(() => new Error(message));
 }
 
@@ -256,8 +287,10 @@ export function renderTemplate(template: string, c: SampleContact, at = new Date
     business_name: c.businessName,
     ...(c.fields ?? {}),
   };
-  return String(template ?? '').replace(/\{([a-z0-9_]+)(?:\|([^}]*))?\}/gi, (_, key: string, fallback?: string) =>
-    values[key.toLowerCase()] || fallback || '');
+  return String(template ?? '').replace(
+    /\{([a-z0-9_]+)(?:\|([^}]*))?\}/gi,
+    (_, key: string, fallback?: string) => values[key.toLowerCase()] || fallback || '',
+  );
 }
 
 export const DAYS: { key: Weekday; label: string }[] = [

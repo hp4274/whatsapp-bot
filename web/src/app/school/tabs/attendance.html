@@ -1,7 +1,10 @@
+<!-- Roll call: header with date, live summary, banners, roster card, parent-alert card, and a per-student history drawer. -->
 <header class="s-head">
   <div>
-    <span class="eyebrow"><span class="ms" aria-hidden="true">fact_check</span> Roll call</span>
-    <h2>Class {{ className() || '—' }} <span class="thin">· {{ date() }}</span></h2>
+    <span class="eyebrow"><i class="ti ti-checklist" aria-hidden="true"></i> Roll call</span>
+    <h2>
+      Class {{ className() || '—' }} <span class="thin">· {{ date() }}</span>
+    </h2>
     <p>Tap a status for each student, save, then alert the parents of anyone missing.</p>
   </div>
   <div class="tools">
@@ -18,35 +21,59 @@
     <div class="s-stat s-enter {{ s.tone }}" [style.--i]="i" schoolTilt>
       <small>{{ s.label }}</small>
       <b>{{ summary()[s.value] }}</b>
-      <div class="bar"><span [style.width.%]="rows().length ? (summary()[s.value] / rows().length) * 100 : 0"></span></div>
+      <div class="bar">
+        <span
+          [style.width.%]="rows().length ? (summary()[s.value] / rows().length) * 100 : 0"
+        ></span>
+      </div>
     </div>
   }
   <div class="s-stat s-enter tone-mute" style="--i: 4">
     <small>Unmarked</small>
     <b>{{ summary().unmarked }}</b>
-    <div class="bar"><span [style.width.%]="rows().length ? (summary().unmarked / rows().length) * 100 : 0"></span></div>
+    <div class="bar">
+      <span [style.width.%]="rows().length ? (summary().unmarked / rows().length) * 100 : 0"></span>
+    </div>
   </div>
 </div>
 
 <div aria-live="polite" class="live">
   @if (error()) {
-    <p class="s-banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ error() }}</p>
+    <div class="s-banner" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ error() }}
+      <!-- Hidden on an unsaved sheet: reloading would throw the marks away. -->
+      @if (!dirty()) {
+        <button class="btn sm" type="button" (click)="load()">Try again</button>
+      }
+    </div>
   }
   @if (message()) {
-    <p class="s-banner tone-ok"><span class="ms" aria-hidden="true">task_alt</span> {{ message() }}</p>
+    <p class="s-banner tone-ok">
+      <i class="ti ti-circle-check" aria-hidden="true"></i> {{ message() }}
+    </p>
   }
   @if (importResult(); as r) {
     <div class="s-banner {{ r.errors.length ? 'tone-warn' : 'tone-ok' }}">
-      <span class="ms" aria-hidden="true">upload_file</span>
+      <i class="ti ti-file-upload" aria-hidden="true"></i>
       Imported {{ r.imported }} · updated {{ r.updated }} · {{ r.errors.length }} row errors
       <button class="btn ghost sm" type="button" (click)="importResult.set(null)">Dismiss</button>
     </div>
     @if (r.errors.length) {
       <div class="s-table errs">
         <table>
-          <thead><tr><th>Row</th><th>Problem</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Row</th>
+              <th>Problem</th>
+            </tr>
+          </thead>
           <tbody>
-            @for (e of r.errors; track $index) { <tr [style.--i]="$index"><td class="num">{{ e.row }}</td><td>{{ e.error }}</td></tr> }
+            @for (e of r.errors; track $index) {
+              <tr [style.--i]="$index">
+                <td class="num">{{ e.row }}</td>
+                <td>{{ e.error }}</td>
+              </tr>
+            }
           </tbody>
         </table>
       </div>
@@ -56,36 +83,77 @@
 
 <section class="s-card sheet">
   <div class="sheet-bar">
-    <h3><span class="ms" aria-hidden="true">checklist</span> Roster
-      @if (dirty()) { <span class="s-pill tone-warn">Unsaved</span> }
+    <h3>
+      <i class="ti ti-list-check" aria-hidden="true"></i> Roster
+      @if (dirty()) {
+        <span class="s-pill tone-warn">Unsaved</span>
+      }
     </h3>
     <div class="bar-actions">
       <button class="btn sm" type="button" (click)="allPresent()" [disabled]="!rows().length">
-        <span class="ms" aria-hidden="true">done_all</span> Mark all present
+        <i class="ti ti-checks" aria-hidden="true"></i> Mark all present
       </button>
-      <input #file class="sr-only" type="file" accept=".csv,.xlsx,.xls" (change)="importFile($event)" tabindex="-1" aria-hidden="true" />
+      <input
+        #file
+        class="sr-only"
+        type="file"
+        accept=".csv,.xlsx,.xls"
+        (change)="importFile($event)"
+        tabindex="-1"
+        aria-hidden="true"
+      />
       <button class="btn sm" type="button" (click)="file.click()" [disabled]="importing()">
-        @if (importing()) { <span class="spinner"></span> } @else { <span class="ms" aria-hidden="true">upload_file</span> }
+        @if (importing()) {
+          <span class="spinner"></span>
+        } @else {
+          <i class="ti ti-file-upload" aria-hidden="true"></i>
+        }
         Upload CSV / XLSX
       </button>
-      <button class="btn primary sm" type="button" (click)="save()" [disabled]="saving() || !rows().length">
-        @if (saving()) { <span class="spinner"></span> } @else { <span class="ms" aria-hidden="true">save</span> }
+      <button
+        class="btn primary sm"
+        type="button"
+        (click)="save()"
+        [disabled]="saving() || !rows().length"
+      >
+        @if (saving()) {
+          <span class="spinner"></span>
+        } @else {
+          <i class="ti ti-device-floppy" aria-hidden="true"></i>
+        }
         Save attendance
       </button>
     </div>
   </div>
 
   @if (loading()) {
-    @for (k of [1, 2, 3, 4, 5]; track k) { <div class="s-skel" style="height: 36px"></div> }
+    <div aria-busy="true">
+      @for (k of [1, 2, 3, 4, 5]; track k) {
+        <div class="s-skel" style="height: 36px"></div>
+      }
+    </div>
   } @else if (!classKey()) {
-    <div class="s-empty"><span class="ms" aria-hidden="true">class</span><strong>Pick a class</strong><p>Choose a class above to open its roster.</p></div>
+    <div class="s-empty">
+      <i class="ti ti-school" aria-hidden="true"></i><strong>Pick a class</strong>
+      <p>Choose a class above to open its roster.</p>
+    </div>
   } @else if (!rows().length) {
-    <div class="s-empty"><span class="ms" aria-hidden="true">person_off</span><strong>No students in this class</strong><p>Add students on the Students tab, then come back for roll call.</p></div>
+    <div class="s-empty">
+      <i class="ti ti-user-off" aria-hidden="true"></i><strong>No students in this class</strong>
+      <p>Add students on the Students tab, then come back for roll call.</p>
+    </div>
   } @else {
     <div class="s-table">
       <table>
         <thead>
-          <tr><th>Roll</th><th>Student</th><th>Status</th><th>Arrived</th><th>Alert</th><th><span class="sr-only">History</span></th></tr>
+          <tr>
+            <th>Roll</th>
+            <th>Student</th>
+            <th>Status</th>
+            <th>Arrived</th>
+            <th>Alert</th>
+            <th><span class="sr-only">History</span></th>
+          </tr>
         </thead>
         <tbody>
           @for (r of rows(); track r.studentId; let i = $index) {
@@ -95,29 +163,51 @@
               <td>
                 <div class="s-seg" role="group" [attr.aria-label]="'Status for ' + r.name">
                   @for (s of statuses; track s.value) {
-                    <button type="button" [class]="s.tone" [attr.aria-pressed]="r.status === s.value"
-                            [attr.aria-label]="s.label" [title]="s.label" (click)="set(r, s.value)">
-                      <span class="long">{{ s.label }}</span><span class="short" aria-hidden="true">{{ s.short }}</span>
+                    <button
+                      type="button"
+                      [class]="s.tone"
+                      [attr.aria-pressed]="r.status === s.value"
+                      [attr.aria-label]="s.label"
+                      [title]="s.label"
+                      (click)="set(r, s.value)"
+                    >
+                      <span class="long">{{ s.label }}</span
+                      ><span class="short" aria-hidden="true">{{ s.short }}</span>
                     </button>
                   }
                 </div>
               </td>
               <td>
                 @if (r.status === 'late') {
-                  <label class="sr-only" [for]="'arr-' + r.studentId">Arrival time for {{ r.name }}</label>
-                  <input class="time" type="time" [id]="'arr-' + r.studentId" [value]="r.arrivedAt ?? ''" (change)="setArrival(r, $event)" />
+                  <label class="sr-only" [for]="'arr-' + r.studentId"
+                    >Arrival time for {{ r.name }}</label
+                  >
+                  <input
+                    class="time"
+                    type="time"
+                    [id]="'arr-' + r.studentId"
+                    [value]="r.arrivedAt ?? ''"
+                    (change)="setArrival(r, $event)"
+                  />
                 } @else {
                   <span class="muted">—</span>
                 }
               </td>
               <td>
                 @if (r.alertedAt) {
-                  <span class="s-pill tone-ok" [title]="'Alerted ' + r.alertedAt"><span class="ms" aria-hidden="true">done</span> Sent</span>
+                  <span class="s-pill tone-ok" [title]="'Alerted ' + r.alertedAt"
+                    ><i class="ti ti-check" aria-hidden="true"></i> Sent</span
+                  >
                 }
               </td>
               <td>
-                <button class="btn ghost sm" type="button" (click)="openHistory(r)" [attr.aria-label]="'Monthly history for ' + r.name">
-                  <span class="ms" aria-hidden="true">calendar_month</span>
+                <button
+                  class="btn ghost sm"
+                  type="button"
+                  (click)="openHistory(r)"
+                  [attr.aria-label]="'Monthly history for ' + r.name"
+                >
+                  <i class="ti ti-calendar-month" aria-hidden="true"></i>
                 </button>
               </td>
             </tr>
@@ -129,50 +219,90 @@
 </section>
 
 <!-- Parent alerts -->
-<section class="s-card notify tone-bad" [schoolTilt]="3">
-  <div class="notify-ico"><span class="ms" aria-hidden="true">notifications_active</span></div>
+<section class="s-card notify" [schoolTilt]="3">
+  <div class="notify-ico"><i class="ti ti-bell-ringing" aria-hidden="true"></i></div>
   <div class="notify-copy">
     <h3>Notify parents of absent students</h3>
-    <p class="muted">{{ toAlert() }} parents not yet alerted for {{ date() }}. Already-alerted rows are skipped.</p>
+    <p class="muted">
+      {{ toAlert() }} parents not yet alerted for {{ date() }}. Already-alerted rows are skipped.
+    </p>
     <label class="check">
-      <input type="checkbox" [checked]="notifyLate()" (change)="notifyLate.set($any($event.target).checked)" />
+      <input
+        type="checkbox"
+        [checked]="notifyLate()"
+        (change)="notifyLate.set($any($event.target).checked)"
+      />
       Also alert parents of late arrivals
     </label>
-    @if (dirty()) { <p class="hint">Save the roster first so alerts use the latest marks.</p> }
+    @if (dirty()) {
+      <p class="hint">Save the roster first so alerts use the latest marks.</p>
+    }
   </div>
   <div class="notify-act">
     @if (notifyConfirm()) {
       <span>Send {{ toAlert() }} WhatsApp alerts?</span>
       <button class="btn primary sm" type="button" (click)="notify()" [disabled]="notifying()">
-        @if (notifying()) { <span class="spinner"></span> } Confirm
+        @if (notifying()) {
+          <span class="spinner"></span>
+        }
+        Confirm
       </button>
-      <button class="btn ghost sm" type="button" (click)="notifyConfirm.set(false)" [disabled]="notifying()">Cancel</button>
+      <button
+        class="btn ghost sm"
+        type="button"
+        (click)="notifyConfirm.set(false)"
+        [disabled]="notifying()"
+      >
+        Cancel
+      </button>
     } @else {
-      <button class="btn primary" type="button" (click)="notifyConfirm.set(true); notifyResult.set(null)" [disabled]="!classKey() || dirty()">
-        <span class="ms" aria-hidden="true">send</span> Notify parents
+      <button
+        class="btn primary"
+        type="button"
+        (click)="notifyConfirm.set(true); notifyResult.set(null)"
+        [disabled]="!classKey() || dirty()"
+      >
+        <i class="ti ti-send" aria-hidden="true"></i> Notify parents
       </button>
     }
   </div>
   <div class="notify-out" aria-live="polite">
     @if (notifyResult(); as n) {
-      <p class="s-banner tone-ok"><span class="ms" aria-hidden="true">task_alt</span> {{ n.sent }} sent · {{ n.skipped }} skipped · {{ n.failed }} failed</p>
+      <p class="s-banner tone-ok">
+        <i class="ti ti-circle-check" aria-hidden="true"></i> {{ n.sent }} sent ·
+        {{ n.skipped }} skipped · {{ n.failed }} failed
+      </p>
     }
     @if (notifyError()) {
-      <p class="s-banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ notifyError() }}</p>
+      <p class="s-banner" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ notifyError() }}
+      </p>
     }
   </div>
 </section>
 
 <!-- Monthly history drawer -->
 @if (student(); as st) {
-  <button class="s-scrim" type="button" aria-label="Close history" (click)="student.set(null)"></button>
-  <aside class="s-drawer" role="dialog" aria-modal="true" [attr.aria-label]="'Attendance history for ' + st.name">
+  <button
+    class="s-scrim"
+    type="button"
+    aria-label="Close history"
+    (click)="student.set(null)"
+  ></button>
+  <aside
+    class="s-drawer"
+    role="dialog"
+    aria-modal="true"
+    [attr.aria-label]="'Attendance history for ' + st.name"
+  >
     <div class="drawer-head">
       <div>
         <span class="eyebrow">Roll {{ st.rollNumber }}</span>
         <h3>{{ st.name }}</h3>
       </div>
-      <button class="btn ghost icon" type="button" (click)="student.set(null)" aria-label="Close"><span class="ms" aria-hidden="true">close</span></button>
+      <button class="btn ghost icon" type="button" (click)="student.set(null)" aria-label="Close">
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
     </div>
     <div class="s-field">
       <label for="att-month">Month</label>
@@ -180,28 +310,44 @@
     </div>
 
     @if (historyLoading()) {
-      <div class="s-skel" style="height: 80px"></div>
-      <div class="s-skel" style="height: 200px"></div>
+      <div aria-busy="true">
+        <div class="s-skel" style="height: 80px"></div>
+        <div class="s-skel" style="height: 200px"></div>
+      </div>
     } @else if (historyError()) {
-      <p class="s-banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ historyError() }}</p>
+      <div class="s-banner" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ historyError() }}
+        <button class="btn sm" type="button" (click)="loadHistory()">Try again</button>
+      </div>
     } @else if (history(); as h) {
       <div class="pct">
         <b>{{ h.percentage }}<small>%</small></b>
         <span class="muted">present in {{ h.month }} · {{ h.absentDates.length }} absences</span>
       </div>
       <div class="cal" role="grid" aria-label="Month calendar">
-        @for (d of ['M', 'T', 'W', 'T', 'F', 'S', 'S']; track $index) { <span class="dow" aria-hidden="true">{{ d }}</span> }
+        @for (d of ['M', 'T', 'W', 'T', 'F', 'S', 'S']; track $index) {
+          <span class="dow" aria-hidden="true">{{ d }}</span>
+        }
         @for (c of calendar(); track c.date; let i = $index) {
           @if (c.day) {
-            <span class="cell {{ tone(c.status) }}" [class.has]="c.status" [style.--i]="i" role="gridcell"
-                  [attr.aria-label]="c.date + ': ' + (c.status ?? 'no record')" [title]="c.status ?? 'no record'">{{ c.day }}</span>
+            <span
+              class="cell {{ tone(c.status) }}"
+              [class.has]="c.status"
+              [style.--i]="i"
+              role="gridcell"
+              [attr.aria-label]="c.date + ': ' + (c.status ?? 'no record')"
+              [title]="c.status ?? 'no record'"
+              >{{ c.day }}</span
+            >
           } @else {
             <span aria-hidden="true"></span>
           }
         }
       </div>
       <ul class="key">
-        @for (s of statuses; track s.value) { <li class="{{ s.tone }}">{{ s.label }}</li> }
+        @for (s of statuses; track s.value) {
+          <li class="{{ s.tone }}">{{ s.label }}</li>
+        }
       </ul>
     }
   </aside>

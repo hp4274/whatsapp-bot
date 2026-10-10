@@ -19,6 +19,7 @@ import { PACING_PRESETS } from '../campaign/safety.js';
 import { ErrorCode, FRIENDLY, normalizeError } from '../messaging/errors.js';
 import { InteractiveError, normalizeInteractive, personalizeInteractive } from '../messaging/interactive.js';
 import { metaTemplateFor, prepareTemplateSend } from '../messaging/templateSend.js';
+import { campaignRefusal } from '../policy/campaignOps.js';
 import { contactContext, utcNow } from '../protocol.js';
 
 export const CAMPAIGN_STATUSES = Object.freeze([
@@ -71,11 +72,13 @@ export class CampaignStore {
      * @param {() => boolean} [deps.canSend]  false while no transport is connected
      * @param {(id: string) => object|null} [deps.media]  uploaded media by id
      * @param {(campaignKey: string) => ({clicks, byRecipient}|null)} [deps.interactiveStats]
+     * @param {() => object} [deps.policy]  the tenant's effective platform policy values
      */
     constructor(database, {
         contacts, templates = null, manager = null, now = null,
-        canSend = null, media = null, interactiveStats = null,
+        canSend = null, media = null, interactiveStats = null, policy = null,
     } = {}) {
+        this.policy = policy;
         this.db = database.db;
         ensureCampaignOptionsColumn(this.db);
         this.tenantId = database.tenantId;
@@ -103,6 +106,7 @@ export class CampaignStore {
         }
         if (wanted === 'scheduled' && !scheduledAt) throw new CampaignError('a scheduled campaign needs scheduled_at');
         const cleanOptions = normalizeOptions(options);
+        this.#checkPolicy({ status: wanted, audience, options: cleanOptions });
         const now = this.now();
         const info = this.db.prepare(
             `INSERT INTO campaigns (tenant_id, channel_id, name, status, template_id, body, segment_id,
@@ -140,6 +144,8 @@ export class CampaignStore {
         if (next.status === 'scheduled' && !next.scheduledAt) {
             throw new CampaignError('a scheduled campaign needs scheduled_at');
         }
+        // Already scheduled stays allowed: only a new booking counts against the limit.
+        this.#checkPolicy({ ...next, status: campaign.status === 'scheduled' ? 'draft' : next.status }, { except: campaign.id });
         this.db.prepare(
             `UPDATE campaigns SET name = ?, status = ?, template_id = ?, body = ?, segment_id = ?,
                                   audience = ?, media_id = ?, scheduled_at = ?, options = ?, updated_at = ?
@@ -245,7 +251,11 @@ export class CampaignStore {
         // No transport, no send - for the scheduler too: a scheduled campaign
         // simply stays `scheduled` and the next sweep tries again.
         if (this.canSend && !this.canSend()) throw new CampaignError('Connect a transport first.', 409);
+        this.#checkPolicy(campaign, { starting: true, except: campaign.id });
         const text = this.messageText(campaign);
+        // Platform template review (templates/policy.js reviewBlock).
+        const blocked = campaign.templateId != null ? this.templates?.sendBlock?.(campaign.templateId) : null;
+        if (blocked) throw new CampaignError(blocked, 409);
         const recipients = this.resolveAudience(campaign);
         if (!recipients.length) throw new CampaignError('that audience is empty');
         if (!this.manager) throw new CampaignError('no campaign manager is configured', 500);
@@ -273,6 +283,7 @@ export class CampaignStore {
         }
         this.manager.start();
         this.#set(campaign.id, { status: 'running', started_at: this.now(), finished_at: null });
+        this.#reason(campaign.id, null);
         return { campaign: this.get(campaign.id), audience: recipients.length, ...result };
     }
 
@@ -304,7 +315,8 @@ export class CampaignStore {
         const campaign = this.require(id);
         if (campaign.status !== 'running') throw new CampaignError(`a ${campaign.status} campaign cannot be paused`, 409);
         this.manager?.pause();
-        return this.#set(campaign.id, { status: 'paused' });
+        this.#set(campaign.id, { status: 'paused' });
+        return this.#reason(campaign.id, null);
     }
 
     resume(id) {
@@ -312,16 +324,51 @@ export class CampaignStore {
         if (campaign.status !== 'paused') throw new CampaignError(`a ${campaign.status} campaign cannot be resumed`, 409);
         // The manager refuses when today's budget is spent; that is its call.
         if (this.manager && this.manager.resume() === false) {
-            throw new CampaignError(`daily limit of ${this.manager.quota.limit} reached - resume after midnight`, 409);
+            throw new CampaignError(this.manager.resumeRefusal
+                ?? `daily limit of ${this.manager.quota.limit} reached - resume after midnight`, 409);
         }
-        return this.#set(campaign.id, { status: 'running' });
+        this.#set(campaign.id, { status: 'running' });
+        return this.#reason(campaign.id, null);
     }
 
-    cancel(id) {
+    /** `reason` (an admin or platform stop) is kept on the campaign so its owner sees why. */
+    cancel(id, reason = null) {
         const campaign = this.require(id);
         if (FINAL.includes(campaign.status)) return campaign;
-        const dropped = this.manager?.stop() ?? 0;
-        return this.#set(campaign.id, { status: 'cancelled', finished_at: this.now(), dropped });
+        const dropped = this.manager?.stop(reason ?? undefined) ?? 0;
+        this.#set(campaign.id, { status: 'cancelled', finished_at: this.now(), dropped });
+        return this.#reason(campaign.id, reason);
+    }
+
+    /**
+     * The manager paused (auto-pause, business cap) or stopped (kill switch)
+     * the run for `key`: mirror that on the record, with the reason.
+     */
+    policyHalt(key, status, reason) {
+        const id = Number(String(key ?? '').replace(/^camp-/, ''));
+        const campaign = Number.isInteger(id) ? this.get(id) : null;
+        if (!campaign || !['running', 'paused'].includes(campaign.status)) return null;
+        this.#set(id, status === 'cancelled' ? { status, finished_at: this.now() } : { status });
+        return this.#reason(id, reason);
+    }
+
+    #reason(id, reason) {
+        const campaign = this.get(id);
+        if ((campaign.options?.statusReason ?? null) === reason) return campaign;
+        const options = { ...(campaign.options ?? {}), statusReason: reason };
+        this.db.prepare('UPDATE campaigns SET options = ? WHERE id = ? AND tenant_id = ?')
+            .run(JSON.stringify(options), campaign.id, this.tenantId);
+        return this.get(id);
+    }
+
+    /** campaigns.* plan rules (policy/campaignOps.js campaignRefusal). */
+    #checkPolicy(campaign, { starting = false, except = null } = {}) {
+        if (!this.policy) return;
+        const counts = (status) => this.db.prepare(
+            'SELECT COUNT(*) AS n FROM campaigns WHERE tenant_id = ? AND status = ? AND id IS NOT ?')
+            .get(this.tenantId, status, except).n;
+        const refusal = campaignRefusal(this.policy(), campaign, counts, { starting });
+        if (refusal) throw new CampaignError(refusal.message, refusal.status);
     }
 
     /**

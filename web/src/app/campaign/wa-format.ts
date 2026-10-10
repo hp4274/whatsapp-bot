@@ -18,7 +18,8 @@ const ESC_OPEN = '\u0004';
 const ESC_CLOSE = '\u0005';
 const ESC_PIPE = '\u0006';
 
-export const blank = (v: unknown): boolean => v === undefined || v === null || String(v).trim() === '';
+export const blank = (v: unknown): boolean =>
+  v === undefined || v === null || String(v).trim() === '';
 
 export function escapeHtml(text: string): string {
   return String(text ?? '')
@@ -42,13 +43,16 @@ export function waToHtml(text: string): string {
     .replace(/(^|[^\w*])\*(?=\S)([^*\n]*?\S)\*(?!\w)/g, '$1<b>$2</b>')
     .replace(/(^|[^\w_])_(?=\S)([^_\n]*?\S)_(?!\w)/g, '$1<i>$2</i>')
     .replace(/(^|[^\w~])~(?=\S)([^~\n]*?\S)~(?!\w)/g, '$1<s>$2</s>');
-  html = html.replace(new RegExp(`${CODE_MARK}(\\d+)${CODE_MARK}`, 'g'), (_m, i: string) => `<code>${code[Number(i)]}</code>`);
+  html = html.replace(
+    new RegExp(`${CODE_MARK}(\\d+)${CODE_MARK}`, 'g'),
+    (_m, i: string) => `<code>${code[Number(i)]}</code>`,
+  );
   return html.replace(/\r?\n/g, '<br>');
 }
 
 /** Small deterministic PRNG (mulberry32), so one seed always gives the same variants. */
 function rng(seed: number): () => number {
-  let a = (Math.floor(seed) >>> 0) || 0x9e3779b9;
+  let a = Math.floor(seed) >>> 0 || 0x9e3779b9;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
     let t = a;
@@ -62,13 +66,17 @@ function rng(seed: number): () => number {
 export function resolveSpintax(text: string, seed = 0): string {
   if (!text) return '';
   const next = rng(seed);
-  let source = text.replace(/\\\{/g, ESC_OPEN).replace(/\\\}/g, ESC_CLOSE).replace(/\\\|/g, ESC_PIPE);
+  let source = text
+    .replace(/\\\{/g, ESC_OPEN)
+    .replace(/\\\}/g, ESC_CLOSE)
+    .replace(/\\\|/g, ESC_PIPE);
   for (let guard = 0; guard < 500; guard++) {
     const group = innermostGroup(source);
     if (!group) break;
     const choices = source.slice(group.start + 1, group.end).split('|');
     const index = Math.min(choices.length - 1, Math.floor(next() * choices.length));
-    source = source.slice(0, group.start) + (choices[index] ?? '').trim() + source.slice(group.end + 1);
+    source =
+      source.slice(0, group.start) + (choices[index] ?? '').trim() + source.slice(group.end + 1);
   }
   return source.replaceAll(ESC_OPEN, '{').replaceAll(ESC_CLOSE, '}').replaceAll(ESC_PIPE, '|');
 }
@@ -86,7 +94,10 @@ function innermostGroup(text: string): { start: number; end: number } | null {
 }
 
 /** A context where every empty value takes its fallback (server withFallbacks). */
-export function withFallbacks(context: Record<string, string>, fallbacks: Record<string, string> = {}): Record<string, string> {
+export function withFallbacks(
+  context: Record<string, string>,
+  fallbacks: Record<string, string> = {},
+): Record<string, string> {
   const out = { ...context };
   for (const [key, value] of Object.entries(fallbacks ?? {})) {
     if (blank(out[key]) && !blank(value)) out[key] = String(value);
@@ -115,19 +126,26 @@ export function substitute(
 ): Rendered {
   const ctx = withFallbacks(context ?? {}, fallbacks);
   const missing: string[] = [];
-  const inline = String(text ?? '').replace(/\{(\w+)\|([^{}]*)\}/g, (match, key: string, fallback: string) => {
-    if (!Object.prototype.hasOwnProperty.call(ctx, key)) return match; // spintax, not a fallback
-    return blank(ctx[key]) ? fallback : String(ctx[key]);
-  });
+  const inline = String(text ?? '').replace(
+    /\{(\w+)\|([^{}]*)\}/g,
+    (match, key: string, fallback: string) => {
+      if (!Object.prototype.hasOwnProperty.call(ctx, key)) return match; // spintax, not a fallback
+      return blank(ctx[key]) ? fallback : String(ctx[key]);
+    },
+  );
   const spun = resolveSpintax(inline, seed);
-  const marked = spun.replace(/\{(\w+)\}/g, (_m, key: string) => {
-    if (!blank(ctx[key])) return String(ctx[key]);
-    if (!missing.includes(key)) missing.push(key);
-    return `${MISS_OPEN}${key}${MISS_CLOSE}`;
-  }).trim();
+  const marked = spun
+    .replace(/\{(\w+)\}/g, (_m, key: string) => {
+      if (!blank(ctx[key])) return String(ctx[key]);
+      if (!missing.includes(key)) missing.push(key);
+      return `${MISS_OPEN}${key}${MISS_CLOSE}`;
+    })
+    .trim();
   const plain = marked.replace(new RegExp(`${MISS_OPEN}(\\w+)${MISS_CLOSE}`, 'g'), '{$1}');
-  const html = waToHtml(marked)
-    .replace(new RegExp(`${MISS_OPEN}(\\w+)${MISS_CLOSE}`, 'g'), '<mark class="missing">{$1}</mark>');
+  const html = waToHtml(marked).replace(
+    new RegExp(`${MISS_OPEN}(\\w+)${MISS_CLOSE}`, 'g'),
+    '<mark class="missing">{$1}</mark>',
+  );
   return { html, text: plain, missing };
 }
 
@@ -152,7 +170,10 @@ export function slotCount(body: string): number {
 }
 
 /** One slot's value: the contact's variable, else the slot fallback (server `fill`). */
-export function fillSlot(slot: { var?: string; fallback?: string } | null | undefined, context: Record<string, string>): string {
+export function fillSlot(
+  slot: { var?: string; fallback?: string } | null | undefined,
+  context: Record<string, string>,
+): string {
   if (!slot) return '';
   const key = String(slot.var ?? '').trim();
   const value = key ? context[key] : undefined;
@@ -175,7 +196,9 @@ export function renderTemplateText(
 }
 
 export function formatBytes(bytes: number): string {
-  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
+  return bytes < 1024 * 1024
+    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
 export function formatDuration(seconds: number): string {
@@ -191,11 +214,24 @@ export function formatDuration(seconds: number): string {
 /** Offset (ms) of `timeZone` from UTC at instant `utcMs`. */
 function tzOffset(utcMs: number, timeZone: string): number {
   const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
   }).formatToParts(new Date(utcMs));
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
-  const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second'));
+  const asUtc = Date.UTC(
+    get('year'),
+    get('month') - 1,
+    get('day'),
+    get('hour') % 24,
+    get('minute'),
+    get('second'),
+  );
   return asUtc - Math.floor(utcMs / 1000) * 1000;
 }
 

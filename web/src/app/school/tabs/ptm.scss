@@ -1,6 +1,17 @@
 @use '../school-shared' as s;
 
-@include s.all;
+// Only the kit pieces this tab uses (the full kit pushes it past the CSS budget).
+@include s.keyframes;
+@include s.tones;
+@include s.enter;
+@include s.head;
+@include s.card;
+@include s.pill;
+@include s.field;
+@include s.buttons;
+@include s.empty;
+@include s.skeleton;
+@include s.banner;
 
 :host {
   display: grid;
@@ -9,7 +20,7 @@
 
 .live { display: grid; gap: var(--space-sm); &:empty { display: none; } }
 
-.note {
+.s-head .note {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -17,11 +28,11 @@
 
   code {
     font-family: var(--mono);
-    font-weight: 700;
-    color: var(--primary);
-    background: var(--primary-soft);
+    font-weight: 600;
+    color: var(--primary-text);
+    background: var(--primary-tint);
     padding: 1px 6px;
-    border-radius: 4px;
+    border-radius: 6px;
   }
 }
 
@@ -31,15 +42,33 @@
   padding: 0;
   display: flex;
   gap: var(--space-lg);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-muted);
 
+  li {
+    display: grid;
+    grid-template-columns: auto auto;
+    align-items: center;
+    column-gap: 6px;
+
+    &::before {
+      content: '';
+      grid-row: 2;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--tone);
+    }
+  }
+
   b {
-    display: block;
+    grid-column: 1 / -1;
     font-size: 26px;
-    font-weight: 900;
-    letter-spacing: -0.03em;
-    color: var(--tone);
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: -1px;
+    color: var(--text-strong);
     font-variant-numeric: tabular-nums;
   }
 }
@@ -73,9 +102,9 @@
 
 .preview {
   margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-muted);
 }
 
 .board { display: grid; gap: var(--space-lg); min-width: 0; }
@@ -95,37 +124,36 @@
 }
 
 .slot {
-  --tone: var(--primary);
+  /* Same tones as the header totals: open = ok, booked = info. */
+  --tone: var(--success);
   position: relative;
   display: grid;
   gap: 1px;
   min-width: 150px;
   padding: 10px 34px 10px 14px;
   border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--tone) 40%, var(--border));
-  background:
-    linear-gradient(150deg, color-mix(in srgb, var(--tone) 14%, transparent), transparent 70%),
-    var(--surface);
+  border: 1px solid color-mix(in srgb, var(--tone) 40%, var(--border-color));
+  background: color-mix(in srgb, var(--tone) 6%, var(--surface-card));
   animation: s-rise 380ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 30ms);
   transition: transform var(--base) var(--ease), box-shadow var(--base) var(--ease);
 
   &:hover {
     transform: translateY(-3px) rotateX(8deg);
-    box-shadow: 0 10px 20px color-mix(in srgb, var(--tone) 22%, transparent);
+    box-shadow: var(--shadow-lift);
   }
 
-  .t { font-size: 17px; font-weight: 900; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--tone); }
+  .t { font-size: 17px; font-weight: 500; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; color: var(--text-strong); }
   .meta { font-size: 11px; color: var(--text-muted); }
-  .who { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 12px; font-weight: 700; .ms { font-size: 14px; } }
+  .who { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 12px; font-weight: 500; color: var(--text-color); .ti { font-size: 14px; color: var(--tone); } }
   .phone { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
 
-  &.booked { --tone: var(--accent); }
+  &.booked { --tone: var(--info); }
 
   &.cancelled {
     --tone: var(--text-muted);
     opacity: 0.6;
-    .t { text-decoration: line-through; }
+    .t { text-decoration: line-through; color: var(--text-muted); }
   }
 
   .x {
@@ -142,7 +170,7 @@
     color: var(--text-muted);
     background: transparent;
 
-    .ms { font-size: 16px; }
-    &:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); }
+    .ti { font-size: 16px; }
+    &:hover:not(:disabled) { color: var(--danger-text); background: color-mix(in srgb, var(--danger) 10%, transparent); }
   }
 }

@@ -1,4 +1,5 @@
-// Shared bits for the composer steps. Kept tiny: it is compiled into each step.
+// Shared bits for the composer steps, in the Kardlyz language. Kept small:
+// it is compiled into each of the three step stylesheets.
 
 :host {
   display: grid;
@@ -6,61 +7,73 @@
   align-content: start;
 }
 
+// `.card.panel` — the global .card gives the 24px hairline surface.
 .panel {
   display: grid;
   gap: var(--space-lg);
   padding: var(--space-xl);
+
+  @media (max-width: 560px) { padding: 20px; }
 }
 
+// Section header: quiet icon tile, 17px/500 title, muted lede.
 .ph {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  gap: 14px;
 
-  h3 { font-size: 16px; letter-spacing: -0.01em; }
-  p { margin: 2px 0 0; font-size: 12px; }
+  h3 { margin: 0; font-size: 17px; font-weight: 500; letter-spacing: -0.2px; color: var(--text-strong); }
+  p { margin: 3px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
   > :last-child:not(div):not(.badge) { margin-left: auto; }
 }
 
 .badge {
   display: inline-grid;
   place-items: center;
+  flex: none;
   width: 38px;
   height: 38px;
-  flex: none;
-  border-radius: 11px;
-  background: var(--primary-soft);
-  color: var(--primary);
-  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--primary) 18%, transparent);
+  border-radius: var(--radius-md);
+  background: var(--primary-tint);
+  color: var(--primary-text);
+  font-size: 18px;
 
-  &.accent { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 18%, transparent); }
-  &.warn { background: var(--warning-soft); color: var(--warning); box-shadow: none; }
+  &.accent { background: var(--accent-soft); color: var(--accent); }
+  &.warn { background: var(--warning-soft); color: var(--warning); }
+}
+
+// Inline banner: tone at 8% with a hairline in the same tone. Text stays
+// readable ink; only the icon carries the colour.
+.error,
+.banner {
+  --tone: var(--warning);
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--tone) 24%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--tone) 8%, transparent);
+  color: var(--text-color);
+  font-size: 13.5px;
+  line-height: 1.55;
+
+  > .ti { flex: none; margin-top: 2px; font-size: 16px; color: var(--tone); }
+  > span { flex: 1; min-width: 0; }
+  a { color: var(--primary-text); font-weight: 500; }
+  code { font-family: var(--mono); font-size: 12px; }
+  .btn { margin-left: auto; }
+
+  &.danger { --tone: var(--danger-text); }
+  &.info { --tone: var(--info); }
 }
 
 .error {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--danger-soft);
-  color: var(--danger);
+  --tone: var(--danger-text);
+  align-items: center;
   white-space: pre-line;
-}
-
-.banner {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-sm);
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
-  border-radius: var(--radius-sm);
-  background: var(--warning-soft);
-  color: var(--text);
-  font-size: 13px;
-
-  > .ms { color: var(--warning); }
-  &.danger { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 40%, transparent); > .ms { color: var(--danger); } }
-  &.info { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 30%, transparent); > .ms { color: var(--accent); } }
 }
 
 .foot {
@@ -72,21 +85,26 @@
   .grow { flex: 1; }
 }
 
+.btn.small { min-height: 32px; padding: 0 11px; font-size: 12.5px; }
+
 .tag {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--primary-tint);
+  color: var(--primary-text);
   font-family: var(--mono);
   font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: var(--primary-soft);
-  color: var(--primary);
+  font-weight: 500;
   white-space: nowrap;
 }
 
 .check {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-sm);
   font-size: 13px;
+  color: var(--text-color);
   cursor: pointer;
 
   input { width: auto; }
@@ -99,4 +117,109 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+.skel {
+  display: block;
+  height: 42px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+// Disclosure sections as Kardlyz accordion rows: hairline, chevron, and an
+// open state that earns the orange (tint + 3px bar). Two sizes: a whole card
+// (`.more-card`) and an inline row inside a panel (`.more`).
+.more-card,
+.more {
+  > summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    list-style: none;
+    cursor: pointer;
+    transition: background var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+
+    &::-webkit-details-marker { display: none; }
+    &::after {
+      content: '\ea5f';
+      margin-left: auto;
+      font-family: 'tabler-icons';
+      color: var(--text-muted);
+      transition: transform var(--base) var(--ease), color var(--fast) var(--ease);
+    }
+    &:hover { background: var(--surface-sunken); }
+  }
+
+  &[open] > summary {
+    background: color-mix(in srgb, var(--primary-tint) 60%, transparent);
+    box-shadow: inset 3px 0 0 var(--primary);
+
+    &::after { transform: rotate(180deg); color: var(--text-strong); }
+  }
+}
+
+.more-card {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+
+  > summary {
+    padding: 16px var(--space-xl);
+    font-size: 14.5px;
+
+    > .ti {
+      display: grid;
+      place-items: center;
+      flex: none;
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      background: var(--surface-sunken);
+      color: var(--text-muted);
+      transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+    }
+    strong { font-weight: 600; color: var(--text-strong); }
+    small { margin-left: 6px; font-size: 12.5px; color: var(--text-muted); }
+  }
+
+  &[open] > summary {
+    border-bottom: 1px solid var(--border-color);
+    > .ti { background: var(--primary-glow); color: var(--primary-text); }
+  }
+
+  > :not(summary) { margin: var(--space-lg) var(--space-xl) 0; }
+  > :last-child { margin-bottom: var(--space-xl); }
+}
+
+.more {
+  display: block;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+
+  > summary {
+    padding: 11px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-strong);
+  }
+
+  > :not(summary) { margin: 12px 14px 0; }
+  > :last-child { margin-bottom: 14px; }
+}
+
+// Click-to-insert variable chip.
+.vchip {
+  padding: 4px 11px;
+  border: 1px dashed color-mix(in srgb, var(--primary) 45%, var(--border-color));
+  border-radius: 999px;
+  background: var(--surface-card);
+  color: var(--primary-text);
+  font-family: var(--mono);
+  font-size: 12px;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), transform var(--fast) var(--ease);
+
+  &:hover { background: var(--primary-tint); transform: translateY(-1px); }
+  &.used { border-style: solid; background: var(--primary-tint); }
 }

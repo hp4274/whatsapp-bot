@@ -1,6 +1,11 @@
 @use './school-shared' as s;
 
 @include s.keyframes;
+@include s.tones;
+@include s.pill;
+@include s.banner;
+@include s.empty;
+@include s.skeleton;
 
 :host {
   display: block;
@@ -35,61 +40,60 @@
   gap: 12px;
   min-width: 0;
 
-  strong { display: block; font-size: 15px; letter-spacing: -0.01em; }
-
-  .role {
-    display: inline-block;
-    margin-top: 2px;
-    padding: 1px 8px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 700;
-    background: var(--accent-soft);
-    color: var(--accent);
+  strong {
+    display: block;
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: -0.2px;
+    color: var(--text-strong);
   }
+
+  .s-pill { --tone: var(--accent); margin-top: 3px; padding: 2px 9px; }
 }
 
+/* The brand tile: a flat orange-tinted square that tips back in 3D on hover. */
 .sp-mark {
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  color: var(--on-primary);
-  background: linear-gradient(145deg, var(--primary), color-mix(in srgb, var(--primary) 55%, var(--accent)));
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--primary) 38%, transparent), inset 0 1px 0 color-mix(in srgb, var(--on-primary) 35%, transparent);
-  transform: rotate(-6deg);
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  font-size: 20px;
+  color: var(--primary-text);
+  background: var(--primary-tint);
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, transparent);
+  transform: perspective(300px) rotateY(-12deg) rotateX(6deg);
   transition: transform var(--base) var(--ease);
 
-  &:hover { transform: rotate(0) scale(1.06); }
+  &:hover { transform: none; }
 }
 
 .class-pick {
   position: relative;
   display: flex;
   align-items: center;
-  min-width: 200px;
+  min-width: 220px;
 
-  .ms {
+  .ti {
     position: absolute;
     left: 12px;
-    color: var(--primary);
+    font-size: 16px;
+    color: var(--text-muted);
     pointer-events: none;
   }
 
   select {
-    padding-left: 38px;
-    font-weight: 600;
-    border-radius: 999px;
-    background: var(--surface);
-    box-shadow: var(--shadow);
+    width: 100%;
+    padding-left: 36px;
+    font-weight: 500;
+    background-color: var(--surface-card);
   }
 }
 
-/* Rail: grouped, vertical on desktop, a scrolling strip on phones ------ */
+/* Rail: Kardlyz side nav - grouped, vertical on desktop, a scrolling strip on phones */
 .sp-shell {
   display: grid;
-  grid-template-columns: 208px minmax(0, 1fr);
+  grid-template-columns: 216px minmax(0, 1fr);
   gap: var(--space-xl);
   align-items: start;
 }
@@ -98,12 +102,11 @@
   position: sticky;
   top: var(--space-md);
   display: grid;
-  gap: var(--space-lg);
-  padding: var(--space-md);
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) + 6px);
-  background: var(--surface);
-  box-shadow: var(--shadow);
+  gap: var(--space-md);
+  padding: 12px 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  background: var(--surface-rail);
 }
 
 .grp {
@@ -112,20 +115,61 @@
 }
 
 .grp-name {
-  padding: 0 10px 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
+  padding: 4px 20px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--hint);
 }
 
-.tab-skel {
-  flex: none;
-  width: 96px;
-  height: 34px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--surface-alt) 25%, color-mix(in srgb, var(--surface-alt) 40%, var(--surface)) 50%, var(--surface-alt) 75%);
-  background-size: 200% 100%;
-  animation: s-shimmer 1.2s linear infinite;
+.tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 12px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+
+  .ti {
+    font-size: 17px;
+    transition: transform var(--base) var(--ease);
+  }
+
+  /* The 3px orange marker Kardlyz puts beside the active nav item. */
+  &::before {
+    content: '';
+    position: absolute;
+    left: -9px;
+    top: 7px;
+    bottom: 7px;
+    width: 3px;
+    border-radius: 999px;
+    background: var(--primary);
+    opacity: 0;
+    transition: opacity var(--fast) var(--ease);
+  }
+
+  &:hover:not(.on) {
+    color: var(--text-strong);
+    background: var(--surface-sunken);
+    .ti { transform: translateY(-1px) rotate(-6deg); }
+  }
+
+  &.on {
+    color: var(--text-strong);
+    background: var(--surface-sunken);
+    font-weight: 600;
+    .ti { color: var(--primary-text); }
+    &::before { opacity: 1; }
+  }
 }
 
 .sp-tabs.skeleton {
@@ -134,75 +178,40 @@
   pointer-events: none;
 }
 
-.tab {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--text-muted);
-  font-weight: 600;
-  text-align: left;
-  white-space: nowrap;
-  transition: color var(--fast) var(--ease), background var(--base) var(--ease), transform var(--base) var(--ease);
-
-  .ms {
-    display: grid;
-    place-items: center;
-    width: 30px;
-    height: 30px;
-    border-radius: 9px;
-    font-size: 18px;
-    background: var(--surface-alt);
-    transition: background var(--base) var(--ease), color var(--base) var(--ease), transform var(--base) var(--ease);
-  }
-
-  &:hover:not(.on) {
-    color: var(--text);
-    background: var(--surface-alt);
-    .ms { transform: translateY(-2px) rotate(-4deg); }
-  }
-
-  &.on {
-    color: var(--text);
-    background: color-mix(in srgb, var(--primary) 12%, var(--surface));
-    .ms {
-      color: var(--on-primary);
-      background: linear-gradient(145deg, var(--primary), color-mix(in srgb, var(--primary) 60%, var(--accent)));
-      box-shadow: 0 5px 12px color-mix(in srgb, var(--primary) 40%, transparent);
-    }
-    &::before {
-      content: '';
-      position: absolute;
-      left: -13px;
-      top: 9px;
-      bottom: 9px;
-      width: 4px;
-      border-radius: 4px;
-      background: var(--primary);
-    }
-  }
+.tab-skel {
+  flex: none;
+  width: 96px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--surface-sunken);
+  animation: s-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 @media (max-width: 1000px) {
   .sp-shell { grid-template-columns: minmax(0, 1fr); gap: var(--space-lg); }
   .sp-rail {
-    position: sticky;
     z-index: 5;
     display: flex;
-    gap: var(--space-sm);
-    padding: 6px;
+    gap: 2px;
+    padding: 3px;
     overflow-x: auto;
     scrollbar-width: none;
-    border-radius: 999px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--surface-sunken);
     &::-webkit-scrollbar { display: none; }
   }
   .grp { display: flex; gap: 2px; }
   .grp-name { display: none; }
-  .tab { border-radius: 999px; padding: 6px 12px 6px 6px; &.on::before { display: none; } }
+  .tab {
+    margin: 0;
+    padding: 7px 12px;
+    border-radius: 9px;
+    font-size: 13px;
+    &::before { display: none; }
+    &:hover:not(.on) { background: transparent; }
+    &.on { background: var(--surface-card); box-shadow: var(--shadow-sm); }
+  }
 }
 
 .sp-body {
@@ -211,39 +220,20 @@
 
 /* States ---------------------------------------------------------------- */
 .sp-loading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 48px 0;
-  justify-content: center;
-  color: var(--text-muted);
+  display: grid;
+  gap: var(--space-lg);
+
+  .s-skel { margin: 0; }
 }
 
-.sp-error {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-lg);
+.sp-state {
   padding: var(--space-xl);
-  border-radius: calc(var(--radius) + 6px);
-  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
-  background: color-mix(in srgb, var(--danger) 7%, var(--surface));
-  animation: s-pop 280ms var(--ease) both;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  background: var(--surface-card);
 
-  > .ms {
-    font-size: 36px;
-    color: var(--danger);
-  }
-
-  div { flex: 1; min-width: 200px; }
-  p { margin: 2px 0 0; color: var(--text-muted); }
-
-  &.quiet {
-    border-color: var(--border);
-    background: var(--surface);
-
-    > .ms { color: var(--text-muted); }
-  }
+  .s-banner { justify-content: space-between; }
+  .s-banner span { flex: 1; min-width: 200px; }
 }
 
 @media (max-width: 560px) {

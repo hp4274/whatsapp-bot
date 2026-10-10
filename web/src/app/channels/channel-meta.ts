@@ -1,26 +1,45 @@
 import { Channel } from '../core/api';
 
 /** Human labels for the provider ids the API returns. Unknown ids get a tidy fallback. */
-const TRANSPORT_LABELS: Record<string, { label: string; short: string; icon: string; hint: string; qr: boolean }> = {
-  cloud_api: { label: 'WhatsApp Cloud API', short: 'Cloud API', icon: 'cloud', hint: 'Official Meta API - needs an access token', qr: false },
-  whatsapp_web: { label: 'WhatsApp Web', short: 'WhatsApp Web', icon: 'devices', hint: 'QR login through a browser on the server', qr: true },
-  baileys: { label: 'WhatsApp (Baileys)', short: 'Baileys', icon: 'qr_code_2', hint: 'QR login, no browser - reliable for media', qr: true },
-  sandbox: { label: 'Local sandbox', short: 'Sandbox', icon: 'science', hint: 'Testing only - nothing is delivered', qr: false },
+const TRANSPORT_LABELS: Record<
+  string,
+  { label: string; short: string; icon: string; hint: string; qr: boolean }
+> = {
+  cloud_api: {
+    label: 'WhatsApp Cloud API',
+    short: 'Cloud API',
+    icon: 'cloud',
+    hint: 'Official Meta API - needs an access token',
+    qr: false,
+  },
+  baileys: {
+    label: 'WhatsApp QR (Baileys)',
+    short: 'WhatsApp QR',
+    icon: 'qrcode',
+    hint: 'QR login, no browser - sends images, PDFs and videos',
+    qr: true,
+  },
 };
 
 export const titleCase = (id: string) =>
-  id.split(/[_-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ') || 'Unknown';
+  id
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(' ') || 'Unknown';
 
 export function transportMeta(id: string | undefined | null) {
   const key = String(id ?? '');
-  return TRANSPORT_LABELS[key] ?? {
-    label: titleCase(key),
-    short: titleCase(key),
-    icon: 'hub',
-    hint: '',
-    // An unknown provider is most likely another QR-linked one.
-    qr: key.includes('web') || key.includes('qr'),
-  };
+  return (
+    TRANSPORT_LABELS[key] ?? {
+      label: titleCase(key),
+      short: titleCase(key),
+      icon: 'topology-star-3',
+      hint: '',
+      // An unknown provider is most likely another QR-linked one.
+      qr: key.includes('web') || key.includes('qr'),
+    }
+  );
 }
 
 const CAPABILITY_LABELS: Record<string, { label: string; hint: string }> = {
@@ -36,7 +55,8 @@ const CAPABILITY_LABELS: Record<string, { label: string; hint: string }> = {
   ai: { label: 'AI assistant', hint: 'Generated replies' },
 };
 
-export const capabilityMeta = (id: string) => CAPABILITY_LABELS[id] ?? { label: titleCase(id), hint: '' };
+export const capabilityMeta = (id: string) =>
+  CAPABILITY_LABELS[id] ?? { label: titleCase(id), hint: '' };
 
 export type LiveState = 'connected' | 'connecting' | 'disconnected' | 'disabled';
 
@@ -71,11 +91,13 @@ export function describeDays(days: string[] | undefined): string {
   if (!days?.length || set.size === 7) return 'Every day';
   const idx = ids.map((id, i) => (set.has(id) ? i : -1)).filter((i) => i >= 0);
   const contiguous = idx.every((v, i) => i === 0 || v === idx[i - 1] + 1);
-  if (contiguous && idx.length > 2) return `${WEEKDAYS[idx[0]].short}-${WEEKDAYS[idx[idx.length - 1]].short}`;
+  if (contiguous && idx.length > 2)
+    return `${WEEKDAYS[idx[0]].short}-${WEEKDAYS[idx[idx.length - 1]].short}`;
   return idx.map((i) => WEEKDAYS[i].short).join(', ');
 }
 
-const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf;
+const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] })
+  .supportedValuesOf;
 const ZONES: string[] = (() => {
   const list = supported ? supported('timeZone') : [];
   return list.includes('UTC') ? list : ['UTC', ...list];
@@ -89,10 +111,17 @@ export function timeZones(current?: string): string[] {
 export const localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
 /** The weekday and HH:MM it is right now in `zone`. */
-export function nowIn(zone: string, at = new Date()): { day: string; time: string; minutes: number } {
+export function nowIn(
+  zone: string,
+  at = new Date(),
+): { day: string; time: string; minutes: number } {
   try {
     const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: zone || 'UTC', hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit',
+      timeZone: zone || 'UTC',
+      hour12: false,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
     }).formatToParts(at);
     const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
     const hour = get('hour') === '24' ? '00' : get('hour');

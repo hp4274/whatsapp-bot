@@ -1,5 +1,5 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
 import { ResponseTimes } from './analytics-api';
 import { CountUp, duration } from './analytics-util';
@@ -16,6 +16,7 @@ const ARC = 2 * Math.PI * 30;
   imports: [DecimalPipe, CountUp],
   templateUrl: './response-times.html',
   styleUrl: './response-times.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ResponseTimesView {
   readonly data = input.required<ResponseTimes>();
@@ -35,17 +36,31 @@ export class ResponseTimesView {
   protected readonly bars = computed(() => {
     const d = this.data();
     const rows = [
-      ...d.buckets.map((b, i) => ({ key: b.key, label: b.label, n: b.count, tone: i < 2 ? 'fast' : i < 4 ? 'ok' : 'slow' })),
+      ...d.buckets.map((b, i) => ({
+        key: b.key,
+        label: b.label,
+        n: b.count,
+        tone: i < 2 ? 'fast' : i < 4 ? 'ok' : 'slow',
+      })),
       { key: 'none', label: 'Unanswered', n: d.unanswered, tone: 'none' },
     ];
     const max = Math.max(1, ...rows.map((r) => r.n));
-    return rows.map((r) => ({ ...r, pct: (r.n / max) * 100, share: d.conversations ? Math.round((r.n / d.conversations) * 100) : 0 }));
+    return rows.map((r) => ({
+      ...r,
+      pct: (r.n / max) * 100,
+      share: d.conversations ? Math.round((r.n / d.conversations) * 100) : 0,
+    }));
   });
 
   protected readonly summary = computed(() => {
     const d = this.data();
-    return `First response distribution over ${d.conversations} conversations: ` +
-      this.bars().map((b) => `${b.label} ${b.n}`).join(', ') + '.';
+    return (
+      `First response distribution over ${d.conversations} conversations: ` +
+      this.bars()
+        .map((b) => `${b.label} ${b.n}`)
+        .join(', ') +
+      '.'
+    );
   });
 
   protected offset(pct: number | null) {

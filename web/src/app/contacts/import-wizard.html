@@ -1,46 +1,102 @@
+<!-- Four-step modal (upload, map, tag, result) in the Kardlyz dialog shell: head with stepper, scrolling body, foot actions. -->
 <div class="overlay" (click)="close()" aria-hidden="true"></div>
 
 <div #panel class="dialog" role="dialog" aria-modal="true" aria-labelledby="iw-title">
   <header class="top">
     <div>
-      <h3 id="iw-title"><span class="ms" aria-hidden="true">upload_file</span> Import contacts</h3>
+      <h3 id="iw-title"><i class="ti ti-file-upload" aria-hidden="true"></i> Import contacts</h3>
       <ol class="steps" aria-label="Progress">
         @for (s of steps; track s.id; let i = $index) {
-          <li [class.on]="i === stepIndex()" [class.past]="i < stepIndex()" [attr.aria-current]="i === stepIndex() ? 'step' : null">
-            <span class="num" aria-hidden="true">@if (i < stepIndex()) { <span class="ms">check</span> } @else { {{ i + 1 }} }</span>
+          <li
+            [class.on]="i === stepIndex()"
+            [class.past]="i < stepIndex()"
+            [attr.aria-current]="i === stepIndex() ? 'step' : null"
+          >
+            <span class="num" aria-hidden="true">
+              @if (i < stepIndex()) {
+                <i class="ti ti-check" aria-hidden="true"></i>
+              } @else {
+                {{ i + 1 }}
+              }
+            </span>
             <span class="lbl">{{ s.label }}</span>
           </li>
         }
       </ol>
     </div>
-    <button class="btn ghost icon" type="button" aria-label="Close" [disabled]="busy()" (click)="close()"><span class="ms">close</span></button>
+    <button
+      class="btn ghost icon"
+      type="button"
+      aria-label="Close"
+      [disabled]="busy()"
+      (click)="close()"
+    >
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
   </header>
 
-  @if (error()) { <p class="banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ error() }}</p> }
+  @if (error()) {
+    <p class="s-banner" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ error() }}
+    </p>
+  }
 
   <div class="body">
     @switch (step()) {
       @case ('upload') {
-        <label class="drop" [class.over]="dragging()" [class.busy]="busy()" for="iw-file"
-               (dragover)="$event.preventDefault(); dragging.set(true)" (dragleave)="dragging.set(false)" (drop)="drop($event)">
+        <label
+          class="drop"
+          [class.over]="dragging()"
+          [class.busy]="busy()"
+          for="iw-file"
+          (dragover)="$event.preventDefault(); dragging.set(true)"
+          (dragleave)="dragging.set(false)"
+          (drop)="drop($event)"
+        >
           <span class="stack" aria-hidden="true">
             <span class="sheet s1"></span><span class="sheet s2"></span>
-            <span class="sheet s3"><span class="ms">{{ busy() ? 'hourglass_top' : 'table_view' }}</span></span>
+            <span class="sheet s3"
+              ><i class="ti ti-{{ busy() ? 'hourglass-high' : 'table' }}" aria-hidden="true"></i
+            ></span>
           </span>
-          <strong>{{ busy() ? 'Reading ' + file()?.name + '...' : 'Drop a CSV or Excel file here' }}</strong>
-          <span class="muted">or <u>browse your computer</u>. The first row should be column names.</span>
-          <input id="iw-file" data-autofocus type="file" accept=".csv,.xlsx,.xls,.xlsm" [disabled]="busy()" (change)="pick($event)" />
+          <strong>{{
+            busy() ? 'Reading ' + file()?.name + '...' : 'Drop a CSV or Excel file here'
+          }}</strong>
+          <span class="muted"
+            >or <u>browse your computer</u>. The first row should be column names.</span
+          >
+          <input
+            id="iw-file"
+            data-autofocus
+            type="file"
+            accept=".csv,.xlsx,.xls,.xlsm"
+            [disabled]="busy()"
+            (change)="pick($event)"
+          />
         </label>
         <ul class="tips">
-          <li><span class="ms" aria-hidden="true">check_circle</span> Numbers without a country code use your workspace default.</li>
-          <li><span class="ms" aria-hidden="true">check_circle</span> A number already in the book is updated, never duplicated.</li>
-          <li><span class="ms" aria-hidden="true">check_circle</span> Extra columns become custom fields you can use in templates.</li>
+          <li>
+            <i class="ti ti-circle-check" aria-hidden="true"></i> Numbers without a country code use
+            your workspace default.
+          </li>
+          <li>
+            <i class="ti ti-circle-check" aria-hidden="true"></i> A number already in the book is
+            updated, never duplicated.
+          </li>
+          <li>
+            <i class="ti ti-circle-check" aria-hidden="true"></i> Extra columns become custom fields
+            you can use in templates.
+          </li>
         </ul>
       }
 
       @case ('map') {
         @if (preview(); as p) {
-          <p class="lead"><strong>{{ p.filename }}</strong> &middot; {{ p.rowCount.toLocaleString() }} row{{ p.rowCount === 1 ? '' : 's' }}, {{ p.headers.length }} columns. Tell us what each column holds.</p>
+          <p class="lead">
+            <strong>{{ p.filename }}</strong> &middot; {{ p.rowCount.toLocaleString() }} row{{
+              p.rowCount === 1 ? '' : 's'
+            }}, {{ p.headers.length }} columns. Tell us what each column holds.
+          </p>
           <div class="map">
             @for (h of p.headers; track $index; let i = $index) {
               <div class="map-row" [class.skip]="columns()[i].kind === 'ignore'">
@@ -48,9 +104,13 @@
                   <strong>{{ h || 'Column ' + (i + 1) }}</strong>
                   <span class="muted">{{ samples(i).join(' · ') || 'empty' }}</span>
                 </div>
-                <span class="ms arrow" aria-hidden="true">arrow_forward</span>
+                <i class="ti ti-arrow-right arrow" aria-hidden="true"></i>
                 <div class="dst">
-                  <select [attr.aria-label]="'Import ' + (h || 'column ' + (i + 1)) + ' as'" [ngModel]="columns()[i].kind" (ngModelChange)="setKind(i, $event)">
+                  <select
+                    [attr.aria-label]="'Import ' + (h || 'column ' + (i + 1)) + ' as'"
+                    [ngModel]="columns()[i].kind"
+                    (ngModelChange)="setKind(i, $event)"
+                  >
                     <option value="phone">Phone number</option>
                     <option value="name">Name</option>
                     <option value="email">Email</option>
@@ -59,29 +119,55 @@
                     <option value="ignore">Don't import</option>
                   </select>
                   @if (columns()[i].kind === 'custom') {
-                    <input class="mono" list="iw-keys" maxlength="60" [attr.aria-label]="'Custom field name for ' + (h || 'column ' + (i + 1))"
-                           [ngModel]="columns()[i].key" (ngModelChange)="setKey(i, $event)" />
+                    <input
+                      class="mono"
+                      list="iw-keys"
+                      maxlength="60"
+                      [attr.aria-label]="'Custom field name for ' + (h || 'column ' + (i + 1))"
+                      [ngModel]="columns()[i].key"
+                      (ngModelChange)="setKey(i, $event)"
+                    />
                   }
                 </div>
               </div>
             }
           </div>
-          <datalist id="iw-keys">@for (k of p.fieldKeys; track k) { <option [value]="k"></option> }</datalist>
+          <datalist id="iw-keys">
+            @for (k of p.fieldKeys; track k) {
+              <option [value]="k"></option>
+            }
+          </datalist>
 
           @if (sample().heads.length) {
             <div class="sample">
               <table>
-                <caption>Preview of the first rows as they will be saved</caption>
-                <thead><tr>@for (h of sample().heads; track $index) { <th scope="col">{{ h }}</th> }</tr></thead>
+                <caption>
+                  Preview of the first rows as they will be saved
+                </caption>
+                <thead>
+                  <tr>
+                    @for (h of sample().heads; track $index) {
+                      <th scope="col">{{ h }}</th>
+                    }
+                  </tr>
+                </thead>
                 <tbody>
                   @for (r of sample().rows; track $index) {
-                    <tr>@for (v of r; track $index) { <td>{{ v }}</td> }</tr>
+                    <tr>
+                      @for (v of r; track $index) {
+                        <td>{{ v }}</td>
+                      }
+                    </tr>
                   }
                 </tbody>
               </table>
             </div>
           }
-          @if (mappingError()) { <p class="hint-bad" role="alert"><span class="ms" aria-hidden="true">info</span> {{ mappingError() }}</p> }
+          @if (mappingError()) {
+            <p class="hint-bad" role="alert">
+              <i class="ti ti-info-circle" aria-hidden="true"></i> {{ mappingError() }}
+            </p>
+          }
         }
       }
 
@@ -89,10 +175,21 @@
         <p class="lead">Tag everyone in this file so you can find them again, or skip this step.</p>
         <form class="tag-editor" (submit)="addTag($event)">
           @for (t of tags(); track t) {
-            <span class="tag">{{ t }} <button type="button" [attr.aria-label]="'Remove tag ' + t" (click)="removeTag(t)"><span class="ms" aria-hidden="true">close</span></button></span>
+            <span class="tag"
+              >{{ t }}
+              <button type="button" [attr.aria-label]="'Remove tag ' + t" (click)="removeTag(t)">
+                <i class="ti ti-x" aria-hidden="true"></i></button
+            ></span>
           }
-          <input data-autofocus name="tag" aria-label="Add a tag" placeholder="e.g. expo-2026, leads" autocomplete="off"
-                 [ngModel]="tagText()" (ngModelChange)="tagText.set($event)" />
+          <input
+            data-autofocus
+            name="tag"
+            aria-label="Add a tag"
+            placeholder="e.g. expo-2026, leads"
+            autocomplete="off"
+            [ngModel]="tagText()"
+            (ngModelChange)="tagText.set($event)"
+          />
         </form>
         @if (suggestions().length) {
           <div class="suggest">
@@ -104,10 +201,15 @@
         }
         @if (preview(); as p) {
           <div class="summary">
-            <span class="ms" aria-hidden="true">fact_check</span>
-            <p>{{ p.rowCount.toLocaleString() }} rows from <strong>{{ p.filename }}</strong> will be checked and saved
-              @if (tags().length) { with {{ tags().length }} tag{{ tags().length === 1 ? '' : 's' }} }.
-              Rows without a valid number are skipped and listed afterwards.</p>
+            <i class="ti ti-checklist" aria-hidden="true"></i>
+            <p>
+              {{ p.rowCount.toLocaleString() }} rows from <strong>{{ p.filename }}</strong> will be
+              checked and saved
+              @if (tags().length) {
+                with {{ tags().length }} tag{{ tags().length === 1 ? '' : 's' }}
+              }
+              . Rows without a valid number are skipped and listed afterwards.
+            </p>
           </div>
         }
       }
@@ -115,18 +217,38 @@
       @case ('done') {
         @if (result(); as r) {
           <div class="result">
-            <span class="burst" aria-hidden="true"><span class="ms">task_alt</span></span>
+            <span class="burst" aria-hidden="true"
+              ><i class="ti ti-circle-check" aria-hidden="true"></i
+            ></span>
             <h4>Import finished</h4>
             <div class="counts">
-              <div class="count ok"><b>{{ r.saved?.created ?? 0 }}</b><small>new</small></div>
-              <div class="count info"><b>{{ r.saved?.updated ?? 0 }}</b><small>updated</small></div>
-              <div class="count bad"><b>{{ invalid() }}</b><small>invalid</small></div>
-              <div class="count mute"><b>{{ r.duplicates }}</b><small>repeated in file</small></div>
+              <div class="count ok">
+                <b>{{ r.saved?.created ?? 0 }}</b
+                ><small>new</small>
+              </div>
+              <div class="count info">
+                <b>{{ r.saved?.updated ?? 0 }}</b
+                ><small>updated</small>
+              </div>
+              <div class="count bad">
+                <b>{{ invalid() }}</b
+                ><small>invalid</small>
+              </div>
+              <div class="count mute">
+                <b>{{ r.duplicates }}</b
+                ><small>repeated in file</small>
+              </div>
             </div>
             @if (problems().length) {
               <details class="problems">
-                <summary>Show the {{ invalid() }} skipped row{{ invalid() === 1 ? '' : 's' }}</summary>
-                <ul>@for (p of problems(); track $index) { <li>{{ p }}</li> }</ul>
+                <summary>
+                  Show the {{ invalid() }} skipped row{{ invalid() === 1 ? '' : 's' }}
+                </summary>
+                <ul>
+                  @for (p of problems(); track $index) {
+                    <li>{{ p }}</li>
+                  }
+                </ul>
               </details>
             }
           </div>
@@ -138,20 +260,36 @@
   <footer class="foot">
     @switch (step()) {
       @case ('upload') {
-        <button class="btn ghost" type="button" (click)="close()">Cancel</button>
+        <button class="btn" type="button" (click)="close()">Cancel</button>
       }
       @case ('map') {
-        <button class="btn ghost" type="button" (click)="restart()"><span class="ms" aria-hidden="true">arrow_back</span> Choose another file</button>
-        <button class="btn primary" type="button" [disabled]="!!mappingError()" (click)="go('tags')">Continue <span class="ms" aria-hidden="true">arrow_forward</span></button>
+        <button class="btn" type="button" (click)="restart()">
+          <i class="ti ti-arrow-left" aria-hidden="true"></i> Choose another file
+        </button>
+        <button
+          class="btn primary"
+          type="button"
+          [disabled]="!!mappingError()"
+          (click)="go('tags')"
+        >
+          Continue <i class="ti ti-arrow-right" aria-hidden="true"></i>
+        </button>
       }
       @case ('tags') {
-        <button class="btn ghost" type="button" [disabled]="busy()" (click)="go('map')"><span class="ms" aria-hidden="true">arrow_back</span> Back</button>
+        <button class="btn" type="button" [disabled]="busy()" (click)="go('map')">
+          <i class="ti ti-arrow-left" aria-hidden="true"></i> Back
+        </button>
         <button class="btn primary" type="button" [disabled]="busy()" (click)="commit()">
-          @if (busy()) { <span class="spinner" aria-hidden="true"></span> Importing... } @else { <span class="ms" aria-hidden="true">download_done</span> Import {{ preview()?.rowCount?.toLocaleString() }} rows }
+          @if (busy()) {
+            <span class="spinner" aria-hidden="true"></span> Importing...
+          } @else {
+            <i class="ti ti-file-check" aria-hidden="true"></i> Import
+            {{ preview()?.rowCount?.toLocaleString() }} rows
+          }
         </button>
       }
       @case ('done') {
-        <button class="btn ghost" type="button" (click)="restart()">Import another file</button>
+        <button class="btn" type="button" (click)="restart()">Import another file</button>
         <button class="btn primary" type="button" data-autofocus (click)="close()">Done</button>
       }
     }

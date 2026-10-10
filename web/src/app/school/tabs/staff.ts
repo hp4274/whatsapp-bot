@@ -1,25 +1,59 @@
-import { Component, inject, input, output, signal } from '@angular/core';
-import { Store } from '../../core/store';
+import { ChangeDetectionStrategy, Component, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
-import { ClassInfo, SchoolApi, SchoolArea, SchoolMe, StaffMember, StaffTitle } from '../school-api';
+import { Store } from '../../core/store';
+import { SchoolApi } from '../school-api';
+import type { ClassInfo, SchoolArea, SchoolMe, StaffMember, StaffTitle } from '../school-api';
 import { Tilt } from '../tilt';
 
 const TITLES: { id: StaffTitle; label: string; icon: string; access: string }[] = [
-  { id: 'principal', label: 'Principal', icon: 'shield_person', access: 'Everything, including staff and school settings.' },
-  { id: 'class_teacher', label: 'Class teacher', icon: 'co_present', access: 'Attendance, timetable, homework, students, leave, results and PTM - for assigned classes only.' },
-  { id: 'accounts', label: 'Accounts', icon: 'account_balance', access: 'Fee ledger, receipts and payment reminders.' },
-  { id: 'front_desk', label: 'Front desk', icon: 'support_agent', access: 'Notices, leave requests, PTM bookings and broadcasts.' },
+  {
+    id: 'principal',
+    label: 'Principal',
+    icon: 'shield-check',
+    access: 'Everything, including staff and school settings.',
+  },
+  {
+    id: 'class_teacher',
+    label: 'Class teacher',
+    icon: 'presentation',
+    access:
+      'Attendance, timetable, homework, students, leave, results and PTM - for assigned classes only.',
+  },
+  {
+    id: 'accounts',
+    label: 'Accounts',
+    icon: 'building-bank',
+    access: 'Fee ledger, receipts and payment reminders.',
+  },
+  {
+    id: 'front_desk',
+    label: 'Front desk',
+    icon: 'headset',
+    access: 'Notices, leave requests, PTM bookings and broadcasts.',
+  },
 ];
 
-interface Row extends StaffMember { dirty: boolean; saving: boolean; saved: boolean; error: string }
+/** A staff member plus the local edit state of their row. */
+interface Row extends StaffMember {
+  dirty: boolean;
+  saving: boolean;
+  saved: boolean;
+  error: string;
+}
 
+/**
+ * Staff & access: assigns each team member a school title (which decides the
+ * portal areas they can open) and, for class teachers, their classes. Rows keep
+ * their own dirty/saving flags so a live refresh never overwrites unsaved edits.
+ */
 @Component({
   selector: 'school-staff',
   imports: [FormsModule, RouterLink, Tilt],
   templateUrl: './staff.html',
   styleUrl: './staff.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class StaffTab {
   private readonly api = inject(SchoolApi);
@@ -40,15 +74,27 @@ export class StaffTab {
     this.store.watch(['school'], () => this.load(true));
   }
 
+  /** Retry after an error (the banner's action). */
+  protected reload() {
+    this.error.set('');
+    this.loading.set(true);
+    this.load();
+  }
+
   private load(quiet = false) {
     this.api.staff().subscribe({
       next: (r) => {
         // Never clobber unsaved edits: skip a live refresh while any row is dirty or saving.
         if (quiet && this.rows().some((x) => x.dirty || x.saving)) return;
-        this.rows.set(r.users.map((u) => ({ ...u, dirty: false, saving: false, saved: false, error: '' })));
+        this.rows.set(
+          r.users.map((u) => ({ ...u, dirty: false, saving: false, saved: false, error: '' })),
+        );
         this.loading.set(false);
       },
-      error: (e: Error) => { if (!quiet) this.error.set(e.message); this.loading.set(false); },
+      error: (e: Error) => {
+        if (!quiet) this.error.set(e.message);
+        this.loading.set(false);
+      },
     });
   }
 
@@ -65,7 +111,9 @@ export class StaffTab {
     this.patch(row.id, { classes, dirty: true, saved: false });
   }
 
-  protected titleOf(id: StaffTitle) { return TITLES.find((t) => t.id === id) ?? TITLES[0]; }
+  protected titleOf(id: StaffTitle) {
+    return TITLES.find((t) => t.id === id) ?? TITLES[0];
+  }
 
   protected save(row: Row) {
     this.patch(row.id, { saving: true, error: '' });

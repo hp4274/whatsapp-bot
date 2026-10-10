@@ -1,0 +1,168 @@
+/* Bulk campaigns panel: a kill-switch card with a tipped badge, the section header with the
+ * status segments, one hairline card holding the table, and a native confirm dialog. */
+@use '../school/school-shared' as s;
+
+@include s.keyframes;
+@include s.tones;
+@include s.pill;
+@include s.seg;
+@include s.table;
+@include s.empty;
+@include s.skeleton;
+@include s.banner;
+@include s.buttons;
+
+:host { display: block; }
+
+.panel { display: grid; gap: var(--space-lg); }
+
+// Danger badge tipped in perspective with an offset tone shadow, same touch as the dialog badges.
+%badge {
+  --tone: var(--danger-text);
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
+  color: var(--tone);
+  transform: perspective(300px) rotateX(12deg) rotateY(-10deg);
+  box-shadow: 6px 8px 0 -2px color-mix(in srgb, var(--tone) 18%, transparent);
+}
+
+.kill {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+  border: 1px solid color-mix(in srgb, var(--danger-text) 28%, var(--border-color));
+  border-radius: 24px;
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--danger) 7%, transparent), transparent 60%),
+    var(--surface-card);
+  animation: s-rise 520ms var(--ease) both;
+
+  .badge {
+    @extend %badge;
+    width: 52px;
+    height: 52px;
+    font-size: 26px;
+    transition: transform 380ms var(--ease);
+  }
+  &:hover .badge { transform: perspective(300px) rotateX(4deg) rotateY(-4deg) translateY(-2px); }
+  &.on { border-color: color-mix(in srgb, var(--danger-text) 50%, var(--border-color)); }
+
+  > .btn { margin-left: auto; align-self: center; }
+  .btn .ti { margin-right: 6px; }
+
+  @media (max-width: 560px) {
+    padding: 20px;
+    > .btn { width: 100%; margin-left: 0; }
+  }
+}
+
+.kill-body {
+  flex: 1 1 320px;
+  min-width: 0;
+
+  h3 { margin: 0; font-size: 17px; font-weight: 500; color: var(--text-strong); }
+  p { margin: 8px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--text-muted); }
+  .hint { display: flex; gap: 6px; font-size: 12.5px; color: var(--hint); .ti { margin-top: 3px; } }
+}
+
+.kill-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-md);
+
+  .eyebrow { margin: 0 0 6px; font-size: 13px; font-weight: 500; color: var(--primary-text); }
+  h2 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: -0.5px; color: var(--text-strong); }
+  .lede { margin: 6px 0 0; font-size: 13.5px; color: var(--text-muted); }
+}
+
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.s-seg { flex-wrap: wrap; }
+
+.msg { flex: 1; min-width: 0; white-space: pre-line; }
+
+.card {
+  padding: var(--space-xl);
+  background: var(--surface-card);
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+
+  @media (max-width: 560px) { padding: 20px; }
+}
+
+.s-table {
+  td { vertical-align: top; }
+  .strong { display: block; font-weight: 500; color: var(--text-strong); }
+  .sub { display: block; margin-top: 3px; font-size: 12px; color: var(--hint); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .num .strong,
+  .num .sub { display: inline; }
+
+  .name {
+    white-space: normal;
+    min-width: 180px;
+    max-width: 280px;
+    .sub { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  }
+
+  .acts {
+    text-align: right;
+    white-space: nowrap;
+    .btn { margin-left: 6px; }
+    .btn .ti { margin-right: 4px; }
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.dlg {
+  width: min(440px, calc(100vw - 32px));
+  padding: var(--space-xl);
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  background: var(--surface-card);
+  color: var(--text-color);
+  box-shadow: var(--shadow-lift);
+
+  &[open] { animation: dlg-in 360ms var(--ease) both; }
+  &::backdrop { background: color-mix(in srgb, var(--text-strong) 45%, transparent); backdrop-filter: blur(4px); }
+
+  form { display: grid; gap: 12px; }
+  h3 { margin: 0; font-size: 17px; font-weight: 500; color: var(--text-strong); }
+  p { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--text-muted); }
+}
+
+.dlg-badge {
+  @extend %badge;
+  width: 44px;
+  height: 44px;
+  font-size: 22px;
+}
+
+.dlg-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+
+@keyframes dlg-in {
+  from { opacity: 0; transform: perspective(900px) translateY(16px) rotateX(-10deg) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dlg[open],
+  .kill { animation: none; }
+  .kill .badge { transition: none; }
+}

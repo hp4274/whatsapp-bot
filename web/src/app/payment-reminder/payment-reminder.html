@@ -1,35 +1,51 @@
+<header class="s-head">
+  <div>
+    <span class="eyebrow"><i class="ti ti-cash" aria-hidden="true"></i> Payments</span>
+    <h2>Payment reminders</h2>
+    <p>Import payment dues from Excel and queue one personalised WhatsApp reminder per person.</p>
+  </div>
+</header>
+
 @if (notice()) {
-  <p class="notice card enter" role="alert">{{ notice() }}</p>
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ notice() }}
+  </p>
 }
 
-<section class="card enter">
-  <header class="card-head">
-    <span class="badge accent">
-      <span class="ms" aria-hidden="true">payments</span>
-    </span>
-    <div>
-      <h3>Payment Reminder</h3>
-      <p class="muted">Import payment dues from Excel and queue one personalized WhatsApp reminder per person</p>
-    </div>
-  </header>
+<section class="s-card s-enter" aria-labelledby="pr-import">
+  <h3 id="pr-import"><i class="ti ti-file-spreadsheet" aria-hidden="true"></i> Import dues</h3>
 
   <div class="workflow">
     <div class="import-row">
-      <label class="btn" for="payment-file">Import Excel</label>
-      <input id="payment-file" type="file" accept=".xlsx,.xls,.xlsm" (change)="onFile($event)" hidden />
-      <span><strong>Valid rows: {{ validCount() }}</strong></span>
+      <label class="btn" for="payment-file"
+        ><i class="ti ti-upload" aria-hidden="true"></i> Import Excel</label
+      >
+      <input
+        id="payment-file"
+        type="file"
+        accept=".xlsx,.xls,.xlsm"
+        (change)="onFile($event)"
+        hidden
+      />
+      <span class="s-pill" [class.tone-ok]="validCount()" [class.tone-mute]="!validCount()"
+        >{{ validCount() }} valid row{{ validCount() === 1 ? '' : 's' }}</span
+      >
       <span class="muted">{{ fileName() || 'No file loaded' }}</span>
     </div>
 
     <div class="help">
-      <span><strong>Required:</strong> phone/mobile/number and remaining/payment_due/due_amount</span>
+      <span
+        ><strong>Required:</strong> phone/mobile/number and remaining/payment_due/due_amount</span
+      >
       <span><strong>Optional:</strong> name, due_date, message</span>
     </div>
 
     @if (importErrors().length) {
       <details class="import-errors" open>
         <summary>{{ importErrors().length }} row or file issue(s)</summary>
-        @for (error of importErrors(); track error) { <p>{{ error }}</p> }
+        @for (error of importErrors(); track error) {
+          <p>{{ error }}</p>
+        }
       </details>
     }
 
@@ -46,16 +62,23 @@
         </span>
         @if (overQuota() > 0) {
           <span class="over">
-            {{ overQuota() }} reminder(s) exceed today's limit and remain queued until the budget resets.
+            {{ overQuota() }} reminder(s) exceed today's limit and remain queued until the budget
+            resets.
           </span>
         }
       </div>
     }
 
     <div class="controls">
-      <button type="button" class="btn primary" (click)="send()"
-              [disabled]="busy() || !validCount()">
-        @if (busy()) { <span class="spinner"></span> }
+      <button
+        type="button"
+        class="btn primary"
+        (click)="send()"
+        [disabled]="busy() || !validCount()"
+      >
+        @if (busy()) {
+          <span class="spinner" aria-hidden="true"></span>
+        }
         Send payment reminders
       </button>
     </div>
@@ -63,24 +86,20 @@
 </section>
 
 @if (reminders().length) {
-  <section class="card enter">
-    <header class="card-head slim">
-      <div>
-        <h3>Imported Rows</h3>
-        <p class="muted">Review the generated message before sending</p>
-      </div>
-    </header>
+  <section class="s-card s-enter" aria-labelledby="pr-rows">
+    <h3 id="pr-rows"><i class="ti ti-list-details" aria-hidden="true"></i> Imported rows</h3>
+    <p class="muted lede">Review the generated message before sending.</p>
 
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
-            <th>Row</th>
-            <th>Name</th>
-            <th>Phone</th>
-            <th>Remaining</th>
-            <th>Due date</th>
-            <th>Message</th>
+            <th scope="col">Row</th>
+            <th scope="col">Name</th>
+            <th scope="col">Phone</th>
+            <th scope="col" class="num">Remaining</th>
+            <th scope="col">Due date</th>
+            <th scope="col">Message</th>
           </tr>
         </thead>
         <tbody>
@@ -89,7 +108,7 @@
               <td>{{ item.rowNumber }}</td>
               <td>{{ item.name || '-' }}</td>
               <td>+{{ item.phone }}</td>
-              <td>{{ item.remaining }}</td>
+              <td class="num">{{ item.remaining }}</td>
               <td>{{ item.dueDate || '-' }}</td>
               <td>{{ item.finalMessage }}</td>
             </tr>
@@ -99,7 +118,7 @@
     </div>
 
     @if (firstPreview()) {
-      <p class="preview muted">First preview: {{ firstPreview() }}</p>
+      <p class="preview"><span>First preview</span>{{ firstPreview() }}</p>
     }
   </section>
 }

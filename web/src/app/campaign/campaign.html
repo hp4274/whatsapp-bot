@@ -1,31 +1,55 @@
+<!-- Header, then either the quick single-message card or the composer:
+     step rail, the current step on the left and the sticky phone preview on
+     the right; step 4 swaps both for the result card. -->
 @let d = draft;
 @let step = d.step();
 
-<header class="page-head">
+<header class="s-head">
   <div>
-    <span class="eyebrow"><span class="live-dot" aria-hidden="true"></span> Bulk campaigns</span>
+    <p class="eyebrow"><i class="ti ti-speakerphone" aria-hidden="true"></i> Bulk campaigns</p>
     <h2>New campaign</h2>
-    <p class="muted">Upload, personalise, preview on a real-looking phone, then send at a safe pace.</p>
+    <p>Upload, personalise, preview on a real-looking phone, then send at a safe pace.</p>
   </div>
   <div class="head-actions">
     <div class="tabs" role="tablist" aria-label="Mode">
-      <button type="button" role="tab" [attr.aria-selected]="tab() === 'composer'" [class.on]="tab() === 'composer'"
-              (click)="tab.set('composer')"><span class="ms" aria-hidden="true">campaign</span> Composer</button>
-      <button type="button" role="tab" [attr.aria-selected]="tab() === 'single'" [class.on]="tab() === 'single'"
-              (click)="tab.set('single')"><span class="ms" aria-hidden="true">send</span> Quick single message</button>
+      <button
+        type="button"
+        role="tab"
+        [attr.aria-selected]="tab() === 'composer'"
+        [class.on]="tab() === 'composer'"
+        (click)="tab.set('composer')"
+      >
+        <i class="ti ti-speakerphone" aria-hidden="true"></i> Composer
+      </button>
+      <button
+        type="button"
+        role="tab"
+        [attr.aria-selected]="tab() === 'single'"
+        [class.on]="tab() === 'single'"
+        (click)="tab.set('single')"
+      >
+        <i class="ti ti-send" aria-hidden="true"></i> Quick single message
+      </button>
     </div>
-    <a class="btn" routerLink="/campaigns"><span class="ms" aria-hidden="true">list</span> All campaigns</a>
+    <a class="btn" routerLink="/campaigns"
+      ><i class="ti ti-list" aria-hidden="true"></i> All campaigns</a
+    >
   </div>
 </header>
 
 @if (notice()) {
-  <p class="notice" role="alert">{{ notice() }}</p>
+  <p class="notice" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ notice() }}</span>
+    <button type="button" class="btn small" (click)="notice.set('')" aria-label="Dismiss">
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
+  </p>
 }
 
 @if (tab() === 'single') {
   <section class="card single enter">
     <div class="sh">
-      <span class="badge"><span class="ms" aria-hidden="true">send</span></span>
+      <span class="badge"><i class="ti ti-send" aria-hidden="true"></i></span>
       <div>
         <h3>Send a single message</h3>
         <p class="muted">One number, one message - same queue, limits and retries</p>
@@ -34,80 +58,172 @@
     <div class="grid">
       <div class="field">
         <label for="recipient">Recipient number</label>
-        <input id="recipient" [ngModel]="recipient()" (ngModelChange)="recipient.set($event)" placeholder="+919876543210" />
+        <input
+          id="recipient"
+          [ngModel]="recipient()"
+          (ngModelChange)="recipient.set($event)"
+          placeholder="+919876543210"
+        />
       </div>
       <div class="field">
         <label for="recipient-name">Recipient name</label>
-        <input id="recipient-name" [ngModel]="recipientName()" (ngModelChange)="recipientName.set($event)" placeholder="fills {name}" />
+        <input
+          id="recipient-name"
+          [ngModel]="recipientName()"
+          (ngModelChange)="recipientName.set($event)"
+          placeholder="fills {name}"
+        />
       </div>
       <div class="field full">
         <label for="message">Message</label>
-        <textarea id="message" rows="4" [ngModel]="message()" (ngModelChange)="message.set($event)"></textarea>
+        <textarea
+          id="message"
+          rows="4"
+          [ngModel]="message()"
+          (ngModelChange)="message.set($event)"
+        ></textarea>
       </div>
     </div>
     <div class="row">
       @if (!connected()) {
-        <span class="muted small"><span class="ms" aria-hidden="true">link_off</span> Not connected - <a routerLink="/connection">connect a number</a></span>
+        <span class="muted small"
+          ><i class="ti ti-link-off" aria-hidden="true"></i> Not connected -
+          <a routerLink="/connection">connect a number</a></span
+        >
+        <span class="grow"></span>
       }
-      <button type="button" class="btn primary" (click)="sendSingle()" [disabled]="busy() || !recipient() || !message()">
-        @if (busy()) { <span class="spinner"></span> } Send message
+      <button
+        type="button"
+        class="btn primary"
+        (click)="sendSingle()"
+        [disabled]="busy() || !recipient() || !message()"
+      >
+        @if (busy()) {
+          <span class="spinner"></span>
+        }
+        Send message
       </button>
     </div>
   </section>
 } @else {
   <nav class="rail" aria-label="Campaign steps">
     @for (s of steps; track s.n) {
-      <button type="button" class="st" [class.on]="step === s.n" [class.done]="step > s.n"
-              [disabled]="!canOpen(s.n)" (click)="open(s.n)" [attr.aria-current]="step === s.n ? 'step' : null">
+      <button
+        type="button"
+        class="st"
+        [class.on]="step === s.n"
+        [class.done]="step > s.n"
+        [disabled]="!canOpen(s.n)"
+        (click)="open(s.n)"
+        [attr.aria-current]="step === s.n ? 'step' : null"
+      >
         <span class="num">
-          @if (step > s.n) { <span class="ms" aria-hidden="true">check</span> } @else { {{ s.n }} }
+          @if (step > s.n) {
+            <i class="ti ti-check" aria-hidden="true"></i>
+          } @else {
+            {{ s.n }}
+          }
         </span>
         <span class="lbl">{{ s.n === 4 && step === 4 ? 'Done' : s.label }}</span>
       </button>
-      @if (!$last) { <span class="line" [class.fill]="step > s.n" aria-hidden="true"></span> }
+      @if (!$last) {
+        <span class="line" [class.fill]="step > s.n" aria-hidden="true"></span>
+      }
     }
   </nav>
 
   @if (step === 4) {
     @if (d.result(); as r) {
-      <section class="card done enter">
-        <span class="orb" [class.warn]="!!r.error" aria-hidden="true">
-          <span class="ms">{{ r.error ? 'priority_high' : r.started ? 'rocket_launch' : 'event_available' }}</span>
+      <section class="card finish enter">
+        <span
+          class="orb"
+          [class.warn]="!!r.error"
+          [class.later]="!r.error && !r.started"
+          aria-hidden="true"
+        >
+          <i
+            class="ti ti-{{
+              r.error ? 'exclamation-mark' : r.started ? 'rocket' : 'calendar-check'
+            }}"
+            aria-hidden="true"
+          ></i>
         </span>
         @if (r.error) {
           <h3>Saved, but not started</h3>
-          <p class="error">{{ r.error }}</p>
-          <p class="muted">"{{ r.campaign.name }}" is saved as a draft - start it from the campaign page once the problem is fixed.</p>
+          <p class="error" role="alert">
+            <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ r.error }}</span>
+          </p>
+          <p class="muted">
+            "{{ r.campaign.name }}" is saved as a draft - start it from the campaign page once the
+            problem is fixed.
+          </p>
         } @else if (r.started) {
           <h3>"{{ r.campaign.name }}" is on its way</h3>
           <div class="nums">
-            <div><strong>{{ r.queued ?? 0 }}</strong><small>queued</small></div>
-            <div><strong>{{ r.skipped ?? 0 }}</strong><small>skipped</small></div>
-            @if (r.overQuota) { <div class="warn"><strong>{{ r.overQuota }}</strong><small>over today's quota</small></div> }
+            <div>
+              <strong>{{ r.queued ?? 0 }}</strong
+              ><small>queued</small>
+            </div>
+            <div>
+              <strong>{{ r.skipped ?? 0 }}</strong
+              ><small>skipped</small>
+            </div>
+            @if (r.overQuota) {
+              <div class="warn">
+                <strong>{{ r.overQuota }}</strong
+                ><small>over today's quota</small>
+              </div>
+            }
           </div>
-          <p class="muted">Progress shows in the island at the bottom of the screen - you can leave this page, sending continues on the server.</p>
+          <p class="muted">
+            Progress shows in the island at the bottom of the screen - you can leave this page,
+            sending continues on the server.
+          </p>
         } @else {
           <h3>Scheduled</h3>
-          <p>"{{ r.campaign.name }}" sends at <strong>{{ r.campaign.scheduledAt ? (r.campaign.scheduledAt | date: 'medium') : '' }}</strong>
-            <span class="muted">({{ d.timezone() }})</span></p>
-          <p class="muted">It starts automatically when a WhatsApp number is connected at that time.</p>
+          <p>
+            "{{ r.campaign.name }}" sends at
+            <strong>{{
+              r.campaign.scheduledAt ? (r.campaign.scheduledAt | date: 'medium') : ''
+            }}</strong>
+            <span class="muted">({{ d.timezone() }})</span>
+          </p>
+          <p class="muted">
+            It starts automatically when a WhatsApp number is connected at that time.
+          </p>
         }
         <div class="row center">
-          <a class="btn primary" [routerLink]="['/campaigns', r.campaign.id]"><span class="ms" aria-hidden="true">insights</span> Open campaign</a>
-          <button type="button" class="btn" (click)="startOver()"><span class="ms" aria-hidden="true">add</span> New campaign</button>
+          <a class="btn primary" [routerLink]="['/campaigns', r.campaign.id]"
+            ><i class="ti ti-chart-line" aria-hidden="true"></i> Open campaign</a
+          >
+          <button type="button" class="btn" (click)="startOver()">
+            <i class="ti ti-plus" aria-hidden="true"></i> New campaign
+          </button>
         </div>
       </section>
     } @else {
-      <section class="card done"><p class="muted">Nothing sent yet.</p>
-        <button type="button" class="btn" (click)="startOver()">Start a campaign</button></section>
+      <section class="card finish">
+        <div class="empty">
+          <i class="ti ti-send" aria-hidden="true"></i>
+          <strong>Nothing sent yet</strong>
+          <p>Build a campaign to see its result here.</p>
+        </div>
+        <button type="button" class="btn primary" (click)="startOver()">Start a campaign</button>
+      </section>
     }
   } @else {
     <div class="layout">
       <div class="main">
         @switch (step) {
-          @case (1) { <app-audience-step /> }
-          @case (2) { <app-message-step /> }
-          @case (3) { <app-review-step /> }
+          @case (1) {
+            <app-audience-step />
+          }
+          @case (2) {
+            <app-message-step />
+          }
+          @case (3) {
+            <app-review-step />
+          }
         }
       </div>
       <aside class="side" aria-label="Message preview">
@@ -124,7 +240,8 @@
           [sample]="d.validContacts().length === 0"
           (prev)="d.movePreview(-1)"
           (next)="d.movePreview(1)"
-          (shuffle)="d.shuffle()" />
+          (shuffle)="d.shuffle()"
+        />
       </aside>
     </div>
   }

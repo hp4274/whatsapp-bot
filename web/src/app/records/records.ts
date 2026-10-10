@@ -1,21 +1,55 @@
-import { Component, ElementRef, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Store } from '../core/store';
 
-import { BusinessObject, FieldKind, FieldValue, ObjectEvent, ObjectInput, ObjectTypeSpec, RecordsApi } from './records-api';
+import {
+  BusinessObject,
+  FieldKind,
+  FieldValue,
+  ObjectEvent,
+  ObjectInput,
+  ObjectTypeSpec,
+  RecordsApi,
+} from './records-api';
 
-interface FieldDef { name: string; kind: FieldKind; label: string; required: boolean }
+/** A field of the record type's spec, ready for the table and the drawer form. */
+interface FieldDef {
+  name: string;
+  kind: FieldKind;
+  label: string;
+  required: boolean;
+}
 type DraftValue = string | number | boolean | null;
 
 const TYPE_ICON: Record<string, string> = {
-  appointment: 'event_available', order: 'shopping_bag', lead: 'person_search',
-  subscription: 'autorenew', event: 'celebration', payment: 'payments',
+  appointment: 'calendar-check',
+  order: 'shopping-bag',
+  lead: 'user-search',
+  subscription: 'refresh',
+  event: 'confetti',
+  payment: 'cash',
 };
+/** The list is filtered client-side, so fetch enough rows that search and status chips feel instant. */
 const FETCH_LIMIT = 500;
 
 /** "scheduledAt" -> "Scheduled at", "no_show" -> "No show". */
 export function humanize(key: string): string {
-  const s = key.replace(/_/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().trim();
+  const s = key
+    .replace(/_/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .trim();
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
@@ -34,13 +68,22 @@ function toLocalInput(iso: unknown): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-const isBlank = (v: unknown) => v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
+const isBlank = (v: unknown) =>
+  v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
 
+/**
+ * One screen for every business-object type (appointments, orders, leads...).
+ *
+ * The type comes from the route, and the field list from the server's type
+ * registry, so a new object type needs no new component. Editing happens in a
+ * drawer so the list keeps its filters and scroll position.
+ */
 @Component({
   selector: 'app-records',
   imports: [FormsModule],
   templateUrl: './records.html',
   styleUrl: './records.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:keydown.escape)': 'closeDrawer()' },
 })
 export class RecordsView {
@@ -74,21 +117,27 @@ export class RecordsView {
   protected readonly eventsLoading = signal(false);
   private readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
 
+  /** Bumped per load so a slow response for a previous record type cannot overwrite the current one. */
   private loadToken = 0;
   private eventsToken = 0;
   private lastFocus: HTMLElement | null = null;
 
   protected readonly typeKey = computed(() => this.type().toLowerCase());
   protected readonly spec = computed(() => this.specs()?.[this.typeKey()] ?? null);
-  protected readonly label = computed(() => this.spec()?.label ?? humanize(this.typeKey() || 'record'));
+  protected readonly label = computed(
+    () => this.spec()?.label ?? humanize(this.typeKey() || 'record'),
+  );
   protected readonly pluralLabel = computed(() => plural(this.label()));
-  protected readonly icon = computed(() => TYPE_ICON[this.typeKey()] ?? 'folder_open');
+  protected readonly icon = computed(() => TYPE_ICON[this.typeKey()] ?? 'folder-open');
 
   protected readonly fields = computed<FieldDef[]>(() => {
     const s = this.spec();
     if (!s) return [];
     return Object.entries(s.fields).map(([name, kind]) => ({
-      name, kind, label: humanize(name), required: s.required.includes(name),
+      name,
+      kind,
+      label: humanize(name),
+      required: s.required.includes(name),
     }));
   });
 
@@ -119,7 +168,9 @@ export class RecordsView {
     return this.objects().filter((o) => {
       if (status && o.status !== status) return false;
       if (!q) return true;
-      const hay = [o.reference, ...Object.values(o.data ?? {}).map((v) => String(v))].join(' ').toLowerCase();
+      const hay = [o.reference, ...Object.values(o.data ?? {}).map((v) => String(v))]
+        .join(' ')
+        .toLowerCase();
       return hay.includes(q);
     });
   });
@@ -215,7 +266,12 @@ export class RecordsView {
   protected formatDate(iso: string): string {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+    return d.toLocaleString(undefined, {
+      day: 'numeric',
+      month: 'short',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
   }
 
   protected relative(iso: string): string {
@@ -228,25 +284,16 @@ export class RecordsView {
     if (abs < 3600) return rtf.format(Math.round(secs / 60), 'minute');
     if (abs < 86400) return rtf.format(Math.round(secs / 3600), 'hour');
     if (abs < 86400 * 30) return rtf.format(Math.round(secs / 86400), 'day');
-    return new Date(d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    return new Date(d).toLocaleDateString(undefined, {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
   }
 
   protected clearFilters() {
     this.statusFilter.set('');
     this.query.set('');
-  }
-
-  /** Pointer-driven tilt for the hero badge; CSS ignores it under reduced motion. */
-  protected tilt(e: PointerEvent, el: HTMLElement) {
-    if (e.pointerType === 'touch') return;
-    const r = el.getBoundingClientRect();
-    el.style.setProperty('--rx', `${(((e.clientY - r.top) / r.height - 0.5) * -10).toFixed(2)}deg`);
-    el.style.setProperty('--ry', `${(((e.clientX - r.left) / r.width - 0.5) * 14).toFixed(2)}deg`);
-  }
-
-  protected untilt(el: HTMLElement) {
-    el.style.removeProperty('--rx');
-    el.style.removeProperty('--ry');
   }
 
   // ---------- drawer ----------
@@ -257,7 +304,8 @@ export class RecordsView {
     this.resetDrawer();
     this.selected.set(null);
     const draft: Record<string, DraftValue> = {};
-    for (const f of this.fields()) draft[f.name] = f.kind === 'boolean' ? false : f.kind === 'number' ? null : '';
+    for (const f of this.fields())
+      draft[f.name] = f.kind === 'boolean' ? false : f.kind === 'number' ? null : '';
     this.draft.set(draft);
     this.draftRef.set('');
     this.draftStatus.set(s.defaultStatus ?? s.statuses[0]);
@@ -458,10 +506,10 @@ export class RecordsView {
   // ---------- timeline ----------
 
   protected eventIcon(e: ObjectEvent): string {
-    if (e.change === 'created') return 'add_circle';
+    if (e.change === 'created') return 'circle-plus';
     if (e.change === 'due') return 'alarm';
-    if (e.field === 'status') return 'swap_horiz';
-    return 'edit';
+    if (e.field === 'status') return 'arrows-exchange';
+    return 'pencil';
   }
 
   protected eventTitle(e: ObjectEvent): string {
@@ -490,7 +538,11 @@ export class RecordsView {
     if (v === null || v === undefined) return '';
     try {
       const parsed = JSON.parse(v);
-      return parsed === null ? '' : typeof parsed === 'object' ? JSON.stringify(parsed) : String(parsed);
+      return parsed === null
+        ? ''
+        : typeof parsed === 'object'
+          ? JSON.stringify(parsed)
+          : String(parsed);
     } catch {
       return String(v);
     }

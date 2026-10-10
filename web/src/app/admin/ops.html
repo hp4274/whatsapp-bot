@@ -1,66 +1,104 @@
+<!-- Platform ops pages (plans, usage, health, audit, channels) share this header; the body switches on `kind`. -->
 <header class="page-head">
-  <div class="title">
-    <span class="mark" aria-hidden="true"><span class="ms">{{ copy().icon }}</span></span>
-    <div>
-      <h2>{{ copy().title }}</h2>
-      <p class="muted">{{ copy().lede }}</p>
-    </div>
+  <div>
+    <p class="eyebrow"><i class="ti ti-{{ copy().icon }}" aria-hidden="true"></i> Platform</p>
+    <h2>{{ copy().title }}</h2>
+    <p class="lede">{{ copy().lede }}</p>
   </div>
   <div class="head-actions">
     @if (updatedAt() && kind() !== 'audit') {
-      <span class="muted stamp" aria-live="polite"><span class="pulse" aria-hidden="true"></span>Updated {{ ago(updatedAt()) }}</span>
+      <span class="muted stamp" aria-live="polite"
+        ><span class="pulse" aria-hidden="true"></span>Updated {{ ago(updatedAt()) }}</span
+      >
     }
     <button class="btn" type="button" (click)="load()" [disabled]="loading()">
-      <span class="ms" aria-hidden="true">refresh</span> Refresh
+      <i class="ti ti-refresh" aria-hidden="true"></i> Refresh
     </button>
   </div>
 </header>
 
 @if (error()) {
-  <p class="error" role="alert"><span class="ms" aria-hidden="true">error</span> {{ error() }}</p>
+  <p class="error" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="msg">{{ error() }}</span>
+    <button class="btn sm" type="button" (click)="load()">Try again</button>
+  </p>
 }
 
 @if (kind() === 'audit') {
   <app-ops-audit />
 } @else if (loading()) {
-  <div class="skel-list" aria-busy="true">
-    @for (n of [1, 2, 3]; track n) { <div class="skel"></div> }
+  <div class="skel-list" aria-busy="true" aria-label="Loading">
+    @for (n of [1, 2, 3]; track n) {
+      <div class="skel"></div>
+    }
   </div>
 } @else {
   @if (kind() !== 'health') {
     <label class="search">
-      <span class="ms" aria-hidden="true">search</span>
+      <i class="ti ti-search" aria-hidden="true"></i>
       <span class="sr-only">Filter</span>
-      <input type="search" [placeholder]="kind() === 'channels' ? 'Filter by number, business or account' : 'Filter by business'"
-             [value]="filter()" (input)="setFilter($event)" />
+      <input
+        type="search"
+        [placeholder]="
+          kind() === 'channels' ? 'Filter by number, business or account' : 'Filter by business'
+        "
+        [value]="filter()"
+        (input)="setFilter($event)"
+      />
     </label>
   }
 
   @if (kind() === 'plans') {
     <div class="stats">
-      <div class="stat" style="--i: 0"><small>Businesses</small><b>{{ planTotals().tenants }}</b></div>
-      <div class="stat ok" style="--i: 1"><small>Active</small><b>{{ planTotals().active }}</b></div>
-      <div class="stat warn" style="--i: 2"><small>At 80%+ of a limit</small><b>{{ planTotals().near }}</b></div>
-      <div class="stat" style="--i: 3"><small>Own safety limits on</small><b>{{ planTotals().custom }}</b></div>
+      <div class="stat" style="--i: 0">
+        <small>Businesses</small><b>{{ planTotals().tenants }}</b>
+      </div>
+      <div class="stat ok" style="--i: 1">
+        <small>Active</small><b>{{ planTotals().active }}</b>
+      </div>
+      <div class="stat warn" style="--i: 2">
+        <small>At 80%+ of a limit</small><b>{{ planTotals().near }}</b>
+      </div>
+      <div class="stat" style="--i: 3">
+        <small>Own safety limits on</small><b>{{ planTotals().custom }}</b>
+      </div>
     </div>
     <section class="list">
       @for (p of shownPlans(); track p.tenantId; let i = $index) {
-        <article class="row tilt" [style.--i]="i < 12 ? i : 12">
+        <article class="row" [style.--i]="i < 12 ? i : 12">
           <div class="who">
             <span class="avatar">{{ initial(p.name) }}</span>
-            <div><strong>{{ p.name }}</strong><span class="muted">{{ p.slug }}</span></div>
-            @if (p.customSafetyActive) { <span class="pill custom" title="This business set its own sending limits">Own limits</span> }
+            <div>
+              <strong>{{ p.name }}</strong
+              ><span class="muted">{{ p.slug }}</span>
+            </div>
+            @if (p.customSafetyActive) {
+              <span class="pill custom" title="This business set its own sending limits"
+                >Own limits</span
+              >
+            }
             <span [class]="'pill ' + p.status">{{ p.status }}</span>
           </div>
 
           <div class="meters">
             @for (m of planMeters(p); track m.label) {
               <div class="gauge" [class]="'gauge ' + (m.cap ? tone(m.pct) : 'free')">
-                <span class="g-head"><span class="ms" aria-hidden="true">{{ m.icon }}</span>{{ m.label }}
-                  <b>{{ m.used }}<span class="muted"> / {{ m.cap || '∞' }}</span></b></span>
-                <span class="meter" role="meter" [attr.aria-label]="m.label" aria-valuemin="0"
-                      [attr.aria-valuemax]="m.cap || null" [attr.aria-valuenow]="m.used"
-                      [attr.aria-valuetext]="m.cap ? m.used + ' of ' + m.cap : m.used + ', no limit'">
+                <span class="g-head"
+                  ><i class="ti ti-{{ m.icon }}" aria-hidden="true"></i>{{ m.label }}
+                  <b
+                    >{{ m.used }}<span class="muted"> / {{ m.cap || '∞' }}</span></b
+                  ></span
+                >
+                <span
+                  class="meter"
+                  role="meter"
+                  [attr.aria-label]="m.label"
+                  aria-valuemin="0"
+                  [attr.aria-valuemax]="m.cap || null"
+                  [attr.aria-valuenow]="m.used"
+                  [attr.aria-valuetext]="m.cap ? m.used + ' of ' + m.cap : m.used + ', no limit'"
+                >
                   <span [style.width.%]="m.cap ? m.pct : 100"></span>
                 </span>
               </div>
@@ -68,21 +106,63 @@
           </div>
 
           <dl class="kv">
-            <div><dt>Contacts per campaign</dt><dd>{{ capText(p.limits.maxContactsPerCampaign) }}</dd></div>
-            <div><dt>Media size</dt><dd>{{ capText(p.limits.maxMediaMb, ' MB') }}</dd></div>
-            <div><dt>Transports</dt><dd>
-              <span [class.no]="!p.limits.allowCloudApi">Cloud API</span>,
-              <span [class.no]="!p.limits.allowWhatsappWeb">WhatsApp Web</span></dd></div>
-            <div><dt>Own safety limits</dt><dd>{{ p.limits.allowCustomSafety ? (p.customSafetyActive ? 'Allowed, in use' : 'Allowed') : 'Not allowed' }}</dd></div>
-            <div><dt>Daily cap</dt><dd>{{ p.safety['safetyEnabled'] === false ? 'Safety off' : capText(+p.safety['dailyLimit']) }}</dd></div>
-            <div><dt>Pacing</dt><dd>{{ p.safety['pacingMode'] }}</dd></div>
-            <div><dt>Warm-up</dt><dd>{{ +p.safety['warmupDays'] ? p.safety['warmupDays'] + ' days' : 'Off' }}</dd></div>
-            <div><dt>Per recipient a day</dt><dd>{{ capText(+p.safety['recipientDailyCap']) }}</dd></div>
+            <div>
+              <dt>Contacts per campaign</dt>
+              <dd>{{ capText(p.limits.maxContactsPerCampaign) }}</dd>
+            </div>
+            <div>
+              <dt>Media size</dt>
+              <dd>{{ capText(p.limits.maxMediaMb, ' MB') }}</dd>
+            </div>
+            <div>
+              <dt>Transports</dt>
+              <dd>
+                <span [class.no]="!p.limits.allowCloudApi">Cloud API</span>,
+                <span [class.no]="!p.limits.allowWhatsappWeb">WhatsApp QR</span>
+              </dd>
+            </div>
+            <div>
+              <dt>Own safety limits</dt>
+              <dd>
+                {{
+                  p.limits.allowCustomSafety
+                    ? p.customSafetyActive
+                      ? 'Allowed, in use'
+                      : 'Allowed'
+                    : 'Not allowed'
+                }}
+              </dd>
+            </div>
+            <div>
+              <dt>Daily cap</dt>
+              <dd>
+                {{
+                  p.safety['safetyEnabled'] === false
+                    ? 'Safety off'
+                    : capText(+p.safety['dailyLimit'])
+                }}
+              </dd>
+            </div>
+            <div>
+              <dt>Pacing</dt>
+              <dd>{{ p.safety['pacingMode'] }}</dd>
+            </div>
+            <div>
+              <dt>Warm-up</dt>
+              <dd>{{ +p.safety['warmupDays'] ? p.safety['warmupDays'] + ' days' : 'Off' }}</dd>
+            </div>
+            <div>
+              <dt>Per recipient a day</dt>
+              <dd>{{ capText(+p.safety['recipientDailyCap']) }}</dd>
+            </div>
           </dl>
 
           <div class="chips">
             @for (service of p.services; track service) {
-              <span class="chip"><span class="ms" aria-hidden="true">{{ meta(service).icon }}</span>{{ meta(service).label }}</span>
+              <span class="chip"
+                ><i class="ti ti-{{ meta(service).icon }}" aria-hidden="true"></i
+                >{{ meta(service).label }}</span
+              >
             } @empty {
               <span class="chip off">No services enabled</span>
             }
@@ -90,29 +170,73 @@
           </div>
 
           <nav class="actions" [attr.aria-label]="'Settings for ' + p.name">
-            <a class="link" routerLink="/admin/tenants" [queryParams]="{ settings: p.tenantId, tab: 'limits' }">Edit limits <span class="ms" aria-hidden="true">arrow_forward</span></a>
-            <a class="link" routerLink="/admin/tenants" [queryParams]="{ settings: p.tenantId, tab: 'safety' }">Sending safety <span class="ms" aria-hidden="true">arrow_forward</span></a>
-            <a class="link" routerLink="/admin/tenants" [queryParams]="{ settings: p.tenantId }">Services <span class="ms" aria-hidden="true">arrow_forward</span></a>
+            <a
+              class="link"
+              routerLink="/admin/tenants"
+              [queryParams]="{ settings: p.tenantId, tab: 'limits' }"
+              >Edit limits <i class="ti ti-arrow-right" aria-hidden="true"></i
+            ></a>
+            <a
+              class="link"
+              routerLink="/admin/tenants"
+              [queryParams]="{ settings: p.tenantId, tab: 'safety' }"
+              >Sending safety <i class="ti ti-arrow-right" aria-hidden="true"></i
+            ></a>
+            <a class="link" routerLink="/admin/tenants" [queryParams]="{ settings: p.tenantId }"
+              >Services <i class="ti ti-arrow-right" aria-hidden="true"></i
+            ></a>
           </nav>
         </article>
       } @empty {
-        <div class="empty"><span class="ms" aria-hidden="true">domain_disabled</span><strong>{{ filter() ? 'No business matches' : 'No businesses yet' }}</strong><p>Create one from the Tenants page.</p></div>
+        <div class="empty">
+          <i class="ti ti-building-community" aria-hidden="true"></i
+          ><strong>{{ filter() ? 'No business matches' : 'No businesses yet' }}</strong>
+          <p>Create one from the Tenants page.</p>
+        </div>
       }
     </section>
   } @else if (kind() === 'usage') {
     @if (usage(); as u) {
       <div class="seg" role="radiogroup" aria-label="Period">
-        @for (r of [{ k: 'today', l: 'Today' }, { k: 'd7', l: '7 days' }, { k: 'd30', l: '30 days' }]; track r.k) {
-          <button type="button" role="radio" [attr.aria-checked]="range() === r.k" [class.on]="range() === r.k" (click)="range.set($any(r.k))">{{ r.l }}</button>
+        @for (
+          r of [
+            { k: 'today', l: 'Today' },
+            { k: 'd7', l: '7 days' },
+            { k: 'd30', l: '30 days' },
+          ];
+          track r.k
+        ) {
+          <button
+            type="button"
+            role="radio"
+            [attr.aria-checked]="range() === r.k"
+            [class.on]="range() === r.k"
+            (click)="range.set($any(r.k))"
+          >
+            {{ r.l }}
+          </button>
         }
       </div>
       @if (usageTotals(); as t) {
         <div class="stats">
-          <div class="stat ok" style="--i: 0"><small>Sent</small><b>{{ t.sent.toLocaleString() }}</b></div>
-          <div class="stat" style="--i: 1"><small>Delivered</small><b>{{ t.delivered.toLocaleString() }}</b><em>{{ rate(t.delivered, t.sent) }} of sent</em></div>
-          <div class="stat" style="--i: 2"><small>Read</small><b>{{ t.read.toLocaleString() }}</b><em>{{ rate(t.read, t.sent) }} of sent</em></div>
-          <div class="stat bad" style="--i: 3"><small>Failed</small><b>{{ t.failed.toLocaleString() }}</b><em>{{ rate(t.failed, t.sent + t.failed) }} failure rate</em></div>
-          <div class="stat warn" style="--i: 4"><small>Waiting</small><b>{{ t.queued.toLocaleString() }}</b></div>
+          <div class="stat ok" style="--i: 0">
+            <small>Sent</small><b>{{ t.sent.toLocaleString() }}</b>
+          </div>
+          <div class="stat" style="--i: 1">
+            <small>Delivered</small><b>{{ t.delivered.toLocaleString() }}</b
+            ><em>{{ rate(t.delivered, t.sent) }} of sent</em>
+          </div>
+          <div class="stat" style="--i: 2">
+            <small>Read</small><b>{{ t.read.toLocaleString() }}</b
+            ><em>{{ rate(t.read, t.sent) }} of sent</em>
+          </div>
+          <div class="stat bad" style="--i: 3">
+            <small>Failed</small><b>{{ t.failed.toLocaleString() }}</b
+            ><em>{{ rate(t.failed, t.sent + t.failed) }} failure rate</em>
+          </div>
+          <div class="stat warn" style="--i: 4">
+            <small>Waiting</small><b>{{ t.queued.toLocaleString() }}</b>
+          </div>
         </div>
       }
       <section class="hero-spark" aria-label="Platform volume, last {{ u.days.length }} days">
@@ -121,9 +245,24 @@
           <b>{{ platformDaily().at(-1) ?? 0 }} <span class="muted">today</span></b>
         </div>
         @let ps = spark(platformDaily(), platformFailed());
-        <svg class="spark big" viewBox="0 0 140 36" preserveAspectRatio="none" role="img" [attr.aria-label]="sparkLabel(platformDaily())">
-          <path class="area" [attr.d]="ps.area" /><path class="line" [attr.d]="ps.line" />
-          @for (b of ps.bars; track $index) { <rect class="fail" [attr.x]="b.x" [attr.y]="ps.h - b.hgt" width="3" [attr.height]="b.hgt" /> }
+        <svg
+          class="spark big"
+          viewBox="0 0 140 36"
+          preserveAspectRatio="none"
+          role="img"
+          [attr.aria-label]="sparkLabel(platformDaily())"
+        >
+          <path class="area" [attr.d]="ps.area" />
+          <path class="line" [attr.d]="ps.line" />
+          @for (b of ps.bars; track $index) {
+            <rect
+              class="fail"
+              [attr.x]="b.x"
+              [attr.y]="ps.h - b.hgt"
+              width="3"
+              [attr.height]="b.hgt"
+            />
+          }
         </svg>
         <span class="muted range">{{ u.days[0] }} to {{ u.days.at(-1) }}</span>
       </section>
@@ -136,30 +275,77 @@
             <div class="who">
               <div>
                 <strong>{{ t.name }}</strong>
-                <span class="muted">{{ t.campaigns }} campaigns, {{ t.autoReplies }} auto-replies, {{ t.media }} media (30 days)</span>
+                <span class="muted"
+                  >{{ t.campaigns }} campaigns, {{ t.autoReplies }} auto-replies,
+                  {{ t.media }} media (30 days)</span
+                >
               </div>
             </div>
-            <svg class="spark" viewBox="0 0 140 36" preserveAspectRatio="none" role="img" [attr.aria-label]="sparkLabel(t.daily)">
-              <path class="area" [attr.d]="sp.area" /><path class="line" [attr.d]="sp.line" />
-              @for (f of sp.bars; track $index) { <rect class="fail" [attr.x]="f.x" [attr.y]="sp.h - f.hgt" width="3" [attr.height]="f.hgt" /> }
-              @if (sp.last) { <circle class="dot" [attr.cx]="sp.last[0]" [attr.cy]="sp.last[1]" r="2.4" /> }
+            <svg
+              class="spark"
+              viewBox="0 0 140 36"
+              preserveAspectRatio="none"
+              role="img"
+              [attr.aria-label]="sparkLabel(t.daily)"
+            >
+              <path class="area" [attr.d]="sp.area" />
+              <path class="line" [attr.d]="sp.line" />
+              @for (f of sp.bars; track $index) {
+                <rect
+                  class="fail"
+                  [attr.x]="f.x"
+                  [attr.y]="sp.h - f.hgt"
+                  width="3"
+                  [attr.height]="f.hgt"
+                />
+              }
+              @if (sp.last) {
+                <path class="dot" [attr.d]="'M' + sp.last[0] + ',' + sp.last[1] + 'h0'" />
+              }
             </svg>
-            <div class="bars" role="img" [attr.aria-label]="b.sent + ' sent, ' + b.failed + ' failed, ' + b.queued + ' waiting'">
-              <span class="b ok" [style.width.%]="bar(b.sent)"></span>
-              <span class="b bad" [style.width.%]="bar(b.failed)"></span>
-              <span class="b warn" [style.width.%]="bar(b.queued)"></span>
+            <div
+              class="bars"
+              role="img"
+              [attr.aria-label]="
+                b.sent + ' sent, ' + b.failed + ' failed, ' + b.queued + ' waiting'
+              "
+            >
+              <!-- Zero counts get no bar: the 3px minimum would draw a stub for nothing. -->
+              @if (b.sent) { <span class="b ok" [style.width.%]="bar(b.sent)"></span> }
+              @if (b.failed) { <span class="b bad" [style.width.%]="bar(b.failed)"></span> }
+              @if (b.queued) { <span class="b warn" [style.width.%]="bar(b.queued)"></span> }
             </div>
             <ul class="legend">
-              <li class="ok"><b>{{ b.sent }}</b> sent</li>
-              <li><b>{{ b.delivered }}</b> delivered</li>
-              <li><b>{{ b.read }}</b> read</li>
-              <li class="bad"><b>{{ b.failed }}</b> failed</li>
-              @if (b.queued) { <li class="warn"><b>{{ b.queued }}</b> waiting</li> }
-              @if (b.sandbox) { <li><b>{{ b.sandbox }}</b> sandbox</li> }
+              <li class="ok">
+                <b>{{ b.sent }}</b> sent
+              </li>
+              <li>
+                <b>{{ b.delivered }}</b> delivered
+              </li>
+              <li>
+                <b>{{ b.read }}</b> read
+              </li>
+              <li class="bad">
+                <b>{{ b.failed }}</b> failed
+              </li>
+              @if (b.queued) {
+                <li class="warn">
+                  <b>{{ b.queued }}</b> waiting
+                </li>
+              }
+              @if (b.sandbox) {
+                <li>
+                  <b>{{ b.sandbox }}</b> sandbox
+                </li>
+              }
             </ul>
           </article>
         } @empty {
-          <div class="empty"><span class="ms" aria-hidden="true">monitoring</span><strong>Nothing sent yet</strong><p>Usage appears once a business starts messaging.</p></div>
+          <div class="empty">
+            <i class="ti ti-chart-histogram" aria-hidden="true"></i
+            ><strong>Nothing sent yet</strong>
+            <p>Usage appears once a business starts messaging.</p>
+          </div>
         }
       </section>
     }
@@ -167,83 +353,173 @@
     @if (kind() === 'health') {
       @let hc = healthCounts();
       <div class="banner" [class.bad]="hc.bad" [class.warn]="!hc.bad && hc.warn">
-        <span class="ms" aria-hidden="true">{{ hc.bad ? 'error' : hc.warn ? 'warning' : 'check_circle' }}</span>
+        <i
+          class="ti ti-{{ hc.bad ? 'alert-circle' : hc.warn ? 'alert-triangle' : 'circle-check' }}"
+          aria-hidden="true"
+        ></i>
         <div>
           <strong>
-            @if (hc.bad) { {{ hc.bad }} number{{ hc.bad === 1 ? '' : 's' }} cannot send }
-            @else if (hc.warn) { {{ hc.warn }} number{{ hc.warn === 1 ? '' : 's' }} need a look }
-            @else { Every number is fine }
+            @if (hc.bad) {
+              {{ hc.bad }} number{{ hc.bad === 1 ? '' : 's' }} cannot send
+            } @else if (hc.warn) {
+              {{ hc.warn }} number{{ hc.warn === 1 ? '' : 's' }} need a look
+            } @else {
+              Every number is fine
+            }
           </strong>
-          <p>{{ hc.connected }} connected, {{ hc.ok }} healthy, {{ hc.off }} disabled, {{ hc.waiting }} messages waiting</p>
+          <p>
+            {{ hc.connected }} connected, {{ hc.ok }} healthy, {{ hc.off }} disabled,
+            {{ hc.waiting }} messages waiting
+          </p>
         </div>
-        <label class="toggle"><input type="checkbox" [checked]="problemsOnly()" (change)="problemsOnly.set(!problemsOnly())" /> Problems only</label>
+        <label class="toggle"
+          ><input
+            type="checkbox"
+            [checked]="problemsOnly()"
+            (change)="problemsOnly.set(!problemsOnly())"
+          />
+          Problems only</label
+        >
       </div>
     } @else {
       @let hc = healthCounts();
       <div class="stats">
-        <div class="stat" style="--i: 0"><small>Numbers</small><b>{{ hc.all }}</b></div>
-        <div class="stat ok" style="--i: 1"><small>Connected</small><b>{{ hc.connected }}</b></div>
-        <div class="stat bad" style="--i: 2"><small>Need attention</small><b>{{ hc.bad + hc.warn }}</b></div>
-        <div class="stat warn" style="--i: 3"><small>In warm-up</small><b>{{ hc.warming }}</b></div>
-        <div class="stat" style="--i: 4"><small>Disabled</small><b>{{ hc.off }}</b></div>
+        <div class="stat" style="--i: 0">
+          <small>Numbers</small><b>{{ hc.all }}</b>
+        </div>
+        <div class="stat ok" style="--i: 1">
+          <small>Connected</small><b>{{ hc.connected }}</b>
+        </div>
+        <div class="stat bad" style="--i: 2">
+          <small>Need attention</small><b>{{ hc.bad + hc.warn }}</b>
+        </div>
+        <div class="stat warn" style="--i: 3">
+          <small>In warm-up</small><b>{{ hc.warming }}</b>
+        </div>
+        <div class="stat" style="--i: 4">
+          <small>Disabled</small><b>{{ hc.off }}</b>
+        </div>
       </div>
       @if (providers().length > 1) {
-        <label class="pick"><span class="muted">Transport</span>
+        <label class="pick"
+          ><span class="muted">Transport</span>
           <select [value]="provider()" (change)="setProvider($event)">
             <option value="">All</option>
-            @for (p of providers(); track p) { <option [value]="p">{{ providerLabel(p) }}</option> }
+            @for (p of providers(); track p) {
+              <option [value]="p">{{ providerLabel(p) }}</option>
+            }
           </select>
         </label>
       }
     }
     <section class="list">
-      @for (c of kind() === 'health' ? shownHealth() : shownChannels(); track c.tenantId + '-' + c.id; let i = $index) {
+      @for (
+        c of kind() === 'health' ? shownHealth() : shownChannels();
+        track c.tenantId + '-' + c.id;
+        let i = $index
+      ) {
         <article [class]="'row chan sev-' + c.severity" [style.--i]="i < 12 ? i : 12">
           <div class="who">
-            <span [class]="'state-ic ' + c.state" aria-hidden="true"><span class="ms">{{ stateCopy(c.state).icon }}</span></span>
+            <span [class]="'state-ic ' + c.state" aria-hidden="true"
+              ><i class="ti ti-{{ stateCopy(c.state).icon }}" aria-hidden="true"></i
+            ></span>
             <div>
               <strong>{{ c.displayName }}</strong>
-              <span class="muted">{{ c.tenantName }}, {{ c.phoneNumber || c.account || 'no number yet' }}</span>
+              <span class="muted"
+                >{{ c.tenantName }}, {{ c.phoneNumber || c.account || 'no number yet' }}</span
+              >
             </div>
             <span [class]="'pill st ' + c.state">{{ stateCopy(c.state).label }}</span>
           </div>
           <ul class="facts">
-            <li><span class="ms" aria-hidden="true">cable</span>{{ providerLabel(c.provider) }}</li>
-            @if (c.account && c.account !== c.phoneNumber) { <li><span class="ms" aria-hidden="true">badge</span>{{ c.account }}</li> }
-            <li [class.warn]="c.waiting"><b>{{ c.queue }}</b> in queue, <b>{{ c.waiting }}</b> waiting</li>
-            <li>Last send <b>{{ ago(c.lastSentAt) }}</b></li>
-            <li [class.bad]="c.lastHour.failureRate >= 20" [class.warn]="c.lastHour.failureRate > 0 && c.lastHour.failureRate < 20">
-              Last hour <b>{{ c.lastHour.total }}</b>, <b>{{ c.lastHour.failureRate }}%</b> failed</li>
-            <li [class.warn]="!c.withinSendingWindow">{{ c.withinSendingWindow ? 'In sending window' : 'Outside sending window' }}</li>
-            @if (c.isDefault) { <li>Default</li> }
+            <li>
+              <i class="ti ti-plug-connected" aria-hidden="true"></i>{{ providerLabel(c.provider) }}
+            </li>
+            @if (c.account && c.account !== c.phoneNumber) {
+              <li><i class="ti ti-id-badge-2" aria-hidden="true"></i>{{ c.account }}</li>
+            }
+            <li [class.warn]="c.waiting">
+              <b>{{ c.queue }}</b> in queue, <b>{{ c.waiting }}</b> waiting
+            </li>
+            <li>
+              Last send <b>{{ ago(c.lastSentAt) }}</b>
+            </li>
+            <li
+              [class.bad]="c.lastHour.failureRate >= 20"
+              [class.warn]="c.lastHour.failureRate > 0 && c.lastHour.failureRate < 20"
+            >
+              Last hour <b>{{ c.lastHour.total }}</b
+              >, <b>{{ c.lastHour.failureRate }}%</b> failed
+            </li>
+            <li [class.warn]="!c.withinSendingWindow">
+              {{ c.withinSendingWindow ? 'In sending window' : 'Outside sending window' }}
+            </li>
+            @if (c.isDefault) {
+              <li>Default</li>
+            }
           </ul>
           @if (kind() === 'channels') {
             <div class="meter-row">
               <span class="muted">Today</span>
-              <span class="meter" [class]="'meter ' + tone(quotaPct(c))" role="meter" aria-label="Daily cap used" aria-valuemin="0"
-                    [attr.aria-valuemax]="c.quota.limit || null" [attr.aria-valuenow]="c.quota.used">
+              <span
+                class="meter"
+                [class]="'meter ' + tone(quotaPct(c))"
+                role="meter"
+                aria-label="Daily cap used"
+                aria-valuemin="0"
+                [attr.aria-valuemax]="c.quota.limit || null"
+                [attr.aria-valuenow]="c.quota.used"
+              >
                 <span [style.width.%]="c.quota.limit ? quotaPct(c) : 0"></span>
               </span>
-              <span><b>{{ c.quota.used }}</b> / {{ c.quota.enabled && c.quota.limit ? c.quota.limit : 'no cap' }}</span>
+              <span
+                ><b>{{ c.quota.used }}</b> /
+                {{ c.quota.enabled && c.quota.limit ? c.quota.limit : 'no cap' }}</span
+              >
               @if (c.warmup; as wu) {
-                <span class="pill" [class.warming]="wu.active">{{ wu.active ? 'Warm-up day ' + wu.day + ' of ' + wu.days : 'Warmed up' }}</span>
+                <span class="pill" [class.warming]="wu.active">{{
+                  wu.active ? 'Warm-up day ' + wu.day + ' of ' + wu.days : 'Warmed up'
+                }}</span>
               }
             </div>
           }
           @if (c.problems.length) {
             <ul class="problems">
               @for (p of c.problems; track p.text) {
-                <li [class]="p.level"><span class="ms" aria-hidden="true">{{ p.level === 'bad' ? 'error' : 'warning' }}</span>{{ p.text }}</li>
+                <li [class]="p.level">
+                  <i
+                    class="ti ti-{{ p.level === 'bad' ? 'alert-circle' : 'alert-triangle' }}"
+                    aria-hidden="true"
+                  ></i
+                  >{{ p.text }}
+                </li>
               }
             </ul>
           }
-          @if (c.error && c.state !== 'error') { <p class="err-line"><span class="ms" aria-hidden="true">error</span> {{ c.error }}</p> }
-          <a class="link" routerLink="/admin/tenants" [queryParams]="{ settings: c.tenantId }">Open {{ c.tenantName }} <span class="ms" aria-hidden="true">arrow_forward</span></a>
+          @if (c.error && c.state !== 'error') {
+            <p class="err-line">
+              <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ c.error }}
+            </p>
+          }
+          <a class="link" routerLink="/admin/tenants" [queryParams]="{ settings: c.tenantId }"
+            >Open {{ c.tenantName }} <i class="ti ti-arrow-right" aria-hidden="true"></i
+          ></a>
         </article>
       } @empty {
-        <div class="empty"><span class="ms" aria-hidden="true">{{ kind() === 'health' ? 'health_and_safety' : 'smartphone' }}</span>
-          <strong>{{ problemsOnly() && kind() === 'health' ? 'No problems right now' : filter() ? 'No number matches' : 'No numbers connected' }}</strong>
-          <p>Businesses add numbers from WhatsApp numbers.</p></div>
+        <div class="empty">
+          <i
+            class="ti ti-{{ kind() === 'health' ? 'heart-rate-monitor' : 'device-mobile' }}"
+            aria-hidden="true"
+          ></i>
+          <strong>{{
+            problemsOnly() && kind() === 'health'
+              ? 'No problems right now'
+              : filter()
+                ? 'No number matches'
+                : 'No numbers connected'
+          }}</strong>
+          <p>Businesses add numbers from WhatsApp numbers.</p>
+        </div>
       }
     </section>
   }

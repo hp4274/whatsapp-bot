@@ -1,44 +1,29 @@
 @use 'step';
 
-.tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: var(--space-sm);
+.recap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  font-size: 15px;
+  color: var(--text-color);
+
+  strong { font-size: 26px; font-weight: 500; letter-spacing: -1px; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+  .ti { align-self: center; font-size: 18px; color: var(--primary-text); }
 }
 
-.tile {
-  display: grid;
-  align-content: start;
-  gap: 2px;
-  min-width: 0;
-  padding: var(--space-md);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-alt);
+.eta { margin: 0; font-size: 13px; }
 
-  > .ms { color: var(--text-muted); margin-bottom: 4px; }
-  strong { font-size: 22px; line-height: 1.1; font-variant-numeric: tabular-nums; }
-  strong.t { font-size: 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  small { font-size: 11px; color: var(--text-muted); }
-
-  &.hero {
-    background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 65%, #0b3d2a));
-    border-color: transparent;
-    color: var(--on-primary);
-    box-shadow: 0 10px 22px -14px var(--primary);
-    > .ms, small { color: inherit; opacity: 0.85; }
-    strong { font-size: 28px; }
-  }
-}
-
+// Pace / when choices: the Kardlyz segmented track, big enough for a label
+// and a hint, the active item lifted onto the card surface.
 .seg {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-  padding: 4px;
-  border-radius: var(--radius);
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
 
   &.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -46,21 +31,26 @@
 .opt {
   display: grid;
   justify-items: center;
-  gap: 2px;
-  padding: 10px 6px;
+  gap: 3px;
+  padding: 11px 6px;
   border: 0;
   border-radius: 9px;
   background: transparent;
   color: var(--text-muted);
   transition: background var(--base) var(--ease), color var(--fast) var(--ease), box-shadow var(--base) var(--ease), transform var(--fast) var(--ease);
 
-  strong { font-size: 13px; color: var(--text); }
-  small { font-size: 11px; text-align: center; }
+  .ti { font-size: 17px; }
+  strong { font-size: 13px; font-weight: 500; color: var(--text-strong); }
+  small { font-size: 11.5px; text-align: center; }
+  &:hover { color: var(--text-strong); }
   &:active { transform: scale(0.97); }
+  // Off on this plan: visible, so the owner knows it exists, but inert.
+  &:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
   &.on {
-    background: var(--surface);
-    color: var(--primary);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 6px 14px -8px rgba(13, 27, 36, 0.35);
+    background: var(--surface-card);
+    color: var(--primary-text);
+    box-shadow: var(--shadow-sm);
+    strong { font-weight: 600; }
   }
 }
 
@@ -69,19 +59,19 @@
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: var(--space-md);
 
-  > div { display: grid; gap: 2px; padding: var(--space-md); border-radius: var(--radius-sm); border: 1px solid var(--border); }
-  small { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-  strong { font-size: 18px; }
+  > div { display: grid; gap: 4px; padding: 16px; border-radius: var(--radius-lg); border: 1px solid var(--border-color); background: var(--surface-card); }
+  small { font-size: 12.5px; font-weight: 500; color: var(--text-muted); }
+  strong { font-size: 22px; font-weight: 500; letter-spacing: -0.8px; color: var(--text-strong); font-variant-numeric: tabular-nums; }
   strong.bad { color: var(--warning); }
   span.muted { font-size: 12px; }
 }
 
 .meter {
   display: block;
-  height: 5px;
-  margin-top: 4px;
+  height: 6px;
+  margin-top: 6px;
   border-radius: 99px;
-  background: var(--surface-alt);
+  background: var(--surface-sunken);
   overflow: hidden;
 
   span { display: block; height: 100%; max-width: 100%; background: var(--primary); border-radius: inherit; }
@@ -100,16 +90,13 @@
   gap: 6px;
   margin: 0;
   font-size: 13px;
+  color: var(--text-color);
 
-  > .ms { color: var(--primary); }
-  &.bad > .ms, &.bad strong { color: var(--danger); }
+  strong { font-weight: 600; color: var(--text-strong); }
+  > .ti { font-size: 16px; color: var(--primary-text); }
+  &.bad > .ti, &.bad strong { color: var(--danger-text); }
 }
 
-.banner a { color: var(--accent); font-weight: 600; }
-
-.go {
-  padding-inline: 26px;
-  box-shadow: 0 10px 20px -12px var(--primary);
-}
+.go { padding-inline: 22px; }
 
 .hint { margin: -8px 0 0; font-size: 12px; text-align: right; }

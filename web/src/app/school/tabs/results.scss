@@ -1,22 +1,26 @@
 @use 'kit';
 
 @include kit.base;
+@include kit.data;
+@include kit.pickers;
 @include kit.bubble;
 
 :host { --tone: var(--accent); }
 
+.s-banner .btn { margin-left: auto; }
+
 .tall { min-height: 72px; }
 
-.hint code { font-family: var(--mono); }
+.hint code { font-family: var(--font-mono); }
 
-.foot + div .banner { margin-top: var(--space-lg); }
+.foot + div .s-banner { margin-top: var(--space-lg); }
 
 .errs {
   margin-top: var(--space-md);
   max-height: 220px;
   overflow-y: auto;
 
-  td:last-child { white-space: normal; color: var(--danger); }
+  td:last-child { white-space: normal; color: var(--danger-text); }
 }
 
 .bar {
@@ -46,11 +50,9 @@
   height: 28px;
   padding: 0 6px;
   border-radius: 8px;
-  font-weight: 800;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 22%, var(--surface)), var(--surface));
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
-  box-shadow: 0 4px 10px -6px var(--accent);
 }
 
 @keyframes pulse {

@@ -1,37 +1,98 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
-import { CampaignStatus } from '../core/api';
+import type { CampaignStatus } from '../core/api';
 import { STATUS_LABEL } from './campaign-format';
 
-/** Coloured campaign status pill; running gets a breathing live dot. */
+type Tone = 'ok' | 'info' | 'warn' | 'bad' | 'mute';
+
+/**
+ * Status words grouped by meaning, so a campaign state ("done") and a
+ * per-recipient delivery state ("DELIVERED") read the same colour everywhere.
+ * Anything unknown falls back to muted rather than guessing.
+ */
+const TONES: Readonly<Record<string, Tone>> = {
+  done: 'ok',
+  completed: 'ok',
+  live: 'ok',
+  sent: 'ok',
+  delivered: 'ok',
+  read: 'ok',
+  running: 'info',
+  sending: 'info',
+  queued: 'info',
+  scheduled: 'warn',
+  paused: 'warn',
+  sandbox: 'warn',
+  warning: 'warn',
+  failed: 'bad',
+  cancelled: 'bad',
+  error: 'bad',
+  draft: 'mute',
+  idle: 'mute',
+};
+
+/**
+ * The one status pill for campaigns and their recipients: Kardlyz shape (fully
+ * rounded, tone at 12%, small dot). Running swaps the dot for a breathing one
+ * so an in-flight send is visible at a glance.
+ */
 @Component({
   selector: 'app-campaign-status',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <span class="cpill" [class]="'cpill s-' + status()">
-      @if (status() === 'running') { <span class="live-dot" aria-hidden="true"></span> }
+    <span class="cpill" [class]="'cpill tone-' + tone()">
+      <span class="dot" [class.live-dot]="key() === 'running'" aria-hidden="true"></span>
       {{ label() }}
     </span>
   `,
   styles: `
-    :host { display: inline-flex; }
-    .cpill {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 3px 10px; border-radius: 999px;
-      font-size: 11px; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap;
-      border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
-      background: color-mix(in srgb, currentColor 10%, transparent);
+    :host {
+      display: inline-flex;
     }
-    .live-dot { width: 7px; height: 7px; }
-    .s-draft { color: var(--text-muted); }
-    .s-scheduled { color: var(--accent); }
-    .s-running { color: var(--primary); background: var(--primary-soft); }
-    .s-paused { color: var(--warning); background: var(--warning-soft); }
-    .s-done { color: var(--primary); }
-    .s-cancelled { color: var(--danger); }
+    .cpill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 11px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 1.3;
+      white-space: nowrap;
+      text-transform: capitalize;
+      color: var(--tone);
+      background: color-mix(in srgb, var(--tone) 12%, transparent);
+    }
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .tone-ok {
+      --tone: var(--success);
+    }
+    .tone-info {
+      --tone: var(--info);
+    }
+    .tone-warn {
+      --tone: var(--warning);
+    }
+    .tone-bad {
+      --tone: var(--danger-text);
+    }
+    .tone-mute {
+      --tone: var(--text-muted);
+    }
   `,
 })
 export class CampaignStatusPill {
-  readonly status = input.required<CampaignStatus>();
-  protected readonly label = computed(() => STATUS_LABEL[this.status()] ?? this.status());
+  /** Campaign status, or a raw recipient status such as `DELIVERED`. */
+  readonly status = input.required<CampaignStatus | string>();
+
+  protected readonly key = computed(() => this.status().toLowerCase());
+  protected readonly tone = computed<Tone>(() => TONES[this.key()] ?? 'mute');
+  protected readonly label = computed(
+    () => STATUS_LABEL[this.status() as CampaignStatus] ?? this.key(),
+  );
 }

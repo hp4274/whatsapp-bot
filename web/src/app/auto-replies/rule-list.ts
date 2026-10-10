@@ -1,15 +1,21 @@
-import { Component, computed, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 
 import { ArSwitch } from './ar-fields';
 import { AutoReplyRule, ago } from './auto-replies.api';
 import { MATCH_TYPES } from './rule-editor';
 
-/** Priority-ordered rules: search, toggle, drag-and-drop or arrow-key reorder. */
+/**
+ * Priority-ordered rules: search, toggle, drag-and-drop or arrow-key reorder.
+ *
+ * Order is meaning here (top rule fires first), so reordering always works on
+ * the full list, and dragging is disabled while a search filter hides rows.
+ */
 @Component({
   selector: 'ar-rule-list',
   imports: [ArSwitch],
   templateUrl: './rule-list.html',
   styleUrl: './rule-list.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RuleList {
   readonly rules = input<AutoReplyRule[]>([]);
@@ -28,8 +34,12 @@ export class RuleList {
   protected readonly filtered = computed(() => {
     const q = this.query().trim().toLowerCase();
     if (!q) return this.rules();
-    return this.rules().filter((r) =>
-      r.name.toLowerCase().includes(q) || r.keywords.some((k) => k.toLowerCase().includes(q)) || r.variants.some((v) => v.toLowerCase().includes(q)));
+    return this.rules().filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        r.keywords.some((k) => k.toLowerCase().includes(q)) ||
+        r.variants.some((v) => v.toLowerCase().includes(q)),
+    );
   });
 
   protected label(r: AutoReplyRule): string {
@@ -37,7 +47,7 @@ export class RuleList {
   }
 
   protected icon(r: AutoReplyRule): string {
-    return MATCH_TYPES.find((m) => m.value === r.matchType)?.icon ?? 'rule';
+    return MATCH_TYPES.find((m) => m.value === r.matchType)?.icon ?? 'list-details';
   }
 
   /** Move by `delta` places in the full (unfiltered) priority order. */
@@ -75,8 +85,18 @@ export class RuleList {
     const id = this.dragId();
     this.dragEnd();
     if (id === null || id === target.id) return;
-    const ids = this.rules().map((x) => x.id).filter((x) => x !== id);
-    ids.splice(ids.indexOf(target.id) + (this.rules().findIndex((x) => x.id === id) < this.rules().findIndex((x) => x.id === target.id) ? 1 : 0), 0, id);
+    const ids = this.rules()
+      .map((x) => x.id)
+      .filter((x) => x !== id);
+    ids.splice(
+      ids.indexOf(target.id) +
+        (this.rules().findIndex((x) => x.id === id) <
+        this.rules().findIndex((x) => x.id === target.id)
+          ? 1
+          : 0),
+      0,
+      id,
+    );
     this.reorder.emit(ids);
   }
 

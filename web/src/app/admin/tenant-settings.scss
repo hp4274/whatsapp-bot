@@ -1,0 +1,164 @@
+@use '../school/school-shared' as s;
+
+@include s.keyframes;
+@include s.banner;
+@include s.buttons;
+
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.muted { color: var(--text-muted); }
+.mono { font-family: var(--mono); font-size: 12px; }
+.compact { margin: 0; font-size: 12.5px; }
+.msg { flex: 1; min-width: 0; }
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(16, 16, 24, 0.45);
+  backdrop-filter: blur(4px);
+  animation: s-pop 200ms var(--ease) both;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  width: min(520px, 100vw);
+  background: var(--surface-card);
+  border-left: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lift);
+  animation: drawer-in 320ms var(--ease) both;
+}
+
+@keyframes drawer-in {
+  from { transform: translateX(40px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+header,
+footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-xl);
+  border-bottom: 1px solid var(--border-color);
+}
+footer { justify-content: flex-end; border-top: 1px solid var(--border-color); border-bottom: 0; }
+h3 { margin: 2px 0 3px; font-size: 20px; font-weight: 500; letter-spacing: -0.3px; }
+h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(--text-strong); }
+
+// Tab strip: sunken track, active tab on the card surface (Kardlyz tabs).
+.tabs {
+  display: flex;
+  align-self: start;
+  gap: 2px;
+  padding: 3px;
+  margin: var(--space-md) var(--space-xl) 0;
+  overflow-x: auto;
+  border-radius: 12px;
+  background: var(--surface-sunken);
+  scrollbar-width: none;
+
+  button {
+    display: inline-flex;
+    flex: 1 0 auto;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+
+    .ti { font-size: 17px; }
+    &:hover { color: var(--text-strong); }
+    &.on { background: var(--surface-card); color: var(--text-strong); font-weight: 600; box-shadow: var(--shadow-sm); }
+  }
+}
+
+.settings-body {
+  display: grid;
+  align-content: start;
+  gap: var(--space-xl);
+  padding: var(--space-xl);
+  overflow: auto;
+
+  section { display: grid; gap: var(--space-md); }
+}
+
+.switches { display: grid; gap: 8px; }
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-strong);
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+
+  input { width: 16px; height: 16px; flex: 0 0 16px; }
+  &:hover { border-color: var(--border-hover); }
+  &:has(input:checked) { background: var(--primary-tint); border-color: color-mix(in srgb, var(--primary) 40%, transparent); }
+}
+
+.section-head { display: flex; align-items: center; justify-content: space-between; h4 { margin: 0; } }
+
+.safety-group {
+  display: grid;
+  gap: var(--space-md);
+  margin: 0;
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+
+  legend { padding: 0 6px; font-size: 12px; font-weight: 500; color: var(--text-muted); }
+}
+
+.safety-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); }
+
+.unit { display: flex; align-items: center; gap: var(--space-sm); input { flex: 1; min-width: 0; } span { flex: none; font-size: 12px; } }
+
+// Whether the business has layered its own limits over the platform's.
+.custom-safety {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--surface-sunken);
+
+  > .ti { color: var(--success); font-size: 22px; }
+  > div { display: grid; gap: 2px; flex: 1 1 220px; min-width: 0; font-size: 13px; strong { font-weight: 500; } }
+  .muted { font-size: 12px; overflow-wrap: anywhere; }
+
+  &.on {
+    border-color: color-mix(in srgb, var(--warning) 50%, transparent);
+    background: color-mix(in srgb, var(--warning) 10%, transparent);
+    > .ti { color: var(--warning); }
+  }
+}
+
+@media (max-width: 760px) {
+  .safety-fields { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer, .backdrop { animation: none; }
+}

@@ -1,6 +1,6 @@
-<header class="head" [class]="current().tone">
+<header class="s-head">
   <div>
-    <span class="eyebrow"><span class="ms">crisis_alert</span> Priority broadcast</span>
+    <span class="eyebrow"><i class="ti ti-urgent" aria-hidden="true"></i> Priority broadcast</span>
     <h2>Reach every family, right now.</h2>
     <p>For the moments that can't wait - closures, bus delays and urgent updates.</p>
   </div>
@@ -8,88 +8,175 @@
 
 <div class="kinds" role="radiogroup" aria-label="Broadcast kind">
   @for (k of kinds; track k.id; let i = $index) {
-    <button type="button" role="radio" class="kind" [schoolTilt]="8" [class]="k.tone" [style.--i]="i" [attr.aria-checked]="kind() === k.id" (click)="kind.set(k.id)">
-      <span class="glow" aria-hidden="true"></span>
-      <span class="ms big">{{ k.icon }}</span>
+    <button
+      type="button"
+      role="radio"
+      class="kind s-tilt"
+      [schoolTilt]="8"
+      [class]="k.tone"
+      [style.--i]="i"
+      [attr.aria-checked]="kind() === k.id"
+      (click)="kind.set(k.id)"
+    >
+      <i class="ti ti-{{ k.icon }} big" aria-hidden="true"></i>
       <strong>{{ k.label }}</strong>
       <small>{{ k.blurb }}</small>
-      <span class="ms tick" aria-hidden="true">check_circle</span>
+      <i class="ti ti-circle-check tick" aria-hidden="true"></i>
     </button>
   }
 </div>
 
 @if (error()) {
-  <div class="banner" role="alert"><span class="ms">error</span>{{ error() }}</div>
+  <div class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ error() }}</span>
+    <button class="btn sm" type="button" (click)="error.set(''); loadRoutes()">Try again</button>
+  </div>
 }
 
 <div class="split">
-  <section class="panel" [class]="current().tone" style="--i: 3">
-    <h3><span class="ms">{{ current().icon }}</span> Message</h3>
+  <section class="s-card" [class]="current().tone" style="--i: 3">
+    <h3><i class="ti ti-{{ current().icon }}" aria-hidden="true"></i> Message</h3>
     <div class="tpls" aria-label="Quick templates">
       @for (t of templates; track t.label) {
-        <button class="btn sm" type="button" (click)="useTemplate(t)"><span class="ms">bolt</span>{{ t.label }}</button>
+        <button class="btn sm" type="button" (click)="useTemplate(t)">
+          <i class="ti ti-bolt" aria-hidden="true"></i>{{ t.label }}
+        </button>
       }
     </div>
     <div class="field">
       <label for="b-msg">Text</label>
-      <textarea id="b-msg" rows="5" maxlength="1000" [ngModel]="message()" (ngModelChange)="message.set($event)" placeholder="Write the message parents will see..."></textarea>
+      <textarea
+        id="b-msg"
+        rows="5"
+        maxlength="1000"
+        [ngModel]="message()"
+        (ngModelChange)="message.set($event)"
+        placeholder="Write the message parents will see..."
+      ></textarea>
       <span class="hint">{{ message().length }}/1000</span>
     </div>
     <div class="field">
       <span class="lbl">Attachment (optional)</span>
       @if (file(); as f) {
-        <span class="chip"><span class="ms">attach_file</span><span class="name">{{ f.name }}</span>
-          <button type="button" (click)="file.set(null)" aria-label="Remove attachment"><span class="ms">close</span></button></span>
+        <span class="chip"
+          ><i class="ti ti-paperclip" aria-hidden="true"></i><span class="name">{{ f.name }}</span>
+          <button type="button" (click)="file.set(null)" aria-label="Remove attachment">
+            <i class="ti ti-x" aria-hidden="true"></i></button
+        ></span>
       } @else {
-        <label class="drop"><input type="file" accept="application/pdf,image/*" (change)="pick($event)" [disabled]="uploading()" />
-          @if (uploading()) { <span class="spinner"></span> Uploading... } @else { <span class="ms">upload_file</span> PDF or image }</label>
+        <label class="drop"
+          ><input
+            type="file"
+            accept="application/pdf,image/*"
+            (change)="pick($event)"
+            [disabled]="uploading()"
+          />
+          @if (uploading()) {
+            <span class="spinner"></span> Uploading...
+          } @else {
+            <i class="ti ti-file-upload" aria-hidden="true"></i> PDF or image
+          }
+        </label>
       }
     </div>
   </section>
 
-  <section class="panel" [class]="current().tone" style="--i: 4">
-    <h3><span class="ms">groups</span> Who receives it</h3>
-    <div class="seg" role="group" aria-label="Audience">
-      <button type="button" [attr.aria-pressed]="audMode() === 'all'" (click)="audMode.set('all')">All parents</button>
-      <button type="button" [attr.aria-pressed]="audMode() === 'classes'" (click)="audMode.set('classes')">Classes</button>
-      <button type="button" [attr.aria-pressed]="audMode() === 'routes'" (click)="audMode.set('routes')">Bus routes</button>
+  <section class="s-card" [class]="current().tone" style="--i: 4">
+    <h3><i class="ti ti-users-group" aria-hidden="true"></i> Who receives it</h3>
+    <div class="s-seg" role="group" aria-label="Audience">
+      <button type="button" [attr.aria-pressed]="audMode() === 'all'" (click)="audMode.set('all')">
+        All parents
+      </button>
+      <button
+        type="button"
+        [attr.aria-pressed]="audMode() === 'classes'"
+        (click)="audMode.set('classes')"
+      >
+        Classes
+      </button>
+      <button
+        type="button"
+        [attr.aria-pressed]="audMode() === 'routes'"
+        (click)="audMode.set('routes')"
+      >
+        Bus routes
+      </button>
     </div>
     @if (audMode() === 'classes') {
       <div class="picks">
         @for (c of classes(); track c.key) {
-          <label><input type="checkbox" [checked]="pickedClasses().includes(c.key)" (change)="toggle('pickedClasses', c.key, $any($event.target).checked)" />{{ c.key }}</label>
+          <label
+            ><input
+              type="checkbox"
+              [checked]="pickedClasses().includes(c.key)"
+              (change)="toggle('pickedClasses', c.key, $any($event.target).checked)"
+            />{{ c.key }}</label
+          >
         }
       </div>
     }
     @if (audMode() === 'routes') {
-      @if (routesLoading()) { <div class="skel"></div> }
-      @else if (!routes().length) { <p class="muted">No bus routes on student records yet.</p> }
-      @else {
+      @if (routesLoading()) {
+        <div class="s-skel" aria-busy="true"></div>
+      } @else if (!routes().length) {
+        <p class="muted">No bus routes on student records yet.</p>
+      } @else {
         <div class="picks">
           @for (r of routes(); track r) {
-            <label><input type="checkbox" [checked]="pickedRoutes().includes(r)" (change)="toggle('pickedRoutes', r, $any($event.target).checked)" /><span class="ms sm-ic">directions_bus</span>{{ r }}</label>
+            <label
+              ><input
+                type="checkbox"
+                [checked]="pickedRoutes().includes(r)"
+                (change)="toggle('pickedRoutes', r, $any($event.target).checked)"
+              /><i class="ti ti-bus sm-ic" aria-hidden="true"></i>{{ r }}</label
+            >
           }
         </div>
       }
     }
 
     <div class="fire">
-      <button class="btn launch" type="button" [class.armed]="arming()" [disabled]="!ready() || sending()" (click)="send()">
-        @if (sending()) { <span class="spinner"></span> Sending... }
-        @else if (arming()) { <span class="ms">warning</span> Confirm send to {{ groupLabel() }} }
-        @else { <span class="ms">send</span> Send {{ current().label.toLowerCase() }} }
+      <button
+        class="btn launch"
+        type="button"
+        [class.armed]="arming()"
+        [disabled]="!ready() || sending()"
+        (click)="send()"
+      >
+        @if (sending()) {
+          <span class="spinner"></span> Sending...
+        } @else if (arming()) {
+          <i class="ti ti-alert-triangle" aria-hidden="true"></i> Confirm send to {{ groupLabel() }}
+        } @else {
+          <i class="ti ti-send" aria-hidden="true"></i> Send {{ current().label.toLowerCase() }}
+        }
         <span class="fuse" aria-hidden="true"></span>
       </button>
       <div aria-live="assertive">
         @if (result(); as r) {
           <div class="tally">
-            <span class="ok"><b>{{ r.sent }}</b>queued</span>
-            <span class="mute"><b>{{ r.skipped }}</b>skipped</span>
-            <span class="bad"><b>{{ r.failed }}</b>failed</span>
+            <span class="tone-ok"
+              ><b>{{ r.sent }}</b
+              >queued</span
+            >
+            <span class="tone-mute"
+              ><b>{{ r.skipped }}</b
+              >skipped</span
+            >
+            <span class="tone-bad"
+              ><b>{{ r.failed }}</b
+              >failed</span
+            >
           </div>
         }
       </div>
-      <p class="note"><span class="ms">speed</span><span>Priority messages jump the queue, but still follow the platform's anti-ban pacing - large lists go out over a few minutes.</span></p>
+      <p class="note">
+        <i class="ti ti-gauge" aria-hidden="true"></i
+        ><span
+          >Priority messages jump the queue, but still follow the platform's anti-ban pacing - large
+          lists go out over a few minutes.</span
+        >
+      </p>
     </div>
   </section>
 </div>

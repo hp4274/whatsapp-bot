@@ -1,17 +1,24 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { Campaign, CampaignStatus, CampaignsApi } from '../core/api';
+import { type Campaign, type CampaignStatus, CampaignsApi } from '../core/api';
 import { Store } from '../core/store';
 import {
-  canCancel, canDelete, canPause, canResume, canStart, localTime, relativeTime,
+  canCancel,
+  canDelete,
+  canPause,
+  canResume,
+  canStart,
+  localTime,
+  relativeTime,
 } from './campaign-format';
 import { CampaignStatusPill } from './status-pill';
 
 type Filter = 'all' | CampaignStatus;
 type RowAction = 'start' | 'pause' | 'resume' | 'cancel' | 'delete';
 
-const FILTERS: { key: Filter; label: string }[] = [
+/** Chip order follows what an operator checks first: what is queued, then what is moving. */
+const FILTERS: readonly { key: Filter; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'scheduled', label: 'Scheduled' },
   { key: 'running', label: 'Running' },
@@ -21,11 +28,20 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'draft', label: 'Draft' },
 ];
 
+/**
+ * Every campaign for the active workspace, newest first.
+ *
+ * Filtering and search are client-side because the list is small and already
+ * loaded; the store's change feed triggers a reload so running campaigns stay
+ * current. Cancel and delete need a second click on the same button instead of
+ * a dialog, and the confirmation resets on blur.
+ */
 @Component({
   selector: 'app-campaigns-list',
   imports: [RouterLink, CampaignStatusPill],
   templateUrl: './campaigns-list.html',
   styleUrl: './campaigns-list.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CampaignsListView {
   private readonly api = inject(CampaignsApi);
@@ -41,6 +57,7 @@ export class CampaignsListView {
   /** Row id + action awaiting its second click. */
   protected readonly confirming = signal<{ id: number; action: RowAction } | null>(null);
   protected readonly busy = signal<number | null>(null);
+  /** Reference clock for "in 2h" labels; refreshed on each load, not ticking. */
   protected readonly now = signal(Date.now());
 
   protected readonly counts = computed(() => {

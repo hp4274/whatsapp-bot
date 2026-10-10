@@ -1,5 +1,8 @@
 @if (!options().length) {
-  <p class="none"><span class="ms" aria-hidden="true">info</span> Add reply buttons or a list menu above to set a follow-up reply for each option.</p>
+  <p class="none">
+    <i class="ti ti-info-circle" aria-hidden="true"></i> Add reply buttons or a list menu above to
+    set a follow-up reply for each option.
+  </p>
 } @else {
   <ol class="opts" [class.deep]="depth() > 1">
     @for (o of options(); track o.id; let i = $index) {
@@ -8,19 +11,27 @@
         <details [open]="!!n">
           <summary>
             <span class="num" aria-hidden="true">{{ i + 1 }}</span>
-            <span class="title">{{ o.title || 'Option' }} <code>{{ o.id }}</code></span>
+            <span class="title"
+              >{{ o.title || 'Option' }} <code>{{ o.id }}</code></span
+            >
             @if (n && (n.replyBody || n.media || n.interactive)) {
-              <span class="state ok"><span class="ms" aria-hidden="true">check_circle</span> Set</span>
+              <span class="state ok"
+                ><i class="ti ti-circle-check" aria-hidden="true"></i> Set</span
+              >
             } @else {
               <span class="state">No follow-up</span>
             }
-            <span class="ms chev" aria-hidden="true">expand_more</span>
+            <i class="ti ti-chevron-down chev" aria-hidden="true"></i>
           </summary>
 
           <div class="node">
             <div class="field">
               <span class="lbl">When they pick “{{ o.title || 'Option' }}”, reply with</span>
-              <ar-variants [value]="texts(n)" (valueChange)="setTexts(o.id, $event)" placeholder="Follow-up reply" />
+              <ar-variants
+                [value]="texts(n)"
+                (valueChange)="setTexts(o.id, $event)"
+                placeholder="Follow-up reply"
+              />
             </div>
 
             <ar-media [value]="n?.media ?? null" (valueChange)="patch(o.id, { media: $event })" />
@@ -28,25 +39,47 @@
             <div class="acts">
               <div class="field tagf">
                 <label [for]="'mt-' + depth() + '-' + o.id">Add tag</label>
-                <input [id]="'mt-' + depth() + '-' + o.id" [value]="n?.actions?.addTag ?? ''" placeholder="e.g. interested"
-                       (change)="setAction(o.id, { addTag: tagOf($event) })" />
+                <input
+                  [id]="'mt-' + depth() + '-' + o.id"
+                  [value]="n?.actions?.addTag ?? ''"
+                  placeholder="e.g. interested"
+                  (change)="setAction(o.id, { addTag: tagOf($event) })"
+                />
               </div>
-              <ar-switch label="Escalate to human" [checked]="!!n?.actions?.escalate" (checkedChange)="setAction(o.id, { escalate: $event })" />
+              <ar-switch
+                label="Escalate to human"
+                [checked]="!!n?.actions?.escalate"
+                (checkedChange)="setAction(o.id, { escalate: $event })"
+              />
             </div>
 
             @if (canNest()) {
               <div class="nest">
-                <span class="lbl"><span class="ms" aria-hidden="true">subdirectory_arrow_right</span> Nested buttons / list (optional)</span>
-                <app-interactive-editor [value]="n?.interactive ?? null" (valueChange)="patch(o.id, { interactive: $event })" [variables]="variables()" />
+                <span class="lbl"
+                  ><i class="ti ti-corner-down-right" aria-hidden="true"></i> Nested buttons / list
+                  (optional)</span
+                >
+                <app-interactive-editor
+                  [value]="n?.interactive ?? null"
+                  (valueChange)="patch(o.id, { interactive: $event })"
+                  [variables]="variables()"
+                />
                 @if (n?.interactive) {
-                  <ar-menu-editor [interactive]="n?.interactive ?? null" [depth]="depth() + 1" [variables]="variables()"
-                                  [value]="n?.menu ?? {}" (valueChange)="patch(o.id, { menu: $event })" />
+                  <ar-menu-editor
+                    [interactive]="n?.interactive ?? null"
+                    [depth]="depth() + 1"
+                    [variables]="variables()"
+                    [value]="n?.menu ?? {}"
+                    (valueChange)="patch(o.id, { menu: $event })"
+                  />
                 }
               </div>
             }
 
             @if (n) {
-              <button type="button" class="clear" (click)="clear(o.id)"><span class="ms" aria-hidden="true">backspace</span> Clear follow-up</button>
+              <button type="button" class="clear" (click)="clear(o.id)">
+                <i class="ti ti-backspace" aria-hidden="true"></i> Clear follow-up
+              </button>
             }
           </div>
         </details>

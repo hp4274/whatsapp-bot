@@ -1,20 +1,51 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
-import { Store } from '../../core/store';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Observable, map } from 'rxjs';
 
-import { ClassInfo, Fee, FeeTotals, SchoolApi, SchoolArea, SchoolMe, SendResult, Student } from '../school-api';
+import { Store } from '../../core/store';
+import { SchoolApi } from '../school-api';
+import type {
+  ClassInfo,
+  Fee,
+  FeeTotals,
+  SchoolArea,
+  SchoolMe,
+  SendResult,
+  Student,
+} from '../school-api';
 
 const METHODS = ['cash', 'UPI', 'card', 'netbanking', 'cheque'];
 
-interface FeeForm { classKey: string; studentId: number; term: string; amount: number; dueAt: string; payLink: string }
+interface FeeForm {
+  classKey: string;
+  studentId: number;
+  term: string;
+  amount: number;
+  dueAt: string;
+  payLink: string;
+}
 
+/**
+ * Fee ledger: totals, filterable list, create (single / whole class), mark-paid
+ * and WhatsApp reminders. Totals are re-fetched after mark-paid because the
+ * per-row response doesn't carry the aggregate.
+ */
 @Component({
   selector: 'school-fees',
   imports: [FormsModule, DatePipe, DecimalPipe],
   templateUrl: './fees.html',
   styleUrl: './fees.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FeesTab {
   private readonly api = inject(SchoolApi);
@@ -44,42 +75,67 @@ export class FeesTab {
   protected readonly busy = signal(false);
   protected readonly copied = signal<number | null>(null);
 
-  // create panel
+  /** Create form: one student, or every student in a class. */
   protected readonly panel = signal<'' | 'single' | 'bulk'>('');
   protected readonly students = signal<Student[]>([]);
-  protected readonly form = signal<FeeForm>({ classKey: '', studentId: 0, term: '', amount: 0, dueAt: '', payLink: '' });
+  protected readonly form = signal<FeeForm>({
+    classKey: '',
+    studentId: 0,
+    term: '',
+    amount: 0,
+    dueAt: '',
+    payLink: '',
+  });
 
   protected readonly terms = computed(() => [...new Set(this.fees().map((f) => f.term))].sort());
-  protected readonly currency = computed(() => this.totals()?.currency || this.fees()[0]?.currency || 'INR');
-  protected readonly allChecked = computed(() => this.fees().length > 0 && this.fees().every((f) => this.selected().has(f.id)));
+  protected readonly currency = computed(
+    () => this.totals()?.currency || this.fees()[0]?.currency || 'INR',
+  );
+  protected readonly allChecked = computed(
+    () => this.fees().length > 0 && this.fees().every((f) => this.selected().has(f.id)),
+  );
 
   constructor() {
     effect(() => this.fClass.set(this.classKey()));
     effect(() => this.load(this.fClass(), this.fStatus(), this.fTerm()));
-    this.store.watch(['school', 'objects'], () => this.load(this.fClass(), this.fStatus(), this.fTerm(), true));
+    this.store.watch(['school', 'objects'], () =>
+      this.load(this.fClass(), this.fStatus(), this.fTerm(), true),
+    );
   }
 
-  protected reload() { this.load(this.fClass(), this.fStatus(), this.fTerm()); }
+  /** Re-run the current query (also the error banner's retry). */
+  protected reload() {
+    this.load(this.fClass(), this.fStatus(), this.fTerm());
+  }
 
   private load(cls: string, status: string, term: string, quiet = false) {
     if (!quiet) this.loading.set(true);
-    this.api.fees({ class: cls || undefined, status: status || undefined, term: term || undefined }).subscribe({
-      next: (r) => {
-        this.fees.set(r.fees);
-        this.totals.set(r.totals);
-        if (!quiet) this.selected.set(new Set());
-        this.loading.set(false);
-      },
-      error: (e: Error) => { this.error.set(e.message); this.loading.set(false); },
-    });
+    this.api
+      .fees({ class: cls || undefined, status: status || undefined, term: term || undefined })
+      .subscribe({
+        next: (r) => {
+          this.fees.set(r.fees);
+          this.totals.set(r.totals);
+          if (!quiet) this.selected.set(new Set());
+          this.loading.set(false);
+        },
+        error: (e: Error) => {
+          this.error.set(e.message);
+          this.loading.set(false);
+        },
+      });
   }
 
   protected tone(s: Fee['status']) {
-    return { paid: 'ok', pending: 'warn', overdue: 'bad', waived: 'mute' }[s];
+    return { paid: 'tone-ok', pending: 'tone-warn', overdue: 'tone-bad', waived: 'tone-mute' }[s];
   }
 
   protected toggle(id: number, on: boolean) {
-    this.selected.update((s) => { const n = new Set(s); on ? n.add(id) : n.delete(id); return n; });
+    this.selected.update((s) => {
+      const n = new Set(s);
+      on ? n.add(id) : n.delete(id);
+      return n;
+    });
   }
   protected toggleAll(on: boolean) {
     this.selected.set(on ? new Set(this.fees().map((f) => f.id)) : new Set());
@@ -110,11 +166,25 @@ export class FeesTab {
     if (!f.term.trim() || !(f.amount > 0) || !f.dueAt) return;
     this.busy.set(true);
     this.error.set('');
-    const req: Observable<string> = this.panel() === 'bulk'
-      ? this.api.bulkFees({ classKey: f.classKey, term: f.term.trim(), amount: f.amount, dueAt: f.dueAt })
-          .pipe(map((r) => `${r.created} fee entries created for ${f.classKey}.`))
-      : this.api.createFee({ studentId: f.studentId, term: f.term.trim(), amount: f.amount, dueAt: f.dueAt, payLink: f.payLink.trim() || undefined })
-          .pipe(map((r) => `Fee created for ${r.fee.studentName}.`));
+    const req: Observable<string> =
+      this.panel() === 'bulk'
+        ? this.api
+            .bulkFees({
+              classKey: f.classKey,
+              term: f.term.trim(),
+              amount: f.amount,
+              dueAt: f.dueAt,
+            })
+            .pipe(map((r) => `${r.created} fee entries created for ${f.classKey}.`))
+        : this.api
+            .createFee({
+              studentId: f.studentId,
+              term: f.term.trim(),
+              amount: f.amount,
+              dueAt: f.dueAt,
+              payLink: f.payLink.trim() || undefined,
+            })
+            .pipe(map((r) => `Fee created for ${r.fee.studentName}.`));
     req.subscribe({
       next: (msg) => {
         this.flash.set(msg);
@@ -122,7 +192,10 @@ export class FeesTab {
         this.busy.set(false);
         this.reload();
       },
-      error: (e: Error) => { this.error.set(e.message); this.busy.set(false); },
+      error: (e: Error) => {
+        this.error.set(e.message);
+        this.busy.set(false);
+      },
     });
   }
 
@@ -135,11 +208,21 @@ export class FeesTab {
         this.justPaid.set(fee.id);
         this.payingId.set(null);
         this.busy.set(false);
-        this.flash.set(`Marked paid · receipt ${r.fee.receiptNo ?? ''} ${r.receiptSent ? 'sent on WhatsApp' : 'saved (parent not on WhatsApp)'}.`);
-        this.api.fees({ class: this.fClass() || undefined, status: this.fStatus() || undefined, term: this.fTerm() || undefined })
+        this.flash.set(
+          `Marked paid · receipt ${r.fee.receiptNo ?? ''} ${r.receiptSent ? 'sent on WhatsApp' : 'saved (parent not on WhatsApp)'}.`,
+        );
+        this.api
+          .fees({
+            class: this.fClass() || undefined,
+            status: this.fStatus() || undefined,
+            term: this.fTerm() || undefined,
+          })
           .subscribe({ next: (t) => this.totals.set(t.totals), error: () => {} });
       },
-      error: (e: Error) => { this.error.set(e.message); this.busy.set(false); },
+      error: (e: Error) => {
+        this.error.set(e.message);
+        this.busy.set(false);
+      },
     });
   }
 
@@ -148,12 +231,20 @@ export class FeesTab {
     this.error.set('');
     this.remindResult.set(null);
     this.api.remindFees(body).subscribe({
-      next: (r) => { this.remindResult.set(r); this.busy.set(false); },
-      error: (e: Error) => { this.error.set(e.message); this.busy.set(false); },
+      next: (r) => {
+        this.remindResult.set(r);
+        this.busy.set(false);
+      },
+      error: (e: Error) => {
+        this.error.set(e.message);
+        this.busy.set(false);
+      },
     });
   }
 
-  protected remindSelected() { this.remind({ ids: [...this.selected()] }); }
+  protected remindSelected() {
+    this.remind({ ids: [...this.selected()] });
+  }
 
   protected async copy(fee: Fee) {
     if (!fee.payLink) return;

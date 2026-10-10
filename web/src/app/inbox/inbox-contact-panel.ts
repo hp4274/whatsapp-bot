@@ -1,4 +1,13 @@
-import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { Contact2, ContactsApi } from '../core/api';
@@ -6,20 +15,28 @@ import { User } from '../core/auth';
 import { Conversation, ConversationNote, ConversationStatus, InboxApi } from './inbox-api';
 import { hue, initials } from './inbox-list';
 
+/** What brought the customer here, derived from the thread by the page. */
 export interface ThreadContext {
   campaigns: { id: string; at: string }[];
   rules: { rule: string; body: string; at: string }[];
   buttons: { title: string; campaignId: string | null; at: string }[];
 }
 
-const STATUSES: ConversationStatus[] = ['open', 'pending', 'closed'];
+/** Segmented-control order: the lifecycle a conversation moves through. */
+const STATUSES: readonly ConversationStatus[] = ['open', 'pending', 'closed'];
 
-/** Right-hand details: conversation state, contact record (tags + custom fields), campaign context, notes. */
+/**
+ * Right-hand details: conversation state, contact record (tags + custom fields), campaign context, notes.
+ *
+ * Holds no source of truth: every write emits the server's answer upward so the
+ * page, list and thread all agree, and only the field draft lives here.
+ */
 @Component({
   selector: 'app-inbox-contact-panel',
   templateUrl: './inbox-contact-panel.html',
   styleUrl: './inbox-contact-panel.scss',
   host: { role: 'complementary', 'aria-label': 'Contact details' },
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InboxContactPanel {
   private readonly api = inject(InboxApi);
@@ -49,7 +66,9 @@ export class InboxContactPanel {
   protected readonly fields = signal<{ key: string; value: string }[]>([]);
   protected readonly fieldsDirty = signal(false);
 
-  protected readonly initials = computed(() => initials({ name: this.name(), phone: this.conversation().phone }));
+  protected readonly initials = computed(() =>
+    initials({ name: this.name(), phone: this.conversation().phone }),
+  );
   protected readonly hue = computed(() => hue(this.conversation().phone));
   protected readonly assignees = computed(() => {
     const me = this.me();
@@ -64,15 +83,22 @@ export class InboxContactPanel {
   protected readonly optIn = computed(() => {
     const c = this.contact();
     if (!c) return null;
-    if (c.optedOut || c.optInStatus === 'opted_out') return { label: 'Opted out', tone: 'bad', icon: 'block' };
-    if (c.optInStatus === 'opted_in') return { label: 'Opted in', tone: 'good', icon: 'verified' };
-    return { label: 'Opt-in unknown', tone: 'meh', icon: 'help' };
+    if (c.optedOut || c.optInStatus === 'opted_out')
+      return { label: 'Opted out', tone: 'bad', icon: 'ban' };
+    if (c.optInStatus === 'opted_in')
+      return { label: 'Opted in', tone: 'good', icon: 'discount-check' };
+    return { label: 'Opt-in unknown', tone: 'meh', icon: 'help-circle' };
   });
 
   constructor() {
     effect(() => {
       const c = this.contact();
-      this.fields.set(Object.entries(c?.customFields ?? {}).map(([key, value]) => ({ key, value: String(value) })));
+      this.fields.set(
+        Object.entries(c?.customFields ?? {}).map(([key, value]) => ({
+          key,
+          value: String(value),
+        })),
+      );
       this.fieldsDirty.set(false);
     });
   }
@@ -84,7 +110,10 @@ export class InboxContactPanel {
   }
 
   protected assign(value: string) {
-    this.run('assign', this.api.assign(this.conversation().id, value === '' ? null : Number(value)));
+    this.run(
+      'assign',
+      this.api.assign(this.conversation().id, value === '' ? null : Number(value)),
+    );
   }
 
   protected addConvTag() {
@@ -146,7 +175,10 @@ export class InboxContactPanel {
     const c = this.contact();
     if (!c) return;
     const customFields = Object.fromEntries(
-      this.fields().filter((r) => r.key.trim()).map((r) => [r.key.trim(), r.value.trim()]));
+      this.fields()
+        .filter((r) => r.key.trim())
+        .map((r) => [r.key.trim(), r.value.trim()]),
+    );
     // PUT replaces only the keys it is given; custom fields are replaced as a whole.
     this.runContact('fields', this.contacts.update(c.id, { customFields }));
   }
@@ -199,6 +231,11 @@ export class InboxContactPanel {
   }
 
   protected when(at: string): string {
-    return new Date(at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+    return new Date(at).toLocaleString(undefined, {
+      day: 'numeric',
+      month: 'short',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
   }
 }

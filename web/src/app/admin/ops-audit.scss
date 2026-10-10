@@ -8,39 +8,44 @@
   align-items: end;
   gap: var(--space-md);
   margin-bottom: var(--space-xl);
-  padding: var(--space-lg);
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) + 4px);
-  background: var(--surface);
-  box-shadow: var(--shadow);
+  padding: var(--space-xl);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  background: var(--surface-card);
 
   .search, .seg { grid-column: 1 / -1; margin: 0; }
   .search { max-width: none; }
   .seg { justify-self: start; }
-  .seg .create.on { color: var(--primary); }
+  .seg .create.on { color: var(--success); }
   .seg .change.on { color: var(--accent); }
-  .seg .remove.on { color: var(--danger); }
+  .seg .remove.on { color: var(--danger-text); }
 }
 .f {
   display: grid;
-  gap: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  select, input { padding: 8px 10px; font-size: 14px; }
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-strong);
+  select, input { padding: 8px 12px; font-size: 14px; font-weight: 400; }
 }
 .tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-sm); grid-column: -2 / -1; }
 
-.log { display: grid; gap: 6px; }
+// One hairline card; entries are rows inside it that open in place.
+.log {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  background: var(--surface-card);
+  &:empty { display: none; }
+}
 .line {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  border-bottom: 1px solid var(--border-color);
   animation: rise 360ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 25ms);
-  transition: border-color var(--base) var(--ease), box-shadow var(--base) var(--ease);
-  &:hover, &.open { border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); }
-  &.open { box-shadow: var(--shadow); }
+  transition: background var(--fast) var(--ease);
+  &:last-child { border-bottom: 0; }
+  &:hover, &.open { background: var(--surface-sunken); }
   &.open .chev { rotate: 180deg; }
 }
 .head {
@@ -49,7 +54,7 @@
   align-items: center;
   gap: var(--space-md);
   width: 100%;
-  padding: 12px var(--space-lg);
+  padding: 12px var(--space-xl);
   border: 0;
   border-radius: inherit;
   text-align: left;
@@ -58,51 +63,51 @@
 
   .what { display: grid; min-width: 0; }
   .what strong, .what .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .what strong { font-family: var(--mono); font-size: 13px; }
+  .what strong { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--text-strong); }
   .what .muted { font-size: 12px; }
   .who-t, time { font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
   small { font-size: 11px; }
   time { text-align: right; }
-  .chev { color: var(--text-muted); transition: rotate var(--base) var(--ease); }
+  .chev { color: var(--hint); transition: rotate var(--base) var(--ease); }
 }
 .verb {
   justify-self: start;
-  padding: 2px 10px;
+  padding: 4px 11px;
   border-radius: 999px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 500;
   text-transform: capitalize;
-  background: var(--surface-alt);
-  color: var(--text-muted);
-  &.create { background: var(--primary-soft); color: var(--primary); }
-  &.change { background: var(--accent-soft); color: var(--accent); }
-  &.remove { background: var(--danger-soft); color: var(--danger); }
+  background: color-mix(in srgb, var(--tone, var(--text-muted)) 12%, transparent);
+  color: var(--tone, var(--text-muted));
+  &.create { --tone: var(--success); }
+  &.change { --tone: var(--accent); }
+  &.remove { --tone: var(--danger-text); }
 }
 .detail {
   display: grid;
   gap: var(--space-md);
-  padding: 0 var(--space-lg) var(--space-lg);
+  padding: 0 var(--space-xl) var(--space-lg);
   animation: rise 240ms var(--ease) both;
 
   dl { display: flex; flex-wrap: wrap; gap: 6px 24px; margin: 0; font-size: 13px; }
-  dt { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
-  dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+  dt { font-size: 12px; font-weight: 500; color: var(--hint); }
+  dd { margin: 0; font-weight: 500; color: var(--text-strong); overflow-wrap: anywhere; }
   pre {
     margin: 0;
     max-height: 320px;
     overflow: auto;
     padding: var(--space-md) var(--space-lg);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-md);
     font-family: var(--mono);
     font-size: 12px;
     line-height: 1.55;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    background: var(--surface-alt);
-    border: 1px solid var(--border);
+    background: var(--surface-card);
+    border: 1px solid var(--border-color);
   }
 }
-.skel-list { margin-top: 6px; }
+.skel-list { margin-top: var(--space-md); }
 .skel { height: 52px; }
 .more { display: grid; place-items: center; padding: var(--space-lg); }
 .end { text-align: center; font-size: 13px; padding: var(--space-lg); margin: 0; }

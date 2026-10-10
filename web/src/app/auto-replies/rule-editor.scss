@@ -14,13 +14,12 @@
   .preview { position: sticky; top: var(--space-lg); }
 }
 
+// One Kardlyz card; numbered sections inside it split by hairlines.
 .editor {
   display: grid;
-  gap: 2px;
-  border-radius: calc(var(--radius) + 4px);
-  border: 1px solid var(--border);
-  background: var(--surface);
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-color);
+  background: var(--surface-card);
   overflow: hidden;
   animation: fade-in-up var(--base) var(--ease) both;
 }
@@ -30,26 +29,23 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-md);
-  padding: var(--space-lg) var(--space-lg) var(--space-md);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--primary-soft) 55%, transparent), transparent);
+  padding: var(--space-xl) var(--space-xl) var(--space-md);
 }
 
 .title {
   flex: 1;
   min-width: 220px;
   display: grid;
-  gap: 2px;
+  gap: 4px;
 }
 
 .eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--primary);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary-text);
 }
 
 .dot {
@@ -59,114 +55,132 @@
   background: var(--warning);
 }
 
+// The name reads as the card title; it only shows an edge while focused.
 .name {
   padding: 4px 0;
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-bottom: 1px solid transparent;
   border-radius: 0;
   background: transparent;
-  font-size: 20px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.8px;
+  color: var(--text-strong);
 
+  &:hover:not(:focus) { border-bottom-color: var(--border-color); }
   &:focus-visible {
     box-shadow: none;
-    border-bottom-color: var(--accent);
+    border-bottom-color: var(--primary);
   }
 }
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-  gap: 1px;
-  margin: 0 var(--space-lg) var(--space-sm);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--border);
-  overflow: hidden;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  margin: 0 var(--space-xl) var(--space-lg);
 
-  div { padding: 8px 12px; background: var(--surface-alt); }
-  dt { font-size: 11px; color: var(--text-muted); }
-  dd { margin: 0; font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
-  .sm { font-size: 13px; padding-top: 4px; }
+  div { padding: 12px 14px; border-radius: var(--radius-md); background: var(--surface-sunken); }
+  dt { font-size: 12px; font-weight: 500; color: var(--text-muted); }
+  dd {
+    margin: 4px 0 0;
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: -0.8px;
+    color: var(--text-strong);
+    font-variant-numeric: tabular-nums;
+  }
+  .sm { font-size: 14px; letter-spacing: 0; padding-top: 5px; }
 }
 
 .sec {
   display: grid;
   gap: var(--space-md);
-  padding: var(--space-lg);
-  border-top: 1px solid var(--border);
+  padding: var(--space-xl);
+  border-top: 1px solid var(--border-color);
 
   h3 {
     display: flex;
     align-items: center;
     gap: 10px;
-    font-size: 15px;
-    font-weight: 700;
+    font-size: 17px;
+    font-weight: 500;
+    color: var(--text-strong);
   }
+
+  @media (max-width: 560px) { padding: 20px; }
 }
 
 .step {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   border-radius: 8px;
-  font-size: 12px;
-  color: var(--accent);
-  background: var(--accent-soft);
-  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 25%, transparent);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--primary-text);
+  background: var(--primary-tint);
 }
 
 .opt {
-  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-muted);
+  background: var(--surface-sunken);
 }
 
+/* Match type: choice cards that lift; the chosen one goes orange-tint. */
 .mtypes {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
   gap: var(--space-sm);
+  perspective: 900px;
 }
 
 .mt {
   position: relative;
   display: grid;
-  gap: 2px;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface-alt);
+  gap: 3px;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  background: var(--surface-card);
   cursor: pointer;
-  transform-style: preserve-3d;
-  transition: transform var(--fast) var(--ease), border-color var(--fast) var(--ease), box-shadow var(--base) var(--ease), background var(--fast) var(--ease);
+  transition:
+    transform var(--fast) var(--ease),
+    border-color var(--fast) var(--ease),
+    box-shadow var(--base) var(--ease),
+    background var(--fast) var(--ease);
 
   input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-  .ms { font-size: 20px; color: var(--text-muted); transition: color var(--fast) var(--ease); }
-  strong { font-size: 13px; }
-  small { font-size: 11px; line-height: 1.3; color: var(--text-muted); }
+  .ti { font-size: 20px; color: var(--text-muted); transition: color var(--fast) var(--ease); }
+  strong { margin-top: 4px; font-size: 13.5px; font-weight: 500; color: var(--text-strong); }
+  small { font-size: 12px; line-height: 1.35; color: var(--text-muted); }
 
-  &:hover { transform: translateY(-2px) rotateX(4deg); box-shadow: 0 10px 18px -12px rgba(13, 27, 36, 0.4); }
-  &:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+  &:hover { transform: translateY(-2px) rotateX(3deg); border-color: var(--border-hover); box-shadow: var(--shadow-card); }
+  &:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
 
   &.on {
-    border-color: var(--primary);
-    background: color-mix(in srgb, var(--primary-soft) 70%, var(--surface));
-    box-shadow: 0 0 0 1px var(--primary), 0 10px 20px -14px var(--primary);
-    .ms { color: var(--primary); }
+    border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+    background: var(--primary-tint);
+    box-shadow: 0 0 0 3px var(--primary-glow);
+    .ti { color: var(--primary-text); }
   }
 }
 
 .field {
   display: grid;
-  gap: 6px;
+  gap: 7px;
 
-  label, .lbl { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+  label, .lbl { font-size: 13px; font-weight: 500; color: var(--text-strong); }
 }
 
 .hint {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--text-muted);
 
@@ -178,8 +192,13 @@
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
   color: var(--text-muted);
+  background: var(--surface-sunken);
+
+  .ti { font-size: 16px; color: var(--info); }
 }
 
 .sub {
@@ -191,40 +210,44 @@
     align-items: center;
     gap: 6px;
     margin: 0;
-    font-size: 13px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--text-strong);
+
+    .ti { font-size: 16px; color: var(--text-muted); }
   }
 }
 
+/* Kardlyz segmented: sunken track, the active option lifts onto the card. */
 .seg {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 2px;
-  padding: 4px;
+  padding: 3px;
   width: fit-content;
   max-width: 100%;
-  border-radius: 999px;
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-sunken);
 
   label {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 12px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 600;
+    padding: 7px 12px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 500;
     color: var(--text-muted);
     cursor: pointer;
-    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
 
-    &:hover { color: var(--text); }
-    &:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
-    &.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+    &:hover { color: var(--text-strong); }
+    &:focus-within { outline: 2px solid var(--primary); outline-offset: 1px; }
+    &.on { background: var(--surface-card); color: var(--text-strong); font-weight: 600; box-shadow: var(--shadow-sm); }
   }
 
   input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-  .ms { font-size: 16px; }
+  .ti { font-size: 16px; }
 }
 
 .tagin { max-width: 260px; }
@@ -238,9 +261,9 @@
 .kv {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 
-  span { color: var(--text-muted); font-weight: 700; }
+  span { color: var(--hint); font-weight: 500; }
 }
 
 .checks {
@@ -251,29 +274,30 @@
 .check {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
+  gap: 10px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-strong);
   cursor: pointer;
 
-  input { width: 16px; height: 16px; accent-color: var(--primary); }
+  input { width: 17px; height: 17px; }
 }
 
 .problems {
   display: grid;
   gap: 4px;
-  margin: 0 var(--space-lg);
-  padding: 10px 14px;
+  margin: 0 var(--space-xl) var(--space-md);
+  padding: 12px 14px;
   list-style: none;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--danger);
-  background: var(--danger-soft);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
   animation: fade-in-up var(--fast) var(--ease) both;
 
-  li { display: flex; align-items: center; gap: 6px; }
-  .ms { font-size: 16px; }
+  li { display: flex; align-items: center; gap: 8px; }
+  .ti { font-size: 16px; }
 }
 
 .foot {
@@ -285,10 +309,9 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
-  margin-top: var(--space-sm);
-  padding: var(--space-md) var(--space-lg);
-  border-top: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  padding: var(--space-md) var(--space-xl);
+  border-top: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--surface-card) 88%, transparent);
   backdrop-filter: blur(8px);
 }
 
@@ -297,28 +320,28 @@
   border-color: transparent;
   color: var(--text-muted);
 
-  &:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); }
+  &:hover:not(:disabled) { color: var(--danger-text); background: color-mix(in srgb, var(--danger) 8%, transparent); }
 }
 
-.btn.sm { padding: 6px 12px; }
+.btn.sm { min-height: 32px; padding: 0 11px; font-size: 12.5px; }
 
 .confirm {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-weight: 600;
-  color: var(--danger);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--danger-text);
 }
 
+/* Preview: a quiet card that frames the (authentic) WhatsApp phone. */
 .preview {
   display: grid;
   gap: var(--space-sm);
-  padding: var(--space-md);
-  border-radius: calc(var(--radius) + 4px);
-  border: 1px solid var(--border);
-  background:
-    radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--primary-soft) 70%, transparent), transparent 70%),
-    var(--surface);
+  padding: var(--space-lg);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-color);
+  background: var(--surface-card);
 }
 
 .pv-head {
@@ -328,5 +351,9 @@
   justify-content: space-between;
   gap: 8px;
 
-  select { width: auto; max-width: 180px; padding: 5px 8px; font-size: 12px; }
+  select { width: auto; max-width: 180px; padding: 6px 10px; font-size: 12.5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mt:hover { transform: none; }
 }

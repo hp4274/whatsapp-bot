@@ -1,0 +1,330 @@
+<!-- Platform admin's per-tenant settings drawer: General, Limits and Anti-ban tabs saved together; Rules saves itself. -->
+@if (settings(); as s) {
+  <div class="backdrop" (click)="close()"></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <header>
+      <div>
+        <span class="mono muted">#{{ s.tenant.id }}</span>
+        <h3 id="settings-title">{{ s.tenant.name }}</h3>
+        <p class="muted compact">
+          What this business may do, how much, and how fast. Only the platform admin can change
+          these.
+        </p>
+      </div>
+      <button
+        class="btn icon"
+        type="button"
+        (click)="close()"
+        [disabled]="saving()"
+        aria-label="Close settings"
+      >
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
+    </header>
+
+    <nav class="tabs" role="tablist" aria-label="Tenant settings">
+      @for (t of tabs; track t.id) {
+        <button
+          type="button"
+          role="tab"
+          [class.on]="tab() === t.id"
+          [attr.aria-selected]="tab() === t.id"
+          (click)="tab.set(t.id)"
+        >
+          <i class="ti ti-{{ t.icon }}" aria-hidden="true"></i>{{ t.label }}
+        </button>
+      }
+    </nav>
+
+    <div class="settings-body">
+      @if (error()) {
+        <p class="s-banner" role="alert">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i>
+          <span class="msg">{{ error() }}</span>
+        </p>
+      }
+      @switch (tab()) {
+        @case ('general') {
+          <section>
+            <h4>Operations</h4>
+            <div class="switches">
+              @for (control of controlKeys; track control) {
+                <label class="switch drawer-check">
+                  <input
+                    type="checkbox"
+                    [checked]="s.controls[control]"
+                    (change)="setSettingsControl(control, checked($event))"
+                  />
+                  <span>{{ controlLabel(control) }}</span>
+                </label>
+              }
+            </div>
+          </section>
+
+          <section>
+            <h4>Connection types</h4>
+            <p class="muted compact">
+              Which ways this business may connect a WhatsApp number. Turn off WhatsApp QR to allow
+              only the official Meta Cloud API.
+            </p>
+            <div class="switches">
+              <label class="switch drawer-check">
+                <input
+                  type="checkbox"
+                  [checked]="s.limits.allowCloudApi"
+                  (change)="setLimit('allowCloudApi', checked($event))"
+                />
+                <span>Meta Cloud API (official)</span>
+              </label>
+              <label class="switch drawer-check">
+                <input
+                  type="checkbox"
+                  [checked]="s.limits.allowWhatsappWeb"
+                  (change)="setLimit('allowWhatsappWeb', checked($event))"
+                />
+                <span>WhatsApp QR (Baileys)</span>
+              </label>
+            </div>
+          </section>
+
+          <section>
+            <h4>Sending limits</h4>
+            <p class="muted compact">
+              Off: only you set this business's anti-ban limits. On: their owner or admins can
+              change them after accepting, in writing, that a banned number is their responsibility.
+            </p>
+            <div class="switches">
+              <label class="switch drawer-check">
+                <input
+                  type="checkbox"
+                  [checked]="s.limits.allowCustomSafety"
+                  (change)="setLimit('allowCustomSafety', checked($event))"
+                />
+                <span
+                  >Let this business change its own sending limits (they must accept the risk)</span
+                >
+              </label>
+            </div>
+          </section>
+
+          <section>
+            <h4>Services</h4>
+            <p class="muted compact">
+              {{ s.tenant.services.length + ' of ' + serviceCount() + ' enabled' }}
+            </p>
+            <button class="btn" type="button" (click)="chooseServices.emit(s.tenant)">
+              Choose services
+            </button>
+          </section>
+        }
+
+        @case ('limits') {
+          <section>
+            <h4>Limits and quotas</h4>
+            <p class="muted compact">
+              Set 0 for no limit. Each limit is checked where the business does the thing, and the
+              message they see names the limit.
+            </p>
+            <div class="safety-fields">
+              @for (f of limitFields; track f.key) {
+                <div class="field">
+                  <label [for]="'l-' + f.key">{{ f.label }}</label>
+                  <div class="unit">
+                    <input
+                      [id]="'l-' + f.key"
+                      type="number"
+                      min="0"
+                      step="1"
+                      [value]="s.limits[f.key]"
+                      (input)="setLimitNumber(f.key, $any($event.target).value)"
+                    />
+                    <span class="muted">{{ f.unit }}</span>
+                  </div>
+                </div>
+              }
+              @if (s.safety; as safety) {
+                <div class="field">
+                  <label for="l-daily">Messages per day</label>
+                  <div class="unit">
+                    <input
+                      id="l-daily"
+                      type="number"
+                      min="0"
+                      step="1"
+                      [value]="safety.dailyLimit"
+                      (input)="setSafetyNumber('dailyLimit', $any($event.target).value)"
+                    />
+                    <span class="muted">per number</span>
+                  </div>
+                </div>
+              }
+            </div>
+          </section>
+
+          <section>
+            <h4>Blocked words</h4>
+            <p class="muted compact">
+              Templates and campaigns containing any of these are refused. Separate with commas.
+            </p>
+            <div class="field">
+              <label for="l-words" class="sr-only">Blocked words</label>
+              <textarea
+                id="l-words"
+                rows="3"
+                placeholder="casino, lottery, crypto giveaway"
+                [value]="s.limits.blockedWords"
+                (input)="setLimit('blockedWords', $any($event.target).value)"
+              ></textarea>
+            </div>
+          </section>
+        }
+
+        @case ('safety') {
+          <section>
+            <div class="section-head">
+              <h4>Sending safety</h4>
+              @if (s.safety; as safety) {
+                <label class="switch">
+                  <input
+                    type="checkbox"
+                    [checked]="safety.safetyEnabled"
+                    (change)="setSafetyValue('safetyEnabled', checked($event))"
+                  />
+                  <span>Enforced</span>
+                </label>
+              }
+            </div>
+            <p class="muted compact">
+              Bulk sending gets numbers banned. These limits apply to every number of this tenant.
+            </p>
+
+            @if (s.custom; as custom) {
+              <div class="custom-safety" [class.on]="custom.active" role="status">
+                <i
+                  class="ti ti-{{ custom.active ? 'shield-exclamation' : 'shield-check' }}"
+                  aria-hidden="true"
+                ></i>
+                <div>
+                  <strong>
+                    @if (custom.active) {
+                      Business limits active: {{ overrideCount(custom) }} value{{
+                        overrideCount(custom) === 1 ? '' : 's'
+                      }}
+                      override yours
+                    } @else if (!custom.allowed) {
+                      Only you set these limits
+                    } @else if (overrideCount(custom)) {
+                      Business limits saved but not applied
+                    } @else {
+                      Business may customise - nothing changed yet
+                    }
+                  </strong>
+                  @if (custom.consent; as consent) {
+                    <span class="muted"
+                      >Risk accepted by {{ consent.fullName }} ({{ consent.email }}) on
+                      {{ consent.acceptedAt.slice(0, 10) }}, terms v{{ consent.version }}</span
+                    >
+                  } @else if (custom.allowed) {
+                    <span class="muted"
+                      >No one has accepted the current terms (v{{ custom.consentVersion }})
+                      yet.</span
+                    >
+                  }
+                </div>
+                @if (custom.allowed || overrideCount(custom)) {
+                  <button
+                    class="btn"
+                    type="button"
+                    [class.danger]="revokeConfirm()"
+                    (click)="revokeCustomSafety()"
+                    [disabled]="saving()"
+                  >
+                    <i class="ti ti-ban" aria-hidden="true"></i
+                    >{{ revokeConfirm() ? 'Click again to revoke' : 'Revoke custom limits' }}
+                  </button>
+                }
+              </div>
+            }
+
+            @if (s.safety; as safety) {
+              <div class="field">
+                <label for="s-pacing">Pacing mode</label>
+                <select
+                  id="s-pacing"
+                  [value]="safety.pacingMode"
+                  (change)="setSafetyValue('pacingMode', $any($event.target).value)"
+                >
+                  <option value="adaptive">
+                    Adaptive - vary the gap, widen it as the batch grows
+                  </option>
+                  <option value="fixed">Fixed - rate limit only (faster, easier to spot)</option>
+                </select>
+              </div>
+
+              @for (group of safetyGroups; track group.title) {
+                <fieldset class="safety-group">
+                  <legend>{{ group.title }}</legend>
+                  <div class="safety-fields">
+                    @for (f of group.fields; track f.key) {
+                      <div class="field">
+                        <label [for]="'s-' + f.key">{{ f.label }}</label>
+                        <input
+                          [id]="'s-' + f.key"
+                          type="number"
+                          min="0"
+                          [step]="f.step ?? 1"
+                          [value]="safety[f.key]"
+                          (input)="setSafetyNumber(f.key, $any($event.target).value)"
+                        />
+                        <span class="hint">{{ f.help }}</span>
+                      </div>
+                    }
+                  </div>
+                </fieldset>
+              }
+            } @else {
+              <p class="muted">Loading limits...</p>
+            }
+          </section>
+        }
+
+        @case ('rules') {
+          <section>
+            <h4>Rules for this business</h4>
+            <p class="muted compact">
+              Override any platform rule for {{ s.tenant.name }} only. Everything else follows its
+              plan and the platform default.
+            </p>
+            <div class="field">
+              <label for="r-service">Service</label>
+              <select
+                id="r-service"
+                [value]="rulesService()"
+                (change)="rulesService.set($any($event.target).value)"
+              >
+                @for (svc of ruleServices; track svc.key) {
+                  <option [value]="svc.key">{{ svc.label }}</option>
+                }
+              </select>
+            </div>
+            <app-policy-editor [tenantId]="s.tenant.id" [service]="rulesService()" />
+          </section>
+        }
+      }
+    </div>
+
+    @if (tab() !== 'rules') {
+      <footer>
+        <button class="btn" type="button" (click)="reset()" [disabled]="saving()">Reset</button>
+        <button
+          class="btn primary"
+          type="button"
+          (click)="save()"
+          [disabled]="saving() || !s.safety"
+        >
+          {{ saving() ? 'Saving...' : 'Save settings' }}
+        </button>
+      </footer>
+    }
+  </aside>
+}

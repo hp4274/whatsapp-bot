@@ -2,65 +2,68 @@
 
 .rt-head {
   display: flex; flex-wrap: wrap; gap: 4px var(--space-md); align-items: baseline; justify-content: space-between; margin-bottom: var(--space-lg);
-  h2 { margin: 0; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
-  > span { font-size: 12px; }
+  h2 { margin: 0; font-size: 17px; font-weight: 500; color: var(--text-strong); }
+  > span { font-size: 12.5px; }
 }
 
 .rt-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-xl); align-items: center; }
 .hero {
   p { margin: 0; }
-  .lbl { font-size: 12px; font-weight: 700; color: var(--text-muted); }
+  .lbl { font-size: 13px; font-weight: 500; color: var(--text-muted); }
   .big {
-    font-size: clamp(34px, 5vw, 48px); font-weight: 800; letter-spacing: -0.04em; line-height: 1.05;
-    background: linear-gradient(110deg, var(--text) 30%, var(--primary)); -webkit-background-clip: text; background-clip: text; color: transparent;
+    margin-top: 4px; font-size: clamp(34px, 4.4vw, 40px); font-weight: 500; letter-spacing: -1.5px; line-height: 1.1;
+    color: var(--text-strong); font-variant-numeric: tabular-nums;
   }
 }
 .mini {
   display: flex; flex-wrap: wrap; gap: var(--space-sm); margin: var(--space-md) 0 0;
-  div { padding: 6px 10px; border-radius: var(--radius-sm); background: var(--surface-alt); }
-  dt { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-  dd { margin: 0; font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; &.bad { color: var(--danger); } }
+  div { padding: 8px 12px; border-radius: var(--radius-md); background: var(--surface-sunken); }
+  dt { font-size: 12px; font-weight: 500; color: var(--text-muted); }
+  dd { margin: 0; font-size: 15px; font-weight: 500; color: var(--text-strong); font-variant-numeric: tabular-nums; &.bad { color: var(--danger-text); } }
 }
 
 .gauges { display: flex; gap: var(--space-lg); }
 .gauge {
   position: relative; display: grid; justify-items: center; gap: 6px; margin: 0; text-align: center;
-  svg { width: 92px; height: 92px; transform: rotate(-90deg); filter: drop-shadow(0 6px 10px color-mix(in srgb, var(--text) 12%, transparent)); }
+  svg { width: 92px; height: 92px; transform: rotate(-90deg); }
   circle { fill: none; stroke-width: 7; }
-  .track { stroke: var(--surface-alt); }
+  .track { stroke: var(--surface-sunken); }
   .fill { stroke-linecap: round; transition: stroke-dashoffset 900ms var(--ease); animation: arc 1000ms var(--ease) both; }
-  .g5 { stroke: var(--primary); }
+  .g5 { stroke: var(--success); }
   .g60 { stroke: var(--accent); }
-  .pct { position: absolute; top: 0; height: 92px; display: grid; place-items: center; width: 100%; font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
-  figcaption { display: grid; font-size: 12px; small { font-size: 11px; } }
+  .pct { position: absolute; top: 0; height: 92px; display: grid; place-items: center; width: 100%; font-size: 18px; font-weight: 500; letter-spacing: -0.5px; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+  figcaption { display: grid; font-size: 12.5px; strong { font-weight: 500; } small { font-size: 12px; } }
 }
 
-.dist-h { margin: var(--space-xl) 0 var(--space-sm); font-size: 12px; font-weight: 700; color: var(--text-muted); }
+.dist-h { margin: var(--space-xl) 0 var(--space-md); font-size: 13px; font-weight: 500; color: var(--text-muted); }
 .dist {
   display: grid; gap: 8px; list-style: none; margin: 0; padding: 0;
-  li { display: grid; grid-template-columns: 86px 1fr 64px; gap: var(--space-md); align-items: center; font-size: 12px; }
+  li { display: grid; grid-template-columns: 86px 1fr 64px; gap: var(--space-md); align-items: center; font-size: 12.5px; }
 }
-.d-label { font-weight: 600; white-space: nowrap; }
-.d-track { height: 10px; border-radius: 999px; background: var(--surface-alt); overflow: hidden; }
+.d-label { font-weight: 500; color: var(--text-color); white-space: nowrap; }
+.d-track { height: 8px; border-radius: 999px; background: var(--surface-sunken); overflow: hidden; }
 .d-track i {
   display: block; height: 100%; min-width: 3px; border-radius: inherit; transform-origin: left;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--c) 60%, transparent), var(--c));
+  background: var(--c);
   animation: grow-x 800ms var(--ease) both; animation-delay: calc(var(--i, 0) * 50ms);
 }
-.d-num { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; small { font-weight: 500; } }
-.tone-fast { --c: var(--primary); } .tone-ok { --c: var(--accent); } .tone-slow { --c: var(--warning); }
+.d-num { text-align: right; font-weight: 500; color: var(--text-strong); font-variant-numeric: tabular-nums; small { font-weight: 400; } }
+.tone-fast { --c: var(--success); } .tone-ok { --c: var(--info); } .tone-slow { --c: var(--warning); }
 /* Unanswered: hatched as well as red, so it reads without colour. */
 .tone-none {
   --c: var(--danger);
   .d-track i { background: repeating-linear-gradient(135deg, var(--danger) 0 4px, color-mix(in srgb, var(--danger) 45%, transparent) 4px 8px); }
 }
-.note { margin: var(--space-md) 0 0; font-size: 11px; }
+.note { margin: var(--space-md) 0 0; font-size: 12px; }
 
 .rt-empty {
-  display: flex; align-items: center; gap: var(--space-lg); padding: var(--space-lg); border-radius: var(--radius-sm);
-  border: 1px dashed var(--border); background: color-mix(in srgb, var(--surface-alt) 50%, transparent);
-  > .ms { font-size: 30px; color: var(--primary); transform: perspective(300px) rotateY(-18deg); }
-  p { margin: 0; font-size: 13px; }
+  display: flex; align-items: center; gap: var(--space-lg); padding: 20px; border-radius: var(--radius-lg);
+  background: var(--surface-sunken);
+  > .ti {
+    display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: 14px; font-size: 24px;
+    color: var(--primary-text); background: var(--primary-tint); transform: perspective(300px) rotateY(-18deg);
+  }
+  p { margin: 0; font-size: 13px; strong { font-weight: 500; color: var(--text-strong); } }
 }
 
 @keyframes arc { from { stroke-dashoffset: 188.5; } }

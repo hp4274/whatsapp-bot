@@ -1,91 +1,145 @@
+<!--
+  Split auth screen after Kardlyz's auth layout: one rounded card on the page
+  ground, a soft brand-wash aside on the left that answers "what am I signing
+  in to", and the form on the card surface to its right. Below `lg` the aside
+  is dropped — on a phone it would push the form off screen and carries
+  nothing needed to sign in.
+-->
 <div class="login">
-  <div class="bg" aria-hidden="true">
-    <span class="arc green"></span>
-    <span class="arc blue"></span>
-    <span class="floor"></span>
-  </div>
+  <div class="frame">
+    <aside class="aside" (pointermove)="glow($event)" (pointerleave)="rest($event)">
+      <span class="gleam" aria-hidden="true"></span>
+      <span class="shape one" aria-hidden="true"></span>
+      <span class="shape two" aria-hidden="true"></span>
 
-  <header class="top">
-    <div class="brand">
-      <img src="logo.png" alt="" width="48" height="48" />
-      <div>
-        <strong>WhatsApp</strong>
-        <span>Automation Platform</span>
+      <div class="pitch">
+        <span class="badge"
+          ><i class="ti ti-brand-whatsapp" aria-hidden="true"></i> WhatsApp automation
+          platform</span
+        >
+        <h1>One engine.<br />Every <em>business.</em></h1>
+        <p class="lede">
+          Campaigns, auto-replies and reminders for each business, on its own number, with its own
+          data.
+        </p>
       </div>
-    </div>
-    <span class="ver">v1.0</span>
-  </header>
 
-  <main class="stage">
-    <section class="pitch">
-      <p class="eyebrow">WhatsApp automation platform</p>
-      <h1>One engine.<br />Every <em>business.</em></h1>
-      <p class="lede">Campaigns, auto-replies and reminders for each business, on its own number, with its own data.</p>
       <ul class="feats">
-        <li>
-          <span class="tile"><span class="ms" aria-hidden="true">groups</span></span>
-          <span>Multiple<br />businesses</span>
+        <li class="first">
+          <span class="tile"><i class="ti ti-users-group" aria-hidden="true"></i></span>
+          <span>Multiple businesses</span>
         </li>
         <li>
-          <span class="tile bolt"><span class="ms" aria-hidden="true">bolt</span></span>
-          <span>Smart<br />automation</span>
+          <span class="tile"><i class="ti ti-bolt" aria-hidden="true"></i></span>
+          <span>Smart automation</span>
         </li>
         <li>
-          <span class="tile chart"><span class="ms" aria-hidden="true">bar_chart</span></span>
-          <span>Campaigns<br />&amp; analytics</span>
+          <span class="tile"><i class="ti ti-chart-bar" aria-hidden="true"></i></span>
+          <span>Campaigns &amp; analytics</span>
         </li>
       </ul>
-    </section>
+    </aside>
 
-    <form class="panel" (pointermove)="glow($event)" (pointerleave)="rest($event)" (submit)="submit($event)" novalidate>
-      <span class="gleam" aria-hidden="true"></span>
-      <h2>Sign in</h2>
-      <p class="sub">Use the credentials your administrator issued.</p>
-
-      <div class="field">
-        <label for="email">Email</label>
-        <div class="box">
-          <span class="ms" aria-hidden="true">mail</span>
-          <input id="email" name="email" type="email" autocomplete="username" placeholder="Enter your email" required
-                 [ngModel]="email()" (ngModelChange)="email.set($event)" />
+    <div class="side">
+      <div class="form-wrap">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"><i class="ti ti-brand-whatsapp"></i></span>
+          <span class="brand-word">WhatsApp <span>Sender</span></span>
         </div>
-      </div>
 
-      <div class="field">
-        <label for="password">Password</label>
-        <div class="box">
-          <span class="ms" aria-hidden="true">lock</span>
-          <input id="password" name="password" [type]="show() ? 'text' : 'password'" autocomplete="current-password"
-                 placeholder="Enter your password" required
-                 [ngModel]="password()" (ngModelChange)="password.set($event)" />
-          <button class="eye" type="button" (click)="show.set(!show())"
-                  [attr.aria-label]="show() ? 'Hide password' : 'Show password'" [attr.aria-pressed]="show()">
-            <span class="ms" aria-hidden="true">{{ show() ? 'visibility' : 'visibility_off' }}</span>
+        <div class="head">
+          <h2>Sign in</h2>
+          <p>Use the credentials your administrator issued.</p>
+        </div>
+
+        @if (error()) {
+          <p class="alert error" role="alert">
+            <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+            <span>{{ error() }}</span>
+          </p>
+        }
+
+        <form (submit)="submit($event)" novalidate>
+          <div class="field">
+            <label for="email">Email address</label>
+            <div class="box">
+              <i class="ti ti-mail" aria-hidden="true"></i>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autocomplete="username"
+                placeholder="name@company.com"
+                required
+                [ngModel]="email()"
+                (ngModelChange)="email.set($event)"
+              />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="password">Password</label>
+            <div class="box">
+              <i class="ti ti-lock" aria-hidden="true"></i>
+              <input
+                id="password"
+                name="password"
+                [type]="show() ? 'text' : 'password'"
+                autocomplete="current-password"
+                placeholder="Enter your password"
+                required
+                [ngModel]="password()"
+                (ngModelChange)="password.set($event)"
+              />
+              <button
+                class="eye"
+                type="button"
+                (click)="show.set(!show())"
+                [attr.aria-label]="show() ? 'Hide password' : 'Show password'"
+                [attr.aria-pressed]="show()"
+              >
+                <i class="ti ti-{{ show() ? 'eye-off' : 'eye' }}" aria-hidden="true"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="row">
+            <label class="remember">
+              <input
+                type="checkbox"
+                name="remember"
+                [ngModel]="remember()"
+                (ngModelChange)="remember.set($event)"
+              />
+              Remember me
+            </label>
+            <button
+              class="forgot"
+              type="button"
+              (click)="hint.set(!hint())"
+              [attr.aria-expanded]="hint()"
+            >
+              Forgot password?
+            </button>
+          </div>
+
+          @if (hint()) {
+            <p class="alert note" role="status">
+              <i class="ti ti-info-circle" aria-hidden="true"></i>
+              <span>Passwords are reset by your administrator. Ask them to issue a new one.</span>
+            </p>
+          }
+
+          <button class="go" type="submit" [disabled]="busy()">
+            {{ busy() ? 'Signing in...' : 'Sign in' }}
+            @if (!busy()) {
+              <i class="ti ti-arrow-right" aria-hidden="true"></i>
+            }
           </button>
-        </div>
+        </form>
+
+        <p class="ver">WhatsApp Sender v1.0</p>
       </div>
-
-      <div class="row">
-        <label class="remember">
-          <input type="checkbox" name="remember" [ngModel]="remember()" (ngModelChange)="remember.set($event)" />
-          <span class="check" aria-hidden="true"><span class="ms">check</span></span>
-          Remember me
-        </label>
-        <button class="forgot" type="button" (click)="hint.set(!hint())" [attr.aria-expanded]="hint()">Forgot password?</button>
-      </div>
-
-      @if (hint()) {
-        <p class="note" role="status">Passwords are reset by your administrator. Ask them to issue a new one.</p>
-      }
-
-      @if (error()) {
-        <p class="error" role="alert">{{ error() }}</p>
-      }
-
-      <button class="go" type="submit" [disabled]="busy()">
-        {{ busy() ? 'Signing in...' : 'Sign in' }}
-        @if (!busy()) { <span class="ms" aria-hidden="true">arrow_forward</span> }
-      </button>
-    </form>
-  </main>
+    </div>
+  </div>
 </div>

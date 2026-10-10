@@ -1,4 +1,13 @@
-import { Component, ElementRef, afterRenderEffect, inject, input, model, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  afterRenderEffect,
+  inject,
+  input,
+  model,
+  output,
+} from '@angular/core';
 
 import { Conversation, ConversationStatus } from './inbox-api';
 
@@ -7,16 +16,19 @@ export type StatusFilter = 'all' | ConversationStatus;
 export type Row = Conversation & { name: string; preview: string };
 export type SegmentCounts = Partial<Record<Segment, number>>;
 
-const SEGMENTS: { key: Segment; label: string; icon: string }[] = [
+/** The segment strip; counts come from the page's stats, keyed the same way. */
+const SEGMENTS: readonly { key: Segment; label: string; icon: string }[] = [
   { key: 'all', label: 'All', icon: 'inbox' },
-  { key: 'unread', label: 'Unread', icon: 'mark_chat_unread' },
-  { key: 'mine', label: 'Mine', icon: 'person' },
-  { key: 'unassigned', label: 'Unassigned', icon: 'person_off' },
-  { key: 'paused', label: 'Bot paused', icon: 'pan_tool' },
+  { key: 'unread', label: 'Unread', icon: 'message-dots' },
+  { key: 'mine', label: 'Mine', icon: 'user' },
+  { key: 'unassigned', label: 'Unassigned', icon: 'user-off' },
+  { key: 'paused', label: 'Bot paused', icon: 'hand-stop' },
 ];
-const STATUS: { key: StatusFilter; label: string }[] = [
-  { key: 'all', label: 'Any status' }, { key: 'open', label: 'Open' },
-  { key: 'pending', label: 'Pending' }, { key: 'closed', label: 'Closed' },
+const STATUS: readonly { key: StatusFilter; label: string }[] = [
+  { key: 'all', label: 'Any status' },
+  { key: 'open', label: 'Open' },
+  { key: 'pending', label: 'Pending' },
+  { key: 'closed', label: 'Closed' },
 ];
 
 /** The left pane: search, filter chips and the conversation rows. Stateless; the page owns the data. */
@@ -24,6 +36,7 @@ const STATUS: { key: StatusFilter; label: string }[] = [
   selector: 'app-inbox-list',
   templateUrl: './inbox-list.html',
   styleUrl: './inbox-list.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InboxList {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -32,6 +45,7 @@ export class InboxList {
   readonly selectedId = input<number | null>(null);
   readonly loading = input(false);
   readonly counts = input<SegmentCounts>({});
+  /** The page's ticking clock, so relative times refresh without a timer per row. */
   readonly now = input(Date.now());
   readonly segment = model<Segment>('all');
   readonly status = model<StatusFilter>('all');
@@ -80,6 +94,7 @@ export class InboxList {
   }
 }
 
+/** Two initials from the name, or the last two digits when there is no name. */
 export function initials(row: { name: string; phone: string }): string {
   const src = row.name.trim();
   if (!src) return row.phone.slice(-2);
@@ -87,6 +102,7 @@ export function initials(row: { name: string; phone: string }): string {
   return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase();
 }
 
+/** A stable hue per number, so a customer keeps the same avatar colour everywhere. */
 export function hue(phone: string): number {
   let h = 0;
   for (const ch of phone) h = (h * 31 + ch.charCodeAt(0)) % 360;

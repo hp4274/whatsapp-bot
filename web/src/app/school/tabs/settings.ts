@@ -1,8 +1,9 @@
-import { Component, inject, input, output, signal } from '@angular/core';
-import { Store } from '../../core/store';
+import { ChangeDetectionStrategy, Component, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
-import { ClassInfo, SchoolApi, SchoolArea, SchoolMe, SchoolSettings } from '../school-api';
+import { Store } from '../../core/store';
+import { SchoolApi } from '../school-api';
+import type { ClassInfo, SchoolArea, SchoolMe, SchoolSettings } from '../school-api';
 
 const COMMANDS: [string, string][] = [
   ['ATTENDANCE', "This month's attendance for their child"],
@@ -17,11 +18,18 @@ const COMMANDS: [string, string][] = [
   ['SCHOOL', 'Menu of everything above'],
 ];
 
+/**
+ * School settings: identity, timings, automations and fee-payment details.
+ * The absent-alert switch and time are held separately and merged into
+ * `absentAlertTime` on save (null = manual only). Live refreshes are skipped
+ * while the form is dirty so edits are never clobbered.
+ */
 @Component({
   selector: 'school-settings',
   imports: [FormsModule],
   templateUrl: './settings.html',
   styleUrl: './settings.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SettingsTab {
   private readonly api = inject(SchoolApi);
@@ -47,6 +55,13 @@ export class SettingsTab {
     this.store.watch(['school'], () => this.load(true));
   }
 
+  /** Retry after an error (the banner's action). */
+  protected reload() {
+    this.error.set('');
+    this.loading.set(true);
+    this.load();
+  }
+
   private load(quiet = false) {
     this.api.settings().subscribe({
       next: (r) => {
@@ -55,7 +70,10 @@ export class SettingsTab {
         this.apply(r.settings);
         this.loading.set(false);
       },
-      error: (e: Error) => { if (!quiet) this.error.set(e.message); this.loading.set(false); },
+      error: (e: Error) => {
+        if (!quiet) this.error.set(e.message);
+        this.loading.set(false);
+      },
     });
   }
 
@@ -81,9 +99,18 @@ export class SettingsTab {
     if (!s || this.saving()) return;
     this.saving.set(true);
     this.error.set('');
-    this.api.saveSettings({ ...s, absentAlertTime: this.autoAbsent() ? this.absentTime() : null }).subscribe({
-      next: (r) => { this.apply(r.settings); this.saving.set(false); this.saved.set(true); },
-      error: (e: Error) => { this.error.set(e.message); this.saving.set(false); },
-    });
+    this.api
+      .saveSettings({ ...s, absentAlertTime: this.autoAbsent() ? this.absentTime() : null })
+      .subscribe({
+        next: (r) => {
+          this.apply(r.settings);
+          this.saving.set(false);
+          this.saved.set(true);
+        },
+        error: (e: Error) => {
+          this.error.set(e.message);
+          this.saving.set(false);
+        },
+      });
   }
 }

@@ -1,11 +1,32 @@
 @use '../school-shared' as s;
 
-@include s.all;
+// Only the kit parts this tab uses (keeps the component CSS budget down).
+@include s.keyframes;
+@include s.tones;
+@include s.enter;
+@include s.head;
+@include s.card;
+@include s.stat;
+@include s.pill;
+@include s.seg;
+@include s.table;
+@include s.field;
+@include s.buttons;
+@include s.empty;
+@include s.skeleton;
+@include s.banner;
+@include s.tilt;
+@include s.drawer;
 
 :host {
   display: grid;
   gap: var(--space-xl);
 }
+
+/* Status colours: --tone (from the kit) is safe as text; fills use --fill so
+   absent gets the --danger fill rather than the darker --danger-text. */
+.tone-ok, .tone-warn, .tone-info, .tone-mute { --fill: var(--tone); }
+.tone-bad { --fill: var(--danger); }
 
 .sr-only {
   position: absolute;
@@ -33,13 +54,13 @@
     height: 4px;
     margin-top: 8px;
     border-radius: 999px;
-    background: var(--surface-alt);
+    background: var(--surface-sunken);
     overflow: hidden;
 
     span {
       display: block;
       height: 100%;
-      background: var(--tone);
+      background: var(--fill);
       border-radius: inherit;
       transition: width 500ms var(--ease);
     }
@@ -55,19 +76,20 @@
   gap: var(--space-md);
   margin-bottom: var(--space-md);
 
-  h3 { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+  h3 { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 500; }
 }
 
 .bar-actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); }
 
 tr.row {
-  td:first-child { box-shadow: inset 3px 0 0 var(--tone); }
+  td:first-child { box-shadow: inset 3px 0 0 var(--fill); }
   .roll { text-align: left; color: var(--text-muted); font-family: var(--mono); font-size: 12px; }
-  .name { font-weight: 600; }
+  .name { font-weight: 500; color: var(--text-strong); }
 }
 
 .s-seg button {
-  --on-tone: var(--surface);
+  // Active mark takes its status colour (present green, absent red, …).
+  &[aria-pressed='true'] { color: var(--tone); }
 
   .short { display: none; }
 
@@ -87,13 +109,10 @@ tr.row {
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: var(--space-lg);
-  background:
-    linear-gradient(120deg, color-mix(in srgb, var(--danger) 9%, transparent), transparent 55%),
-    var(--surface);
 
-  h3 { margin: 0; font-size: 16px; }
-  p { margin: 2px 0 0; }
-  .hint { color: var(--warning); font-size: 12px; font-weight: 600; }
+  h3 { margin: 0; font-size: 17px; font-weight: 500; }
+  p { margin: 4px 0 0; font-size: 13.5px; }
+  .hint { color: var(--warning); font-size: 12.5px; font-weight: 500; }
 
   @media (max-width: 720px) { grid-template-columns: 1fr; }
 }
@@ -104,11 +123,11 @@ tr.row {
   width: 56px;
   height: 56px;
   border-radius: 18px;
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
   transform: translateZ(30px);
 
-  .ms { font-size: 28px; }
+  .ti { font-size: 28px; }
 }
 
 .check {
@@ -128,7 +147,7 @@ tr.row {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .notify-out {
@@ -142,8 +161,8 @@ tr.row {
   align-items: start;
   justify-content: space-between;
 
-  .eyebrow { display: none; }
-  h3 { font-size: 22px; letter-spacing: -0.02em; }
+  .eyebrow { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--primary-text); }
+  h3 { font-size: 22px; font-weight: 500; letter-spacing: -0.5px; }
 }
 
 .pct {
@@ -151,15 +170,13 @@ tr.row {
 
   b {
     font-size: 54px;
-    font-weight: 900;
+    font-weight: 500;
     line-height: 1;
-    letter-spacing: -0.05em;
-    background: linear-gradient(100deg, var(--primary), var(--accent));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    letter-spacing: -2px;
+    color: var(--text-strong);
+    font-variant-numeric: tabular-nums;
 
-    small { font-size: 0.4em; }
+    small { font-size: 0.4em; letter-spacing: 0; color: var(--text-muted); }
   }
 }
 
@@ -169,7 +186,7 @@ tr.row {
   gap: 6px;
   perspective: 600px;
 
-  .dow { text-align: center; font-size: 11px; font-weight: 700; color: var(--text-muted); }
+  .dow { text-align: center; font-size: 12px; font-weight: 500; color: var(--hint); }
 
   .cell {
     aspect-ratio: 1;
@@ -177,17 +194,17 @@ tr.row {
     place-items: center;
     border-radius: 10px;
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
     color: var(--text-muted);
-    background: var(--surface-alt);
+    background: var(--surface-sunken);
     animation: s-rise 360ms var(--ease) both;
     animation-delay: calc(var(--i, 0) * 12ms);
 
     &.has {
-      color: var(--surface);
-      background: linear-gradient(145deg, var(--tone), color-mix(in srgb, var(--tone) 70%, var(--text)));
-      box-shadow: 0 4px 10px color-mix(in srgb, var(--tone) 35%, transparent);
+      color: var(--tone);
+      background: color-mix(in srgb, var(--fill) 14%, transparent);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fill) 35%, transparent);
     }
   }
 }
@@ -208,8 +225,8 @@ tr.row {
     width: 10px;
     height: 10px;
     margin-right: 6px;
-    border-radius: 3px;
-    background: var(--tone);
+    border-radius: 50%;
+    background: var(--fill);
     vertical-align: -1px;
   }
 }

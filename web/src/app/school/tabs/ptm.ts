@@ -1,14 +1,32 @@
-import { Component, output, computed, inject, input, signal } from '@angular/core';
-import { Store } from '../../core/store';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
-import { ClassInfo, PtmSlot, SchoolApi, SchoolArea, SchoolMe } from '../school-api';
+import { Store } from '../../core/store';
+import { SchoolApi } from '../school-api';
+import type { ClassInfo, PtmSlot, SchoolArea, SchoolMe } from '../school-api';
 
+/**
+ * Parent-teacher meeting slots.
+ *
+ * Staff open a run of back-to-back slots in one go; parents book them by
+ * texting PTM on WhatsApp, so this screen mostly watches bookings arrive via
+ * the live store refresh. Only open slots can be removed � a booked one belongs
+ * to a parent.
+ */
 @Component({
   selector: 'school-ptm',
   imports: [FormsModule],
   templateUrl: './ptm.html',
   styleUrl: './ptm.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PtmTab {
   private readonly api = inject(SchoolApi);
@@ -26,15 +44,27 @@ export class PtmTab {
   protected readonly creating = signal(false);
   protected readonly formError = signal('');
   protected readonly removing = signal<number | null>(null);
-  protected readonly form = signal({ startsAt: '', durationMinutes: 10, count: 6, teacher: '', classKey: '' });
+  protected readonly form = signal({
+    startsAt: '',
+    durationMinutes: 10,
+    count: 6,
+    teacher: '',
+    classKey: '',
+  });
 
   /** Slots for the selected class (or all), grouped by local day. */
   protected readonly days = computed(() => {
     const key = this.classKey();
     const groups = new Map<string, PtmSlot[]>();
-    const sorted = this.slots().filter((s) => !key || s.classKey === key).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+    const sorted = this.slots()
+      .filter((s) => !key || s.classKey === key)
+      .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
     for (const s of sorted) {
-      const day = new Date(s.startsAt).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' });
+      const day = new Date(s.startsAt).toLocaleDateString(undefined, {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'short',
+      });
       groups.set(day, [...(groups.get(day) ?? []), s]);
     }
     return [...groups].map(([label, slots]) => ({
@@ -94,23 +124,25 @@ export class PtmTab {
     }
     this.formError.set('');
     this.creating.set(true);
-    this.api.createPtmSlots({
-      startsAt: new Date(f.startsAt).toISOString(),
-      durationMinutes: f.durationMinutes,
-      count: f.count,
-      teacher: f.teacher.trim(),
-      classKey,
-    }).subscribe({
-      next: ({ slots }) => {
-        this.slots.update((list) => [...list, ...slots]);
-        this.creating.set(false);
-        this.message.set(`${slots.length} slots opened for class ${classKey}.`);
-      },
-      error: (err: Error) => {
-        this.formError.set(err.message);
-        this.creating.set(false);
-      },
-    });
+    this.api
+      .createPtmSlots({
+        startsAt: new Date(f.startsAt).toISOString(),
+        durationMinutes: f.durationMinutes,
+        count: f.count,
+        teacher: f.teacher.trim(),
+        classKey,
+      })
+      .subscribe({
+        next: ({ slots }) => {
+          this.slots.update((list) => [...list, ...slots]);
+          this.creating.set(false);
+          this.message.set(`${slots.length} slots opened for class ${classKey}.`);
+        },
+        error: (err: Error) => {
+          this.formError.set(err.message);
+          this.creating.set(false);
+        },
+      });
   }
 
   protected remove(slot: PtmSlot) {

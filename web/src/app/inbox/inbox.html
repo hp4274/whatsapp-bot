@@ -1,63 +1,160 @@
+<!--
+  Inbox: Kardlyz page header with live stats, then one card split into three
+  panes — conversation list, the thread (+ composer) and an optional contact
+  card. On phones the list and thread swap places.
+-->
 <section class="ib">
-  <header class="ib-head">
+  <header class="s-head ib-head">
     <div class="ib-title">
-      <span class="ib-mark" aria-hidden="true"><span class="ms">forum</span></span>
-      <div>
-        <h1>Inbox @if (store.streamOnline()) { <span class="pill ib-live" title="Live updates on"><span class="live-dot" aria-hidden="true"></span>Live</span> }</h1>
-        <p class="muted">Every customer chat in one place. Reply as a human, pause the bot, and hand it back when you're done.</p>
-      </div>
+      <p class="eyebrow"><i class="ti ti-messages" aria-hidden="true"></i> Messaging</p>
+      <h1>
+        Inbox
+        @if (store.streamOnline()) {
+          <span class="ib-live" title="Live updates on"
+            ><span class="live-dot" aria-hidden="true"></span>Live</span
+          >
+        }
+      </h1>
+      <p>
+        Every customer chat in one place. Reply as a human, pause the bot, and hand it back when
+        you're done.
+      </p>
     </div>
-    @if (stats(); as s) {
-      <ul class="ib-stats" aria-label="Inbox summary">
-        <li><b>{{ s.byStatus.open }}</b><span>Open</span></li>
-        <li [class.hot]="s.unread > 0"><b>{{ s.unread }}</b><span>Unread</span></li>
-        <li><b>{{ s.unassigned }}</b><span>Unassigned</span></li>
-        <li><b>{{ waiting(s.oldestUnansweredSeconds) }}</b><span>Oldest wait</span></li>
-      </ul>
-    }
-    <button type="button" class="icon-btn kb" (click)="helpOpen.set(true)" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">
-      <span class="ms">keyboard</span>
-    </button>
+    <div class="ib-head-side">
+      @if (stats(); as s) {
+        <ul class="ib-stats" aria-label="Inbox summary">
+          <li>
+            <b>{{ s.byStatus.open }}</b
+            ><span>Open</span>
+          </li>
+          <li [class.hot]="s.unread > 0">
+            <b>{{ s.unread }}</b
+            ><span>Unread</span>
+          </li>
+          <li>
+            <b>{{ s.unassigned }}</b
+            ><span>Unassigned</span>
+          </li>
+          <li>
+            <b>{{ waiting(s.oldestUnansweredSeconds) }}</b
+            ><span>Oldest wait</span>
+          </li>
+        </ul>
+      }
+      <button
+        type="button"
+        class="btn icon kb"
+        (click)="helpOpen.set(true)"
+        aria-label="Keyboard shortcuts"
+        title="Keyboard shortcuts (?)"
+      >
+        <i class="ti ti-keyboard" aria-hidden="true"></i>
+      </button>
+    </div>
   </header>
 
   @if (error() && !loading()) {
-    <div class="ib-error" role="alert">
-      <span class="ms" aria-hidden="true">cloud_off</span>
-      <div><strong>Couldn't load conversations</strong><p>{{ error() }}</p></div>
-      <button type="button" class="btn" (click)="refresh()"><span class="ms" aria-hidden="true">refresh</span>Retry</button>
+    <div class="s-banner" role="alert">
+      <i class="ti ti-cloud-off" aria-hidden="true"></i>
+      <span class="grow"><strong>Couldn't load conversations.</strong> {{ error() }}</span>
+      <button type="button" class="btn sm" (click)="refresh()">
+        <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+      </button>
     </div>
   }
 
   @if (!loading() && !error() && isFirstRun()) {
-    <div class="card ib-empty enter">
-      <span class="ib-orb" aria-hidden="true"><span class="ms">mark_chat_unread</span></span>
+    <div class="card ib-empty s-empty enter">
+      <i class="ti ti-message-dots" aria-hidden="true"></i>
       <h2>No conversations yet</h2>
-      <p class="muted">Conversations appear here automatically the moment a customer messages your WhatsApp number. Make sure your number is connected first.</p>
-      <a class="btn primary" routerLink="/connection"><span class="ms" aria-hidden="true">link</span>Check connection</a>
+      <p>
+        Conversations appear here automatically the moment a customer messages your WhatsApp number.
+        Make sure your number is connected first.
+      </p>
+      <a class="btn primary" routerLink="/connection"
+        ><i class="ti ti-link" aria-hidden="true"></i>Check connection</a
+      >
     </div>
   } @else {
     <div class="ib-panes card" [class.has-sel]="selectedId() !== null">
-      <app-inbox-list class="ib-list" aria-label="Conversations" [rows]="rows()" [selectedId]="selectedId()" [loading]="loading()"
-        [counts]="counts()" [now]="now()" [(segment)]="segment" [(status)]="status" [(search)]="search" (select)="open($event)" />
+      <app-inbox-list
+        class="ib-list"
+        aria-label="Conversations"
+        [rows]="rows()"
+        [selectedId]="selectedId()"
+        [loading]="loading()"
+        [counts]="counts()"
+        [now]="now()"
+        [(segment)]="segment"
+        [(status)]="status"
+        [(search)]="search"
+        (select)="open($event)"
+      />
 
-      <div class="ib-thread" aria-label="Conversation" (dragover)="onDrag($event, true)" (dragleave)="onDrag($event, false)" (drop)="onDrop($event)">
+      <div
+        class="ib-thread"
+        aria-label="Conversation"
+        (dragover)="onDrag($event, true)"
+        (dragleave)="onDrag($event, false)"
+        (drop)="onDrop($event)"
+      >
         @if (selected(); as c) {
           <div class="th-head">
-            <button type="button" class="icon-btn back" (click)="back()" aria-label="Back to conversations"><span class="ms">arrow_back</span></button>
-            <span class="av" [style.--h]="hue(c.phone)">{{ initials({ name: selectedRow()?.name ?? '', phone: c.phone }) }}</span>
+            <button
+              type="button"
+              class="icon-btn back"
+              (click)="back()"
+              aria-label="Back to conversations"
+            >
+              <i class="ti ti-arrow-left" aria-hidden="true"></i>
+            </button>
+            <span class="av" [style.--h]="hue(c.phone)">{{
+              initials({ name: selectedRow()?.name ?? '', phone: c.phone })
+            }}</span>
             <div class="who">
               <strong>{{ contact()?.name || selectedRow()?.name || c.phone }}</strong>
-              <span class="muted">{{ selectedRow()?.name ? c.phone : 'WhatsApp' }} · {{ userName(c.assignedTo) }}@if (c.status !== 'open') { · <em class="st-{{ c.status }}">{{ c.status }}</em> }</span>
+              <span class="muted"
+                >{{ selectedRow()?.name ? c.phone : 'WhatsApp' }} · {{ userName(c.assignedTo) }}
+                @if (c.status !== 'open') {
+                  · <em class="st-{{ c.status }}">{{ c.status }}</em>
+                }
+              </span>
             </div>
-            <button type="button" class="bot-sw" role="switch" [attr.aria-checked]="!c.botPaused" [disabled]="busy() === 'bot'"
-              (click)="toggleBot()" [title]="c.botPaused ? 'You have this chat. Hand it back to the bot.' : 'Bot is replying. Take over to pause it.'">
-              <span class="knob"><span class="ms">{{ c.botPaused ? 'support_agent' : 'smart_toy' }}</span></span>
+            <button
+              type="button"
+              class="bot-sw"
+              role="switch"
+              [attr.aria-checked]="!c.botPaused"
+              [disabled]="busy() === 'bot'"
+              (click)="toggleBot()"
+              [title]="
+                c.botPaused
+                  ? 'You have this chat. Hand it back to the bot.'
+                  : 'Bot is replying. Take over to pause it.'
+              "
+            >
+              <span class="knob"
+                ><i class="ti ti-{{ c.botPaused ? 'headset' : 'robot' }}" aria-hidden="true"></i
+              ></span>
               <span class="lbl">{{ c.botPaused ? 'Bot paused' : 'Bot active' }}</span>
             </button>
-            <button type="button" class="icon-btn" [class.on]="panelOpen()" (click)="panelOpen.set(!panelOpen())"
-              [attr.aria-expanded]="panelOpen()" aria-controls="ib-panel" aria-label="Contact details (i)" title="Contact details (i)">
-              <span class="ms">{{ panelOpen() ? 'right_panel_close' : 'contact_page' }}</span>
-              @if (notes().length) { <span class="dot">{{ notes().length }}</span> }
+            <button
+              type="button"
+              class="icon-btn"
+              [class.on]="panelOpen()"
+              (click)="panelOpen.set(!panelOpen())"
+              [attr.aria-expanded]="panelOpen()"
+              aria-controls="ib-panel"
+              aria-label="Contact details (i)"
+              title="Contact details (i)"
+            >
+              <i
+                class="ti ti-{{ panelOpen() ? 'layout-sidebar-right-collapse' : 'address-book' }}"
+                aria-hidden="true"
+              ></i>
+              @if (notes().length) {
+                <span class="dot">{{ notes().length }}</span>
+              }
             </button>
           </div>
 
@@ -65,72 +162,155 @@
             <div class="th-col">
               <div class="th-scroll" #scroller (scroll)="onScroll()">
                 @if (threadLoading()) {
-                  <div class="th-center"><span class="spinner"></span> Loading messages...</div>
+                  <div class="th-skel" aria-busy="true" aria-label="Loading messages">
+                    @for (k of [0, 1, 2, 3]; track k) {
+                      <span
+                        class="skeleton"
+                        [class.out]="k % 2 === 1"
+                        [style.width.%]="38 + k * 9"
+                      ></span>
+                    }
+                  </div>
                 } @else if (threadError()) {
-                  <div class="th-center" role="alert">
-                    <span class="ms">error</span> {{ threadError() }}
-                    <button type="button" class="btn" (click)="loadThread(c.id, false)">Retry</button>
+                  <div class="th-center">
+                    <div class="s-banner" role="alert">
+                      <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ threadError() }}
+                      <button type="button" class="btn sm" (click)="loadThread(c.id, false)">
+                        <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+                      </button>
+                    </div>
                   </div>
                 } @else {
                   @for (e of entries(); track e.item.messageId + e.item.at) {
-                    @if (e.day) { <div class="day" role="separator"><span>{{ e.day }}</span></div> }
+                    @if (e.day) {
+                      <div class="day" role="separator">
+                        <span>{{ e.day }}</span>
+                      </div>
+                    }
                     <div class="msg {{ e.who }}">
                       <div class="bubble">
                         @if (e.who === 'bot') {
-                          <span class="tag"><span class="ms" aria-hidden="true">{{ e.item.campaignId ? 'campaign' : 'smart_toy' }}</span>{{ e.item.campaignId ? 'Campaign · ' + e.item.campaignId : 'Bot' }}</span>
+                          <span class="tag"
+                            ><i
+                              class="ti ti-{{ e.item.campaignId ? 'speakerphone' : 'robot' }}"
+                              aria-hidden="true"
+                            ></i
+                            >{{
+                              e.item.campaignId ? 'Campaign · ' + e.item.campaignId : 'Bot'
+                            }}</span
+                          >
                         }
-                        @if (e.item.media; as m) { <app-inbox-media [media]="m" /> }
-                        @if (e.item.body || !e.item.media) { <p>{{ e.item.body || '(media)' }}</p> }
+                        @if (e.item.media; as m) {
+                          <app-inbox-media [media]="m" />
+                        }
+                        @if (e.item.body || !e.item.media) {
+                          <p>{{ e.item.body || '(media)' }}</p>
+                        }
                         @if (e.item.button; as b) {
-                          <span class="rule"><span class="ms" aria-hidden="true">touch_app</span>Tapped "{{ b.title || e.item.body }}"@if (b.campaignId) { · {{ b.campaignId }} }</span>
+                          <span class="rule"
+                            ><i class="ti ti-hand-finger" aria-hidden="true"></i>Tapped "{{
+                              b.title || e.item.body
+                            }}"
+                            @if (b.campaignId) {
+                              · {{ b.campaignId }}
+                            }
+                          </span>
                         }
                         @if (e.item.repliedRule) {
-                          <span class="rule"><span class="ms" aria-hidden="true">smart_button</span>Matched rule "{{ e.item.repliedRule }}"</span>
+                          <span class="rule"
+                            ><i class="ti ti-hand-click" aria-hidden="true"></i>Matched rule "{{
+                              e.item.repliedRule
+                            }}"</span
+                          >
                         }
                         <span class="meta">
                           {{ clock(e.item.at) }}
                           @if (e.who !== 'in' && tick$(e.item.status); as t) {
-                            <span class="tick {{ t.tone ?? '' }}" [title]="t.label" role="img" [attr.aria-label]="t.label"><span class="ms">{{ t.icon }}</span></span>
+                            <span
+                              class="tick {{ t.tone ?? '' }}"
+                              [title]="t.label"
+                              role="img"
+                              [attr.aria-label]="t.label"
+                              ><i class="ti ti-{{ t.icon }}" aria-hidden="true"></i
+                            ></span>
                           }
                         </span>
                       </div>
                     </div>
                   } @empty {
-                    <div class="th-center muted"><span class="ms">chat_bubble</span> No messages in this conversation yet.</div>
+                    <div class="th-center">
+                      <div class="s-empty">
+                        <i class="ti ti-message-circle" aria-hidden="true"></i
+                        ><strong>No messages yet</strong>
+                        <p>Nothing has been sent or received in this conversation.</p>
+                      </div>
+                    </div>
                   }
                 }
               </div>
               @if (newBelow()) {
-                <button type="button" class="new-below" (click)="scrollToBottom(false)"><span class="ms" aria-hidden="true">arrow_downward</span>New messages</button>
+                <button type="button" class="new-below" (click)="scrollToBottom(false)">
+                  <i class="ti ti-arrow-down" aria-hidden="true"></i>New messages
+                </button>
               }
               @if (dragging()) {
-                <div class="drop" aria-hidden="true"><span class="ms">upload_file</span><strong>Drop to attach</strong><span>Image, PDF or video</span></div>
+                <div class="drop" aria-hidden="true">
+                  <i class="ti ti-file-upload" aria-hidden="true"></i><strong>Drop to attach</strong
+                  ><span>Image, PDF or video</span>
+                </div>
               }
             </div>
 
             @if (panelOpen()) {
-              <app-inbox-contact-panel id="ib-panel" [conversation]="c" [name]="selectedRow()?.name ?? ''" [contact]="contact()"
-                [contactLoading]="contactLoading()" [notes]="notes()" [team]="team()" [me]="me()" [canEditContact]="canEditContact()"
-                [context]="context()" (changed)="onChanged($event)" (contactChanged)="contact.set($event)"
-                (notesChanged)="loadNotes(c.id)" (close)="panelOpen.set(false)" />
+              <app-inbox-contact-panel
+                id="ib-panel"
+                [conversation]="c"
+                [name]="selectedRow()?.name ?? ''"
+                [contact]="contact()"
+                [contactLoading]="contactLoading()"
+                [notes]="notes()"
+                [team]="team()"
+                [me]="me()"
+                [canEditContact]="canEditContact()"
+                [context]="context()"
+                (changed)="onChanged($event)"
+                (contactChanged)="contact.set($event)"
+                (notesChanged)="loadNotes(c.id)"
+                (close)="panelOpen.set(false)"
+              />
             }
           </div>
 
           @if (actionError()) {
-            <div class="th-err" role="alert">
-              <span class="ms" aria-hidden="true">error</span>{{ actionError() }}
-              <button type="button" class="icon-btn" (click)="actionError.set('')" aria-label="Dismiss"><span class="ms">close</span></button>
+            <div class="x-err th-err" role="alert">
+              <i class="ti ti-alert-circle" aria-hidden="true"></i>{{ actionError() }}
+              <button
+                type="button"
+                class="icon-btn"
+                (click)="actionError.set('')"
+                aria-label="Dismiss"
+              >
+                <i class="ti ti-x" aria-hidden="true"></i>
+              </button>
             </div>
           }
           @if (!c.botPaused) {
-            <p class="bot-hint muted"><span class="ms" aria-hidden="true">smart_toy</span>The bot is still active. Take over to stop it replying alongside you.</p>
+            <p class="bot-hint muted">
+              <i class="ti ti-robot" aria-hidden="true"></i>The bot is still active. Take over to
+              stop it replying alongside you.
+            </p>
           }
-          <app-inbox-composer [conversation]="c" [contact]="contact()" [name]="selectedRow()?.name ?? ''" (sent)="onSent($event)" />
+          <app-inbox-composer
+            [conversation]="c"
+            [contact]="contact()"
+            [name]="selectedRow()?.name ?? ''"
+            (sent)="onSent($event)"
+          />
         } @else {
-          <div class="th-placeholder">
-            <span class="ib-orb" aria-hidden="true"><span class="ms">chat</span></span>
+          <div class="th-placeholder s-empty">
+            <i class="ti ti-message" aria-hidden="true"></i>
             <strong>Pick a conversation</strong>
-            <p class="muted">Choose a chat on the left, or press <kbd>j</kbd> to open the first one.</p>
+            <p>Choose a chat on the left, or press <kbd>j</kbd> to open the first one.</p>
           </div>
         }
       </div>
@@ -143,17 +323,37 @@
     <div class="help-scrim" (click)="helpOpen.set(false)"></div>
     <div class="help" role="dialog" aria-modal="true" aria-labelledby="ib-help-t">
       <div class="help-head">
-        <span class="ms" aria-hidden="true">keyboard</span>
+        <i class="ti ti-keyboard" aria-hidden="true"></i>
         <h2 id="ib-help-t">Keyboard shortcuts</h2>
-        <button #helpClose type="button" class="icon-btn" (click)="helpOpen.set(false)" aria-label="Close"><span class="ms">close</span></button>
+        <button
+          #helpClose
+          type="button"
+          class="icon-btn"
+          (click)="helpOpen.set(false)"
+          aria-label="Close"
+        >
+          <i class="ti ti-x" aria-hidden="true"></i>
+        </button>
       </div>
       <dl>
         @for (s of shortcuts; track s[1]) {
-          <div><dt>@for (k of s[0]; track k) { <kbd>{{ k }}</kbd> }</dt><dd>{{ s[1] }}</dd></div>
+          <div>
+            <dt>
+              @for (k of s[0]; track k) {
+                <kbd>{{ k }}</kbd>
+              }
+            </dt>
+            <dd>{{ s[1] }}</dd>
+          </div>
         }
-        <div><dt><kbd>Enter</kbd></dt><dd>Send reply (<kbd>Shift</kbd>+<kbd>Enter</kbd> new line)</dd></div>
+        <div>
+          <dt><kbd>Enter</kbd></dt>
+          <dd>Send reply (<kbd>Shift</kbd>+<kbd>Enter</kbd> new line)</dd>
+        </div>
       </dl>
-      <p class="muted">Shortcuts pause while you type in a field. Drop or paste a file into the chat to attach it.</p>
+      <p class="muted">
+        Shortcuts pause while you type in a field. Drop or paste a file into the chat to attach it.
+      </p>
     </div>
   }
 </section>

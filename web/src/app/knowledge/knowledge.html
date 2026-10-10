@@ -1,60 +1,84 @@
 <section class="kb">
-  <header class="hero" (pointermove)="tilt($event)" (pointerleave)="untilt($event)">
-    <div class="deck" aria-hidden="true">
-      <span class="sheet s3"></span>
-      <span class="sheet s2"></span>
-      <span class="sheet s1"><span class="ms">help</span><i></i><i></i><i></i></span>
-    </div>
-    <div class="hero-copy">
-      <span class="eyebrow"><span class="ms" aria-hidden="true">auto_stories</span> FAQ engine</span>
-      <h1>Knowledge base</h1>
-      <p>Answers the bot sends on its own when a customer asks something you have already answered.</p>
-      @if (stats(); as s) {
-        <dl class="kpis">
-          <div><dt>Questions</dt><dd>{{ s.items }}</dd></div>
-          <div><dt>Live</dt><dd>{{ s.activeItems }}</dd></div>
-          <div><dt>Coverage</dt><dd>{{ coverage() }}<small>%</small></dd></div>
-        </dl>
-      }
+  <header class="s-head">
+    <div>
+      <span class="eyebrow"><i class="ti ti-book" aria-hidden="true"></i> FAQ engine</span>
+      <h2>Knowledge base</h2>
+      <p>
+        Answers the bot sends on its own when a customer asks something you have already answered.
+      </p>
     </div>
     @if (canWrite()) {
-      <button class="btn primary add" type="button" (click)="add()" [disabled]="loading() || !!error()">
-        <span class="ms" aria-hidden="true">add</span> Add question
+      <button class="btn primary" type="button" (click)="add()" [disabled]="loading() || !!error()">
+        <i class="ti ti-plus" aria-hidden="true"></i> Add question
       </button>
     }
   </header>
 
+  @if (stats(); as s) {
+    <section class="kpis" aria-label="Knowledge base summary">
+      <div class="s-stat tone-info s-enter" style="--i: 0" schoolTilt="4">
+        <small>Questions</small><b>{{ s.items }}</b>
+      </div>
+      <div class="s-stat tone-ok s-enter" style="--i: 1" schoolTilt="4">
+        <small>Live</small><b>{{ s.activeItems }}</b>
+      </div>
+      <div class="s-stat s-enter" style="--i: 2" schoolTilt="4">
+        <small>Coverage</small><b>{{ coverage() }}<span>%</span></b>
+      </div>
+    </section>
+  }
+
   @if (!canWrite()) {
-    <p class="banner info" role="note">
-      <span class="ms" aria-hidden="true">visibility</span>
+    <p class="s-banner tone-info" role="note">
+      <i class="ti ti-eye" aria-hidden="true"></i>
       You can browse and test answers. Only admins can add or change them.
     </p>
   }
 
   @if (notice(); as n) {
-    <p class="banner" [class.ok]="n.tone === 'ok'" role="status" aria-live="polite">
-      <span class="ms" aria-hidden="true">{{ n.tone === 'ok' ? 'check_circle' : 'error' }}</span> {{ n.text }}
+    <p class="s-banner" [class.tone-ok]="n.tone === 'ok'" role="status" aria-live="polite">
+      <i
+        class="ti ti-{{ n.tone === 'ok' ? 'circle-check' : 'alert-circle' }}"
+        aria-hidden="true"
+      ></i>
+      {{ n.text }}
     </p>
   }
 
   @if (loading()) {
     <div class="skel-wrap" aria-busy="true" aria-label="Loading knowledge base">
       @for (n of [1, 2, 3]; track n) {
-        <div class="card q skel"><span style="width: 55%"></span><span style="width: 90%"></span><span style="width: 70%"></span></div>
+        <div class="card q" aria-hidden="true">
+          <div class="s-skel" style="width: 55%"></div>
+          <div class="s-skel" style="width: 90%"></div>
+          <div class="s-skel" style="width: 70%"></div>
+        </div>
       }
     </div>
   } @else if (error()) {
-    <div class="banner big" role="alert">
-      <span class="ms" aria-hidden="true">cloud_off</span>
-      <div><strong>Couldn't load the knowledge base</strong><p>{{ error() }}</p></div>
-      <button class="btn" type="button" (click)="load()"><span class="ms" aria-hidden="true">refresh</span> Retry</button>
+    <div class="s-banner big" role="alert">
+      <i class="ti ti-cloud-off" aria-hidden="true"></i>
+      <div>
+        <strong>Couldn't load the knowledge base</strong>
+        <p>{{ error() }}</p>
+      </div>
+      <button class="btn" type="button" (click)="load()">
+        <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+      </button>
     </div>
   } @else {
-    <nav class="seg" role="tablist" aria-label="Knowledge base sections">
+    <nav class="s-seg" role="tablist" aria-label="Knowledge base sections">
       @for (t of tabs; track t.id) {
-        <button type="button" role="tab" [attr.aria-selected]="tab() === t.id" [class.on]="tab() === t.id" (click)="tab.set(t.id)">
-          <span class="ms" aria-hidden="true">{{ t.icon }}</span> {{ t.label }}
-          @if (t.id === 'gaps' && misses().length) { <b class="count">{{ misses().length }}</b> }
+        <button
+          type="button"
+          role="tab"
+          [attr.aria-selected]="tab() === t.id"
+          (click)="tab.set(t.id)"
+        >
+          <i class="ti ti-{{ t.icon }}" aria-hidden="true"></i> {{ t.label }}
+          @if (t.id === 'gaps' && misses().length) {
+            <b class="count">{{ misses().length }}</b>
+          }
         </button>
       }
     </nav>
@@ -68,33 +92,48 @@
 
         @if (!items().length) {
           @if (draft()?.id !== null) {
-            <div class="card empty">
-              <span class="ms" aria-hidden="true">forum</span>
+            <div class="s-card s-empty">
+              <i class="ti ti-messages" aria-hidden="true"></i>
               <strong>No questions yet</strong>
               <p>Start with the one customers ask most: opening hours, prices, or where you are.</p>
               @if (canWrite()) {
-                <button class="btn primary" type="button" (click)="add()"><span class="ms" aria-hidden="true">add</span> Write your first answer</button>
+                <button class="btn primary" type="button" (click)="add()">
+                  <i class="ti ti-plus" aria-hidden="true"></i> Write your first answer
+                </button>
               }
             </div>
           }
         } @else {
           <div class="tools">
             <label class="search">
-              <span class="ms" aria-hidden="true">search</span>
-              <input type="search" placeholder="Search questions, answers, keywords" aria-label="Search questions"
-                     [ngModel]="query()" (ngModelChange)="query.set($event)" />
+              <i class="ti ti-search" aria-hidden="true"></i>
+              <input
+                type="search"
+                placeholder="Search questions, answers, keywords"
+                aria-label="Search questions"
+                [ngModel]="query()"
+                (ngModelChange)="query.set($event)"
+              />
             </label>
-            <select aria-label="Filter by category" [ngModel]="'' + filter()" (ngModelChange)="setFilter($event)">
+            <select
+              aria-label="Filter by category"
+              [ngModel]="'' + filter()"
+              (ngModelChange)="setFilter($event)"
+            >
               <option value="all">All categories ({{ items().length }})</option>
               @for (c of categories(); track c.id) {
                 <option [value]="'' + c.id">{{ c.name }} ({{ c.itemCount ?? 0 }})</option>
               }
-              @if (uncategorised()) { <option value="none">Uncategorised ({{ uncategorised() }})</option> }
+              @if (uncategorised()) {
+                <option value="none">Uncategorised ({{ uncategorised() }})</option>
+              }
             </select>
           </div>
 
           @for (g of groups(); track g.key) {
-            <h2 class="group">{{ g.name }} <span>{{ g.items.length }}</span></h2>
+            <h2 class="group">
+              {{ g.name }} <span>{{ g.items.length }}</span>
+            </h2>
             <div class="list">
               @for (item of g.items; track item.id; let i = $index) {
                 @if (draft()?.id === item.id) {
@@ -105,43 +144,87 @@
                       <h3>{{ item.question }}</h3>
                       @if (canWrite()) {
                         <label class="switch" [title]="item.isActive ? 'Live' : 'Paused'">
-                          <input type="checkbox" role="switch" [checked]="item.isActive" [disabled]="busy()"
-                                 (change)="toggle(item)" [attr.aria-label]="'Answer live: ' + item.question" />
+                          <input
+                            type="checkbox"
+                            role="switch"
+                            [checked]="item.isActive"
+                            [disabled]="busy()"
+                            (change)="toggle(item)"
+                            [attr.aria-label]="'Answer live: ' + item.question"
+                          />
                           <span></span>
                         </label>
                       } @else {
-                        <span class="pill" [class.live]="item.isActive">{{ item.isActive ? 'Live' : 'Paused' }}</span>
+                        <span
+                          class="s-pill"
+                          [class.tone-ok]="item.isActive"
+                          [class.tone-mute]="!item.isActive"
+                          >{{ item.isActive ? 'Live' : 'Paused' }}</span
+                        >
                       }
                     </div>
                     @if (item.keywords.length) {
                       <ul class="chips" aria-label="Keywords">
-                        @for (k of item.keywords; track k) { <li>{{ k }}</li> }
+                        @for (k of item.keywords; track k) {
+                          <li>{{ k }}</li>
+                        }
                       </ul>
                     }
                     <p class="answer">{{ item.answer }}</p>
                     <footer>
                       <span class="meta">
                         <span class="tag">{{ item.matchType.toLowerCase() }}</span>
-                        @if (item.priority) { <span class="tag">priority {{ item.priority }}</span> }
-                        @if (item.locale) { <span class="tag">{{ item.locale }}</span> }
-                        @if (item.outOfHours) { <span class="tag warn">after hours</span> }
-                        <span class="muted"><span class="ms" aria-hidden="true">bolt</span>{{ item.hitCount }} answered</span>
+                        @if (item.priority) {
+                          <span class="tag">priority {{ item.priority }}</span>
+                        }
+                        @if (item.locale) {
+                          <span class="tag">{{ item.locale }}</span>
+                        }
+                        @if (item.outOfHours) {
+                          <span class="tag warn">after hours</span>
+                        }
+                        <span class="muted"
+                          ><i class="ti ti-bolt" aria-hidden="true"></i
+                          >{{ item.hitCount }} answered</span
+                        >
                       </span>
                       <span class="acts">
-                        <button class="btn sm ghost" type="button" (click)="tryPhrase(item.question)" title="Test this question">
-                          <span class="ms" aria-hidden="true">science</span><span class="sr-only">Test</span>
+                        <button
+                          class="btn sm ghost"
+                          type="button"
+                          (click)="tryPhrase(item.question)"
+                          title="Test this question"
+                        >
+                          <i class="ti ti-flask" aria-hidden="true"></i
+                          ><span class="sr-only">Test</span>
                         </button>
                         @if (canWrite()) {
                           @if (confirmId() === 'i' + item.id) {
                             <span class="confirm" role="group" aria-label="Confirm delete">
                               Delete?
-                              <button class="btn sm danger" type="button" (click)="remove(item)" [disabled]="busy()">Delete</button>
-                              <button class="btn sm" type="button" (click)="confirmId.set(null)">Keep</button>
+                              <button
+                                class="btn sm danger"
+                                type="button"
+                                (click)="remove(item)"
+                                [disabled]="busy()"
+                              >
+                                Delete
+                              </button>
+                              <button class="btn sm" type="button" (click)="confirmId.set(null)">
+                                Keep
+                              </button>
                             </span>
                           } @else {
-                            <button class="btn sm ghost" type="button" (click)="edit(item)"><span class="ms" aria-hidden="true">edit</span> Edit</button>
-                            <button class="btn sm ghost del" type="button" (click)="confirmId.set('i' + item.id)" [attr.aria-label]="'Delete ' + item.question">
-                              <span class="ms" aria-hidden="true">delete</span>
+                            <button class="btn sm ghost" type="button" (click)="edit(item)">
+                              <i class="ti ti-pencil" aria-hidden="true"></i> Edit
+                            </button>
+                            <button
+                              class="btn sm ghost del"
+                              type="button"
+                              (click)="confirmId.set('i' + item.id)"
+                              [attr.aria-label]="'Delete ' + item.question"
+                            >
+                              <i class="ti ti-trash" aria-hidden="true"></i>
                             </button>
                           }
                         }
@@ -152,10 +235,12 @@
               }
             </div>
           } @empty {
-            <div class="card empty slim">
-              <span class="ms" aria-hidden="true">search_off</span>
+            <div class="s-card s-empty">
+              <i class="ti ti-search-off" aria-hidden="true"></i>
               <strong>Nothing matches</strong>
-              <button class="btn sm" type="button" (click)="query.set(''); filter.set('all')">Clear filters</button>
+              <button class="btn sm" type="button" (click)="query.set(''); filter.set('all')">
+                Clear filters
+              </button>
             </div>
           }
         }
@@ -168,31 +253,55 @@
         @if (canWrite()) {
           <form class="card row-form" (ngSubmit)="addCategory()">
             <label class="sr-only" for="kb-newcat">New category name</label>
-            <input id="kb-newcat" name="newcat" placeholder="New category, e.g. Pricing" [ngModel]="newCategory()" (ngModelChange)="newCategory.set($event)" />
-            <button class="btn primary" type="submit" [disabled]="!newCategory().trim() || busy()"><span class="ms" aria-hidden="true">create_new_folder</span> Add</button>
+            <input
+              id="kb-newcat"
+              name="newcat"
+              placeholder="New category, e.g. Pricing"
+              [ngModel]="newCategory()"
+              (ngModelChange)="newCategory.set($event)"
+            />
+            <button class="btn primary" type="submit" [disabled]="!newCategory().trim() || busy()">
+              <i class="ti ti-folder-plus" aria-hidden="true"></i> Add
+            </button>
           </form>
         }
         @if (!categories().length) {
-          <div class="card empty">
-            <span class="ms" aria-hidden="true">folder_open</span>
+          <div class="s-card s-empty">
+            <i class="ti ti-folder-open" aria-hidden="true"></i>
             <strong>No categories yet</strong>
-            <p>Group answers by topic so they are easy to find as the list grows. Questions work fine without one.</p>
+            <p>
+              Group answers by topic so they are easy to find as the list grows. Questions work fine
+              without one.
+            </p>
           </div>
         } @else {
           <ol class="cats">
             @for (c of categories(); track c.id; let i = $index, first = $first, last = $last) {
               <li class="card cat">
-                <span class="ms fold" aria-hidden="true">folder</span>
+                <i class="ti ti-folder fold" aria-hidden="true"></i>
                 @if (renaming()?.id === c.id) {
                   <form class="rename" (ngSubmit)="saveRename()">
-                    <input name="rename" [attr.aria-label]="'Rename ' + c.name" [ngModel]="renaming()!.name" (ngModelChange)="setRename($event)" />
+                    <input
+                      name="rename"
+                      [attr.aria-label]="'Rename ' + c.name"
+                      [ngModel]="renaming()!.name"
+                      (ngModelChange)="setRename($event)"
+                    />
                     <button class="btn sm primary" type="submit" [disabled]="busy()">Save</button>
-                    <button class="btn sm" type="button" (click)="renaming.set(null)">Cancel</button>
+                    <button class="btn sm" type="button" (click)="renaming.set(null)">
+                      Cancel
+                    </button>
                   </form>
                 } @else {
-                  <button class="cat-name" type="button" (click)="filter.set(c.id); tab.set('questions')">
+                  <button
+                    class="cat-name"
+                    type="button"
+                    (click)="filter.set(c.id); tab.set('questions')"
+                  >
                     <strong>{{ c.name }}</strong>
-                    <span class="muted">{{ c.itemCount ?? 0 }} question{{ c.itemCount === 1 ? '' : 's' }}</span>
+                    <span class="muted"
+                      >{{ c.itemCount ?? 0 }} question{{ c.itemCount === 1 ? '' : 's' }}</span
+                    >
                   </button>
                 }
                 @if (canWrite() && renaming()?.id !== c.id) {
@@ -200,14 +309,53 @@
                     @if (confirmId() === 'c' + c.id) {
                       <span class="confirm" role="group" aria-label="Confirm delete">
                         Delete? Questions stay.
-                        <button class="btn sm danger" type="button" (click)="removeCategory(c)" [disabled]="busy()">Delete</button>
-                        <button class="btn sm" type="button" (click)="confirmId.set(null)">Keep</button>
+                        <button
+                          class="btn sm danger"
+                          type="button"
+                          (click)="removeCategory(c)"
+                          [disabled]="busy()"
+                        >
+                          Delete
+                        </button>
+                        <button class="btn sm" type="button" (click)="confirmId.set(null)">
+                          Keep
+                        </button>
                       </span>
                     } @else {
-                      <button class="btn sm ghost" type="button" [disabled]="first || busy()" (click)="move(i, -1)" [attr.aria-label]="'Move ' + c.name + ' up'"><span class="ms" aria-hidden="true">arrow_upward</span></button>
-                      <button class="btn sm ghost" type="button" [disabled]="last || busy()" (click)="move(i, 1)" [attr.aria-label]="'Move ' + c.name + ' down'"><span class="ms" aria-hidden="true">arrow_downward</span></button>
-                      <button class="btn sm ghost" type="button" (click)="renaming.set({ id: c.id, name: c.name })" [attr.aria-label]="'Rename ' + c.name"><span class="ms" aria-hidden="true">edit</span></button>
-                      <button class="btn sm ghost del" type="button" (click)="confirmId.set('c' + c.id)" [attr.aria-label]="'Delete ' + c.name"><span class="ms" aria-hidden="true">delete</span></button>
+                      <button
+                        class="btn sm ghost"
+                        type="button"
+                        [disabled]="first || busy()"
+                        (click)="move(i, -1)"
+                        [attr.aria-label]="'Move ' + c.name + ' up'"
+                      >
+                        <i class="ti ti-arrow-up" aria-hidden="true"></i>
+                      </button>
+                      <button
+                        class="btn sm ghost"
+                        type="button"
+                        [disabled]="last || busy()"
+                        (click)="move(i, 1)"
+                        [attr.aria-label]="'Move ' + c.name + ' down'"
+                      >
+                        <i class="ti ti-arrow-down" aria-hidden="true"></i>
+                      </button>
+                      <button
+                        class="btn sm ghost"
+                        type="button"
+                        (click)="renaming.set({ id: c.id, name: c.name })"
+                        [attr.aria-label]="'Rename ' + c.name"
+                      >
+                        <i class="ti ti-pencil" aria-hidden="true"></i>
+                      </button>
+                      <button
+                        class="btn sm ghost del"
+                        type="button"
+                        (click)="confirmId.set('c' + c.id)"
+                        [attr.aria-label]="'Delete ' + c.name"
+                      >
+                        <i class="ti ti-trash" aria-hidden="true"></i>
+                      </button>
                     }
                   </span>
                 }
@@ -224,14 +372,33 @@
         <form class="card pad" (ngSubmit)="runTest()">
           <div class="field">
             <label for="kb-test">Customer message</label>
-            <textarea id="kb-test" name="test" rows="3" placeholder="e.g. what time do you open on sunday?"
-                      [ngModel]="testText()" (ngModelChange)="testText.set($event)" (keydown.control.enter)="runTest()"></textarea>
+            <textarea
+              id="kb-test"
+              name="test"
+              rows="3"
+              placeholder="e.g. what time do you open on sunday?"
+              [ngModel]="testText()"
+              (ngModelChange)="testText.set($event)"
+              (keydown.control.enter)="runTest()"
+            ></textarea>
             <span class="hint">Dry run: nothing is sent and the analytics don't move.</span>
           </div>
           <div class="row">
-            <label class="check"><input type="checkbox" name="hours" [ngModel]="ignoreHours()" (ngModelChange)="ignoreHours.set($event)" /> Ignore business hours</label>
+            <label class="check"
+              ><input
+                type="checkbox"
+                name="hours"
+                [ngModel]="ignoreHours()"
+                (ngModelChange)="ignoreHours.set($event)"
+              />
+              Ignore business hours</label
+            >
             <button class="btn primary" type="submit" [disabled]="!testText().trim() || testing()">
-              @if (testing()) { <span class="spinner" aria-hidden="true"></span> } @else { <span class="ms" aria-hidden="true">play_arrow</span> }
+              @if (testing()) {
+                <span class="spinner" aria-hidden="true"></span>
+              } @else {
+                <i class="ti ti-player-play" aria-hidden="true"></i>
+              }
               Run test
             </button>
           </div>
@@ -241,19 +408,40 @@
           <div class="verdict card" [class.hit]="!!r.match" aria-live="polite">
             @if (r.match; as m) {
               <div class="v-head">
-                <span class="ms big" aria-hidden="true">task_alt</span>
-                <div><span class="eyebrow">Matched by {{ m.level }}</span><h3>{{ m.item.question }}</h3></div>
-                <span class="score" [style.--p]="pct(m.score)"><b>{{ pct(m.score) }}</b>%</span>
+                <i class="ti ti-circle-check big" aria-hidden="true"></i>
+                <div>
+                  <span class="eyebrow">Matched by {{ m.level }}</span>
+                  <h3>{{ m.item.question }}</h3>
+                </div>
+                <span class="score" [style.--p]="pct(m.score)"
+                  ><b>{{ pct(m.score) }}</b
+                  >%</span
+                >
               </div>
               <p class="bubble">{{ m.item.answer }}</p>
-              @if (canWrite()) { <button class="btn sm ghost" type="button" (click)="edit(m.item)"><span class="ms" aria-hidden="true">edit</span> Edit this answer</button> }
+              @if (canWrite()) {
+                <button class="btn sm ghost" type="button" (click)="edit(m.item)">
+                  <i class="ti ti-pencil" aria-hidden="true"></i> Edit this answer
+                </button>
+              }
             } @else {
               <div class="v-head">
-                <span class="ms big" aria-hidden="true">support_agent</span>
-                <div><span class="eyebrow">No match</span><h3>This would go to a human</h3></div>
+                <i class="ti ti-headset big" aria-hidden="true"></i>
+                <div>
+                  <span class="eyebrow">No match</span>
+                  <h3>This would go to a human</h3>
+                </div>
               </div>
               <p class="muted">Nothing cleared the {{ pct(r.threshold) }}% similarity bar.</p>
-              @if (canWrite()) { <button class="btn sm primary" type="button" (click)="add({ question: testedText(), keywords: testedText() })"><span class="ms" aria-hidden="true">add</span> Create FAQ from this</button> }
+              @if (canWrite()) {
+                <button
+                  class="btn sm primary"
+                  type="button"
+                  (click)="add({ question: testedText(), keywords: testedText() })"
+                >
+                  <i class="ti ti-plus" aria-hidden="true"></i> Create FAQ from this
+                </button>
+              }
             }
           </div>
 
@@ -264,12 +452,20 @@
                 @for (c of candidates(); track c.item.id) {
                   <li>
                     <span class="lbl">{{ c.item.question }}</span>
-                    <span class="track" [attr.aria-label]="pct(c.score) + '% similar'"><span [style.width.%]="pct(c.score)" [class.over]="c.score >= threshold()"></span><i [style.left.%]="pct(threshold())"></i></span>
+                    <span class="track" [attr.aria-label]="pct(c.score) + '% similar'"
+                      ><span
+                        [style.width.%]="pct(c.score)"
+                        [class.over]="c.score >= threshold()"
+                      ></span
+                      ><i [style.left.%]="pct(threshold())"></i
+                    ></span>
                     <b>{{ pct(c.score) }}%</b>
                   </li>
                 }
               </ul>
-              <p class="hint muted">Word-overlap score; the line marks the {{ pct(threshold()) }}% similarity threshold.</p>
+              <p class="hint muted">
+                Word-overlap score; the line marks the {{ pct(threshold()) }}% similarity threshold.
+              </p>
             </div>
           }
         }
@@ -281,28 +477,65 @@
       <div class="panel" role="tabpanel" aria-label="Gaps">
         @if (stats(); as s) {
           <div class="tiles">
-            <div class="card tile"><span class="muted">Coverage</span><b>{{ coverage() }}%</b><span class="meter"><span [style.width.%]="coverage()"></span></span></div>
-            <div class="card tile"><span class="muted">Answered</span><b>{{ s.hits }}</b></div>
-            <div class="card tile"><span class="muted">Unanswered</span><b>{{ s.misses }}</b></div>
-            <div class="card tile"><span class="muted">Distinct gaps</span><b>{{ s.distinctMisses }}</b></div>
+            <div class="s-stat tile">
+              <small>Coverage</small><b>{{ coverage() }}%</b
+              ><span class="meter"><span [style.width.%]="coverage()"></span></span>
+            </div>
+            <div class="s-stat tile">
+              <small>Answered</small><b>{{ s.hits }}</b>
+            </div>
+            <div class="s-stat tile">
+              <small>Unanswered</small><b>{{ s.misses }}</b>
+            </div>
+            <div class="s-stat tile">
+              <small>Distinct gaps</small><b>{{ s.distinctMisses }}</b>
+            </div>
           </div>
         }
 
         <div class="card pad">
-          <h3 class="sub"><span class="ms" aria-hidden="true">help_center</span> Questions nothing answered</h3>
+          <h3 class="sub">
+            <i class="ti ti-help-hexagon" aria-hidden="true"></i> Questions nothing answered
+          </h3>
           @if (!misses().length) {
-            <div class="empty slim"><span class="ms" aria-hidden="true">verified</span><strong>No gaps recorded</strong><p>Unanswered customer questions will collect here, most-asked first.</p></div>
+            <div class="s-empty">
+              <i class="ti ti-discount-check" aria-hidden="true"></i
+              ><strong>No gaps recorded</strong>
+              <p>Unanswered customer questions will collect here, most-asked first.</p>
+            </div>
           } @else {
             <ul class="misses">
               @for (m of misses(); track m.id) {
                 <li>
                   <span class="heat" [style.--h]="m.count / maxMiss()" aria-hidden="true"></span>
-                  <div class="m-text"><strong>"{{ m.text }}"</strong><span class="muted">asked {{ m.count }}x, last {{ m.lastSeenAt.slice(0, 10) }}</span></div>
+                  <div class="m-text">
+                    <strong>"{{ m.text }}"</strong
+                    ><span class="muted"
+                      >asked {{ m.count }}x, last {{ m.lastSeenAt.slice(0, 10) }}</span
+                    >
+                  </div>
                   <span class="acts">
-                    <button class="btn sm ghost" type="button" (click)="tryPhrase(m.text)" [attr.aria-label]="'Test ' + m.text"><span class="ms" aria-hidden="true">science</span></button>
+                    <button
+                      class="btn sm ghost"
+                      type="button"
+                      (click)="tryPhrase(m.text)"
+                      [attr.aria-label]="'Test ' + m.text"
+                    >
+                      <i class="ti ti-flask" aria-hidden="true"></i>
+                    </button>
                     @if (canWrite()) {
-                      <button class="btn sm primary" type="button" (click)="fromMiss(m)"><span class="ms" aria-hidden="true">add</span> Create FAQ</button>
-                      <button class="btn sm ghost" type="button" (click)="dismiss(m)" [disabled]="busy()" [attr.aria-label]="'Dismiss ' + m.text"><span class="ms" aria-hidden="true">close</span></button>
+                      <button class="btn sm primary" type="button" (click)="fromMiss(m)">
+                        <i class="ti ti-plus" aria-hidden="true"></i> Create FAQ
+                      </button>
+                      <button
+                        class="btn sm ghost"
+                        type="button"
+                        (click)="dismiss(m)"
+                        [disabled]="busy()"
+                        [attr.aria-label]="'Dismiss ' + m.text"
+                      >
+                        <i class="ti ti-x" aria-hidden="true"></i>
+                      </button>
                     }
                   </span>
                 </li>
@@ -312,8 +545,10 @@
         </div>
 
         <div class="card pad">
-          <h3 class="sub"><span class="ms" aria-hidden="true">near_me</span> Near misses</h3>
-          <p class="muted hint">Answers that came closest but didn't fire. Add keywords so they catch these.</p>
+          <h3 class="sub"><i class="ti ti-navigation" aria-hidden="true"></i> Near misses</h3>
+          <p class="muted hint">
+            Answers that came closest but didn't fire. Add keywords so they catch these.
+          </p>
           @if (!nearMisses().length) {
             <p class="muted">None yet.</p>
           } @else {
@@ -321,8 +556,18 @@
               @for (i of nearMisses(); track i.id) {
                 <li>
                   <span class="heat warn" aria-hidden="true"></span>
-                  <div class="m-text"><strong>{{ i.question }}</strong><span class="muted">{{ i.missCount }} near miss{{ i.missCount === 1 ? '' : 'es' }}, {{ i.hitCount }} answered</span></div>
-                  @if (canWrite()) { <button class="btn sm ghost" type="button" (click)="edit(i)"><span class="ms" aria-hidden="true">tune</span> Widen</button> }
+                  <div class="m-text">
+                    <strong>{{ i.question }}</strong
+                    ><span class="muted"
+                      >{{ i.missCount }} near miss{{ i.missCount === 1 ? '' : 'es' }},
+                      {{ i.hitCount }} answered</span
+                    >
+                  </div>
+                  @if (canWrite()) {
+                    <button class="btn sm ghost" type="button" (click)="edit(i)">
+                      <i class="ti ti-adjustments-horizontal" aria-hidden="true"></i> Widen
+                    </button>
+                  }
                 </li>
               }
             </ul>
@@ -338,52 +583,123 @@
     <form class="card editor" (ngSubmit)="save()" aria-label="FAQ editor">
       <div class="ed-head">
         <h2>{{ d.id === null ? 'New question' : 'Edit question' }}</h2>
-        <button class="btn sm ghost" type="button" (click)="cancel()" aria-label="Close editor"><span class="ms" aria-hidden="true">close</span></button>
+        <button class="btn sm ghost" type="button" (click)="cancel()" aria-label="Close editor">
+          <i class="ti ti-x" aria-hidden="true"></i>
+        </button>
       </div>
       <div class="grid">
         <div class="field wide">
           <label for="kb-question">Question</label>
-          <input id="kb-question" name="question" placeholder="What are your opening hours?" [ngModel]="d.question" (ngModelChange)="patch('question', $event)" />
+          <input
+            id="kb-question"
+            name="question"
+            placeholder="What are your opening hours?"
+            [ngModel]="d.question"
+            (ngModelChange)="patch('question', $event)"
+          />
         </div>
         <div class="field wide">
           <label for="kb-keywords">Alternate phrasings / keywords</label>
-          <input id="kb-keywords" name="keywords" placeholder="timings, open today, hours" [ngModel]="d.keywords" (ngModelChange)="patch('keywords', $event)" />
+          <input
+            id="kb-keywords"
+            name="keywords"
+            placeholder="timings, open today, hours"
+            [ngModel]="d.keywords"
+            (ngModelChange)="patch('keywords', $event)"
+          />
           <span class="hint">Comma separated. Each one is matched like the question.</span>
         </div>
         <div class="field wide">
-          <label for="kb-answer">Answer <span class="muted">{{ d.answer.length }} chars</span></label>
-          <textarea id="kb-answer" name="answer" rows="4" placeholder="We're open 9am-7pm, Monday to Saturday." [ngModel]="d.answer" (ngModelChange)="patch('answer', $event)"></textarea>
+          <label for="kb-answer"
+            >Answer <span class="muted">{{ d.answer.length }} chars</span></label
+          >
+          <textarea
+            id="kb-answer"
+            name="answer"
+            rows="4"
+            placeholder="We're open 9am-7pm, Monday to Saturday."
+            [ngModel]="d.answer"
+            (ngModelChange)="patch('answer', $event)"
+          ></textarea>
         </div>
         <div class="field">
           <label for="kb-cat">Category</label>
-          <select id="kb-cat" name="cat" [ngModel]="d.categoryId" (ngModelChange)="patch('categoryId', $event)">
+          <select
+            id="kb-cat"
+            name="cat"
+            [ngModel]="d.categoryId"
+            (ngModelChange)="patch('categoryId', $event)"
+          >
             <option [ngValue]="null">Uncategorised</option>
-            @for (c of categories(); track c.id) { <option [ngValue]="c.id">{{ c.name }}</option> }
+            @for (c of categories(); track c.id) {
+              <option [ngValue]="c.id">{{ c.name }}</option>
+            }
           </select>
         </div>
         <div class="field">
           <label for="kb-type">Match</label>
-          <select id="kb-type" name="type" [ngModel]="d.matchType" (ngModelChange)="patch('matchType', $event)">
-            @for (t of matchTypes; track t) { <option [value]="t">{{ t.toLowerCase() }}</option> }
+          <select
+            id="kb-type"
+            name="type"
+            [ngModel]="d.matchType"
+            (ngModelChange)="patch('matchType', $event)"
+          >
+            @for (t of matchTypes; track t) {
+              <option [value]="t">{{ t.toLowerCase() }}</option>
+            }
           </select>
         </div>
         <span class="hint wide type-hint">{{ matchHints[d.matchType] }}</span>
         <div class="field">
           <label for="kb-prio">Priority</label>
-          <input id="kb-prio" name="prio" type="number" [ngModel]="d.priority" (ngModelChange)="patch('priority', $event)" />
+          <input
+            id="kb-prio"
+            name="prio"
+            type="number"
+            [ngModel]="d.priority"
+            (ngModelChange)="patch('priority', $event)"
+          />
         </div>
         <div class="field">
           <label for="kb-locale">Language</label>
-          <input id="kb-locale" name="locale" placeholder="any" [ngModel]="d.locale" (ngModelChange)="patch('locale', $event)" />
+          <input
+            id="kb-locale"
+            name="locale"
+            placeholder="any"
+            [ngModel]="d.locale"
+            (ngModelChange)="patch('locale', $event)"
+          />
         </div>
-        <label class="check"><input type="checkbox" name="active" [ngModel]="d.isActive" (ngModelChange)="patch('isActive', $event)" /> Live</label>
-        <label class="check"><input type="checkbox" name="ooh" [ngModel]="d.outOfHours" (ngModelChange)="patch('outOfHours', $event)" /> After-hours answer</label>
+        <label class="check"
+          ><input
+            type="checkbox"
+            name="active"
+            [ngModel]="d.isActive"
+            (ngModelChange)="patch('isActive', $event)"
+          />
+          Live</label
+        >
+        <label class="check"
+          ><input
+            type="checkbox"
+            name="ooh"
+            [ngModel]="d.outOfHours"
+            (ngModelChange)="patch('outOfHours', $event)"
+          />
+          After-hours answer</label
+        >
       </div>
-      @if (formError()) { <p class="banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ formError() }}</p> }
+      @if (formError()) {
+        <p class="s-banner" role="alert">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ formError() }}
+        </p>
+      }
       <div class="row end">
         <button class="btn" type="button" (click)="cancel()">Cancel</button>
         <button class="btn primary" type="submit" [disabled]="busy()">
-          @if (busy()) { <span class="spinner" aria-hidden="true"></span> }
+          @if (busy()) {
+            <span class="spinner" aria-hidden="true"></span>
+          }
           {{ d.id === null ? 'Add question' : 'Save changes' }}
         </button>
       </div>

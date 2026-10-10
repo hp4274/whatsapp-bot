@@ -1,19 +1,39 @@
+<!--
+  Contacts: Kardlyz page header, a stat row, optional duplicate banner and
+  add-contact card, then a two-column board — segments/tags rail on the left,
+  the filterable table (with the bulk bar over it) on the right. Drawer and
+  dialogs are overlays at the end.
+-->
 <header class="s-head">
   <div>
+    <p class="eyebrow"><i class="ti ti-address-book" aria-hidden="true"></i> Audience</p>
     <h2>Contacts</h2>
     <p>Everyone you message, with the tags, fields and consent you hold for them.</p>
   </div>
   <div class="head-actions">
-    <button class="btn" type="button" (click)="exportCsv(false)" [disabled]="exporting() || !total()"
-            [attr.aria-label]="hasFilters() ? 'Export the filtered contacts as CSV' : 'Export all contacts as CSV'">
-      <span class="ms" aria-hidden="true">{{ exporting() ? 'hourglass_top' : 'download' }}</span> Export
+    <button
+      class="btn"
+      type="button"
+      (click)="exportCsv(false)"
+      [disabled]="exporting() || !total()"
+      [attr.aria-label]="
+        hasFilters() ? 'Export the filtered contacts as CSV' : 'Export all contacts as CSV'
+      "
+    >
+      <i class="ti ti-{{ exporting() ? 'hourglass-high' : 'download' }}" aria-hidden="true"></i>
+      Export
     </button>
     @if (canWrite()) {
       <button class="btn" type="button" (click)="importOpen.set(true)">
-        <span class="ms" aria-hidden="true">upload_file</span> Import
+        <i class="ti ti-file-upload" aria-hidden="true"></i> Import
       </button>
-      <button class="btn primary" type="button" (click)="showForm.set(!showForm())" [attr.aria-expanded]="showForm()">
-        <span class="ms" aria-hidden="true">{{ showForm() ? 'close' : 'person_add' }}</span>
+      <button
+        class="btn primary"
+        type="button"
+        (click)="showForm.set(!showForm())"
+        [attr.aria-expanded]="showForm()"
+      >
+        <i class="ti ti-{{ showForm() ? 'x' : 'user-plus' }}" aria-hidden="true"></i>
         {{ showForm() ? 'Cancel' : 'Add contact' }}
       </button>
     }
@@ -27,15 +47,25 @@
       <small>In the book</small><b>{{ o.total.toLocaleString() }}</b>
       <span class="muted">{{ tags().length }} tags &middot; {{ fieldKeys().length }} fields</span>
     </div>
-    <button type="button" class="s-stat tone-ok s-enter" style="--i: 1" schoolTilt="4"
-            [attr.aria-pressed]="consent() === 'messageable'"
-            (click)="setConsent(consent() === 'messageable' ? '' : 'messageable')">
+    <button
+      type="button"
+      class="s-stat tone-ok s-enter"
+      style="--i: 1"
+      schoolTilt="4"
+      [attr.aria-pressed]="consent() === 'messageable'"
+      (click)="setConsent(consent() === 'messageable' ? '' : 'messageable')"
+    >
       <small>Can message</small><b>{{ (o.total - o.optedOut).toLocaleString() }}</b>
       <span class="muted">not opted out</span>
     </button>
-    <button type="button" class="s-stat tone-bad s-enter" style="--i: 2" schoolTilt="4"
-            [attr.aria-pressed]="consent() === 'opted_out'"
-            (click)="setConsent(consent() === 'opted_out' ? '' : 'opted_out')">
+    <button
+      type="button"
+      class="s-stat tone-bad s-enter"
+      style="--i: 2"
+      schoolTilt="4"
+      [attr.aria-pressed]="consent() === 'opted_out'"
+      (click)="setConsent(consent() === 'opted_out' ? '' : 'opted_out')"
+    >
       <small>Opted out</small><b>{{ o.optedOut.toLocaleString() }}</b>
       <span class="muted">never messaged</span>
     </button>
@@ -45,55 +75,110 @@
     </div>
   } @else {
     @for (k of [0, 1, 2, 3]; track k) {
-      <div class="s-stat" aria-hidden="true"><div class="s-skel" style="width: 45%"></div><div class="s-skel" style="height: 28px; width: 35%"></div></div>
+      <div class="s-stat" aria-hidden="true">
+        <div class="s-skel" style="width: 45%"></div>
+        <div class="s-skel" style="height: 28px; width: 35%"></div>
+      </div>
     }
   }
 </section>
 
 @if (dupeTotal() && !dupeDismissed() && canWrite()) {
   <div class="dupe-banner" role="status">
-    <span class="orb" aria-hidden="true"><span class="ms">join</span></span>
+    <span class="orb" aria-hidden="true"><i class="ti ti-arrows-join" aria-hidden="true"></i></span>
     <div>
-      <strong>{{ dupeTotal() }} number{{ dupeTotal() === 1 ? ' is' : 's are' }} saved more than once</strong>
-      <p class="muted">The same phone stored in different formats. Merging keeps every tag and field.</p>
+      <strong
+        >{{ dupeTotal() }} number{{ dupeTotal() === 1 ? ' is' : 's are' }} saved more than
+        once</strong
+      >
+      <p class="muted">
+        The same phone stored in different formats. Merging keeps every tag and field.
+      </p>
     </div>
     <div class="actions">
-      <button class="btn primary sm" type="button" (click)="mergeOpen.set(true)">Review &amp; merge</button>
-      <button class="btn ghost icon" type="button" aria-label="Dismiss" (click)="dupeDismissed.set(true)"><span class="ms">close</span></button>
+      <button class="btn primary sm" type="button" (click)="mergeOpen.set(true)">
+        Review &amp; merge
+      </button>
+      <button
+        class="btn ghost icon"
+        type="button"
+        aria-label="Dismiss"
+        (click)="dupeDismissed.set(true)"
+      >
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
     </div>
   </div>
 }
 
 @if (showForm()) {
   <form class="s-card new" (submit)="create($event)" novalidate aria-labelledby="new-contact-title">
-    <h3 id="new-contact-title"><span class="ms" aria-hidden="true">person_add</span> New contact</h3>
+    <h3 id="new-contact-title"><i class="ti ti-user-plus" aria-hidden="true"></i> New contact</h3>
     <div class="grid">
       <div class="field">
         <label for="n-phone">Phone</label>
-        <input id="n-phone" name="phone" required inputmode="tel" autocomplete="off" placeholder="+91 98123 45678"
-               [ngModel]="draft().phone" (ngModelChange)="setDraft({ phone: $event })" />
+        <input
+          id="n-phone"
+          name="phone"
+          required
+          inputmode="tel"
+          autocomplete="off"
+          placeholder="+91 98123 45678"
+          [ngModel]="draft().phone"
+          (ngModelChange)="setDraft({ phone: $event })"
+        />
       </div>
       <div class="field">
         <label for="n-name">Name</label>
-        <input id="n-name" name="name" [ngModel]="draft().name" (ngModelChange)="setDraft({ name: $event })" />
+        <input
+          id="n-name"
+          name="name"
+          [ngModel]="draft().name"
+          (ngModelChange)="setDraft({ name: $event })"
+        />
       </div>
       <div class="field">
         <label for="n-email">Email</label>
-        <input id="n-email" name="email" type="email" [ngModel]="draft().email" (ngModelChange)="setDraft({ email: $event })" />
+        <input
+          id="n-email"
+          name="email"
+          type="email"
+          [ngModel]="draft().email"
+          (ngModelChange)="setDraft({ email: $event })"
+        />
       </div>
       <div class="field">
         <label for="n-tags">Tags <small class="muted">comma separated</small></label>
-        <input id="n-tags" name="tags" [ngModel]="draft().tags" (ngModelChange)="setDraft({ tags: $event })" />
+        <input
+          id="n-tags"
+          name="tags"
+          [ngModel]="draft().tags"
+          (ngModelChange)="setDraft({ tags: $event })"
+        />
       </div>
     </div>
     <div class="field">
-      <label for="n-fields">Custom fields <small class="muted">one key=value per line</small></label>
-      <textarea id="n-fields" name="fields" rows="3" placeholder="patient_id=P-104&#10;doctor=Mehta"
-                [ngModel]="draft().fields" (ngModelChange)="setDraft({ fields: $event })"></textarea>
+      <label for="n-fields"
+        >Custom fields <small class="muted">one key=value per line</small></label
+      >
+      <textarea
+        id="n-fields"
+        name="fields"
+        rows="3"
+        placeholder="patient_id=P-104&#10;doctor=Mehta"
+        [ngModel]="draft().fields"
+        (ngModelChange)="setDraft({ fields: $event })"
+      ></textarea>
     </div>
-    @if (formError()) { <p class="s-banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ formError() }}</p> }
+    @if (formError()) {
+      <p class="s-banner" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ formError() }}
+      </p>
+    }
     <div class="form-actions">
-      <button class="btn primary" type="submit" [disabled]="busy()">{{ busy() ? 'Saving...' : 'Save contact' }}</button>
+      <button class="btn primary" type="submit" [disabled]="busy()">
+        {{ busy() ? 'Saving...' : 'Save contact' }}
+      </button>
     </div>
   </form>
 }
@@ -104,26 +189,49 @@
     <section>
       <h4>Segments</h4>
       <div class="segments">
-        <button type="button" class="seg-item" [attr.aria-pressed]="segmentId() === null" (click)="applySegment(null)">
-          <span class="ms" aria-hidden="true">groups</span> All contacts
+        <button
+          type="button"
+          class="seg-item"
+          [attr.aria-pressed]="segmentId() === null"
+          (click)="applySegment(null)"
+        >
+          <i class="ti ti-users-group" aria-hidden="true"></i> All contacts
         </button>
         @for (s of segments(); track s.id) {
           <div class="seg-row">
             @if (confirmSegment() === s.id) {
-              <div class="seg-confirm" role="alertdialog" [attr.aria-label]="'Delete segment ' + s.name">
+              <div
+                class="seg-confirm"
+                role="alertdialog"
+                [attr.aria-label]="'Delete segment ' + s.name"
+              >
                 <span>Delete "{{ s.name }}"?</span>
-                <button class="btn danger sm" type="button" (click)="deleteSegment(s)">Delete</button>
-                <button class="btn ghost sm" type="button" (click)="confirmSegment.set(null)">Keep</button>
+                <button class="btn danger sm" type="button" (click)="deleteSegment(s)">
+                  Delete
+                </button>
+                <button class="btn sm" type="button" (click)="confirmSegment.set(null)">
+                  Keep
+                </button>
               </div>
             } @else {
-              <button type="button" class="seg-item" [attr.aria-pressed]="segmentId() === s.id" (click)="applySegment(s)">
-                <span class="ms" aria-hidden="true">filter_alt</span>
+              <button
+                type="button"
+                class="seg-item"
+                [attr.aria-pressed]="segmentId() === s.id"
+                (click)="applySegment(s)"
+              >
+                <i class="ti ti-filter" aria-hidden="true"></i>
                 <span class="name">{{ s.name }}</span>
                 <em>{{ s.count ?? '' }}</em>
               </button>
               @if (canWrite()) {
-                <button type="button" class="x" [attr.aria-label]="'Delete segment ' + s.name" (click)="confirmSegment.set(s.id)">
-                  <span class="ms" aria-hidden="true">delete</span>
+                <button
+                  type="button"
+                  class="x"
+                  [attr.aria-label]="'Delete segment ' + s.name"
+                  (click)="confirmSegment.set(s.id)"
+                >
+                  <i class="ti ti-trash" aria-hidden="true"></i>
                 </button>
               }
             }
@@ -132,8 +240,14 @@
       </div>
       @if (canWrite()) {
         <form class="save-seg" (submit)="$event.preventDefault(); saveSegment()">
-          <input [ngModel]="segName()" (ngModelChange)="segName.set($event)" name="segName"
-                 placeholder="Save this view as..." aria-label="Segment name" maxlength="80" />
+          <input
+            [ngModel]="segName()"
+            (ngModelChange)="segName.set($event)"
+            name="segName"
+            placeholder="Save this view as..."
+            aria-label="Segment name"
+            maxlength="80"
+          />
           <button class="btn sm" type="submit" [disabled]="!segName().trim()">Save</button>
         </form>
       }
@@ -143,7 +257,12 @@
       <h4>Tags</h4>
       <div class="tagcloud">
         @for (t of tags(); track t.tag) {
-          <button type="button" class="s-chip" [attr.aria-pressed]="tagFilter().includes(t.tag)" (click)="toggleTag(t.tag)">
+          <button
+            type="button"
+            class="s-chip"
+            [attr.aria-pressed]="tagFilter().includes(t.tag)"
+            (click)="toggleTag(t.tag)"
+          >
             {{ t.tag }} <b>{{ t.count }}</b>
           </button>
         } @empty {
@@ -157,79 +276,130 @@
   <section class="s-card list" aria-label="Contact list">
     <div class="toolbar">
       <div class="search">
-        <span class="ms" aria-hidden="true">search</span>
-        <input type="search" aria-label="Search contacts" placeholder="Search name, number or email"
-               [ngModel]="searchInput()" (ngModelChange)="onSearch($event)" (keydown.escape)="clearSearch()" />
+        <i class="ti ti-search" aria-hidden="true"></i>
+        <input
+          type="search"
+          aria-label="Search contacts"
+          placeholder="Search name, number or email"
+          [ngModel]="searchInput()"
+          (ngModelChange)="onSearch($event)"
+          (keydown.escape)="clearSearch()"
+        />
       </div>
-      <label class="sr-only" for="consent-filter">Consent</label>
-      <select id="consent-filter" [ngModel]="consent()" (ngModelChange)="setConsent($event)">
-        <option value="">Any consent</option>
-        <option value="messageable">Can message</option>
-        <option value="opted_in">Opted in</option>
-        <option value="unknown">Consent unknown</option>
-        <option value="opted_out">Opted out</option>
-      </select>
+      <div class="s-seg consent" role="group" aria-label="Consent">
+        @for (o of consentOptions; track o.value) {
+          <button
+            type="button"
+            [attr.aria-pressed]="consent() === o.value"
+            (click)="setConsent(o.value)"
+          >
+            {{ o.label }}
+          </button>
+        }
+      </div>
       @if (hasFilters()) {
-        <button class="btn ghost sm" type="button" (click)="clearFilters()"><span class="ms" aria-hidden="true">filter_alt_off</span> Clear</button>
+        <button class="btn sm" type="button" (click)="clearFilters()">
+          <i class="ti ti-filter-off" aria-hidden="true"></i> Clear
+        </button>
       }
-      @if (refreshing()) { <span class="spinner" role="status" aria-label="Loading"></span> }
+      @if (refreshing()) {
+        <span class="spinner" role="status" aria-label="Loading"></span>
+      }
     </div>
 
     @if (segment() || tagFilter().length) {
       <div class="active-filters" aria-label="Active filters">
         @if (segment(); as s) {
-          <button type="button" class="s-chip on" (click)="applySegment(null)" [attr.aria-label]="'Remove segment ' + s.name">
-            <span class="ms" aria-hidden="true">filter_alt</span> {{ s.name }} <span class="ms" aria-hidden="true">close</span>
+          <button
+            type="button"
+            class="s-chip on"
+            (click)="applySegment(null)"
+            [attr.aria-label]="'Remove segment ' + s.name"
+          >
+            <i class="ti ti-filter" aria-hidden="true"></i> {{ s.name }}
+            <i class="ti ti-x" aria-hidden="true"></i>
           </button>
         }
         @for (t of tagFilter(); track t) {
-          <button type="button" class="s-chip on" (click)="toggleTag(t)" [attr.aria-label]="'Remove tag filter ' + t">
-            #{{ t }} <span class="ms" aria-hidden="true">close</span>
+          <button
+            type="button"
+            class="s-chip on"
+            (click)="toggleTag(t)"
+            [attr.aria-label]="'Remove tag filter ' + t"
+          >
+            #{{ t }} <i class="ti ti-x" aria-hidden="true"></i>
           </button>
         }
       </div>
     }
 
     @if (notice(); as n) {
-      <p class="s-banner" [class.tone-ok]="n.tone === 'ok'" [class.tone-warn]="n.tone === 'warn'" role="status">
-        <span class="ms" aria-hidden="true">{{ n.tone === 'ok' ? 'check_circle' : 'warning' }}</span> {{ n.text }}
+      <p
+        class="s-banner"
+        [class.tone-ok]="n.tone === 'ok'"
+        [class.tone-warn]="n.tone === 'warn'"
+        role="status"
+      >
+        <i
+          class="ti ti-{{ n.tone === 'ok' ? 'circle-check' : 'alert-triangle' }}"
+          aria-hidden="true"
+        ></i>
+        {{ n.text }}
       </p>
     }
 
     @if (selectedCount() && canWrite()) {
-      <app-bulk-bar [count]="selectedCount()" [allMatching]="allMatching()" [total]="total()" [busy]="busy()"
-                    [knownTags]="tags()" [pageAll]="pageAllSelected()"
-                    (run)="runBulk($event)" (export)="exportCsv(true)" (selectAll)="selectAllMatching()"
-                    (clear)="clearSelection()" />
+      <app-bulk-bar
+        [count]="selectedCount()"
+        [allMatching]="allMatching()"
+        [total]="total()"
+        [busy]="busy()"
+        [knownTags]="tags()"
+        [pageAll]="pageAllSelected()"
+        (run)="runBulk($event)"
+        (export)="exportCsv(true)"
+        (selectAll)="selectAllMatching()"
+        (clear)="clearSelection()"
+      />
     }
 
     @if (error()) {
       <div class="s-banner" role="alert">
-        <span class="ms" aria-hidden="true">error</span> {{ error() }}
-        <button class="btn sm" type="button" (click)="load()">Retry</button>
+        <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ error() }}
+        <button class="btn sm" type="button" (click)="load()">
+          <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+        </button>
       </div>
     } @else if (loading()) {
-      <div class="skeleton" aria-busy="true" aria-label="Loading contacts">
+      <div class="skel-list" aria-busy="true" aria-label="Loading contacts">
         @for (k of [0, 1, 2, 3, 4, 5]; track k) {
-          <div class="skel-row"><span class="s-skel avatar"></span><span class="s-skel" [style.width.%]="30 + k * 7"></span></div>
+          <div class="skel-row">
+            <span class="s-skel avatar"></span
+            ><span class="s-skel" [style.width.%]="30 + k * 7"></span>
+          </div>
         }
       </div>
     } @else if (!rows().length) {
       @if (hasFilters()) {
         <div class="s-empty">
-          <span class="ms" aria-hidden="true">person_search</span>
+          <i class="ti ti-user-search" aria-hidden="true"></i>
           <strong>No contacts match</strong>
           <p>Try a different search, or clear the filters to see everyone.</p>
           <button class="btn sm" type="button" (click)="clearFilters()">Clear filters</button>
         </div>
       } @else {
         <div class="s-empty">
-          <span class="ms" aria-hidden="true">contacts</span>
+          <i class="ti ti-address-book" aria-hidden="true"></i>
           <strong>Your contact book is empty</strong>
-          <p>Import a spreadsheet of customers, or add someone by hand. Tags and custom fields are yours to define.</p>
+          <p>
+            Import a spreadsheet of customers, or add someone by hand. Tags and custom fields are
+            yours to define.
+          </p>
           @if (canWrite()) {
             <div class="empty-actions">
-              <button class="btn primary sm" type="button" (click)="importOpen.set(true)"><span class="ms" aria-hidden="true">upload_file</span> Import a sheet</button>
+              <button class="btn primary sm" type="button" (click)="importOpen.set(true)">
+                <i class="ti ti-file-upload" aria-hidden="true"></i> Import a sheet
+              </button>
               <button class="btn sm" type="button" (click)="showForm.set(true)">Add contact</button>
             </div>
           }
@@ -238,44 +408,119 @@
     } @else {
       <div class="table-wrap" [class.dim]="refreshing()">
         <table>
-          <caption class="sr-only">Contacts, {{ from() }} to {{ to() }} of {{ total() }}</caption>
+          <caption class="sr-only">
+            Contacts,
+            {{
+              from()
+            }}
+            to
+            {{
+              to()
+            }}
+            of
+            {{
+              total()
+            }}
+          </caption>
           <thead>
             <tr>
               @if (canWrite()) {
                 <th class="pick" scope="col">
-                  <input type="checkbox" aria-label="Select every contact on this page"
-                         [checked]="pageAllSelected()" [indeterminate]="pageSomeSelected()" (change)="togglePage()" />
+                  <input
+                    type="checkbox"
+                    aria-label="Select every contact on this page"
+                    [checked]="pageAllSelected()"
+                    [indeterminate]="pageSomeSelected()"
+                    (change)="togglePage()"
+                  />
                 </th>
               }
               <th scope="col" [attr.aria-sort]="ariaSort('name')">
-                <button type="button" class="sort" (click)="sortBy('name')">Contact <span class="ms" aria-hidden="true">{{ sort() === 'name' ? (dir() === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more' }}</span></button>
+                <button type="button" class="sort" (click)="sortBy('name')">
+                  Contact
+                  <i
+                    class="ti ti-{{
+                      sort() === 'name' ? (dir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'selector'
+                    }}"
+                    aria-hidden="true"
+                  ></i>
+                </button>
               </th>
               <th scope="col" class="c-phone" [attr.aria-sort]="ariaSort('phone')">
-                <button type="button" class="sort" (click)="sortBy('phone')">Number <span class="ms" aria-hidden="true">{{ sort() === 'phone' ? (dir() === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more' }}</span></button>
+                <button type="button" class="sort" (click)="sortBy('phone')">
+                  Number
+                  <i
+                    class="ti ti-{{
+                      sort() === 'phone'
+                        ? dir() === 'asc'
+                          ? 'arrow-up'
+                          : 'arrow-down'
+                        : 'selector'
+                    }}"
+                    aria-hidden="true"
+                  ></i>
+                </button>
               </th>
               <th scope="col" class="c-tags">Tags</th>
               <th scope="col" [attr.aria-sort]="ariaSort('optInStatus')">
-                <button type="button" class="sort" (click)="sortBy('optInStatus')">Consent <span class="ms" aria-hidden="true">{{ sort() === 'optInStatus' ? (dir() === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more' }}</span></button>
+                <button type="button" class="sort" (click)="sortBy('optInStatus')">
+                  Consent
+                  <i
+                    class="ti ti-{{
+                      sort() === 'optInStatus'
+                        ? dir() === 'asc'
+                          ? 'arrow-up'
+                          : 'arrow-down'
+                        : 'selector'
+                    }}"
+                    aria-hidden="true"
+                  ></i>
+                </button>
               </th>
               <th scope="col" class="c-added" [attr.aria-sort]="ariaSort('createdAt')">
-                <button type="button" class="sort" (click)="sortBy('createdAt')">Added <span class="ms" aria-hidden="true">{{ sort() === 'createdAt' ? (dir() === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more' }}</span></button>
+                <button type="button" class="sort" (click)="sortBy('createdAt')">
+                  Added
+                  <i
+                    class="ti ti-{{
+                      sort() === 'createdAt'
+                        ? dir() === 'asc'
+                          ? 'arrow-up'
+                          : 'arrow-down'
+                        : 'selector'
+                    }}"
+                    aria-hidden="true"
+                  ></i>
+                </button>
               </th>
             </tr>
           </thead>
           <tbody>
             @for (c of rows(); track c.id; let i = $index) {
-              <tr [class.picked]="isSelected(c.id)" [class.open]="openId() === c.id" [class.out]="c.optedOut"
-                  tabindex="0" [attr.aria-label]="(c.name || displayPhone(c.phone)) + ', open details'"
-                  (click)="open(c)" (keydown)="rowKey($event, c)">
+              <tr
+                [style.--i]="i"
+                [class.picked]="isSelected(c.id)"
+                [class.open]="openId() === c.id"
+                [class.out]="c.optedOut"
+                tabindex="0"
+                [attr.aria-label]="(c.name || displayPhone(c.phone)) + ', open details'"
+                (click)="open(c)"
+                (keydown)="rowKey($event, c)"
+              >
                 @if (canWrite()) {
                   <td class="pick" (click)="$event.stopPropagation()">
-                    <input type="checkbox" [checked]="isSelected(c.id)" (click)="toggleRow(c, i, $event)"
-                           [attr.aria-label]="'Select ' + (c.name || displayPhone(c.phone))" />
+                    <input
+                      type="checkbox"
+                      [checked]="isSelected(c.id)"
+                      (click)="toggleRow(c, i, $event)"
+                      [attr.aria-label]="'Select ' + (c.name || displayPhone(c.phone))"
+                    />
                   </td>
                 }
                 <td>
                   <div class="who">
-                    <span class="avatar" [style.--h]="hue(c.phone)" aria-hidden="true">{{ initials(c.name, c.phone) }}</span>
+                    <span class="avatar" [style.--h]="hue(c.phone)" aria-hidden="true">{{
+                      initials(c.name, c.phone)
+                    }}</span>
                     <span class="who-text">
                       <span class="name">{{ c.name || 'No name' }}</span>
                       <span class="sub">{{ c.email || displayPhone(c.phone) }}</span>
@@ -285,12 +530,20 @@
                 <td class="c-phone mono">{{ displayPhone(c.phone) }}</td>
                 <td class="c-tags">
                   <span class="chips">
-                    @for (t of c.tags.slice(0, 3); track t) { <span class="tag">{{ t }}</span> }
-                    @if (c.tags.length > 3) { <span class="tag more">+{{ c.tags.length - 3 }}</span> }
+                    @for (t of c.tags.slice(0, 3); track t) {
+                      <span class="tag">{{ t }}</span>
+                    }
+                    @if (c.tags.length > 3) {
+                      <span class="tag more">+{{ c.tags.length - 3 }}</span>
+                    }
                   </span>
                 </td>
-                <td><span class="s-pill" [class]="consentTone(c)">{{ consentLabel(c) }}</span></td>
-                <td class="c-added muted" [title]="absolute(c.createdAt)">{{ ago(c.createdAt) }}</td>
+                <td>
+                  <span class="s-pill" [class]="consentTone(c)">{{ consentLabel(c) }}</span>
+                </td>
+                <td class="c-added muted" [title]="absolute(c.createdAt)">
+                  {{ ago(c.createdAt) }}
+                </td>
               </tr>
             }
           </tbody>
@@ -300,11 +553,43 @@
       <nav class="pager" aria-label="Pages">
         <span class="muted">{{ from() }}&ndash;{{ to() }} of {{ total().toLocaleString() }}</span>
         <div class="pager-btns">
-          <button class="btn ghost icon" type="button" aria-label="First page" [disabled]="page() === 0" (click)="goTo(0)"><span class="ms">first_page</span></button>
-          <button class="btn ghost icon" type="button" aria-label="Previous page" [disabled]="page() === 0" (click)="goTo(page() - 1)"><span class="ms">chevron_left</span></button>
+          <button
+            class="btn ghost icon"
+            type="button"
+            aria-label="First page"
+            [disabled]="page() === 0"
+            (click)="goTo(0)"
+          >
+            <i class="ti ti-chevrons-left" aria-hidden="true"></i>
+          </button>
+          <button
+            class="btn ghost icon"
+            type="button"
+            aria-label="Previous page"
+            [disabled]="page() === 0"
+            (click)="goTo(page() - 1)"
+          >
+            <i class="ti ti-chevron-left" aria-hidden="true"></i>
+          </button>
           <span class="page-no" aria-live="polite">Page {{ page() + 1 }} of {{ pageCount() }}</span>
-          <button class="btn ghost icon" type="button" aria-label="Next page" [disabled]="page() >= pageCount() - 1" (click)="goTo(page() + 1)"><span class="ms">chevron_right</span></button>
-          <button class="btn ghost icon" type="button" aria-label="Last page" [disabled]="page() >= pageCount() - 1" (click)="goTo(pageCount() - 1)"><span class="ms">last_page</span></button>
+          <button
+            class="btn ghost icon"
+            type="button"
+            aria-label="Next page"
+            [disabled]="page() >= pageCount() - 1"
+            (click)="goTo(page() + 1)"
+          >
+            <i class="ti ti-chevron-right" aria-hidden="true"></i>
+          </button>
+          <button
+            class="btn ghost icon"
+            type="button"
+            aria-label="Last page"
+            [disabled]="page() >= pageCount() - 1"
+            (click)="goTo(pageCount() - 1)"
+          >
+            <i class="ti ti-chevrons-right" aria-hidden="true"></i>
+          </button>
         </div>
       </nav>
     }
@@ -312,14 +597,29 @@
 </div>
 
 @if (openId(); as id) {
-  <app-contact-drawer [contactId]="id" [fieldKeys]="fieldKeys()" [knownTags]="tags()" [canWrite]="canWrite()"
-                      (closed)="openId.set(null)" (changed)="onDrawerChanged()" (deleted)="onDrawerDeleted($event)" />
+  <app-contact-drawer
+    [contactId]="id"
+    [fieldKeys]="fieldKeys()"
+    [knownTags]="tags()"
+    [canWrite]="canWrite()"
+    (closed)="openId.set(null)"
+    (changed)="onDrawerChanged()"
+    (deleted)="onDrawerDeleted($event)"
+  />
 }
 
 @if (importOpen()) {
-  <app-import-wizard [knownTags]="tags()" (closed)="importOpen.set(false)" (imported)="onImported()" />
+  <app-import-wizard
+    [knownTags]="tags()"
+    (closed)="importOpen.set(false)"
+    (imported)="onImported()"
+  />
 }
 
 @if (mergeOpen()) {
-  <app-merge-dialog [initial]="dupes()" (closed)="mergeOpen.set(false)" (merged)="onMerged($event)" />
+  <app-merge-dialog
+    [initial]="dupes()"
+    (closed)="mergeOpen.set(false)"
+    (merged)="onMerged($event)"
+  />
 }

@@ -1,4 +1,11 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 
 import { Api } from './api';
 import { Store } from './store';
@@ -7,28 +14,50 @@ import { Store } from './store';
  * A small floating card that follows a bulk send around the app, like an upload
  * tray: how far along it is, what has gone out, and pause / resume / stop.
  * The server owns the send, so this only reads `store.stats` and reflects it.
+ *
+ * Mounted once by the shell rather than by the campaign page, so it survives
+ * navigation. The template stays inline: it is the one component file this
+ * folder owns, and the card is small.
  */
 @Component({
   selector: 'app-send-island',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (visible()) {
-      <aside class="island" [class.done]="phase() === 'done'" [class.bad]="phase() === 'stopped'"
-             role="status" aria-live="polite" aria-label="Bulk message progress">
+      <aside
+        class="island"
+        [class.done]="phase() === 'done'"
+        [class.bad]="phase() === 'stopped'"
+        role="status"
+        aria-live="polite"
+        aria-label="Bulk message progress"
+      >
         <header>
-          <span class="ms lead" aria-hidden="true">{{ icon() }}</span>
+          <i class="ti ti-{{ icon() }} lead" aria-hidden="true"></i>
           <strong>{{ title() }}</strong>
-          <button type="button" class="ic" (click)="open.set(!open())"
-                  [attr.aria-label]="open() ? 'Collapse' : 'Expand'" [attr.aria-expanded]="open()">
-            <span class="ms" aria-hidden="true">{{ open() ? 'expand_more' : 'expand_less' }}</span>
+          <button
+            type="button"
+            class="ic"
+            (click)="open.set(!open())"
+            [attr.aria-label]="open() ? 'Collapse' : 'Expand'"
+            [attr.aria-expanded]="open()"
+          >
+            <i class="ti ti-{{ open() ? 'chevron-down' : 'chevron-up' }}" aria-hidden="true"></i>
           </button>
           @if (phase() === 'done' || phase() === 'stopped') {
             <button type="button" class="ic" (click)="dismiss()" aria-label="Close">
-              <span class="ms" aria-hidden="true">close</span>
+              <i class="ti ti-x" aria-hidden="true"></i>
             </button>
           }
         </header>
 
-        <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="percent()">
+        <div
+          class="bar"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          [attr.aria-valuenow]="percent()"
+        >
           <span [style.width.%]="percent()"></span>
         </div>
 
@@ -39,11 +68,19 @@ import { Store } from './store';
               <b>{{ percent() }}%</b>
             </p>
             <ul class="counts">
-              <li class="ok"><b>{{ stats().successful }}</b> sent</li>
-              <li [class.bad]="stats().failed > 0"><b>{{ stats().failed }}</b> failed</li>
-              <li><b>{{ stats().pending }}</b> waiting</li>
+              <li class="ok">
+                <b>{{ stats().successful }}</b> sent
+              </li>
+              <li [class.bad]="stats().failed > 0">
+                <b>{{ stats().failed }}</b> failed
+              </li>
+              <li>
+                <b>{{ stats().pending }}</b> waiting
+              </li>
             </ul>
-            @if (note()) { <p class="note">{{ note() }}</p> }
+            @if (note()) {
+              <p class="note">{{ note() }}</p>
+            }
             @if (phase() === 'sending' || phase() === 'paused') {
               <div class="actions">
                 @if (phase() === 'sending') {
@@ -54,36 +91,82 @@ import { Store } from './store';
                 <button type="button" class="b danger" (click)="act('stop')">Stop</button>
               </div>
             }
-            @if (error()) { <p class="err">{{ error() }}</p> }
+            @if (error()) {
+              <p class="err">{{ error() }}</p>
+            }
           </div>
         }
       </aside>
     }
   `,
   styles: `
-    @keyframes island-in { from { opacity: 0; translate: 0 16px; scale: 0.96; } to { opacity: 1; translate: none; scale: none; } }
-
-    .island {
-      position: fixed;
-      right: 20px;
-      bottom: 20px;
-      z-index: 60;
-      width: min(360px, calc(100vw - 24px));
-      padding: 12px 14px 14px;
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      color: var(--text);
-      background: color-mix(in srgb, var(--surface) 94%, var(--canvas));
-      box-shadow: 0 18px 50px rgb(0 0 0 / 30%), 0 2px 6px rgb(0 0 0 / 18%);
-      backdrop-filter: blur(14px);
-      animation: island-in 280ms var(--ease) both;
+    @keyframes island-in {
+      from {
+        opacity: 0;
+        translate: 0 16px;
+        scale: 0.96;
+      }
+      to {
+        opacity: 1;
+        translate: none;
+        scale: none;
+      }
     }
 
-    header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-    header strong { flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .lead { font-size: 20px; color: var(--primary); }
-    .done .lead { color: var(--primary); }
-    .bad .lead { color: var(--danger); }
+    /* Kardlyz card language, floated: card surface, hairline, 20px radius, a
+       soft lifted shadow so it reads as above the page rather than on it. */
+    .island {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      z-index: 50;
+      width: min(360px, calc(100vw - 24px));
+      padding: 14px 16px 16px;
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      color: var(--text-color);
+      background: color-mix(in srgb, var(--surface-card) 92%, transparent);
+      box-shadow:
+        var(--shadow-lift),
+        0 2px 6px rgba(16, 16, 24, 0.08);
+      backdrop-filter: blur(14px);
+      animation: island-in 300ms var(--ease) both;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    header strong {
+      flex: 1;
+      min-width: 0;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-strong);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .lead {
+      display: inline-grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 9px;
+      font-size: 16px;
+      color: var(--primary-text);
+      background: var(--primary-tint);
+    }
+    .done .lead {
+      color: var(--success);
+      background: var(--success-soft);
+    }
+    .bad .lead {
+      color: var(--danger-text);
+      background: var(--danger-soft);
+    }
 
     .ic {
       display: grid;
@@ -92,14 +175,27 @@ import { Store } from './store';
       height: 28px;
       padding: 0;
       border: 0;
-      border-radius: 50%;
+      border-radius: 9px;
       background: transparent;
       color: var(--text-muted);
+      transition:
+        background var(--fast) var(--ease),
+        color var(--fast) var(--ease);
     }
-    .ic:hover { background: var(--surface-alt); color: var(--text); }
-    .ic .ms { font-size: 20px; }
+    .ic:hover {
+      background: var(--surface-sunken);
+      color: var(--text-strong);
+    }
+    .ic .ti {
+      font-size: 17px;
+    }
 
-    .bar { height: 6px; overflow: hidden; border-radius: 999px; background: var(--surface-alt); }
+    .bar {
+      height: 6px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: var(--surface-sunken);
+    }
     .bar span {
       display: block;
       height: 100%;
@@ -107,43 +203,109 @@ import { Store } from './store';
       background: linear-gradient(90deg, var(--primary), var(--accent));
       transition: width 400ms var(--ease);
     }
-    .bad .bar span { background: var(--danger); }
-
-    .body { display: grid; gap: 8px; margin-top: 10px; }
-    .line { display: flex; justify-content: space-between; margin: 0; font-size: 13px; color: var(--text-muted); }
-    .line b { color: var(--text); font-variant-numeric: tabular-nums; }
-
-    .counts { display: flex; gap: 14px; margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--text-muted); }
-    .counts b { font-variant-numeric: tabular-nums; color: var(--text); }
-    .counts .ok b { color: var(--primary); }
-    .counts .bad b { color: var(--danger); }
-
-    .note, .err { margin: 0; font-size: 12px; color: var(--text-muted); }
-    .err { color: var(--danger); }
-
-    .actions { display: flex; gap: 8px; }
-    .b {
-      padding: 6px 14px;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      background: var(--surface-alt);
-      color: var(--text);
-      font-size: 12px;
-      font-weight: 600;
+    .bad .bar span {
+      background: var(--danger);
     }
-    .b:hover { border-color: var(--primary); }
-    .b.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: transparent; }
-    .b.danger:hover { background: var(--danger-soft); border-color: var(--danger); }
 
-    @media (max-width: 520px) { .island { right: 12px; bottom: 12px; } }
-    @media (prefers-reduced-motion: reduce) { .island { animation: none; } .bar span { transition: none; } }
+    .body {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .line {
+      display: flex;
+      justify-content: space-between;
+      margin: 0;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .line b {
+      font-weight: 500;
+      color: var(--text-strong);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.2px;
+    }
+
+    .counts {
+      display: flex;
+      gap: 14px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .counts b {
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-strong);
+    }
+    .counts .ok b {
+      color: var(--success);
+    }
+    .counts .bad b {
+      color: var(--danger-text);
+    }
+
+    .note,
+    .err {
+      margin: 0;
+      font-size: 12px;
+      color: var(--hint);
+    }
+    .err {
+      color: var(--danger-text);
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+    }
+    .b {
+      height: 32px;
+      padding: 0 14px;
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      background: var(--surface-card);
+      color: var(--text-strong);
+      font-size: 13px;
+      font-weight: 500;
+      transition:
+        background var(--fast) var(--ease),
+        border-color var(--fast) var(--ease);
+    }
+    .b:hover {
+      background: var(--surface-sunken);
+    }
+    .b.danger {
+      color: var(--danger-text);
+      border-color: rgba(220, 38, 38, 0.35);
+    }
+    .b.danger:hover {
+      background: rgba(239, 68, 68, 0.08);
+    }
+
+    @media (max-width: 520px) {
+      .island {
+        right: 12px;
+        bottom: 12px;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .island {
+        animation: none;
+      }
+      .bar span {
+        transition: none;
+      }
+    }
   `,
 })
 export class SendIsland {
   private readonly store = inject(Store);
   private readonly api = inject(Api);
 
-  protected readonly stats = this.store.stats;
+  protected readonly stats = this.store.stats.asReadonly();
   protected readonly open = signal(true);
   protected readonly error = signal('');
   /** A finished run the user closed; a new run (more total, or less processed) reopens it. */
@@ -159,8 +321,10 @@ export class SendIsland {
     });
   }
 
+  /** Whole-number progress for the bar and its `aria-valuenow`. */
   protected readonly percent = computed(() => Math.round(this.store.progress() * 100));
 
+  /** Where the run is, derived from the server's counters rather than tracked here. */
   protected readonly phase = computed<'sending' | 'paused' | 'done' | 'stopped'>(() => {
     const s = this.stats();
     if (s.state === 'STOPPED') return 'stopped';
@@ -172,22 +336,37 @@ export class SendIsland {
     const s = this.stats();
     if (s.total <= 0) return false;
     const gone = this.dismissed();
-    return !(gone && gone.total === s.total && this.phase() !== 'sending' && this.phase() !== 'paused');
+    return !(
+      gone &&
+      gone.total === s.total &&
+      this.phase() !== 'sending' &&
+      this.phase() !== 'paused'
+    );
   });
 
   protected readonly title = computed(() => {
     const s = this.stats();
     switch (this.phase()) {
-      case 'done': return s.failed ? `Finished, ${s.failed} failed` : `Sent ${s.successful} messages`;
-      case 'stopped': return 'Sending stopped';
-      case 'paused': return 'Sending paused';
-      default: return `Sending ${s.total} messages`;
+      case 'done':
+        return s.failed ? `Finished, ${s.failed} failed` : `Sent ${s.successful} messages`;
+      case 'stopped':
+        return 'Sending stopped';
+      case 'paused':
+        return 'Sending paused';
+      default:
+        return `Sending ${s.total} messages`;
     }
   });
 
-  protected readonly icon = computed(() => ({
-    sending: 'send', paused: 'pause_circle', done: 'check_circle', stopped: 'cancel',
-  })[this.phase()]);
+  protected readonly icon = computed(
+    () =>
+      ({
+        sending: 'send',
+        paused: 'player-pause',
+        done: 'circle-check',
+        stopped: 'circle-x',
+      })[this.phase()],
+  );
 
   protected readonly note = computed(() => {
     const pacing = this.store.pacing();
@@ -205,6 +384,7 @@ export class SendIsland {
 
   protected act(action: 'pause' | 'resume' | 'stop'): void {
     this.error.set('');
+    // One HTTP call that completes on its own; nothing to tear down.
     this.api.campaignAction(action).subscribe({
       next: ({ stats }) => this.store.stats.set(stats),
       error: (err: Error) => this.error.set(err.message),

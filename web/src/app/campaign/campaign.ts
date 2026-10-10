@@ -1,4 +1,12 @@
-import { Component, computed, inject, input, OnInit, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  OnInit,
+  signal,
+} from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -13,20 +21,30 @@ import { AudienceStep } from './steps/audience-step';
 import { MessageStep } from './steps/message-step';
 import { ReviewStep } from './steps/review-step';
 
+/** The composer's rail; step 4 is the result screen, reached only by sending. */
 const STEPS: { n: ComposerStep; label: string; icon: string }[] = [
-  { n: 1, label: 'Audience', icon: 'group' },
-  { n: 2, label: 'Message', icon: 'edit_note' },
-  { n: 3, label: 'Review', icon: 'checklist' },
+  { n: 1, label: 'Audience', icon: 'users' },
+  { n: 2, label: 'Message', icon: 'notes' },
+  { n: 3, label: 'Review', icon: 'list-check' },
   { n: 4, label: 'Send', icon: 'send' },
 ];
 
+/** Accepted `?filter=` values for a re-target link; anything else falls back to 'failed'. */
 const FILTERS: RetargetFilter[] = ['failed', 'unread', 'noreply', 'replied', 'clicked'];
 
+/**
+ * The campaign composer page: a four-step wizard (audience, message, review,
+ * result) beside a live phone preview, plus a quick single-message mode.
+ * All draft state lives in the root-provided CampaignDraft, so a half-built
+ * campaign survives navigating away; this view only routes between steps and
+ * applies `?template=` / `?retarget=` prefills.
+ */
 @Component({
   selector: 'app-campaign',
   imports: [DatePipe, FormsModule, RouterLink, PhonePreview, AudienceStep, MessageStep, ReviewStep],
   templateUrl: './campaign.html',
   styleUrl: './campaign.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CampaignView implements OnInit {
   private readonly api = inject(Api);
@@ -74,12 +92,21 @@ export class CampaignView implements OnInit {
   private prefillTemplate(id: number): void {
     this.templatesApi.get(id).subscribe({
       next: ({ template }) => {
-        const t = template as typeof template & { mediaId?: string | null; interactive?: InteractiveDraft | null };
+        const t = template as typeof template & {
+          mediaId?: string | null;
+          interactive?: InteractiveDraft | null;
+        };
         this.draft.message.set(t.body ?? '');
         this.draft.templateId.set(t.id ?? id);
         if (t.interactive) this.draft.interactive.set(t.interactive);
         if (t.mediaId) {
-          this.draft.setAttachment({ mediaId: t.mediaId, filename: 'Template attachment', mimetype: '', size: 0, previewUrl: '' });
+          this.draft.setAttachment({
+            mediaId: t.mediaId,
+            filename: 'Template attachment',
+            mimetype: '',
+            size: 0,
+            previewUrl: '',
+          });
         }
         this.store.setStatus(`Loaded template "${t.name}"`, 'primary');
       },
@@ -101,6 +128,7 @@ export class CampaignView implements OnInit {
     });
   }
 
+  /** Steps open in order: you can always go back, forward only once the earlier steps are ready. */
   protected canOpen(n: ComposerStep): boolean {
     const d = this.draft;
     const step = d.step();

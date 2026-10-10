@@ -2,8 +2,13 @@
 
 <div class="seg" role="radiogroup" aria-label="Buttons under the message">
   @for (t of types; track t.value) {
-    <button type="button" role="radio" [attr.aria-checked]="type() === t.value" (click)="setType(t.value)">
-      <span class="ms" aria-hidden="true">{{ t.icon }}</span>{{ t.label }}
+    <button
+      type="button"
+      role="radio"
+      [attr.aria-checked]="type() === t.value"
+      (click)="setType(t.value)"
+    >
+      <i class="ti ti-{{ t.icon }}" aria-hidden="true"></i>{{ t.label }}
     </button>
   }
 </div>
@@ -11,12 +16,30 @@
 @if (v) {
   <div class="pair">
     <label class="fld">
-      <span>Header text <em class="ctr" [class.over]="len(v.header) > limits.header">{{ len(v.header) }}/{{ limits.header }}</em></span>
-      <input [value]="v.header ?? ''" (input)="patch({ header: val($event) })" placeholder="Optional bold line" />
+      <span
+        >Header text
+        <em class="ctr" [class.over]="len(v.header) > limits.header"
+          >{{ len(v.header) }}/{{ limits.header }}</em
+        ></span
+      >
+      <input
+        [value]="v.header ?? ''"
+        (input)="patch({ header: val($event) })"
+        placeholder="Optional bold line"
+      />
     </label>
     <label class="fld">
-      <span>Footer <em class="ctr" [class.over]="len(v.footer) > limits.footer">{{ len(v.footer) }}/{{ limits.footer }}</em></span>
-      <input [value]="v.footer ?? ''" (input)="patch({ footer: val($event) })" placeholder="Optional grey footnote" />
+      <span
+        >Footer
+        <em class="ctr" [class.over]="len(v.footer) > limits.footer"
+          >{{ len(v.footer) }}/{{ limits.footer }}</em
+        ></span
+      >
+      <input
+        [value]="v.footer ?? ''"
+        (input)="patch({ footer: val($event) })"
+        placeholder="Optional grey footnote"
+      />
     </label>
   </div>
 
@@ -27,19 +50,55 @@
           <li class="item">
             <span class="num" aria-hidden="true">{{ i + 1 }}</span>
             <label class="fld grow">
-              <input [value]="b.title" (input)="setButton(i, val($event))" [attr.aria-label]="'Button ' + (i + 1) + ' title'" placeholder="Button title" />
-              <em class="ctr" [class.over]="len(b.title) > limits.buttonTitle">{{ len(b.title) }}/{{ limits.buttonTitle }}</em>
+              <input
+                [value]="b.title"
+                (input)="setButton(i, val($event))"
+                [attr.aria-label]="'Button ' + (i + 1) + ' title'"
+                placeholder="Button title"
+              />
+              <em class="ctr" [class.over]="len(b.title) > limits.buttonTitle"
+                >{{ len(b.title) }}/{{ limits.buttonTitle }}</em
+              >
             </label>
             <span class="tools">
-              <button type="button" class="ic" [disabled]="first" (click)="moveButton(i, -1)" [attr.aria-label]="'Move button ' + (i + 1) + ' up'"><span class="ms" aria-hidden="true">arrow_upward</span></button>
-              <button type="button" class="ic" [disabled]="last" (click)="moveButton(i, 1)" [attr.aria-label]="'Move button ' + (i + 1) + ' down'"><span class="ms" aria-hidden="true">arrow_downward</span></button>
-              <button type="button" class="ic del" (click)="removeButton(i)" [attr.aria-label]="'Remove button ' + (i + 1)"><span class="ms" aria-hidden="true">close</span></button>
+              <button
+                type="button"
+                class="ic"
+                [disabled]="first"
+                (click)="moveButton(i, -1)"
+                [attr.aria-label]="'Move button ' + (i + 1) + ' up'"
+              >
+                <i class="ti ti-arrow-up" aria-hidden="true"></i>
+              </button>
+              <button
+                type="button"
+                class="ic"
+                [disabled]="last"
+                (click)="moveButton(i, 1)"
+                [attr.aria-label]="'Move button ' + (i + 1) + ' down'"
+              >
+                <i class="ti ti-arrow-down" aria-hidden="true"></i>
+              </button>
+              <button
+                type="button"
+                class="ic del"
+                (click)="removeButton(i)"
+                [attr.aria-label]="'Remove button ' + (i + 1)"
+              >
+                <i class="ti ti-x" aria-hidden="true"></i>
+              </button>
             </span>
           </li>
         }
       </ol>
-      <button type="button" class="add" [disabled]="(v.buttons?.length ?? 0) >= limits.buttons" (click)="addButton()">
-        <span class="ms" aria-hidden="true">add</span> Add quick reply <b>{{ v.buttons?.length ?? 0 }}/{{ limits.buttons }}</b>
+      <button
+        type="button"
+        class="add"
+        [disabled]="(v.buttons?.length ?? 0) >= limits.buttons"
+        (click)="addButton()"
+      >
+        <i class="ti ti-plus" aria-hidden="true"></i> Add quick reply
+        <b>{{ v.buttons?.length ?? 0 }}/{{ limits.buttons }}</b>
       </button>
     }
     @case ('cta') {
@@ -49,41 +108,106 @@
             <span class="num" aria-hidden="true">{{ i + 1 }}</span>
             <div class="stack grow">
               <div class="pair">
-                <select [value]="c.kind" (change)="setCta(i, { kind: $any(val($event)) })" [attr.aria-label]="'Action ' + (i + 1) + ' kind'">
-                  @for (k of kinds; track k.value) { <option [value]="k.value" [selected]="k.value === c.kind">{{ k.label }}</option> }
+                <select
+                  [value]="c.kind"
+                  (change)="setCta(i, { kind: $any(val($event)) })"
+                  [attr.aria-label]="'Action ' + (i + 1) + ' kind'"
+                >
+                  @for (k of kinds; track k.value) {
+                    <option [value]="k.value" [selected]="k.value === c.kind">{{ k.label }}</option>
+                  }
                 </select>
                 <label class="fld">
-                  <input [value]="c.title" (input)="setCta(i, { title: val($event) })" [attr.aria-label]="'Action ' + (i + 1) + ' title'" placeholder="Button title" />
-                  <em class="ctr" [class.over]="len(c.title) > limits.ctaTitle">{{ len(c.title) }}/{{ limits.ctaTitle }}</em>
+                  <input
+                    [value]="c.title"
+                    (input)="setCta(i, { title: val($event) })"
+                    [attr.aria-label]="'Action ' + (i + 1) + ' title'"
+                    placeholder="Button title"
+                  />
+                  <em class="ctr" [class.over]="len(c.title) > limits.ctaTitle"
+                    >{{ len(c.title) }}/{{ limits.ctaTitle }}</em
+                  >
                 </label>
               </div>
               @for (k of kinds; track k.value) {
                 @if (k.value === c.kind) {
-                  <input [value]="c.value" (input)="setCta(i, { value: val($event) })" [attr.aria-label]="'Action ' + (i + 1) + ' ' + k.label" [placeholder]="k.placeholder" />
+                  <input
+                    [value]="c.value"
+                    (input)="setCta(i, { value: val($event) })"
+                    [attr.aria-label]="'Action ' + (i + 1) + ' ' + k.label"
+                    [placeholder]="k.placeholder"
+                  />
                 }
               }
             </div>
             <span class="tools">
-              <button type="button" class="ic" [disabled]="first" (click)="moveCta(i, -1)" [attr.aria-label]="'Move action ' + (i + 1) + ' up'"><span class="ms" aria-hidden="true">arrow_upward</span></button>
-              <button type="button" class="ic" [disabled]="last" (click)="moveCta(i, 1)" [attr.aria-label]="'Move action ' + (i + 1) + ' down'"><span class="ms" aria-hidden="true">arrow_downward</span></button>
-              <button type="button" class="ic del" (click)="removeCta(i)" [attr.aria-label]="'Remove action ' + (i + 1)"><span class="ms" aria-hidden="true">close</span></button>
+              <button
+                type="button"
+                class="ic"
+                [disabled]="first"
+                (click)="moveCta(i, -1)"
+                [attr.aria-label]="'Move action ' + (i + 1) + ' up'"
+              >
+                <i class="ti ti-arrow-up" aria-hidden="true"></i>
+              </button>
+              <button
+                type="button"
+                class="ic"
+                [disabled]="last"
+                (click)="moveCta(i, 1)"
+                [attr.aria-label]="'Move action ' + (i + 1) + ' down'"
+              >
+                <i class="ti ti-arrow-down" aria-hidden="true"></i>
+              </button>
+              <button
+                type="button"
+                class="ic del"
+                (click)="removeCta(i)"
+                [attr.aria-label]="'Remove action ' + (i + 1)"
+              >
+                <i class="ti ti-x" aria-hidden="true"></i>
+              </button>
             </span>
           </li>
         }
       </ol>
-      <button type="button" class="add" [disabled]="(v.cta?.length ?? 0) >= limits.cta" (click)="addCta()">
-        <span class="ms" aria-hidden="true">add</span> Add action <b>{{ v.cta?.length ?? 0 }}/{{ limits.cta }}</b>
+      <button
+        type="button"
+        class="add"
+        [disabled]="(v.cta?.length ?? 0) >= limits.cta"
+        (click)="addCta()"
+      >
+        <i class="ti ti-plus" aria-hidden="true"></i> Add action
+        <b>{{ v.cta?.length ?? 0 }}/{{ limits.cta }}</b>
       </button>
     }
     @case ('list') {
       <div class="pair">
         <label class="fld">
-          <span>Menu button <em class="ctr" [class.over]="len(v.list?.button) > limits.listButton">{{ len(v.list?.button) }}/{{ limits.listButton }}</em></span>
-          <input [value]="v.list?.button ?? ''" (input)="setListButton(val($event))" placeholder="View options" />
+          <span
+            >Menu button
+            <em class="ctr" [class.over]="len(v.list?.button) > limits.listButton"
+              >{{ len(v.list?.button) }}/{{ limits.listButton }}</em
+            ></span
+          >
+          <input
+            [value]="v.list?.button ?? ''"
+            (input)="setListButton(val($event))"
+            placeholder="View options"
+          />
         </label>
         <label class="fld">
-          <span>Section title <em class="ctr" [class.over]="len(v.list?.sections?.[0]?.title) > limits.sectionTitle">{{ len(v.list?.sections?.[0]?.title) }}/{{ limits.sectionTitle }}</em></span>
-          <input [value]="v.list?.sections?.[0]?.title ?? ''" (input)="setSectionTitle(val($event))" placeholder="Options" />
+          <span
+            >Section title
+            <em class="ctr" [class.over]="len(v.list?.sections?.[0]?.title) > limits.sectionTitle"
+              >{{ len(v.list?.sections?.[0]?.title) }}/{{ limits.sectionTitle }}</em
+            ></span
+          >
+          <input
+            [value]="v.list?.sections?.[0]?.title ?? ''"
+            (input)="setSectionTitle(val($event))"
+            placeholder="Options"
+          />
         </label>
       </div>
       <ol class="items">
@@ -92,29 +216,77 @@
             <span class="num" aria-hidden="true">{{ i + 1 }}</span>
             <div class="stack grow">
               <label class="fld">
-                <input [value]="r.title" (input)="setRow(i, { title: val($event) })" [attr.aria-label]="'Option ' + (i + 1) + ' title'" placeholder="Option title" />
-                <em class="ctr" [class.over]="len(r.title) > limits.rowTitle">{{ len(r.title) }}/{{ limits.rowTitle }}</em>
+                <input
+                  [value]="r.title"
+                  (input)="setRow(i, { title: val($event) })"
+                  [attr.aria-label]="'Option ' + (i + 1) + ' title'"
+                  placeholder="Option title"
+                />
+                <em class="ctr" [class.over]="len(r.title) > limits.rowTitle"
+                  >{{ len(r.title) }}/{{ limits.rowTitle }}</em
+                >
               </label>
               <label class="fld">
-                <input [value]="r.description ?? ''" (input)="setRow(i, { description: val($event) })" [attr.aria-label]="'Option ' + (i + 1) + ' description'" placeholder="Description (optional)" />
-                <em class="ctr" [class.over]="len(r.description) > limits.rowDescription">{{ len(r.description) }}/{{ limits.rowDescription }}</em>
+                <input
+                  [value]="r.description ?? ''"
+                  (input)="setRow(i, { description: val($event) })"
+                  [attr.aria-label]="'Option ' + (i + 1) + ' description'"
+                  placeholder="Description (optional)"
+                />
+                <em class="ctr" [class.over]="len(r.description) > limits.rowDescription"
+                  >{{ len(r.description) }}/{{ limits.rowDescription }}</em
+                >
               </label>
             </div>
             <span class="tools">
-              <button type="button" class="ic" [disabled]="first" (click)="moveRow(i, -1)" [attr.aria-label]="'Move option ' + (i + 1) + ' up'"><span class="ms" aria-hidden="true">arrow_upward</span></button>
-              <button type="button" class="ic" [disabled]="last" (click)="moveRow(i, 1)" [attr.aria-label]="'Move option ' + (i + 1) + ' down'"><span class="ms" aria-hidden="true">arrow_downward</span></button>
-              <button type="button" class="ic del" (click)="removeRow(i)" [attr.aria-label]="'Remove option ' + (i + 1)"><span class="ms" aria-hidden="true">close</span></button>
+              <button
+                type="button"
+                class="ic"
+                [disabled]="first"
+                (click)="moveRow(i, -1)"
+                [attr.aria-label]="'Move option ' + (i + 1) + ' up'"
+              >
+                <i class="ti ti-arrow-up" aria-hidden="true"></i>
+              </button>
+              <button
+                type="button"
+                class="ic"
+                [disabled]="last"
+                (click)="moveRow(i, 1)"
+                [attr.aria-label]="'Move option ' + (i + 1) + ' down'"
+              >
+                <i class="ti ti-arrow-down" aria-hidden="true"></i>
+              </button>
+              <button
+                type="button"
+                class="ic del"
+                (click)="removeRow(i)"
+                [attr.aria-label]="'Remove option ' + (i + 1)"
+              >
+                <i class="ti ti-x" aria-hidden="true"></i>
+              </button>
             </span>
           </li>
         }
       </ol>
-      <button type="button" class="add" [disabled]="rows().length >= limits.rows" (click)="addRow()">
-        <span class="ms" aria-hidden="true">add</span> Add option <b>{{ rows().length }}/{{ limits.rows }}</b>
+      <button
+        type="button"
+        class="add"
+        [disabled]="rows().length >= limits.rows"
+        (click)="addRow()"
+      >
+        <i class="ti ti-plus" aria-hidden="true"></i> Add option
+        <b>{{ rows().length }}/{{ limits.rows }}</b>
       </button>
     }
   }
 
-  @for (e of errors(); track e) { <span class="err" role="alert">{{ e }}</span> }
+  @for (e of errors(); track e) {
+    <span class="err" role="alert">{{ e }}</span>
+  }
 } @else {
-  <p class="hint">Plain message. Add quick replies, a website/call/copy-code action, or a list menu to make it tappable.</p>
+  <p class="hint">
+    Plain message. Add quick replies, a website/call/copy-code action, or a list menu to make it
+    tappable.
+  </p>
 }

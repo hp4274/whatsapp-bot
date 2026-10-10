@@ -1,88 +1,168 @@
-/* Design tokens, ported from the desktop build's theme module.
- *
- * Deep navy surfaces, WhatsApp green for anything live, blue for
- * configuration, amber for advisories, red for destructive work.  Components
- * never hard-code a colour: they use these variables, so light and dark stay
- * in step and one edit here re-skins the app.
- */
+// Design tokens and app-wide primitives.
+//
+// The visual language is Kardlyz's (`D:\Work\kardlyz\src\styles\global\_tokens.scss`):
+// one brand orange for fills and active states, a near-black ink for the
+// primary action, a violet second accent, neutral grey surfaces in light mode
+// and a navy ramp in dark mode. Every value is a CSS custom property so the
+// theme switches at runtime and no component hard-codes a colour.
+//
+// The second block keeps this app's older token names (`--canvas`, `--surface-alt`,
+// `--border`, `--text`, ...) as aliases onto the Kardlyz tokens. Component
+// stylesheets written against the old names re-skin without being touched; new
+// code uses the Kardlyz names directly.
 
 :root {
   color-scheme: light;
 
-  --canvas: #f1f5f9;
-  --rail: #ffffff;
-  --surface: #ffffff;
-  --surface-alt: #eef3f8;
-  --border: #dce5ec;
-  --text: #0d1b24;
-  --text-muted: #4d6174;
+  --font-display: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
 
-  --primary: #08793a;
-  --primary-hover: #066430;
-  --primary-soft: #dcfce7;
+  --radius-xl: 24px;
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+
+  --transition-fast: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-normal: 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+
+  // ---------------------------------------------------------------- brand
+  --brand-ink: #101014;
+  --brand-orange: #ed7e25;
+  --brand-violet: #5f68ab;
+  /// Brand orange is 2.8:1 on white: fine as a fill, unreadable as type.
+  --brand-orange-ink: #a85614;
+
+  // -------------------------------------------------------------- semantic
+  /// Fills, borders, active states, icon tints.
+  --primary: var(--brand-orange);
+  /// Links and small text — use this whenever orange lands on glyphs.
+  --primary-text: var(--brand-orange-ink);
+  /// Primary button surface: the mark's black, so white labels clear AA.
+  --primary-deep: var(--brand-ink);
+  --primary-glow: rgba(237, 126, 37, 0.18);
+  --primary-tint: #fef5ec;
+  --accent: var(--brand-violet);
+
+  // -------------------------------------------------------------- surfaces
+  --bg-color: #f7f7f9;
+  --panel-solid: #ffffff;
+  --surface-card: #ffffff;
+  --surface-rail: #ffffff;
+  --surface-sunken: #f1f1f5;
+  --surface-band: #eeeef3;
+
+  // ------------------------------------------------------------------ text
+  --text-color: #1a1a20;
+  --text-muted: #64646f;
+  --text-strong: #0d0d11;
+  --hint: #97979f;
+
+  // ----------------------------------------------------------- lines/inputs
+  --border-color: rgba(16, 16, 24, 0.09);
+  --border-hover: rgba(16, 16, 24, 0.18);
+  --input-bg: rgba(16, 16, 24, 0.02);
+  --input-focus: rgba(237, 126, 37, 0.16);
+
+  // --------------------------------------------------------------- shadows
+  --shadow-sm: 0 4px 12px rgba(16, 16, 24, 0.08);
+  --shadow-card: 0 4px 16px -12px rgba(16, 16, 24, 0.18);
+  --shadow-float: 0 12px 24px -8px rgba(16, 16, 24, 0.2);
+  --shadow-lift: 0 20px 40px -16px rgba(16, 16, 24, 0.22);
+
+  // --------------------------------------------------------------- status
+  --success: #0f7a4c;
+  --warning: #8f5513;
+  --info: #2f80ed;
+  /// Fills, borders, dots and icons.
+  --danger: #ef4444;
+  /// Error and destructive-action type (6.5:1 on white).
+  --danger-text: #b91c1c;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  // On navy the darkened orange disappears, so the text-safe tone lightens.
+  --brand-orange-ink: #f0a163;
+  // A black button has no edge on a dark panel, so the primary surface inverts.
+  --primary-deep: #eef2fb;
+  --primary-glow: rgba(237, 126, 37, 0.22);
+  --primary-tint: rgba(237, 126, 37, 0.14);
+  --accent: #9aa2e0;
+
+  --bg-color: #04070e;
+  --panel-solid: #080d18;
+  --surface-card: #080d18;
+  --surface-rail: #080d18;
+  --surface-sunken: #18213a;
+  --surface-band: #18213a;
+
+  --text-color: #dfe5f2;
+  --text-muted: #94a0bd;
+  --text-strong: #f2f6ff;
+  --hint: #6d7893;
+
+  --border-color: rgba(148, 178, 235, 0.13);
+  --border-hover: rgba(148, 178, 235, 0.28);
+  --input-bg: rgba(148, 178, 235, 0.05);
+  --input-focus: rgba(237, 126, 37, 0.24);
+
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-card: 0 4px 16px -12px rgba(0, 0, 0, 0.65);
+  --shadow-float: 0 12px 24px -8px rgba(0, 0, 0, 0.7);
+  --shadow-lift: 0 20px 40px -16px rgba(0, 0, 0, 0.75);
+
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --danger-text: #f87171;
+}
+
+// Legacy names -> Kardlyz tokens. Declared on `:root` only: each one is a
+// `var()` reference, so it follows the dark palette without being restated.
+:root {
+  --canvas: var(--bg-color);
+  --rail: var(--surface-rail);
+  --surface: var(--surface-card);
+  --surface-alt: var(--surface-sunken);
+  --border: var(--border-color);
+  --text: var(--text-color);
+
+  --primary-hover: #d2680f;
+  --primary-soft: var(--primary-tint);
   --on-primary: #ffffff;
 
-  --accent: #1d4ed8;
-  --accent-fill: #2563eb;
-  --accent-soft: #dbeafe;
+  --accent-fill: var(--brand-violet);
+  --accent-soft: color-mix(in srgb, var(--brand-violet) 12%, transparent);
 
-  --warning: #b45309;
-  --warning-soft: #fef3c7;
-  --danger: #c62828;
-  --danger-fill: #c62828;
-  --danger-hover: #a51c1c;
-  --danger-soft: #fee2e2;
+  --warning-soft: color-mix(in srgb, var(--warning) 12%, transparent);
+  --danger-fill: var(--danger);
+  --danger-hover: #dc2626;
+  --danger-soft: color-mix(in srgb, var(--danger) 10%, transparent);
+  --success-soft: color-mix(in srgb, var(--success) 12%, transparent);
 
-  --radius: 12px;
-  --radius-sm: 8px;
+  --radius: var(--radius-lg);
+
   --space-xs: 4px;
   --space-sm: 8px;
   --space-md: 12px;
   --space-lg: 16px;
   --space-xl: 24px;
 
-  --shadow: 0 1px 2px rgba(13, 27, 36, 0.06), 0 8px 24px rgba(13, 27, 36, 0.06);
-  --font: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
-  --mono: 'Cascadia Mono', Consolas, 'SF Mono', monospace;
+  --shadow: var(--shadow-card);
+  --font: var(--font-body);
+  --mono: var(--font-mono);
 
-  /* One rhythm for every transition in the app. */
-  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
-  --fast: 140ms;
-  --base: 220ms;
-}
-
-:root[data-theme='dark'] {
-  color-scheme: dark;
-
-  --canvas: #0c161f;
-  --rail: #0a1119;
-  --surface: #111e2a;
-  --surface-alt: #18293a;
-  --border: #22384a;
-  --text: #e7f0f7;
-  --text-muted: #8ca3b7;
-
-  --primary: #25d366;
-  --primary-hover: #1fbf5c;
-  --primary-soft: #10331f;
-  --on-primary: #04150b;
-
-  --accent: #6aa5ff;
-  --accent-fill: #2563eb;
-  --accent-soft: #132a46;
-
-  --warning: #fbbf24;
-  --warning-soft: #2e2410;
-  --danger: #f87171;
-  --danger-fill: #c62828;
-  --danger-hover: #b71c1c;
-  --danger-soft: #33171a;
-
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.35);
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --fast: 200ms;
+  --base: 300ms;
 }
 
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
 }
 
 html,
@@ -92,12 +172,15 @@ body {
 
 body {
   margin: 0;
-  font-family: var(--font);
+  font-family: var(--font-body);
   font-size: 14px;
   line-height: 1.5;
-  color: var(--text);
-  background: var(--canvas);
-  transition: background var(--base) var(--ease), color var(--base) var(--ease);
+  color: var(--text-color);
+  background: var(--bg-color);
+  -webkit-font-smoothing: antialiased;
+  transition:
+    background var(--base) var(--ease),
+    color var(--base) var(--ease);
 }
 
 h1,
@@ -105,6 +188,12 @@ h2,
 h3 {
   margin: 0;
   line-height: 1.25;
+  font-weight: 500;
+  color: var(--text-strong);
+}
+
+a {
+  color: var(--primary-text);
 }
 
 button {
@@ -116,37 +205,55 @@ input,
 select,
 textarea {
   font: inherit;
-  color: var(--text);
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--text-strong);
+  background: var(--surface-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
   width: 100%;
-  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+  transition:
+    border-color var(--fast) var(--ease),
+    box-shadow var(--fast) var(--ease);
+
+  &::placeholder {
+    color: var(--hint);
+  }
+
+  &:hover:not(:disabled):not(:focus) {
+    border-color: var(--border-hover);
+  }
 
   &:focus-visible {
     outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--input-focus);
   }
 
   &:disabled {
-    opacity: 0.5;
+    opacity: 0.6;
     cursor: not-allowed;
   }
 }
 
-/* Keyboard users must always see where they are. */
+input[type='checkbox'],
+input[type='radio'] {
+  width: auto;
+  padding: 0;
+  accent-color: var(--brand-orange);
+}
+
+// Keyboard focus is always visible, never painted on mouse clicks.
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
+// A 24px-radius panel on the card surface, hairline-bordered: the Kardlyz card.
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  background: var(--surface-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
 }
 
 .muted {
@@ -158,91 +265,101 @@ textarea {
   align-items: center;
   gap: 6px;
   border-radius: 999px;
-  padding: 5px 14px;
-  font-size: 12px;
-  font-weight: 600;
+  padding: 6px 13px;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
-/* Buttons ------------------------------------------------------------- */
+// Buttons ---------------------------------------------------------------
+//
+// `.btn` is the outline button (card surface, hairline border); `.primary` is
+// the ink button that turns brand orange on hover; `.danger` is the red-outline
+// destructive one. 38px tall, 10px radius, 13.5px medium — Kardlyz's sizes.
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: 10px 16px;
-  font-weight: 600;
-  color: var(--text);
-  background: var(--surface-alt);
-  border-color: var(--border);
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--text-strong);
+  background: var(--surface-card);
   transition:
     background var(--fast) var(--ease),
     border-color var(--fast) var(--ease),
-    transform var(--fast) var(--ease),
-    opacity var(--fast) var(--ease);
+    color var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
 
-  &:hover:not(:disabled) {
-    background: var(--accent-soft);
+  .ti {
+    font-size: 15px;
   }
 
-  /* Press feedback that does not move the layout around it. */
+  &:hover:not(:disabled) {
+    background: var(--surface-sunken);
+  }
+
   &:active:not(:disabled) {
     transform: scale(0.98);
   }
 
   &:disabled {
-    opacity: 0.45;
+    opacity: 0.6;
     cursor: not-allowed;
   }
 
   &.primary {
-    background: var(--primary);
-    border-color: var(--primary);
-    color: var(--on-primary);
+    border-color: transparent;
+    background: var(--text-strong);
+    color: var(--surface-card);
 
     &:hover:not(:disabled) {
-      background: var(--primary-hover);
+      background: var(--primary);
+      color: #fff;
     }
   }
 
   &.danger {
-    background: var(--danger-fill);
-    border-color: var(--danger-fill);
-    color: #fff;
+    border-color: rgba(220, 38, 38, 0.35);
+    color: var(--danger-text);
 
     &:hover:not(:disabled) {
-      background: var(--danger-hover);
+      background: rgba(239, 68, 68, 0.08);
     }
   }
 }
 
 .field {
   display: grid;
-  gap: 6px;
+  gap: 7px;
 
   label {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-strong);
   }
 
   .hint {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-muted);
   }
 }
 
-/* Status colours: always paired with the status word, never colour alone. */
+// Status colours: always paired with the status word, never colour alone.
 .status-QUEUED { color: var(--text-muted); }
-.status-SENDING { color: var(--accent); }
+.status-SENDING { color: var(--info); }
 .status-SENT,
 .status-DELIVERED,
-.status-READ { color: var(--primary); }
-.status-FAILED { color: var(--danger); }
+.status-READ { color: var(--success); }
+.status-FAILED { color: var(--danger-text); }
 .status-SANDBOX { color: var(--warning); }
 
-/* Motion ---------------------------------------------------------------- */
+// Motion ----------------------------------------------------------------
 @keyframes fade-in-up {
   from {
     opacity: 0;
@@ -263,6 +380,10 @@ textarea {
   to { transform: rotate(360deg); }
 }
 
+@keyframes pulse {
+  50% { opacity: 0.5; }
+}
+
 .enter {
   animation: fade-in-up var(--base) var(--ease) both;
 }
@@ -271,7 +392,7 @@ textarea {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--primary);
+  background: var(--success);
   animation: breathe 1.8s var(--ease) infinite;
 }
 
@@ -284,7 +405,15 @@ textarea {
   animation: spin 800ms linear infinite;
 }
 
-/* Anything that moves must be skippable. */
+// Skeleton block for loading states: a sunken bar that breathes.
+.skeleton {
+  display: block;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+// Anything that moves must be skippable.
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -295,20 +424,41 @@ textarea {
   }
 }
 
-/* Google Material Symbols (loaded in index.html). Use: <span class="ms">name</span> */
-.ms {
+// Tabler icons (stylesheet linked in index.html). Use: <i class="ti ti-name" aria-hidden="true"></i>
+// 18px default matches the glyph size the app was laid out against.
+.ti {
   display: inline-block;
   flex: none;
-  font-family: 'Material Symbols Outlined';
   font-size: 18px;
-  font-style: normal;
-  font-weight: 400;
   line-height: 1;
-  letter-spacing: normal;
-  text-transform: none;
+}
+
+// Skip link for keyboard users; revealed on focus.
+.skip-to-content {
+  position: absolute;
+  left: -9999px;
+
+  &:focus {
+    position: fixed;
+    top: 8px;
+    left: 8px;
+    z-index: 1000;
+    padding: 8px 16px;
+    border-radius: var(--radius-md);
+    background: var(--panel-solid);
+    color: var(--text-color);
+  }
+}
+
+// Visually hidden but read by screen readers.
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
   white-space: nowrap;
-  direction: ltr;
-  font-feature-settings: 'liga';
-  -webkit-font-smoothing: antialiased;
-  user-select: none;
+  border: 0;
 }
