@@ -1,0 +1,131 @@
+@let c = conversation();
+<header class="cp-head">
+  <span class="av lg" [style.--h]="hue()">{{ initials() }}</span>
+  <div class="who">
+    <strong>{{ contact()?.name || name() || c.phone }}</strong>
+    <span class="muted">{{ c.phone }}</span>
+    @if (optIn(); as o) { <span class="opt {{ o.tone }}"><span class="ms" aria-hidden="true">{{ o.icon }}</span>{{ o.label }}</span> }
+  </div>
+  <button type="button" class="icon-btn" (click)="close.emit()" aria-label="Close details (Esc)"><span class="ms">close</span></button>
+</header>
+
+@if (error()) {
+  <div class="cp-err" role="alert"><span class="ms" aria-hidden="true">error</span>{{ error() }}
+    <button type="button" class="icon-btn" (click)="error.set('')" aria-label="Dismiss"><span class="ms">close</span></button></div>
+}
+
+<details class="sec" open>
+  <summary><span class="ms" aria-hidden="true">forum</span>Conversation</summary>
+  <div class="sec-body">
+    <div class="seg" role="group" aria-label="Status">
+      @for (s of statuses; track s) {
+        <button type="button" [class.on]="c.status === s" [attr.aria-pressed]="c.status === s" [disabled]="busy() === 'status'"
+          (click)="setStatus(s)">{{ s }}</button>
+      }
+    </div>
+    <label class="lbl" for="cp-assign">Assigned to</label>
+    <select id="cp-assign" [disabled]="busy() === 'assign'" (change)="assign($any($event.target).value)">
+      <option value="" [selected]="c.assignedTo === null">Unassigned</option>
+      @for (u of assignees(); track u.id) {
+        <option [value]="u.id" [selected]="c.assignedTo === u.id">{{ u.id === me()?.id ? 'Me (' + (u.name || u.email) + ')' : (u.name || u.email) }}</option>
+      }
+    </select>
+    <p class="bot-line" [class.paused]="c.botPaused">
+      <span class="ms" aria-hidden="true">{{ c.botPaused ? 'support_agent' : 'smart_toy' }}</span>
+      {{ c.botPaused ? 'Bot paused - ' + userName(c.assignedTo) + ' has this chat' : 'Bot is replying automatically' }}
+    </p>
+    <span class="lbl">Conversation tags</span>
+    <div class="tags">
+      @for (t of c.tags; track t) {
+        <span class="tag">{{ t }}<button type="button" (click)="removeConvTag(t)" [attr.aria-label]="'Remove tag ' + t" [disabled]="busy() === 'ctag'"><span class="ms">close</span></button></span>
+      }
+      <input class="tag-in" placeholder="Add tag" aria-label="Add conversation tag" [value]="convTag()"
+        (input)="convTag.set($any($event.target).value)" (keydown.enter)="$event.preventDefault(); addConvTag()" />
+    </div>
+  </div>
+</details>
+
+<details class="sec" open>
+  <summary><span class="ms" aria-hidden="true">badge</span>Contact</summary>
+  <div class="sec-body">
+    @if (contactLoading()) {
+      <p class="muted small"><span class="spinner"></span> Loading contact...</p>
+    } @else if (contact(); as k) {
+      @if (k.email) { <p class="small"><span class="ms ic" aria-hidden="true">mail</span>{{ k.email }}</p> }
+      <span class="lbl">Contact tags</span>
+      <div class="tags">
+        @for (t of k.tags; track t) {
+          <span class="tag alt">{{ t }}
+            @if (canEditContact()) {
+              <button type="button" (click)="removeContactTag(t)" [attr.aria-label]="'Remove contact tag ' + t" [disabled]="busy() === 'tag'"><span class="ms">close</span></button>
+            }
+          </span>
+        } @empty { @if (!canEditContact()) { <span class="muted small">No tags</span> } }
+        @if (canEditContact()) {
+          <input class="tag-in" placeholder="Add tag" aria-label="Add contact tag" [value]="contactTag()"
+            (input)="contactTag.set($any($event.target).value)" (keydown.enter)="$event.preventDefault(); addContactTag()" />
+        }
+      </div>
+      <span class="lbl">Custom fields</span>
+      <div class="fields">
+        @for (f of fields(); track $index; let i = $index) {
+          <div class="kv">
+            <input [value]="f.key" placeholder="field" [attr.aria-label]="'Field name ' + (i + 1)" [readOnly]="!canEditContact()"
+              (input)="editField(i, 'key', $any($event.target).value)" />
+            <input [value]="f.value" placeholder="value" [attr.aria-label]="(f.key || 'Field ' + (i + 1)) + ' value'" [readOnly]="!canEditContact()"
+              (input)="editField(i, 'value', $any($event.target).value)" />
+            @if (canEditContact()) {
+              <button type="button" class="icon-btn sm" (click)="removeField(i)" [attr.aria-label]="'Remove field ' + (f.key || i + 1)"><span class="ms">delete</span></button>
+            }
+          </div>
+        } @empty { <span class="muted small">No custom fields.</span> }
+      </div>
+      @if (canEditContact()) {
+        <div class="row-actions">
+          <button type="button" class="btn sm" (click)="addField()"><span class="ms" aria-hidden="true">add</span>Field</button>
+          @if (fieldsDirty()) {
+            <button type="button" class="btn primary sm" [disabled]="busy() === 'fields'" (click)="saveFields()">
+              @if (busy() === 'fields') { <span class="spinner"></span> } Save fields
+            </button>
+          }
+        </div>
+      } @else {
+        <p class="hint muted">Only admins can edit contact records.</p>
+      }
+    } @else {
+      <p class="muted small">This number has no contact record yet.</p>
+    }
+  </div>
+</details>
+
+@if (context().campaigns.length || context().rules.length || context().buttons.length) {
+  <details class="sec" open>
+    <summary><span class="ms" aria-hidden="true">campaign</span>Campaign context</summary>
+    <div class="sec-body ctx">
+      @for (k of context().campaigns; track k.id) {
+        <p><span class="ms ic" aria-hidden="true">send</span><span>Received campaign <b>{{ k.id }}</b><small class="muted">{{ when(k.at) }}</small></span></p>
+      }
+      @for (b of context().buttons; track b.at) {
+        <p><span class="ms ic" aria-hidden="true">touch_app</span><span>Tapped <b>{{ b.title }}</b>@if (b.campaignId) { on campaign <b>{{ b.campaignId }}</b> }<small class="muted">{{ when(b.at) }}</small></span></p>
+      }
+      @for (r of context().rules; track r.at) {
+        <p><span class="ms ic" aria-hidden="true">smart_button</span><span>Replied "{{ r.body }}" - matched rule <b>{{ r.rule }}</b><small class="muted">{{ when(r.at) }}</small></span></p>
+      }
+    </div>
+  </details>
+}
+
+<details class="sec" open>
+  <summary><span class="ms" aria-hidden="true">lock</span>Internal notes @if (notes().length) { <span class="cnt">{{ notes().length }}</span> }</summary>
+  <div class="sec-body">
+    <p class="hint muted">Only your team sees these. Never sent to the customer.</p>
+    @for (n of notes(); track n.id) {
+      <div class="note"><p>{{ n.body }}</p><span>{{ userName(n.userId) }} · {{ when(n.createdAt) }}</span></div>
+    }
+    <textarea rows="2" placeholder="Add a note for your team (Ctrl+Enter)" aria-label="New note"
+      [value]="noteDraft()" (input)="noteDraft.set($any($event.target).value)" (keydown)="noteKey($event)"></textarea>
+    <button type="button" class="btn sm" [disabled]="!noteDraft().trim() || busy() === 'note'" (click)="addNote()">
+      <span class="ms" aria-hidden="true">add</span>Add note
+    </button>
+  </div>
+</details>

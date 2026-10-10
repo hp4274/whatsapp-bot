@@ -1,6 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { forkJoin } from 'rxjs';
 
@@ -172,6 +172,18 @@ export class TenantsView {
 
   constructor() {
     this.refresh();
+    // /admin/tenants?settings=<id>[&tab=limits|safety] (linked from the ops pages) opens that drawer.
+    const query = inject(ActivatedRoute).snapshot.queryParamMap;
+    const wanted = Number(query.get('settings'));
+    const tab = query.get('tab');
+    if (wanted) {
+      this.api.tenants().subscribe(({ tenants }) => {
+        const tenant = tenants.find((t) => t.id === wanted);
+        if (!tenant) return;
+        this.openSettings(tenant);
+        if (tab === 'limits' || tab === 'safety') this.settingsTab.set(tab);
+      });
+    }
   }
 
   protected refresh() {

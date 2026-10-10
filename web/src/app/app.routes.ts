@@ -28,6 +28,18 @@ export const routes: Routes = [
     loadComponent: () => import('./campaign/campaign').then((m) => m.CampaignView),
   },
   {
+    path: 'campaigns',
+    title: 'Campaigns - WhatsApp Sender',
+    canActivate: [authGuard],
+    loadComponent: () => import('./campaigns/campaigns-list').then((m) => m.CampaignsListView),
+  },
+  {
+    path: 'campaigns/:id',
+    title: 'Campaign - WhatsApp Sender',
+    canActivate: [authGuard],
+    loadComponent: () => import('./campaigns/campaign-detail').then((m) => m.CampaignDetailView),
+  },
+  {
     path: 'auto-replies',
     title: 'Auto-Replies - WhatsApp Sender',
     canActivate: [authGuard],

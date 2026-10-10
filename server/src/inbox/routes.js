@@ -48,13 +48,14 @@ export function createInboxRouter({ db, state }) {
                 status: req.query.status || null,
                 assignedTo: req.query.assignedTo,
                 unread: req.query.unread === 'true' || req.query.unread === '1',
+                botPaused: req.query.botPaused === 'true' || req.query.botPaused === '1',
                 search: req.query.search || null,
                 limit: req.query.limit,
             }),
         });
     });
 
-    router.get('/inbox/stats', (req, res) => res.json({ stats: conversations.stats() }));
+    router.get('/inbox/stats', (req, res) => res.json({ stats: conversations.stats({ userId: req.user?.id ?? null }) }));
 
     router.get('/conversations/:id', (req, res) => {
         const conversation = resolve(req, res);
@@ -73,15 +74,19 @@ export function createInboxRouter({ db, state }) {
     router.post('/conversations/:id/reply', (req, res) => {
         const conversation = resolve(req, res);
         if (!conversation) return undefined;
-        const { text = '', media = null } = req.body ?? {};
-        if (!String(text).trim() && !media) {
+        // Never trust a media object from the body: it would let a caller point
+        // the transport at any file path. Only an id we issued resolves.
+        const { text = '', mediaId = null } = req.body ?? {};
+        const media = mediaId ? state.media?.get(String(mediaId)) ?? null : null;
+        if (mediaId && !media) return res.status(404).json({ errors: ['media not found'] });
+        if (!String(text ?? '').trim() && !media) {
             return res.status(400).json({ errors: ['a reply needs text or media'] });
         }
         try {
             const outcome = state.messages.send({
                 messageType: 'transactional',
                 recipient: conversation.phone,
-                text: String(text),
+                text: String(text ?? '').trim(),
                 media,
                 contactId: conversation.contactId,
                 conversationId: conversation.id,
@@ -92,6 +97,7 @@ export function createInboxRouter({ db, state }) {
             if (!outcome.accepted) {
                 return res.status(409).json({ errors: [outcome.reason ?? 'reply was not accepted'], ...outcome });
             }
+            conversations.recordMedia(outcome.messageId, media);
             // A human answering is also a human reading.
             conversations.markRead(conversation.id);
             const updated = conversations.touchOutbound(conversation.id);

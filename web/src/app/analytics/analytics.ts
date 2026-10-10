@@ -1,183 +1,131 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
-import { Store } from '../core/store';
-import { RouterLink } from '@angular/router';
-import { Observable, forkJoin, of } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Observable, Subject, forkJoin, of } from 'rxjs';
+import { catchError, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
 
+import { Store } from '../core/store';
 import { Tilt } from '../school/tilt';
 import {
-  AnalyticsApi, CampaignStats, InboxStats, MessageHistory, MessageStatus, ObjectStats, TicketStats, Usage, UsagePeriod,
+  AnalyticsApi, CampaignStats, InboxStats, ObjectStats, Overview, RANGE_DAYS, RangeDays, TicketStats, Usage, UsagePeriod,
 } from './analytics-api';
+import { CountUp, downloadCsv, duration, toCsv, today } from './analytics-util';
+import { CampaignTable } from './campaign-table';
+import { MonthlyUsage } from './monthly-usage';
+import { ResponseTimesView } from './response-times';
+import { TrendChart } from './trend-chart';
 
-/** Bottom-to-top stacking order; FAILED sits on top so it is never hidden. */
-const STATUS_ORDER: MessageStatus[] = ['READ', 'DELIVERED', 'SENT', 'SANDBOX', 'SENDING', 'QUEUED', 'FAILED'];
+const STATUS_ORDER = ['READ', 'DELIVERED', 'SENT', 'SANDBOX', 'SENDING', 'QUEUED', 'FAILED'];
 const OPEN_TICKETS = ['OPEN', 'IN_PROGRESS', 'WAITING_CUSTOMER'];
-const RING = 2 * Math.PI * 34;
-const DAYS = 14;
 
-interface Seg { status: string; n: number; pct: number }
-interface Day { key: string; weekday: string; date: string; total: number; segs: Seg[] }
 interface Bar { label: string; n: number; pct: number; tone: string }
+/** The range-independent sources. Each is null when its endpoint failed or is not enabled. */
 interface Sources {
   usage: Usage | null;
   months: UsagePeriod[] | null;
-  history: MessageHistory | null;
   campaign: CampaignStats | null;
   objects: ObjectStats | null;
   tickets: TicketStats | null;
   inbox: InboxStats | null;
 }
+const EMPTY: Sources = { usage: null, months: null, campaign: null, objects: null, tickets: null, inbox: null };
 
-const EMPTY: Sources = { usage: null, months: null, history: null, campaign: null, objects: null, tickets: null, inbox: null };
-
-/** Round a chart ceiling up to 1/2/5 x 10^n so the axis labels read cleanly. */
-function niceMax(n: number) {
-  if (n <= 4) return 4;
-  const p = 10 ** Math.floor(Math.log10(n));
-  return ([1, 2, 5, 10].find((m) => m * p >= n) ?? 10) * p;
-}
 const pct = (n: number, of: number) => (of > 0 ? Math.round((n / of) * 1000) / 10 : 0);
 const sum = (o: Record<string, number | undefined>) => Object.values(o).reduce<number>((a, v) => a + (v ?? 0), 0);
 const human = (s: string) => s.replace(/_/g, ' ').toLowerCase().replace(/^./, (c) => c.toUpperCase());
-const dayKey = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const toDays = (v: string | null): RangeDays => (RANGE_DAYS.find((d) => String(d) === v) ?? 30);
 
-function bars(map: Record<string, number>, tone: (k: string) => string): Bar[] {
-  const total = sum(map);
-  return Object.entries(map)
+function bars(source: Record<string, number>, tone: (k: string) => string): Bar[] {
+  const total = sum(source);
+  return Object.entries(source)
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1])
     .map(([k, n]) => ({ label: human(k), n, pct: pct(n, total), tone: tone(k) }));
 }
 
+/** A 100x32 sparkline path (line and closed area) for a KPI tile. */
+function spark(values: number[]) {
+  if (values.length < 2) return null;
+  const max = Math.max(1, ...values);
+  const pts = values.map((v, i) => `${((i / (values.length - 1)) * 100).toFixed(2)},${(30 - (v / max) * 26).toFixed(2)}`);
+  const line = `M${pts.join('L')}`;
+  return { line, area: `${line}L100,32L0,32Z` };
+}
+
 @Component({
   selector: 'app-analytics',
-  imports: [RouterLink, Tilt, DecimalPipe, DatePipe],
+  imports: [RouterLink, Tilt, DecimalPipe, DatePipe, CountUp, TrendChart, CampaignTable, ResponseTimesView, MonthlyUsage],
   templateUrl: './analytics.html',
   styleUrl: './analytics.scss',
 })
 export class AnalyticsView {
   private readonly api = inject(AnalyticsApi);
   private readonly store = inject(Store);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
 
-  protected readonly ring = RING;
-  protected readonly statusOrder = STATUS_ORDER;
-  protected readonly loading = signal(true);
+  protected readonly ranges = RANGE_DAYS;
+  protected readonly fmt = duration;
+
+  protected readonly days = signal<RangeDays>(toDays(this.route.snapshot.queryParamMap.get('days')));
   protected readonly data = signal<Sources>(EMPTY);
+  protected readonly srcLoading = signal(true);
+  protected readonly overview = signal<Overview | null>(null);
+  protected readonly ovLoading = signal(true);
+  protected readonly ovError = signal<string | null>(null);
   protected readonly updatedAt = signal<Date | null>(null);
+  private readonly overviewReq = new Subject<boolean>();
 
-  protected readonly allFailed = computed(() => !this.loading() && Object.values(this.data()).every((v) => v === null));
+  /** First paint only; a range switch keeps the old figures on screen, dimmed. */
+  protected readonly loading = computed(() => this.srcLoading() || (this.ovLoading() && !this.overview() && !this.ovError()));
+  protected readonly stale = computed(() => this.ovLoading() && !!this.overview());
+  protected readonly allFailed = computed(() =>
+    !this.loading() && !this.overview() && Object.values(this.data()).every((v) => v === null));
+  /** Nothing at all happened on this number in the range. */
+  protected readonly quiet = computed(() => {
+    const o = this.overview();
+    return !!o && o.totals.total === 0 && o.autoReplies.inbound === 0;
+  });
 
   // ---------------------------------------------------------------- KPIs --
-  protected readonly counts = computed(() => this.data().history?.counts ?? null);
-
-  protected readonly monthly = computed(() => {
-    const m = this.data().usage?.metrics.find((x) => x.metric === 'messages');
-    if (m) return { used: m.used, limit: m.limit, fromPlan: true };
-    const h = this.data().history;
-    if (!h) return null;
-    const now = new Date();
-    const used = h.records.filter((r) => {
-      const d = new Date(r.createdAt);
-      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-    }).length;
-    return { used, limit: null as number | null, fromPlan: false };
-  });
-  protected readonly monthlyPct = computed(() => {
-    const m = this.monthly();
-    return m && m.limit ? Math.min(100, pct(m.used, m.limit)) : 0;
-  });
-
-  protected readonly deliveryRate = computed(() => {
-    const c = this.counts();
-    if (!c) return null;
-    const ok = (c.DELIVERED ?? 0) + (c.READ ?? 0);
-    const out = ok + (c.SENT ?? 0) + (c.FAILED ?? 0);
-    return out ? Math.round((ok / out) * 100) : null;
-  });
-  protected readonly failed = computed(() => this.counts()?.FAILED ?? 0);
-
-  protected readonly openTickets = computed(() => {
-    const t = this.data().tickets;
-    return t ? OPEN_TICKETS.reduce((a, s) => a + (t.byStatus[s] ?? 0), 0) : null;
+  protected readonly kpis = computed(() => {
+    const o = this.overview();
+    if (!o) return null;
+    const t = o.totals;
+    const series = (k: 'sent' | 'delivered' | 'read' | 'failed') => spark(o.daily.map((d) => d[k]));
+    const rt = o.responseTimes;
+    return [
+      { key: 'sent', label: 'Sent', icon: 'send', tone: 'info', value: t.sent, decimals: 0, suffix: '', text: null,
+        foot: `${t.attempted.toLocaleString()} attempted · ${t.pending.toLocaleString()} queued`, spark: series('sent') },
+      { key: 'delivery', label: 'Delivery rate', icon: 'done_all', tone: 'ok', value: t.deliveryRate, decimals: 1, suffix: '%', text: null,
+        foot: `${t.delivered.toLocaleString()} delivered of ${t.attempted.toLocaleString()}`, spark: series('delivered') },
+      { key: 'read', label: 'Read rate', icon: 'visibility', tone: 'read', value: t.readRate, decimals: 1, suffix: '%', text: null,
+        foot: `${t.read.toLocaleString()} read of ${t.delivered.toLocaleString()} delivered`, spark: series('read') },
+      { key: 'failed', label: 'Failed', icon: 'error', tone: 'bad', value: t.failed, decimals: 0, suffix: '', text: null,
+        foot: t.failureRate === null ? 'Nothing attempted yet' : `${t.failureRate}% of attempted`, spark: series('failed') },
+      { key: 'auto', label: 'Auto-reply hits', icon: 'smart_toy', tone: 'warn', value: o.autoReplies.messages, decimals: 0, suffix: '', text: null,
+        foot: `${o.autoReplies.matched.toLocaleString()} of ${o.autoReplies.inbound.toLocaleString()} inbound matched a rule`, spark: null },
+      { key: 'response', label: 'Median first response', icon: 'timer', tone: 'mute', value: null, decimals: 0, suffix: '',
+        text: duration(rt.medianSeconds), foot: rt.answered ? `p90 ${duration(rt.p90Seconds)} · ${rt.unanswered} unanswered` : 'No replies to measure yet',
+        spark: null },
+    ];
   });
 
-  // -------------------------------------------------------- 14-day chart --
-  protected readonly days = computed<Day[] | null>(() => {
-    const h = this.data().history;
-    if (!h) return null;
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - (DAYS - 1));
-    const buckets = new Map<string, Record<string, number>>();
-    const list: { key: string; d: Date }[] = [];
-    for (let i = 0; i < DAYS; i += 1) {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i);
-      list.push({ key: dayKey(d), d });
-      buckets.set(dayKey(d), {});
-    }
-    for (const r of h.records) {
-      const b = buckets.get(dayKey(new Date(r.createdAt)));
-      if (b) b[r.status] = (b[r.status] ?? 0) + 1;
-    }
-    const max = niceMax(Math.max(0, ...[...buckets.values()].map(sum)));
-    return list.map(({ key, d }) => {
-      const b = buckets.get(key)!;
-      return {
-        key,
-        weekday: d.toLocaleDateString(undefined, { weekday: 'short' }),
-        date: d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }),
-        total: sum(b),
-        segs: STATUS_ORDER.filter((s) => b[s]).map((s) => ({ status: s, n: b[s], pct: pct(b[s], max) })),
-      };
-    });
-  });
-  protected readonly dayMax = computed(() => {
-    const d = this.days();
-    return d ? niceMax(Math.max(0, ...d.map((x) => x.total))) : 4;
-  });
-  protected readonly dayTotal = computed(() => (this.days() ?? []).reduce((a, d) => a + d.total, 0));
-  protected readonly dayLegend = computed(() => {
-    const seen = new Set((this.days() ?? []).flatMap((d) => d.segs.map((s) => s.status)));
-    return STATUS_ORDER.filter((s) => seen.has(s));
-  });
-  protected readonly daySummary = computed(() => {
-    const d = this.days();
-    if (!d) return '';
-    const peak = d.reduce((a, b) => (b.total > a.total ? b : a), d[0]);
-    return `Messages per day over the last ${DAYS} days: ${this.dayTotal()} in total` +
-      (peak.total ? `, busiest ${peak.weekday} ${peak.date} with ${peak.total}.` : '.');
-  });
-  protected readonly truncated = computed(() => (this.data().history?.records.length ?? 0) >= 1000);
-
-  // ------------------------------------------------------- breakdowns --
   protected readonly statusBars = computed(() => {
-    const c = this.counts();
-    return c ? bars(c as Record<string, number>, (k) => `s-${k}`) : [];
+    const s = this.overview()?.totals.byStatus;
+    if (!s) return [];
+    const ordered = Object.fromEntries(STATUS_ORDER.map((k) => [k, s[k] ?? 0]));
+    return bars(ordered, (k) => `s-${k}`);
   });
 
-  protected readonly months = computed(() => {
-    const m = this.data().months;
-    if (!m) return null;
-    const mon = this.monthly();
-    const limit = mon?.fromPlan ? mon.limit : null;
-    const rows = [...m].reverse().map((p) => ({
-      period: p.period,
-      label: new Date(`${p.period}-01T00:00:00`).toLocaleDateString(undefined, { month: 'short' }),
-      n: p.metrics['messages'] ?? 0,
-    }));
-    const max = niceMax(Math.max(limit ?? 0, ...rows.map((r) => r.n)));
-    return {
-      limit,
-      limitPct: limit ? pct(limit, max) : null,
-      summary: `Messages per month: ${rows.map((r) => `${r.label} ${r.n}`).join(', ')}` +
-        (limit ? `. Plan limit ${limit}.` : '.'),
-      rows: rows.map((r) => ({ ...r, pct: pct(r.n, max) })),
-    };
+  protected readonly ruleBars = computed(() => {
+    const rules = this.overview()?.autoReplies.topRules ?? [];
+    const max = Math.max(1, ...rules.map((r) => r.count));
+    return rules.map((r) => ({ label: r.rule, n: r.count, pct: (r.count / max) * 100 }));
   });
 
+  // ------------------------------------------------- range-free sections --
   protected readonly recordTypes = computed(() => {
     const o = this.data().objects;
     if (!o || !o.total) return [];
@@ -198,39 +146,72 @@ export class AnalyticsView {
       });
   });
 
-  protected readonly ticketBars = computed(() => {
+  protected readonly supportGroups = computed(() => {
     const t = this.data().tickets;
-    return t ? bars(t.byStatus, (k) => (k === 'OPEN' ? 'warn' : OPEN_TICKETS.includes(k) ? 'info' : 'ok')) : [];
-  });
-  protected readonly inboxBars = computed(() => {
     const i = this.data().inbox;
-    return i ? bars(i.byStatus, (k) => (k === 'open' ? 'info' : k === 'pending' ? 'warn' : 'ok')) : [];
+    return [
+      { name: 'Tickets', rows: t ? bars(t.byStatus, (k) => (k === 'OPEN' ? 'warn' : OPEN_TICKETS.includes(k) ? 'info' : 'ok')) : [] },
+      { name: 'Conversations', rows: i ? bars(i.byStatus, (k) => (k === 'open' ? 'info' : k === 'pending' ? 'warn' : 'ok')) : [] },
+    ].filter((g) => g.rows.length);
   });
-  protected readonly supportGroups = computed(() =>
-    [{ name: 'Tickets', rows: this.ticketBars() }, { name: 'Conversations', rows: this.inboxBars() }]
-      .filter((g) => g.rows.length));
+  protected readonly openTickets = computed(() => {
+    const t = this.data().tickets;
+    return t ? OPEN_TICKETS.reduce((a, s) => a + (t.byStatus[s] ?? 0), 0) : null;
+  });
   protected readonly medianResolve = computed(() => {
     const s = this.data().tickets?.medianResolveSeconds;
-    if (s == null) return null;
-    if (s < 3600) return `${Math.max(1, Math.round(s / 60))} min`;
-    return s < 86400 ? `${(s / 3600).toFixed(1)} h` : `${(s / 86400).toFixed(1)} d`;
-  });
-
-  /** Sources answered, but there is nothing to chart anywhere. */
-  protected readonly empty = computed(() => {
-    const d = this.data();
-    if (this.loading() || this.allFailed()) return false;
-    return !(d.history?.records.length || (d.history && sum(d.history.counts)) || d.tickets?.total ||
-      d.inbox?.total || d.objects?.total || this.monthly()?.used || d.campaign?.total);
+    return s == null ? null : duration(s);
   });
 
   constructor() {
-    this.load();
+    this.overviewReq.pipe(
+      switchMap((quiet) => {
+        if (!quiet) this.ovLoading.set(true);
+        return this.api.overview(this.days()).pipe(
+          map((o) => ({ o, err: null as string | null, quiet })),
+          catchError((e: Error) => of({ o: null, err: e.message, quiet })),
+        );
+      }),
+      takeUntilDestroyed(),
+    ).subscribe(({ o, err, quiet }) => {
+      if (o) {
+        this.overview.set(o);
+        this.ovError.set(null);
+        this.updatedAt.set(new Date());
+      } else if (!quiet) {
+        // A failed background refresh keeps the figures already shown.
+        this.overview.set(null);
+        this.ovError.set(err);
+      }
+      this.ovLoading.set(false);
+    });
+
+    // The range lives in the URL (?days=7|30|90): shareable, and Back works.
+    this.route.queryParamMap.pipe(
+      map((p) => toDays(p.get('days'))),
+      distinctUntilChanged(),
+      takeUntilDestroyed(),
+    ).subscribe((d) => {
+      this.days.set(d);
+      this.overviewReq.next(false);
+    });
+
+    this.loadSources();
     this.store.watch(['history', 'campaign', 'analytics', 'objects', 'tickets', 'inbox'], () => this.load(true), 2000);
   }
 
+  protected setDays(d: RangeDays) {
+    if (d === this.days()) return;
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { days: d }, queryParamsHandling: 'merge', replaceUrl: true });
+  }
+
   protected load(quiet = false) {
-    if (!quiet) this.loading.set(true);
+    this.overviewReq.next(quiet);
+    this.loadSources(quiet);
+  }
+
+  private loadSources(quiet = false) {
+    if (!quiet) this.srcLoading.set(true);
     const now = new Date();
     const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     // Each source fails alone: a tenant without a service gets 403 there and
@@ -239,25 +220,26 @@ export class AnalyticsView {
     forkJoin({
       usage: soft(this.api.usage(period)),
       months: soft(this.api.usageHistory(6)),
-      history: soft(this.api.history(1000)),
       campaign: soft(this.api.campaignStats()),
       objects: soft(this.api.objectStats()),
       tickets: soft(this.api.ticketStats()),
       inbox: soft(this.api.inboxStats()),
     }).subscribe((res) => {
       this.data.set(res);
-      this.updatedAt.set(new Date());
-      this.loading.set(false);
+      this.srcLoading.set(false);
     });
   }
 
-  protected ringOffset(p: number) {
-    return RING * (1 - p / 100);
+  protected exportDaily() {
+    const o = this.overview();
+    if (!o) return;
+    downloadCsv(`daily-messages-${o.range.days}d-${today()}.csv`, toCsv(
+      ['Date (UTC)', 'Total', 'Sent', 'Delivered', 'Read', 'Failed'],
+      o.daily.map((d) => [d.date, d.total, d.sent, d.delivered, d.read, d.failed]),
+    ));
   }
+
   protected statusLabel(s: string) {
     return human(s);
-  }
-  protected segCount(d: Day, status: string) {
-    return d.segs.find((s) => s.status === status)?.n ?? 0;
   }
 }

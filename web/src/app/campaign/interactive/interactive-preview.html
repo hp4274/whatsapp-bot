@@ -1,0 +1,70 @@
+@let ix = interactive();
+
+@if (showToggle()) {
+  <label class="toggle">
+    <input type="checkbox" role="switch" [checked]="fallback()" (change)="fallback.set(!fallback())" />
+    <span class="track" aria-hidden="true"><span class="thumb"></span></span>
+    WhatsApp Web preview (numbered)
+  </label>
+}
+
+<div class="msg">
+  <div class="bubble" [class.attached]="!fallback() && !!ix">
+    @if (fallback()) {
+      <div class="body" [innerHTML]="fallbackHtml()"></div>
+    } @else {
+      @if (ix?.header) { <div class="header">{{ ix?.header }}</div> }
+      <div class="body" [innerHTML]="bodyHtml()"></div>
+      @if (ix?.footer) { <div class="footer">{{ ix?.footer }}</div> }
+    }
+    <span class="time">{{ time }}</span>
+  </div>
+
+  @if (!fallback() && ix) {
+    @switch (ix.type) {
+      @case ('buttons') {
+        <div class="actions">
+          @for (b of ix.buttons ?? []; track $index) {
+            <div class="wa-btn"><span class="ms" aria-hidden="true">reply</span>{{ b.title || 'Button' }}</div>
+          }
+        </div>
+      }
+      @case ('cta') {
+        <div class="actions">
+          @for (c of ix.cta ?? []; track $index) {
+            <div class="wa-btn"><span class="ms" aria-hidden="true">{{ ctaIcons[c.kind] }}</span>{{ c.title || 'Button' }}</div>
+          }
+        </div>
+      }
+      @case ('list') {
+        <div class="actions">
+          <button type="button" class="wa-btn" [attr.aria-expanded]="sheetOpen()" (click)="sheetOpen.set(!sheetOpen())">
+            <span class="ms" aria-hidden="true">list</span>{{ ix.list?.button || 'Choose' }}
+          </button>
+        </div>
+        @if (sheetOpen()) {
+          <div class="sheet enter" role="group" [attr.aria-label]="ix.list?.button || 'Options'">
+            <div class="sheet-head">
+              <strong>{{ ix.list?.button || 'Choose' }}</strong>
+              <button type="button" class="close" aria-label="Close options" (click)="sheetOpen.set(false)">
+                <span class="ms" aria-hidden="true">close</span>
+              </button>
+            </div>
+            @for (s of ix.list?.sections ?? []; track $index) {
+              @if (s.title) { <div class="sheet-section">{{ s.title }}</div> }
+              @for (r of s.rows; track $index) {
+                <div class="sheet-row">
+                  <span class="row-text">
+                    <span>{{ r.title || 'Option' }}</span>
+                    @if (r.description) { <small>{{ r.description }}</small> }
+                  </span>
+                  <span class="radio" aria-hidden="true"></span>
+                </div>
+              }
+            }
+          </div>
+        }
+      }
+    }
+  }
+</div>

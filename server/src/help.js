@@ -8,6 +8,7 @@
 import { SCHOOL_HELP_LINES } from './school/commands.js';
 import { getSettings } from './school/settings.js';
 import { normalizeInboundText } from './autoreply/engine.js';
+import { AutoReplyStore } from './autoreply/store.js';
 
 const HELP_WORDS = new Set(['help', 'menu', 'commands']);
 const MAX_KEYWORDS = 15;
@@ -22,7 +23,8 @@ export const isHelp = (body) => HELP_WORDS.has(normalizeInboundText(body));
  */
 export function helpText(state) {
     const rules = state.db.getActiveAutoReplies();
-    if (rules.some((r) => r.matchType !== 'REGEX' && HELP_WORDS.has(normalizeInboundText(r.keyword)))) return null;
+    const words = (r) => (r.keywords?.length ? r.keywords : [r.keyword]);
+    if (rules.some((r) => r.matchType !== 'REGEX' && words(r).some((k) => HELP_WORDS.has(normalizeInboundText(k))))) return null;
 
     const settings = getSettings(state.db.db, state.db.tenantId);
     const tenant = state.tenancy?.getTenant(state.db.tenantId);
@@ -33,7 +35,7 @@ export function helpText(state) {
 
     const keywords = [...new Set(rules
         .filter((r) => r.matchType !== 'FALLBACK' && r.matchType !== 'REGEX')
-        .map((r) => String(r.keyword).trim().toLowerCase())
+        .flatMap((r) => words(r).map((k) => String(k).trim().toLowerCase()))
         .filter(Boolean))].slice(0, MAX_KEYWORDS);
     if (keywords.length) out.push('', 'Quick replies', keywords.join(', '));
 
@@ -41,6 +43,9 @@ export function helpText(state) {
         .map((q) => String(q.question ?? '').trim()).filter(Boolean).slice(0, MAX_QUESTIONS);
     if (questions.length) out.push('', 'Ask us', ...questions.map((q) => `- ${q}`));
 
-    out.push('', 'HELP - this list', 'STOP - stop receiving messages');
+    const handoff = new AutoReplyStore(state.db).settings().handoff;
+    out.push('', 'HELP - this list');
+    if (handoff.enabled && handoff.keywords.length) out.push(`${handoff.keywords[0].toUpperCase()} - talk to a person`);
+    out.push('STOP - stop receiving messages');
     return out.join('\n');
 }

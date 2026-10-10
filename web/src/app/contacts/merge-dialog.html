@@ -1,0 +1,59 @@
+<div class="overlay" (click)="close()" aria-hidden="true"></div>
+
+<div #panel class="dialog" role="dialog" aria-modal="true" aria-labelledby="md-title">
+  <header class="top">
+    <div>
+      <h3 id="md-title"><span class="ms" aria-hidden="true">join</span> Merge duplicates</h3>
+      <p class="muted">Pick the contact to keep in each group. Tags and custom fields from the others are added to it
+        (the kept contact wins where both have a value), an opt-out is never lost, and the others are deleted.</p>
+    </div>
+    <button class="btn ghost icon" type="button" aria-label="Close" [disabled]="!!busyKey()" (click)="close()"><span class="ms">close</span></button>
+  </header>
+
+  @if (error()) { <p class="banner" role="alert"><span class="ms" aria-hidden="true">error</span> {{ error() }}</p> }
+
+  <div class="body">
+    @for (g of groups(); track g.key; let gi = $index) {
+      <fieldset class="group" [style.--i]="gi" [disabled]="busyKey() === g.key">
+        <legend><span class="mono">{{ displayPhone(g.key) }}</span> <span class="muted">&middot; {{ g.contacts.length }} records</span></legend>
+        <div class="options">
+          @for (c of g.contacts; track c.id) {
+            <label class="option" [class.on]="keep()[g.key] === c.id">
+              <input type="radio" [name]="'keep-' + g.key" [checked]="keep()[g.key] === c.id" (change)="choose(g, c)" />
+              <span class="avatar" [style.--h]="hue(c.phone)" aria-hidden="true">{{ initials(c.name, c.phone) }}</span>
+              <span class="info">
+                <strong>{{ c.name || 'No name' }}</strong>
+                <span class="mono">{{ c.phone }}</span>
+                <span class="facts">
+                  {{ c.tags.length }} tag{{ c.tags.length === 1 ? '' : 's' }} &middot; {{ fieldCount(c) }} field{{ fieldCount(c) === 1 ? '' : 's' }}
+                  &middot; added {{ ago(c.createdAt) }}
+                  @if (c.optedOut) { &middot; <em>opted out</em> }
+                </span>
+              </span>
+              @if (keep()[g.key] === c.id) { <span class="keep-badge">Keep</span> }
+            </label>
+          }
+        </div>
+        <div class="row-end">
+          <button class="btn ghost sm" type="button" (click)="skip(g)">Not duplicates</button>
+          <button class="btn primary sm" type="button" (click)="mergeGroup(g)">
+            @if (busyKey() === g.key) { <span class="spinner" aria-hidden="true"></span> Merging... } @else { Merge {{ g.contacts.length - 1 }} into kept }
+          </button>
+        </div>
+      </fieldset>
+    } @empty {
+      <div class="done">
+        <span class="ms" aria-hidden="true">verified</span>
+        <strong>{{ removedTotal() ? 'All tidy' : 'No duplicates found' }}</strong>
+        <p class="muted">{{ removedTotal() ? removedTotal() + ' duplicate record' + (removedTotal() === 1 ? ' was' : 's were') + ' merged away.' : 'Every number in the book is stored once.' }}</p>
+      </div>
+    }
+  </div>
+
+  <footer class="foot">
+    <button class="btn ghost" type="button" [disabled]="!!busyKey()" (click)="close()">{{ groups().length ? 'Close' : 'Done' }}</button>
+    @if (groups().length > 1) {
+      <button class="btn primary" type="button" [disabled]="!!busyKey()" (click)="mergeAll()">Merge all {{ groups().length }} groups</button>
+    }
+  </footer>
+</div>

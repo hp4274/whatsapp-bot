@@ -15,6 +15,7 @@
  */
 
 import { TRANSPORT_CLOUD_API, TRANSPORT_WEB_JS } from '../config.js';
+import { InteractiveError, normalizeInteractive } from '../messaging/interactive.js';
 import { personalize, utcNow } from '../protocol.js';
 
 export const TEMPLATE_TYPES = Object.freeze([
@@ -23,6 +24,13 @@ export const TEMPLATE_TYPES = Object.freeze([
 
 /** Only meaningful for `provider_template`: the others need nobody's blessing. */
 export const APPROVAL_STATUSES = Object.freeze(['draft', 'pending', 'approved', 'rejected']);
+
+/**
+ * Meta's template categories. New templates default to 'marketing': it is
+ * Meta's catch-all, and Meta re-files a mislabelled "utility" template as
+ * marketing anyway - defaulting the other way invites a rejection.
+ */
+export const TEMPLATE_CATEGORIES = Object.freeze(['marketing', 'utility', 'authentication']);
 
 /** Matches what `personalize` substitutes - `{key}` and `{key|fallback}`. */
 const PLACEHOLDER = /\{(\w+)(?:\|[^{}]*)?\}/g;
@@ -46,6 +54,8 @@ export class TemplateStore {
     create({
         name, templateType = 'text', body = '', variables, channelId = null,
         providerTemplateName = '', approvalStatus = 'draft',
+        category = 'marketing', sampleValues, headerMediaId, interactive,
+        language, paramMapping,
     }) {
         const clean = String(name ?? '').trim();
         if (!clean) throw new TemplateError('a template needs a name');
@@ -55,6 +65,8 @@ export class TemplateStore {
         if (!APPROVAL_STATUSES.includes(approvalStatus)) {
             throw new TemplateError(`approval status must be one of ${APPROVAL_STATUSES.join(', ')}`);
         }
+        const extras = cleanExtras({ category, sampleValues, headerMediaId, interactive });
+        const meta = cleanMeta({ language, paramMapping });
         if (this.getByName(clean)) throw new TemplateError(`a template named ${clean} already exists`, 409);
 
         // Nobody wants to list variables by hand when the body already says
@@ -65,15 +77,18 @@ export class TemplateStore {
         const info = this.db.prepare(
             `INSERT INTO templates (tenant_id, name, template_type, body, variables, channel_id,
                                     provider_template_name, approval_status, current_version,
+                                    category, sample_values, header_media_id, interactive,
                                     created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`)
             .run(
                 this.tenantId, clean, templateType, String(body ?? ''), JSON.stringify(declared),
                 channelId == null ? null : Number(channelId),
-                String(providerTemplateName ?? '').trim(), approvalStatus, now, now,
+                String(providerTemplateName ?? '').trim(), approvalStatus,
+                extras.category, extras.sampleValues, extras.headerMediaId, extras.interactive, now, now,
             );
         const id = Number(info.lastInsertRowid);
         this.#writeVersion(id, 1, String(body ?? ''), declared, now);
+        this.#writeMeta(id, meta);
         return this.get(id);
     }
 
@@ -90,6 +105,14 @@ export class TemplateStore {
         if (patch.approvalStatus !== undefined && !APPROVAL_STATUSES.includes(patch.approvalStatus)) {
             throw new TemplateError(`approval status must be one of ${APPROVAL_STATUSES.join(', ')}`);
         }
+
+        const meta = cleanMeta(patch);
+        const extras = cleanExtras({
+            category: patch.category ?? template.category,
+            sampleValues: patch.sampleValues === undefined ? template.sampleValues : patch.sampleValues,
+            headerMediaId: patch.headerMediaId === undefined ? template.headerMediaId : patch.headerMediaId,
+            interactive: patch.interactive === undefined ? template.interactive : patch.interactive,
+        });
 
         let name = template.name;
         if (patch.name !== undefined) {
@@ -115,7 +138,8 @@ export class TemplateStore {
         this.db.prepare(
             `UPDATE templates SET name = ?, template_type = ?, body = ?, variables = ?,
                                   channel_id = ?, provider_template_name = ?, approval_status = ?,
-                                  current_version = ?, updated_at = ?
+                                  current_version = ?, category = ?, sample_values = ?,
+                                  header_media_id = ?, interactive = ?, updated_at = ?
              WHERE id = ? AND tenant_id = ?`)
             .run(
                 name,
@@ -128,9 +152,11 @@ export class TemplateStore {
                     ? template.providerTemplateName
                     : String(patch.providerTemplateName).trim(),
                 patch.approvalStatus ?? template.approvalStatus,
-                version, now, template.id, this.tenantId,
+                version, extras.category, extras.sampleValues, extras.headerMediaId, extras.interactive,
+                now, template.id, this.tenantId,
             );
         if (reworded) this.#writeVersion(template.id, version, body, variables, now);
+        this.#writeMeta(template.id, meta);
         return this.get(template.id);
     }
 
@@ -178,12 +204,16 @@ export class TemplateStore {
     }
 
     /** `channelId` matches templates pinned to that channel plus the unpinned. */
-    list({ type, channelId } = {}) {
+    list({ type, channelId, category } = {}) {
         const clauses = ['tenant_id = ?'];
         const args = [this.tenantId];
         if (type) {
             clauses.push('template_type = ?');
             args.push(String(type));
+        }
+        if (category) {
+            clauses.push('category = ?');
+            args.push(String(category));
         }
         if (channelId != null) {
             clauses.push('(channel_id IS NULL OR channel_id = ?)');
@@ -257,6 +287,18 @@ export class TemplateStore {
         return template;
     }
 
+    /** Meta send settings (see cleanMeta). They never change wording, so no version. */
+    #writeMeta(id, { language, paramMapping }) {
+        if (language !== undefined) {
+            this.db.prepare('UPDATE templates SET language = ? WHERE id = ? AND tenant_id = ?')
+                .run(language, id, this.tenantId);
+        }
+        if (paramMapping !== undefined) {
+            this.db.prepare('UPDATE templates SET param_mapping = ? WHERE id = ? AND tenant_id = ?')
+                .run(paramMapping, id, this.tenantId);
+        }
+    }
+
     #writeVersion(templateId, version, body, variables, now) {
         this.db.prepare(
             `INSERT INTO template_versions (template_id, version, body, variables, created_at)
@@ -311,7 +353,7 @@ export function compatibility(template, channel) {
     }
 
     if (template.templateType === 'provider_template') {
-        if (transport === TRANSPORT_WEB_JS) {
+        if (transport === TRANSPORT_WEB_JS || transport === 'baileys') {
             problems.push('a WhatsApp Web channel cannot send provider templates');
         } else if (transport !== TRANSPORT_CLOUD_API) {
             problems.push('provider templates need a Cloud API channel');
@@ -340,6 +382,57 @@ const cleanList = (list) => (Array.isArray(list)
     ? [...new Set(list.map((v) => String(v).trim()).filter(Boolean))]
     : []);
 
+/** Validates the Meta-facing extras and returns them as column values. */
+function cleanExtras({ category, sampleValues, headerMediaId, interactive }) {
+    if (!TEMPLATE_CATEGORIES.includes(category)) {
+        throw new TemplateError(`category must be one of ${TEMPLATE_CATEGORIES.join(', ')}`);
+    }
+    if (sampleValues != null && (typeof sampleValues !== 'object' || Array.isArray(sampleValues))) {
+        throw new TemplateError('sample values must be an object of variable to example');
+    }
+    const samples = Object.fromEntries(Object.entries(sampleValues ?? {})
+        .filter(([key, value]) => /^\w+$/.test(key) && value != null && String(value) !== '')
+        .slice(0, 50)
+        .map(([key, value]) => [key, String(value).slice(0, 200)]));
+    let normalized;
+    try {
+        normalized = normalizeInteractive(interactive);
+    } catch (err) {
+        if (err instanceof InteractiveError) throw new TemplateError(err.message);
+        throw err;
+    }
+    return {
+        category,
+        sampleValues: JSON.stringify(samples),
+        headerMediaId: String(headerMediaId ?? '').trim().slice(0, 100) || null,
+        interactive: normalized ? JSON.stringify(normalized) : null,
+    };
+}
+
+/**
+ * Meta send settings: language code and the {{n}} -> variable mapping
+ * (messaging/templateSend.js). Absent fields stay undefined (= unchanged).
+ */
+function cleanMeta({ language, paramMapping } = {}) {
+    const meta = {};
+    if (language !== undefined) {
+        meta.language = String(language ?? '').trim();
+        if (meta.language && !/^[a-z]{2,3}(_[A-Za-z]{2,4})?$/.test(meta.language)) {
+            throw new TemplateError('language must be a Meta language code such as en, en_US or hi');
+        }
+    }
+    if (paramMapping !== undefined) {
+        const mapping = paramMapping ?? {};
+        if (typeof mapping !== 'object' || Array.isArray(mapping)
+            || (mapping.body !== undefined && !Array.isArray(mapping.body))
+            || (mapping.buttons !== undefined && !Array.isArray(mapping.buttons))) {
+            throw new TemplateError('paramMapping must be { body: [...], header?, buttons?: [...] }');
+        }
+        meta.paramMapping = JSON.stringify(mapping);
+    }
+    return meta;
+}
+
 const sameList = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
 function toTemplate(row) {
@@ -356,6 +449,12 @@ function toTemplate(row) {
         currentVersion: row.current_version,
         useCount: row.use_count ?? 0,
         lastUsedAt: row.last_used_at ?? null,
+        category: row.category ?? 'marketing',
+        sampleValues: parse(row.sample_values, {}),
+        headerMediaId: row.header_media_id ?? null,
+        interactive: parse(row.interactive, null),
+        language: row.language ?? '',
+        paramMapping: parse(row.param_mapping, {}),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };

@@ -13,6 +13,7 @@
 import { BILLING_SCHEMA } from './billing/schema.js';
 import { CAMPAIGNS_SCHEMA } from './campaigns/schema.js';
 import { INBOX_SCHEMA } from './inbox/schema.js';
+import { INTERACTIVE_SCHEMA } from './messaging/replies.js';
 import { KNOWLEDGE_SCHEMA } from './knowledge/schema.js';
 import { OBJECTS_SCHEMA } from './objects/schema.js';
 import { PUBLIC_API_SCHEMA } from './publicapi/schema.js';
@@ -34,4 +35,5 @@ export const MODULE_SCHEMAS = [
     PUBLIC_API_SCHEMA,
     CAMPAIGNS_SCHEMA,
     SCHOOL_SCHEMA,
+    INTERACTIVE_SCHEMA,
 ];

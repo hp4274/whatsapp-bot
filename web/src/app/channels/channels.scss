@@ -2,21 +2,88 @@
   display: grid;
   gap: var(--space-xl);
   align-content: start;
+  min-width: 0;
 }
 
 .page-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-lg);
 
   h2 {
-    font-size: 24px;
-    letter-spacing: -0.01em;
+    margin: 2px 0 0;
+    font-size: 26px;
+    letter-spacing: -0.02em;
   }
 
   p {
     margin: 4px 0 0;
+  }
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--primary);
+
+  .ms {
+    font-size: 15px;
+  }
+}
+
+.add {
+  box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--primary) 75%, transparent);
+}
+
+/* Summary strip ------------------------------------------------------- */
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin: calc(var(--space-md) * -1) 0 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    --c: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 12px;
+    color: var(--text-muted);
+    box-shadow: 0 1px 2px rgba(13, 27, 36, 0.05);
+
+    .ms {
+      font-size: 16px;
+      color: var(--c);
+    }
+
+    strong {
+      font-size: 14px;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+  }
+
+  .ok {
+    --c: var(--primary);
+  }
+
+  .warn {
+    --c: var(--warning);
+    background: var(--warning-soft);
+    border-color: transparent;
   }
 }
 
@@ -26,16 +93,26 @@
   border-radius: var(--radius-sm);
   background: var(--danger-soft);
   color: var(--danger);
-
-  &.small {
-    font-size: 12px;
-  }
+  font-size: 13px;
 }
 
+/* Add form -------------------------------------------------------------- */
 .new {
   display: grid;
   gap: var(--space-lg);
   padding: var(--space-xl);
+  border-radius: 16px;
+  animation: fade-in-up var(--base) var(--ease) both;
+
+  h3 {
+    margin: 0;
+    font-size: 18px;
+  }
+
+  .new-head p {
+    margin: 4px 0 0;
+    font-size: 13px;
+  }
 
   .grid {
     display: grid;
@@ -43,196 +120,232 @@
     gap: var(--space-lg);
   }
 
-  .hint {
-    margin: 0;
+  .opt {
+    font-weight: 500;
+    opacity: 0.75;
+  }
+}
+
+.providers {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  border: 0;
+
+  legend {
+    padding: 0;
+    margin-bottom: var(--space-sm);
     font-size: 12px;
-  }
-
-  button {
-    justify-self: start;
-  }
-}
-
-/* Each number is a card standing on the stack; the one you are working on
- * stays lifted so it is obvious which number an edit will hit. */
-.rack {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: var(--space-lg);
-  perspective: 1000px;
-}
-
-.channel {
-  display: grid;
-  gap: var(--space-lg);
-  padding: var(--space-xl);
-  align-content: start;
-  transform-style: preserve-3d;
-  transition: transform var(--base) var(--ease), box-shadow var(--base) var(--ease),
-    border-color var(--fast) var(--ease), opacity var(--fast) var(--ease);
-
-  &:hover {
-    transform: translateY(-3px) rotateX(2.5deg);
-    box-shadow: 0 20px 44px rgba(13, 27, 36, 0.2);
-  }
-
-  &.active {
-    border-color: var(--primary);
-    box-shadow: 0 0 0 1px var(--primary), 0 16px 36px rgba(13, 27, 36, 0.18);
-    transform: translateY(-3px);
-  }
-
-  &.off {
-    opacity: 0.68;
-  }
-
-  h3 {
-    font-size: 18px;
-  }
-
-  h4 {
-    margin: 0;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    font-weight: 600;
     color: var(--text-muted);
   }
 }
 
-.top {
+.options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: var(--space-sm);
+}
+
+.option {
+  position: relative;
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-md);
-
-  p {
-    margin: 3px 0 0;
-    font-size: 12px;
-  }
-}
-
-.badges {
-  display: grid;
-  gap: 4px;
-  justify-items: end;
-}
-
-.pill {
-  background: var(--surface-alt);
-  color: var(--text-muted);
-
-  &.live {
-    background: var(--primary-soft);
-    color: var(--primary);
-  }
-
-  &.warn {
-    background: var(--warning-soft);
-    color: var(--warning);
-  }
-
-  &.tag {
-    background: var(--accent-soft);
-    color: var(--accent);
-  }
-}
-
-.facts {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-sm) var(--space-md);
-  margin: 0;
-  font-size: 13px;
-
-  dt {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-muted);
-  }
-
-  dd {
-    margin: 2px 0 0;
-  }
-}
-
-.actions {
-  display: flex;
-  gap: var(--space-sm);
-
-  .btn {
-    flex: 1;
-  }
-}
-
-.drawer {
-  display: grid;
-  gap: var(--space-md);
-  padding-top: var(--space-lg);
-  border-top: 1px solid var(--border);
-}
-
-.caps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-/* A capability reads as off until you switch it on, so an accidental
- * all-enabled channel is visible at a glance. */
-.cap {
+  gap: 10px;
+  padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 4px 11px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  background: transparent;
-  transition: background var(--fast) var(--ease), color var(--fast) var(--ease),
-    border-color var(--fast) var(--ease), transform var(--fast) var(--ease);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease);
+
+  input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  > .ms {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    font-size: 18px;
+    background: var(--surface-alt);
+    color: var(--text-muted);
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+
+  .opt-text {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+
+    strong {
+      font-size: 13px;
+    }
+
+    small {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+  }
 
   &:hover {
-    border-color: var(--primary);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px -8px rgba(13, 27, 36, 0.25);
   }
 
-  &:active {
-    transform: scale(0.96);
+  &:has(input:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
   &.on {
-    background: var(--primary-soft);
     border-color: var(--primary);
-    color: var(--primary);
+    box-shadow: 0 0 0 1px var(--primary), 0 8px 20px -10px color-mix(in srgb, var(--primary) 60%, transparent);
+
+    > .ms {
+      background: var(--primary);
+      color: var(--on-primary);
+    }
   }
 }
 
-.window {
+.tos {
   display: flex;
-  align-items: center;
-  gap: var(--space-sm);
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  background: var(--warning-soft);
+  color: var(--text);
 
-  input {
-    width: auto;
+  .ms {
+    font-size: 16px;
+    color: var(--warning);
   }
 }
 
-.row {
+.new-foot {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-sm);
 }
 
-.btn.small {
-  padding: 5px 12px;
-  font-size: 12px;
+/* Cards ------------------------------------------------------------------ */
+.rack {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: var(--space-xl) var(--space-lg);
+  align-items: start;
+  padding-top: 6px;
 }
 
-.mono {
-  font-family: var(--mono);
+.skeleton {
+  display: grid;
+  gap: 12px;
+  padding: var(--space-xl) var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+
+  i {
+    display: block;
+    border-radius: 6px;
+    background: linear-gradient(90deg, var(--surface-alt) 0%, color-mix(in srgb, var(--surface-alt) 40%, var(--surface)) 50%, var(--surface-alt) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+  }
+
+  .s-line {
+    height: 12px;
+  }
+
+  .short {
+    width: 40%;
+  }
+
+  .mid {
+    width: 70%;
+  }
+
+  .s-block {
+    height: 72px;
+    border-radius: 12px;
+  }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .channel:hover {
-    transform: none;
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+.state {
+  grid-column: 1 / -1;
+  display: grid;
+  justify-items: center;
+  gap: var(--space-sm);
+  padding: 48px var(--space-xl);
+  text-align: center;
+  border-radius: 16px;
+
+  h3 {
+    margin: 0;
+    font-size: 18px;
+  }
+
+  p {
+    max-width: 420px;
+    margin: 0 0 var(--space-sm);
+  }
+
+  .big {
+    font-size: 40px;
+    color: var(--danger);
+  }
+}
+
+/* A small phone slab that floats in 3D for the empty state. */
+.phone-3d {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 96px;
+  margin-bottom: var(--space-sm);
+  border-radius: 14px;
+  color: #fff;
+  background: linear-gradient(150deg, #2fe07a, #08793a 75%);
+  box-shadow:
+    6px 6px 0 -1px color-mix(in srgb, #08793a 55%, #000),
+    0 24px 40px -14px rgba(8, 121, 58, 0.6);
+  transform: perspective(500px) rotateY(-18deg) rotateX(10deg);
+  animation: float 4s ease-in-out infinite;
+
+  .ms {
+    font-size: 30px;
+  }
+}
+
+@keyframes float {
+  0%, 100% { transform: perspective(500px) rotateY(-18deg) rotateX(10deg) translateY(0); }
+  50% { transform: perspective(500px) rotateY(-10deg) rotateX(6deg) translateY(-6px); }
+}
+
+@media (max-width: 520px) {
+  .page-head h2 {
+    font-size: 22px;
+  }
+
+  .add {
+    width: 100%;
+  }
+
+  .new {
+    padding: var(--space-lg);
   }
 }

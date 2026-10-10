@@ -1,0 +1,89 @@
+<form class="filters" role="search" aria-label="Filter the audit log" (submit)="$event.preventDefault()">
+  <label class="search">
+    <span class="ms" aria-hidden="true">search</span>
+    <span class="sr-only">Search action, target or detail</span>
+    <input type="search" placeholder="Search action, target, detail or email" [value]="filter().q ?? ''" (input)="fromEvent('q', $event)" />
+  </label>
+
+  <div class="seg" role="radiogroup" aria-label="Type of change">
+    @for (v of verbs; track v.k) {
+      <button type="button" role="radio" [attr.aria-checked]="(filter().verb ?? '') === v.k" [class.on]="(filter().verb ?? '') === v.k"
+              [class]="v.k" (click)="set('verb', v.k)">{{ v.l }}</button>
+    }
+  </div>
+
+  <label class="f"><span>Business</span>
+    <select [value]="filter().tenant ?? ''" (change)="fromEvent('tenant', $event)">
+      <option value="">All</option>
+      <option value="platform">Platform</option>
+      @for (t of tenants(); track t.id) { <option [value]="t.id">{{ t.name }}</option> }
+    </select>
+  </label>
+  <label class="f"><span>User</span>
+    <select [value]="filter().user ?? ''" (change)="fromEvent('user', $event)">
+      <option value="">Anyone</option>
+      @for (u of users(); track u.id) { <option [value]="u.id">{{ u.email }}</option> }
+    </select>
+  </label>
+  <label class="f"><span>From</span><input type="date" [value]="filter().from ?? ''" [max]="filter().to || null" (change)="fromEvent('from', $event)" /></label>
+  <label class="f"><span>To</span><input type="date" [value]="filter().to ?? ''" [min]="filter().from || null" (change)="fromEvent('to', $event)" /></label>
+
+  <div class="tools">
+    @if (active()) {
+      <button class="btn" type="button" (click)="clear()"><span class="ms" aria-hidden="true">filter_alt_off</span> Clear</button>
+    }
+    <button class="btn" type="button" (click)="exportCsv()" [disabled]="exporting()">
+      <span class="ms" aria-hidden="true">download</span> {{ exporting() ? 'Exporting' : 'Export CSV' }}
+    </button>
+  </div>
+</form>
+
+@if (error()) {
+  <p class="error" role="alert"><span class="ms" aria-hidden="true">error</span> {{ error() }}</p>
+}
+
+<section class="log" aria-live="polite" [attr.aria-busy]="loading()">
+  @for (log of logs(); track log.id; let i = $index) {
+    <article class="line" [class.open]="open().has(log.id)" [style.--i]="i < 15 ? i : 0">
+      <button type="button" class="head" [attr.aria-expanded]="open().has(log.id)" [attr.aria-controls]="'audit-' + log.id" (click)="toggle(log.id)">
+        <span [class]="'verb ' + log.verb">{{ log.verb }}</span>
+        <span class="what">
+          <strong>{{ log.action }}</strong>
+          @if (log.target || log.detail) { <span class="muted">{{ log.target }}{{ log.target && log.detail ? ', ' : '' }}{{ log.detail }}</span> }
+        </span>
+        <span class="muted who-t">{{ tenantName(log.tenantId) }}@if (log.userEmail) {<br /><small>{{ log.userEmail }}</small>}</span>
+        <time class="muted" [attr.datetime]="log.createdAt" [title]="full(log.createdAt)">{{ ago(log.createdAt) }}</time>
+        <span class="ms chev" aria-hidden="true">expand_more</span>
+      </button>
+      @if (open().has(log.id)) {
+        <div class="detail" [id]="'audit-' + log.id">
+          <dl>
+            <div><dt>When</dt><dd>{{ full(log.createdAt) }}</dd></div>
+            <div><dt>Business</dt><dd>{{ tenantName(log.tenantId) }}</dd></div>
+            <div><dt>By</dt><dd>{{ log.userEmail || (log.userId ? 'User ' + log.userId : 'System') }}</dd></div>
+            <div><dt>Target</dt><dd>{{ log.target || '–' }}</dd></div>
+            <div><dt>Entry</dt><dd>#{{ log.id }}</dd></div>
+          </dl>
+          @if (log.detail) { <pre>{{ pretty(log.detail) }}</pre> }
+        </div>
+      }
+    </article>
+  } @empty {
+    @if (!loading()) {
+      <div class="empty"><span class="ms" aria-hidden="true">manage_search</span>
+        <strong>{{ active() ? 'No entries match' : 'No changes recorded yet' }}</strong>
+        <p>{{ active() ? 'Loosen a filter or clear them.' : 'Admin actions show up here as they happen.' }}</p></div>
+    }
+  }
+</section>
+
+@if (loading()) {
+  <div class="skel-list" aria-hidden="true">@for (n of [1, 2, 3]; track n) { <div class="skel"></div> }</div>
+}
+@if (next()) {
+  <div #more class="more">
+    <button class="btn" type="button" (click)="loadMore()" [disabled]="loading()">Load older entries</button>
+  </div>
+} @else if (logs().length) {
+  <p class="end muted">{{ logs().length }} entr{{ logs().length === 1 ? 'y' : 'ies' }}, that is all.</p>
+}

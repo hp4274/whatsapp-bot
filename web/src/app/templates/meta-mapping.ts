@@ -1,0 +1,224 @@
+import { Component, computed, input, model } from '@angular/core';
+
+/**
+ * Meta approved-template send settings: language code and the ordered
+ * {{1}}, {{2}} ... -> contact variable mapping. Wire shape is the server's
+ * `paramMapping` (server/src/messaging/templateSend.js) - change both together.
+ */
+export interface MetaSlot { var?: string; fallback?: string }
+export type MetaHeaderType = 'text' | 'image' | 'video' | 'document';
+export interface MetaHeader { type: MetaHeaderType; var?: string; fallback?: string; link?: string }
+export interface MetaButton { index: number; subType?: 'url' | 'quick_reply'; var?: string; fallback?: string }
+export interface MetaMapping { body?: MetaSlot[]; header?: MetaHeader | null; buttons?: MetaButton[] }
+
+const LANGUAGES = ['en', 'en_US', 'en_GB', 'hi', 'mr', 'gu', 'ta', 'te', 'kn', 'ml', 'bn', 'pa', 'ur', 'ar', 'es', 'pt_BR', 'fr', 'de', 'id'];
+const BASE_VARS = ['name', 'phone'];
+const SLOT = /\{\{\s*(\d+)\s*\}\}/g;
+
+let seq = 0;
+
+@Component({
+  selector: 'app-meta-mapping',
+  template: `
+    <section class="mm" [attr.aria-labelledby]="uid + '-h'">
+      <h4 [id]="uid + '-h'"><span class="ms" aria-hidden="true">verified</span> Meta send settings</h4>
+      <p class="lead">Paste the body exactly as Meta approved it, with <code>{{ brace(1) }}</code>, <code>{{ brace(2) }}</code>…
+        Each slot below says which contact column fills it; the fallback is used when that column is empty.</p>
+
+      <div class="field lang">
+        <label [for]="uid + '-lang'">Language code</label>
+        <input [id]="uid + '-lang'" [attr.list]="uid + '-langs'" placeholder="en_US" [value]="language()"
+               (input)="language.set(val($event))" />
+        <datalist [id]="uid + '-langs'">@for (l of languages; track l) { <option [value]="l"></option> }</datalist>
+        <span class="hint">Must match the approved translation exactly (en vs en_US).</span>
+      </div>
+
+      <datalist [id]="uid + '-vars'">@for (v of varChoices(); track v) { <option [value]="v"></option> }</datalist>
+
+      @if (slots().length) {
+        <div class="slots">
+          @for (n of slots(); track n) {
+            <div class="slot" [style.--i]="n">
+              <span class="tag">{{ brace(n) }}</span>
+              <div class="field">
+                <label [for]="uid + '-v' + n">Column</label>
+                <input [id]="uid + '-v' + n" [attr.list]="uid + '-vars'" placeholder="name" [value]="slot(n).var ?? ''"
+                       (input)="setSlot(n, 'var', val($event))" />
+              </div>
+              <div class="field">
+                <label [for]="uid + '-f' + n">Fallback</label>
+                <input [id]="uid + '-f' + n" placeholder="e.g. there" [value]="slot(n).fallback ?? ''"
+                       (input)="setSlot(n, 'fallback', val($event))" />
+              </div>
+            </div>
+          }
+        </div>
+        <p class="pv"><span class="ms" aria-hidden="true">visibility</span>{{ preview() }}</p>
+      } @else {
+        <p class="hint">No <code>{{ brace('n') }}</code> slots in the body: the template is sent without body parameters.</p>
+      }
+
+      <div class="row2">
+        <div class="field">
+          <label [for]="uid + '-ht'">Header parameter</label>
+          <select [id]="uid + '-ht'" [value]="mapping().header?.type ?? ''" (change)="setHeaderType(val($event))">
+            <option value="">None / static header</option>
+            <option value="text">Text {{ brace(1) }}</option>
+            <option value="image">Image</option>
+            <option value="video">Video</option>
+            <option value="document">Document</option>
+          </select>
+        </div>
+        @if (mapping().header?.type === 'text') {
+          <div class="field">
+            <label [for]="uid + '-hv'">Column</label>
+            <input [id]="uid + '-hv'" [attr.list]="uid + '-vars'" [value]="mapping().header?.var ?? ''" (input)="setHeader('var', val($event))" />
+          </div>
+          <div class="field">
+            <label [for]="uid + '-hf'">Fallback</label>
+            <input [id]="uid + '-hf'" [value]="mapping().header?.fallback ?? ''" (input)="setHeader('fallback', val($event))" />
+          </div>
+        } @else if (mapping().header?.type) {
+          <div class="field grow">
+            <label [for]="uid + '-hl'">Public link <small>optional</small></label>
+            <input [id]="uid + '-hl'" type="url" placeholder="https://… (empty = the campaign attachment)"
+                   [value]="mapping().header?.link ?? ''" (input)="setHeader('link', val($event))" />
+          </div>
+        }
+      </div>
+
+      <div class="btns">
+        <span class="sub">Dynamic button parameters</span>
+        @for (b of mapping().buttons ?? []; track $index; let i = $index) {
+          <div class="slot">
+            <div class="field narrow">
+              <label [for]="uid + '-bi' + i">Button #</label>
+              <input [id]="uid + '-bi' + i" type="number" min="0" max="9" [value]="b.index" (input)="setButton(i, 'index', +val($event))" />
+            </div>
+            <div class="field">
+              <label [for]="uid + '-bs' + i">Kind</label>
+              <select [id]="uid + '-bs' + i" [value]="b.subType ?? 'url'" (change)="setButton(i, 'subType', val($event))">
+                <option value="url">URL suffix</option>
+                <option value="quick_reply">Quick-reply payload</option>
+              </select>
+            </div>
+            <div class="field">
+              <label [for]="uid + '-bv' + i">Column</label>
+              <input [id]="uid + '-bv' + i" [attr.list]="uid + '-vars'" [value]="b.var ?? ''" (input)="setButton(i, 'var', val($event))" />
+            </div>
+            <div class="field">
+              <label [for]="uid + '-bf' + i">Fallback</label>
+              <input [id]="uid + '-bf' + i" [value]="b.fallback ?? ''" (input)="setButton(i, 'fallback', val($event))" />
+            </div>
+            <button class="btn sm danger-ghost x" type="button" (click)="removeButton(i)" aria-label="Remove button parameter">
+              <span class="ms" aria-hidden="true">close</span>
+            </button>
+          </div>
+        }
+        <button class="btn sm" type="button" (click)="addButton()"><span class="ms" aria-hidden="true">add_link</span> Add button parameter</button>
+      </div>
+    </section>
+  `,
+  styles: `
+    .mm {
+      display: grid; gap: var(--space-md); padding: var(--space-md);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: linear-gradient(160deg, var(--surface) 0%, var(--surface-alt) 100%);
+      perspective: 900px;
+    }
+    h4 { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 14px; }
+    .lead, .hint { margin: 0; font-size: 12px; color: var(--text-muted); }
+    .lang { max-width: 220px; }
+    .slots, .btns { display: grid; gap: var(--space-sm); }
+    .slot {
+      display: grid; grid-template-columns: auto 1fr 1fr auto; align-items: end; gap: var(--space-sm);
+      padding: var(--space-sm); border-radius: var(--radius-sm, 8px); background: var(--surface);
+      border: 1px solid var(--border);
+      transform-origin: left center;
+      animation: mm-in 360ms var(--ease, ease-out) both; animation-delay: calc(var(--i, 0) * 40ms);
+      transition: transform var(--fast, 150ms) var(--ease, ease-out), box-shadow var(--fast, 150ms);
+    }
+    .slot:hover { transform: translateZ(8px) rotateX(2deg); box-shadow: var(--shadow); }
+    .btns .slot { grid-template-columns: 80px 1fr 1fr 1fr auto; }
+    .tag {
+      align-self: center; padding: 4px 8px; border-radius: 999px; font: 600 12px var(--mono, monospace);
+      background: var(--accent-soft); color: var(--accent);
+    }
+    .row2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-sm); }
+    .grow { grid-column: span 2; }
+    .sub { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+    .pv {
+      display: flex; gap: 6px; align-items: flex-start; margin: 0; padding: var(--space-sm);
+      border-left: 3px solid var(--accent); font-size: 13px; white-space: pre-wrap; background: var(--surface);
+    }
+    .x { align-self: end; }
+    @keyframes mm-in { from { opacity: 0; transform: rotateY(-8deg) translateX(-6px); } }
+    @media (max-width: 640px) {
+      .slot, .btns .slot { grid-template-columns: 1fr 1fr; }
+      .grow { grid-column: auto; }
+    }
+    @media (prefers-reduced-motion: reduce) { .slot { animation: none; transition: none; } }
+  `,
+})
+export class MetaMappingEditor {
+  /** The approved body: its {{n}} slots decide how many rows there are. */
+  readonly body = input('');
+  /** Variables the page already knows about (suggested in the column pickers). */
+  readonly vars = input<string[]>([]);
+  readonly language = model('');
+  readonly mapping = model<MetaMapping>({});
+
+  protected readonly uid = `mm${++seq}`;
+  protected readonly languages = LANGUAGES;
+  protected readonly varChoices = computed(() => [...new Set([...BASE_VARS, ...this.vars().filter((v) => !/^\d+$/.test(v))])]);
+  protected readonly slots = computed(() => {
+    let max = 0;
+    for (const [, n] of this.body().matchAll(SLOT)) max = Math.max(max, Number(n));
+    return Array.from({ length: max }, (_, i) => i + 1);
+  });
+  protected readonly preview = computed(() => this.body().replace(SLOT, (match, n: string) => {
+    const s = this.slot(Number(n));
+    return s.var ? `[${s.var}${s.fallback ? ' | ' + s.fallback : ''}]` : (s.fallback || match);
+  }));
+
+  protected brace(n: number | string): string {
+    return `{{${n}}}`;
+  }
+
+  protected val(e: Event): string {
+    return (e.target as HTMLInputElement).value;
+  }
+
+  protected slot(n: number): MetaSlot {
+    return this.mapping().body?.[n - 1] ?? {};
+  }
+
+  protected setSlot(n: number, key: keyof MetaSlot, value: string) {
+    const body = Array.from({ length: Math.max(n, this.mapping().body?.length ?? 0) }, (_, i) => this.mapping().body?.[i] ?? {});
+    body[n - 1] = { ...body[n - 1], [key]: value.trim() };
+    this.mapping.update((m) => ({ ...m, body }));
+  }
+
+  protected setHeaderType(type: string) {
+    this.mapping.update((m) => ({ ...m, header: type ? { type: type as MetaHeaderType } : null }));
+  }
+
+  protected setHeader(key: 'var' | 'fallback' | 'link', value: string) {
+    this.mapping.update((m) => (m.header ? { ...m, header: { ...m.header, [key]: value.trim() } } : m));
+  }
+
+  protected addButton() {
+    this.mapping.update((m) => ({ ...m, buttons: [...(m.buttons ?? []), { index: m.buttons?.length ?? 0, subType: 'url' }] }));
+  }
+
+  protected setButton(i: number, key: keyof MetaButton, value: string | number) {
+    this.mapping.update((m) => ({
+      ...m,
+      buttons: (m.buttons ?? []).map((b, j) => (j === i ? { ...b, [key]: typeof value === 'string' ? value.trim() : value } : b)),
+    }));
+  }
+
+  protected removeButton(i: number) {
+    this.mapping.update((m) => ({ ...m, buttons: (m.buttons ?? []).filter((_, j) => j !== i) }));
+  }
+}

@@ -7,6 +7,7 @@
  *   /api/objects-stats            server/src/objects/store.js stats()
  *   /api/tickets/stats            server/src/tickets/store.js stats()
  *   /api/inbox/stats              server/src/inbox/store.js stats()
+ *   /api/analytics/overview       server/src/analytics/store.js overview() (definitions live there)
  */
 
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
@@ -70,6 +71,59 @@ export interface InboxStats {
   oldestUnansweredAt: string | null;
 }
 
+export type RangeDays = 7 | 30 | 90;
+export const RANGE_DAYS: readonly RangeDays[] = [7, 30, 90];
+
+/** Outbound counts. delivered = DELIVERED+READ; attempted = not QUEUED/SENDING; sent = attempted - failed. */
+export interface Counts {
+  total: number;
+  attempted: number;
+  sent: number;
+  delivered: number;
+  read: number;
+  failed: number;
+  sandbox: number;
+  pending: number;
+  /** delivered / attempted, percent, one decimal. */
+  deliveryRate: number | null;
+  /** read / delivered. */
+  readRate: number | null;
+  /** failed / attempted. */
+  failureRate: number | null;
+}
+export interface DailyPoint { date: string; total: number; sent: number; delivered: number; read: number; failed: number }
+export interface CampaignRow extends Counts {
+  campaignId: string;
+  recordId: number | null;
+  name: string;
+  campaignStatus: string | null;
+  firstSentAt: string | null;
+  lastSentAt: string | null;
+}
+export interface RuleHit { rule: string; count: number }
+export interface ResponseTimes {
+  conversations: number;
+  answered: number;
+  unanswered: number;
+  medianSeconds: number | null;
+  p90Seconds: number | null;
+  averageSeconds: number | null;
+  within5m: number;
+  within1h: number;
+  /** Shares of ALL conversations, unanswered included. */
+  within5mPct: number | null;
+  within1hPct: number | null;
+  buckets: { key: string; label: string; count: number }[];
+}
+export interface Overview {
+  range: { days: RangeDays; since: string; until: string };
+  totals: Counts & { byStatus: Record<string, number>; byType: Record<string, number> };
+  daily: DailyPoint[];
+  campaigns: CampaignRow[];
+  autoReplies: { messages: number; inbound: number; matched: number; matchRate: number | null; topRules: RuleHit[] };
+  responseTimes: ResponseTimes;
+}
+
 @Injectable({ providedIn: 'root' })
 export class AnalyticsApi {
   private readonly http = inject(HttpClient);
@@ -90,6 +144,9 @@ export class AnalyticsApi {
   objectStats() { return this.get<ObjectStats>('/objects-stats'); }
   ticketStats() { return this.get<{ stats: TicketStats }>('/tickets/stats').pipe(map((r) => r.stats)); }
   inboxStats() { return this.get<{ stats: InboxStats }>('/inbox/stats').pipe(map((r) => r.stats)); }
+  overview(days: RangeDays) {
+    return this.get<{ overview: Overview }>('/analytics/overview', { days }).pipe(map((r) => r.overview));
+  }
 }
 
 function toMessage(error: HttpErrorResponse) {

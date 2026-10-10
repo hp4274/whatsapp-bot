@@ -33,6 +33,20 @@ export class ContactStore {
         this.defaultCountryCode = defaultCountryCode;
     }
 
+    /** All-or-nothing for multi-row edits; joins an outer transaction if one is open. */
+    #atomic(fn) {
+        if (this.db.isTransaction) return fn();
+        this.db.exec('BEGIN');
+        try {
+            const out = fn();
+            this.db.exec('COMMIT');
+            return out;
+        } catch (err) {
+            this.db.exec('ROLLBACK');
+            throw err;
+        }
+    }
+
     // ------------------------------------------------------------- writes --
     /**
      * Create or update by phone. The number is the identity, so importing the
@@ -102,7 +116,9 @@ export class ContactStore {
                     // The importer calls the leftover columns `extra`; they are
                     // exactly what custom fields are for.
                     customFields: raw.customFields ?? raw.extra,
-                    tags: tags.length ? tags : undefined,
+                    // Per-row tags only come from a mapped import; the plain
+                    // importer never sets them, so its behaviour is unchanged.
+                    tags: rowTags(tags, raw.tags),
                     source,
                 }, { merge });
                 result.ids.push(saved.id);
@@ -131,6 +147,144 @@ export class ContactStore {
         const contact = this.#require(id);
         this.db.prepare('DELETE FROM contacts WHERE id = ? AND tenant_id = ?').run(contact.id, this.tenantId);
         return contact;
+    }
+
+    /**
+     * Opt a contact out (or back in). `opt_outs` is what the send path obeys
+     * and `opt_in_status` is the consent we record, so both move together.
+     */
+    setOptOut(id, optedOut, reason = '') {
+        const contact = this.#require(id);
+        const why = String(reason ?? '').trim().slice(0, 200) || 'manual';
+        this.#atomic(() => {
+            if (optedOut) {
+                this.db.prepare(
+                    `INSERT INTO opt_outs (tenant_id, phone, reason, opted_out_at) VALUES (?, ?, ?, ?)
+                     ON CONFLICT(tenant_id, phone) DO UPDATE SET reason = excluded.reason,
+                                                                 opted_out_at = excluded.opted_out_at`)
+                    .run(this.tenantId, contact.phone, why, utcNow());
+            } else {
+                this.db.prepare('DELETE FROM opt_outs WHERE tenant_id = ? AND phone = ?')
+                    .run(this.tenantId, contact.phone);
+            }
+            this.db.prepare('UPDATE contacts SET opt_in_status = ?, updated_at = ? WHERE id = ? AND tenant_id = ?')
+                .run(optedOut ? 'opted_out' : 'opted_in', utcNow(), contact.id, this.tenantId);
+        });
+        return this.get(contact.id);
+    }
+
+    /**
+     * One action over many contacts, atomically. Ids from another tenant or
+     * already gone are reported in `missing` rather than failing the batch.
+     */
+    bulk(ids, action, { tags = [], reason = '' } = {}) {
+        if (!BULK_ACTIONS.includes(action)) {
+            throw new ContactError(`action must be one of: ${BULK_ACTIONS.join(', ')}`);
+        }
+        const list = unique((Array.isArray(ids) ? ids : []).map(Number))
+            .filter((id) => Number.isInteger(id) && id > 0);
+        if (!list.length) throw new ContactError('ids must be a non-empty list of contact ids');
+        if (list.length > MAX_BULK) throw new ContactError(`at most ${MAX_BULK} contacts per bulk action`);
+        const clean = cleanTags(tags);
+        if ((action === 'addTags' || action === 'removeTags') && !clean.length) {
+            throw new ContactError('tags must name at least one tag');
+        }
+
+        const result = { action, affected: 0, missing: [] };
+        this.#atomic(() => {
+            for (const id of list) {
+                if (!this.get(id)) {
+                    result.missing.push(id);
+                    continue;
+                }
+                if (action === 'addTags') this.addTags(id, clean);
+                else if (action === 'removeTags') this.removeTags(id, clean);
+                else if (action === 'optOut') this.setOptOut(id, true, reason);
+                else if (action === 'optIn') this.setOptOut(id, false);
+                else this.remove(id);
+                result.affected += 1;
+            }
+        });
+        return result;
+    }
+
+    /** Ids matching a filter, for "apply to every match" without paging the rows. */
+    idsFor(filter = {}, max = MAX_BULK) {
+        const { sql, args } = buildWhere(filter, this.tenantId);
+        return this.db.prepare(`SELECT id FROM contacts WHERE ${sql} ORDER BY id LIMIT ?`)
+            .all(...args, max).map((row) => row.id);
+    }
+
+    /**
+     * Contacts that are the same number stored in different shapes: legacy
+     * rows saved before normalisation, a national form next to the E.164 one,
+     * or the double country-code prefix an old import could produce.
+     */
+    duplicates({ limit = 50 } = {}) {
+        const groups = new Map();
+        const rows = this.db.prepare('SELECT id, phone FROM contacts WHERE tenant_id = ? ORDER BY id')
+            .all(this.tenantId);
+        for (const row of rows) {
+            const key = canonicalPhone(row.phone, this.defaultCountryCode);
+            if (!key) continue;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(row.id);
+        }
+        const dupes = [...groups.entries()].filter(([, ids]) => ids.length > 1);
+        return {
+            total: dupes.length,
+            groups: dupes.slice(0, Math.max(1, Number(limit) || 50)).map(([key, ids]) => {
+                const contacts = ids.map((id) => this.get(id));
+                // Keep the row already stored canonically; failing that, the most complete.
+                const keep = contacts.find((c) => c.phone === key)
+                    ?? [...contacts].sort((a, b) => completeness(b) - completeness(a))[0];
+                return { key, contacts, suggestedKeepId: keep.id };
+            }),
+        };
+    }
+
+    /**
+     * Fold `mergeIds` into `keepId`: tags are unioned, custom fields merged
+     * with the kept contact winning, blanks filled from the others, and an
+     * opt-out anywhere is kept (consent is never widened by a merge). The
+     * merged rows are then deleted.
+     */
+    merge(keepId, mergeIds) {
+        const keep = this.#require(keepId);
+        const ids = unique((Array.isArray(mergeIds) ? mergeIds : []).map(Number))
+            .filter((id) => Number.isInteger(id) && id > 0 && id !== keep.id);
+        if (!ids.length) throw new ContactError('mergeIds must list at least one other contact');
+        if (ids.length > 100) throw new ContactError('at most 100 contacts per merge');
+        const others = ids.map((id) => this.#require(id));
+
+        return this.#atomic(() => {
+            let fields = {};
+            for (const other of others) fields = { ...fields, ...other.customFields };
+            fields = { ...fields, ...keep.customFields };
+            const tags = unique([...keep.tags, ...others.flatMap((o) => o.tags)]);
+            const name = keep.name || others.find((o) => o.name)?.name || '';
+            const email = keep.email || others.find((o) => o.email)?.email || '';
+            const optedOut = keep.optedOut || others.some((o) => o.optedOut);
+            const optedIn = keep.optInStatus === 'opted_in' || others.some((o) => o.optInStatus === 'opted_in');
+
+            for (const other of others) {
+                this.db.prepare('DELETE FROM contacts WHERE id = ? AND tenant_id = ?').run(other.id, this.tenantId);
+            }
+            this.db.prepare(
+                `UPDATE contacts SET name = ?, email = ?, tags = ?, custom_fields = ?, opt_in_status = ?, updated_at = ?
+                 WHERE id = ? AND tenant_id = ?`)
+                .run(name, email, JSON.stringify(tags), JSON.stringify(fields),
+                    optedOut ? 'opted_out' : (optedIn ? 'opted_in' : keep.optInStatus),
+                    utcNow(), keep.id, this.tenantId);
+            if (optedOut && !keep.optedOut) {
+                const reason = others.find((o) => o.optedOut)?.optOutReason || 'merged';
+                this.db.prepare(
+                    `INSERT INTO opt_outs (tenant_id, phone, reason, opted_out_at) VALUES (?, ?, ?, ?)
+                     ON CONFLICT(tenant_id, phone) DO NOTHING`)
+                    .run(this.tenantId, keep.phone, reason, utcNow());
+            }
+            return { contact: this.get(keep.id), removed: others.map((o) => o.id) };
+        });
     }
 
     // -------------------------------------------------------------- reads --
@@ -168,10 +322,15 @@ export class ContactStore {
      * stores and what a campaign audience resolves, so a segment never goes
      * stale: it is re-evaluated every time it is used.
      */
-    find(filter = {}, { limit = 500, offset = 0 } = {}) {
+    find(filter = {}, { limit = 500, offset = 0, sort = '', dir = 'asc' } = {}) {
         const { sql, args } = buildWhere(filter, this.tenantId);
+        // Whitelisted column names only: `sort` arrives from a query string.
+        const column = SORTS[sort];
+        const order = column
+            ? `${column} ${String(dir).toLowerCase() === 'desc' ? 'DESC' : 'ASC'}, id`
+            : 'id';
         const rows = this.db.prepare(
-            `SELECT * FROM contacts WHERE ${sql} ORDER BY id LIMIT ? OFFSET ?`)
+            `SELECT * FROM contacts WHERE ${sql} ORDER BY ${order} LIMIT ? OFFSET ?`)
             .all(...args, Math.min(Number(limit) || 500, 5000), Number(offset) || 0);
         return rows.map((row) => this.#decorate(toContact(row)));
     }
@@ -189,11 +348,11 @@ export class ContactStore {
     timeline(id, { limit = 100 } = {}) {
         const contact = this.#require(id);
         const outbound = this.db.prepare(
-            `SELECT message_id, message_type, message, status, created_at
+            `SELECT message_id, message_type, message, status, error, created_at
              FROM messages WHERE tenant_id = ? AND recipient = ?
              ORDER BY created_at DESC LIMIT ?`).all(this.tenantId, contact.phone, limit);
         const inbound = this.db.prepare(
-            `SELECT message_id, body, received_at FROM inbound_messages
+            `SELECT id, message_id, body, media_type, received_at FROM inbound_messages
              WHERE tenant_id = ? AND sender = ? ORDER BY received_at DESC LIMIT ?`)
             .all(this.tenantId, contact.phone, limit);
 
@@ -201,12 +360,45 @@ export class ContactStore {
             ...outbound.map((row) => ({
                 at: row.created_at, direction: 'outbound', kind: row.message_type ?? 'campaign',
                 messageId: row.message_id, body: row.message, status: row.status,
+                ...(row.error ? { error: row.error } : {}),
             })),
             ...inbound.map((row) => ({
-                at: row.received_at, direction: 'inbound', kind: 'message',
-                messageId: row.message_id, body: row.body, status: null,
+                at: row.received_at, direction: 'inbound', kind: row.media_type ? 'media' : 'message',
+                messageId: row.message_id ?? `in-${row.id}`, body: row.body, status: null,
             })),
+            ...this.#clicks(contact.phone, limit),
         ].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, limit);
+    }
+
+    /**
+     * Button clicks, when the interactive-messages feature has created its
+     * table. Its columns are discovered rather than assumed, so the timeline
+     * keeps working whichever shape that table settles on.
+     */
+    #clicks(phone, limit) {
+        const table = this.db.prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'button_clicks'").get();
+        if (!table) return [];
+        const cols = new Set(this.db.prepare('PRAGMA table_info(button_clicks)').all().map((c) => c.name));
+        const first = (names) => names.find((n) => cols.has(n));
+        const phoneCol = first(['phone', 'sender', 'contact_phone', 'wa_id', 'from_phone', 'recipient']);
+        const atCol = first(['clicked_at', 'created_at', 'received_at', 'at', 'timestamp']);
+        if (!phoneCol || !atCol) return [];
+        const labelCol = first(['button_title', 'button_text', 'title', 'label', 'reply_title', 'payload', 'button_id']);
+        const idCol = first(['id', 'message_id']);
+        const where = cols.has('tenant_id') ? 'tenant_id = ? AND ' : '';
+        const args = cols.has('tenant_id') ? [this.tenantId, phone, limit] : [phone, limit];
+        try {
+            return this.db.prepare(
+                `SELECT * FROM button_clicks WHERE ${where}"${phoneCol}" = ? ORDER BY "${atCol}" DESC LIMIT ?`)
+                .all(...args).map((row, i) => ({
+                    at: row[atCol], direction: 'inbound', kind: 'button_click',
+                    messageId: `click-${idCol ? row[idCol] : i}`,
+                    body: labelCol ? String(row[labelCol] ?? '') : 'Button tapped', status: null,
+                }));
+        } catch {
+            return [];
+        }
     }
 
     // ----------------------------------------------------------- segments --
@@ -295,9 +487,13 @@ export class ContactStore {
 
     /** Opt-out is the send path's authority, so reads report it alongside. */
     #decorate(contact) {
-        const optedOut = Boolean(this.db.prepare('SELECT 1 FROM opt_outs WHERE tenant_id = ? AND phone = ?')
-            .get(this.tenantId, contact.phone));
-        return { ...contact, optedOut, messageable: !optedOut && contact.status === 'active' };
+        const optOut = this.db.prepare('SELECT reason, opted_out_at FROM opt_outs WHERE tenant_id = ? AND phone = ?')
+            .get(this.tenantId, contact.phone);
+        const optedOut = Boolean(optOut);
+        return {
+            ...contact, optedOut, messageable: !optedOut && contact.status === 'active',
+            optOutReason: optOut?.reason ?? null, optedOutAt: optOut?.opted_out_at ?? null,
+        };
     }
 }
 
@@ -373,6 +569,54 @@ export function buildWhere(filter = {}, tenantId) {
 }
 
 const unique = (list) => [...new Set(list)];
+
+export const BULK_ACTIONS = Object.freeze(['addTags', 'removeTags', 'optOut', 'optIn', 'delete']);
+export const MAX_BULK = 10_000;
+
+/** Sortable columns, keyed by the name the API accepts. */
+const SORTS = Object.freeze({
+    name: 'contacts.name COLLATE NOCASE',
+    phone: 'contacts.phone',
+    email: 'contacts.email COLLATE NOCASE',
+    createdAt: 'contacts.created_at',
+    updatedAt: 'contacts.updated_at',
+    optInStatus: 'contacts.opt_in_status',
+});
+
+/** Global import tags plus any the row itself carried; undefined leaves tags alone. */
+function rowTags(tags, own) {
+    const merged = unique([...(tags ?? []), ...(Array.isArray(own) ? own : [])]);
+    return merged.length ? merged : undefined;
+}
+
+const completeness = (c) => (c.name ? 2 : 0) + (c.email ? 1 : 0)
+    + c.tags.length + Object.keys(c.customFields).length;
+
+/**
+ * The number a stored phone most plausibly is, for duplicate detection only.
+ * Stored rows are normally E.164 digits already; this also folds the forms a
+ * legacy row might hold. National numbers are taken to be at most 10 digits.
+ */
+export function canonicalPhone(stored, defaultCountryCode = '') {
+    const raw = String(stored ?? '').trim();
+    const cc = String(defaultCountryCode ?? '').replace(/\D/g, '');
+    let digits = raw.replace(/\D/g, '');
+    if (!digits) return null;
+    if (raw.startsWith('+')) {
+        // explicit international form
+    } else if (digits.startsWith('00')) {
+        digits = digits.slice(2);
+    } else if (digits.startsWith('0') && cc) {
+        digits = cc + digits.replace(/^0+/, '');
+    } else if (cc && digits.length <= 10) {
+        digits = cc + digits;
+    } else if (cc && digits.startsWith(cc + cc) && digits.length === cc.length * 2 + 10) {
+        // the double prefix an unflagged re-normalisation produced
+        digits = digits.slice(cc.length);
+    }
+    digits = digits.replace(/^0+/, '');
+    return /^\d{8,15}$/.test(digits) ? digits : null;
+}
 
 const cleanTags = (tags) => (Array.isArray(tags)
     ? unique(tags.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean))

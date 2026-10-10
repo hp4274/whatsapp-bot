@@ -1,0 +1,184 @@
+@let d = draft;
+@let file = d.attachment();
+
+<section class="card panel">
+  <div class="ph">
+    <span class="badge"><span class="ms" aria-hidden="true">edit_note</span></span>
+    <div>
+      <h3>{{ d.metaMode() ? 'Pick an approved template' : 'Write the message' }}</h3>
+      <p class="muted">{{ d.metaMode()
+        ? 'Meta-approved wording reaches people outside the 24-hour window - map each slot to a column'
+        : 'WhatsApp formatting, variables and spintax - the preview updates as you type' }}</p>
+    </div>
+  </div>
+
+  @if (d.cloudApi()) {
+    <div class="mode" role="group" aria-label="Message type">
+      <span class="glide" [class.right]="d.metaMode()" aria-hidden="true"></span>
+      <button type="button" [attr.aria-pressed]="!d.metaMode()" (click)="d.templateMode.set('free')">
+        <span class="ms" aria-hidden="true">edit</span> Free-form
+      </button>
+      <button type="button" [attr.aria-pressed]="d.metaMode()" (click)="d.templateMode.set('meta')">
+        <span class="ms" aria-hidden="true">verified</span> Meta approved template
+      </button>
+    </div>
+  }
+
+  @if (d.metaMode()) {
+    <div class="meta enter">
+      <label class="field" for="meta-tpl">
+        <span>Approved template</span>
+        <select id="meta-tpl" (change)="pick($any($event.target).value, 'main')">
+          <option value="" [selected]="!d.metaTemplate()">Choose a template...</option>
+          @for (t of approved() ?? []; track t.id) {
+            <option [value]="t.id" [selected]="t.id === d.metaTemplate()?.id">{{ label(t) }}</option>
+          }
+        </select>
+      </label>
+      @if (approved()?.length === 0 && !templatesError()) {
+        <p class="muted small">No approved templates with a Meta name yet - add one on the Templates page.</p>
+      }
+      @if (templatesError()) { <p class="error" role="alert">{{ templatesError() }}</p> }
+      @if (d.metaTemplate(); as tpl) {
+        <app-meta-params [template]="tpl" [variables]="d.variables()" [(mapping)]="d.templateParams" />
+      }
+    </div>
+  } @else {
+  <div class="editor">
+    <div class="toolbar" role="toolbar" aria-label="Formatting">
+      @for (f of formats; track f.marker) {
+        <button type="button" class="tb" (click)="wrap(f.marker)" [attr.aria-label]="f.label" [title]="f.label">
+          <span class="ms" aria-hidden="true">{{ f.icon }}</span>
+        </button>
+      }
+      <span class="sep" aria-hidden="true"></span>
+      <button type="button" class="tb wide" (click)="insertSpin()" title="Insert a spintax group">
+        <span class="ms" aria-hidden="true">shuffle</span> Spintax
+      </button>
+      <button type="button" class="tb" (click)="spinHelp.set(!spinHelp())" [attr.aria-expanded]="spinHelp()" aria-label="What is spintax?">
+        <span class="ms" aria-hidden="true">help</span>
+      </button>
+      <span class="count" [class.over]="d.message().length > 1024">{{ d.message().length }} / 1024</span>
+    </div>
+
+    <label class="sr" for="msg">Message</label>
+    <textarea #editor id="msg" rows="8" [ngModel]="d.message()" (ngModelChange)="d.message.set($event)"
+              (keydown)="onKey($event)" placeholder="Hi {name}, ..."></textarea>
+
+    <div class="chips" aria-label="Insert a variable">
+      <span class="muted lbl">Insert:</span>
+      @for (v of d.variables(); track v) {
+        <button type="button" class="vchip" (click)="insertVar(v)" [class.used]="d.usedVariables().includes(v)">{{ '{' + v + '}' }}</button>
+      }
+    </div>
+  </div>
+
+  @if (spinHelp()) {
+    <p class="banner info enter"><span class="ms" aria-hidden="true">lightbulb</span>
+      <span><code>{{ '{Hi|Hello|Hey}' }}</code> picks one option per recipient, so no two messages are identical.
+        Use <code>{{ '{name|there}' }}</code> for an inline fallback. Press Shuffle on the preview to see other variants.</span></p>
+  }
+
+  @if (d.estimatedSize() > 50 && !d.hasVariation()) {
+    <p class="banner" role="status"><span class="ms" aria-hidden="true">warning</span>
+      Identical text to {{ d.estimatedSize() }} people is a spam signal - add {{ '{name}' }} or {{ '{Hi|Hello}' }}.</p>
+  }
+  @if (d.unresolved().length) {
+    <p class="banner danger" role="status"><span class="ms" aria-hidden="true">error</span>
+      Nothing fills {{ d.unresolved().join(', ') }} for this contact - set a fallback below or check the column.</p>
+  }
+  }
+
+  <div class="attach">
+    <label class="btn" for="msg-attach" [class.disabled]="uploading()">
+      @if (uploading()) { <span class="spinner"></span> } @else { <span class="ms" aria-hidden="true">attach_file</span> }
+      {{ file ? 'Replace attachment' : 'Attach image, video or PDF' }}
+    </label>
+    <input id="msg-attach" class="sr" type="file" accept="image/jpeg,image/png,application/pdf,video/mp4,video/3gpp"
+           (change)="onAttach($event)" [disabled]="uploading()" />
+    @if (file) {
+      <div class="fchip">
+        @if (file.mimetype.startsWith('image/')) {
+          <img [src]="file.previewUrl" alt="" />
+        } @else {
+          <span class="ms thumb" aria-hidden="true">{{ file.mimetype.startsWith('video/') ? 'movie' : 'picture_as_pdf' }}</span>
+        }
+        <span class="fname">{{ file.filename }}</span>
+        <span class="muted">{{ size(file.size) }}</span>
+        <button type="button" class="x" (click)="d.setAttachment(null)" [attr.aria-label]="'Remove attachment ' + file.filename">
+          <span class="ms" aria-hidden="true">close</span>
+        </button>
+      </div>
+    } @else {
+      <small class="muted">{{ d.metaMode()
+        ? 'Only for templates with an image, video or document header - the file is sent as that header.'
+        : 'Optional - JPG/PNG/PDF up to 16 MB or MP4 up to 64 MB. The message becomes the caption.' }}</small>
+    }
+  </div>
+
+  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+</section>
+
+@if (d.cloudApi() && !d.metaMode()) {
+<section class="card panel">
+  <div class="ph">
+    <span class="badge"><span class="ms" aria-hidden="true">schedule_send</span></span>
+    <div>
+      <h3>Fallback approved template</h3>
+      <p class="muted">For people outside the 24h window - sent instead when Meta refuses the free-form message</p>
+    </div>
+  </div>
+  <label class="field" for="meta-fb">
+    <span class="sr">Fallback approved template</span>
+    <select id="meta-fb" (change)="pick($any($event.target).value, 'fallback')">
+      <option value="" [selected]="!d.fallbackTemplate()">None - those messages fail</option>
+      @for (t of approved() ?? []; track t.id) {
+        <option [value]="t.id" [selected]="t.id === d.fallbackTemplate()?.id">{{ label(t) }}</option>
+      }
+    </select>
+  </label>
+  @if (d.fallbackTemplate(); as fb) {
+    <app-meta-params [template]="fb" [variables]="d.variables()" [(mapping)]="d.fallbackTemplateParams" />
+  }
+</section>
+}
+
+@if (!d.metaMode()) {
+<section class="card panel">
+  <div class="ph">
+    <span class="badge accent"><span class="ms" aria-hidden="true">smart_button</span></span>
+    <div>
+      <h3>Buttons &amp; menus</h3>
+      <p class="muted">Optional quick replies, links or a list - falls back to numbered text where buttons are unsupported</p>
+    </div>
+  </div>
+  <app-interactive-editor [(value)]="d.interactive" [variables]="d.variables()" />
+</section>
+
+<section class="card panel">
+  <div class="ph">
+    <span class="badge warn"><span class="ms" aria-hidden="true">auto_fix_high</span></span>
+    <div>
+      <h3>Fallbacks</h3>
+      <p class="muted">Used when a contact's value is empty, so nobody gets "Hi ,"</p>
+    </div>
+  </div>
+  <div class="fallbacks">
+    @for (v of d.variables(); track v) {
+      <label class="fb">
+        <span class="tag">{{ '{' + v + '}' }}</span>
+        <input [ngModel]="d.fallbacks()[v] ?? ''" (ngModelChange)="d.setFallback(v, $event)" placeholder="no fallback"
+               [attr.aria-label]="'Fallback for ' + v" />
+      </label>
+    }
+  </div>
+</section>
+}
+
+<div class="foot">
+  <button type="button" class="btn" (click)="d.goTo(1)"><span class="ms" aria-hidden="true">arrow_back</span> Audience</button>
+  <span class="grow"></span>
+  <button type="button" class="btn primary" [disabled]="!d.messageReady()" (click)="d.goTo(3)">
+    Review <span class="ms" aria-hidden="true">arrow_forward</span>
+  </button>
+</div>

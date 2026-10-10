@@ -7,9 +7,16 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
+import type { InteractiveDraft } from '../campaign/interactive/interactive.model';
+import type { MetaMapping } from './meta-mapping';
+
+export type { InteractiveDraft };
 
 export const TEMPLATE_TYPES = ['text', 'media', 'provider_template', 'interactive', 'notification'] as const;
 export const APPROVAL_STATUSES = ['draft', 'pending', 'approved', 'rejected'] as const;
+/** Meta's template categories; the server defaults new templates to 'marketing'. */
+export const TEMPLATE_CATEGORIES = ['marketing', 'utility', 'authentication'] as const;
+export type TemplateCategory = (typeof TEMPLATE_CATEGORIES)[number];
 export type TemplateType = (typeof TEMPLATE_TYPES)[number];
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 
@@ -25,6 +32,13 @@ export interface Template {
   currentVersion: number;
   useCount: number;
   lastUsedAt: string | null;
+  category: TemplateCategory;
+  sampleValues: Record<string, string>;
+  headerMediaId: string | null;
+  interactive: InteractiveDraft | null;
+  /** Meta send settings (meta-mapping.ts): language code + {{n}} mapping. */
+  language?: string;
+  paramMapping?: MetaMapping;
   createdAt: string;
   updatedAt: string;
 }
@@ -45,6 +59,20 @@ export interface TemplateDraft {
   variables: string[];
   providerTemplateName: string;
   approvalStatus: ApprovalStatus;
+  category: TemplateCategory;
+  sampleValues: Record<string, string>;
+  headerMediaId: string | null;
+  interactive: InteractiveDraft | null;
+  language?: string;
+  paramMapping?: MetaMapping;
+}
+
+export interface UploadedMedia {
+  mediaId: string;
+  filename: string;
+  mimetype: string;
+  size: number;
+  url: string;
 }
 
 /** Error carrying the HTTP status, so the page can tell a 403 from a 400. */
@@ -77,6 +105,15 @@ export class TemplatesApi {
   }
   revert(id: number, version: number) {
     return this.http.post<{ template: Template }>(`/api/templates/${id}/revert`, { version }).pipe(catchError(toError));
+  }
+  upload(file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http.post<UploadedMedia>('/api/media/upload', form).pipe(catchError(toError));
+  }
+  /** Media needs the bearer token, so an <img src> cannot fetch it directly. */
+  mediaBlob(mediaId: string) {
+    return this.http.get(`/api/media/${encodeURIComponent(mediaId)}`, { responseType: 'blob' }).pipe(catchError(toError));
   }
 }
 
@@ -115,3 +152,29 @@ export function render(body: string, sample: Record<string, string>): string {
     .replace(/\{(\w+)\}/g, (_, key: string) => sample[key] || `[${key}]`)
     .trim();
 }
+
+const escapeHtml = (text: string) =>
+  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+/**
+ * WhatsApp formatting for a preview: *bold* _italic_ ~strike~ ```mono``` `code`.
+ * HTML is escaped first, so the output only ever contains the tags added here -
+ * safe to bind with [innerHTML]. Code spans are split out so * _ ~ stay literal in them.
+ */
+export function formatWhatsApp(text: string): string {
+  return escapeHtml(String(text ?? ''))
+    .split(/(```[\s\S]+?```|`[^`\n]+`)/g)
+    .map((part, i) => {
+      if (i % 2) {
+        return part.startsWith('```')
+          ? `<code class="mono">${part.slice(3, -3)}</code>`
+          : `<code>${part.slice(1, -1)}</code>`;
+      }
+      return part
+        .replace(/(^|[^\w*])\*(?=\S)([^*\n]*?\S)\*(?!\w)/g, '$1<b>$2</b>')
+        .replace(/(^|[^\w_])_(?=\S)([^_\n]*?\S)_(?!\w)/g, '$1<i>$2</i>')
+        .replace(/(^|[^\w~])~(?=\S)([^~\n]*?\S)~(?!\w)/g, '$1<s>$2</s>');
+    })
+    .join('');
+}
+

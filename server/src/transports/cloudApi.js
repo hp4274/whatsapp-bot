@@ -16,6 +16,7 @@
  */
 
 import { graphBaseUrl } from '../config.js';
+import { renderFallbackText } from '../messaging/interactive.js';
 import { Status } from '../protocol.js';
 import { Transport, TransportConnectionError, TransportSendError } from './base.js';
 
@@ -148,17 +149,52 @@ export class CloudApiTransport extends Transport {
         };
     }
 
-    async sendMessage(recipient, message, { media = null } = {}) {
+    async sendMessage(recipient, message, { media = null, interactive = null, template = null } = {}) {
         if (!this.connected) {
             throw new TransportConnectionError('Transport is not connected', { retryable: false });
         }
+        if (template) return this.#sendTemplate(recipient, template, media);
         const uploadedMedia = media ? await this.uploadMedia(media) : null;
+        // Native buttons / list / single URL CTA; anything else (call, copy,
+        // two CTAs, template mode) goes out as the numbered text fallback.
+        if (interactive && (!nativeInteractive(interactive) || this.config.useTemplate)) {
+            return this.#post(this.payload(recipient, renderFallbackText(message, interactive), { uploadedMedia }));
+        }
+        if (interactive) {
+            // A list message only takes a text header: send the media first.
+            if (uploadedMedia && interactive.type === 'list') {
+                await this.#post(this.payload(recipient, '', { uploadedMedia }));
+            }
+            const header = interactive.type === 'list' ? null : uploadedMedia;
+            return this.#post(interactivePayload(recipient, message, interactive, header));
+        }
+        return this.#post(this.payload(recipient, message, { uploadedMedia }));
+    }
+
+    // --- approved template send (messaging/templateSend.js builds `template`) ---
+    /** One upload per attachment for a whole campaign: Meta media ids live 30 days. */
+    #templateUploads = new WeakMap();
+
+    async #sendTemplate(recipient, template, media) {
+        let uploadedMedia = null;
+        if (media) {
+            uploadedMedia = this.#templateUploads.get(media);
+            if (!uploadedMedia) {
+                uploadedMedia = await this.uploadMedia(media);
+                this.#templateUploads.set(media, uploadedMedia);
+            }
+        }
+        return this.#post(templatePayload(recipient, template, uploadedMedia));
+    }
+    // --- end approved template send ---
+
+    async #post(payload) {
         let response;
         try {
             response = await this.fetch(this.messagesUrl, {
                 method: 'POST',
                 headers: this.headers(),
-                body: JSON.stringify(this.payload(recipient, message, { uploadedMedia })),
+                body: JSON.stringify(payload),
                 signal: AbortSignal.timeout(this.config.requestTimeout * 1000),
             });
         } catch (err) {
@@ -230,6 +266,90 @@ export class CloudApiTransport extends Transport {
     }
 }
 
+/** Whether the Cloud API can send this block as a native interactive message. */
+export function nativeInteractive(interactive) {
+    if (!interactive) return false;
+    if (interactive.type === 'buttons' || interactive.type === 'list') return true;
+    return interactive.type === 'cta' && interactive.cta?.length === 1 && interactive.cta[0].kind === 'url';
+}
+
+/**
+ * The Graph API body for a native interactive message. Reply ids are the
+ * option payload (defaults to its id), so a click comes back as something
+ * reply rules can match on. `uploadedMedia` becomes the header when given.
+ */
+export function interactivePayload(recipient, message, interactive, uploadedMedia = null) {
+    let header;
+    if (uploadedMedia) {
+        const kind = uploadedMedia.mimetype?.split('/')[0];
+        const type = kind === 'image' || kind === 'video' ? kind : 'document';
+        header = { type, [type]: { id: uploadedMedia.id, ...(type === 'document' ? { filename: uploadedMedia.filename } : {}) } };
+    } else if (interactive.header) {
+        header = { type: 'text', text: interactive.header };
+    }
+    const body = { text: String(message ?? '').trim().slice(0, 1024) || interactive.header || '.' };
+    const footer = interactive.footer ? { text: interactive.footer } : undefined;
+    let block;
+    if (interactive.type === 'buttons') {
+        block = {
+            type: 'button',
+            action: { buttons: interactive.buttons.map((b) => ({ type: 'reply', reply: { id: String(b.payload || b.id).slice(0, 256), title: b.title } })) },
+        };
+    } else if (interactive.type === 'list') {
+        block = {
+            type: 'list',
+            action: {
+                button: interactive.list.button,
+                sections: interactive.list.sections.map((s) => ({
+                    title: s.title || undefined,
+                    rows: s.rows.map((r) => ({ id: String(r.payload || r.id).slice(0, 200), title: r.title, description: r.description || undefined })),
+                })),
+            },
+        };
+    } else {
+        const [cta] = interactive.cta;
+        block = { type: 'cta_url', action: { name: 'cta_url', parameters: { display_text: cta.title, url: cta.value } } };
+    }
+    return {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: recipient,
+        type: 'interactive',
+        interactive: { type: block.type, ...(header ? { header } : {}), body, ...(footer ? { footer } : {}), action: block.action },
+    };
+}
+
+/**
+ * Graph API body for an approved template. `template` is
+ * { name, language, components } already resolved for this recipient;
+ * `uploadedMedia` (the campaign attachment) becomes the header, replacing
+ * any header the mapping carried (a template has at most one).
+ */
+export function templatePayload(recipient, template, uploadedMedia = null) {
+    let components = Array.isArray(template.components) ? template.components : [];
+    if (uploadedMedia) {
+        const kind = uploadedMedia.mimetype?.split('/')[0];
+        const type = kind === 'image' || kind === 'video' ? kind : 'document';
+        const ref = { id: uploadedMedia.id, ...(type === 'document' ? { filename: uploadedMedia.filename } : {}) };
+        components = [
+            { type: 'header', parameters: [{ type, [type]: ref }] },
+            ...components.filter((c) => c.type !== 'header'),
+        ];
+    }
+    const language = typeof template.language === 'string' ? template.language : template.language?.code;
+    return {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: recipient,
+        type: 'template',
+        template: {
+            name: template.name,
+            language: { code: language || 'en_US' },
+            ...(components.length ? { components } : {}),
+        },
+    };
+}
+
 async function parseError(response) {
     try {
         const body = await response.json();
@@ -280,8 +400,11 @@ export function parseInboundPayload(payload) {
                     sender: msg.from,
                     senderName: namesByWaId.get(msg.from) ?? contacts[0]?.profile?.name ?? '',
                     body: inboundBody(msg),
+                    // The id of the tapped reply button / list row, or a
+                    // template quick-reply payload: what reply rules match on.
+                    ...inboundReplyId(msg),
                     mediaUrl: inboundMediaUrl(msg),
-                    mediaType: msg.type !== 'text' ? msg.type : null,
+                    mediaType: ['text', 'interactive', 'button'].includes(msg.type) ? null : msg.type,
                     timestamp: msg.timestamp
                         ? new Date(Number(msg.timestamp) * 1000).toISOString()
                         : new Date().toISOString(),
@@ -301,6 +424,12 @@ function inboundBody(msg) {
     if (msg.document?.caption) return msg.document.caption;
     if (msg.video?.caption) return msg.video.caption;
     return '';
+}
+
+/** `{ replyId }` for a button / list / quick-reply tap, nothing for plain messages. */
+function inboundReplyId(msg) {
+    const replyId = msg.interactive?.button_reply?.id ?? msg.interactive?.list_reply?.id ?? msg.button?.payload;
+    return replyId ? { replyId } : {};
 }
 
 function inboundMediaUrl(msg) {

@@ -1,0 +1,79 @@
+<form class="win" (submit)="submit($event)" novalidate [attr.aria-busy]="busy()">
+  <div class="mode" role="group" aria-label="Sending window mode">
+    <button type="button" class="seg" [class.on]="!enabled()" [attr.aria-pressed]="!enabled()"
+            (click)="enabled.set(false)">
+      <span class="ms" aria-hidden="true">all_inclusive</span> Always open
+    </button>
+    <button type="button" class="seg" [class.on]="enabled()" [attr.aria-pressed]="enabled()"
+            (click)="enabled.set(true)">
+      <span class="ms" aria-hidden="true">schedule</span> Set hours
+    </button>
+  </div>
+
+  @if (enabled()) {
+    <fieldset class="days">
+      <legend>Days</legend>
+      <div class="chips">
+        @for (d of weekdays; track d.id) {
+          <button type="button" class="chip" [class.on]="days().has(d.id)" [attr.aria-pressed]="days().has(d.id)"
+                  [attr.aria-label]="d.long" (click)="toggleDay(d.id)">{{ d.short }}</button>
+        }
+      </div>
+      <div class="presets">
+        <button type="button" class="link" (click)="preset('weekdays')">Weekdays</button>
+        <button type="button" class="link" (click)="preset('all')">Every day</button>
+      </div>
+    </fieldset>
+
+    <div class="times">
+      <div class="field">
+        <label [for]="'w-start-' + channel().id">Opens</label>
+        <input type="time" [id]="'w-start-' + channel().id" [name]="'start'" [ngModel]="start()"
+               (ngModelChange)="start.set($event)" required />
+      </div>
+      <span class="dash" aria-hidden="true">&rarr;</span>
+      <div class="field">
+        <label [for]="'w-end-' + channel().id">Closes</label>
+        <input type="time" [id]="'w-end-' + channel().id" [name]="'end'" [ngModel]="end()"
+               (ngModelChange)="end.set($event)" required />
+      </div>
+    </div>
+  }
+
+  <div class="field">
+    <label [for]="'w-tz-' + channel().id">Timezone</label>
+    <select [id]="'w-tz-' + channel().id" name="timezone" [ngModel]="zone()" (ngModelChange)="zone.set($event)">
+      @for (z of zones(); track z) {
+        <option [value]="z">{{ z.split('_').join(' ') }}</option>
+      }
+    </select>
+  </div>
+
+  <p class="now" [class.closed]="!openNow()" aria-live="polite">
+    <span class="ms" aria-hidden="true">{{ openNow() ? 'radio_button_checked' : 'do_not_disturb_on' }}</span>
+    <span>
+      It is <strong>{{ now().time }}</strong> in {{ zone().split('_').join(' ') }} -
+      @if (!enabled()) {
+        messages can go out any time.
+      } @else if (openNow()) {
+        <strong>inside</strong> the window, sending is allowed.
+      } @else {
+        <strong>outside</strong> the window, messages wait until it opens.
+      }
+    </span>
+  </p>
+
+  @if (problem()) {
+    <p class="problem" role="alert">{{ problem() }}</p>
+  }
+
+  <div class="foot">
+    <button class="btn primary small" type="submit" [disabled]="busy() || !dirty() || !!problem()">
+      @if (busy()) { <span class="spinner" aria-hidden="true"></span> }
+      Save window
+    </button>
+    @if (channel().businessHours) {
+      <button class="btn small" type="button" (click)="alwaysOpen()" [disabled]="busy()">Clear window</button>
+    }
+  </div>
+</form>

@@ -1,0 +1,80 @@
+<section class="card funnel enter" aria-labelledby="funnel-h">
+  <header class="head">
+    <h3 id="funnel-h">Delivery funnel</h3>
+    <span class="muted">% of {{ analytics().funnel.audience }} recipients</span>
+  </header>
+  <ol class="stages">
+    @for (s of stages(); track s.key; let i = $index) {
+      <li class="stage" [class]="'stage tone-' + s.tone" [style.--i]="i">
+        <div class="stage-top">
+          <span class="icon"><span class="ms" aria-hidden="true">{{ s.icon }}</span></span>
+          <span class="label">{{ s.label }}</span>
+        </div>
+        <strong class="count">{{ s.count }}</strong>
+        <span class="pct">{{ s.pct }}%</span>
+        <div class="bar" role="img" [attr.aria-label]="s.label + ': ' + s.count + ', ' + s.pct + ' percent of audience'">
+          <div class="bar-fill" [style.width.%]="ready() ? s.pct : 0"></div>
+        </div>
+      </li>
+    }
+  </ol>
+</section>
+
+<div class="split">
+  <section class="card panel enter" aria-labelledby="clicks-h">
+    <header class="head">
+      <h3 id="clicks-h"><span class="ms" aria-hidden="true">touch_app</span>Button clicks</h3>
+    </header>
+    @if (clicks(); as list) {
+      @if (list.length) {
+        <ul class="bars">
+          @for (c of list; track c.id) {
+            <li>
+              <div class="row"><span class="t">{{ c.title }}</span><span class="n">{{ c.count }} <small class="muted">· {{ c.pct }}% of sent</small></span></div>
+              <div class="bar"><div class="bar-fill accent" [style.width.%]="ready() ? c.width : 0"></div></div>
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="muted empty">No one has tapped a button yet.</p>
+      }
+    } @else {
+      <p class="muted empty">Button clicks appear here once recipients tap a button.</p>
+    }
+  </section>
+
+  <section class="card panel enter" aria-labelledby="fail-h">
+    <header class="head">
+      <h3 id="fail-h"><span class="ms" aria-hidden="true">report</span>Failures by reason</h3>
+    </header>
+    @if (failures().length) {
+      <ul class="bars">
+        @for (f of failures(); track f.code) {
+          <li>
+            <div class="row"><span class="t">{{ f.label }}</span><span class="n bad">{{ f.count }}</span></div>
+            <div class="bar"><div class="bar-fill danger" [style.width.%]="ready() ? f.width : 0"></div></div>
+          </li>
+        }
+      </ul>
+    } @else {
+      <p class="ok empty"><span class="ms" aria-hidden="true">check_circle</span>No failures</p>
+    }
+  </section>
+</div>
+
+<section class="card retarget enter" aria-labelledby="rt-h">
+  <div>
+    <h3 id="rt-h">Re-target</h3>
+    <p class="muted">Start a follow-up campaign for a slice of this audience.</p>
+  </div>
+  <div class="rt-actions">
+    @for (r of retargets(); track r.filter) {
+      <button type="button" class="rt" (click)="retarget(r.filter)" [disabled]="r.count === 0"
+              [attr.aria-label]="'Send to ' + r.label + ' (' + r.count + ')'">
+        <span class="ms" aria-hidden="true">{{ r.icon }}</span>
+        <span>Send to: <strong>{{ r.label.toLowerCase() }}</strong></span>
+        <span class="n">{{ r.count }}</span>
+      </button>
+    }
+  </div>
+</section>

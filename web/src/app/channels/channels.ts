@@ -1,50 +1,118 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 
 import { Channel, ChannelsApi } from '../core/api';
 import { Store } from '../core/store';
+import { ChannelCard } from './channel-card';
+import { liveState, localZone, timeZones, transportMeta } from './channel-meta';
+
+const POLL_MS = 30_000;
+
+const emptyDraft = () => ({ displayName: '', phoneNumber: '', transport: 'cloud_api', timezone: localZone() });
 
 @Component({
   selector: 'app-channels',
-  imports: [FormsModule],
+  imports: [FormsModule, ChannelCard],
   templateUrl: './channels.html',
   styleUrl: './channels.scss',
 })
 export class ChannelsView {
   private readonly api = inject(ChannelsApi);
   private readonly store = inject(Store);
+  private readonly router = inject(Router);
 
   protected readonly channels = signal<Channel[]>([]);
   protected readonly capabilities = signal<string[]>([]);
   protected readonly transports = signal<string[]>([]);
-  protected readonly error = signal('');
+  protected readonly warnings = signal<Record<string, string>>({});
+  protected readonly loading = signal(true);
+  protected readonly loadError = signal('');
+  protected readonly formError = signal('');
   protected readonly busy = signal(false);
   protected readonly showForm = signal(false);
-  protected readonly openId = signal<number | null>(null);
+  protected readonly draft = signal(emptyDraft());
+  protected readonly activeId = this.store.channelId;
+  protected readonly zones = timeZones(localZone());
+  protected readonly meta = transportMeta;
 
-  protected readonly draft = signal({ displayName: '', phoneNumber: '', transport: 'cloud_api', timezone: localZone() });
+  private readonly firstField = viewChild<ElementRef<HTMLInputElement>>('firstField');
+
+  protected readonly summary = computed(() => {
+    const list = this.channels();
+    const usage = list.map((c) => c.health?.usage?.sentToday ?? 0);
+    return {
+      total: list.length,
+      connected: list.filter((c) => liveState(c) === 'connected').length,
+      sentToday: usage.reduce((a, b) => a + b, 0),
+      attention: list.filter((c) => c.status === 'active'
+        && (liveState(c) === 'disconnected' || ['warn', 'bad'].includes(c.health?.quality?.level ?? 'ok'))).length,
+    };
+  });
+
+  protected readonly transportOptions = computed(() =>
+    this.transports().map((value) => ({ value, ...transportMeta(value) })));
 
   constructor() {
     this.refresh();
-    this.store.watch(['channels'], () => this.refresh());
+    this.store.watch(['channels', 'history', 'campaign'], () => this.refresh());
+
+    // Connection events arrive for the number in use; reflect them on its card.
+    effect(() => {
+      this.store.connection().connected;
+      untracked(() => { if (!this.loading()) this.refresh(); });
+    });
+
+    // Other numbers do not stream events here, so poll gently while visible.
+    const timer = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') this.refresh();
+    }, POLL_MS);
+    inject(DestroyRef).onDestroy(() => clearInterval(timer));
   }
 
   protected refresh() {
     this.api.list().subscribe({
-      next: ({ channels, capabilities, transports }) => {
+      next: ({ channels, capabilities, transports, warnings }) => {
         this.channels.set(channels);
         this.capabilities.set(capabilities);
         this.transports.set(transports);
+        this.warnings.set(warnings ?? {});
+        this.loadError.set('');
+        this.loading.set(false);
       },
-      error: (err: Error) => this.error.set(err.message),
+      error: (err: Error) => {
+        this.loadError.set(err.message);
+        this.loading.set(false);
+      },
     });
+  }
+
+  protected toggleForm() {
+    const open = !this.showForm();
+    this.showForm.set(open);
+    this.formError.set('');
+    if (open) {
+      if (!this.transports().includes(this.draft().transport) && this.transports().length) {
+        this.draft.update((d) => ({ ...d, transport: this.transports()[0] }));
+      }
+      queueMicrotask(() => this.firstField()?.nativeElement.focus());
+    }
+  }
+
+  protected setDraft<K extends keyof ReturnType<typeof emptyDraft>>(key: K, value: ReturnType<typeof emptyDraft>[K]) {
+    this.draft.update((d) => ({ ...d, [key]: value }));
   }
 
   protected create(event: Event) {
     event.preventDefault();
     const d = this.draft();
+    if (!d.displayName.trim()) {
+      this.formError.set('Give the number a label so your team can recognise it.');
+      this.firstField()?.nativeElement.focus();
+      return;
+    }
     this.busy.set(true);
-    this.error.set('');
+    this.formError.set('');
     this.api
       .create({
         displayName: d.displayName.trim(),
@@ -56,47 +124,14 @@ export class ChannelsView {
         next: () => {
           this.busy.set(false);
           this.showForm.set(false);
-          this.draft.set({ displayName: '', phoneNumber: '', transport: 'cloud_api', timezone: localZone() });
+          this.draft.set(emptyDraft());
           this.refresh();
         },
         error: (err: Error) => {
           this.busy.set(false);
-          this.error.set(err.message);
+          this.formError.set(err.message);
         },
       });
-  }
-
-  protected toggleStatus(channel: Channel) {
-    this.patch(channel, { status: channel.status === 'active' ? 'disabled' : 'active' });
-  }
-
-  protected toggleCapability(channel: Channel, capability: string) {
-    const next = channel.capabilities.includes(capability)
-      ? channel.capabilities.filter((c) => c !== capability)
-      : [...channel.capabilities, capability];
-    this.patch(channel, { capabilities: next });
-  }
-
-  protected setWindow(channel: Channel, start: string, end: string) {
-    this.patch(channel, { businessHours: start && end ? { start, end } : null });
-  }
-
-  protected clearWindow(channel: Channel) {
-    this.patch(channel, { businessHours: null });
-  }
-
-  protected makeDefault(channel: Channel) {
-    this.api.makeDefault(channel.id).subscribe({
-      next: () => this.refresh(),
-      error: (err: Error) => this.error.set(err.message),
-    });
-  }
-
-  protected remove(channel: Channel) {
-    this.api.remove(channel.id).subscribe({
-      next: () => this.refresh(),
-      error: (err: Error) => this.error.set(err.message),
-    });
   }
 
   /** Work on this number: later requests carry its id. */
@@ -105,15 +140,9 @@ export class ChannelsView {
     this.refresh();
   }
 
-  protected readonly activeId = this.store.channelId;
-
-  private patch(channel: Channel, body: Parameters<ChannelsApi['update']>[1]) {
-    this.error.set('');
-    this.api.update(channel.id, body).subscribe({
-      next: () => this.refresh(),
-      error: (err: Error) => this.error.set(err.message),
-    });
+  /** Disconnected numbers go to the connection page, already pointed at them. */
+  protected connect(channel: Channel) {
+    this.store.useChannel(channel.id);
+    this.router.navigate(['/connection'], { queryParams: { channel: channel.id } });
   }
 }
-
-const localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';

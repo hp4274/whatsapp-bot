@@ -1,72 +1,122 @@
-import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, input, OnInit, signal } from '@angular/core';
+import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Router, RouterLink } from '@angular/router';
 
-import { Api, Contact, SafetyStatus } from '../core/api';
+import { Api, CampaignsApi, RetargetFilter } from '../core/api';
 import { Store } from '../core/store';
+import { TemplatesApi } from '../templates/templates-api';
+import { InteractiveDraft } from './interactive/interactive.model';
+import { CampaignDraft, ComposerStep } from './draft';
+import { PhonePreview } from './phone-preview';
+import { AudienceStep } from './steps/audience-step';
+import { MessageStep } from './steps/message-step';
+import { ReviewStep } from './steps/review-step';
+
+const STEPS: { n: ComposerStep; label: string; icon: string }[] = [
+  { n: 1, label: 'Audience', icon: 'group' },
+  { n: 2, label: 'Message', icon: 'edit_note' },
+  { n: 3, label: 'Review', icon: 'checklist' },
+  { n: 4, label: 'Send', icon: 'send' },
+];
+
+const FILTERS: RetargetFilter[] = ['failed', 'unread', 'noreply', 'replied', 'clicked'];
 
 @Component({
   selector: 'app-campaign',
-  imports: [FormsModule],
+  imports: [DatePipe, FormsModule, RouterLink, PhonePreview, AudienceStep, MessageStep, ReviewStep],
   templateUrl: './campaign.html',
   styleUrl: './campaign.scss',
 })
-export class CampaignView implements OnDestroy {
+export class CampaignView implements OnInit {
   private readonly api = inject(Api);
+  private readonly campaignsApi = inject(CampaignsApi);
+  private readonly templatesApi = inject(TemplatesApi);
+  private readonly router = inject(Router);
   protected readonly store = inject(Store);
+  protected readonly draft = inject(CampaignDraft);
 
+  /** Query params (withComponentInputBinding). */
+  readonly template = input<string>();
+  readonly id = input<string>();
+  readonly retarget = input<string>();
+  readonly filter = input<string>();
+
+  protected readonly steps = STEPS;
+  protected readonly tab = signal<'composer' | 'single'>('composer');
+  protected readonly notice = signal('');
+
+  // Quick single message
   protected readonly recipient = signal('');
   protected readonly recipientName = signal('');
   protected readonly message = signal('Hello {name}, your order has been confirmed.');
-  protected readonly bulkMessage = signal('Hello {name}, your order has been confirmed.');
-  protected readonly contacts = signal<Contact[]>([]);
-  protected readonly shown = computed(() => this.contacts().slice(0, 100));
-  protected readonly ownCount = computed(() => this.contacts().filter((c) => this.own(c)).length);
-  protected readonly fileName = signal('');
-  protected readonly importErrors = signal<string[]>([]);
-  protected readonly onePerNumber = signal(true);
   protected readonly busy = signal(false);
-  protected readonly notice = signal('');
-  protected readonly plan = signal<SafetyStatus | null>(null);
-
-  protected readonly attachment = signal<{ mediaId: string; filename: string; size: number; image: boolean; video: boolean; previewUrl: string } | null>(null);
-  protected readonly uploading = signal(false);
-
   protected readonly connected = computed(() => this.store.connection().connected);
 
-  protected readonly preview = computed(() => {
-    const first = this.contacts()[0];
-    if (!first) return '';
-    const context: Record<string, string> = {
-      name: first.name,
-      phone: first.phone,
-      ...(first.extra ?? {}),
-    };
-    const text = substitute(this.own(first) || this.bulkMessage(), context);
-    const file = this.attachment();
-    return `Preview for ${first.name || first.phone}: ${text}${file ? ` [attached: ${file.filename}]` : ''}`;
+  protected readonly contactLabel = computed(() => {
+    const c = this.draft.previewContact();
+    return c.name ? `${c.name}` : `+${c.phone}`;
   });
 
-  protected readonly percent = computed(() => Math.round(this.store.progress() * 100));
+  ngOnInit(): void {
+    this.draft.init();
+    const id = this.id();
+    if (id) {
+      this.router.navigate(['/campaigns', id]);
+      return;
+    }
+    const templateId = Number(this.template());
+    if (templateId) this.prefillTemplate(templateId);
+    const retargetId = Number(this.retarget());
+    if (retargetId) this.prefillRetarget(retargetId, this.filter());
+  }
 
-  /** What this batch will cost: how long, and how much of today's budget. */
-  protected readonly overQuota = computed(() => {
-    const plan = this.plan();
-    if (!plan || plan.remaining === null) return 0;
-    return Math.max(0, this.contacts().length - plan.remaining);
-  });
-
-  protected readonly estimate = computed(() => {
-    const plan = this.plan();
-    if (!plan || this.contacts().length < 2) return '';
-    return `about ${formatDuration(plan.estimateSeconds.typical)} `
-      + `(${plan.minSeconds}-${plan.maxSeconds}s between messages)`;
-  });
-
-  private planFor(count: number): void {
-    this.api.safety(count).subscribe({
-      next: ({ safety }) => this.plan.set(safety),
-      error: () => this.plan.set(null),
+  private prefillTemplate(id: number): void {
+    this.templatesApi.get(id).subscribe({
+      next: ({ template }) => {
+        const t = template as typeof template & { mediaId?: string | null; interactive?: InteractiveDraft | null };
+        this.draft.message.set(t.body ?? '');
+        this.draft.templateId.set(t.id ?? id);
+        if (t.interactive) this.draft.interactive.set(t.interactive);
+        if (t.mediaId) {
+          this.draft.setAttachment({ mediaId: t.mediaId, filename: 'Template attachment', mimetype: '', size: 0, previewUrl: '' });
+        }
+        this.store.setStatus(`Loaded template "${t.name}"`, 'primary');
+      },
+      error: (err: Error) => this.notice.set(`Could not load the template: ${err.message}`),
     });
+  }
+
+  private prefillRetarget(campaignId: number, filter: string | undefined): void {
+    const f = FILTERS.includes(filter as RetargetFilter) ? (filter as RetargetFilter) : 'failed';
+    this.draft.source.set('retarget');
+    this.draft.retarget.set({ campaignId, filter: f, optionId: '' });
+    this.draft.step.set(2);
+    this.campaignsApi.get(campaignId).subscribe({
+      next: ({ campaign }) => {
+        this.draft.retargetCampaign.set(campaign);
+        this.draft.name.set(`Follow-up: ${campaign.name}`);
+      },
+      error: () => undefined,
+    });
+  }
+
+  protected canOpen(n: ComposerStep): boolean {
+    const d = this.draft;
+    const step = d.step();
+    if (step === 4) return n === 4;
+    if (n <= step) return true;
+    if (n === 2) return d.audienceReady();
+    if (n === 3) return d.audienceReady() && d.messageReady();
+    return false;
+  }
+
+  protected open(n: ComposerStep): void {
+    if (this.canOpen(n)) this.draft.goTo(n);
+  }
+
+  protected startOver(): void {
+    this.draft.reset();
   }
 
   protected sendSingle(): void {
@@ -79,7 +129,6 @@ export class CampaignView implements OnDestroy {
       next: ({ messageId, recipient }) => {
         this.busy.set(false);
         this.notice.set('');
-        // Report the number the server normalised to, not the raw input.
         this.store.setStatus(`Queued ${messageId.slice(0, 8)} -> +${recipient}`, 'primary');
       },
       error: (err: Error) => {
@@ -88,135 +137,4 @@ export class CampaignView implements OnDestroy {
       },
     });
   }
-
-  /** A number's own text: the `message` column of the sheet, or what was typed in the table. */
-  protected own(contact: Contact): string {
-    return (contact.extra?.['message'] ?? contact.extra?.['custom_message'] ?? '').trim();
-  }
-
-  protected setOwn(index: number, value: string): void {
-    this.contacts.update((list) => list.map((c, i) => i === index
-      ? { ...c, extra: { ...(c.extra ?? {}), message: value } } : c));
-  }
-
-  protected onFile(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
-    this.fileName.set(file.name);
-    this.api.importContacts(file).subscribe({
-      next: (result) => {
-        this.contacts.set(result.contacts);
-        this.importErrors.set(result.errors);
-        this.planFor(result.contacts.length);
-        this.store.setStatus(
-          `Loaded ${result.contacts.length} contact(s); ${result.duplicates} duplicate(s) skipped`,
-        );
-      },
-      error: (err: Error) => {
-        this.contacts.set([]);
-        this.importErrors.set([err.message]);
-      },
-    });
-    input.value = ''; // allow re-importing the same file
-  }
-
-  protected onAttach(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    input.value = '';
-    if (!file) return;
-    if (!['image/jpeg', 'image/png', 'application/pdf', 'video/mp4', 'video/3gpp'].includes(file.type)) {
-      this.notice.set('Attach a JPG, PNG, PDF or MP4 file.');
-      return;
-    }
-    const video = file.type.startsWith('video/');
-    const maxMb = video ? 64 : 16; // WhatsApp's caps; the server enforces the same
-    if (file.size > maxMb * 1024 * 1024) {
-      this.notice.set(`That file is over ${maxMb} MB.`);
-      return;
-    }
-    this.uploading.set(true);
-    this.api.uploadMedia(file).subscribe({
-      next: (media) => {
-        this.removeAttachment();
-        const image = file.type.startsWith('image/');
-        this.attachment.set({
-          mediaId: media.mediaId, filename: media.filename, size: media.size, image, video,
-          previewUrl: image || video ? URL.createObjectURL(file) : '',
-        });
-        this.uploading.set(false);
-        this.notice.set('');
-      },
-      error: (err: Error) => {
-        this.uploading.set(false);
-        this.notice.set(err.message);
-      },
-    });
-  }
-
-  protected removeAttachment(): void {
-    const current = this.attachment();
-    if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
-    this.attachment.set(null);
-  }
-
-  protected size(bytes: number): string {
-    return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
-  }
-
-  ngOnDestroy(): void {
-    this.removeAttachment();
-  }
-
-  protected start(): void {
-    if (!this.connected()) {
-      this.notice.set('Connect a transport on the Connection page first.');
-      return;
-    }
-    if (!this.contacts().length) {
-      this.notice.set('Import a CSV or XLSX file first.');
-      return;
-    }
-    this.busy.set(true);
-    this.api.startCampaign(this.contacts(), this.bulkMessage(), this.onePerNumber(),
-      this.attachment()?.mediaId ?? null).subscribe({
-      next: ({ queued, skipped, safety }) => {
-        this.busy.set(false);
-        this.notice.set('');
-        this.plan.set(safety);
-        // Pull the new run's numbers now so the progress card appears at once.
-        this.api.stats().subscribe({ next: ({ stats }) => this.store.stats.set(stats), error: () => undefined });
-        const reason = this.onePerNumber() ? 'repeat or already-messaged number' : 'duplicate message';
-        this.store.setStatus(`Campaign started: ${queued} queued, ${skipped} skipped (${reason})`, 'primary');
-      },
-      error: (err: Error) => {
-        this.busy.set(false);
-        this.notice.set(err.message);
-      },
-    });
-  }
-
-  protected control(action: 'pause' | 'resume' | 'stop'): void {
-    this.api.campaignAction(action).subscribe({
-      next: ({ stats }) => {
-        this.store.stats.set(stats);
-        this.store.setStatus(`Campaign ${action}d.`);
-      },
-      error: (err: Error) => this.notice.set(err.message),
-    });
-  }
-}
-
-/** Mirrors the server's personalisation so the preview tells the truth. */
-function substitute(template: string, context: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (match, key: string) => context[key] ?? match);
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 90) return `${Math.round(seconds)}s`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 90) return `${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m`;
 }

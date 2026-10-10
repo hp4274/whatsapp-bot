@@ -16,8 +16,11 @@ export const SESSION_DIR = path.join(APP_DIR, 'wwebjs_auth');
 
 export const TRANSPORT_CLOUD_API = 'cloud_api';
 export const TRANSPORT_WEB_JS = 'whatsapp_web';
+export const TRANSPORT_BAILEYS = 'baileys';
 export const TRANSPORT_SANDBOX = 'sandbox';
-export const TRANSPORTS = [TRANSPORT_CLOUD_API, TRANSPORT_WEB_JS, TRANSPORT_SANDBOX];
+export const TRANSPORTS = [TRANSPORT_CLOUD_API, TRANSPORT_WEB_JS, TRANSPORT_BAILEYS, TRANSPORT_SANDBOX];
+/** QR-login transports that automate a personal/business number (same plan limit, same ToS warning). */
+export const QR_TRANSPORTS = [TRANSPORT_WEB_JS, TRANSPORT_BAILEYS];
 
 export const DEFAULTS = Object.freeze({
     transport: TRANSPORT_CLOUD_API,

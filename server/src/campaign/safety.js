@@ -91,14 +91,32 @@ export const SAFETY_DEFAULTS = Object.freeze({
     restMaxMinutes: 5,
 });
 
+/**
+ * Operator-facing speed presets. `balanced` is the tier table as-is; `safe`
+ * stretches every gap by half again; `fast` halves them but never goes under
+ * the policy floor (`config.minDelaySeconds`, set by tenant/platform policy).
+ */
+export const PACING_PRESETS = Object.freeze(['safe', 'balanced', 'fast']);
+
+export const pickPreset = (preset) => (PACING_PRESETS.includes(preset) ? preset : 'balanced');
+
 /** The pacing that applies to a batch of `batchSize` messages. */
-export function paceFor(batchSize, config = {}) {
+export function paceFor(batchSize, config = {}, preset = 'balanced') {
     const tier = PACING_TIERS.find((t) => batchSize <= t.upTo) ?? PACING_TIERS.at(-1);
-    const min = config.minDelaySeconds > 0 ? config.minDelaySeconds : tier.minSeconds;
-    const max = config.maxDelaySeconds > 0
+    let min = config.minDelaySeconds > 0 ? config.minDelaySeconds : tier.minSeconds;
+    let max = config.maxDelaySeconds > 0
         ? Math.max(config.maxDelaySeconds, min)
         : Math.max(tier.maxSeconds, min);
+    if (preset === 'safe') {
+        min *= 1.5;
+        max *= 1.5;
+    } else if (preset === 'fast') {
+        const floor = config.minDelaySeconds > 0 ? config.minDelaySeconds : 0;
+        min = Math.max(floor, min * 0.5);
+        max = Math.max(min, max * 0.5);
+    }
     return {
+        preset: pickPreset(preset),
         batchSize,
         minSeconds: min,
         maxSeconds: max,
