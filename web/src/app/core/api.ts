@@ -373,11 +373,12 @@ export class Api {
    * History, with the signature the browser already holds: the server answers
    * 204 when nothing changed, so unchanged rows never travel.
    */
-  history(options: { status?: string; recipient?: string; signature?: string }) {
+  history(options: { status?: string; recipient?: string; signature?: string; limit?: number }) {
     let params = new HttpParams();
     if (options.status && options.status !== 'ALL') params = params.set('status', options.status);
     if (options.recipient) params = params.set('recipient', options.recipient);
     if (options.signature) params = params.set('signature', options.signature);
+    if (options.limit) params = params.set('limit', options.limit);
     return this.http
       .get<HistoryPage>('/api/history', { params, observe: 'response' })
       .pipe(catchError(toMessage));

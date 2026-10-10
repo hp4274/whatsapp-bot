@@ -148,7 +148,7 @@ export class TenantsView {
 
   constructor() {
     this.refresh();
-    // /admin/tenants?settings=<id>[&tab=limits|safety] (linked from the ops pages) opens that drawer.
+    // /admin/tenants?settings=<id>[&tab=limits|safety|rules|accounts] (linked from the ops pages) opens that drawer.
     const query = this.route.snapshot.queryParamMap;
     const wanted = Number(query.get('settings'));
     const tab = query.get('tab');
@@ -156,7 +156,7 @@ export class TenantsView {
       this.api.tenants().subscribe(({ tenants }) => {
         const tenant = tenants.find((t) => t.id === wanted);
         if (!tenant) return;
-        this.openSettings(tenant, tab === 'limits' || tab === 'safety' ? tab : 'general');
+        this.openSettings(tenant, (['limits', 'safety', 'rules', 'accounts'] as const).find((t) => t === tab) ?? 'general');
       });
     }
   }

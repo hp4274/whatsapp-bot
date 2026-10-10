@@ -1,19 +1,30 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   computed,
   effect,
   inject,
   signal,
 } from '@angular/core';
 
-import { Api } from './api';
+import { Api, type MessageRecord } from './api';
 import { Store } from './store';
+
+/** How long a finished run stays on screen before the card closes itself. */
+const AUTO_CLOSE_SECONDS = 10;
+/** How many recent messages the card lists. */
+const RECENT_COUNT = 5;
 
 /**
  * A small floating card that follows a bulk send around the app, like an upload
  * tray: how far along it is, what has gone out, and pause / resume / stop.
  * The server owns the send, so this only reads `store.stats` and reflects it.
+ *
+ * Under the counts it lists the last five messages (who, what, status), so the
+ * operator sees names going out rather than only a number. Once a run ends the
+ * card closes itself after 10 seconds; hovering or focusing it holds it open,
+ * so nobody loses it mid-read (WCAG 2.2.1, adjustable timing).
  *
  * Mounted once by the shell rather than by the campaign page, so it survives
  * navigation. The template stays inline: it is the one component file this
@@ -31,6 +42,10 @@ import { Store } from './store';
         role="status"
         aria-live="polite"
         aria-label="Bulk message progress"
+        (mouseenter)="hold(true)"
+        (mouseleave)="hold(false)"
+        (focusin)="hold(true)"
+        (focusout)="hold(false)"
       >
         <header>
           <i class="ti ti-{{ icon() }} lead" aria-hidden="true"></i>
@@ -78,8 +93,25 @@ import { Store } from './store';
                 <b>{{ stats().pending }}</b> waiting
               </li>
             </ul>
+            @if (recent().length) {
+              <ol class="recent" aria-label="Recently sent">
+                @for (m of recent(); track m.messageId) {
+                  <li>
+                    <span class="av" aria-hidden="true">{{ initials(m) }}</span>
+                    <span class="who">
+                      <b>{{ m.name || m.recipient }}</b>
+                      <small>{{ m.message || 'Media' }}</small>
+                    </span>
+                    <span class="st st-{{ tone(m.status) }}">{{ label(m.status) }}</span>
+                  </li>
+                }
+              </ol>
+            }
             @if (note()) {
               <p class="note">{{ note() }}</p>
+            }
+            @if (closesIn() !== null) {
+              <p class="note">Closes in {{ closesIn() }}s · hover to keep it open</p>
             }
             @if (phase() === 'sending' || phase() === 'paused') {
               <div class="actions">
@@ -247,6 +279,69 @@ import { Store } from './store';
       color: var(--danger-text);
     }
 
+    /* Last five messages: one compact row each, newest first. */
+    .recent {
+      display: grid;
+      margin: 0;
+      padding: 4px 0 0;
+      list-style: none;
+      border-top: 1px solid var(--border-color);
+    }
+    .recent li {
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 0;
+      animation: island-in 240ms var(--ease) both;
+    }
+    .recent li + li {
+      border-top: 1px solid var(--border-color);
+    }
+    .av {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-strong);
+      background: color-mix(in srgb, var(--accent) 16%, transparent);
+    }
+    .who {
+      display: grid;
+      min-width: 0;
+      line-height: 1.3;
+    }
+    .who b,
+    .who small {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .who b {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-strong);
+    }
+    .who small {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .st {
+      padding: 2px 9px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--tone);
+      background: color-mix(in srgb, var(--tone) 12%, transparent);
+    }
+    .st-ok { --tone: var(--success); }
+    .st-run { --tone: var(--info); }
+    .st-bad { --tone: var(--danger-text); }
+    .st-mute { --tone: var(--text-muted); }
+
     .note,
     .err {
       margin: 0;
@@ -298,12 +393,24 @@ import { Store } from './store';
       .bar span {
         transition: none;
       }
+      .recent li {
+        animation: none;
+      }
     }
   `,
 })
 export class SendIsland {
   private readonly store = inject(Store);
   private readonly api = inject(Api);
+  private readonly destroyRef = inject(DestroyRef);
+
+  /** Newest messages first, refreshed as the server reports sends. */
+  protected readonly recent = signal<MessageRecord[]>([]);
+  /** Seconds left before a finished run closes; null while running or held. */
+  protected readonly closesIn = signal<number | null>(null);
+  private readonly held = signal(false);
+  private countdown: ReturnType<typeof setInterval> | undefined;
+  private recentTimer: ReturnType<typeof setTimeout> | undefined;
 
   protected readonly stats = this.store.stats.asReadonly();
   protected readonly open = signal(true);
@@ -318,6 +425,33 @@ export class SendIsland {
         this.dismissed.set(null);
         this.open.set(true);
       }
+    });
+
+    // Every send bumps historyRevision; coalesce a burst into one small fetch.
+    effect(() => {
+      this.store.historyRevision();
+      if (!this.visible()) return;
+      clearTimeout(this.recentTimer);
+      this.recentTimer = setTimeout(() => this.loadRecent(), 400);
+    });
+
+    // Finished or stopped: count down and close, unless the pointer or focus is on the card.
+    effect(() => {
+      const ended = this.visible() && (this.phase() === 'done' || this.phase() === 'stopped');
+      this.stopCountdown();
+      if (!ended || this.held()) return;
+      this.closesIn.set(AUTO_CLOSE_SECONDS);
+      this.countdown = setInterval(() => {
+        const left = (this.closesIn() ?? 1) - 1;
+        if (left > 0) return this.closesIn.set(left);
+        this.stopCountdown();
+        this.dismiss();
+      }, 1000);
+    });
+
+    this.destroyRef.onDestroy(() => {
+      this.stopCountdown();
+      clearTimeout(this.recentTimer);
     });
   }
 
@@ -377,6 +511,44 @@ export class SendIsland {
     if (this.phase() === 'sending') return 'Keeps running on the server if you close this tab.';
     return '';
   });
+
+  protected hold(on: boolean): void {
+    this.held.set(on);
+  }
+
+  protected initials(m: MessageRecord): string {
+    const source = (m.name || '').trim();
+    if (!source) return m.recipient.slice(-2);
+    const parts = source.split(/\s+/);
+    return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase();
+  }
+
+  protected tone(status: MessageRecord['status']): 'ok' | 'run' | 'bad' | 'mute' {
+    if (status === 'SENT' || status === 'DELIVERED' || status === 'READ') return 'ok';
+    if (status === 'FAILED') return 'bad';
+    if (status === 'SENDING') return 'run';
+    return 'mute';
+  }
+
+  protected label(status: MessageRecord['status']): string {
+    return status === 'SANDBOX' ? 'Test' : status.charAt(0) + status.slice(1).toLowerCase();
+  }
+
+  private loadRecent(): void {
+    // One HTTP call that completes on its own; failures just keep the last list.
+    this.api.history({ limit: RECENT_COUNT }).subscribe({
+      next: (res) => {
+        if (res.body) this.recent.set(res.body.records.slice(0, RECENT_COUNT));
+      },
+      error: () => undefined,
+    });
+  }
+
+  private stopCountdown(): void {
+    clearInterval(this.countdown);
+    this.countdown = undefined;
+    this.closesIn.set(null);
+  }
 
   protected dismiss(): void {
     this.dismissed.set({ total: this.stats().total });
