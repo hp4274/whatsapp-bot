@@ -1,0 +1,118 @@
+@use '../school/school-shared' as s;
+
+@include s.keyframes;
+@include s.tones;
+@include s.pill;
+@include s.banner;
+@include s.skeleton;
+@include s.empty;
+@include s.buttons;
+
+:host {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.accounts {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+
+  > li + li {
+    border-top: 1px solid var(--border-color);
+  }
+
+  > li.open {
+    background: var(--surface-sunken);
+  }
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 12px 14px;
+}
+
+.avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-strong);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.who {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+
+  strong,
+  .muted {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--text-strong);
+  }
+
+  .muted {
+    font-size: 12px;
+  }
+}
+
+.reset {
+  display: grid;
+  gap: 8px;
+  padding: 0 14px 14px 60px;
+
+  label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-strong);
+  }
+
+  .pw {
+    display: flex;
+    gap: 6px;
+
+    input {
+      flex: 1;
+      min-width: 0;
+    }
+  }
+
+  .hint {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .err {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--danger-text);
+  }
+
+  .btn.primary {
+    justify-self: start;
+  }
+
+  @media (max-width: 520px) {
+    padding-left: 14px;
+  }
+}

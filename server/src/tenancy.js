@@ -365,6 +365,21 @@ export class Tenancy {
         return this.getUser(userId);
     }
 
+    /**
+     * Set a tenant user's password (super admin reset). Scoped by tenant so a
+     * wrong pairing cannot touch another business's user, and every session is
+     * revoked: a reset usually means the old password is no longer trusted.
+     */
+    async setPassword(tenantId, userId, password) {
+        if (String(password ?? '').length < 8) throw new TenancyError('password must be at least 8 characters');
+        const hash = await hashPassword(password);
+        const info = this.db.prepare('UPDATE users SET password_hash = ? WHERE id = ? AND tenant_id = ?')
+            .run(hash, Number(userId), Number(tenantId));
+        if (!info.changes) throw new TenancyError('user not found', 404);
+        this.revokeSessions(userId);
+        return this.getUser(userId);
+    }
+
     // ----------------------------------------------------------- sessions --
     createSession(userId) {
         const token = crypto.randomBytes(32).toString('base64url');

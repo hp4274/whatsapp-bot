@@ -1,0 +1,89 @@
+<!-- Accounts tab of the tenant drawer: one row per sign-in, each with an inline password reset. -->
+@if (done()) {
+  <p class="s-banner tone-ok" role="status">
+    <i class="ti ti-circle-check" aria-hidden="true"></i><span>{{ done() }}</span>
+  </p>
+}
+
+@if (error()) {
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ error() }}</span>
+    <button class="btn sm" type="button" (click)="load()">Try again</button>
+  </p>
+} @else if (loading()) {
+  <div aria-busy="true" aria-label="Loading accounts">
+    @for (row of [0, 1]; track row) {
+      <span class="s-skel"></span>
+    }
+  </div>
+} @else {
+  <ul class="accounts">
+    @for (user of users(); track user.id) {
+      <li [class.open]="openId() === user.id">
+        <div class="row">
+          <span class="avatar" aria-hidden="true">{{ (user.name || user.email).slice(0, 2).toUpperCase() }}</span>
+          <div class="who">
+            <strong>{{ user.name || user.email }}</strong>
+            <span class="muted">{{ user.email }}</span>
+          </div>
+          <span class="s-pill" [class.tone-mute]="user.disabled" [class.tone-info]="!user.disabled">
+            {{ user.disabled ? 'Disabled' : user.role }}
+          </span>
+          <button
+            class="btn sm"
+            type="button"
+            (click)="toggle(user)"
+            [attr.aria-expanded]="openId() === user.id"
+            [attr.aria-controls]="'pw-' + user.id"
+          >
+            <i class="ti ti-key" aria-hidden="true"></i>
+            {{ openId() === user.id ? 'Cancel' : 'Change password' }}
+          </button>
+        </div>
+
+        @if (openId() === user.id) {
+          <form class="reset" [id]="'pw-' + user.id" (submit)="$event.preventDefault(); save(user)">
+            <label [for]="'pw-input-' + user.id">New password for {{ user.email }}</label>
+            <div class="pw">
+              <input
+                [id]="'pw-input-' + user.id"
+                [type]="show() ? 'text' : 'password'"
+                autocomplete="new-password"
+                [minLength]="minPassword"
+                [value]="password()"
+                (input)="password.set($any($event.target).value)"
+                [attr.aria-describedby]="'pw-hint-' + user.id"
+              />
+              <button
+                class="btn sm icon"
+                type="button"
+                (click)="show.set(!show())"
+                [attr.aria-label]="show() ? 'Hide password' : 'Show password'"
+              >
+                <i class="ti ti-{{ show() ? 'eye-off' : 'eye' }}" aria-hidden="true"></i>
+              </button>
+              <button class="btn sm" type="button" (click)="generate()">
+                <i class="ti ti-wand" aria-hidden="true"></i> Generate
+              </button>
+            </div>
+            <p class="hint" [id]="'pw-hint-' + user.id">
+              At least {{ minPassword }} characters. Saving signs this person out of every device.
+            </p>
+            @if (formError()) {
+              <p class="err" role="alert">{{ formError() }}</p>
+            }
+            <button class="btn primary sm" type="submit" [disabled]="saving()">
+              {{ saving() ? 'Saving…' : 'Set password' }}
+            </button>
+          </form>
+        }
+      </li>
+    } @empty {
+      <li class="s-empty">
+        <i class="ti ti-users" aria-hidden="true"></i>
+        <strong>No accounts yet</strong>
+        <p>This business has no one who can sign in.</p>
+      </li>
+    }
+  </ul>
+}

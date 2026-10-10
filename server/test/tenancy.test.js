@@ -387,3 +387,33 @@ describe('moving a single-tenant database', () => {
         }
     });
 });
+
+describe('super admin password reset', () => {
+    it('sets a tenant user password, signs them out, and is super-admin only', async () => {
+        const { createTestApp: make, sessionFor: as } = await import('./helpers.js');
+        const { closeApp: close } = await import('../src/app.js');
+        const app = make();
+        const server = app.listen(0);
+        await new Promise((r) => server.once('listening', r));
+        const base = `http://127.0.0.1:${server.address().port}`;
+        const tenancy = app.locals.tenancy;
+        const user = await tenancy.createUser({ tenantId: 1, email: 'reset@test.dev', password: 'old-password', role: 'agent' });
+        const userToken = tenancy.createSession(user.id);
+        const call = (token, url, body) => fetch(base + url, {
+            method: body ? 'PUT' : 'GET',
+            headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+            body: body && JSON.stringify(body),
+        });
+        const sup = as(app, { role: 'super_admin' });
+        const list = await (await call(sup, '/api/admin/tenants/1/users')).json();
+        assert.ok(list.users.some((u) => u.email === 'reset@test.dev'));
+        assert.equal((await call(sup, `/api/admin/tenants/1/users/${user.id}/password`, { password: 'short' })).status, 400);
+        assert.equal((await call(sup, `/api/admin/tenants/2/users/${user.id}/password`, { password: 'new-password' })).status, 404);
+        assert.equal((await call(as(app), `/api/admin/tenants/1/users/${user.id}/password`, { password: 'new-password' })).status, 403);
+        assert.equal((await call(sup, `/api/admin/tenants/1/users/${user.id}/password`, { password: 'new-password' })).status, 200);
+        assert.equal(tenancy.resolveSession(userToken), null);
+        assert.ok(await tenancy.authenticate('reset@test.dev', 'new-password'));
+        server.close();
+        await close(app);
+    });
+});
