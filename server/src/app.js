@@ -2103,6 +2103,21 @@ export function createApp({
             .map((key) => [key, platform[key]])));
     };
 
+    // Accounts: a super admin sees a business's sign-ins and can reset a password.
+    admin.get('/tenants/:id/users', (req, res) => (tenancy.getTenant(req.params.id)
+        ? res.json({ users: tenancy.listUsers(req.params.id) })
+        : res.status(404).json({ errors: ['tenant not found'] })));
+
+    admin.put('/tenants/:id/users/:userId/password', async (req, res) => {
+        try {
+            const user = await tenancy.setPassword(req.params.id, req.params.userId, req.body?.password);
+            audit(req, 'user.password_reset', user.id, user.email);
+            return res.json({ user });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
     admin.get('/tenants/:id/safety', (req, res) => {
         const tenant = tenancy.getTenant(req.params.id);
         return tenant ? res.json(safetyView(tenant)) : res.status(404).json({ errors: ['tenant not found'] });

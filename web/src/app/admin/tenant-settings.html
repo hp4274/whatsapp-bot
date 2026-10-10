@@ -1,4 +1,4 @@
-<!-- Platform admin's per-tenant settings drawer: General, Limits and Anti-ban tabs saved together; Rules saves itself. -->
+<!-- Platform admin's per-tenant settings drawer: General, Limits and Anti-ban tabs saved together; Rules and Accounts save themselves. -->
 @if (settings(); as s) {
   <div class="backdrop" (click)="close()"></div>
   <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="settings-title">
@@ -310,10 +310,21 @@
             <app-policy-editor [tenantId]="s.tenant.id" [service]="rulesService()" />
           </section>
         }
+
+        @case ('accounts') {
+          <section>
+            <h4>Accounts</h4>
+            <p class="muted compact">
+              Everyone who can sign in to {{ s.tenant.name }}. Changing a password signs that
+              person out of every device.
+            </p>
+            <app-tenant-accounts [tenantId]="s.tenant.id" />
+          </section>
+        }
       }
     </div>
 
-    @if (tab() !== 'rules') {
+    @if (tab() !== 'rules' && tab() !== 'accounts') {
       <footer>
         <button class="btn" type="button" (click)="reset()" [disabled]="saving()">Reset</button>
         <button

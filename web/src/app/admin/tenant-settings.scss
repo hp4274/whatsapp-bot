@@ -58,11 +58,12 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   align-self: start;
   gap: 2px;
   padding: 3px;
+  // Wraps instead of scrolling: with the scrollbar hidden, overflowing tabs were
+  // cut off with no hint that more existed.
+  flex-wrap: wrap;
   margin: var(--space-md) var(--space-xl) 0;
-  overflow-x: auto;
   border-radius: 12px;
   background: var(--surface-sunken);
-  scrollbar-width: none;
 
   button {
     display: inline-flex;

@@ -16,10 +16,11 @@ import { Tenant, TenantControls } from '../core/auth';
 import { SAFETY_GROUPS } from '../core/safety-fields';
 import { POLICY_SERVICES } from './policy-api';
 import { PolicyEditor } from './policy-editor';
+import { TenantAccounts } from './tenant-accounts';
 import { serviceMeta } from './service-meta';
 
 /** Which tab of the drawer is showing. */
-export type SettingsTab = 'general' | 'limits' | 'safety' | 'rules';
+export type SettingsTab = 'general' | 'limits' | 'safety' | 'rules' | 'accounts';
 
 /** Working copy of one tenant's settings; nothing is sent until Save. */
 type SettingsDraft = {
@@ -84,6 +85,7 @@ const TABS: readonly { id: SettingsTab; label: string; icon: string }[] = [
   { id: 'limits', label: 'Limits and quotas', icon: 'chart-donut' },
   { id: 'safety', label: 'Anti-ban safety', icon: 'shield' },
   { id: 'rules', label: 'Rules', icon: 'list-check' },
+  { id: 'accounts', label: 'Accounts', icon: 'users' },
 ];
 
 /**
@@ -98,7 +100,7 @@ const TABS: readonly { id: SettingsTab; label: string; icon: string }[] = [
  */
 @Component({
   selector: 'app-tenant-settings',
-  imports: [PolicyEditor],
+  imports: [PolicyEditor, TenantAccounts],
   templateUrl: './tenant-settings.html',
   styleUrl: './tenant-settings.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
