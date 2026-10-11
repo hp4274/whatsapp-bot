@@ -304,7 +304,18 @@ function cleanSchedule(schedule) {
     const days = (Array.isArray(schedule.days) ? schedule.days : []).map((d) => String(d).toLowerCase().slice(0, 3)).filter((d) => DAYS.includes(d));
     const start = HHMM.test(schedule.start) ? schedule.start : '00:00';
     const end = HHMM.test(schedule.end) ? schedule.end : '23:59';
-    return { days: days.length ? [...new Set(days)] : [...DAYS], start, end, outsideReply: str(schedule.outsideReply) };
+    return { days: days.length ? [...new Set(days)] : [...DAYS], start, end, outsideReply: str(schedule.outsideReply), timezone: validZone(schedule.timezone) };
+}
+
+/** The zone the times were picked in (the editor sends the browser's), or null for the number's zone. */
+function validZone(zone) {
+    if (!zone || typeof zone !== 'string') return null;
+    try {
+        new Intl.DateTimeFormat('en', { timeZone: zone });
+        return zone;
+    } catch {
+        return null;
+    }
 }
 
 function cleanAudience(audience) {

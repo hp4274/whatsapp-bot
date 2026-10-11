@@ -156,6 +156,13 @@ describe('rules', () => {
         assert.equal((await inbound('can I call', { now: MON_8PM }))[0].text, 'Leave a message');
     });
 
+    it('schedule: times are read in the zone they were picked in, not the number zone', async () => {
+        const { store, inbound } = setup(); // number is on Asia/Kolkata: MON_10AM is 15:30 there
+        store.save({ matchType: 'EXACT', keywords: ['open'], replyBody: 'Yes, open', schedule: { start: '09:00', end: '11:00', timezone: 'UTC' } });
+        assert.equal((await inbound('open', { now: MON_10AM }))[0]?.text, 'Yes, open');
+        assert.equal((await inbound('open', { now: MON_8PM })).length, 0, 'after the window nothing replies');
+    });
+
     it('audience: new contacts only, and contacts with a tag', async () => {
         const { store, contacts, inbound } = setup();
         store.save({ matchType: 'EXACT', keywords: ['offer'], replyBody: 'VIP offer', audience: { type: 'tag', tag: 'vip' } });
