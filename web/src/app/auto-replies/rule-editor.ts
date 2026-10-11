@@ -103,7 +103,7 @@ export function toPayload(d: RuleDraft): RulePayload {
     media: d.media,
     interactive: d.interactive,
     menu: prune(d.menu, d.interactive),
-    schedule: d.schedule,
+    schedule: d.schedule && { ...d.schedule, timezone: d.schedule.timezone || browserZone() },
     audience:
       d.audience.type === 'tag'
         ? { type: 'tag', tag: (d.audience.tag ?? '').trim() }
@@ -125,6 +125,11 @@ export function toPayload(d: RuleDraft): RulePayload {
  * Problems are computed continuously but only shown after the first save
  * attempt, so a fresh rule is not covered in red before the user has typed.
  */
+/** The zone the user is picking times in, so "9 to 6" means their 9 to 6, not the server's. */
+function browserZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+}
+
 @Component({
   selector: 'ar-rule-editor',
   imports: [

@@ -41,6 +41,8 @@ export interface RuleSchedule {
   start: string;
   end: string;
   outsideReply: string;
+  /** IANA zone the times were picked in; filled from the browser on save. */
+  timezone?: string | null;
 }
 
 export interface RuleAudience {

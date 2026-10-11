@@ -127,7 +127,9 @@ export class AutoReplyEngine {
         const session = sessionOverride !== undefined ? sessionOverride : this.store.session(phone, now);
         if (hasText && session && (!session.expiresAt || new Date(session.expiresAt) > now)) {
             const rule = this.store.get(session.ruleId);
-            const node = rule?.isActive && kindAllowed(rule, this.deps.platformPolicy()) ? nodeAt(rule, session.path ?? []) : null;
+            // A menu started inside the rule's hours does not keep answering after they end.
+            const node = rule?.isActive && kindAllowed(rule, this.deps.platformPolicy()) && scheduleOpen(rule, ctx)
+                ? nodeAt(rule, session.path ?? []) : null;
             const shown = node?.interactive ? personalizeInteractive(node.interactive, ctx.vars) : null;
             const pick = shown ? matchReply(shown, { body: msg.body, replyId: msg.replyId ?? null }) : null;
             const next = pick && (node.menu?.[pick.id] ?? node.menu?.[pick.payload] ?? node.menu?.[String(pick.index + 1)]);
@@ -183,6 +185,7 @@ export class AutoReplyEngine {
         // Rules of a kind the plan no longer includes stay stored but never fire.
         const rules = this.store.list({ activeOnly: true }).filter((r) => kindAllowed(r, policy));
         let answered = false;
+        let afterHours = false;
         for (const hit of matchRules(msg.body, rules)) {
             const { rule } = hit;
             const name = label(rule);
@@ -191,9 +194,10 @@ export class AutoReplyEngine {
                 continue;
             }
             const meta = { ruleId: rule.id, ruleName: name, key: `rule:${rule.id}` };
-            if (rule.schedule && !inWindow(ctx.clock, rule.schedule)) {
+            if (!scheduleOpen(rule, ctx)) {
                 if (!rule.schedule.outsideReply) {
                     out.trace.push(`"${name}" matched but is outside its schedule`);
+                    afterHours = true;
                     continue;
                 }
                 out.trace.push(`"${name}" matched outside its schedule: outside-hours reply`);
@@ -212,12 +216,17 @@ export class AutoReplyEngine {
             out.trace.push(`"${name}" does not stop further rules`);
         }
         if (answered) return;
+        if (afterHours) {
+            // The keyword was understood, just out of hours: a "didn't catch that" fallback would be wrong.
+            out.trace.push('Nothing else matched; staying silent outside the schedule');
+            return;
+        }
         if (out.greeted) {
             out.trace.push('Nothing matched; fallback skipped because the welcome/away message already answered');
             return;
         }
         const fallbackRule = rules.find((r) => String(r.matchType).toUpperCase() === 'FALLBACK'
-            && audienceOk(r, ctx) && (!r.schedule || inWindow(ctx.clock, r.schedule)));
+            && audienceOk(r, ctx) && scheduleOpen(r, ctx));
         if (fallbackRule) {
             out.trace.push(`Nothing matched: fallback rule "${label(fallbackRule)}"`);
             this.#push(out, ctx, fallbackRule, { source: 'fallback', ruleId: fallbackRule.id, ruleName: label(fallbackRule), key: `rule:${fallbackRule.id}` });
@@ -454,6 +463,17 @@ const toMinutes = (hhmm) => {
     const [h, m] = String(hhmm ?? '0:0').split(':');
     return Number(h) * 60 + Number(m || 0);
 };
+
+/**
+ * Is the rule inside its own hours right now? The times are read in the zone
+ * they were picked in (the browser's, saved with the schedule); older rules
+ * without one use the number's zone.
+ */
+function scheduleOpen(rule, ctx) {
+    if (!rule.schedule) return true;
+    const clock = rule.schedule.timezone ? localClock(ctx.now, rule.schedule.timezone) : ctx.clock;
+    return inWindow(clock, rule.schedule);
+}
 
 /** Inside days/start/end? A start after the end is an overnight window (22:00-06:00). */
 export function inWindow(clock, { days, start, end }) {

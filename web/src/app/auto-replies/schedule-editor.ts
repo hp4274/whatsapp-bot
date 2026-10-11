@@ -62,6 +62,7 @@ let seq = 0;
             />
           </div>
         </div>
+        <p class="hint">Times are in {{ s.timezone || zone }}.</p>
         <div class="field">
           <label [for]="uid + 'o'"
             >Outside-hours reply
@@ -142,6 +143,7 @@ export class ScheduleEditor {
   readonly value = model<RuleSchedule | null>(null);
   protected readonly days = DAYS;
   protected readonly uid = `sch${++seq}`;
+  protected readonly zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
   protected defaults(): RuleSchedule {
     return { ...DEFAULT, days: [...DEFAULT.days] };
