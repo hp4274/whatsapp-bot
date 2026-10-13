@@ -157,8 +157,9 @@ export class BaileysTransport extends Transport {
                 } else if (connection === 'open') {
                     finish(resolve, this.#readyInfo(sock));
                 } else if (connection === 'close' && statusCode(lastDisconnect) === LOGGED_OUT) {
+                    this.#dropSession();
                     finish(reject, new TransportConnectionError(
-                        `Baileys authentication failed: ${reasonText(lastDisconnect)}`, { retryable: false }));
+                        `Baileys authentication failed: ${reasonText(lastDisconnect)}. The saved login was rejected and has been cleared: connect again and scan the QR code.`, { retryable: false }));
                 }
                 // Any other close: #handleConnectionUpdate already scheduled a
                 // reconnect (Baileys needs one right after a QR scan, code 515).
@@ -201,6 +202,7 @@ export class BaileysTransport extends Transport {
             const code = statusCode(lastDisconnect);
             const detail = reasonText(lastDisconnect);
             if (code === LOGGED_OUT) {
+                this.#dropSession();
                 this.#stopAutoReconnect();
                 this.qr = null;
                 this.events.emit('state', { state: 'auth_failure', detail: `Baileys session logged out: ${detail}` });
@@ -278,6 +280,19 @@ export class BaileysTransport extends Transport {
         if (!this.reconnectTimer) return;
         this.clearTimeoutFn(this.reconnectTimer);
         this.reconnectTimer = null;
+    }
+
+    /**
+     * WhatsApp answered 401: the linked device was removed or the saved login is
+     * stale. Those credentials can never work again, and keeping them makes
+     * every later connect fail the same way instead of showing a fresh QR.
+     */
+    #dropSession() {
+        try {
+            fs.rmSync(this.authDir, { recursive: true, force: true });
+        } catch {
+            // best effort: the next logout() tries again
+        }
     }
 
     #stopAutoReconnect() {
@@ -592,13 +607,22 @@ async function toInboundMessage(msg, sock) {
 
 async function defaultSocketFactory({ authDir }) {
     const baileys = await import('@whiskeysockets/baileys');
-    const { makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, Browsers } = baileys;
+    const { makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, Browsers, fetchLatestBaileysVersion } = baileys;
     fs.mkdirSync(authDir, { recursive: true });
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     // Baileys' default pino logger prints every protocol event at 'info';
     // keep warnings and errors on the server log, drop the rest.
     const logger = quietLogger();
+    // WhatsApp rejects clients on an old protocol version ("Connection Failure"); the
+    // bundled one ages out within weeks. Ask for the current one, fall back to the bundled.
+    let version;
+    try {
+        ({ version } = await fetchLatestBaileysVersion({ signal: AbortSignal.timeout(5000) }));
+    } catch {
+        // offline or blocked: use the version Baileys shipped with
+    }
     const sock = makeWASocket({
+        ...(version ? { version } : {}),
         auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) },
         logger,
         browser: Browsers.ubuntu('Chrome'),
