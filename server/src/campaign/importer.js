@@ -147,7 +147,7 @@ export const ISSUE_LABELS = Object.freeze({
  * `extra` under its slug) plus one issue per rejected row.
  */
 export function auditRows(rows, columns, mapping, {
-    countryCode = '', autoClean = false, optOuts = new Set(), recent = new Set(),
+    countryCode = '', autoClean = false, optOuts = new Set(), recent = new Set(), skipDuplicates = true,
 } = {}) {
     const index = Object.fromEntries(columns.map((c, i) => [c.slug, i]));
     const phoneAt = index[mapping?.phone];
@@ -165,7 +165,7 @@ export function auditRows(rows, columns, mapping, {
         const { phone, reason, detail } = classifyPhone(raw, { countryCode: cc, autoClean });
         const reject = (why, note = '') => issues.push({ row: i, raw, phone, name, reason: why, detail: note || ISSUE_LABELS[why] });
         if (!phone) { counts.invalid += 1; reject(reason, detail); return; }
-        if (seen.has(phone)) { counts.duplicate += 1; reject('duplicate'); return; }
+        if (skipDuplicates && seen.has(phone)) { counts.duplicate += 1; reject('duplicate'); return; }
         seen.add(phone);
         if (optOuts.has(phone)) { counts.optedOut += 1; reject('opted_out'); return; }
         if (recent.has(phone)) { counts.recent += 1; reject('recent'); return; }
@@ -180,8 +180,8 @@ export function auditRows(rows, columns, mapping, {
 }
 
 /** The audience a campaign stores, from a parsed sheet and the operator's choices. */
-export function buildContacts(sheet, { mapping, countryCode, autoClean, optOuts, recent }) {
-    const audit = auditRows(sheet.rows, sheet.columns, mapping, { countryCode, autoClean, optOuts, recent });
+export function buildContacts(sheet, { mapping, countryCode, autoClean, optOuts, recent, skipDuplicates }) {
+    const audit = auditRows(sheet.rows, sheet.columns, mapping, { countryCode, autoClean, optOuts, recent, skipDuplicates });
     return {
         ...audit,
         contacts: audit.contacts.map(({ row, ...contact }) => contact),

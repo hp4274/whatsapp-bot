@@ -270,7 +270,8 @@ export class CampaignStore {
         try {
             result = this.manager.enqueueContacts(recipients, text, {
                 campaignId: campaignKey(campaign.id),
-                onePerNumber,
+                // The "skip duplicate numbers" box: off sends every row, even a repeated number.
+                onePerNumber: onePerNumber && options.skipDuplicates !== false,
                 media: attachment,
                 interactive: options.interactive ?? null,
                 fallbacks: options.fallbacks ?? {},

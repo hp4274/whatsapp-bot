@@ -119,7 +119,7 @@ import { DEFAULTS } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { Status } from '../src/protocol.js';
 
-async function run(contacts, { config = {}, rounds = 1, template = 'Hi {name}', waitFor = contacts.length * rounds, ms = 3000 } = {}) {
+async function run(contacts, { config = {}, rounds = 1, template = 'Hi {name}', onePerNumber = true, waitFor = contacts.length * rounds, ms = 3000 } = {}) {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-human-'));
     const db = new Database(path.join(tmp, 'h.db'));
     const sent = [];
@@ -135,7 +135,7 @@ async function run(contacts, { config = {}, rounds = 1, template = 'Hi {name}', 
     let result;
     for (let r = 0; r < rounds; r += 1) {
         manager.queue.reset();
-        result = manager.enqueueContacts(contacts, template, { onePerNumber: true });
+        result = manager.enqueueContacts(contacts, template, { onePerNumber });
         manager.start();
         const deadline = Date.now() + ms;
         while (Date.now() < deadline && sent.length < waitFor * (r + 1) / rounds) await new Promise((x) => setTimeout(x, 20));
@@ -154,6 +154,12 @@ describe('campaign manager', () => {
     it('sends the same sheet again: a number messaged before is not skipped', async () => {
         const { sent } = await run(sheet.slice(0, 3), { rounds: 2 });
         assert.equal(sent.length, 6);
+    });
+
+    it('skips a repeated number by default and sends it twice when the box is off', async () => {
+        const twice = [{ name: 'A', phone: '919855550001' }, { name: 'A', phone: '919855550001' }];
+        assert.equal((await run(twice, { waitFor: 1 })).sent.length, 1);
+        assert.equal((await run(twice, { onePerNumber: false })).sent.length, 2);
     });
 
     it('does not send in the order of the sheet', async () => {

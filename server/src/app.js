@@ -768,6 +768,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
                 autoClean: Boolean(autoClean),
                 optOuts: new Set(db.getAllOptOuts()),
                 recent,
+                skipDuplicates: req.body?.skipDuplicates !== false,
             });
             // Every valid number in the sheet goes into the contact book (upsert: re-uploading
             // the same file updates, never duplicates).

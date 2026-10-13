@@ -422,6 +422,7 @@ export class CampaignDraft {
         pacing: this.pacing(),
         timezone: this.timezone(),
         dedupeDays: this.dedupeDays(),
+        skipDuplicates: this.onePerNumber(),
         variables: this.usedVariables(),
         mediaMeta: attachment
           ? { filename: attachment.filename, mimetype: attachment.mimetype, size: attachment.size }
@@ -459,6 +460,7 @@ export class CampaignDraft {
           countryCode: this.countryCode(),
           dedupeDays: this.dedupeDays(),
           autoClean: this.autoClean(),
+          skipDuplicates: this.onePerNumber(),
         };
       } else {
         body.audience = this.validContacts();
