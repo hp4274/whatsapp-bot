@@ -173,6 +173,22 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
 CREATE INDEX IF NOT EXISTS idx_inbound_sender ON inbound_messages(sender);
 CREATE INDEX IF NOT EXISTS idx_inbound_received_at ON inbound_messages(received_at);
 
+-- Suspected blocks and reports of a sending number: who, when, what.
+CREATE TABLE IF NOT EXISTS safety_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id   INTEGER NOT NULL DEFAULT 1,
+    channel_id  INTEGER,
+    kind        TEXT NOT NULL,
+    phone       TEXT NOT NULL,
+    message_id  TEXT NOT NULL DEFAULT '',
+    campaign_id TEXT NOT NULL DEFAULT '',
+    detail      TEXT NOT NULL DEFAULT '',
+    at          TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_safety_events_once
+    ON safety_events(tenant_id, kind, phone, message_id);
+CREATE INDEX IF NOT EXISTS idx_safety_events_at ON safety_events(tenant_id, at);
+
 CREATE TABLE IF NOT EXISTS opt_outs (
     tenant_id     INTEGER NOT NULL DEFAULT 1,
     phone         TEXT NOT NULL,
@@ -577,6 +593,73 @@ export class Database {
             `SELECT MIN(created_at) AS first FROM messages
              WHERE tenant_id = ?${scope} AND status IN (${placeholders})`,
         ).get(this.tenantId, ...args, ...SUCCESS_STATUSES).first ?? null;
+    }
+
+    /**
+     * Real sends per 7-day block counted from the first send, oldest first
+     * (empty weeks are 0). Drives the sending tier.
+     */
+    weeklySentCounts() {
+        const first = this.firstSentAt();
+        if (!first) return [];
+        const placeholders = SUCCESS_STATUSES.map(() => '?').join(',');
+        const scope = this.channelId != null ? ' AND channel_id = ?' : '';
+        const args = this.channelId != null ? [this.channelId] : [];
+        const rows = this.db.prepare(
+            `SELECT CAST((julianday(created_at) - julianday(?)) / 7 AS INTEGER) AS wk, COUNT(*) AS n
+             FROM messages WHERE tenant_id = ?${scope} AND status IN (${placeholders})
+             GROUP BY wk ORDER BY wk`,
+        ).all(first, this.tenantId, ...args, ...SUCCESS_STATUSES);
+        const weeks = Array(rows.at(-1).wk + 1).fill(0);
+        for (const r of rows) weeks[r.wk] = r.n;
+        return weeks;
+    }
+
+    /** Record a suspected block / report once per (kind, number, message). Returns true when new. */
+    addSafetyEvent({ kind, phone, messageId = '', campaignId = '', detail = '' }) {
+        const res = this.db.prepare(
+            `INSERT OR IGNORE INTO safety_events
+             (tenant_id, channel_id, kind, phone, message_id, campaign_id, detail, at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(this.tenantId, this.channelId ?? null, kind, phone, String(messageId), campaignId, detail, utcNow());
+        return res.changes > 0;
+    }
+
+    /** Newest first, with the contact's name from the last message sent to them. */
+    safetyEvents(limit = 50) {
+        const scope = this.channelId != null ? ' AND e.channel_id = ?' : '';
+        const args = this.channelId != null ? [this.channelId] : [];
+        return this.db.prepare(
+            `SELECT e.id, e.kind, e.phone, e.campaign_id AS campaignId, e.detail, e.at,
+                    (SELECT m.name FROM messages m WHERE m.tenant_id = e.tenant_id AND m.recipient = e.phone
+                     AND m.name != '' ORDER BY m.created_at DESC LIMIT 1) AS name
+             FROM safety_events e WHERE e.tenant_id = ?${scope} ORDER BY e.id DESC LIMIT ?`,
+        ).all(this.tenantId, ...args, limit);
+    }
+
+    /** Event counts by kind since `sinceIso`. */
+    safetyEventCounts(sinceIso) {
+        const scope = this.channelId != null ? ' AND channel_id = ?' : '';
+        const args = this.channelId != null ? [this.channelId] : [];
+        const rows = this.db.prepare(
+            `SELECT kind, COUNT(DISTINCT phone) AS n FROM safety_events WHERE tenant_id = ?${scope} AND at >= ? GROUP BY kind`,
+        ).all(this.tenantId, ...args, sinceIso);
+        return Object.fromEntries(rows.map((r) => [r.kind, r.n]));
+    }
+
+    /**
+     * Campaign messages the server accepted (SENT) that never reached the
+     * phone: created between `afterIso` and `beforeIso`. A long-undelivered
+     * single tick is how a block looks from the sender's side.
+     */
+    stuckSent(afterIso, beforeIso) {
+        const scope = this.channelId != null ? ' AND channel_id = ?' : '';
+        const args = this.channelId != null ? [this.channelId] : [];
+        return this.db.prepare(
+            `SELECT message_id AS messageId, recipient AS phone, campaign_id AS campaignId FROM messages
+             WHERE tenant_id = ?${scope} AND status = 'SENT' AND message_type = 'campaign'
+               AND created_at >= ? AND created_at < ? LIMIT 500`,
+        ).all(this.tenantId, ...args, afterIso, beforeIso);
     }
 
     /**

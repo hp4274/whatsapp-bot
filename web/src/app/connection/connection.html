@@ -123,10 +123,12 @@
           {{ safety.remaining === null ? 'no limit' : safety.remaining }}
         </strong>
       </div>
+      <!-- Gap between messages hidden for now (speed is not user-facing):
       <div>
         <span>Gap between messages</span>
         <strong>{{ safety.minSeconds }}-{{ safety.maxSeconds }}s</strong>
       </div>
+      -->
       <div>
         <span>Resets at</span>
         <strong>{{ safety.resetsAt | date: 'shortTime' }}</strong>
@@ -141,6 +143,8 @@
       connected.
     </p>
   }
+
+  <app-sending-health />
 
   <app-safety-controls (changed)="refreshSafety()" (active)="customSafety.set($event)" />
 

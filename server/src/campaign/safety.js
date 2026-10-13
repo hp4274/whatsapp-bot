@@ -21,6 +21,7 @@
 
 import { withinSendingWindow } from '../channels.js';
 import { SUCCESS_STATUSES } from '../protocol.js';
+import { TIERS, tierFromWeeks, tierStatus } from './humanize.js';
 
 /** Day-one cap for a new number under warm-up (unless `config.warmupStart`); it doubles each day after. */
 export const WARMUP_START = 30;
@@ -101,8 +102,9 @@ export const PACING_PRESETS = Object.freeze(['safe', 'balanced', 'fast']);
 export const pickPreset = (preset) => (PACING_PRESETS.includes(preset) ? preset : 'balanced');
 
 /** The pacing that applies to a batch of `batchSize` messages. */
-export function paceFor(batchSize, config = {}, preset = 'balanced') {
-    const tier = PACING_TIERS.find((t) => batchSize <= t.upTo) ?? PACING_TIERS.at(-1);
+export function paceFor(batchSize, config = {}, preset = 'balanced', sendTier = null) {
+    // A sending tier (humanize.js) sets the gap and the rests; batch size no longer does.
+    const tier = sendTier ?? PACING_TIERS.find((t) => batchSize <= t.upTo) ?? PACING_TIERS.at(-1);
     let min = config.minDelaySeconds > 0 ? config.minDelaySeconds : tier.minSeconds;
     let max = config.maxDelaySeconds > 0
         ? Math.max(config.maxDelaySeconds, min)
@@ -120,9 +122,9 @@ export function paceFor(batchSize, config = {}, preset = 'balanced') {
         batchSize,
         minSeconds: min,
         maxSeconds: max,
-        restEvery: Math.max(0, config.restEvery ?? SAFETY_DEFAULTS.restEvery),
-        restMinSeconds: (config.restMinMinutes ?? SAFETY_DEFAULTS.restMinMinutes) * 60,
-        restMaxSeconds: (config.restMaxMinutes ?? SAFETY_DEFAULTS.restMaxMinutes) * 60,
+        restEvery: Math.max(0, sendTier?.restEvery ?? config.restEvery ?? SAFETY_DEFAULTS.restEvery),
+        restMinSeconds: (sendTier?.restMinMinutes ?? config.restMinMinutes ?? SAFETY_DEFAULTS.restMinMinutes) * 60,
+        restMaxSeconds: (sendTier?.restMaxMinutes ?? config.restMaxMinutes ?? SAFETY_DEFAULTS.restMaxMinutes) * 60,
     };
 }
 
@@ -183,6 +185,21 @@ export class DailyQuota {
         return this.limitOn(new Date());
     }
 
+    /** The sending tier (humanize.js TIERS), or null when `tierSystem` is off. Cached for 30s. */
+    tier(now = Date.now()) {
+        if (this.config.tierSystem === false) return null;
+        if (!this.tierCache || now - this.tierCache.at > 30_000) {
+            const weeks = this.db.weeklySentCounts?.() ?? [];
+            this.tierCache = { at: now, weeks, tier: tierFromWeeks(weeks) };
+        }
+        return this.tierCache.tier;
+    }
+
+    tierStatus() {
+        this.tier();
+        return this.tierCache ? tierStatus(this.tierCache.weeks) : null;
+    }
+
     /**
      * The cap for the day `now` falls in (0 = none). Under warm-up a number's
      * first `warmupDays` days, counted from its first real send, start at
@@ -191,7 +208,11 @@ export class DailyQuota {
     limitOn(now = new Date()) {
         const base = Math.max(0, Number(this.config.dailyLimit) || 0);
         const days = Number(this.config.warmupDays) || 0;
-        if (!days) return base;
+        if (!days) {
+            // The tier's day (250 / 2,000 / 10,000) is the limit; `dailyLimit` only applies with tierSystem off.
+            const tier = this.tier();
+            return tier ? tier.dailyLimit : base;
+        }
         const first = this.db.firstSentAt?.();
         const age = first ? Math.max(0, Math.round((dayStart(now) - dayStart(new Date(first))) / DAY_MS)) : 0;
         if (age >= days) return base;
@@ -222,6 +243,7 @@ export class DailyQuota {
             enabled: Boolean(this.config.safetyEnabled),
             limit,
             used,
+            tier: this.tierStatus(),
             remaining: limited ? Math.max(0, limit - used) : null,
             resetsAt: dayEnd(now).toISOString(),
         };

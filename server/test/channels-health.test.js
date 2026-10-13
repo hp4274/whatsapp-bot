@@ -12,6 +12,7 @@ import { after, before, describe, it } from 'node:test';
 
 import { closeApp } from '../src/app.js';
 import { channelInputProblems } from '../src/channelUsage.js';
+import { TIERS } from '../src/campaign/humanize.js';
 import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { createTestApp, sessionFor } from './helpers.js';
@@ -85,8 +86,8 @@ describe('channel usage', () => {
         const { health } = channel;
         assert.equal(health.transport, TRANSPORT_SANDBOX);
         assert.equal(health.usage.sentToday, 0);
-        assert.equal(health.usage.dailyLimit, DEFAULTS.dailyLimit);
-        assert.equal(health.usage.remaining, DEFAULTS.dailyLimit);
+        assert.equal(health.usage.dailyLimit, TIERS[0].dailyLimit, 'a new number starts on tier 1');
+        assert.equal(health.usage.remaining, TIERS[0].dailyLimit);
         assert.ok(Date.parse(health.usage.resetsAt) > Date.now(), 'resets in the future');
         assert.equal(health.warmup, null, 'no warm-up block when warmupDays is 0');
         assert.equal(health.quality.level, 'ok');
@@ -102,7 +103,7 @@ describe('channel usage', () => {
 
         const [after2] = await listFor(tokens.a);
         assert.equal(after2.health.usage.sentToday, 5, 'failed, sandbox and old sends do not count');
-        assert.equal(after2.health.usage.remaining, DEFAULTS.dailyLimit - 5);
+        assert.equal(after2.health.usage.remaining, TIERS[0].dailyLimit - 5);
         assert.equal(after2.health.quality.sent24h, 5);
         assert.equal(after2.health.quality.failed24h, 1);
     });

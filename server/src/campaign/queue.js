@@ -136,10 +136,25 @@ export class MessageQueue {
         this.items.unshift(item);
     }
 
-    /** Next item, or null when empty, paused or stopped. */
-    get() {
+    /** Re-insert a taken item behind everything of its priority band (a failed send waits its turn). */
+    putLast(item) {
+        if (this.isStopped) return;
+        const priority = item.priority ?? 4;
+        let at = this.items.length;
+        while (at > 0 && (this.items[at - 1].priority ?? 4) > priority) at -= 1;
+        this.items.splice(at, 0, item);
+    }
+
+    /**
+     * Next item, or null when empty, paused or stopped. With `ready`, the first
+     * item (in priority order) it accepts: items that must wait stay queued
+     * and the ones behind them go first.
+     */
+    get(ready = null) {
         if (this.state !== QueueState.RUNNING) return null;
-        return this.items.shift() ?? null;
+        if (!ready) return this.items.shift() ?? null;
+        const at = this.items.findIndex(ready);
+        return at === -1 ? null : this.items.splice(at, 1)[0];
     }
 
     get pending() {
