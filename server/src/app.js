@@ -82,7 +82,8 @@ import { MediaStore } from './mediaStore.js';
 import { createBillingRouter } from './billing/routes.js';
 import { createCampaignRouter } from './campaigns/routes.js';
 import { dueCampaigns } from './campaigns/store.js';
-import { BillingStore } from './billing/store.js';
+import { DEFAULT_PLANS } from './billing/plans.js';
+import { BillingError, BillingStore } from './billing/store.js';
 import { POLICY_FIELDS, PolicyError, PolicyStore } from './policy/index.js';
 import { attachCampaignPolicy, bulkKillReason, createCampaignOpsRouter, retentionSweep } from './policy/campaignOps.js';
 import { bindContext, logger, requestContext } from './observability/logger.js';
@@ -577,16 +578,22 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         state.config = state.save({ ...state.config, autoConnect: wanted });
     };
 
-    app.post('/connection/disconnect', async (req, res) => {
+    /**
+     * A manual disconnect logs the number out: the linked device is removed and
+     * the saved QR session deleted, so the next Connect shows a fresh QR code.
+     * The session is deleted even when no transport is running (after a restart),
+     * or Connect would quietly log back in with the old one.
+     */
+    const logout = async (req, res) => {
         setWanted(false);
         state.connecting = false;
-        if (state.transport) {
-            try {
-                await state.transport.disconnect();
-            } catch {
-                // a failed teardown must not block the UI
-            }
+        try {
+            if (state.transport?.logout) await state.transport.logout();
+            else await state.transport?.disconnect?.();
+        } catch {
+            // a failed teardown must not block the UI
         }
+        if (deps.sessionDir) fs.rmSync(path.join(deps.sessionDir, 'baileys'), { recursive: true, force: true });
         state.transport = null;
         state.info = null;
         state.qr = null;
@@ -594,28 +601,9 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         autoReply.setTransport(new NullTransport());
         broadcast(state, { type: 'connection', connected: false, qr: null });
         res.json(connectionState(state));
-    });
-
-    app.post('/connection/logout', async (req, res) => {
-        setWanted(false);
-        state.connecting = false;
-        if (state.transport?.logout) {
-            try {
-                await state.transport.logout();
-            } catch {}
-        } else if (state.transport?.disconnect) {
-            try {
-                await state.transport.disconnect();
-            } catch {}
-        }
-        state.transport = null;
-        state.info = null;
-        state.qr = null;
-        manager.setTransport(new NullTransport());
-        autoReply.setTransport(new NullTransport());
-        broadcast(state, { type: 'connection', connected: false, qr: null });
-        res.json(connectionState(state));
-    });
+    };
+    app.post('/connection/disconnect', logout);
+    app.post('/connection/logout', logout);
 
     // ----------------------------------------------------------- messages --
     app.post('/messages', (req, res) => {
@@ -1851,8 +1839,22 @@ export function createApp({
             };
         });
         const counts = scoped.countsByStatus?.() ?? {};
+        const sub = new BillingStore(scoped).subscription();
         return {
             ...tenant,
+            subscription: sub && {
+                planKey: sub.planKey,
+                planName: sub.plan.name,
+                price: sub.plan.price,
+                currency: sub.plan.currency,
+                interval: sub.plan.interval,
+                state: sub.state,
+                status: sub.status,
+                trialEndsAt: sub.trialEndsAt,
+                currentPeriodEnd: sub.currentPeriodEnd,
+                cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+                graceEndsAt: sub.graceEndsAt,
+            },
             users: tenancy.listUsers(tenant.id).length,
             channels,
             health: {
@@ -1873,7 +1875,9 @@ export function createApp({
         action, target, detail,
     });
     const fail = (res, err) => {
-        if (err instanceof TenancyError) return res.status(err.status).json({ errors: [err.message] });
+        if (err instanceof TenancyError || err instanceof BillingError) {
+            return res.status(err.status).json({ errors: [err.message] });
+        }
         throw err;
     };
 
@@ -1997,10 +2001,111 @@ export function createApp({
         services: TENANT_SERVICES,
     }));
 
+    // Plans are platform-wide, so any tenant's handle reads the same catalogue.
+    const catalogue = () => new BillingStore(db.forTenant(DEFAULT_TENANT_ID));
+    /** Businesses on each plan key, archived ones excluded. */
+    const subscriberCounts = () => new Map(db.db.prepare(
+        `SELECT s.plan_key AS key, COUNT(*) AS n FROM subscriptions s
+         JOIN tenants t ON t.id = s.tenant_id WHERE t.status != 'archived' GROUP BY s.plan_key`)
+        .all().map((r) => [r.key, r.n]));
+    /** An archived plan stays with whoever has it (renewals work) but is not handed out again. */
+    const planOr404 = (key, currentKey = null) => {
+        const plan = catalogue().getPlan(key);
+        if (!plan) throw new BillingError('unknown plan', 404);
+        if (plan.active === false && plan.key !== currentKey) throw new BillingError('that plan is archived', 409);
+        return plan;
+    };
+
+    /**
+     * Put a business on a plan now: subscription first, then the plan's
+     * services and tenant limits, so what the business can do follows what it
+     * is on.  `setLimits` merges, so the operator's blockedWords and custom
+     * safety switch survive a plan change.
+     */
+    const applyPlan = (tenantId, plan, trialDays) => {
+        const days = Math.max(0, Math.min(365, Math.floor(Number(trialDays) || 0)));
+        const subscription = new BillingStore(db.forTenant(tenantId)).subscribe(tenantId, plan.key, {
+            trialEndsAt: days ? new Date(Date.now() + days * 24 * 3600 * 1000) : null,
+        });
+        tenancy.updateTenant(tenantId, { services: plan.services });
+        tenancy.setLimits(tenantId, plan.tenantLimits);
+        runtimes.get(tenantId)?.applyPolicy();
+        return subscription;
+    };
+
+    admin.get('/billing/plans', (req, res) => {
+        const counts = subscriberCounts();
+        return res.json({
+            plans: catalogue().plans().map((plan) => ({ ...plan, subscribers: counts.get(plan.key) ?? 0 })),
+            services: TENANT_SERVICES,
+        });
+    });
+
+    admin.put('/billing/plans/:key', (req, res) => {
+        try {
+            // Merge over what is in force, so a partial PUT (say, active: false)
+            // does not reset everything else to defaults.
+            const before = catalogue().getPlan(req.params.key) ?? {};
+            const plan = catalogue().savePlan({ ...before, ...(req.body ?? {}), key: req.params.key });
+            audit(req, 'plan.save', plan.key, plan.name);
+            return res.json({ plan });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    admin.delete('/billing/plans/:key', (req, res) => {
+        try {
+            const { key } = req.params;
+            const custom = !DEFAULT_PLANS[key];
+            if (custom && subscriberCounts().get(key)) {
+                return res.status(409).json({ errors: ["Move this plan's businesses to another plan first."] });
+            }
+            const plan = catalogue().removePlan(key);
+            audit(req, 'plan.remove', key);
+            return res.json(custom ? { removed: true } : { plan });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    admin.put('/tenants/:id/subscription', (req, res) => {
+        try {
+            const tenant = tenancy.getTenant(req.params.id);
+            if (!tenant || tenant.status === 'archived') return res.status(404).json({ errors: ['tenant not found'] });
+            const plan = planOr404(req.body?.planKey, new BillingStore(db.forTenant(tenant.id)).subscription()?.planKey);
+            // A first assignment gets the plan's trial; a change or renewal is
+            // paid-for, so no fresh trial unless the admin asks for one.
+            const hadOne = new BillingStore(db.forTenant(tenant.id)).subscription() !== null;
+            const subscription = applyPlan(tenant.id, plan, req.body?.trialDays ?? (hadOne ? 0 : plan.trialDays));
+            audit(req, 'tenant.subscription', tenant.id, { planKey: plan.key, state: subscription.state });
+            return res.json({ subscription, tenant: tenantOverview(tenancy.getTenant(tenant.id)) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    admin.delete('/tenants/:id/subscription', (req, res) => {
+        try {
+            const immediate = req.query.immediate === 'true';
+            const subscription = new BillingStore(db.forTenant(Number(req.params.id))).cancel({ atPeriodEnd: !immediate });
+            audit(req, 'tenant.subscription.cancel', Number(req.params.id), { immediate });
+            return res.json({ subscription });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
     admin.post('/tenants', async (req, res) => {
         try {
-            const { tenant, owner: user } = await tenancy.createTenantWithOwner(req.body ?? {});
-            audit(req, 'tenant.create', tenant.id, tenant.slug);
+            const body = req.body ?? {};
+            // Resolved before the tenant exists, so a bad key creates nothing.
+            const plan = body.planKey ? planOr404(body.planKey) : null;
+            const { tenant: created, owner: user } = await tenancy.createTenantWithOwner(
+                plan ? { ...body, services: plan.services } : body);
+            if (plan) applyPlan(created.id, plan, body.trialDays ?? plan.trialDays);
+            const tenant = tenancy.getTenant(created.id);
+            audit(req, 'tenant.create', tenant.id, plan ? `${tenant.slug} on ${plan.key}` : tenant.slug);
             return res.status(201).json({ tenant: tenantOverview(tenant), owner: user });
         } catch (err) {
             return fail(res, err);
@@ -2335,6 +2440,12 @@ export function createApp({
         const tenant = tenancy.getTenant(req.tenantId);
         const accessError = tenant ? tenantAccessError(tenant, req) : 'tenant not found';
         if (accessError) return res.status(403).json({ errors: [accessError] });
+        // Auth and /me sit above this, so an expired business can still sign in
+        // and see why. The super admin is never locked out of a business.
+        if (req.user.role !== 'super_admin'
+            && new BillingStore(db.forTenant(req.tenantId)).subscription()?.state === 'expired') {
+            return res.status(402).json({ errors: ['Your subscription has ended. Contact your provider to renew.'] });
+        }
         const write = req.method !== 'GET' && req.method !== 'HEAD';
         const agentMayWrite = AGENT_WRITES.has(req.path)
             || AGENT_WRITE_PREFIXES.some((prefix) => req.path.startsWith(prefix));

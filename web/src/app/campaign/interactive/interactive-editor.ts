@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input, model } from '@angular/core';
 
+import { ArSwitch } from '../../auto-replies/ar-fields';
 import {
   InteractiveButton,
   InteractiveCta,
@@ -60,6 +61,7 @@ function uniqueId(base: string, taken: string[]): string {
  */
 @Component({
   selector: 'app-interactive-editor',
+  imports: [ArSwitch],
   templateUrl: './interactive-editor.html',
   styleUrl: './interactive-editor.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -94,7 +96,7 @@ export class InteractiveEditor {
       this.value.set(null);
       return;
     }
-    const base = { type, header: current?.header, footer: current?.footer };
+    const base = { type, header: current?.header, footer: current?.footer, native: current?.native };
     if (type === 'buttons') {
       this.value.set({
         ...base,

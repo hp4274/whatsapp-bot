@@ -11,7 +11,7 @@ import { CampaignManager } from '../src/campaign/manager.js';
 import { DEFAULTS } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { Status } from '../src/protocol.js';
-import { BaileysTransport, extractContent, toJid } from '../src/transports/baileys.js';
+import { BaileysTransport, extractContent, NATIVE_FLOW_NODE, toJid } from '../src/transports/baileys.js';
 
 class FakeSock {
     ev = new EventEmitter();
@@ -19,9 +19,16 @@ class FakeSock {
     sends = [];
     ended = false;
     loggedOut = false;
-    constructor({ onWhatsApp, sendResult } = {}) {
+    relays = [];
+    constructor({ onWhatsApp, sendResult, relay } = {}) {
         this.onWhatsAppFn = onWhatsApp;
         this.sendResult = sendResult;
+        this.relayFn = relay;
+    }
+    async relayMessage(jid, message, options) {
+        this.relays.push({ jid, message, options });
+        if (this.relayFn) return this.relayFn(jid, message, options);
+        return options.messageId;
     }
     async sendMessage(jid, content) {
         this.sends.push({ jid, content });
@@ -126,13 +133,82 @@ it('fails a missing attachment file without retrying', async () => {
     );
 });
 
-it('renders interactive buttons as numbered fallback text', async () => {
+const nativeOf = (relay) => relay.message.viewOnceMessage.message.interactiveMessage;
+const buttonsOf = (relay) => nativeOf(relay).nativeFlowMessage.buttons.map((b) => [b.name, JSON.parse(b.buttonParamsJson)]);
+
+it('sends reply buttons as a native-flow interactive message with the biz node', async () => {
     const { transport, sock } = makeTransport();
     await transport.connect();
-    const interactive = { type: 'buttons', buttons: [{ id: 'YES', title: 'Yes' }, { id: 'NO', title: 'No' }], footer: 'Reply soon' };
+    const interactive = { type: 'buttons', header: 'Order 7', buttons: [{ id: 'YES', title: 'Yes' }, { id: 'NO', title: 'No' }], footer: 'Reply soon' };
+    const result = await transport.sendMessage('919800000005', 'Confirm?', { interactive });
+    assert.equal(sock().sends.length, 0);
+    const [relay] = sock().relays;
+    assert.equal(relay.jid, '919800000005@s.whatsapp.net');
+    assert.equal(result.providerId, relay.options.messageId);
+    assert.deepEqual(relay.options.additionalNodes, [NATIVE_FLOW_NODE]);
+    assert.deepEqual(NATIVE_FLOW_NODE.content[0].content[0], { tag: 'native_flow', attrs: { v: '9', name: 'mixed' } });
+    const msg = nativeOf(relay);
+    assert.equal(msg.body.text, 'Confirm?');
+    assert.equal(msg.header.title, 'Order 7');
+    assert.equal(msg.footer.text, 'Reply soon');
+    assert.deepEqual(buttonsOf(relay), [['quick_reply', { display_text: 'Yes', id: 'YES' }], ['quick_reply', { display_text: 'No', id: 'NO' }]]);
+});
+
+it('maps CTA kinds and list menus to cta_* and single_select buttons', async () => {
+    const { transport, sock } = makeTransport();
+    await transport.connect();
+    await transport.sendMessage('919800000005', 'Links', { interactive: { type: 'cta', cta: [
+        { kind: 'url', title: 'Open', value: 'https://x.test' }, { kind: 'call', title: 'Call', value: '+15551234' },
+    ] } });
+    await transport.sendMessage('919800000005', 'Code', { interactive: { type: 'cta', cta: [{ kind: 'copy', title: 'Copy', value: 'SAVE10' }] } });
+    await transport.sendMessage('919800000005', 'Pick', { interactive: { type: 'list', list: { button: 'Slots', sections: [
+        { title: 'Morning', rows: [{ id: 'A', title: '9 AM', description: 'Front desk' }] },
+    ] } } });
+    const [cta, copy, list] = sock().relays;
+    assert.deepEqual(buttonsOf(cta), [
+        ['cta_url', { display_text: 'Open', url: 'https://x.test', merchant_url: 'https://x.test' }],
+        ['cta_call', { display_text: 'Call', phone_number: '+15551234' }],
+    ]);
+    assert.deepEqual(buttonsOf(copy), [['cta_copy', { display_text: 'Copy', copy_code: 'SAVE10' }]]);
+    assert.deepEqual(buttonsOf(list), [['single_select', {
+        title: 'Slots', sections: [{ title: 'Morning', rows: [{ id: 'A', title: '9 AM', description: 'Front desk' }] }],
+    }]]);
+});
+
+it('sends media first, then the native buttons', async () => {
+    const { transport, sock } = makeTransport();
+    await transport.connect();
+    await transport.sendMessage('919800000005', 'Look', { media: png(), interactive: { type: 'buttons', buttons: [{ id: 'Y', title: 'Yes' }] } });
+    assert.equal(sock().sends.length, 1);
+    assert.ok(Buffer.isBuffer(sock().sends[0].content.image));
+    assert.equal(sock().sends[0].content.caption, undefined);
+    assert.equal(nativeOf(sock().relays[0]).body.text, 'Look');
+});
+
+it('native:false sends the numbered text menu', async () => {
+    const { transport, sock } = makeTransport();
+    await transport.connect();
+    const interactive = { type: 'buttons', native: false, buttons: [{ id: 'YES', title: 'Yes' }, { id: 'NO', title: 'No' }], footer: 'Reply soon' };
     await transport.sendMessage('919800000005', 'Confirm?', { interactive });
-    const { content } = sock().sends[0];
-    assert.equal(content.text, 'Confirm?\n\nReply with:\n1. Yes\n2. No\n\n_Reply soon_');
+    assert.equal(sock().relays.length, 0);
+    assert.equal(sock().sends[0].content.text, 'Confirm?\n\nReply 1 or 2:\n1. Yes\n2. No\n\n_Reply soon_');
+});
+
+it('falls back to the text menu when the native relay throws, without resending media', async () => {
+    const { transport, sock } = makeTransport({ sockOptions: { relay: async () => { throw new Error('bad node'); } } });
+    await transport.connect();
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+        const result = await transport.sendMessage('919800000005', 'Look', { media: png(), interactive: { type: 'buttons', buttons: [{ id: 'Y', title: 'Yes' }] } });
+        assert.equal(sock().relays.length, 1);
+        assert.equal(sock().sends.length, 2);
+        assert.ok(Buffer.isBuffer(sock().sends[0].content.image));
+        assert.deepEqual(sock().sends[1].content, { text: 'Look\n\nReply 1:\n1. Yes' });
+        assert.equal(result.providerId, 'BAE52');
+    } finally {
+        console.warn = warn;
+    }
 });
 
 it('refuses numbers that are not on WhatsApp, permanently', async () => {
@@ -155,6 +231,9 @@ it('maps inbound text, captions and button/list replies', async () => {
         { key: { remoteJid: '919800000009@s.whatsapp.net', fromMe: false, id: 'M5' }, message: { buttonsResponseMessage: { selectedButtonId: 'YES', selectedDisplayText: 'Yes' } } },
         { key: { remoteJid: '919800000009@s.whatsapp.net', fromMe: false, id: 'M6' }, message: { listResponseMessage: { title: 'Slot A', singleSelectReply: { selectedRowId: 'SLOT_A' } } } },
         { key: { remoteJid: '919800000009@s.whatsapp.net', fromMe: false, id: 'M7' }, message: { protocolMessage: {} } },
+        { key: { remoteJid: '919800000009@s.whatsapp.net', fromMe: false, id: 'M8' }, message: { viewOnceMessage: { message: { interactiveResponseMessage: { body: { text: 'Yes' }, nativeFlowResponseMessage: { name: 'quick_reply', paramsJson: '{"display_text":"Yes","id":"YES"}' } } } } } },
+        { key: { remoteJid: '919800000009@s.whatsapp.net', fromMe: false, id: 'M9' }, message: { interactiveResponseMessage: { body: { text: '9 AM' }, nativeFlowResponseMessage: { name: 'single_select', paramsJson: '{"id":"SLOT_A"}' } } } },
+        { key: { remoteJid: '919800000009@s.whatsapp.net', fromMe: false, id: 'M10' }, message: { templateButtonReplyMessage: { selectedId: 'T1', selectedDisplayText: 'Ok' } } },
     ]);
     sock().ev.emit('messages.upsert', { type: 'append', messages: [{ key: { remoteJid: '919800000001@s.whatsapp.net', id: 'H' }, message: { conversation: 'history' } }] });
     await tick();
@@ -163,6 +242,9 @@ it('maps inbound text, captions and button/list replies', async () => {
         ['M4', '919800000008', 'pic', null, 'image'],
         ['M5', '919800000009', 'Yes', 'YES', null],
         ['M6', '919800000009', 'Slot A', 'SLOT_A', null],
+        ['M8', '919800000009', 'Yes', 'YES', null],
+        ['M9', '919800000009', '9 AM', 'SLOT_A', null],
+        ['M10', '919800000009', 'Ok', 'T1', null],
     ]);
     assert.equal(inbound[0].senderName, 'Asha');
     assert.equal(inbound[0].timestamp, '2023-11-14T22:13:20.000Z');

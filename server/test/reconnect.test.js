@@ -7,7 +7,7 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
 import { closeApp } from '../src/app.js';
-import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
+import { DEFAULTS, SESSION_DIR, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { createTestApp, sessionFor } from './helpers.js';
 
@@ -48,5 +48,14 @@ describe('keeping a connection up', () => {
         await third.app.locals.reconnectAll();
         assert.equal((await third.call('GET', '/api/connection')).connected, false, 'a deliberate disconnect stays off');
         await third.stop();
+    });
+    it('a manual disconnect deletes the saved QR session, so the next connect asks for a new QR', async () => {
+        const creds = path.join(SESSION_DIR, 'baileys', 'creds.json');
+        fs.mkdirSync(path.dirname(creds), { recursive: true });
+        fs.writeFileSync(creds, '{}');
+        const app = await serve();
+        await app.call('POST', '/api/connection/disconnect');
+        assert.equal(fs.existsSync(creds), false);
+        await app.stop();
     });
 });

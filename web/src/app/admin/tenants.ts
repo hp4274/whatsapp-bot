@@ -5,6 +5,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { AuditLog, TenancyApi } from '../core/api';
 import { Auth, Tenant, TenantControls } from '../core/auth';
 import { Store } from '../core/store';
+import { Plan, PlansApi, formatPrice, stateTone } from './plans-api';
 import { serviceMeta } from './service-meta';
 import { TenantActivity } from './tenant-activity';
 import { SettingsTab, TenantSettings } from './tenant-settings';
@@ -18,6 +19,9 @@ type TenantDraft = {
   password: string;
   services: string[];
   controls: TenantControls;
+  /** null = no plan, services picked by hand. */
+  planKey: string | null;
+  trialDays: number;
 };
 
 /** `draft` edits the unsaved form's services; `tenant` saves straight to the server. */
@@ -78,6 +82,8 @@ const emptyDraft = (): TenantDraft => ({
   password: '',
   services: [...DEFAULT_SERVICES],
   controls: { ...DEFAULT_CONTROLS },
+  planKey: null,
+  trialDays: 0,
 });
 
 /**
@@ -96,6 +102,7 @@ const emptyDraft = (): TenantDraft => ({
 })
 export class TenantsView {
   private readonly api = inject(TenancyApi);
+  private readonly plansApi = inject(PlansApi);
   private readonly auth = inject(Auth);
   private readonly store = inject(Store);
   private readonly router = inject(Router);
@@ -113,6 +120,13 @@ export class TenantsView {
 
   protected readonly services = signal<string[]>([...DEFAULT_SERVICES]);
   protected readonly draft = signal<TenantDraft>(emptyDraft());
+  /** Active plans for the create form's picker; archived ones are never offered. */
+  protected readonly plans = signal<Plan[]>([]);
+  protected readonly draftPlan = computed(
+    () => this.plans().find((p) => p.key === this.draft().planKey) ?? null,
+  );
+  protected readonly formatPrice = formatPrice;
+  protected readonly stateTone = stateTone;
   protected readonly serviceDrawer = signal<ServiceDrawer | null>(null);
   protected readonly serviceDrawerBusy = computed(() => {
     const drawer = this.serviceDrawer();
@@ -148,7 +162,15 @@ export class TenantsView {
 
   constructor() {
     this.refresh();
-    // /admin/tenants?settings=<id>[&tab=limits|safety|rules|accounts] (linked from the ops pages) opens that drawer.
+    this.plansApi.plans().subscribe({
+      next: ({ plans }) => {
+        this.plans.set(plans.filter((p) => p.active).sort((a, b) => a.tier - b.tier));
+        if (!this.showForm()) this.draft.set(this.freshDraft());
+      },
+      // No catalogue: the form simply falls back to picking services by hand.
+      error: () => this.plans.set([]),
+    });
+    // /admin/tenants?settings=<id>[&tab=limits|safety|rules|accounts|plan] (linked from the ops pages) opens that drawer.
     const query = this.route.snapshot.queryParamMap;
     const wanted = Number(query.get('settings'));
     const tab = query.get('tab');
@@ -156,7 +178,7 @@ export class TenantsView {
       this.api.tenants().subscribe(({ tenants }) => {
         const tenant = tenants.find((t) => t.id === wanted);
         if (!tenant) return;
-        this.openSettings(tenant, (['limits', 'safety', 'rules', 'accounts'] as const).find((t) => t === tab) ?? 'general');
+        this.openSettings(tenant, (['limits', 'safety', 'rules', 'accounts', 'plan'] as const).find((t) => t === tab) ?? 'general');
       });
     }
   }
@@ -191,13 +213,14 @@ export class TenantsView {
         slug: d.slug.trim() || undefined,
         services: d.services,
         controls: d.controls,
+        ...(d.planKey ? { planKey: d.planKey, trialDays: d.trialDays } : {}),
         owner: { email: d.email.trim(), name: d.ownerName.trim(), password: d.password },
       })
       .subscribe({
         next: () => {
           this.busy.set(false);
           this.showForm.set(false);
-          this.draft.set(emptyDraft());
+          this.draft.set(this.freshDraft());
           this.refresh();
         },
         error: (err: Error) => {
@@ -244,6 +267,23 @@ export class TenantsView {
   protected openSettings(tenant: Tenant, tab: SettingsTab = 'general') {
     this.settingsTab.set(tab);
     this.settingsTenant.set(tenant);
+  }
+
+  /** A blank form with the first active plan preselected. */
+  private freshDraft(): TenantDraft {
+    const draft = emptyDraft();
+    const first = this.plans()[0];
+    return first ? this.withPlan(draft, first) : draft;
+  }
+
+  private withPlan(draft: TenantDraft, plan: Plan | null): TenantDraft {
+    return plan
+      ? { ...draft, planKey: plan.key, services: [...plan.services], trialDays: plan.trialDays }
+      : { ...draft, planKey: null, services: [...this.services()], trialDays: 0 };
+  }
+
+  protected choosePlan(plan: Plan | null) {
+    this.draft.set(this.withPlan(this.draft(), plan));
   }
 
   protected toggleDraftService(service: string, checked: boolean) {

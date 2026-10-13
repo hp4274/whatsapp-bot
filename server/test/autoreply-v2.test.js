@@ -431,7 +431,7 @@ describe('HTTP', () => {
         assert.equal(first.body.session.ruleId, menu.body.rule.id);
         assert.ok(first.body.trace.length >= 2);
 
-        const second = await call('POST', '/api/auto-replies/test', { body: '1', sender: '919811111111', session: first.body.session, firstContact: false });
+        const second = await call('POST', '/api/auto-replies/test', { body: '1', sender: '919811111111', session: first.body.session, firstContact: false, at: new Date(MON_10AM.getTime() + 60000).toISOString() });
         assert.equal(second.body.replies[0].source, 'menu');
         assert.equal(second.body.replies[0].text, 'Billing team here');
         assert.equal(second.body.replies[0].media.url, '/api/media/med_000000000002');

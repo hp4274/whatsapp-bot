@@ -312,7 +312,8 @@
     text-align: center;
     color: var(--text-muted);
 
-    .ti {
+    // Direct child only: a button inside the empty state has its own icon.
+    > .ti {
       display: grid;
       place-items: center;
       width: 56px;

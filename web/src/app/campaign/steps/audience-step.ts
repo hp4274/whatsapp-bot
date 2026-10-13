@@ -121,7 +121,30 @@ export class AudienceStep {
         sample: nameAt >= 0 ? String(first[nameAt] ?? '') : '',
       },
       ...out,
+      ...this.draft.extraColumns().map((c) => ({ header: 'Added column', slug: c.slug, sample: c.value })),
     ];
+  });
+
+  protected readonly newCol = signal('');
+  protected readonly newValue = signal('');
+  /** Same shape as the server's file-column slugs, so added columns read alike. */
+  protected readonly newSlug = computed(() =>
+    this.newCol()
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, ''),
+  );
+  protected readonly colError = computed(() => {
+    const slug = this.newSlug();
+    if (!slug) return '';
+    const taken = [
+      'name',
+      'phone',
+      ...this.columns().map((c) => c.slug),
+      ...this.draft.extraColumns().map((c) => c.slug),
+    ];
+    return taken.includes(slug) ? `{${slug}} already exists` : '';
   });
   protected readonly issues = computed(() =>
     (this.draft.audit()?.issues ?? []).slice(0, ISSUE_LIMIT),
@@ -287,6 +310,24 @@ export class AudienceStep {
         .replace(/[^\d]/g, '')
         .slice(0, 4),
     );
+  }
+
+  protected addColumn(): void {
+    const slug = this.newSlug();
+    if (!slug || this.colError()) return;
+    this.draft.extraColumns.update((cols) => [...cols, { slug, value: this.newValue() }]);
+    this.newCol.set('');
+    this.newValue.set('');
+  }
+
+  protected setColumnValue(slug: string, value: string): void {
+    this.draft.extraColumns.update((cols) =>
+      cols.map((c) => (c.slug === slug ? { ...c, value } : c)),
+    );
+  }
+
+  protected removeColumn(slug: string): void {
+    this.draft.extraColumns.update((cols) => cols.filter((c) => c.slug !== slug));
   }
 
   protected copy(slug: string): void {

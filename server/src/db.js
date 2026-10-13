@@ -14,6 +14,7 @@ import { DB_PATH } from './config.js';
 import { MODULE_SCHEMAS } from './schema.js';
 import { migrateTemplates } from './templates/schema.js';
 import { migrateAutoReplies } from './autoreply/schema.js';
+import { migratePlans } from './billing/schema.js';
 import { AutoReplyStore } from './autoreply/store.js';
 import { STATUS_RANK, SUCCESS_STATUSES, Status, utcNow } from './protocol.js';
 
@@ -347,6 +348,7 @@ export class Database {
         for (const fragment of MODULE_SCHEMAS) this.db.exec(fragment);
         migrateTemplates(this.db);
         migrateAutoReplies(this.db);
+        migratePlans(this.db);
         if (old.length) finishLegacy(this.db, old);
         this.db.prepare(`INSERT OR IGNORE INTO tenants (id, name, slug, status, created_at)
                          VALUES (?, 'Default', 'default', 'active', ?)`).run(DEFAULT_TENANT_ID, utcNow());

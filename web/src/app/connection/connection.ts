@@ -1,59 +1,27 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 
 import { Api, AppConfig, SafetyStatus } from '../core/api';
 import { Store } from '../core/store';
 import { SafetyControls } from './safety-controls';
 
-interface FieldSpec {
-  readonly key: keyof AppConfig;
-  readonly label: string;
-  readonly help: string;
-  readonly type?: 'text' | 'number' | 'password';
-  readonly cloudOnly?: boolean;
-}
-
-/** Meta Cloud API credentials; the QR transport needs none of these. */
-const CREDENTIAL_FIELDS: readonly FieldSpec[] = [
-  { key: 'phoneNumberId', label: 'Phone Number ID', help: 'From your Meta app', cloudOnly: true },
-  {
-    key: 'accessToken',
-    label: 'Access Token',
-    help: 'whatsapp_business_messaging token',
-    type: 'password',
-    cloudOnly: true,
-  },
-  {
-    key: 'graphVersion',
-    label: 'Graph API version',
-    help: 'Graph API version to call',
-    cloudOnly: true,
-  },
-  {
-    key: 'templateName',
-    label: 'Template name',
-    help: 'Used outside the 24h window',
-    cloudOnly: true,
-  },
-  {
-    key: 'templateLanguage',
-    label: 'Template language',
-    help: 'Language code, e.g. en_US',
-    cloudOnly: true,
-  },
+/** The three things a person does, in order; the card lights the one they are on. */
+const STEPS: readonly { readonly title: string; readonly text: string }[] = [
+  { title: 'Click Connect WhatsApp', text: 'A QR code appears on the phone picture.' },
+  { title: 'Open WhatsApp on your phone', text: 'Settings > Linked devices > Link a device.' },
+  { title: 'Scan the code', text: 'Point the camera at the code. Done in a few seconds.' },
 ];
 
 /**
- * Where a business links its WhatsApp number and sets how it sends.
+ * Where a business links its WhatsApp number: one button, one QR code, done.
  *
- * Live connection state comes from the shared Store (pushed by the server);
- * the config form is loaded once and only ever replaced by an explicit save,
- * so a background update never overwrites what the operator is typing.
+ * QR (Baileys) is the only way in from here, so there is no transport to pick
+ * and no form to save first. Live state comes from the shared Store (pushed by
+ * the server); the stored config is only read so Connect can save it as QR.
  */
 @Component({
   selector: 'app-connection',
-  imports: [FormsModule, DatePipe, SafetyControls],
+  imports: [DatePipe, SafetyControls],
   templateUrl: './connection.html',
   styleUrl: './connection.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -65,44 +33,19 @@ export class ConnectionView {
   protected readonly config = signal<AppConfig | null>(null);
   protected readonly warnings = signal<Record<string, string>>({});
   protected readonly errors = signal<string[]>([]);
-  protected readonly saving = signal(false);
   protected readonly safety = signal<SafetyStatus | null>(null);
   /** The business is running its own anti-ban limits (see SafetyControls). */
   protected readonly customSafety = signal(false);
 
-  protected readonly transports = [
-    {
-      value: 'cloud_api',
-      label: 'WhatsApp Business Cloud API',
-      hint: 'Real delivery, needs an access token',
-    },
-    {
-      value: 'baileys',
-      label: 'WhatsApp QR (Baileys)',
-      hint: 'Real delivery, QR login, no token, no browser - sends images, PDFs and videos',
-    },
-  ];
+  protected readonly steps = STEPS;
 
-  protected readonly isCloud = computed(() => this.config()?.transport === 'cloud_api');
-
-  /** Progressive disclosure: Cloud API fields only exist for the Cloud API. */
-  protected readonly fields = computed(() => [...(this.isCloud() ? CREDENTIAL_FIELDS : [])]);
-
-  protected readonly advisory = computed(() => {
-    const config = this.config();
-    if (!config) return '';
-    if (config.transport === 'baileys') {
-      return this.warnings()[config.transport] ?? '';
-    }
-    return 'Cloud API selected: messages are delivered by Meta.';
-  });
-
-  protected readonly transportLabel = computed(
-    () =>
-      ({ cloud_api: 'Cloud API', baileys: 'WhatsApp QR (Baileys)' })[
-        this.config()?.transport ?? 'cloud_api'
-      ],
+  /** Which step is lit: none before Connect, 1 while connecting, 2 with the code up, all done once linked. */
+  protected readonly stepIndex = computed(() =>
+    this.store.connection().connected ? 3 : this.store.qr() ? 1 : this.store.connecting() ? 0 : -1,
   );
+
+  /** WhatsApp's terms note for QR-linked numbers, from the server. */
+  protected readonly warning = computed(() => this.warnings()['baileys'] ?? '');
 
   /** Pill tone for the header: connecting is in-between, not an error. */
   protected readonly statusTone = computed(() =>
@@ -110,7 +53,7 @@ export class ConnectionView {
       ? 'tone-warn'
       : this.store.connection().connected
         ? 'tone-ok'
-        : 'tone-bad',
+        : 'tone-mute',
   );
 
   constructor() {
@@ -139,44 +82,19 @@ export class ConnectionView {
     });
   }
 
-  protected update<K extends keyof AppConfig>(key: K, value: AppConfig[K]) {
-    this.config.update((current) => (current ? { ...current, [key]: value } : current));
-  }
-
-  protected onField(field: FieldSpec, raw: string) {
-    const value = field.type === 'number' ? Number(raw) : raw;
-    this.update(field.key, value as AppConfig[typeof field.key]);
-  }
-
-  protected save(): void {
-    const config = this.config();
-    if (!config) return;
-    this.saving.set(true);
-    this.errors.set([]);
-    this.api.saveConfig(config).subscribe({
-      next: ({ config: saved }) => {
-        this.config.set(saved);
-        this.saving.set(false);
-        this.refreshSafety();
-        this.store.setStatus('Settings saved.');
-      },
-      error: (err: Error) => {
-        this.errors.set(err.message.split('\n'));
-        this.saving.set(false);
-      },
-    });
-  }
-
   protected connect(): void {
-    const config = this.config();
-    if (!config) return;
+    const current = this.config();
+    if (!current) return;
+    // QR (Baileys) is the only way to connect from here; a number saved on another transport moves over.
+    const config: AppConfig = { ...current, transport: 'baileys' };
     this.errors.set([]);
     this.store.connecting.set(true);
     this.store.setStatus('Connecting...', 'primary');
     // Save first: connecting with settings the operator can see but the server
     // has not stored would connect the wrong thing.
     this.api.saveConfig(config).subscribe({
-      next: () => {
+      next: ({ config: saved }) => {
+        this.config.set(saved);
         this.api.connect().subscribe({
           next: (state) => {
             this.store.connection.set(state);
@@ -214,7 +132,4 @@ export class ConnectionView {
     });
   }
 
-  protected reconnect(): void {
-    this.api.disconnect().subscribe({ next: () => this.connect() });
-  }
 }

@@ -74,7 +74,6 @@ let seq = 0;
       height: 18px;
       border-radius: 50%;
       background: #fff;
-      box-shadow: 0 1px 3px rgba(16, 16, 24, 0.25);
       transition: transform var(--fast) var(--ease);
     }
     input:checked + .track {

@@ -47,6 +47,17 @@
     </div>
   </div>
 
+  <div class="native">
+    <ar-switch
+      label="Send as real WhatsApp buttons"
+      [checked]="draft.native !== false"
+      (checkedChange)="patch({ native: $event })"
+    />
+    <span class="hint"
+      >If a customer's phone can't show them, turn off to send a numbered menu instead.</span
+    >
+  </div>
+
   @switch (draft.type) {
     @case ('buttons') {
       <div class="stack">
@@ -195,7 +206,7 @@
         </button>
         <p class="note">
           <i class="ti ti-info-circle" aria-hidden="true"></i> Call and copy buttons are sent as
-          text on WhatsApp Web and as text fallback on Cloud API.
+          text on browser-linked WhatsApp Web numbers and on Cloud API.
         </p>
       </div>
     }

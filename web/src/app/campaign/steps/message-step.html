@@ -153,8 +153,7 @@
       <p class="banner danger" role="status">
         <i class="ti ti-alert-circle" aria-hidden="true"></i>
         <span
-          >Nothing fills {{ d.unresolved().join(', ') }} for this contact - fill "If a value is
-          empty" below.</span
+          >The {{ d.unresolved().join(', ') }} column is empty for this contact.</span
         >
       </p>
     }
@@ -264,33 +263,6 @@
     <app-interactive-editor [(value)]="d.interactive" [variables]="d.variables()" />
   </details>
 }
-@if (!d.metaMode()) {
-  @if (d.usedVariables().length) {
-    <details class="card panel more-card" [open]="d.unresolved().length > 0">
-      <summary>
-        <i class="ti ti-wand" aria-hidden="true"></i>
-        <span
-          ><strong>If a value is empty</strong>
-          <small class="muted">what to write instead, so nobody gets "Hi ,"</small></span
-        >
-      </summary>
-      <div class="fallbacks">
-        @for (v of d.usedVariables(); track v) {
-          <label class="fb">
-            <span class="tag">{{ '{' + v + '}' }}</span>
-            <input
-              [ngModel]="d.fallbacks()[v] ?? ''"
-              (ngModelChange)="d.setFallback(v, $event)"
-              placeholder="no fallback"
-              [attr.aria-label]="'Fallback for ' + v"
-            />
-          </label>
-        }
-      </div>
-    </details>
-  }
-}
-
 <div class="foot">
   <button type="button" class="btn" (click)="d.goTo(1)">
     <i class="ti ti-arrow-left" aria-hidden="true"></i> Audience

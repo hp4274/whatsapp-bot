@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 
+import { Auth } from '../core/auth';
 import { InteractiveDraft } from './interactive/interactive.model';
 import { DraftAttachment } from './draft';
 import { formatBytes, substitute } from './wa-format';
@@ -20,6 +21,7 @@ const CTA_ICONS = { url: 'external-link', call: 'phone', copy: 'copy' } as const
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PhonePreview {
+  private readonly auth = inject(Auth);
   readonly text = input('');
   readonly context = input<Record<string, string>>({});
   readonly fallbacks = input<Record<string, string>>({});
@@ -68,8 +70,13 @@ export class PhonePreview {
   protected readonly name = computed(
     () => this.context()['name'] || this.contactLabel() || 'Contact',
   );
+  /**
+   * The chat header is the recipient's view, so it names the sender. A super
+   * admin acting as a tenant has no `tenant()` of their own, hence the stand-in.
+   */
+  protected readonly business = computed(() => this.auth.tenant()?.name || 'Your business');
   protected readonly initials = computed(() => {
-    const words = this.name().trim().split(/\s+/).filter(Boolean);
+    const words = this.business().trim().split(/\s+/).filter(Boolean);
     const letters = words.length
       ? words
           .slice(0, 2)

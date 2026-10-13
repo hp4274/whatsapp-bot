@@ -82,14 +82,76 @@
       </div>
     </div>
 
-    <div class="service-picker">
-      <div>
-        <h4>Services</h4>
-        <p class="muted compact">{{ serviceSummary(draft().services) }}</p>
+    <div class="plan-pick">
+      <h4 id="plan-pick-title">Plan</h4>
+      <div class="plan-options" role="radiogroup" aria-labelledby="plan-pick-title">
+        @for (p of plans(); track p.key) {
+          <button
+            class="plan-option"
+            type="button"
+            role="radio"
+            [attr.aria-checked]="draft().planKey === p.key"
+            (click)="choosePlan(p)"
+          >
+            <span class="po-top">
+              <strong>{{ p.name }}</strong>
+              @if (p.trialDays) {
+                <span class="s-pill tone-info">{{ p.trialDays }}d trial</span>
+              }
+            </span>
+            <span class="po-price">{{ formatPrice(p) }}</span>
+            <span class="muted">
+              {{ p.services.length }} services &middot;
+              {{ p.tenantLimits.maxChannels || 'Unlimited' }} number{{
+                p.tenantLimits.maxChannels === 1 ? '' : 's'
+              }}
+              &middot; {{ p.tenantLimits.maxUsers || 'Unlimited' }} seats
+            </span>
+          </button>
+        }
+        <button
+          class="plan-option manual"
+          type="button"
+          role="radio"
+          [attr.aria-checked]="draft().planKey === null"
+          (click)="choosePlan(null)"
+        >
+          <span class="po-top"><strong>No plan</strong></span>
+          <span class="muted">Pick services manually; never gated by billing.</span>
+        </button>
       </div>
-      <button class="btn" type="button" (click)="openDraftServices()" [disabled]="busy()">
-        Services
-      </button>
+
+      @if (draftPlan(); as plan) {
+        <div class="plan-services">
+          <div class="chips" aria-label="Services from this plan">
+            @for (service of plan.services; track service) {
+              <span class="s-pill tone-mute">{{ serviceLabel(service) }}</span>
+            }
+          </div>
+          <p class="muted compact">You can customise after creating.</p>
+          <div class="field trial">
+            <label for="t-trial">Trial days <small class="muted">0 = start billing now</small></label>
+            <input
+              id="t-trial"
+              name="trialDays"
+              type="number"
+              min="0"
+              [ngModel]="draft().trialDays"
+              (ngModelChange)="draft.set({ ...draft(), trialDays: +$event || 0 })"
+            />
+          </div>
+        </div>
+      } @else {
+        <div class="service-picker">
+          <div>
+            <h4>Services</h4>
+            <p class="muted compact">{{ serviceSummary(draft().services) }}</p>
+          </div>
+          <button class="btn" type="button" (click)="openDraftServices()" [disabled]="busy()">
+            Services
+          </button>
+        </div>
+      }
     </div>
 
     <div class="control-band">
@@ -180,6 +242,17 @@
           <span class="mono muted">#{{ tenant.id }}</span>
           <h3>{{ tenant.name }}</h3>
           <p class="muted">{{ tenant.slug }} &middot; {{ tenant.users }} user(s)</p>
+          @if (tenant.subscription; as sub) {
+            <button
+              class="s-pill plan-badge {{ stateTone(sub.state) }}"
+              type="button"
+              (click)="openSettings(tenant, 'plan')"
+              [title]="sub.planName + ' - ' + sub.state"
+            >
+              <i class="ti ti-crown" aria-hidden="true"></i>{{ sub.planName }}
+              <span class="sr-only">({{ sub.state }})</span>
+            </button>
+          }
         </div>
         <span
           class="s-pill"

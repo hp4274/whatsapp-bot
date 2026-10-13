@@ -315,29 +315,60 @@ export class BaileysTransport extends Transport {
         if (!jid) throw new TransportSendError(`${recipient} is not a phone number`, { retryable: false });
         if (!String(recipient).includes('@')) await this.#assertOnWhatsApp(jid, recipient);
 
-        // Baileys buttons/lists are unreliable for ordinary accounts: send the
-        // numbered-menu rendering and let matchReply() map the typed answer back.
-        const text = interactive ? renderFallbackText(message, interactive) : message;
-        let content;
+        let attachment = null;
         try {
-            content = media ? mediaContent(media, text) : { text };
+            attachment = media ? mediaContent(media) : null;
         } catch (err) {
             throw new TransportSendError(`attachment file is missing: ${err.message ?? err}`, { retryable: false });
         }
 
-        let sent;
+        // Native buttons first. Media goes out as its own message before the
+        // interactive one rather than in the interactive header: a plain media
+        // send is the path we know works, and a header-media failure would
+        // otherwise lose the attachment and the buttons together.
+        if (interactive && interactive.native !== false) {
+            if (attachment) await this.#send(jid, attachment);
+            try {
+                return this.#accepted(await this.#relayNative(jid, message, interactive));
+            } catch (err) {
+                console.warn(`[baileys] native buttons failed, sending the text menu instead: ${err?.message ?? err}`);
+                attachment = null; // already delivered above
+            }
+        }
+
+        const text = interactive ? renderFallbackText(message, interactive) : message;
+        const sent = await this.#send(jid, attachment ? { ...attachment, caption: text } : { text });
+        return this.#accepted(sent?.key?.id);
+    }
+
+    async #send(jid, content) {
         try {
-            sent = await this.sock.sendMessage(jid, content);
+            return await this.sock.sendMessage(jid, content);
         } catch (err) {
             throw new TransportSendError(String(err?.message ?? err), { retryable: true });
         }
-        const providerId = sent?.key?.id
-            ?? `local.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+    }
+
+    /**
+     * viewOnceMessage > interactiveMessage > nativeFlowMessage, relayed with the
+     * `biz` node: without that node WhatsApp clients drop or blank the buttons
+     * (sock.sendMessage cannot attach it, hence relayMessage). Throws on any
+     * failure so the caller falls back to the text menu.
+     */
+    async #relayNative(jid, text, interactive) {
+        const { generateWAMessageFromContent } = await import('@whiskeysockets/baileys');
+        const msg = generateWAMessageFromContent(jid, nativeInteractiveContent(text, interactive), { userJid: this.sock.user?.id });
+        await this.sock.relayMessage(jid, msg.message, { messageId: msg.key.id, additionalNodes: [NATIVE_FLOW_NODE] });
+        return msg.key.id;
+    }
+
+    #accepted(id) {
+        const providerId = id ?? `local.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
         this.receipts.set(providerId, Status.SENT);
         return {
             providerId,
             status: Status.SENT,
-            detail: sent?.key?.id ? 'accepted by WhatsApp' : 'sent, but Baileys returned no message id - no DELIVERED/READ for this one',
+            detail: id ? 'accepted by WhatsApp' : 'sent, but Baileys returned no message id - no DELIVERED/READ for this one',
         };
     }
 
@@ -390,6 +421,59 @@ export function mediaContent(media, caption) {
     if (kind === 'image') return { image: data, caption, mimetype };
     if (kind === 'video') return { video: data, caption, mimetype };
     return { document: data, caption, mimetype, fileName };
+}
+
+/**
+ * The extra stanza node Baileys forks attach to native-flow messages so the
+ * recipient's app renders the buttons ("mixed" covers quick_reply, cta_* and
+ * single_select in one message).
+ */
+export const NATIVE_FLOW_NODE = Object.freeze({
+    tag: 'biz',
+    attrs: {},
+    content: [{ tag: 'interactive', attrs: { type: 'native_flow', v: '1' }, content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }] }],
+});
+
+/** nativeFlowMessage buttons for one normalised interactive block. */
+export function nativeFlowButtons(interactive) {
+    const button = (name, params) => ({ name, buttonParamsJson: JSON.stringify(params) });
+    if (interactive.type === 'buttons') {
+        return interactive.buttons.map((b) => button('quick_reply', { display_text: b.title, id: b.id }));
+    }
+    if (interactive.type === 'cta') {
+        return interactive.cta.map((c) => {
+            if (c.kind === 'call') return button('cta_call', { display_text: c.title, phone_number: c.value });
+            if (c.kind === 'copy') return button('cta_copy', { display_text: c.title, copy_code: c.value });
+            return button('cta_url', { display_text: c.title, url: c.value, merchant_url: c.value });
+        });
+    }
+    if (interactive.type === 'list') {
+        return [button('single_select', {
+            title: interactive.list.button,
+            sections: interactive.list.sections.map((s) => ({
+                title: s.title,
+                rows: s.rows.map((r) => ({ id: r.id, title: r.title, description: r.description ?? '' })),
+            })),
+        })];
+    }
+    throw new Error(`no native buttons for interactive type "${interactive.type}"`);
+}
+
+/** The Message content (pre-proto) for a native-flow interactive message. */
+export function nativeInteractiveContent(text, interactive) {
+    return {
+        viewOnceMessage: {
+            message: {
+                messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+                interactiveMessage: {
+                    header: { title: interactive.header ?? '', hasMediaAttachment: false },
+                    body: { text: String(text ?? '') },
+                    ...(interactive.footer ? { footer: { text: interactive.footer } } : {}),
+                    nativeFlowMessage: { buttons: nativeFlowButtons(interactive), messageParamsJson: '' },
+                },
+            },
+        },
+    };
 }
 
 const MEDIA_TYPES = {

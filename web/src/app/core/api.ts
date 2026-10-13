@@ -524,6 +524,9 @@ export class TenancyApi {
     services?: string[];
     controls?: TenantControls;
     owner: { email: string; name?: string; password: string };
+    /** Subscribes the business; the plan's services win over `services`. */
+    planKey?: string;
+    trialDays?: number;
   }): Observable<{ tenant: Tenant; owner: User }> {
     return this.http
       .post<{ tenant: Tenant; owner: User }>('/api/admin/tenants', body)

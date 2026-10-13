@@ -49,7 +49,7 @@
   &.on {
     background: var(--surface-card);
     color: var(--primary-text);
-    box-shadow: var(--shadow-sm);
+    box-shadow: inset 0 0 0 1px var(--border-color);
     strong { font-weight: 600; }
   }
 }

@@ -1,7 +1,7 @@
 :host {
   display: block;
-  /* Series: sent orange, delivered green, read violet, failed red (same as the KPI tiles). */
-  --k-sent: var(--primary);
+  /* Series: sent blue, delivered green, read violet, failed red (same as the KPI tiles). */
+  --k-sent: var(--info);
   --k-delivered: var(--success);
   --k-read: var(--accent);
   --k-failed: var(--danger);

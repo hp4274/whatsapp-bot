@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
@@ -12,15 +13,23 @@ import {
 import { forkJoin } from 'rxjs';
 
 import { CustomSafetyState, SafetyPolicy, TenancyApi, TenantLimits } from '../core/api';
-import { Tenant, TenantControls } from '../core/auth';
+import { Tenant, TenantControls, TenantSubscriptionSummary } from '../core/auth';
 import { SAFETY_GROUPS } from '../core/safety-fields';
+import {
+  Plan,
+  PlansApi,
+  Subscription,
+  formatPrice,
+  stateTone,
+  subscriptionWhen,
+} from './plans-api';
 import { POLICY_SERVICES } from './policy-api';
 import { PolicyEditor } from './policy-editor';
 import { TenantAccounts } from './tenant-accounts';
 import { serviceMeta } from './service-meta';
 
 /** Which tab of the drawer is showing. */
-export type SettingsTab = 'general' | 'limits' | 'safety' | 'rules' | 'accounts';
+export type SettingsTab = 'general' | 'plan' | 'limits' | 'safety' | 'rules' | 'accounts';
 
 /** Working copy of one tenant's settings; nothing is sent until Save. */
 type SettingsDraft = {
@@ -82,6 +91,7 @@ const LIMIT_FIELDS: readonly LimitField[] = [
 
 const TABS: readonly { id: SettingsTab; label: string; icon: string }[] = [
   { id: 'general', label: 'General', icon: 'adjustments-horizontal' },
+  { id: 'plan', label: 'Plan', icon: 'crown' },
   { id: 'limits', label: 'Limits', icon: 'chart-donut' },
   { id: 'safety', label: 'Anti-ban', icon: 'shield' },
   { id: 'rules', label: 'Rules', icon: 'list-check' },
@@ -107,6 +117,7 @@ const TABS: readonly { id: SettingsTab; label: string; icon: string }[] = [
 })
 export class TenantSettings {
   private readonly api = inject(TenancyApi);
+  private readonly plansApi = inject(PlansApi);
 
   readonly tenant = input.required<Tenant>();
   readonly initialTab = input<SettingsTab>('general');
@@ -130,10 +141,28 @@ export class TenantSettings {
   protected readonly limitFields = LIMIT_FIELDS;
   protected readonly safetyGroups = SAFETY_GROUPS;
   protected readonly ruleServices = POLICY_SERVICES.map((key) => ({ key, label: serviceMeta(key).label }));
+  /** Plan tab: shown subscription, replaced by what the server returns after each action. */
+  protected readonly sub = linkedSignal<TenantSubscriptionSummary | Subscription | null>(
+    () => this.tenant().subscription ?? null,
+  );
+  protected readonly plans = signal<Plan[]>([]);
+  protected readonly pickedPlan = linkedSignal(() => this.sub()?.planKey ?? '');
+  protected readonly currentPlan = computed(() =>
+    this.plans().find((p) => p.key === this.sub()?.planKey),
+  );
+  protected readonly cancelAsk = signal(false);
+  protected readonly planNotice = signal('');
+  protected readonly formatPrice = formatPrice;
+  protected readonly stateTone = stateTone;
+  protected readonly when = subscriptionWhen;
   /** Which service's rules the Rules tab is showing. */
   protected readonly rulesService = signal(POLICY_SERVICES[0]);
 
   constructor() {
+    this.plansApi.plans().subscribe({
+      next: ({ plans }) => this.plans.set(plans),
+      error: (err: Error) => this.error.set(err.message),
+    });
     effect(() => {
       const tenant = this.tenant();
       untracked(() => this.load(tenant));
@@ -214,6 +243,53 @@ export class TenantSettings {
         this.error.set(err.message);
       },
     });
+  }
+
+  /** Change plan, or renew with the current key; the server re-applies services and limits. */
+  protected subscribe(planKey: string) {
+    const cur = this.settings();
+    if (!cur || !planKey) return;
+    this.saving.set(true);
+    this.error.set('');
+    this.planNotice.set('');
+    this.plansApi.subscribe(cur.tenant.id, planKey).subscribe({
+      next: ({ subscription, tenant }) => {
+        this.saving.set(false);
+        this.load({ ...cur.tenant, ...tenant });
+        this.sub.set(subscription);
+        this.planNotice.set('Plan applied. Services and limits now follow it.');
+        this.saved.emit();
+      },
+      error: (err: Error) => {
+        this.saving.set(false);
+        this.error.set(err.message);
+      },
+    });
+  }
+
+  protected cancelPlan(immediate: boolean) {
+    const cur = this.settings();
+    if (!cur) return;
+    this.cancelAsk.set(false);
+    this.saving.set(true);
+    this.error.set('');
+    this.planNotice.set('');
+    this.plansApi.cancel(cur.tenant.id, immediate).subscribe({
+      next: ({ subscription }) => {
+        this.saving.set(false);
+        this.sub.set(subscription);
+        this.planNotice.set(immediate ? 'Plan ended.' : 'Plan will end at the period end.');
+        this.saved.emit();
+      },
+      error: (err: Error) => {
+        this.saving.set(false);
+        this.error.set(err.message);
+      },
+    });
+  }
+
+  protected planName(key: string): string {
+    return this.plans().find((p) => p.key === key)?.name ?? key;
   }
 
   protected overrideCount(custom: CustomSafetyState): number {

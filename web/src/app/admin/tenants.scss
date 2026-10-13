@@ -55,6 +55,40 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   .btn { flex: 0 0 auto; }
 }
 
+/* Plan picker: selectable cards, the chosen one lifts with an orange edge. */
+.plan-pick { display: grid; gap: var(--space-md); h4 { margin: 0; } }
+.plan-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; perspective: 900px; }
+.plan-option {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 14px;
+  text-align: left;
+  font-size: 12.5px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  color: var(--text-color);
+  transition: transform var(--fast) var(--ease), border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+  &:hover { transform: translateY(-2px) rotateX(3deg); box-shadow: var(--shadow-sm); }
+  &[aria-checked='true'] { border-color: var(--primary); background: var(--primary-tint); box-shadow: 0 0 0 3px var(--input-focus); }
+  &.manual { border-style: dashed; }
+  strong { font-size: 14px; font-weight: 500; color: var(--text-strong); }
+}
+.po-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.po-price { font-size: 18px; font-weight: 500; letter-spacing: -0.5px; color: var(--text-strong); }
+.plan-services {
+  display: grid;
+  gap: 8px;
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-lg);
+  background: var(--surface-sunken);
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .s-pill::before { display: none; }
+  .trial { max-width: 220px; }
+}
+.plan-badge { margin-top: 6px; border: 0; cursor: pointer; .ti { font-size: 12px; } &::before { display: none; } }
+
 .check,
 .switch {
   display: flex;

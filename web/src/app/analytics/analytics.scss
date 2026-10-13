@@ -1,6 +1,6 @@
 /* Analytics in the Kardlyz language: hairline 24px cards, weight-500 numbers,
    8px sunken meters, every colour a styles.scss token so dark mode follows.
-   Series colours match the trend chart: sent orange, delivered green, read
+   Series colours match the trend chart: sent blue, delivered green, read
    violet, failed red. The trend chart, campaign table and response times
    style themselves. */
 @use '../school/school-shared' as s;
@@ -24,9 +24,9 @@
 .s-READ { --c: var(--accent); } .s-DELIVERED { --c: var(--success); } .s-SENT { --c: var(--primary); }
 .s-SANDBOX { --c: var(--warning); } .s-SENDING { --c: var(--info); } .s-QUEUED { --c: var(--c-queued); } .s-FAILED { --c: var(--danger); }
 .ok { --c: var(--success); } .info { --c: var(--info); } .warn { --c: var(--warning); }
-.t0 { --c: var(--primary); } .t1 { --c: var(--accent); } .t2 { --c: var(--success); } .t3 { --c: var(--info); } .t4 { --c: var(--c-queued); }
-/* tone-info is only the Sent tile: orange, like the chart's sent series. */
-.tone-info { --tone: var(--primary); } .tone-ok { --tone: var(--success); } .tone-read { --tone: var(--accent); }
+.t0 { --c: var(--info); } .t1 { --c: var(--accent); } .t2 { --c: var(--success); } .t3 { --c: var(--warning); } .t4 { --c: var(--c-queued); }
+/* tone-info is only the Sent tile: blue, like the chart's sent series. */
+.tone-info { --tone: var(--info); } .tone-ok { --tone: var(--success); } .tone-read { --tone: var(--accent); }
 .tone-bad { --tone: var(--danger-text); } .tone-warn { --tone: var(--warning); } .tone-mute { --tone: var(--text-muted); }
 
 /* Header --------------------------------------------------------------- */

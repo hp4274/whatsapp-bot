@@ -1,7 +1,7 @@
 // Design tokens and app-wide primitives.
 //
 // The visual language is Kardlyz's (`D:\Work\kardlyz\src\styles\global\_tokens.scss`):
-// one brand orange for fills and active states, a near-black ink for the
+// one brand green for fills and active states, a near-black ink for the
 // primary action, a violet second accent, neutral grey surfaces in light mode
 // and a navy ramp in dark mode. Every value is a CSS custom property so the
 // theme switches at runtime and no component hard-codes a colour.
@@ -28,20 +28,20 @@
 
   // ---------------------------------------------------------------- brand
   --brand-ink: #101014;
-  --brand-orange: #ed7e25;
+  --brand-green: #25d366;
   --brand-violet: #5f68ab;
-  /// Brand orange is 2.8:1 on white: fine as a fill, unreadable as type.
-  --brand-orange-ink: #a85614;
+  /// WhatsApp green is 1.9:1 on white: fine as a fill, unreadable as type.
+  --brand-green-ink: #0a7d4b;
 
   // -------------------------------------------------------------- semantic
   /// Fills, borders, active states, icon tints.
-  --primary: var(--brand-orange);
-  /// Links and small text — use this whenever orange lands on glyphs.
-  --primary-text: var(--brand-orange-ink);
+  --primary: var(--brand-green);
+  /// Links and small text — use this whenever green lands on glyphs.
+  --primary-text: var(--brand-green-ink);
   /// Primary button surface: the mark's black, so white labels clear AA.
   --primary-deep: var(--brand-ink);
-  --primary-glow: rgba(237, 126, 37, 0.18);
-  --primary-tint: #fef5ec;
+  --primary-glow: rgba(37, 211, 102, 0.2);
+  --primary-tint: #e8faef;
   --accent: var(--brand-violet);
 
   // -------------------------------------------------------------- surfaces
@@ -62,13 +62,13 @@
   --border-color: rgba(16, 16, 24, 0.09);
   --border-hover: rgba(16, 16, 24, 0.18);
   --input-bg: rgba(16, 16, 24, 0.02);
-  --input-focus: rgba(237, 126, 37, 0.16);
+  --input-focus: rgba(37, 211, 102, 0.2);
 
   // --------------------------------------------------------------- shadows
-  --shadow-sm: 0 4px 12px rgba(16, 16, 24, 0.08);
-  --shadow-card: 0 4px 16px -12px rgba(16, 16, 24, 0.18);
-  --shadow-float: 0 12px 24px -8px rgba(16, 16, 24, 0.2);
-  --shadow-lift: 0 20px 40px -16px rgba(16, 16, 24, 0.22);
+  --shadow-sm: none;
+  --shadow-card: none;
+  --shadow-float: none;
+  --shadow-lift: none;
 
   // --------------------------------------------------------------- status
   --success: #0f7a4c;
@@ -83,12 +83,12 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  // On navy the darkened orange disappears, so the text-safe tone lightens.
-  --brand-orange-ink: #f0a163;
+  // On navy the darkened green disappears, so the text-safe tone lightens.
+  --brand-green-ink: #5eea9a;
   // A black button has no edge on a dark panel, so the primary surface inverts.
   --primary-deep: #eef2fb;
-  --primary-glow: rgba(237, 126, 37, 0.22);
-  --primary-tint: rgba(237, 126, 37, 0.14);
+  --primary-glow: rgba(37, 211, 102, 0.24);
+  --primary-tint: rgba(37, 211, 102, 0.14);
   --accent: #9aa2e0;
 
   --bg-color: #04070e;
@@ -106,12 +106,12 @@
   --border-color: rgba(148, 178, 235, 0.13);
   --border-hover: rgba(148, 178, 235, 0.28);
   --input-bg: rgba(148, 178, 235, 0.05);
-  --input-focus: rgba(237, 126, 37, 0.24);
+  --input-focus: rgba(37, 211, 102, 0.28);
 
-  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.5);
-  --shadow-card: 0 4px 16px -12px rgba(0, 0, 0, 0.65);
-  --shadow-float: 0 12px 24px -8px rgba(0, 0, 0, 0.7);
-  --shadow-lift: 0 20px 40px -16px rgba(0, 0, 0, 0.75);
+  --shadow-sm: none;
+  --shadow-card: none;
+  --shadow-float: none;
+  --shadow-lift: none;
 
   --success: #4ade80;
   --warning: #fbbf24;
@@ -240,7 +240,7 @@ input[type='checkbox'],
 input[type='radio'] {
   width: auto;
   padding: 0;
-  accent-color: var(--brand-orange);
+  accent-color: var(--brand-green);
 }
 
 // Keyboard focus is always visible, never painted on mouse clicks.
@@ -274,7 +274,7 @@ input[type='radio'] {
 // Buttons ---------------------------------------------------------------
 //
 // `.btn` is the outline button (card surface, hairline border); `.primary` is
-// the ink button that turns brand orange on hover; `.danger` is the red-outline
+// the ink button that turns brand green on hover; `.danger` is the red-outline
 // destructive one. 38px tall, 10px radius, 13.5px medium — Kardlyz's sizes.
 .btn {
   display: inline-flex;

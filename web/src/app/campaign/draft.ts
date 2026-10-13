@@ -96,6 +96,8 @@ export class CampaignDraft {
   readonly dedupeDays = signal(0);
   readonly audit = signal<ImportAudit | null>(null);
   readonly excludedRows = signal<number[]>([]);
+  /** Columns typed in after the upload: one value for every row, used like a file column. */
+  readonly extraColumns = signal<readonly { slug: string; value: string }[]>([]);
 
   // Retarget / segment
   readonly retarget = signal<{
@@ -151,6 +153,7 @@ export class CampaignDraft {
       ...preview.columns
         .map((c) => c.slug)
         .filter((s) => s !== phone && s !== name && s !== 'name' && s !== 'phone'),
+      ...this.extraColumns().map((c) => c.slug),
     ];
   });
 
@@ -162,6 +165,7 @@ export class CampaignDraft {
     const { phone, name } = this.mapping();
     const phoneAt = preview.columns.findIndex((c) => c.slug === phone);
     const nameAt = preview.columns.findIndex((c) => c.slug === name);
+    const added = this.extraColumns();
     return audit.valid
       .filter((v) => !excluded.has(v.row))
       .map((v) => {
@@ -170,6 +174,7 @@ export class CampaignDraft {
         preview.columns.forEach((c, j) => {
           if (j !== phoneAt && j !== nameAt) extra[c.slug] = String(row[j] ?? '');
         });
+        for (const c of added) extra[c.slug] = c.value;
         return { name: v.name, phone: v.phone, extra };
       });
   });
@@ -288,7 +293,7 @@ export class CampaignDraft {
     if (missing > 0) {
       out.push({
         tone: 'warning',
-        text: `${missing} contact${missing === 1 ? '' : 's'} would get a blank placeholder - add a fallback for ${this.unresolvedKeysAll().join(', ') || 'it'}.`,
+        text: `${missing} contact${missing === 1 ? '' : 's'} would get a blank placeholder - their ${this.unresolvedKeysAll().join(', ') || 'value'} is empty.`,
       });
     }
     if (size > 50 && !this.hasVariation()) {
@@ -359,10 +364,6 @@ export class CampaignDraft {
   contextFor(contact: Contact | number): Record<string, string> {
     const c = typeof contact === 'number' ? (this.validContacts()[contact] ?? SAMPLE) : contact;
     return withFallbacks(this.rawContext(c), this.fallbacks());
-  }
-
-  setFallback(slug: string, value: string): void {
-    this.fallbacks.update((f) => ({ ...f, [slug]: value }));
   }
 
   goTo(step: ComposerStep): void {
@@ -450,7 +451,8 @@ export class CampaignDraft {
     if (source === 'file') {
       const preview = this.preview();
       const { phone, name } = this.mapping();
-      if (preview && !this.excludedRows().length) {
+      // The import reference only carries file columns, so added ones force the explicit list.
+      if (preview && !this.excludedRows().length && !this.extraColumns().length) {
         body.audience = {
           importId: preview.importId,
           mapping: { phone, name: name || null },
@@ -481,6 +483,7 @@ export class CampaignDraft {
     this.preview.set(null);
     this.audit.set(null);
     this.excludedRows.set([]);
+    this.extraColumns.set([]);
     this.mapping.set({ phone: '', name: '' });
     this.previewIndex.set(0);
   }
