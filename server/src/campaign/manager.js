@@ -221,7 +221,10 @@ export class CampaignManager extends EventEmitter {
         // The flag only governs this batch: a later single send to one of these
         // numbers is a deliberate act, not a duplicate.
         const previousMode = this.queue.onePerRecipient;
+        const previousDedupe = this.queue.dedupe;
         this.queue.onePerRecipient = onePerNumber;
+        // Duplicates allowed means a repeated number with the same text is queued again too.
+        this.queue.dedupe = onePerNumber;
         try {
             for (const contact of shuffle([...contacts])) {
                 if (optedOut.has(contact.phone)) {
@@ -272,6 +275,7 @@ export class CampaignManager extends EventEmitter {
             }
         } finally {
             this.queue.onePerRecipient = previousMode;
+            this.queue.dedupe = previousDedupe;
         }
 
         this.stats.total += queued;

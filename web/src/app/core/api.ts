@@ -1116,6 +1116,8 @@ export interface ImportAuditOptions {
   countryCode?: string;
   dedupeDays?: number;
   autoClean?: boolean;
+  /** Drop repeated numbers in the file (default true). */
+  skipDuplicates?: boolean;
 }
 
 export interface ImportIssue {
@@ -1159,6 +1161,8 @@ export interface CampaignOptions {
   pacing?: PacingPreset;
   timezone?: string;
   dedupeDays?: number;
+  /** Message each number once (default true). */
+  skipDuplicates?: boolean;
   variables?: string[];
   mediaMeta?: { filename: string; mimetype: string; size: number } | null;
   /** Cloud API only: send `templateId` as a Meta-approved template (server messaging/templateSend.js). */

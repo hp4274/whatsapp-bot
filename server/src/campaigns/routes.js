@@ -70,6 +70,7 @@ export function createCampaignRouter({ db, state }) {
                     mapping: audience.mapping,
                     countryCode: cc ?? '',
                     autoClean: Boolean(audience.autoClean),
+                    skipDuplicates: audience.skipDuplicates !== false,
                     optOuts: new Set(db.getAllOptOuts?.() ?? []),
                     recent: dedupeDays > 0 ? new Set(db.bulkCountsSince(since).keys()) : new Set(),
                 }).contacts;

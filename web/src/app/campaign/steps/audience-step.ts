@@ -166,11 +166,12 @@ export class AudienceStep {
       const countryCode = this.draft.countryCode();
       const autoClean = this.draft.autoClean();
       const dedupeDays = this.draft.dedupeDays();
+      const skipDuplicates = this.draft.onePerNumber();
       untracked(() => {
         if (this.timer) clearTimeout(this.timer);
         if (!preview || !mapping.phone || !/^\d{1,4}$/.test(countryCode)) return;
         this.timer = setTimeout(
-          () => this.runAudit(preview.importId, mapping, countryCode, autoClean, dedupeDays),
+          () => this.runAudit(preview.importId, mapping, countryCode, autoClean, dedupeDays, skipDuplicates),
           350,
         );
       });
@@ -190,6 +191,7 @@ export class AudienceStep {
     countryCode: string,
     autoClean: boolean,
     dedupeDays: number,
+    skipDuplicates: boolean,
   ): void {
     const seq = ++this.auditSeq;
     this.auditing.set(true);
@@ -200,6 +202,7 @@ export class AudienceStep {
         countryCode,
         autoClean,
         dedupeDays,
+        skipDuplicates,
       })
       .subscribe({
         next: (audit) => {

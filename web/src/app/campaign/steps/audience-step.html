@@ -145,6 +145,14 @@
             Fix messy numbers (spaces, dashes, brackets)
           </label>
           <label class="check">
+            <input
+              type="checkbox"
+              [ngModel]="d.onePerNumber()"
+              (ngModelChange)="d.onePerNumber.set($event)"
+            />
+            Skip duplicate numbers (message each number once)
+          </label>
+          <label class="check">
             Skip numbers already messaged in the last
             <select
               aria-label="Skip numbers messaged within"
