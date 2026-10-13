@@ -225,6 +225,16 @@ export class BaileysTransport extends Transport {
         if (!msg?.key || msg.key.fromMe) return;
         const inbound = await toInboundMessage(msg, sock);
         if (inbound) this.events.emit('inbound', inbound);
+        this.#markRead(sock, msg.key);
+    }
+
+    /** Read what contacts send us, a few seconds late, the way a person opens a chat. */
+    #markRead(sock, key) {
+        if (typeof sock.readMessages !== 'function' || this.config?.markRead === false) return;
+        const timer = setTimeout(() => {
+            Promise.resolve(sock.readMessages([key])).catch(() => {});
+        }, 2000 + this.randomFn() * 6000);
+        timer.unref?.();
     }
 
     #scheduleReconnect(reason) {
@@ -307,7 +317,7 @@ export class BaileysTransport extends Transport {
         fs.rmSync(this.authDir, { recursive: true, force: true });
     }
 
-    async sendMessage(recipient, message, { media = null, interactive = null } = {}) {
+    async sendMessage(recipient, message, { media = null, interactive = null, typingMs = 0 } = {}) {
         if (!this.connected || !this.sock) {
             throw new TransportConnectionError('Transport is reconnecting', { retryable: true });
         }
@@ -322,6 +332,33 @@ export class BaileysTransport extends Transport {
             throw new TransportSendError(`attachment file is missing: ${err.message ?? err}`, { retryable: false });
         }
 
+        // composing -> wait -> send -> paused, like a person typing. No typingMs = instant (API sends, tests).
+        if (typingMs > 0) {
+            await this.#presence('available');
+            await this.#presence('composing', jid);
+            await new Promise((resolve) => setTimeout(resolve, typingMs));
+        }
+        try {
+            return await this.#deliver(jid, message, attachment, interactive);
+        } finally {
+            if (typingMs > 0) await this.#presence('paused', jid);
+        }
+    }
+
+    /** Online / offline / typing state. Never throws: presence is cosmetic, the send is not. */
+    async setPresence(state) {
+        await this.#presence(state);
+    }
+
+    async #presence(state, jid) {
+        try {
+            await this.sock?.sendPresenceUpdate?.(state, jid);
+        } catch {
+            // presence is best effort
+        }
+    }
+
+    async #deliver(jid, message, attachment, interactive) {
         // Native buttons first. Media goes out as its own message before the
         // interactive one rather than in the interactive header: a plain media
         // send is the path we know works, and a header-media failure would

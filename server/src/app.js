@@ -17,6 +17,7 @@ import multer from 'multer';
 
 import { AutoReplyEngine } from './autoreply/engine.js';
 import { processOptOut } from './autoreply/optout.js';
+import { COMPLAINT_WORDS } from './campaign/humanize.js';
 import { CampaignManager } from './campaign/manager.js';
 import { auditRows, cleanCountryCode, guessMapping, parseSheet } from './campaign/importer.js';
 import { channelInputProblems, channelUsage } from './channelUsage.js';
@@ -768,7 +769,11 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
                 optOuts: new Set(db.getAllOptOuts()),
                 recent,
             });
-            return res.json({ counts, issues, valid: valid.map(({ row, phone, name }) => ({ row, phone, name })) });
+            // Every valid number in the sheet goes into the contact book (upsert: re-uploading
+            // the same file updates, never duplicates).
+            const saved = contacts.importMany(valid, { source: 'import', normalized: true });
+            return res.json({ counts, issues, saved: { created: saved.created, updated: saved.updated },
+                valid: valid.map(({ row, phone, name }) => ({ row, phone, name })) });
         } catch (err) {
             if (err instanceof RangeError) return res.status(400).json({ errors: [err.message] });
             throw err;
@@ -1413,6 +1418,11 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         return res.json({ stats: manager.statsSnapshot() });
     });
 
+    /** Sending tier, today's rest window, and the block / report rate with who and when. */
+    app.get('/safety/health', (req, res) => res.json({
+        health: manager.healthStatus(), safety: manager.safetyStatus(),
+    }));
+
     app.get('/campaign/stats', (req, res) => res.json({ stats: manager.statsSnapshot() }));
 
     /** Phase 3 queue observability: depth, what is in it, and how it is going. */
@@ -1522,6 +1532,9 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
 
     // ---------------------------------------------------------------- SSE --
     app.get('/events', (req, res) => {
+        // No idle timeout and TCP keep-alive: the stream is meant to sit quiet for minutes.
+        req.socket.setTimeout(0);
+        req.socket.setKeepAlive(true, 30000);
         res.writeHead(200, {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache, no-transform',
@@ -2624,6 +2637,17 @@ async function handleInbound(state, message) {
         phone: saved.sender, channelId: state.channel.id, at: saved.receivedAt,
     });
     broadcast(state, { type: 'inbound_message', message: saved, conversationId: conversation?.id ?? null });
+    // "spam" / "I will report you": a report in the making. Recorded with who and when; may pause the run.
+    if (COMPLAINT_WORDS.test(saved.body ?? '')) {
+        const fresh = state.db.addSafetyEvent({
+            kind: 'report', phone: saved.sender, messageId: saved.messageId ?? saved.id ?? '',
+            detail: String(saved.body).slice(0, 160),
+        });
+        if (fresh) {
+            broadcast(state, { type: 'safety_event', kind: 'report', phone: saved.sender });
+            state.manager.checkBlockRate();
+        }
+    }
     try {
         const optOut = await processOptOut(state.db, state.transport, saved, state.platformPolicy()['autoReplies.optOutWords']);
         if (optOut.handled) {

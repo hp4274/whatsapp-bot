@@ -76,7 +76,10 @@ export const DEFAULTS = Object.freeze({
 
     // sending safety (see campaign/safety.js)
     safetyEnabled: true,
-    dailyLimit: 250,
+    dailyLimit: 250,          // used only when tierSystem is off; the sending tier sets the day otherwise
+    tierSystem: true,         // start slow, earn bigger days and faster gaps
+    // Nightly rest, recipient-local sending hours and typing pauses. Off only for the test run (WHATSAPP_SENDER_FAST=1).
+    humanTiming: process.env.WHATSAPP_SENDER_FAST !== '1',
     pacingMode: 'adaptive',
     minDelaySeconds: 0,
     maxDelaySeconds: 0,

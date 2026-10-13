@@ -4,6 +4,7 @@ import { DatePipe } from '@angular/common';
 import { Api, AppConfig, SafetyStatus } from '../core/api';
 import { Store } from '../core/store';
 import { SafetyControls } from './safety-controls';
+import { SendingHealth } from './sending-health';
 
 /** The three things a person does, in order; the card lights the one they are on. */
 const STEPS: readonly { readonly title: string; readonly text: string }[] = [
@@ -21,7 +22,7 @@ const STEPS: readonly { readonly title: string; readonly text: string }[] = [
  */
 @Component({
   selector: 'app-connection',
-  imports: [DatePipe, SafetyControls],
+  imports: [DatePipe, SafetyControls, SendingHealth],
   templateUrl: './connection.html',
   styleUrl: './connection.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

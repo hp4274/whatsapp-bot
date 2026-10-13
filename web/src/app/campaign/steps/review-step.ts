@@ -9,7 +9,6 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { forkJoin } from 'rxjs';
 
 import { Api, CampaignsApi, PacingPreset, SafetyStatus } from '../../core/api';
 import { Store } from '../../core/store';
@@ -177,14 +176,12 @@ export class ReviewStep {
 
   private loadSafety(size: number): void {
     this.loadingSafety.set(true);
-    forkJoin({
-      safe: this.campaignsApi.safetyFor(size, 'safe'),
-      balanced: this.campaignsApi.safetyFor(size, 'balanced'),
-      fast: this.campaignsApi.safetyFor(size, 'fast'),
-    }).subscribe({
+    // One pace for everyone (balanced, unless the plan caps it lower): only the estimate is shown.
+    const preset = this.draft.pacing();
+    this.campaignsApi.safetyFor(size, preset).subscribe({
       next: (r) => {
         this.loadingSafety.set(false);
-        this.safety.set({ safe: r.safe.safety, balanced: r.balanced.safety, fast: r.fast.safety });
+        this.safety.set({ [preset]: r.safety });
       },
       error: () => {
         // Older servers ignore `pacing`; fall back to the plain preview.

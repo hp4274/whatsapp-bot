@@ -1,0 +1,181 @@
+<!--
+  Three bands in one card: the tier staircase with progress to the next step,
+  today (budget + rest window), then blocks and reports with who and when.
+-->
+<section class="card sh" aria-labelledby="sh-title">
+  <header class="card-head">
+    <div>
+      <h3 id="sh-title">Number health</h3>
+      <p class="muted">
+        New numbers start slow and earn bigger days. Blocks and reports pause a campaign for you.
+      </p>
+    </div>
+    <button class="btn" type="button" (click)="load()" [disabled]="loading()">
+      <i class="ti ti-refresh" aria-hidden="true"></i>Refresh
+    </button>
+  </header>
+
+  @if (error(); as message) {
+    <div class="s-banner" role="alert">
+      <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+      <span>{{ message }}</span>
+      <button class="btn" type="button" (click)="load()">Try again</button>
+    </div>
+  } @else if (loading()) {
+    <div class="skeleton" aria-busy="true" aria-label="Loading number health">
+      <div class="s-skel" style="width: 100%; height: 110px; border-radius: 16px"></div>
+      <div class="s-skel" style="width: 60%"></div>
+      <div class="s-skel" style="width: 80%"></div>
+    </div>
+  } @else {
+    <!-- Tier staircase -->
+    @if (tier(); as t) {
+      <div class="band">
+        <ol class="stairs" aria-label="Sending tiers">
+          @for (step of steps; track step.n) {
+            <li
+              [class.done]="step.n < t.tier"
+              [class.now]="step.n === t.tier"
+              [style.--rise.px]="28 + step.n * 22"
+            >
+              <span class="rung">
+                <i
+                  class="ti {{ step.n < t.tier ? 'ti-check' : step.n === t.tier ? 'ti-rocket' : 'ti-lock' }}"
+                  aria-hidden="true"
+                ></i>
+              </span>
+              <strong>Tier {{ step.n }}</strong>
+              <span class="per">{{ step.perDay }}<small> / day</small></span>
+            </li>
+          }
+        </ol>
+
+        <div class="climb">
+          <div class="climb-head">
+            <strong>{{ t.name }} · tier {{ t.tier }}</strong>
+            @if (t.next && t.nextTierAt) {
+              <span class="muted"
+                >{{ t.weekSent }} of {{ t.nextTierAt }} messages this week to reach
+                {{ t.next.name }}</span
+              >
+            } @else {
+              <span class="muted">Top tier. Nothing left to earn.</span>
+            }
+          </div>
+          <div class="meter" role="progressbar" [attr.aria-valuenow]="climb()" aria-valuemin="0" aria-valuemax="100">
+            <div class="bar" [style.width.%]="climb()"></div>
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- Today -->
+    @if (safety(); as s) {
+      <div class="band today">
+        <div class="stat">
+          <span>Sent today</span>
+          <strong>{{ s.used }}{{ s.limit ? ' / ' + s.limit : '' }}</strong>
+          <div class="meter slim" aria-hidden="true">
+            <div class="bar" [style.width.%]="usedPercent()"></div>
+          </div>
+        </div>
+        <!-- Gap between messages hidden for now (speed is not user-facing):
+        <div class="stat">
+          <span>Gap between messages</span>
+          <strong>{{ s.minSeconds | number: '1.0-0' }}–{{ s.maxSeconds | number: '1.0-0' }}s</strong>
+          <small class="muted">changes a little every day</small>
+        </div>
+        -->
+        @if (quiet(); as q) {
+          <div class="stat rest" [class.resting]="q.active">
+            <span><i class="ti ti-moon" aria-hidden="true"></i>Rest today</span>
+            <strong>{{ duration(q.minutesToday) }}</strong>
+            <small class="muted">
+              @if (q.active) {
+                Resting now, back in {{ duration(q.leftSeconds / 60) }}
+              } @else {
+                {{ clock(q.startMinute) }}–{{ clock(q.startMinute + q.minutesToday) }}
+              }
+            </small>
+          </div>
+        }
+      </div>
+    }
+
+    <!-- Blocks and reports -->
+    @if (health(); as h) {
+      <div class="band risk">
+        <div class="risk-head">
+          <div>
+            <strong>Blocks and reports</strong>
+            <span class="muted">last 7 days · {{ h.sent7d }} messages sent</span>
+          </div>
+          <span class="s-pill {{ riskTone() }}">{{
+            h.blockRatePercent + h.reportRatePercent | number: '1.0-1'
+          }}% of {{ h.pauseAtPercent }}% limit</span>
+        </div>
+
+        <div class="meter {{ riskTone() }}" aria-hidden="true">
+          <div class="bar" [style.width.%]="riskPercent()"></div>
+        </div>
+
+        <div class="rates">
+          <div>
+            <i class="ti ti-ban" aria-hidden="true"></i>
+            <strong>{{ h.blocks }}</strong>
+            <span>may have blocked · {{ h.blockRatePercent }}%</span>
+          </div>
+          <div>
+            <i class="ti ti-flag" aria-hidden="true"></i>
+            <strong>{{ h.reports }}</strong>
+            <span>complained · {{ h.reportRatePercent }}%</span>
+          </div>
+        </div>
+
+        @if (h.events.length) {
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Who</th>
+                  <th scope="col">What</th>
+                  <th scope="col">When</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (e of h.events; track e.id) {
+                  <tr>
+                    <td>
+                      <strong>{{ e.name || e.phone }}</strong>
+                      @if (e.name) {
+                        <small class="muted">{{ e.phone }}</small>
+                      }
+                    </td>
+                    <td>
+                      <span class="s-pill {{ e.kind === 'block' ? 'tone-warn' : 'tone-bad' }}">{{
+                        label(e)
+                      }}</span>
+                      @if (e.kind === 'report' && e.detail) {
+                        <small class="muted quote">“{{ e.detail }}”</small>
+                      }
+                    </td>
+                    <td>{{ e.at | date: 'medium' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else {
+          <p class="empty muted">
+            <i class="ti ti-heartbeat" aria-hidden="true"></i>No blocks or complaints in the last 7
+            days.
+          </p>
+        }
+        <p class="fine muted">
+          WhatsApp does not tell senders about blocks. A message still at one tick after 12 hours is
+          counted as a possible block, so a phone that was switched off can show up here.
+        </p>
+      </div>
+    }
+  }
+</section>

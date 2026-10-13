@@ -55,14 +55,15 @@
   <div class="ph">
     <span class="badge accent"><i class="ti ti-gauge" aria-hidden="true"></i></span>
     <div>
-      <h3>Sending speed</h3>
-      <p class="muted">Slower is safer for your number</p>
+      <h3>Estimated time</h3>
+      <p class="muted">Messages go out gradually to keep your number safe</p>
     </div>
     @if (loadingSafety()) {
       <span class="spinner" aria-label="Loading"></span>
     }
   </div>
 
+  <!-- Speed picker (safe / balanced / fast) hidden for now: every send uses balanced. Restore with the block below.
   <div class="seg" role="radiogroup" aria-label="Sending pace">
     @for (p of presets; track p.value) {
       @let ps = safety()[p.value];
@@ -87,6 +88,8 @@
       </button>
     }
   </div>
+
+  -->
 
   @if (!s && loadingSafety()) {
     <span class="skel" aria-busy="true" aria-label="Loading send estimate"></span>

@@ -28,7 +28,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-safety-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 const config = (overrides = {}) => {
-    const base = { ...DEFAULTS, ...overrides };
+    const base = { ...DEFAULTS, tierSystem: false, ...overrides };
     delete base.misc;
     return base;
 };
@@ -125,7 +125,7 @@ describe('daily cap', () => {
     it('treats the limit as off when safety is disabled or the limit is 0', () => {
         assert.equal(new DailyQuota(db, config({ safetyEnabled: false, dailyLimit: 1 })).remaining(),
             Infinity);
-        assert.equal(new DailyQuota(db, config({ dailyLimit: 0 })).remaining(), Infinity);
+        assert.equal(new DailyQuota(db, config({ dailyLimit: 0, tierSystem: false })).remaining(), Infinity);
     });
 });
 
@@ -219,7 +219,7 @@ describe('safety API', () => {
 
     before(async () => {
         db = new Database(path.join(tmp, 'api.db'));
-        app = createApp({ db, config: config({ transport: TRANSPORT_SANDBOX, dailyLimit: 50 }) });
+        app = createApp({ db, config: config({ transport: TRANSPORT_SANDBOX, dailyLimit: 50, tierSystem: false }) });
         server = app.listen(0, '127.0.0.1');
         await new Promise((resolve) => server.once('listening', resolve));
         base = `http://127.0.0.1:${server.address().port}`;

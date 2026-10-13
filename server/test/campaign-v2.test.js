@@ -55,7 +55,7 @@ function fakeTransport(send) {
 }
 
 const engineConfig = (extra = {}) => ({
-    ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', retryDelay: 0.01, ...extra,
+    ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', retryDelay: 0.01, tierSystem: false, ...extra,
 });
 
 describe('the engine', () => {
@@ -414,7 +414,7 @@ describe('campaigns over HTTP', () => {
 
     before(async () => {
         db = new Database(path.join(tmp, 'http.db'));
-        const config = { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000, retryDelay: 0.01, maxRetries: 1 };
+        const config = { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000, retryDelay: 0.01, maxRetries: 1, tierSystem: false };
         delete config.misc;
         app = createTestApp({ db, config });
         server = app.listen(0, '127.0.0.1');

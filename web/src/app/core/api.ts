@@ -101,6 +101,50 @@ export interface SafetyStatus {
   estimateSeconds: { min: number; max: number; typical: number };
   waitingSeconds: number;
   pausedByQuota: boolean;
+  /** Sending tier; null when the tier system is off. */
+  tier?: TierStatus | null;
+  /** Today's nightly rest window; null when the tier system is off. */
+  quiet?: QuietWindow | null;
+}
+
+export interface TierStatus {
+  tier: number;
+  name: string;
+  dailyLimit: number;
+  /** Messages sent in the current 7-day block. */
+  weekSent: number;
+  /** Week target for the next tier; null on the top tier. */
+  nextTierAt: number | null;
+  next: { tier: number; name: string; dailyLimit: number } | null;
+}
+
+export interface QuietWindow {
+  active: boolean;
+  leftSeconds: number;
+  minutesToday: number;
+  /** Minutes after local midnight when today's rest starts. */
+  startMinute: number;
+}
+
+export interface SafetyEvent {
+  id: number;
+  kind: 'block' | 'report';
+  phone: string;
+  name: string | null;
+  campaignId: string;
+  detail: string;
+  at: string;
+}
+
+export interface SafetyHealth {
+  sent7d: number;
+  blocks: number;
+  reports: number;
+  blockRatePercent: number;
+  reportRatePercent: number;
+  /** Blocks + reports share of the week's sends at which a campaign pauses itself. */
+  pauseAtPercent: number;
+  events: SafetyEvent[];
 }
 
 export interface CampaignStats {
@@ -292,6 +336,12 @@ export class Api {
   campaignAction(action: 'pause' | 'resume' | 'stop'): Observable<{ stats: CampaignStats }> {
     return this.http
       .post<{ stats: CampaignStats }>(`/api/campaign/${action}`, {})
+      .pipe(catchError(toMessage));
+  }
+
+  safetyHealth(): Observable<{ health: SafetyHealth; safety: SafetyStatus }> {
+    return this.http
+      .get<{ health: SafetyHealth; safety: SafetyStatus }>('/api/safety/health')
       .pipe(catchError(toMessage));
   }
 

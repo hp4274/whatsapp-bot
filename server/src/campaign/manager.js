@@ -26,6 +26,13 @@ import {
     DailyQuota, SafetyError, estimateSeconds, nextDelay, paceFor, pickPreset, variationError,
 } from './safety.js';
 import { capReachedText, clampPreset } from '../policy/campaignOps.js';
+import {
+    BLOCK_PAUSE_MIN_SENT, BLOCK_PAUSE_PERCENT, BLOCK_SUSPECT_AFTER_SECONDS, MEDIA_GAP_FACTOR,
+    contentError, dayPlan, inQuiet, isDaytimeFor, quietLeftSeconds, shuffle, typingMs,
+} from './humanize.js';
+
+const isoAgo = (ms) => new Date(Date.now() - ms).toISOString().replace(/\.\d{3}Z$/, '+00:00');
+const between = (min, max) => min + Math.random() * (max - min);
 
 export class CampaignManager extends EventEmitter {
     constructor(db, transport, config) {
@@ -46,8 +53,12 @@ export class CampaignManager extends EventEmitter {
         // varies with how many are going out.
         this.quota = new DailyQuota(db, config);
         this.pacePreset = 'balanced';   // 'safe' | 'balanced' | 'fast'
-        this.pace = paceFor(0, config);
+        this.pace = paceFor(0, config, 'balanced', this.quota.tier());
         this.sentInRun = 0;
+        this.nextRestAt = null;     // sentInRun at which the next long rest starts (jittered)
+        this.afterReconnect = false;
+        this.lastHealthScan = 0;
+        this.seed = `${db.tenantId ?? 1}:${db.channelId ?? 0}`;
         this.waitingUntil = null;   // when the next message may go (ms epoch)
         this.pausedByQuota = false;
         // Set by the channel runtime: () => true while bulk may go out now
@@ -68,14 +79,24 @@ export class CampaignManager extends EventEmitter {
         this.rateLimiter.setRate(config.rateLimitPerSecond, config.rateLimitBurst);
         this.retryPolicy = RetryPolicy.fromConfig(config);
         this.quota.config = config;
-        this.pace = paceFor(this.pace.batchSize, config, this.pacePreset);
+        this.pace = this.#paceFor(this.pace.batchSize, this.pacePreset);
+    }
+
+    #paceFor(batchSize, preset) {
+        return paceFor(batchSize, this.config, preset, this.quota.tier());
+    }
+
+    /** Today's rhythm for this number (null when the tier system is off). */
+    #dayPlan() {
+        const tier = this.quota.tier();
+        return tier ? dayPlan(this.seed, tier) : null;
     }
 
     /** Change the speed preset of the current run (live): recomputes the gap range. */
     setPace(preset, batchSize = this.pace.batchSize) {
         const ceiling = this.bulkPolicy?.()?.maxSpeed;
         this.pacePreset = ceiling ? clampPreset(pickPreset(preset), ceiling) : pickPreset(preset);
-        this.pace = paceFor(batchSize, this.config, this.pacePreset);
+        this.pace = this.#paceFor(batchSize, this.pacePreset);
         this.#emitStats();
         return this.pace;
     }
@@ -96,8 +117,10 @@ export class CampaignManager extends EventEmitter {
 
     /** Everything the UI needs to explain the pacing and the daily budget. */
     safetyStatus(batchSize = this.pace.batchSize, preset = this.pacePreset) {
-        const pace = paceFor(batchSize, this.config, pickPreset(preset));
+        const pace = this.#paceFor(batchSize, pickPreset(preset));
+        const plan = this.#dayPlan();
         return {
+            quiet: plan ? { active: inQuiet(plan), leftSeconds: quietLeftSeconds(plan), minutesToday: plan.quietMinutes, startMinute: plan.quietStart } : null,
             ...this.quota.status(),
             pacingMode: this.config.pacingMode,
             pacing: pace.preset,
@@ -123,10 +146,11 @@ export class CampaignManager extends EventEmitter {
     /**
      * Personalise and queue a batch. Returns {queued, skipped}.
      *
-     * With `onePerNumber` each number is messaged exactly once: repeats inside
-     * this batch are dropped whatever name they carry, and numbers that already
-     * received a real message in an earlier run are skipped too (the database,
-     * not the queue, is what remembers those).
+     * With `onePerNumber` each number is messaged once per run: repeats inside
+     * this batch are dropped whatever name they carry. A number messaged in an
+     * earlier run is NOT skipped, so the same sheet can be sent again.
+     *
+     * The batch is shuffled: nobody is messaged in the order of the sheet.
      */
     enqueueContacts(contacts, template, {
         campaignId = null, onePerNumber = false, media = null, interactive = null,
@@ -167,8 +191,13 @@ export class CampaignManager extends EventEmitter {
         // Meta fixes an approved template's wording; variation is not ours to add.
         const unvaried = this.config.safetyEnabled === false || metaTemplate ? null : variationError(template, contacts, this.config);
         if (unvaried) throw new SafetyError(unvaried);
+        if (this.config.safetyEnabled !== false && !metaTemplate) {
+            const own = (c) => String(c?.extra?.message ?? c?.extra?.custom_message ?? '');
+            const shouting = [template, ...(Array.isArray(contacts) ? contacts.map(own) : [])]
+                .map(contentError).find(Boolean);
+            if (shouting) throw new SafetyError(shouting);
+        }
         this.campaignId = campaignId ?? crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-        const alreadySent = onePerNumber ? this.db.sentRecipients() : new Set();
         // Per-recipient frequency cap: bulk only, rolling 24h, counted from the db.
         const perRecipient = this.config.safetyEnabled === false ? 0 : Number(this.config.recipientDailyCap) || 0;
         const recent = perRecipient && this.db.bulkCountsSince
@@ -177,8 +206,9 @@ export class CampaignManager extends EventEmitter {
         let skippedFrequency = 0;
         const batch = Array.isArray(contacts) ? contacts.length : 0;
         this.pacePreset = pickPreset(pacing);
-        this.pace = paceFor(batch, this.config, this.pacePreset);
+        this.pace = this.#paceFor(batch, this.pacePreset);
         this.sentInRun = 0;
+        this.nextRestAt = null;
         let queued = 0;
         let skipped = 0;
         let skippedOptOut = 0;
@@ -193,14 +223,10 @@ export class CampaignManager extends EventEmitter {
         const previousMode = this.queue.onePerRecipient;
         this.queue.onePerRecipient = onePerNumber;
         try {
-            for (const contact of contacts) {
+            for (const contact of shuffle([...contacts])) {
                 if (optedOut.has(contact.phone)) {
                     skipped += 1;
                     skippedOptOut += 1;
-                    continue;
-                }
-                if (alreadySent.has(contact.phone)) {
-                    skipped += 1;
                     continue;
                 }
                 if (muted.has(contact.phone)) {
@@ -405,18 +431,38 @@ export class CampaignManager extends EventEmitter {
     // -------------------------------------------------------------- worker --
     async #run() {
         while (!this.shuttingDown) {
-            const item = this.queue.get();
+            const item = this.queue.get((candidate) => this.#ready(candidate));
             if (!item) {
                 if (this.queue.isStopped && !this.shuttingDown) {
                     // Stopped, but stay alive for the next campaign.
                     await interruptibleSleep(0.1, () => this.shuttingDown);
                     continue;
                 }
-                await interruptibleSleep(0.15, () => this.shuttingDown);
+                // Items waiting on a retry timer or on their owner's morning poll slowly.
+                await interruptibleSleep(this.queue.pending ? 1 : 0.15, () => this.shuttingDown);
                 continue;
             }
             await this.#process(item);
         }
+    }
+
+    /**
+     * Can this item go now? A retry waits out its 5-10s timer, and bulk to a
+     * number whose local time is outside 9:00-21:00 waits for their morning:
+     * it stays queued while everyone else goes first.
+     */
+    #ready(item) {
+        if ((item.notBefore ?? 0) > Date.now()) return false;
+        const bulk = item.messageType === 'campaign' && this.transport?.realDelivery
+            && this.config.safetyEnabled && this.config.humanTiming !== false;
+        return !bulk || isDaytimeFor(item.recipient);
+    }
+
+    /** Our own rest window for today (bulk only; replies are never held). */
+    #resting() {
+        if (!this.config.safetyEnabled || this.config.humanTiming === false) return false;
+        const plan = this.#dayPlan();
+        return Boolean(plan && inQuiet(plan));
     }
 
     #stopped() {
@@ -443,7 +489,7 @@ export class CampaignManager extends EventEmitter {
         // Sandbox sends never leave the machine, so they are not paced.
         if (!adaptive || !this.transport?.realDelivery) return true;
 
-        const { seconds, resting } = nextDelay(this.pace, this.sentInRun);
+        const { seconds, resting } = this.#nextGap(item);
         if (seconds <= 0) return true;
         this.waitingUntil = Date.now() + seconds * 1000;
         this.emit('event', {
@@ -453,9 +499,100 @@ export class CampaignManager extends EventEmitter {
             reason: resting ? 'resting between batches' : 'spacing messages',
         });
         this.#emitStats();
+        // Not always online: during a long gap, go offline now and then (the
+        // transport comes back online when the next message starts typing).
+        if (seconds > 25 && Math.random() < 0.6) void this.transport.setPresence?.('unavailable');
         const finished = await interruptibleSleep(seconds, () => this.#stopped());
         this.waitingUntil = null;
         return finished;
+    }
+
+    /**
+     * The gap before this send. Drawn at random from the tier's range, scaled
+     * by today's multiplier (so no two days have the same rhythm), stretched
+     * for media, and every so often a long rest at a jittered interval.
+     */
+    #nextGap(item) {
+        if (this.sentInRun <= 0) return { seconds: 0, resting: false };
+        const pace = this.pace;
+        if (pace.restEvery > 0) {
+            this.nextRestAt ??= this.sentInRun + Math.max(1, Math.round(pace.restEvery * between(0.7, 1.3)));
+            if (this.sentInRun >= this.nextRestAt) {
+                this.nextRestAt = this.sentInRun + Math.max(1, Math.round(pace.restEvery * between(0.7, 1.3)));
+                return { seconds: between(pace.restMinSeconds, pace.restMaxSeconds), resting: true };
+            }
+        }
+        let { seconds } = nextDelay({ ...pace, restEvery: 0 }, this.sentInRun);
+        seconds *= this.#dayPlan()?.gapFactor ?? 1;
+        if (item.media) seconds *= MEDIA_GAP_FACTOR;
+        return { seconds, resting: false };
+    }
+
+    /** After a drop the first send waits 20-90s, so the pool eases back in. */
+    async #settleAfterReconnect() {
+        if (!await this.#waitForConnection()) return false;
+        this.emit('event', { type: 'pacing', seconds: 0, resting: true, reason: 'reconnected - easing back in' });
+        return interruptibleSleep(between(20, 90), () => this.#stopped());
+    }
+
+    async #waitForConnection(limitSeconds = 1800) {
+        const end = Date.now() + limitSeconds * 1000;
+        while (!this.transport?.isConnected?.()) {
+            if (Date.now() > end) return false;
+            if (!await interruptibleSleep(1, () => this.#stopped())) return false;
+        }
+        return true;
+    }
+
+    // ------------------------------------------------------ block / report --
+    /**
+     * Messages the server accepted but that never reached the phone are how a
+     * block looks from our side. Record them, then pause the run if blocks and
+     * reports together are too large a share of the week's sends.
+     */
+    scanHealth() {
+        this.lastHealthScan = Date.now();
+        if (!this.db.stuckSent) return;
+        const stuck = this.db.stuckSent(isoAgo(7 * 86_400_000), isoAgo(BLOCK_SUSPECT_AFTER_SECONDS * 1000));
+        for (const m of stuck) {
+            const fresh = this.db.addSafetyEvent({
+                kind: 'block', phone: m.phone, messageId: m.messageId, campaignId: m.campaignId,
+                detail: 'Still one tick after 12 hours: this person may have blocked the number.',
+            });
+            if (fresh) this.emit('event', { type: 'safetyEvent', kind: 'block', phone: m.phone });
+        }
+        this.checkBlockRate();
+    }
+
+    /** Blocks + reports (people) over real sends in 7 days. */
+    healthRates() {
+        const since = isoAgo(7 * 86_400_000);
+        const counts = this.db.safetyEventCounts?.(since) ?? {};
+        const sent = this.db.countSentBetween(since, isoAgo(-60_000));
+        const pct = (n) => (sent ? Math.round((n / sent) * 1000) / 10 : 0);
+        const blocks = counts.block ?? 0;
+        const reports = counts.report ?? 0;
+        return { sent7d: sent, blocks, reports, blockRatePercent: pct(blocks), reportRatePercent: pct(reports), pauseAtPercent: BLOCK_PAUSE_PERCENT };
+    }
+
+    /** Pauses a running campaign when blocks + reports pass the limit. Returns true when it paused. */
+    checkBlockRate() {
+        const rates = this.healthRates();
+        const over = rates.blockRatePercent + rates.reportRatePercent >= BLOCK_PAUSE_PERCENT;
+        if (!over || rates.sent7d < BLOCK_PAUSE_MIN_SENT || this.queue.isPaused || this.queue.isStopped) return false;
+        this.queue.pause();
+        this.emit('event', {
+            type: 'failureStop', failed: rates.blocks + rates.reports, processed: rates.sent7d,
+            message: `Paused: ${rates.blocks} blocks and ${rates.reports} reports from ${rates.sent7d} messages this week (limit ${BLOCK_PAUSE_PERCENT}%).`,
+        });
+        this.#emitStats();
+        return true;
+    }
+
+    /** Everything the health panel shows: the rates, and who blocked or reported and when. */
+    healthStatus() {
+        this.scanHealth();
+        return { ...this.healthRates(), events: this.db.safetyEvents?.(50) ?? [] };
     }
 
     /**
@@ -495,6 +632,7 @@ export class CampaignManager extends EventEmitter {
     }
 
     async #process(item) {
+        if (this.transport?.realDelivery && Date.now() - this.lastHealthScan > 600_000) this.scanHealth();
         this.inFlight += 1;
         this.current = item;
         try {
@@ -514,7 +652,7 @@ export class CampaignManager extends EventEmitter {
         const bulk = item.messageType === 'campaign' && this.transport?.realDelivery;
         // The platform's sending hours apply whatever the tenant's own safety switch says.
         const held = bulk && ((this.config.safetyEnabled && this.bulkWindowOpen?.() === false)
-            || this.policyWindowOpen?.() === false);
+            || this.policyWindowOpen?.() === false || this.#resting());
         if (held !== this.holding) {
             this.holding = Boolean(held);
             if (held) this.emit('event', { type: 'pacing', seconds: 0, resting: true, reason: 'quiet hours - bulk sending resumes when the window opens' });
@@ -554,9 +692,13 @@ export class CampaignManager extends EventEmitter {
 
             let retryable = false;
             let errorText = '';
+            let dropped = false;
             try {
+                // A person types before sending: the transport shows "typing..." for this long.
+                const typing = this.transport?.realDelivery && this.config.safetyEnabled && this.config.humanTiming !== false
+                    ? typingMs(item.message, { media: Boolean(item.media) }) : 0;
                 const result = await this.transport.sendMessage(item.recipient, item.message,
-                    { media: item.media, interactive: item.interactive, template: item.template });
+                    { media: item.media, interactive: item.interactive, template: item.template, ...(typing ? { typingMs: typing } : {}) });
                 if (this.transport?.realDelivery) this.sentInRun += 1;
                 this.db.updateStatus(item.messageId, result.status, {
                     attempt: item.attempt,
@@ -570,6 +712,7 @@ export class CampaignManager extends EventEmitter {
                     this.emit('event', { type: 'connectionLost', error: err.message });
                     retryable = err.retryable;
                     errorText = `Connection error: ${err.message}`;
+                    dropped = Boolean(this.transport?.realDelivery) && err.retryable !== false;
                 } else if (err instanceof TransportError) {
                     retryable = err.retryable;
                     errorText = err.message;
@@ -593,7 +736,35 @@ export class CampaignManager extends EventEmitter {
                 }
             }
 
+            // The line dropped: keep this message where it is, wait for the
+            // connection, ease back in, and carry on from the same place. A
+            // drop is not the message's fault, so it costs no attempt.
+            if (dropped) {
+                item.attempt -= 1;
+                this.db.updateStatus(item.messageId, Status.QUEUED,
+                    { attempt: item.attempt, error: 'Waiting for WhatsApp to reconnect' });
+                if (await this.#settleAfterReconnect()) continue;
+                if (this.#stopped()) {
+                    this.#finish(item, Status.FAILED, { error: this.stopReason });
+                    return;
+                }
+                item.attempt += 1;   // never came back: treat as an ordinary failure
+            }
+
             if (this.retryPolicy.shouldRetry(item.attempt, retryable)) {
+                // Real sends: everyone else goes first, then this one tries again 5-10s later.
+                if (this.transport?.realDelivery) {
+                    const wait = between(5, 10);
+                    this.db.updateStatus(item.messageId, Status.QUEUED,
+                        { attempt: item.attempt, error: `${errorText} (retry after the others, in about ${Math.round(wait)}s)` });
+                    this.emit('event', {
+                        type: 'status', messageId: item.messageId, status: Status.QUEUED,
+                        attempt: item.attempt, error: errorText,
+                    });
+                    item.notBefore = Date.now() + wait * 1000;
+                    this.queue.putLast(item);
+                    return;
+                }
                 const delay = this.retryPolicy.delayFor(item.attempt);
                 this.db.updateStatus(item.messageId, Status.QUEUED, {
                     attempt: item.attempt,
