@@ -131,10 +131,9 @@ export const routes: Routes = [
   },
   {
     path: 'admin/plans',
-    title: 'Plans - WhatsApp Sender',
+    title: 'Plans & billing - WhatsApp Sender',
     canActivate: [roleGuard('super_admin')],
-    data: { kind: 'plans' },
-    loadComponent: () => import('./admin/ops').then((m) => m.AdminOpsView),
+    loadComponent: () => import('./admin/plans').then((m) => m.PlansView),
   },
   {
     path: 'admin/usage',

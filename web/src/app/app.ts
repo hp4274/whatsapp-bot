@@ -169,7 +169,7 @@ export class App {
 
   private readonly allNav: NavItem[] = [
     { path: '/admin/tenants', label: 'Tenants', icon: ICONS.tenants, min: 'super_admin' },
-    { path: '/admin/plans', label: 'Plans', icon: ICONS.plans, min: 'super_admin' },
+    { path: '/admin/plans', label: 'Plans & billing', icon: ICONS.plans, min: 'super_admin' },
     { path: '/admin/usage', label: 'Usage', icon: ICONS.usage, min: 'super_admin' },
     { path: '/admin/health', label: 'Health', icon: ICONS.health, min: 'super_admin' },
     { path: '/admin/audit-logs', label: 'Audit logs', icon: ICONS.audit, min: 'super_admin' },

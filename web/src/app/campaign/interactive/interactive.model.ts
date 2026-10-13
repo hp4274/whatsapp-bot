@@ -33,6 +33,8 @@ export interface InteractiveDraft {
   type: InteractiveType;
   header?: string;
   footer?: string;
+  /** Send as real WhatsApp buttons on QR (Baileys) numbers; false sends the numbered text menu. Default true. */
+  native?: boolean;
   buttons?: InteractiveButton[];
   cta?: InteractiveCta[];
   list?: { button: string; sections: InteractiveSection[] };
@@ -70,6 +72,7 @@ export const LIMITS = {
 } as const;
 
 const NUMBERS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+const CTA_ICON: Record<InteractiveCta['kind'], string> = { url: '🔗', call: '📞', copy: '📋' };
 
 /** Same slug rule as the server: OPTION_<n> when the title has no usable characters. */
 export function slugId(title: string, i: number): string {
@@ -101,20 +104,29 @@ export function renderFallbackText(
   const parts: string[] = [];
   if (draft?.header) parts.push(`*${draft.header}*`);
   parts.push(String(text ?? '').trim());
-  const options = interactiveOptions(draft);
-  if (options.length) {
+  if (draft?.type === 'buttons') {
+    const buttons = draft.buttons ?? [];
+    const nums = buttons.map((_, i) => NUMBERS[i]);
+    const ask = nums.length > 1 ? `${nums.slice(0, -1).join(', ')} or ${nums.at(-1)}` : nums[0];
+    if (buttons.length)
+      parts.push([`Reply ${ask}:`, ...buttons.map((o, i) => `${nums[i]}. ${o.title}`)].join('\n'));
+  } else if (draft?.type === 'cta') {
     parts.push(
+      (draft.cta ?? [])
+        .map((c) => `${CTA_ICON[c.kind] ?? CTA_ICON.url} ${c.title}: ${c.value}`)
+        .join('\n'),
+    );
+  } else if (draft?.type === 'list' && draft.list) {
+    let n = 0;
+    const sections = draft.list.sections.map((s) =>
       [
-        'Reply with:',
-        ...options.map((o, i) => {
-          const description = (o as InteractiveRow).description;
-          return `${NUMBERS[i]}. ${o.title}${description ? ` - ${description}` : ''}`;
-        }),
+        ...(s.title ? [`_${s.title}_`] : []),
+        ...s.rows.map(
+          (r) => `${NUMBERS[n++]}. ${r.title}${r.description ? ` - ${r.description}` : ''}`,
+        ),
       ].join('\n'),
     );
-  }
-  if (draft?.type === 'cta') {
-    parts.push((draft.cta ?? []).map((c) => `${c.title}: ${c.value}`).join('\n'));
+    parts.push([`*${draft.list.button}*`, ...sections].join('\n\n'));
   }
   if (draft?.footer) parts.push(`_${draft.footer}_`);
   return parts.filter(Boolean).join('\n\n');

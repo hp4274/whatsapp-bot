@@ -41,6 +41,23 @@ export interface Tenant {
   health?: TenantHealth;
   createdAt: string;
   users?: number;
+  /** Plan the business is on; null = custom / legacy, never gated. Only on the admin list. */
+  subscription?: TenantSubscriptionSummary | null;
+}
+
+/** Flattened subscription the admin tenant list carries for each business. */
+export interface TenantSubscriptionSummary {
+  readonly planKey: string;
+  readonly planName: string;
+  readonly price: number;
+  readonly currency: string;
+  readonly interval: 'month' | 'year';
+  readonly state: 'trialing' | 'active' | 'grace' | 'expired';
+  readonly status: string;
+  readonly trialEndsAt: string | null;
+  readonly currentPeriodEnd: string | null;
+  readonly cancelAtPeriodEnd: boolean;
+  readonly graceEndsAt: string | null;
 }
 
 /** Per-tenant kill switches the platform admin can flip. */

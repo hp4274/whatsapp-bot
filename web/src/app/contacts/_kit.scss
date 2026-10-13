@@ -110,7 +110,6 @@
     border-radius: var(--radius-xl);
     border: 1px solid var(--border-color);
     background: var(--surface-card);
-    box-shadow: 0 20px 50px rgba(16, 16, 24, 0.2), var(--shadow-lift);
     translate: -50% -50%;
     transform-origin: 50% 60%;
     animation: dlg-rise 360ms var(--ease) both;

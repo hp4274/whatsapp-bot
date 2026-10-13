@@ -1,4 +1,4 @@
-<!-- Platform admin's per-tenant settings drawer: General, Limits and Anti-ban tabs saved together; Rules and Accounts save themselves. -->
+<!-- Platform admin's per-tenant settings drawer: General, Limits and Anti-ban tabs saved together; Plan, Rules and Accounts save themselves. -->
 @if (settings(); as s) {
   <div class="backdrop" (click)="close()"></div>
   <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="settings-title">
@@ -115,6 +115,114 @@
             <button class="btn" type="button" (click)="chooseServices.emit(s.tenant)">
               Choose services
             </button>
+          </section>
+        }
+
+        @case ('plan') {
+          <section>
+            <h4>Subscription</h4>
+            @if (planNotice()) {
+              <p class="s-banner tone-ok" role="status">
+                <i class="ti ti-circle-check" aria-hidden="true"></i>
+                <span class="msg">{{ planNotice() }}</span>
+              </p>
+            }
+            @if (sub(); as cur) {
+              <div class="plan-now">
+                <i class="ti ti-crown" aria-hidden="true"></i>
+                <div>
+                  <strong>{{ planName(cur.planKey) }}</strong>
+                  <span class="muted">
+                    @if (currentPlan(); as p) {
+                      {{ formatPrice(p) }} &middot;
+                    }
+                    {{ when(cur) }}
+                  </span>
+                  @if (cur.cancelAtPeriodEnd && cur.state !== 'expired') {
+                    <span class="warn-note">Cancels at the end of this period.</span>
+                  }
+                </div>
+                <span class="s-pill {{ stateTone(cur.state) }}">{{ cur.state }}</span>
+              </div>
+            } @else {
+              <p class="muted compact">
+                No plan: services and limits are set by hand and billing never blocks this
+                business.
+              </p>
+            }
+          </section>
+
+          <section>
+            <h4>{{ sub() ? 'Change plan' : 'Put on a plan' }}</h4>
+            <p class="muted compact">
+              Takes effect now and starts a new period. The plan's services and limits replace this
+              business's current ones.
+            </p>
+            <div class="plan-change">
+              <select
+                aria-label="Plan"
+                [value]="pickedPlan()"
+                (change)="pickedPlan.set($any($event.target).value)"
+                [disabled]="saving()"
+              >
+                <option value="" disabled>Pick a plan</option>
+                @for (p of plans(); track p.key) {
+                  @if (p.active) {
+                    <option [value]="p.key">{{ p.name }} &middot; {{ formatPrice(p) }}</option>
+                  }
+                }
+              </select>
+              <button
+                class="btn primary"
+                type="button"
+                (click)="subscribe(pickedPlan())"
+                [disabled]="saving() || !pickedPlan() || pickedPlan() === sub()?.planKey"
+              >
+                Apply
+              </button>
+            </div>
+            @if (sub(); as cur) {
+              <div class="plan-actions">
+                <button
+                  class="btn"
+                  type="button"
+                  (click)="subscribe(cur.planKey)"
+                  [disabled]="saving()"
+                >
+                  <i class="ti ti-refresh" aria-hidden="true"></i> Renew
+                </button>
+                @if (cur.state !== 'expired') {
+                  @if (cancelAsk()) {
+                    <button
+                      class="btn"
+                      type="button"
+                      (click)="cancelPlan(false)"
+                      [disabled]="saving() || cur.cancelAtPeriodEnd"
+                    >
+                      End of period
+                    </button>
+                    <button
+                      class="btn danger"
+                      type="button"
+                      (click)="cancelPlan(true)"
+                      [disabled]="saving()"
+                    >
+                      End now
+                    </button>
+                    <button class="btn" type="button" (click)="cancelAsk.set(false)">Keep</button>
+                  } @else {
+                    <button
+                      class="btn danger-ghost"
+                      type="button"
+                      (click)="cancelAsk.set(true)"
+                      [disabled]="saving()"
+                    >
+                      Cancel plan
+                    </button>
+                  }
+                }
+              </div>
+            }
           </section>
         }
 
@@ -324,7 +432,7 @@
       }
     </div>
 
-    @if (tab() !== 'rules' && tab() !== 'accounts') {
+    @if (tab() !== 'rules' && tab() !== 'accounts' && tab() !== 'plan') {
       <footer>
         <button class="btn" type="button" (click)="reset()" [disabled]="saving()">Reset</button>
         <button

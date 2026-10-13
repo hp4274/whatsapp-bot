@@ -158,9 +158,6 @@ const RECENT_COUNT = 5;
       border-radius: 20px;
       color: var(--text-color);
       background: color-mix(in srgb, var(--surface-card) 92%, transparent);
-      box-shadow:
-        var(--shadow-lift),
-        0 2px 6px rgba(16, 16, 24, 0.08);
       backdrop-filter: blur(14px);
       animation: island-in 300ms var(--ease) both;
     }

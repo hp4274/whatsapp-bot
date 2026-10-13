@@ -26,7 +26,6 @@
   background: color-mix(in srgb, var(--tone) 12%, transparent);
   color: var(--tone);
   transform: perspective(300px) rotateX(12deg) rotateY(-10deg);
-  box-shadow: 6px 8px 0 -2px color-mix(in srgb, var(--tone) 18%, transparent);
 }
 
 .kill {

@@ -45,6 +45,7 @@ import {
     RECOUNTABLE_METRICS,
     STOCK_METRICS,
     normalizePlan,
+    planProblem,
 } from './plans.js';
 
 /** How long a lapsed or cancelled subscription keeps working. */
@@ -107,14 +108,19 @@ export class BillingStore {
         const plan = normalizePlan(input);
         if (!/^[a-z0-9_-]+$/.test(plan.key)) throw new BillingError('plan key must be lowercase letters, digits, - or _');
         if (!plan.name) throw new BillingError('plan name is required');
+        const problem = planProblem(input);
+        if (problem) throw new BillingError(problem);
+        const { description, price, currency, interval, trialDays, services, tenantLimits, active } = plan;
+        const details = { description, price, currency, interval, trialDays, services, tenantLimits, active };
         const now = utcNow();
         this.db.prepare(
-            `INSERT INTO plans (key, name, tier, limits, features, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
+            `INSERT INTO plans (key, name, tier, limits, features, details, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (key) DO UPDATE SET
                 name = excluded.name, tier = excluded.tier, limits = excluded.limits,
-                features = excluded.features, updated_at = excluded.updated_at`)
-            .run(plan.key, plan.name, plan.tier, JSON.stringify(plan.limits), JSON.stringify(plan.features), now, now);
+                features = excluded.features, details = excluded.details, updated_at = excluded.updated_at`)
+            .run(plan.key, plan.name, plan.tier, JSON.stringify(plan.limits), JSON.stringify(plan.features),
+                JSON.stringify(details), now, now);
         return this.getPlan(plan.key);
     }
 
@@ -410,8 +416,15 @@ export class BillingStore {
     }
 }
 
+/**
+ * A row saved before `details` existed has `{}` there; spreading the constant
+ * underneath means an old override of `starter` keeps starter's price and
+ * services instead of falling to the generic defaults.
+ */
 function toPlan(row) {
     return normalizePlan({
+        ...DEFAULT_PLANS[row.key],
+        ...parse(row.details),
         key: row.key,
         name: row.name,
         tier: row.tier,

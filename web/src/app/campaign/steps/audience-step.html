@@ -135,6 +135,88 @@
           </div>
         </div>
 
+        <div class="opts">
+          <label class="check">
+            <input
+              type="checkbox"
+              [ngModel]="d.autoClean()"
+              (ngModelChange)="d.autoClean.set($event)"
+            />
+            Fix messy numbers (spaces, dashes, brackets)
+          </label>
+          <label class="check">
+            Skip numbers already messaged in the last
+            <select
+              aria-label="Skip numbers messaged within"
+              [ngModel]="d.dedupeDays()"
+              (ngModelChange)="d.dedupeDays.set(+$event)"
+            >
+              @for (p of dedupePresets; track p) {
+                <option [ngValue]="p">{{ dedupeLabel(p) }}</option>
+              }
+            </select>
+          </label>
+        </div>
+
+        <div class="add-col">
+          <div class="field">
+            <label for="col-name">Add a column</label>
+            <input
+              id="col-name"
+              placeholder="e.g. Offer code"
+              [ngModel]="newCol()"
+              (ngModelChange)="newCol.set($event)"
+              (keydown.enter)="addColumn()"
+              [attr.aria-invalid]="!!colError()"
+              aria-describedby="col-hint"
+            />
+          </div>
+          <div class="field">
+            <label for="col-value">Value for every row</label>
+            <input
+              id="col-value"
+              placeholder="e.g. DIWALI20"
+              [ngModel]="newValue()"
+              (ngModelChange)="newValue.set($event)"
+              (keydown.enter)="addColumn()"
+            />
+          </div>
+          <button
+            type="button"
+            class="btn"
+            [disabled]="!newSlug() || !!colError()"
+            (click)="addColumn()"
+          >
+            <i class="ti ti-plus" aria-hidden="true"></i> Add column
+          </button>
+          <small id="col-hint" class="hint" [class.bad]="!!colError()">{{
+            colError() || (newSlug() ? 'Use it as {' + newSlug() + '}' : 'Same value for every contact')
+          }}</small>
+        </div>
+
+        @if (d.extraColumns().length) {
+          <ul class="added" aria-label="Added columns">
+            @for (c of d.extraColumns(); track c.slug) {
+              <li>
+                <span class="tag">{{ '{' + c.slug + '}' }}</span>
+                <input
+                  [ngModel]="c.value"
+                  (ngModelChange)="setColumnValue(c.slug, $event)"
+                  [attr.aria-label]="'Value for ' + c.slug"
+                />
+                <button
+                  type="button"
+                  class="btn small"
+                  (click)="removeColumn(c.slug)"
+                  [attr.aria-label]="'Remove column ' + c.slug"
+                >
+                  <i class="ti ti-x" aria-hidden="true"></i>
+                </button>
+              </li>
+            }
+          </ul>
+        }
+
         <div class="cols">
           <p class="muted">Use any column in your message - click to copy:</p>
           <div class="chips">
@@ -182,31 +264,9 @@
             </p>
           }
 
-          <details class="more">
-            <summary>
-              {{ audit.issues.length ? 'See skipped rows and options' : 'Options' }}
-            </summary>
-            <label class="check">
-              <input
-                type="checkbox"
-                [ngModel]="d.autoClean()"
-                (ngModelChange)="d.autoClean.set($event)"
-              />
-              Fix messy numbers (spaces, dashes, brackets)
-            </label>
-            <label class="check">
-              Skip numbers already messaged in the last
-              <select
-                aria-label="Skip numbers messaged within"
-                [ngModel]="d.dedupeDays()"
-                (ngModelChange)="d.dedupeDays.set(+$event)"
-              >
-                @for (p of dedupePresets; track p) {
-                  <option [ngValue]="p">{{ dedupeLabel(p) }}</option>
-                }
-              </select>
-            </label>
-            @if (issues().length) {
+          @if (issues().length) {
+            <details class="more">
+              <summary>See skipped rows</summary>
               <div class="issues" role="region" aria-label="Rows with problems" tabindex="0">
                 <table>
                   <thead>
@@ -237,8 +297,8 @@
               <button type="button" class="btn small" (click)="downloadBad()">
                 <i class="ti ti-download" aria-hidden="true"></i> Download skipped rows
               </button>
-            }
-          </details>
+            </details>
+          }
 
           <div class="foot">
             <span class="grow"></span>

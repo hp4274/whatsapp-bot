@@ -1,43 +1,24 @@
-<!-- Header with live status pill, QR card while linking, errors, then the
-     config + safety column beside the status panel, and the action bar. -->
+<!-- One guided card that follows the link: connect, scan, connected. Sending
+     safety sits underneath. There is only one way to connect (QR), so there
+     is nothing to choose and nothing to save before connecting. -->
 @let connection = store.connection();
 @let live = connection.connected;
+@let qr = store.qr();
+@let busy = store.connecting();
 
 <header class="s-head enter">
   <div>
-    <p class="eyebrow">
-      <i class="ti ti-plug-connected" aria-hidden="true"></i>WhatsApp connection
-    </p>
-    <h2>{{ store.connecting() ? 'Connecting' : live ? 'Connected' : 'Disconnected' }}</h2>
+    <p class="eyebrow"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i>WhatsApp connection</p>
+    <h2>{{ live ? 'Your WhatsApp is connected' : 'Connect your WhatsApp' }}</h2>
     <p>
-      {{ live ? connection.name : 'No transport connected' }}
-      @if (live && connection.account) {
-        <span>[{{ connection.account }}]</span>
-      }
+      {{ live ? 'Messages, campaigns and auto-replies go out from this number.'
+        : 'Link the number you want to send from. It takes about a minute.' }}
     </p>
   </div>
-
   <span class="s-pill {{ statusTone() }}">
-    {{ store.connecting() ? 'Connecting' : live ? 'Live session' : 'Offline' }}
+    {{ live ? 'Connected' : qr ? 'Waiting for scan' : busy ? 'Connecting' : 'Not connected' }}
   </span>
-
-  @if (advisory()) {
-    <p class="advisory" [class.warn]="config()?.transport !== 'cloud_api'">{{ advisory() }}</p>
-  }
 </header>
-
-@if (store.qr(); as qr) {
-  <section class="card qr enter" aria-labelledby="qr-title">
-    <div class="qr-text">
-      <span class="badge primary"><i class="ti ti-qrcode" aria-hidden="true"></i></span>
-      <h3 id="qr-title">Link this device</h3>
-      <p class="muted">WhatsApp &gt; Settings &gt; Linked devices &gt; Link a device, then scan.</p>
-    </div>
-    <div class="qr-tile">
-      <img [src]="qr" alt="QR code to link WhatsApp" width="260" height="260" />
-    </div>
-  </section>
-}
 
 @if (errors().length) {
   <div class="s-banner" role="alert">
@@ -47,220 +28,123 @@
         <p>{{ error }}</p>
       }
     </div>
-    @if (!config()) {
-      <button type="button" class="btn sm" (click)="loadConfig()">
-        <i class="ti ti-refresh" aria-hidden="true"></i>Try again
-      </button>
+    <button type="button" class="btn sm" (click)="connect()" [disabled]="busy">
+      <i class="ti ti-refresh" aria-hidden="true"></i>Try again
+    </button>
+  </div>
+}
+
+<section class="card link enter" [class.live]="live" aria-labelledby="link-title" aria-live="polite">
+  <div class="link-copy">
+    @if (live) {
+      <span class="badge ok"><i class="ti ti-circle-check" aria-hidden="true"></i></span>
+      <h3 id="link-title">Connected{{ connection.name ? ' as ' + connection.name : '' }}</h3>
+      <p class="muted">
+        {{ connection.account ? '+' + connection.account + ' · ' : '' }}Session is live. It reconnects by itself
+        after a restart.
+      </p>
+      <div class="link-actions">
+        <button type="button" class="btn danger" (click)="disconnect()">
+          <i class="ti ti-plug-connected-x" aria-hidden="true"></i>Disconnect
+        </button>
+      </div>
+      <p class="fine muted">Disconnecting logs this number out. To connect again you scan a new QR code.</p>
+    } @else {
+      <h3 id="link-title">{{ qr ? 'Scan the code with your phone' : 'Three steps to connect' }}</h3>
+      <ol class="steps">
+        @for (step of steps; track step.title; let i = $index) {
+          <li [class.on]="stepIndex() === i" [class.done]="stepIndex() > i">
+            <span class="num">
+              @if (stepIndex() > i) {
+                <i class="ti ti-check" aria-hidden="true"></i>
+              } @else {
+                {{ i + 1 }}
+              }
+            </span>
+            <span>
+              <strong>{{ step.title }}</strong>
+              <small class="muted">{{ step.text }}</small>
+            </span>
+          </li>
+        }
+      </ol>
+      <div class="link-actions">
+        @if (qr || busy) {
+          <button type="button" class="btn" (click)="disconnect()">Cancel</button>
+        } @else {
+          <button type="button" class="btn primary big" (click)="connect()">
+            <i class="ti ti-qrcode" aria-hidden="true"></i>Connect WhatsApp
+          </button>
+        }
+      </div>
+      <p class="fine muted">No token or Meta account needed. Keep the phone connected to the internet.</p>
     }
   </div>
-}
 
-@if (config(); as config) {
-  <div class="columns">
-    <div class="stack">
-      <section class="card config enter" aria-labelledby="config-title">
-        <header class="card-head">
-          <span class="badge accent">
-            <i class="ti ti-settings" aria-hidden="true"></i>
-          </span>
-          <div>
-            <h3 id="config-title">Account configuration</h3>
-            <p class="muted">Configure your WhatsApp connection and delivery settings</p>
-          </div>
-        </header>
-
-        <div class="field transport">
-          <label for="transport">Transport</label>
-          <select
-            id="transport"
-            [ngModel]="config.transport"
-            (ngModelChange)="update('transport', $event)"
-          >
-            @for (option of transports; track option.value) {
-              <option [value]="option.value">{{ option.label }} - {{ option.hint }}</option>
-            }
-          </select>
-        </div>
-
-        @if (isCloud()) {
-          <label class="check">
-            <input
-              type="checkbox"
-              [ngModel]="config.useTemplate"
-              (ngModelChange)="update('useTemplate', $event)"
-            />
-            Send as approved template (required outside the 24-hour window)
-          </label>
-        }
-
-        @if (fields().length) {
-          <div class="settings">
-            @for (field of fields(); track field.key) {
-              <div class="row">
-                <div>
-                  <label [for]="field.key">{{ field.label }}</label>
-                  <span class="hint">{{ field.help }}</span>
-                </div>
-                <input
-                  [id]="field.key"
-                  [type]="field.type ?? 'text'"
-                  [ngModel]="config[field.key]"
-                  (ngModelChange)="onField(field, $event)"
-                />
-              </div>
-            }
-          </div>
-        }
-      </section>
-
-      <section class="card safety enter" aria-labelledby="safety-title">
-        <header class="card-head">
-          <span class="badge warn">
-            <i class="ti ti-shield" aria-hidden="true"></i>
-          </span>
-          <div>
-            <h3 id="safety-title">Sending safety</h3>
-            <p class="muted">
-              Bulk sending is what gets a number banned. These limits are the brake.
-            </p>
-          </div>
-          <span class="s-pill {{ customSafety() ? 'tone-warn' : 'tone-mute' }}">{{
-            customSafety() ? 'Custom limits' : 'Managed by platform'
-          }}</span>
-        </header>
-
-        @if (safety(); as safety) {
-          <div class="budget">
-            <div>
-              <span>Sent today</span>
-              <strong>{{ safety.used }}{{ safety.limit ? ' / ' + safety.limit : '' }}</strong>
-            </div>
-            <div>
-              <span>Remaining</span>
-              <strong [class.status-FAILED]="safety.remaining === 0">
-                {{ safety.remaining === null ? 'no limit' : safety.remaining }}
-              </strong>
-            </div>
-            <div>
-              <span>Gap between messages</span>
-              <strong>{{ safety.minSeconds }}-{{ safety.maxSeconds }}s, varied</strong>
-            </div>
-            <div>
-              <span>Budget resets</span>
-              <strong>{{ safety.resetsAt | date: 'shortTime' }}</strong>
-            </div>
-          </div>
-          <div class="meter" aria-hidden="true">
-            <div
-              class="bar"
-              [style.width.%]="safety.limit ? (safety.used / safety.limit) * 100 : 0"
-            ></div>
-          </div>
-        } @else {
-          <p class="empty muted">
-            <i class="ti ti-chart-histogram" aria-hidden="true"></i>Today's sending numbers are not
-            available yet.
-          </p>
-        }
-
-        <app-safety-controls (changed)="refreshSafety()" (active)="customSafety.set($event)" />
-      </section>
-    </div>
-
-    <section class="card status enter" aria-labelledby="status-title">
-      <header class="card-head">
-        <span class="badge primary">
-          <i class="ti ti-chart-histogram" aria-hidden="true"></i>
-        </span>
-        <div>
-          <h3 id="status-title">Connection status</h3>
-          <p class="muted">Live status and session information</p>
-        </div>
-      </header>
-
-      <div class="state" [class.live]="live">
-        <span class="dot" [class.live-dot]="live"></span>
-        <div>
-          <strong>{{ live ? 'Connected' : 'Disconnected' }}</strong>
-          <small class="muted">{{
-            live ? 'Session active and ready to send messages' : 'No session'
-          }}</small>
-        </div>
-      </div>
-
-      <dl>
-        <div>
-          <dt>Transport</dt>
-          <dd>{{ transportLabel() }}</dd>
-        </div>
-        <div>
-          <dt>Session ID</dt>
-          <dd>{{ connection.account || '-' }}</dd>
-        </div>
-        <div>
-          <dt>Status</dt>
-          <dd [class.status-SENT]="live" [class.muted]="!live">
-            {{ live ? 'Live Session' : 'Offline' }}
-          </dd>
-        </div>
-        <div>
-          <dt>Messages</dt>
-          <dd>Real delivery</dd>
-        </div>
-        <div>
-          <dt>Access Token</dt>
-          <dd>{{ isCloud() ? 'Required' : 'Not required' }}</dd>
-        </div>
-        <div>
-          <dt>Receipts</dt>
-          <dd>{{ connection.supportsReceipts ? 'DELIVERED / READ' : 'SENT only' }}</dd>
-        </div>
-      </dl>
-
-      <aside class="info">
-        <strong>Information</strong>
-        <p>{{ advisory() }}</p>
-      </aside>
-    </section>
-  </div>
-
-  <footer class="actions">
-    <button
-      type="button"
-      class="btn primary"
-      (click)="connect()"
-      [disabled]="store.connecting() || live"
-    >
-      @if (store.connecting()) {
+  <div class="phone">
+    <div class="screen">
+      @if (live) {
+        <i class="ti ti-circle-check done-mark" aria-hidden="true"></i>
+        <span>Linked</span>
+      } @else if (qr) {
+        <img [src]="qr" alt="QR code to link WhatsApp" width="220" height="220" />
+      } @else if (busy) {
         <span class="spinner"></span>
+        <span>Preparing code…</span>
+      } @else {
+        <i class="ti ti-scan idle-mark" aria-hidden="true"></i>
+        <span>Your QR code appears here</span>
       }
-      <span>
-        <strong>{{ store.connecting() ? 'Connecting' : 'Connect' }}</strong>
-        <small>Start or re-establish connection</small>
-      </span>
-    </button>
-    <button type="button" class="btn" (click)="save()" [disabled]="saving()">
-      <span><strong>Save Settings</strong><small>Save current configuration</small></span>
-    </button>
-    <button type="button" class="btn" (click)="reconnect()" [disabled]="!live">
-      <span><strong>Reconnect</strong><small>Close and reconnect the session</small></span>
-    </button>
-    <button type="button" class="btn danger" (click)="disconnect()" [disabled]="!live">
-      <span><strong>Disconnect</strong><small>End current session</small></span>
-    </button>
-  </footer>
-} @else if (!errors().length) {
-  <div class="columns" aria-busy="true" aria-label="Loading connection settings">
-    <div class="card skel-card">
-      <span class="skeleton" style="width: 40%; height: 18px"></span>
-      <span class="skeleton" style="width: 70%"></span>
-      <span class="skeleton" style="height: 42px; border-radius: 12px"></span>
-      <span class="skeleton" style="width: 55%"></span>
-    </div>
-    <div class="card skel-card">
-      <span class="skeleton" style="width: 50%; height: 18px"></span>
-      <span class="skeleton" style="height: 64px; border-radius: 16px"></span>
-      <span class="skeleton" style="width: 80%"></span>
     </div>
   </div>
-}
+</section>
+
+<section class="card safety enter" aria-labelledby="safety-title">
+  <header class="card-head">
+    <span class="badge warn"><i class="ti ti-shield" aria-hidden="true"></i></span>
+    <div>
+      <h3 id="safety-title">Sending safety</h3>
+      <p class="muted">Sending too fast is what gets a number banned. These limits keep it safe.</p>
+    </div>
+    <span class="s-pill {{ customSafety() ? 'tone-warn' : 'tone-mute' }}">{{
+      customSafety() ? 'Custom limits' : 'Managed by platform'
+    }}</span>
+  </header>
+
+  @if (safety(); as safety) {
+    <div class="budget">
+      <div>
+        <span>Sent today</span>
+        <strong>{{ safety.used }}{{ safety.limit ? ' / ' + safety.limit : '' }}</strong>
+      </div>
+      <div>
+        <span>Remaining</span>
+        <strong [class.status-FAILED]="safety.remaining === 0">
+          {{ safety.remaining === null ? 'no limit' : safety.remaining }}
+        </strong>
+      </div>
+      <div>
+        <span>Gap between messages</span>
+        <strong>{{ safety.minSeconds }}-{{ safety.maxSeconds }}s</strong>
+      </div>
+      <div>
+        <span>Resets at</span>
+        <strong>{{ safety.resetsAt | date: 'shortTime' }}</strong>
+      </div>
+    </div>
+    <div class="meter" aria-hidden="true">
+      <div class="bar" [style.width.%]="safety.limit ? (safety.used / safety.limit) * 100 : 0"></div>
+    </div>
+  } @else {
+    <p class="empty muted">
+      <i class="ti ti-chart-histogram" aria-hidden="true"></i>Today's sending numbers show once a number is
+      connected.
+    </p>
+  }
+
+  <app-safety-controls (changed)="refreshSafety()" (active)="customSafety.set($event)" />
+
+  @if (warning()) {
+    <p class="fine muted tos">{{ warning() }}</p>
+  }
+</section>

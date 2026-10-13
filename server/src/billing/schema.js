@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS plans (
     -- column per limit would mean a migration every time one is added.
     limits     TEXT NOT NULL DEFAULT '{}',
     features   TEXT NOT NULL DEFAULT '{}',
+    -- Price, trial, services and tenant limits; see migratePlans.
+    details    TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -62,3 +64,14 @@ CREATE TABLE IF NOT EXISTS usage_counters (
 );
 CREATE INDEX IF NOT EXISTS idx_usage_counters_period ON usage_counters(tenant_id, period);
 `;
+
+/**
+ * `details` came after `plans` shipped: description, price, currency,
+ * interval, trialDays, services, tenantLimits and active.  One JSON column for
+ * the same reason as `limits` - the commercial fields are the catalogue's
+ * shape, not the database's.
+ */
+export function migratePlans(db) {
+    const cols = db.prepare('PRAGMA table_info(plans)').all().map((c) => c.name);
+    if (!cols.includes('details')) db.exec("ALTER TABLE plans ADD COLUMN details TEXT NOT NULL DEFAULT '{}'");
+}

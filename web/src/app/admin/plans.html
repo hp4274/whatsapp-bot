@@ -1,0 +1,546 @@
+<!--
+  Plans & billing: header with the tab strip, error / notice banners, then either
+  the pricing cards (Plans) or the summary tiles + subscriptions table. The plan
+  editor drawer renders last so it stacks above the page.
+-->
+<header class="s-head">
+  <div>
+    <p class="eyebrow"><i class="ti ti-crown" aria-hidden="true"></i> Platform</p>
+    <h2>Plans &amp; billing</h2>
+    <p>What each plan costs and switches on, and which plan every business is on.</p>
+  </div>
+  @if (tab() === 'plans') {
+    <button class="btn primary" type="button" (click)="newPlan()" [disabled]="loading()">
+      <i class="ti ti-plus" aria-hidden="true"></i> New plan
+    </button>
+  }
+</header>
+
+<nav class="s-seg tabs" role="tablist" aria-label="Plans and billing">
+  <button
+    type="button"
+    role="tab"
+    [attr.aria-selected]="tab() === 'plans'"
+    (click)="tab.set('plans')"
+  >
+    <i class="ti ti-package" aria-hidden="true"></i> Plans
+  </button>
+  <button type="button" role="tab" [attr.aria-selected]="tab() === 'subs'" (click)="tab.set('subs')">
+    <i class="ti ti-receipt" aria-hidden="true"></i> Subscriptions
+  </button>
+</nav>
+
+@if (error()) {
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="msg">{{ error() }}</span>
+    <button class="btn sm" type="button" (click)="load()">Try again</button>
+  </p>
+}
+@if (notice()) {
+  <p class="s-banner tone-ok" role="status">
+    <i class="ti ti-circle-check" aria-hidden="true"></i>
+    <span class="msg">{{ notice() }}</span>
+    <button class="btn sm icon" type="button" aria-label="Dismiss" (click)="notice.set('')">
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
+  </p>
+}
+
+@if (tab() === 'plans') {
+  <section class="plan-grid" aria-label="Active plans" [attr.aria-busy]="loading()">
+    @if (loading()) {
+      @for (n of skeleton; track n) {
+        <div class="plan skel-card"></div>
+      }
+    } @else {
+      @for (p of activePlans(); track p.key; let i = $index) {
+        <article
+          class="plan s-enter"
+          [class.featured]="p.key === featuredKey()"
+          [style.--i]="i"
+          [schoolTilt]="4"
+        >
+          <span class="glow" aria-hidden="true"></span>
+          <div class="plan-top">
+            <span class="tier mono">Tier {{ p.tier }}</span>
+            @if (p.key === featuredKey()) {
+              <span class="s-pill tone-ok badge">Popular</span>
+            }
+            @if (p.trialDays) {
+              <span class="s-pill tone-info"
+                ><i class="ti ti-gift" aria-hidden="true"></i>{{ p.trialDays }}-day trial</span
+              >
+            }
+          </div>
+          <h3>{{ p.name }}</h3>
+          <p class="desc">{{ p.description || 'No description yet.' }}</p>
+          <p class="price">
+            @if (p.price) {
+              <strong>{{ money(p.price, p.currency) }}</strong><span>/{{ p.interval }}</span>
+            } @else {
+              <strong>Custom</strong><span>quoted per business</span>
+            }
+          </p>
+
+          <ul class="limits">
+            @for (f of limitFields; track f.key) {
+              <li>
+                <span>{{ f.label }}</span>
+                <b>
+                  @if (p.tenantLimits[f.key]) {
+                    {{ p.tenantLimits[f.key] }}
+                  } @else {
+                    <i class="ti ti-infinity" aria-hidden="true"></i
+                    ><span class="sr-only">No limit</span>
+                  }
+                </b>
+              </li>
+            }
+          </ul>
+
+          <div class="chips">
+            @for (s of p.services; track s) {
+              <span class="s-chip"
+                ><i class="ti ti-{{ serviceIcon(s) }}" aria-hidden="true"></i
+                >{{ serviceLabel(s) }}</span
+              >
+            }
+          </div>
+
+          <footer>
+            <span class="subs"
+              ><i class="ti ti-users" aria-hidden="true"></i>{{ p.subscribers ?? 0 }}
+              subscriber{{ p.subscribers === 1 ? '' : 's' }}</span
+            >
+            <button class="btn sm" type="button" (click)="edit(p)">
+              <i class="ti ti-pencil" aria-hidden="true"></i> Edit
+            </button>
+          </footer>
+        </article>
+      } @empty {
+        <div class="s-empty wide">
+          <i class="ti ti-package" aria-hidden="true"></i>
+          <strong>No active plans</strong>
+          <p>Create one with New plan; businesses can then be put on it.</p>
+        </div>
+      }
+    }
+  </section>
+
+  @if (archivedPlans().length) {
+    <section class="archived" aria-labelledby="archived-title">
+      <h3 id="archived-title"><i class="ti ti-archive" aria-hidden="true"></i> Archived</h3>
+      <div class="archived-list">
+        @for (p of archivedPlans(); track p.key) {
+          <button class="archived-item" type="button" (click)="edit(p)">
+            <strong>{{ p.name }}</strong>
+            <span class="muted">{{ formatPrice(p) }} &middot; {{ p.subscribers ?? 0 }} on it</span>
+            <i class="ti ti-pencil" aria-hidden="true"></i>
+          </button>
+        }
+      </div>
+    </section>
+  }
+} @else {
+  <section class="tiles" aria-label="Subscription summary">
+    <button
+      class="s-stat tone-ok"
+      type="button"
+      [attr.aria-pressed]="filter() === 'active'"
+      (click)="filter.set(filter() === 'active' ? 'all' : 'active')"
+    >
+      <small>Active</small><b>{{ counts().active }}</b>
+    </button>
+    <button
+      class="s-stat tone-info"
+      type="button"
+      [attr.aria-pressed]="filter() === 'trialing'"
+      (click)="filter.set(filter() === 'trialing' ? 'all' : 'trialing')"
+    >
+      <small>Trialing</small><b>{{ counts().trialing }}</b>
+    </button>
+    <button
+      class="s-stat tone-warn"
+      type="button"
+      [attr.aria-pressed]="filter() === 'grace'"
+      (click)="filter.set(filter() === 'grace' ? 'all' : 'grace')"
+      title="In grace, or cancelled at period end"
+    >
+      <small>Expiring / grace</small><b>{{ counts().expiring }}</b>
+    </button>
+    <button
+      class="s-stat tone-bad"
+      type="button"
+      [attr.aria-pressed]="filter() === 'expired'"
+      (click)="filter.set(filter() === 'expired' ? 'all' : 'expired')"
+    >
+      <small>Expired</small><b>{{ counts().expired }}</b>
+    </button>
+    <div class="s-stat mrr">
+      <small>Monthly recurring</small>
+      <b>
+        @for (m of mrr(); track m; let last = $last) {
+          {{ m }}{{ last ? '' : ' · ' }}
+        } @empty {
+          0
+        }
+      </b>
+      <span class="muted est">Estimate: active plans, yearly ÷ 12</span>
+    </div>
+  </section>
+
+  <div class="s-card subs-card" [attr.aria-busy]="loading()">
+    <div class="subs-head">
+      <h3><i class="ti ti-list-details" aria-hidden="true"></i> Businesses</h3>
+      <div class="s-seg" role="group" aria-label="Filter by state">
+        @for (f of ['all', 'active', 'trialing', 'grace', 'expired', 'none']; track f) {
+          <button
+            type="button"
+            [attr.aria-pressed]="filter() === f"
+            (click)="filter.set($any(f))"
+          >
+            {{ f === 'none' ? 'No plan' : f === 'all' ? 'All' : f }}
+          </button>
+        }
+      </div>
+    </div>
+
+    @if (loading()) {
+      @for (n of skeleton; track n) {
+        <div class="s-skel" style="height: 44px; border-radius: 12px"></div>
+      }
+    } @else {
+      <div class="s-table">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Business</th>
+              <th scope="col">Plan</th>
+              <th scope="col">State</th>
+              <th scope="col">Dates</th>
+              <th scope="col">Change plan</th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (t of rows(); track t.id; let i = $index) {
+              <tr [style.--i]="i">
+                <td>
+                  <strong class="biz">{{ t.name }}</strong>
+                  <span class="muted mono">{{ t.slug }}</span>
+                </td>
+                @if (t.subscription; as s) {
+                  <td>
+                    <strong>{{ s.planName }}</strong>
+                    <span class="muted">{{ formatPrice(s) }}</span>
+                  </td>
+                  <td>
+                    <span class="s-pill {{ stateTone(s.state) }}">{{ s.state }}</span>
+                  </td>
+                  <td>
+                    {{ when(s) }}
+                    @if (s.cancelAtPeriodEnd && s.state !== 'expired') {
+                      <span class="note"
+                        ><i class="ti ti-calendar-x" aria-hidden="true"></i> Cancels at period
+                        end</span
+                      >
+                    }
+                  </td>
+                } @else {
+                  <td class="muted">No plan</td>
+                  <td><span class="s-pill tone-mute">none</span></td>
+                  <td class="muted">Custom setup, never gated</td>
+                }
+                <td>
+                  <div class="change">
+                    <select
+                      [attr.aria-label]="'Plan for ' + t.name"
+                      [value]="pickedPlan(t)"
+                      (change)="pick(t, $any($event.target).value)"
+                      [disabled]="busyId() === t.id"
+                    >
+                      <option value="" disabled>Pick a plan</option>
+                      @for (p of activePlans(); track p.key) {
+                        <option [value]="p.key">{{ p.name }} · {{ formatPrice(p) }}</option>
+                      }
+                    </select>
+                    <button
+                      class="btn sm"
+                      type="button"
+                      (click)="apply(t, pickedPlan(t))"
+                      [disabled]="
+                        busyId() === t.id || !pickedPlan(t) || pickedPlan(t) === t.subscription?.planKey
+                      "
+                    >
+                      Apply
+                    </button>
+                  </div>
+                </td>
+                <td class="row-actions">
+                  @if (t.subscription; as s) {
+                    @if (cancelAsk() === t.id) {
+                      <span class="confirm" role="group" [attr.aria-label]="'Cancel ' + t.name">
+                        <button
+                          class="btn sm"
+                          type="button"
+                          (click)="cancel(t, false)"
+                          [disabled]="s.cancelAtPeriodEnd"
+                        >
+                          End of period
+                        </button>
+                        <button class="btn sm danger" type="button" (click)="cancel(t, true)">
+                          Now
+                        </button>
+                        <button
+                          class="btn sm icon ghost"
+                          type="button"
+                          aria-label="Keep plan"
+                          (click)="cancelAsk.set(null)"
+                        >
+                          <i class="ti ti-x" aria-hidden="true"></i>
+                        </button>
+                      </span>
+                    } @else {
+                      <button
+                        class="btn sm"
+                        type="button"
+                        (click)="apply(t, s.planKey)"
+                        [disabled]="busyId() === t.id"
+                        title="Start a fresh period on the same plan"
+                      >
+                        <i class="ti ti-refresh" aria-hidden="true"></i> Renew
+                      </button>
+                      @if (s.state !== 'expired') {
+                        <button
+                          class="btn sm danger-ghost"
+                          type="button"
+                          (click)="cancelAsk.set(t.id)"
+                          [disabled]="busyId() === t.id"
+                        >
+                          Cancel
+                        </button>
+                      }
+                    }
+                  }
+                  @if (busyId() === t.id) {
+                    <span class="spinner" aria-hidden="true"></span>
+                  }
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="6">
+                  <div class="s-empty">
+                    <i class="ti ti-receipt" aria-hidden="true"></i>
+                    <strong>{{ tenants().length ? 'Nothing in this filter' : 'No businesses yet' }}</strong>
+                    <p>
+                      {{
+                        tenants().length
+                          ? 'Pick another state above.'
+                          : 'Create a business from Tenants and choose a plan there.'
+                      }}
+                    </p>
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </div>
+}
+
+@if (editor(); as e) {
+  <div class="s-scrim" (click)="closeEditor()"></div>
+  <aside class="s-drawer editor" role="dialog" aria-modal="true" aria-labelledby="plan-editor-title">
+    <header class="ed-head">
+      <div>
+        <span class="mono muted">{{ e.isNew ? 'NEW PLAN' : e.plan.key }}</span>
+        <h3 id="plan-editor-title">{{ e.plan.name || 'Untitled plan' }}</h3>
+        <p class="muted compact">{{ formatPrice(e.plan) }}</p>
+      </div>
+      <button
+        class="btn icon"
+        type="button"
+        aria-label="Close editor"
+        (click)="closeEditor()"
+        [disabled]="saving()"
+      >
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
+    </header>
+
+    @if (editorError()) {
+      <p class="s-banner" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i>
+        <span class="msg">{{ editorError() }}</span>
+      </p>
+    }
+
+    <div class="ed-grid">
+      @if (e.isNew) {
+        <div class="s-field">
+          <label for="p-key">Key</label>
+          <input
+            id="p-key"
+            [value]="e.plan.key"
+            (input)="patch({ key: $any($event.target).value.toLowerCase() })"
+            placeholder="growth"
+          />
+          <span class="hint">a-z, 0-9, _ and -. Cannot change later.</span>
+        </div>
+      }
+      <div class="s-field">
+        <label for="p-name">Name</label>
+        <input id="p-name" [value]="e.plan.name" (input)="patch({ name: $any($event.target).value })" />
+      </div>
+      <div class="s-field span">
+        <label for="p-desc">Description</label>
+        <textarea
+          id="p-desc"
+          rows="2"
+          [value]="e.plan.description"
+          (input)="patch({ description: $any($event.target).value })"
+        ></textarea>
+      </div>
+      <div class="s-field">
+        <label for="p-price">Price <small class="muted">0 = Custom</small></label>
+        <input
+          id="p-price"
+          type="number"
+          min="0"
+          [value]="e.plan.price"
+          (input)="patchNumber('price', $any($event.target).value)"
+        />
+      </div>
+      <div class="s-field">
+        <label for="p-cur">Currency</label>
+        <input
+          id="p-cur"
+          maxlength="3"
+          [value]="e.plan.currency"
+          (input)="patch({ currency: $any($event.target).value.toUpperCase() })"
+        />
+      </div>
+      <div class="s-field">
+        <label for="p-int">Billed</label>
+        <select
+          id="p-int"
+          [value]="e.plan.interval"
+          (change)="patch({ interval: $any($event.target).value })"
+        >
+          <option value="month">Monthly</option>
+          <option value="year">Yearly</option>
+        </select>
+      </div>
+      <div class="s-field">
+        <label for="p-trial">Trial days <small class="muted">0 = none</small></label>
+        <input
+          id="p-trial"
+          type="number"
+          min="0"
+          [value]="e.plan.trialDays"
+          (input)="patchNumber('trialDays', $any($event.target).value)"
+        />
+      </div>
+      <div class="s-field">
+        <label for="p-tier">Tier <small class="muted">order</small></label>
+        <input
+          id="p-tier"
+          type="number"
+          min="0"
+          [value]="e.plan.tier"
+          (input)="patchNumber('tier', $any($event.target).value)"
+        />
+      </div>
+    </div>
+
+    <section class="ed-section">
+      <h4>Services <span class="muted">{{ e.plan.services.length }} of {{ services().length }}</span></h4>
+      <div class="chips">
+        @for (s of services(); track s) {
+          <button
+            class="s-chip"
+            type="button"
+            [attr.aria-pressed]="e.plan.services.includes(s)"
+            (click)="toggleService(s)"
+          >
+            <i class="ti ti-{{ serviceIcon(s) }}" aria-hidden="true"></i>{{ serviceLabel(s) }}
+          </button>
+        }
+      </div>
+    </section>
+
+    <section class="ed-section">
+      <h4>Limits <span class="muted">0 = no limit</span></h4>
+      <div class="ed-grid">
+        @for (f of limitFields; track f.key) {
+          <div class="s-field">
+            <label [for]="'pl-' + f.key">{{ f.label }}</label>
+            <input
+              [id]="'pl-' + f.key"
+              type="number"
+              min="0"
+              step="1"
+              [value]="e.plan.tenantLimits[f.key]"
+              (input)="patchLimit(f.key, +$any($event.target).value)"
+            />
+          </div>
+        }
+      </div>
+      <div class="switches">
+        <label class="switch">
+          <input
+            type="checkbox"
+            [checked]="e.plan.tenantLimits.allowCloudApi"
+            (change)="patchLimit('allowCloudApi', checked($event))"
+          />
+          <span>Cloud API</span>
+        </label>
+        <label class="switch">
+          <input
+            type="checkbox"
+            [checked]="e.plan.tenantLimits.allowWhatsappWeb"
+            (change)="patchLimit('allowWhatsappWeb', checked($event))"
+          />
+          <span>WhatsApp QR</span>
+        </label>
+        <label class="switch">
+          <input
+            type="checkbox"
+            [checked]="e.plan.active"
+            (change)="patch({ active: checked($event) })"
+          />
+          <span>Active <small class="muted">(off = archived, existing subscribers keep it)</small></span>
+        </label>
+      </div>
+    </section>
+
+    <footer class="ed-foot">
+      @if (!e.isNew) {
+        <button
+          class="btn danger-ghost"
+          type="button"
+          (click)="remove()"
+          [disabled]="saving()"
+          [title]="'Built-in plans reset to their defaults; custom plans are deleted'"
+        >
+          <i class="ti ti-trash" aria-hidden="true"></i>
+          {{ deleteConfirm() ? 'Click again to confirm' : 'Delete / reset' }}
+        </button>
+      }
+      <span class="grow"></span>
+      <button class="btn" type="button" (click)="closeEditor()" [disabled]="saving()">Cancel</button>
+      <button
+        class="btn primary"
+        type="button"
+        (click)="save()"
+        [disabled]="saving() || !keyValid()"
+      >
+        {{ saving() ? 'Saving...' : 'Save plan' }}
+      </button>
+    </footer>
+  </aside>
+}

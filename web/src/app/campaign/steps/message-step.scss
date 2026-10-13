@@ -114,21 +114,6 @@
   .x:hover { background: var(--danger-soft); color: var(--danger-text); }
 }
 
-.fallbacks {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: var(--space-sm);
-}
-
-.fb {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-
-  .tag { flex: none; min-width: 84px; text-align: center; }
-  input { padding: 8px 12px; }
-}
-
 // Free-form / Meta template switch: the Kardlyz segmented track, with the
 // lifted surface gliding between the two options.
 .mode {
@@ -167,7 +152,7 @@
     width: calc(50% - 3px);
     border-radius: 9px;
     background: var(--surface-card);
-    box-shadow: var(--shadow-sm);
+    box-shadow: inset 0 0 0 1px var(--border-color);
     transition: transform var(--base) var(--ease);
   }
   .glide.right { transform: translateX(100%); }

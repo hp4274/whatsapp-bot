@@ -27,7 +27,7 @@ const SPIN_SAMPLE = '{Hi|Hello|Hey}';
 /**
  * Step 2: the message itself — free-form text with WhatsApp formatting and
  * variables, or (on Cloud API) a Meta-approved template mapped to columns.
- * Optional extras (backup template, buttons, fallbacks) fold away so the main
+ * Optional extras (backup template, buttons) fold away so the main
  * path stays short.
  */
 @Component({

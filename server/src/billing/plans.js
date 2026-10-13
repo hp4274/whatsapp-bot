@@ -18,6 +18,8 @@
  * An operator adding a plan says where on the ladder it sits.
  */
 
+import { DEFAULT_LIMITS, TENANT_SERVICES, normalizeLimits, normalizeTenantServices } from '../tenancy.js';
+
 /** Feature entitlements a plan can grant. */
 export const FEATURES = Object.freeze(['campaigns', 'workflows', 'faq', 'tickets', 'api', 'ai']);
 
@@ -51,11 +53,36 @@ export const STOCK_METRICS = Object.freeze(['channels', 'contacts', 'agents', 's
 /** The one metric the database can re-derive from scratch; see `recount`. */
 export const RECOUNTABLE_METRICS = Object.freeze(['messages']);
 
+const STARTER_SERVICES = Object.freeze([
+    'whatsapp_channels', 'templates', 'auto_replies', 'bulk_messages', 'campaigns', 'contacts', 'inbox',
+]);
+
+/**
+ * The tenancy limits a plan sets on a business when it is applied.  A subset of
+ * `LIMIT_SPEC`: `blockedWords` and `allowCustomSafety` are the operator's
+ * per-business safety calls, and a plan change must not quietly reset them.
+ */
+export const PLAN_TENANT_LIMIT_KEYS = Object.freeze([
+    'maxChannels', 'maxUsers', 'maxTemplates', 'maxContactsPerCampaign', 'maxMediaMb', 'allowCloudApi', 'allowWhatsappWeb',
+]);
+
+export const PLAN_INTERVALS = Object.freeze(['month', 'year']);
+
 export const DEFAULT_PLANS = Object.freeze({
     starter: {
         key: 'starter',
         name: 'Starter',
         tier: 1,
+        description: 'For a single shop getting started',
+        price: 999,
+        currency: 'INR',
+        interval: 'month',
+        trialDays: 14,
+        services: STARTER_SERVICES,
+        tenantLimits: {
+            maxChannels: 1, maxUsers: 2, maxTemplates: 50, maxContactsPerCampaign: 1000, maxMediaMb: 16,
+            allowCloudApi: true, allowWhatsappWeb: true,
+        },
         limits: {
             channels: 1,
             contacts: 1000,
@@ -79,6 +106,18 @@ export const DEFAULT_PLANS = Object.freeze({
         key: 'business',
         name: 'Business',
         tier: 2,
+        description: 'For a growing team running campaigns and support',
+        price: 2999,
+        currency: 'INR',
+        interval: 'month',
+        trialDays: 14,
+        services: [
+            ...STARTER_SERVICES, 'faq', 'tickets', 'payment_reminders', 'appointments', 'analytics', 'workflows',
+        ],
+        tenantLimits: {
+            maxChannels: 5, maxUsers: 15, maxTemplates: 500, maxContactsPerCampaign: 25000, maxMediaMb: 64,
+            allowCloudApi: true, allowWhatsappWeb: true,
+        },
         limits: {
             channels: 5,
             contacts: 25000,
@@ -102,6 +141,16 @@ export const DEFAULT_PLANS = Object.freeze({
         key: 'enterprise',
         name: 'Enterprise',
         tier: 3,
+        description: 'Every service, no limits, priced per contract',
+        price: 0, // "Custom"
+        currency: 'INR',
+        interval: 'month',
+        trialDays: 0,
+        services: [...TENANT_SERVICES],
+        tenantLimits: {
+            maxChannels: 0, maxUsers: 0, maxTemplates: 0, maxContactsPerCampaign: 0, maxMediaMb: 0,
+            allowCloudApi: true, allowWhatsappWeb: true,
+        },
         // Unlimited across the board; the contract is the limit, not the code.
         limits: {
             channels: null,
@@ -142,11 +191,51 @@ export function normalizePlan(plan = {}) {
     }
     const features = {};
     for (const feature of FEATURES) features[feature] = Boolean(plan.features?.[feature]);
+    const tenantLimits = normalizeLimits(plan.tenantLimits ?? DEFAULT_LIMITS);
+    const currency = String(plan.currency ?? '').trim().toUpperCase();
+    const trialDays = Math.floor(Number(plan.trialDays) || 0);
     return {
         key: String(plan.key ?? '').trim(),
         name: String(plan.name ?? plan.key ?? '').trim(),
         tier: Number(plan.tier) || 0,
+        description: String(plan.description ?? '').trim().slice(0, 500),
+        price: Math.max(0, Number(plan.price) || 0),
+        currency: /^[A-Z]{3}$/.test(currency) ? currency : 'INR',
+        interval: PLAN_INTERVALS.includes(plan.interval) ? plan.interval : 'month',
+        trialDays: Math.min(365, Math.max(0, trialDays)),
+        // Missing = every service, as tenancy does: an unset list must not
+        // switch a paying business off.
+        services: normalizeTenantServices(plan.services),
+        tenantLimits: Object.fromEntries(PLAN_TENANT_LIMIT_KEYS.map((key) => [key, tenantLimits[key]])),
+        active: plan.active === undefined ? true : Boolean(plan.active),
         limits,
         features,
     };
+}
+
+/**
+ * Why a posted plan cannot be saved, or null.  `normalizePlan` alone is
+ * forgiving on purpose - it also reads stored rows, and a bad row must still
+ * load - so an operator's typo is refused here instead of silently becoming
+ * INR, monthly or free.
+ */
+export function planProblem(plan = {}) {
+    if (plan.currency !== undefined && !/^[A-Za-z]{3}$/.test(String(plan.currency).trim())) {
+        return 'currency must be a 3-letter code';
+    }
+    if (plan.interval !== undefined && !PLAN_INTERVALS.includes(plan.interval)) return 'interval must be month or year';
+    if (plan.price !== undefined && !(Number.isFinite(Number(plan.price)) && Number(plan.price) >= 0)) {
+        return 'price must be 0 or more';
+    }
+    if (plan.trialDays !== undefined) {
+        const n = Number(plan.trialDays);
+        if (!Number.isInteger(n) || n < 0 || n > 365) return 'trialDays must be between 0 and 365';
+    }
+    if (plan.services !== undefined && !Array.isArray(plan.services)) return 'services must be a list';
+    try {
+        normalizeLimits(plan.tenantLimits ?? {}, true);
+    } catch (err) {
+        return err.message;
+    }
+    return null;
 }

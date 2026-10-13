@@ -40,9 +40,7 @@
 }
 
 :host(.active:hover) {
-  box-shadow:
-    0 0 0 3px var(--input-focus),
-    var(--shadow-lift);
+  box-shadow: 0 0 0 3px var(--input-focus);
 }
 
 :host(.off) {

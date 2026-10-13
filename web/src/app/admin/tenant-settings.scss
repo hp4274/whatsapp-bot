@@ -3,6 +3,8 @@
 @include s.keyframes;
 @include s.banner;
 @include s.buttons;
+@include s.tones;
+@include s.pill;
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .muted { color: var(--text-muted); }
@@ -183,3 +185,21 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
 @media (prefers-reduced-motion: reduce) {
   .drawer, .backdrop { animation: none; }
 }
+
+/* Plan tab */
+.plan-now {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--primary-tint), var(--surface-card) 60%);
+  > .ti { font-size: 22px; color: var(--primary-text); }
+  div { display: grid; gap: 2px; font-size: 13px; }
+  strong { font-size: 16px; font-weight: 500; color: var(--text-strong); }
+  .warn-note { color: var(--warning); font-size: 12px; }
+}
+.plan-change { display: flex; gap: 8px; select { flex: 1; } }
+.plan-actions { display: flex; flex-wrap: wrap; gap: 8px; }

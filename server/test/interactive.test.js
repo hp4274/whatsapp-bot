@@ -77,7 +77,7 @@ describe('interactive.js', () => {
     it('renders the numbered fallback and matches typed answers', () => {
         const p = personalizeInteractive(normalizeInteractive(BUTTONS), { order_id: '7' });
         const text = renderFallbackText('Your order is ready.', p);
-        assert.equal(text, '*Order 7*\n\nYour order is ready.\n\nReply with:\n1. Yes, confirm\n2. Not now\n3. Talk to agent\n\n_Reply STOP to opt out_');
+        assert.equal(text, '*Order 7*\n\nYour order is ready.\n\nReply 1, 2 or 3:\n1. Yes, confirm\n2. Not now\n3. Talk to agent\n\n_Reply STOP to opt out_');
         assert.equal(matchReply(p, { body: '1' }).id, 'YES');
         assert.equal(matchReply(p, { body: '2.' }).id, 'LATER');
         assert.equal(matchReply(p, { body: 'talk to AGENT' }).id, 'AGENT');
@@ -85,7 +85,20 @@ describe('interactive.js', () => {
         assert.equal(matchReply(p, { body: '4' }), null);
         assert.equal(matchReply(p, { body: 'hello' }), null);
         assert.equal(interactiveOptions(normalizeInteractive(LIST)).length, 2);
-        assert.match(renderFallbackText('Book', normalizeInteractive(LIST)), /1\. 9 AM - Front desk\n2\. 11 AM/);
+        assert.equal(renderFallbackText('Book', normalizeInteractive(LIST)), 'Book\n\n*Pick a slot*\n\n_Morning_\n1. 9 AM - Front desk\n2. 11 AM');
+    });
+
+    it('renders each CTA kind on its own labelled line', () => {
+        const cta = normalizeInteractive({ type: 'cta', cta: [{ kind: 'url', title: 'Track', value: 'https://x.test/1' }, { kind: 'call', title: 'Call us', value: '+15551234' }] });
+        assert.equal(renderFallbackText('Shipped', cta), 'Shipped\n\n\u{1F517} Track: https://x.test/1\n\u{1F4DE} Call us: +15551234');
+        assert.equal(renderFallbackText('Code', normalizeInteractive({ type: 'cta', cta: [{ kind: 'copy', title: 'Coupon', value: 'SAVE10' }] })), 'Code\n\n\u{1F4CB} Coupon: SAVE10');
+    });
+
+    it('carries the native switch through normalize and personalize (default on)', () => {
+        assert.equal(normalizeInteractive(BUTTONS).native, true);
+        const off = normalizeInteractive({ ...BUTTONS, native: false });
+        assert.equal(off.native, false);
+        assert.equal(personalizeInteractive(off, { order_id: '1' }).native, false);
     });
 });
 
@@ -132,7 +145,7 @@ describe('Cloud API interactive payloads', () => {
         const cta = normalizeInteractive({ type: 'cta', cta: [{ kind: 'copy', title: 'Coupon', value: 'SAVE10' }] });
         await t.sendMessage('919800000001', 'Here is your code', { interactive: cta });
         assert.equal(posts[0].type, 'text');
-        assert.equal(posts[0].text.body, 'Here is your code\n\nCoupon: SAVE10');
+        assert.equal(posts[0].text.body, 'Here is your code\n\n\u{1F4CB} Coupon: SAVE10');
     });
 
     it('uses media as the button header, and sends media before a list', async () => {
@@ -175,7 +188,7 @@ describe('text fallback transports', () => {
         await t.connect();
         await t.sendMessage('919800000001', 'Ready?', { interactive: normalizeInteractive(BUTTONS) });
         const line = fs.readFileSync(outbox, 'utf8').trim().split('\t');
-        assert.match(JSON.parse(line[3]), /Reply with:\n1\. Yes, confirm\n2\. Not now/);
+        assert.match(JSON.parse(line[3]), /Reply 1, 2 or 3:\n1\. Yes, confirm\n2\. Not now/);
     });
 
 });
