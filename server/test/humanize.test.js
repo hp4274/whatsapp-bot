@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-    TIERS, contentError, dayPlan, inQuiet, isDaytimeFor, seeded, shuffle, tierFromWeeks, typingMs, zoneOf,
+    TIERS, contentError, dayPlan, inQuiet, quietExtraSeconds, isDaytimeFor, seeded, shuffle, tierFromWeeks, typingMs, zoneOf,
 } from '../src/campaign/humanize.js';
 import { MessageQueue, queueItem } from '../src/campaign/queue.js';
 
@@ -195,5 +195,14 @@ describe('campaign manager', () => {
         if (restingNow()) return;
         const { sent } = await run(sheet.slice(0, 1), { config: { humanTiming: true } });
         assert.ok(sent[0].opts.typingMs >= 2000);
+    });
+});
+
+describe('quietExtraSeconds', () => {
+    const planFor = () => ({ quietStart: 60, quietMinutes: 360, zone: 'UTC' });
+    it('adds the night rest only when the run reaches it', () => {
+        const at = new Date('2026-06-01T22:00:00Z');   // 2h before midnight, rest runs 01:00-07:00 UTC
+        assert.equal(quietExtraSeconds(planFor, 3600, at), 0);
+        assert.ok(Math.abs(quietExtraSeconds(planFor, 4 * 3600, at) - 6 * 3600) <= 1);
     });
 });

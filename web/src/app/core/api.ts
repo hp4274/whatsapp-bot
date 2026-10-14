@@ -98,7 +98,8 @@ export interface SafetyStatus {
   restEvery: number;
   restMinMinutes: number;
   restMaxMinutes: number;
-  estimateSeconds: { min: number; max: number; typical: number };
+  /** `quietSeconds` is the nightly rest already included in min/max/typical. */
+  estimateSeconds: { min: number; max: number; typical: number; quietSeconds?: number };
   waitingSeconds: number;
   pausedByQuota: boolean;
   /** Sending tier; null when the tier system is off. */

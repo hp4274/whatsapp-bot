@@ -226,8 +226,9 @@ export class BaileysTransport extends Transport {
     async #handleInbound(sock, msg) {
         if (!msg?.key || msg.key.fromMe) return;
         const inbound = await toInboundMessage(msg, sock);
-        if (inbound) this.events.emit('inbound', inbound);
-        this.#markRead(sock, msg.key);
+        if (!inbound) return;
+        this.events.emit('inbound', inbound);
+        if (this.shouldRead?.(inbound.sender) !== false) this.#markRead(sock, msg.key);
     }
 
     /** Read what contacts send us, a few seconds late, the way a person opens a chat. */

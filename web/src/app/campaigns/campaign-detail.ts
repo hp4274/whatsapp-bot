@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   effect,
   inject,
   input,
@@ -104,6 +105,11 @@ export class CampaignDetailView {
     };
   });
 
+  protected readonly restLeft = computed(() => {
+    const min = Math.ceil((this.store.safety()?.quiet?.leftSeconds ?? 0) / 60);
+    return min >= 60 ? `${Math.floor(min / 60)}h ${min % 60}m` : `${min}m`;
+  });
+
   protected readonly localTime = localTime;
   protected readonly relativeTime = relativeTime;
 
@@ -120,6 +126,11 @@ export class CampaignDetailView {
       });
     });
     this.store.watch(['campaigns', 'campaign', 'history', 'analytics'], () => this.reload(), 700);
+    // SSE can drop silently (proxy resets, sleeping tabs): while a run is live, poll as a backstop.
+    const poll = setInterval(() => {
+      if (!this.loading() && ['running', 'paused', 'scheduled'].includes(this.status())) this.reload();
+    }, 3000);
+    inject(DestroyRef).onDestroy(() => clearInterval(poll));
   }
 
   protected reload(): void {

@@ -332,6 +332,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     const manager = new CampaignManager(db, new NullTransport(), config);
     // Bulk waits out the sending window / quiet hours instead of failing.
     manager.bulkWindowOpen = () => bulkWindowOpen(state.channel, state.config);
+    manager.timezone = () => state.channel?.timezone;
     const autoReply = new AutoReplyEngine(db, new NullTransport());
     // Phase 3: one way out. Everything that sends goes through the service,
     // which reads the live channel row so a capability switched off mid-flight
@@ -527,6 +528,8 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         transport.events?.on('inbound', (message) => {
             void handleInbound(state, message);
         });
+        // Only people in the contact list get a read receipt, not every stranger who writes in.
+        transport.shouldRead = (phone) => Boolean(contacts.getByPhone(contacts.normalize(phone)));
 
         state.connecting = true;
         state.transport = transport;
