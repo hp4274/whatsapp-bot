@@ -97,6 +97,10 @@
   @if (s) {
     <p class="muted eta">
       {{ size() > 1 ? 'Takes about ' + duration(s.estimateSeconds.typical) : 'Sends right away'
+      }}{{
+        size() > 1 && s.estimateSeconds.quietSeconds
+          ? ' (includes ' + duration(s.estimateSeconds.quietSeconds) + ' of night rest)'
+          : ''
       }}{{ overQuota() > 0 ? ' - ' + overQuota() + ' wait for tomorrow (daily limit)' : '' }}
     </p>
     <details class="more">

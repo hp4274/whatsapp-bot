@@ -79,36 +79,79 @@ export function shuffle(items, random = Math.random) {
     return items;
 }
 
-export const localDayKey = (at = new Date()) =>
-    `${at.getFullYear()}-${at.getMonth() + 1}-${at.getDate()}`;
+const clockFormats = new Map();
+
+/** Day key and minutes since midnight on the wall clock of `zone` (server clock when no zone). */
+export function wallClock(at = new Date(), zone = null) {
+    if (!zone) return { day: `${at.getFullYear()}-${at.getMonth() + 1}-${at.getDate()}`, minute: at.getHours() * 60 + at.getMinutes() + at.getSeconds() / 60 };
+    let format = clockFormats.get(zone);
+    if (!format) {
+        format = new Intl.DateTimeFormat('en-GB', { timeZone: zone, year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+        clockFormats.set(zone, format);
+    }
+    const p = Object.fromEntries(format.formatToParts(at).map((x) => [x.type, Number(x.value)]));
+    return { day: `${p.year}-${p.month}-${p.day}`, minute: p.hour * 60 + p.minute + p.second / 60 };
+}
+
+export const localDayKey = (at = new Date(), zone = null) => wallClock(at, zone).day;
 
 /**
  * Today's rhythm for one number: every day draws a different gap multiplier
  * and a different rest window, so no two days repeat the same timing.
  * Deterministic per (seed, day) so a restart does not re-roll mid-day.
- * `quiet` is minutes since local midnight; the window never crosses midnight.
+ * `quiet` is minutes since local midnight in `zone`; the window never crosses
+ * midnight. It starts between 00:00 and 02:00, i.e. it is the night's rest:
+ * a window drawn anywhere in the day froze daytime campaigns for hours.
  */
-export function dayPlan(seed, tier, at = new Date()) {
-    const random = seeded(`${seed}|${localDayKey(at)}`);
+export function dayPlan(seed, tier, at = new Date(), zone = null) {
+    const random = seeded(`${seed}|${localDayKey(at, zone)}`);
     const [lo, hi] = tier.quietHours;
     const quietMinutes = Math.round((lo + random() * (hi - lo)) * 60);
     return {
         gapFactor: 0.8 + random() * 0.5,
-        quietStart: Math.floor(random() * (24 * 60 - quietMinutes)),
+        quietStart: Math.floor(random() * 120),
         quietMinutes,
+        zone,
     };
 }
 
 export function inQuiet(plan, at = new Date()) {
-    const minute = at.getHours() * 60 + at.getMinutes();
+    const { minute } = wallClock(at, plan.zone);
     return minute >= plan.quietStart && minute < plan.quietStart + plan.quietMinutes;
 }
 
 /** Seconds until today's rest window ends (0 when not resting). */
 export function quietLeftSeconds(plan, at = new Date()) {
     if (!inQuiet(plan, at)) return 0;
-    const minute = at.getHours() * 60 + at.getMinutes() + at.getSeconds() / 60;
+    const { minute } = wallClock(at, plan.zone);
     return Math.ceil((plan.quietStart + plan.quietMinutes - minute) * 60);
+}
+
+/**
+ * Rest time a run of `seconds` of sending would meet if it started at `at`:
+ * walks forward through each day's window (`planFor(date)` gives that day's plan).
+ */
+export function quietExtraSeconds(planFor, seconds, at = new Date()) {
+    let t = at.getTime();
+    let left = seconds;
+    let extra = 0;
+    for (let i = 0; i < 60 && left > 0; i += 1) {
+        const plan = planFor(new Date(t));
+        const { minute } = wallClock(new Date(t), plan.zone);
+        const end = plan.quietStart + plan.quietMinutes;
+        let step;
+        if (minute >= plan.quietStart && minute < end) {
+            step = (end - minute) * 60;
+            extra += step;
+        } else {
+            // Sending until the window opens (still ahead today) or until local midnight.
+            step = ((minute < plan.quietStart ? plan.quietStart : 1440) - minute) * 60;
+            if (left <= step) break;
+            left -= step;
+        }
+        t += (step + 1) * 1000;
+    }
+    return Math.round(extra);
 }
 
 // -------------------------------------------------------------------- typing --

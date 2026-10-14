@@ -28,7 +28,7 @@ import {
 import { capReachedText, clampPreset } from '../policy/campaignOps.js';
 import {
     BLOCK_PAUSE_MIN_SENT, BLOCK_PAUSE_PERCENT, BLOCK_SUSPECT_AFTER_SECONDS, MEDIA_GAP_FACTOR,
-    contentError, dayPlan, inQuiet, isDaytimeFor, quietLeftSeconds, shuffle, typingMs,
+    contentError, dayPlan, inQuiet, isDaytimeFor, quietExtraSeconds, quietLeftSeconds, shuffle, typingMs,
 } from './humanize.js';
 
 const isoAgo = (ms) => new Date(Date.now() - ms).toISOString().replace(/\.\d{3}Z$/, '+00:00');
@@ -64,6 +64,8 @@ export class CampaignManager extends EventEmitter {
         // Set by the channel runtime: () => true while bulk may go out now
         // (sending window + quiet hours). Bulk outside it waits, it does not fail.
         this.bulkWindowOpen = null;
+        // Set by the channel runtime: () => the channel's IANA timezone (rest windows follow its clock).
+        this.timezone = null;
         this.holding = false;
         // Platform policy hooks, set by policy/campaignOps.js attachCampaignPolicy.
         this.bulkPolicy = null;        // () => rules (caps, opt-in, speed ceiling, ...)
@@ -89,7 +91,11 @@ export class CampaignManager extends EventEmitter {
     /** Today's rhythm for this number (null when the tier system is off). */
     #dayPlan() {
         const tier = this.quota.tier();
-        return tier ? dayPlan(this.seed, tier) : null;
+        return tier ? this.#planFor(new Date(), tier) : null;
+    }
+
+    #planFor(at, tier = this.quota.tier()) {
+        return dayPlan(this.seed, tier, at, this.timezone?.() || null);
     }
 
     /** Change the speed preset of the current run (live): recomputes the gap range. */
@@ -129,13 +135,24 @@ export class CampaignManager extends EventEmitter {
             restEvery: pace.restEvery,
             restMinMinutes: pace.restMinSeconds / 60,
             restMaxMinutes: pace.restMaxSeconds / 60,
-            estimateSeconds: estimateSeconds(batchSize, pace),
+            estimateSeconds: this.#estimate(batchSize, pace),
             waitingSeconds: this.waitingUntil
                 ? Math.max(0, Math.round((this.waitingUntil - Date.now()) / 1000))
                 : 0,
             pausedByQuota: this.pausedByQuota,
             heldForQuietHours: this.holding,
         };
+    }
+
+    /** Send estimate with the nightly rest it would run into added in; `quietSeconds` says how much. */
+    #estimate(batchSize, pace) {
+        const est = estimateSeconds(batchSize, pace);
+        const tier = this.quota.tier();
+        if (!tier || !this.transport?.realDelivery || !this.config.safetyEnabled || this.config.humanTiming === false || est.typical <= 0) {
+            return { ...est, quietSeconds: 0 };
+        }
+        const quietSeconds = quietExtraSeconds((at) => this.#planFor(at, tier), est.typical);
+        return { min: est.min + quietSeconds, max: est.max + quietSeconds, typical: est.typical + quietSeconds, quietSeconds };
     }
 
     #emitStats() {

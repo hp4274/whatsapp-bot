@@ -75,11 +75,20 @@
         <dt>Finished</dt>
         <dd>{{ localTime(c.finishedAt) }}</dd>
       </div>
+      <!-- Pacing hidden for now.
       <div>
         <dt>Pacing</dt>
         <dd class="cap">{{ pacing() }}</dd>
       </div>
+      -->
     </dl>
+
+    @if (status() === 'running' && store.safety()?.quiet?.active) {
+      <p class="muted">
+        <i class="ti ti-moon" aria-hidden="true"></i> Night rest: sending resumes in about
+        {{ restLeft() }}.
+      </p>
+    }
 
     @if (live(); as p) {
       <div
@@ -163,6 +172,7 @@
         </small>
       </div>
 
+      <!-- Speed picker hidden for now: every campaign runs Balanced.
       <div class="s-seg speed" role="radiogroup" aria-label="Sending speed">
         @for (s of speeds; track s.key) {
           <button
@@ -177,6 +187,7 @@
           </button>
         }
       </div>
+      -->
 
       <button type="button" class="btn" [disabled]="busy() === 'export'" (click)="exportCsv()">
         @if (busy() === 'export') {
