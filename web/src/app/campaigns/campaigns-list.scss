@@ -72,8 +72,24 @@ a.btn { text-decoration: none; }
 .good { color: var(--success); font-weight: 500; }
 .bad { color: var(--danger-text); font-weight: 500; }
 
-.actions { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: nowrap; }
+.idx { width: 1%; color: var(--hint); text-align: right; font-variant-numeric: tabular-nums; }
+/* The flex row lives in a wrapper: display:flex on the <td> itself drops it out of the table row and breaks borders/heights. */
+.actions-cell { width: 1%; }
+.actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; flex-wrap: nowrap; }
 .actions-col { width: 1%; }
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 10px 4px 4px;
+  font-size: 12.5px;
+
+  .pager-btns { display: flex; align-items: center; gap: 2px; }
+  .page-no { padding: 0 8px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+}
 
 .sr {
   position: absolute;
@@ -84,5 +100,6 @@ a.btn { text-decoration: none; }
 }
 
 @media (max-width: 720px) {
-  .search { margin-left: 0; width: 100%; }
+  .search { margin-left: 0; width: 100%; min-width: 0; }
+  .pager { justify-content: center; }
 }

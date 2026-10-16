@@ -143,7 +143,19 @@ export class ReviewStep {
   protected readonly current = computed(() => this.safety()[this.draft.pacing()] ?? null);
   protected readonly size = computed(() => this.draft.estimatedSize());
 
+  /** Spread mode: per-day overflow and contacts that would never be sent in the range. */
+  protected readonly spreadShort = computed(() => {
+    const plan = this.spreadPlan();
+    if (!plan || !plan.dailyLimit || plan.perDay <= plan.dailyLimit) return null;
+    return {
+      perDay: plan.perDay - plan.dailyLimit,
+      missed: Math.max(0, this.size() - plan.days * plan.dailyLimit),
+    };
+  });
+
   protected readonly overQuota = computed(() => {
+    // A spread sends one batch a day: today's budget says nothing about the whole list.
+    if (this.draft.spreadActive()) return 0;
     const s = this.current();
     return s && s.remaining !== null ? Math.max(0, this.size() - s.remaining) : 0;
   });
