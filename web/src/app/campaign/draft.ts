@@ -61,9 +61,20 @@ export const DEFAULT_MESSAGE = 'Hi {name}, ';
 /** Stand-in contact for the preview before any audience is loaded. */
 const SAMPLE: Contact = { name: 'Asha', phone: '919876543210', extra: {} };
 
-function today(): string {
+export type ScheduleMode = 'now' | 'later' | 'spread';
+
+export function today(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Shift a `YYYY-MM-DD` calendar date by whole days. Done in UTC so a DST
+ * change between the two dates can never skip or repeat a day.
+ */
+export function addDays(date: string, days: number): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
 function defaultName(): string {
@@ -131,9 +142,17 @@ export class CampaignDraft {
 
   // Send
   readonly pacing = signal<PacingPreset>('balanced');
-  readonly scheduleMode = signal<'now' | 'later'>('now');
+  readonly scheduleMode = signal<ScheduleMode>('now');
   readonly date = signal(today());
   readonly time = signal('10:00');
+  /**
+   * Spread mode: the server shuffles the uploaded list and sends equal daily
+   * batches from `spreadFrom` to `spreadTo`, each day starting at `spreadTime`.
+   * Defaults start tomorrow so the first batch time is never already past.
+   */
+  readonly spreadFrom = signal(addDays(today(), 1));
+  readonly spreadTo = signal(addDays(today(), 7));
+  readonly spreadTime = signal('09:00');
   readonly timezone = signal(localZone());
   readonly onePerNumber = signal(true);
   readonly result = signal<SendResult | null>(null);
@@ -314,11 +333,19 @@ export class CampaignDraft {
     return keys.filter((k) => list.some((c) => blank(withFallbacks(this.rawContext(c), fb)[k])));
   });
 
-  readonly scheduledAt = computed(() =>
-    this.scheduleMode() === 'later'
-      ? zonedTimeToUtc(this.date(), this.time(), this.timezone())
-      : null,
+  /** Spreading only works on the uploaded file: other audiences resolve server-side at send time. */
+  readonly spreadActive = computed(
+    () => this.scheduleMode() === 'spread' && this.source() === 'file',
   );
+
+  readonly scheduledAt = computed(() => {
+    if (this.spreadActive()) {
+      return zonedTimeToUtc(this.spreadFrom(), this.spreadTime(), this.timezone());
+    }
+    return this.scheduleMode() === 'later'
+      ? zonedTimeToUtc(this.date(), this.time(), this.timezone())
+      : null;
+  });
 
   readonly audienceReady = computed(() => {
     switch (this.source()) {
@@ -429,6 +456,12 @@ export class CampaignDraft {
           : null,
       },
     };
+    if (this.spreadActive()) {
+      body.options = {
+        ...body.options,
+        spread: { from: this.spreadFrom(), to: this.spreadTo(), startTime: this.spreadTime() },
+      };
+    }
     const meta = this.metaTemplate();
     if (this.metaMode() && meta) {
       // The approved body goes in `body` for history; the server sends the template.
@@ -514,6 +547,9 @@ export class CampaignDraft {
     this.scheduleMode.set('now');
     this.date.set(today());
     this.time.set('10:00');
+    this.spreadFrom.set(addDays(today(), 1));
+    this.spreadTo.set(addDays(today(), 7));
+    this.spreadTime.set('09:00');
     this.timezone.set(localZone());
     this.onePerNumber.set(true);
     this.result.set(null);

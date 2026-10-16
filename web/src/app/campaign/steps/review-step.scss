@@ -97,6 +97,109 @@
   &.bad > .ti, &.bad strong { color: var(--danger-text); }
 }
 
+// Spread plan: a headline ratio over a tilted "skyline" of daily batches. The
+// tilt and the lit top caps give the bars a little physical depth without a
+// chart library; tone flips to danger when the range cannot fit.
+.plan-skel { height: 168px; border-radius: var(--radius-lg); }
+
+.plan {
+  --tone: var(--primary);
+  display: grid;
+  gap: 14px;
+  padding: 18px 18px 14px;
+  border: 1px solid color-mix(in srgb, var(--tone) 28%, var(--border-color));
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--tone) 10%, transparent), transparent 60%),
+    var(--surface-card);
+  animation: plan-in var(--base) var(--ease) both;
+
+  &.bad { --tone: var(--danger-text); }
+}
+
+.plan-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plan-big {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin: 0;
+
+  strong { font-size: 30px; font-weight: 500; letter-spacing: -1.2px; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+  small { font-size: 13px; color: var(--text-muted); }
+  .x { margin: 0 6px; font-size: 20px; color: var(--tone); }
+}
+
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: clamp(2px, 0.6vw, 6px);
+  height: 92px;
+  padding: 0 4px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--tone) 30%, transparent);
+  // Floor grid + backward tilt: reads as bars standing on a plane.
+  background: repeating-linear-gradient(to top, color-mix(in srgb, var(--tone) 9%, transparent) 0 1px, transparent 1px 23px);
+  transform: perspective(640px) rotateX(16deg);
+  transform-origin: 50% 100%;
+}
+
+.bar {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 3px;
+  max-width: 28px;
+  height: var(--h);
+  border-radius: 4px 4px 1px 1px;
+  background: linear-gradient(to top, color-mix(in srgb, var(--tone) 45%, transparent), var(--tone));
+  transform-origin: 50% 100%;
+  animation: bar-rise 520ms var(--ease) both;
+  animation-delay: calc(var(--i) * 18ms);
+  transition: transform var(--fast) var(--ease), filter var(--fast) var(--ease);
+
+  // Lit top cap: a thin lighter face so each bar looks like a block, not a stripe.
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 4px;
+    border-radius: inherit;
+    background: color-mix(in srgb, var(--tone) 40%, var(--surface-card));
+  }
+
+  &:hover { transform: translateY(-3px) scaleX(1.08); filter: brightness(1.12); }
+  &.over { --tone: var(--danger-text); }
+}
+
+.plan-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12.5px;
+
+  .ti { font-size: 15px; color: var(--tone); }
+}
+
+@keyframes bar-rise {
+  from { transform: scaleY(0); opacity: 0; }
+}
+
+@keyframes plan-in {
+  from { opacity: 0; transform: perspective(800px) rotateX(-6deg) translateY(6px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plan, .bar { animation: none; }
+  .bars { transform: none; }
+}
+
 .go { padding-inline: 22px; }
 
 .hint { margin: -8px 0 0; font-size: 12px; text-align: right; }

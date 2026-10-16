@@ -30,6 +30,16 @@
       <span class="muted">- {{ buttonsLabel() }}</span>
     }
   </p>
+  @if (spreadSummary(); as sp) {
+    <p class="banner info">
+      <i class="ti ti-calendar-stats" aria-hidden="true"></i>
+      <span
+        >Spread over dates: shuffled and sent in equal daily batches from
+        <strong>{{ sp.from }}</strong> to <strong>{{ sp.to }}</strong>, each day starting at
+        {{ sp.time }} ({{ d.timezone() }}).</span
+      >
+    </p>
+  }
 
   @for (w of d.warnings(); track w.text) {
     <p class="banner" [class.danger]="w.tone === 'danger'">
@@ -155,11 +165,11 @@
     <span class="badge"><i class="ti ti-calendar-event" aria-hidden="true"></i></span>
     <div>
       <h3>When</h3>
-      <p class="muted">Send right away or pick a time in any time zone</p>
+      <p class="muted">Send right away, pick a time, or spread a file across several days</p>
     </div>
   </div>
 
-  <div class="seg two" role="radiogroup" aria-label="When to send">
+  <div class="seg" role="radiogroup" aria-label="When to send">
     <button
       type="button"
       role="radio"
@@ -182,6 +192,22 @@
       <i class="ti ti-clock-share" aria-hidden="true"></i><strong>Schedule</strong>
       @if (!policy.allowScheduling()) {
         <small>Not on your plan</small>
+      }
+    </button>
+    <button
+      type="button"
+      role="radio"
+      class="opt"
+      [class.on]="d.scheduleMode() === 'spread'"
+      [attr.aria-checked]="d.scheduleMode() === 'spread'"
+      [disabled]="!policy.allowScheduling() || d.source() !== 'file'"
+      (click)="d.scheduleMode.set('spread')"
+    >
+      <i class="ti ti-calendar-stats" aria-hidden="true"></i><strong>Spread over dates</strong>
+      @if (!policy.allowScheduling()) {
+        <small>Not on your plan</small>
+      } @else if (d.source() !== 'file') {
+        <small>Uploaded file only</small>
       }
     </button>
   </div>
@@ -214,6 +240,112 @@
         }
       </p>
     }
+  } @else if (d.spreadActive()) {
+    <div class="when enter">
+      <div class="field">
+        <label for="rv-from">From</label>
+        <input
+          id="rv-from"
+          type="date"
+          [min]="minDate"
+          [ngModel]="d.spreadFrom()"
+          (ngModelChange)="d.spreadFrom.set($event)"
+        />
+      </div>
+      <div class="field">
+        <label for="rv-to">To</label>
+        <input
+          id="rv-to"
+          type="date"
+          [min]="d.spreadFrom() || minDate"
+          [ngModel]="d.spreadTo()"
+          (ngModelChange)="d.spreadTo.set($event)"
+        />
+      </div>
+      <div class="field">
+        <label for="rv-start">Daily start</label>
+        <input
+          id="rv-start"
+          type="time"
+          [ngModel]="d.spreadTime()"
+          (ngModelChange)="d.spreadTime.set($event)"
+        />
+      </div>
+      <div class="field">
+        <label for="rv-tz2">Time zone</label>
+        <select id="rv-tz2" [ngModel]="d.timezone()" (ngModelChange)="d.timezone.set($event)">
+          @for (z of zones; track z) {
+            <option [value]="z">{{ z }}</option>
+          }
+        </select>
+      </div>
+    </div>
+
+    <div class="plan-slot" aria-live="polite">
+      @if (spreadRangeIssue(); as issue) {
+        <p class="resolved bad">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i>{{ issue }}
+        </p>
+      } @else if (spreadLoading()) {
+        <span class="skel plan-skel" aria-busy="true" aria-label="Checking the daily plan"></span>
+      } @else if (spreadError()) {
+        <p class="error" role="alert">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ spreadError() }}</span>
+          <button type="button" class="btn small" (click)="spreadRetry.update((n) => n + 1)">
+            Try again
+          </button>
+        </p>
+      } @else if (spreadPlan(); as plan) {
+        <div class="plan" [class.bad]="!plan.feasible">
+          <div class="plan-head">
+            <p class="plan-big">
+              <strong>{{ plan.days }}</strong><small>{{ plan.days === 1 ? 'day' : 'days' }}</small>
+              <span class="x" aria-hidden="true">&times;</span>
+              <strong>~{{ plan.perDay }}</strong><small>per day</small>
+            </p>
+            <span class="tag">
+              {{ plan.tier ? plan.tier.name : 'No tier' }} -
+              {{ plan.dailyLimit ? plan.dailyLimit + '/day limit' : 'no daily limit' }}
+            </span>
+          </div>
+
+          <div
+            class="bars"
+            role="img"
+            [attr.aria-label]="plan.days + ' daily batches of about ' + plan.perDay + ' messages'"
+          >
+            @for (b of spreadBars(); track $index) {
+              <span
+                class="bar"
+                [style.--h]="b.pct + '%'"
+                [style.--i]="$index"
+                [class.over]="plan.dailyLimit > 0 && b.size > plan.dailyLimit"
+                [attr.title]="b.day + ': ' + b.size"
+              ></span>
+            }
+          </div>
+
+          <p class="plan-range muted">
+            <i class="ti ti-arrows-shuffle" aria-hidden="true"></i>
+            Shuffled, then {{ spreadBars()[0]?.day }} to {{ spreadBars().at(-1)?.day }}, from
+            {{ d.spreadTime() }} each day
+          </p>
+
+          @if (!plan.feasible) {
+            <p class="banner danger">
+              <i class="ti ti-alert-circle" aria-hidden="true"></i>
+              <span
+                >{{ plan.reason ?? 'Too many people per day for this number.' }} You need at least
+                <strong>{{ plan.minDays }} days</strong>.</span
+              >
+              <button type="button" class="btn small" (click)="useMinDays(plan.minDays)">
+                <i class="ti ti-wand" aria-hidden="true"></i> Use {{ plan.minDays }} days
+              </button>
+            </p>
+          }
+        </div>
+      }
+    </div>
   } @else if (!connected()) {
     <p class="banner danger">
       <i class="ti ti-link-off" aria-hidden="true"></i>
@@ -242,15 +374,18 @@
     (click)="send()"
     [disabled]="busy() || blockers().length > 0 || (d.scheduleMode() === 'now' && !connected())"
   >
+    @let mode = d.scheduleMode();
     @if (busy()) {
       <span class="spinner"></span>
     } @else {
       <i
-        class="ti ti-{{ d.scheduleMode() === 'now' ? 'send' : 'clock-share' }}"
+        class="ti ti-{{
+          mode === 'now' ? 'send' : mode === 'spread' ? 'calendar-stats' : 'clock-share'
+        }}"
         aria-hidden="true"
       ></i>
     }
-    {{ d.scheduleMode() === 'now' ? 'Send now' : 'Schedule' }}
+    {{ mode === 'now' ? 'Send now' : mode === 'spread' ? 'Schedule spread' : 'Schedule' }}
   </button>
 </div>
 @if (blockers().length) {

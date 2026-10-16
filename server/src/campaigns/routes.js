@@ -94,6 +94,12 @@ export function createCampaignRouter({ db, state }) {
         campaigns: campaigns.list({ status: req.query.status || null, limit: Number(req.query.limit) || 200 }),
     }));
 
+    // Spread sending: can this many go out between two dates under today's cap?
+    router.post('/campaigns/spread-check', (req, res) => {
+        const { count, from, to, timezone } = req.body ?? {};
+        return res.json({ plan: campaigns.spreadCheck({ count, from, to, timezone }) });
+    });
+
     router.post('/campaigns', (req, res) => {
         try {
             const campaign = campaigns.create({ ...resolveBody(req.body ?? {}), channelId: state.channel.id });

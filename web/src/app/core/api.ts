@@ -1171,6 +1171,41 @@ export interface CampaignOptions {
   templateParams?: unknown;
   fallbackTemplateId?: number | null;
   fallbackTemplateParams?: unknown;
+  /**
+   * Spread the (shuffled) file audience into equal daily batches from `from` to
+   * `to`, each starting at `startTime` in `timezone`. The server adds the
+   * progress fields on the stored campaign.
+   */
+  spread?: CampaignSpread;
+}
+
+export interface CampaignSpread {
+  readonly from: string;
+  readonly to: string;
+  readonly startTime: string;
+  /** Server-set: recipients already queued. */
+  readonly cursor?: number;
+  /** Server-set: recipients in the whole spread. */
+  readonly total?: number;
+  /** Server-set: days in the range. */
+  readonly days?: number;
+}
+
+/** `POST /api/campaigns/spread-check`: can `count` people fit between two dates? */
+export interface SpreadPlan {
+  readonly days: number;
+  readonly perDay: number;
+  /** Per-day batch sizes (at most 62 entries, differing by at most one). */
+  readonly sizes: readonly number[];
+  /** Daily send limit of the channel's tier; 0 = no limit. */
+  readonly dailyLimit: number;
+  readonly tier: { readonly tier: number; readonly name: string } | null;
+  /** Fewest days that keeps every batch under `dailyLimit`. */
+  readonly minDays: number;
+  readonly feasible: boolean;
+  readonly reason: string | null;
+  readonly startsOn: string;
+  readonly endsOn: string;
 }
 
 export type CampaignStatus = 'draft' | 'scheduled' | 'running' | 'paused' | 'done' | 'cancelled';
@@ -1337,6 +1372,18 @@ export class CampaignsApi {
       .get<{ safety: SafetyStatus }>('/api/safety', {
         params: new HttpParams().set('contacts', contacts).set('pacing', pacing),
       })
+      .pipe(catchError(toMessage));
+  }
+
+  /** Feasibility of spreading `count` recipients over a date range (inclusive). */
+  spreadCheck(body: {
+    count: number;
+    from: string;
+    to: string;
+    timezone?: string;
+  }): Observable<{ plan: SpreadPlan }> {
+    return this.http
+      .post<{ plan: SpreadPlan }>('/api/campaigns/spread-check', body)
       .pipe(catchError(toMessage));
   }
 
