@@ -12,6 +12,7 @@ import {
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
+import { type Color, NgxChartsModule, ScaleType } from '@swimlane/ngx-charts';
 
 import { OpsAudit } from './ops-audit';
 import { ChannelDetail, LiveState, OpsApi, PlanRow, UsageBucket, UsageSummary } from './ops-api';
@@ -73,7 +74,7 @@ const PROVIDERS: Record<string, string> = { cloud_api: 'Cloud API', baileys: 'Wh
  */
 @Component({
   selector: 'app-admin-ops',
-  imports: [RouterLink, OpsAudit],
+  imports: [RouterLink, OpsAudit, NgxChartsModule],
   templateUrl: './ops.html',
   styleUrl: './ops.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -128,6 +129,35 @@ export class AdminOpsView {
   protected readonly maxWindow = computed(() =>
     Math.max(1, ...this.ranked().map((t) => t[this.range()].total)),
   );
+  /** Chart colours come from the theme tokens: ngx-charts wants literal colours, not var(). */
+  protected readonly heroScheme = this.scheme(['--success', '--danger'], ['#16a34a', '#dc2626']);
+  protected readonly miniScheme = this.scheme(['--primary'], ['#2563eb']);
+
+  /** Stacked per-day columns for the platform chart: delivered-side vs failed. */
+  protected readonly heroSeries = computed(() => {
+    const u = this.usage();
+    const daily = this.platformDaily();
+    const failed = this.platformFailed();
+    return (u?.days ?? []).map((day, i) => ({
+      name: day.slice(5),
+      series: [
+        { name: 'Sent', value: Math.max(0, daily[i] - failed[i]) },
+        { name: 'Failed', value: failed[i] },
+      ],
+    }));
+  });
+
+  /** One stable series per business, so a poll with unchanged data does not redraw its chart. */
+  protected readonly tenantSeries = computed(() => {
+    const u = this.usage();
+    return new Map(
+      (u?.tenants ?? []).map((t) => [
+        t.tenantId,
+        [{ name: 'Messages', series: u!.days.map((d, i) => ({ name: d.slice(5), value: t.daily[i] })) }],
+      ]),
+    );
+  });
+
   protected readonly platformDaily = computed(() => {
     const u = this.usage();
     if (!u) return [];
@@ -299,28 +329,6 @@ export class AdminOpsView {
     return c.quota.limit ? Math.min(100, Math.round((c.quota.used / c.quota.limit) * 100)) : 0;
   }
 
-  /** SVG paths for a sparkline in a 140x36 box (2px inset so the stroke is not clipped). */
-  protected spark(values: number[], failed: number[] = []) {
-    const w = 140,
-      h = 36,
-      pad = 2;
-    const max = Math.max(1, ...values);
-    const step = values.length > 1 ? (w - pad * 2) / (values.length - 1) : 0;
-    const pts = values.map((v, i) => [pad + i * step, h - pad - (v / max) * (h - pad * 2)]);
-    const line = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('');
-    const area = pts.length ? `${line}L${pts[pts.length - 1][0].toFixed(1)},${h}L${pad},${h}Z` : '';
-    const bars = failed
-      .map((f, i) => ({ x: pad + i * step - 1.5, hgt: (f / max) * (h - pad * 2) }))
-      .filter((b) => b.hgt > 0);
-    const last = pts[pts.length - 1];
-    return { line, area, bars, last, h };
-  }
-
-  protected sparkLabel(values: number[]): string {
-    const total = values.reduce((a, b) => a + b, 0);
-    return `${values.length}-day volume: ${total} messages, peak ${Math.max(0, ...values)} a day, ${values.at(-1) ?? 0} today`;
-  }
-
   /** "5 min ago" for recent times, a date after a day. */
   protected ago(iso: string | null): string {
     if (!iso) return 'never';
@@ -331,5 +339,15 @@ export class AdminOpsView {
     if (s < 3600) return `${Math.floor(s / 60)} min ago`;
     if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
     return new Date(then).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  }
+
+  private scheme(vars: string[], fallback: string[]): Color {
+    const css = typeof document === 'undefined' ? null : getComputedStyle(document.documentElement);
+    return {
+      name: 'ops',
+      selectable: false,
+      group: ScaleType.Ordinal,
+      domain: vars.map((v, i) => css?.getPropertyValue(v).trim() || fallback[i]),
+    };
   }
 }

@@ -462,3 +462,10 @@ input[type='radio'] {
   white-space: nowrap;
   border: 0;
 }
+
+/* ngx-charts draws its own SVG text and tooltips; keep them on the theme tokens (light + dark). */
+.ngx-charts text { fill: var(--hint); font-size: 11px; }
+.ngx-charts .gridline-path { stroke: var(--border-color); }
+.ngx-charts .tick text { fill: var(--hint); }
+.ngx-charts-tooltip-content { background: var(--surface-card) !important; color: var(--text-strong) !important; border: 1px solid var(--border-color); box-shadow: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.18)); }
+.ngx-charts-tooltip-content .tooltip-caption, .ngx-charts-tooltip-content .tooltip-label { color: var(--text-muted) !important; }
