@@ -104,7 +104,6 @@
               <td class="idx mono">{{ offset() + $index + 1 }}</td>
               <td class="name">
                 <a [routerLink]="['/campaigns', c.id]">{{ c.name || 'Untitled campaign' }}</a>
-                <small class="muted mono">#{{ c.id }}</small>
               </td>
               <td class="mono">{{ localTime(c.createdAt) }}</td>
               <td>

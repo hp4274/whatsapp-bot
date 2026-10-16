@@ -239,37 +239,35 @@
           </div>
         </div>
       }
-      <section class="hero-spark" aria-label="Platform volume, last {{ u.days.length }} days">
-        <div>
-          <small class="muted">Platform, last {{ u.days.length }} days</small>
-          <b>{{ platformDaily().at(-1) ?? 0 }} <span class="muted">today</span></b>
+      <section class="hero" aria-label="Platform volume, last {{ u.days.length }} days">
+        <div class="hero-head">
+          <div>
+            <small class="muted">Platform, last {{ u.days.length }} days</small>
+            <b>{{ platformDaily().at(-1) ?? 0 }} <span class="muted">today</span></b>
+          </div>
+          <ul class="key" aria-hidden="true">
+            <li><i class="dot ok"></i>Sent</li>
+            <li><i class="dot bad"></i>Failed</li>
+          </ul>
         </div>
-        @let ps = spark(platformDaily(), platformFailed());
-        <svg
-          class="spark big"
-          viewBox="0 0 140 36"
-          preserveAspectRatio="none"
-          role="img"
-          [attr.aria-label]="sparkLabel(platformDaily())"
-        >
-          <path class="area" [attr.d]="ps.area" />
-          <path class="line" [attr.d]="ps.line" />
-          @for (b of ps.bars; track $index) {
-            <rect
-              class="fail"
-              [attr.x]="b.x"
-              [attr.y]="ps.h - b.hgt"
-              width="3"
-              [attr.height]="b.hgt"
-            />
-          }
-        </svg>
+        <div class="plot big">
+          <ngx-charts-bar-vertical-stacked
+            [results]="heroSeries()"
+            [scheme]="heroScheme"
+            [xAxis]="true"
+            [yAxis]="true"
+            [showGridLines]="true"
+            [gradient]="false"
+            [barPadding]="10"
+            [noBarWhenZero]="true"
+            [animations]="true"
+          />
+        </div>
         <span class="muted range">{{ u.days[0] }} to {{ u.days.at(-1) }}</span>
       </section>
       <section class="list">
         @for (t of ranked(); track t.tenantId; let i = $index) {
           @let b = t[range()];
-          @let sp = spark(t.daily, t.dailyFailed);
           <article class="row usage" [style.--i]="i < 12 ? i : 12">
             <span class="rank" aria-label="Rank {{ i + 1 }}">{{ i + 1 }}</span>
             <div class="who">
@@ -281,28 +279,17 @@
                 >
               </div>
             </div>
-            <svg
-              class="spark"
-              viewBox="0 0 140 36"
-              preserveAspectRatio="none"
-              role="img"
-              [attr.aria-label]="sparkLabel(t.daily)"
-            >
-              <path class="area" [attr.d]="sp.area" />
-              <path class="line" [attr.d]="sp.line" />
-              @for (f of sp.bars; track $index) {
-                <rect
-                  class="fail"
-                  [attr.x]="f.x"
-                  [attr.y]="sp.h - f.hgt"
-                  width="3"
-                  [attr.height]="f.hgt"
-                />
-              }
-              @if (sp.last) {
-                <path class="dot" [attr.d]="'M' + sp.last[0] + ',' + sp.last[1] + 'h0'" />
-              }
-            </svg>
+            <div class="plot mini" [attr.aria-label]="t.daily.length + '-day volume'">
+              <ngx-charts-area-chart
+                [results]="tenantSeries().get(t.tenantId) ?? []"
+                [scheme]="miniScheme"
+                [xAxis]="false"
+                [yAxis]="false"
+                [legend]="false"
+                [gradient]="true"
+                [animations]="false"
+              />
+            </div>
             <div
               class="bars"
               role="img"
