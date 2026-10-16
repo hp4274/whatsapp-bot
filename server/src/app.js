@@ -82,7 +82,7 @@ import { InteractiveStore, createInteractiveRouter, handleInteractiveReply, norm
 import { MediaStore } from './mediaStore.js';
 import { createBillingRouter } from './billing/routes.js';
 import { createCampaignRouter } from './campaigns/routes.js';
-import { dueCampaigns } from './campaigns/store.js';
+import { dueCampaigns, runningSpreadCampaigns } from './campaigns/store.js';
 import { DEFAULT_PLANS } from './billing/plans.js';
 import { BillingError, BillingStore } from './billing/store.js';
 import { POLICY_FIELDS, PolicyError, PolicyStore } from './policy/index.js';
@@ -2519,6 +2519,15 @@ export function createApp({
                         sweepWarned.add(key);
                         console.error(`[campaigns] ${id} failed to start (will keep retrying):`, err.message);
                     }
+                }
+            }
+            // Spread campaigns: close out today's batch (books tomorrow) and lift a daily-cap pause.
+            for (const { id, tenantId } of runningSpreadCampaigns(db)) {
+                try {
+                    const channel = runtimeFor(tenantId).channels.getDefault();
+                    if (channel) runtimeFor(tenantId).runtimeFor(channel).state.campaigns?.tick(id);
+                } catch (err) {
+                    console.error(`[campaigns] spread tick ${id} failed:`, err.message);
                 }
             }
         } catch (err) {

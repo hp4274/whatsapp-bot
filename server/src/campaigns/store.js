@@ -15,7 +15,9 @@
  */
 
 import { toCsv, withFallbacks } from '../campaign/importer.js';
+import { shuffle } from '../campaign/humanize.js';
 import { PACING_PRESETS } from '../campaign/safety.js';
+import { dayKey, daysBetween, isDateKey, nextDayAt, spreadPlan, todaysBatch } from '../campaign/spread.js';
 import { ErrorCode, FRIENDLY, normalizeError } from '../messaging/errors.js';
 import { InteractiveError, normalizeInteractive, personalizeInteractive } from '../messaging/interactive.js';
 import { metaTemplateFor, prepareTemplateSend } from '../messaging/templateSend.js';
@@ -106,6 +108,8 @@ export class CampaignStore {
         }
         if (wanted === 'scheduled' && !scheduledAt) throw new CampaignError('a scheduled campaign needs scheduled_at');
         const cleanOptions = normalizeOptions(options);
+        if (cleanOptions.spread) cleanOptions.spread.cursor = 0;
+        audience = this.#planSpread(cleanOptions, audience).audience;
         this.#checkPolicy({ status: wanted, audience, options: cleanOptions });
         const now = this.now();
         const info = this.db.prepare(
@@ -138,6 +142,13 @@ export class CampaignStore {
             options: patch.options === undefined ? campaign.options : normalizeOptions(patch.options),
         };
         if (!next.name) throw new CampaignError('a campaign needs a name');
+        // Mid-run the cursor indexes the stored order: the list cannot change under it.
+        const cursor = campaign.options?.spread?.cursor ?? 0;
+        if (cursor > 0 && patch.audience !== undefined) {
+            throw new CampaignError('the list of a spread campaign cannot change once it has started sending', 409);
+        }
+        if (next.options.spread) next.options.spread.cursor = cursor;
+        next.audience = this.#planSpread(next.options, next.audience, { reshuffle: patch.audience !== undefined }).audience;
         if (!['draft', 'scheduled'].includes(next.status)) {
             throw new CampaignError('use start/pause/resume/cancel to change a running campaign', 409);
         }
@@ -195,7 +206,7 @@ export class CampaignStore {
      * dropped here; the manager checks opt-out again at enqueue time, and two
      * checks on a one-way door is the right number.
      */
-    resolveAudience(campaign, { limit = 5000 } = {}) {
+    resolveAudience(campaign, { limit = 5000, offset = 0 } = {}) {
         const { segmentId, audience } = campaign;
         const isObject = audience && typeof audience === 'object' && !Array.isArray(audience);
         if (isObject && audience.retarget) {
@@ -213,7 +224,7 @@ export class CampaignStore {
             // An explicit list. A number we already know and have been asked
             // to stop messaging is dropped; one we have never seen is kept,
             // because there is nothing yet that says not to send.
-            return audience.slice(0, limit).map((entry) => {
+            return audience.slice(offset, offset + limit).map((entry) => {
                 const phone = String(entry?.phone ?? '').trim();
                 if (!phone) return null;
                 const known = this.contacts.getByPhone(this.contacts.normalize(phone));
@@ -256,11 +267,23 @@ export class CampaignStore {
         // Platform template review (templates/policy.js reviewBlock).
         const blocked = campaign.templateId != null ? this.templates?.sendBlock?.(campaign.templateId) : null;
         if (blocked) throw new CampaignError(blocked, 409);
-        const recipients = this.resolveAudience(campaign);
+        const options = campaign.options ?? {};
+        const spread = options.spread && Array.isArray(campaign.audience) ? options.spread : null;
+        const cursor = spread?.cursor ?? 0;
+        const batch = spread ? todaysBatch({
+            total: campaign.audience.length, cursor, today: dayKey(new Date(), this.#zone(options)), to: spread.to,
+        }) : 0;
+        const recipients = spread
+            ? this.resolveAudience(campaign, { offset: cursor, limit: batch })
+            : this.resolveAudience(campaign);
+        if (spread && !recipients.length) {
+            // Everyone left in today's slice opted out: move on instead of retrying forever.
+            this.#spreadAdvance(campaign, cursor + batch);
+            return { campaign: this.get(campaign.id), audience: 0, queued: 0 };
+        }
         if (!recipients.length) throw new CampaignError('that audience is empty');
         if (!this.manager) throw new CampaignError('no campaign manager is configured', 500);
         const attachment = media ?? this.#media(campaign);
-        const options = campaign.options ?? {};
         const meta = this.#metaTemplates(campaign, options);
 
         this.manager.resetStats();
@@ -283,7 +306,8 @@ export class CampaignStore {
             throw err;
         }
         this.manager.start();
-        this.#set(campaign.id, { status: 'running', started_at: this.now(), finished_at: null });
+        this.#set(campaign.id, { status: 'running', started_at: campaign.startedAt ?? this.now(), finished_at: null });
+        if (spread) this.#saveSpread(campaign, cursor + batch);
         this.#reason(campaign.id, null);
         return { campaign: this.get(campaign.id), audience: recipients.length, ...result };
     }
@@ -388,6 +412,13 @@ export class CampaignStore {
         const snapshot = { total, pending, failed, sent: total - pending - failed, byStatus };
 
         if (campaign.status === 'running' && total > 0 && pending === 0) {
+            const spread = campaign.options?.spread;
+            if (spread && spread.cursor < spread.total) {
+                // Today's batch is out; the rest waits for tomorrow's start.
+                this.#set(campaign.id, { status: 'scheduled', ...snapshot });
+                this.#bookNextDay(campaign);
+                return { campaign: this.get(campaign.id), stats: snapshot };
+            }
             this.#set(campaign.id, { status: 'done', finished_at: this.now(), ...snapshot });
             return { campaign: this.get(campaign.id), stats: snapshot };
         }
@@ -560,6 +591,79 @@ export class CampaignStore {
              ORDER BY scheduled_at`).all(this.tenantId, iso(now)).map(toCampaign);
     }
 
+    // ------------------------------------------------------------- spread --
+    /** Can this many go out between `from` and `to` under today's cap? */
+    spreadCheck({ count, from, to, timezone = null } = {}) {
+        const quota = this.manager?.quota;
+        const safe = this.manager?.config?.safetyEnabled !== false;
+        // ponytail: today's tier cap and the plan's daily cap only; a monthly cap is enforced at send time.
+        const limit = Math.min(...[safe ? quota?.limit : 0, this.manager?.bulkPolicy?.()?.dailyCap]
+            .map(Number).filter((n) => n > 0), Infinity);
+        const tier = quota?.tier?.() ?? null;
+        return spreadPlan({
+            count, from, to, limit: Number.isFinite(limit) ? limit : 0,
+            today: dayKey(new Date(), timezone || this.manager?.timezone?.() || null),
+            tier: tier ? { tier: tier.tier, name: tier.name } : null,
+        });
+    }
+
+    /**
+     * Validate `options.spread` against the list, shuffle the list (once, so
+     * the order is the campaign's, not the sheet's) and fill in the counters.
+     * No-op without `options.spread`.
+     */
+    #planSpread(options, audience, { reshuffle = true } = {}) {
+        const spread = options.spread;
+        if (!spread) return { audience };
+        if (!Array.isArray(audience) || !audience.length) {
+            throw new CampaignError('spread sending needs an uploaded list of contacts');
+        }
+        const list = reshuffle ? shuffle([...audience]) : audience;
+        const cursor = spread.cursor ?? 0;
+        const plan = this.spreadCheck({ count: list.length - cursor, from: spread.from, to: spread.to, timezone: options.timezone });
+        if (!plan.feasible) throw new CampaignError(plan.reason);
+        options.spread = { ...spread, cursor, total: list.length, days: plan.days };
+        return { audience: list };
+    }
+
+    #zone(options) {
+        return options?.timezone || this.manager?.timezone?.() || null;
+    }
+
+    #saveSpread(campaign, cursor) {
+        const options = { ...campaign.options, spread: { ...campaign.options.spread, cursor } };
+        this.db.prepare('UPDATE campaigns SET options = ? WHERE id = ? AND tenant_id = ?')
+            .run(JSON.stringify(options), campaign.id, this.tenantId);
+    }
+
+    /** Back to `scheduled`, due at tomorrow's start time. */
+    #bookNextDay(campaign) {
+        const at = nextDayAt(new Date(), this.#zone(campaign.options), campaign.options.spread.startTime);
+        this.db.prepare('UPDATE campaigns SET scheduled_at = ? WHERE id = ? AND tenant_id = ?')
+            .run(iso(at), campaign.id, this.tenantId);
+    }
+
+    /** A slice produced nothing to send: skip it, then finish or book the next day. */
+    #spreadAdvance(campaign, cursor) {
+        this.#saveSpread(campaign, cursor);
+        if (cursor < campaign.options.spread.total) this.#bookNextDay(campaign);
+        else this.#set(campaign.id, { status: 'done', finished_at: this.now() });
+    }
+
+    /**
+     * Sweeper hook for a running spread campaign: finish today's batch (the next
+     * day gets booked) and carry on once a daily-cap pause has lifted.
+     */
+    tick(id) {
+        const campaign = this.get(id);
+        if (!campaign?.options?.spread || campaign.status !== 'running') return;
+        this.stats(id);
+        const manager = this.manager;
+        if (this.get(id).status === 'running' && this.#isLive(campaign) && manager?.pausedByQuota && !manager.quota.exhausted()) {
+            manager.resume();
+        }
+    }
+
     // ------------------------------------------------------------ helpers --
     #isLive(campaign) {
         return ['running', 'paused'].includes(campaign.status)
@@ -716,6 +820,13 @@ export function dueCampaigns(database, now = new Date()) {
         .map((row) => ({ id: row.id, tenantId: row.tenant_id, channelId: row.channel_id }));
 }
 
+/** For the scheduler: running spread campaigns that need their daily nudge (see `tick`). */
+export function runningSpreadCampaigns(database) {
+    return database.db.prepare(
+        `SELECT id, tenant_id FROM campaigns WHERE status = 'running' AND options LIKE '%"spread"%'`)
+        .all().map((row) => ({ id: row.id, tenantId: row.tenant_id }));
+}
+
 /** Same shape as `utcNow()`, so timestamps compare as strings across tables. */
 export const iso = (value) => (typeof value === 'string' ? value
     : new Date(value).toISOString().replace(/\.\d{3}Z$/, '+00:00'));
@@ -761,10 +872,22 @@ export function normalizeOptions(input) {
     out.pacing = src.pacing ?? 'balanced';
     if (src.dedupeDays !== undefined) out.dedupeDays = Math.max(0, Math.floor(Number(src.dedupeDays) || 0));
     if (src.timezone !== undefined) out.timezone = src.timezone ? String(src.timezone).slice(0, 64) : null;
+    if (src.spread !== undefined) out.spread = normalizeSpread(src.spread);
     if (src.variables !== undefined) {
         out.variables = (Array.isArray(src.variables) ? src.variables : []).map(String).slice(0, 100);
     }
     return out;
+}
+
+/** `{from, to, startTime}` for spread sending; the counters are the server's, not the client's. */
+function normalizeSpread(input) {
+    if (!input) return null;
+    const { from, to } = input;
+    if (!isDateKey(from) || !isDateKey(to)) throw new CampaignError('spread needs a start and an end date (YYYY-MM-DD)');
+    if (daysBetween(from, to) < 0) throw new CampaignError('the end date must not be before the start date');
+    const startTime = input.startTime ?? '09:00';
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) throw new CampaignError('spread start time must be HH:MM');
+    return { from, to, startTime, cursor: Math.max(0, Math.floor(Number(input.cursor) || 0)) };
 }
 
 const digits = (phone) => String(phone ?? '').replace(/\D/g, '');

@@ -10,9 +10,12 @@ import {
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
+import type { Subscription } from 'rxjs';
+
 import { Api, CampaignsApi, PacingPreset, SafetyStatus } from '../../core/api';
+import type { SpreadPlan } from '../../core/api';
 import { Store } from '../../core/store';
-import { CampaignDraft } from '../draft';
+import { CampaignDraft, addDays, today } from '../draft';
 import { CampaignPolicy } from '../policy-api';
 import { formatDuration } from '../wa-format';
 
@@ -46,6 +49,21 @@ const FALLBACK_ZONES = [
 ];
 
 /** Every IANA zone the browser knows, with the current one guaranteed in the list. */
+/** `YYYY-MM-DD` as "16 Oct 2026", read as a calendar day (UTC) so no zone shifts it. */
+function dayLabel(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  if (!y || !m || !d) return date;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined, {
+    timeZone: 'UTC',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+/** Wait this long after the last date/count change before asking the server for a plan. */
+const SPREAD_DEBOUNCE_MS = 350;
+
 function zones(current: string): string[] {
   let list: string[] = [];
   try {
@@ -84,6 +102,42 @@ export class ReviewStep {
   protected readonly loadingSafety = signal(false);
   protected readonly busy = signal(false);
   protected readonly error = signal('');
+
+  protected readonly minDate = today();
+  protected readonly spreadPlan = signal<SpreadPlan | null>(null);
+  protected readonly spreadLoading = signal(false);
+  protected readonly spreadError = signal('');
+  /** Bumped by "Try again" so the check effect re-runs with an unchanged range. */
+  protected readonly spreadRetry = signal(0);
+
+  /** Client-side range problems; the server is only asked once these are clear. */
+  protected readonly spreadRangeIssue = computed(() => {
+    const d = this.draft;
+    const from = d.spreadFrom();
+    const to = d.spreadTo();
+    if (!from || !to || !d.spreadTime()) return 'Pick a start date, end date and daily start time.';
+    if (from < this.minDate) return 'The start date is in the past.';
+    if (to < from) return 'The end date is before the start date.';
+    return '';
+  });
+
+  /** Per-day bars scaled to the biggest batch; equal sizes give an even skyline. */
+  protected readonly spreadBars = computed(() => {
+    const plan = this.spreadPlan();
+    if (!plan?.sizes.length) return [];
+    const max = Math.max(...plan.sizes, 1);
+    return plan.sizes.map((size, i) => ({
+      size,
+      pct: Math.max(12, (size / max) * 100),
+      day: dayLabel(addDays(plan.startsOn || this.draft.spreadFrom(), i)),
+    }));
+  });
+
+  protected readonly spreadSummary = computed(() => {
+    const d = this.draft;
+    if (!d.spreadActive()) return null;
+    return { from: dayLabel(d.spreadFrom()), to: dayLabel(d.spreadTo()), time: d.spreadTime() };
+  });
 
   protected readonly connected = computed(() => this.store.connection().connected);
   protected readonly current = computed(() => this.safety()[this.draft.pacing()] ?? null);
@@ -155,6 +209,19 @@ export class ReviewStep {
       if (!s) out.push('Pick a valid date, time and time zone.');
       else if (s.past) out.push('The scheduled time is in the past.');
     }
+    if (d.scheduleMode() === 'spread') {
+      const plan = this.spreadPlan();
+      if (d.source() !== 'file') out.push('Spreading over dates needs an uploaded file audience.');
+      else if (this.spreadRangeIssue()) out.push(this.spreadRangeIssue());
+      else if (this.sendsAt()?.past) {
+        out.push('The first batch time has passed - pick a later start time or date.');
+      } else if (this.spreadLoading()) out.push('Checking the daily plan...');
+      else if (this.spreadError()) out.push(this.spreadError());
+      else if (!plan) out.push('Waiting for the daily plan.');
+      else if (!plan.feasible) {
+        out.push(plan.reason ?? `This range is too short - it needs at least ${plan.minDays} days.`);
+      }
+    }
     return out;
   });
 
@@ -164,9 +231,49 @@ export class ReviewStep {
     effect(() => {
       const d = this.draft;
       if (this.policy.tooFast(d.pacing())) untracked(() => d.pacing.set(this.policy.maxSpeed()));
-      if (!this.policy.allowScheduling() && d.scheduleMode() === 'later') {
+      const mode = d.scheduleMode();
+      const offPlan = !this.policy.allowScheduling() && mode !== 'now';
+      // Switching the audience away from the file makes a spread impossible.
+      if (offPlan || (mode === 'spread' && d.source() !== 'file')) {
         untracked(() => d.scheduleMode.set('now'));
       }
+    });
+    /**
+     * Live feasibility: debounced so typing a date does not fire a request per
+     * keystroke; the cleanup cancels both the timer and any in-flight request,
+     * so a stale answer can never overwrite a newer range (and nothing outlives
+     * the component).
+     */
+    effect((onCleanup) => {
+      const d = this.draft;
+      this.spreadRetry();
+      const active = d.spreadActive();
+      const count = d.validContacts().length;
+      const body = { count, from: d.spreadFrom(), to: d.spreadTo(), timezone: d.timezone() };
+      const blocked = !active || count === 0 || this.spreadRangeIssue() !== '';
+      untracked(() => {
+        this.spreadError.set('');
+        this.spreadPlan.set(null);
+        this.spreadLoading.set(!blocked);
+      });
+      if (blocked) return;
+      let sub: Subscription | undefined;
+      const timer = setTimeout(() => {
+        sub = this.campaignsApi.spreadCheck(body).subscribe({
+          next: ({ plan }) => {
+            this.spreadPlan.set(plan);
+            this.spreadLoading.set(false);
+          },
+          error: (err: Error) => {
+            this.spreadError.set(err.message);
+            this.spreadLoading.set(false);
+          },
+        });
+      }, SPREAD_DEBOUNCE_MS);
+      onCleanup(() => {
+        clearTimeout(timer);
+        sub?.unsubscribe();
+      });
     });
     effect(() => {
       const size = this.size();
@@ -202,6 +309,11 @@ export class ReviewStep {
     if (!this.safety()[preset]) this.loadSafety(this.size());
   }
 
+  /** One click out of an infeasible range: stretch the end date to the server's minimum. */
+  protected useMinDays(days: number): void {
+    this.draft.spreadTo.set(addDays(this.draft.spreadFrom(), Math.max(1, days) - 1));
+  }
+
   protected duration(seconds: number): string {
     return formatDuration(seconds);
   }
@@ -224,8 +336,11 @@ export class ReviewStep {
         if (!now) {
           this.busy.set(false);
           d.result.set({ campaign, started: false });
+          const spread = this.spreadSummary();
           this.store.setStatus(
-            `Campaign "${campaign.name}" scheduled for ${this.sendsAt()?.zoned ?? campaign.scheduledAt}`,
+            spread
+              ? `Campaign "${campaign.name}" spread from ${spread.from} to ${spread.to}, daily at ${spread.time}`
+              : `Campaign "${campaign.name}" scheduled for ${this.sendsAt()?.zoned ?? campaign.scheduledAt}`,
             'primary',
           );
           d.goTo(4);
