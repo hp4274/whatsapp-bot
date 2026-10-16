@@ -109,9 +109,9 @@
             >{{ p.successful }} ok · {{ p.failed }} failed · {{ p.pending }} pending</span
           >
           @if (store.pacing(); as wait) {
-            <span class="muted"
-              >{{ wait.resting ? 'Resting' : 'Next in' }} {{ wait.seconds }}s</span
-            >
+            @if (store.pacingLeft(); as left) {
+              <span class="muted">{{ wait.resting ? 'Resting' : 'Next in' }} {{ left }}s</span>
+            }
           }
         </div>
       </div>

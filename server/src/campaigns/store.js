@@ -22,7 +22,7 @@ import { ErrorCode, FRIENDLY, normalizeError } from '../messaging/errors.js';
 import { InteractiveError, normalizeInteractive, personalizeInteractive } from '../messaging/interactive.js';
 import { metaTemplateFor, prepareTemplateSend } from '../messaging/templateSend.js';
 import { campaignRefusal } from '../policy/campaignOps.js';
-import { contactContext, utcNow } from '../protocol.js';
+import { Status, contactContext, utcNow } from '../protocol.js';
 
 export const CAMPAIGN_STATUSES = Object.freeze([
     'draft', 'scheduled', 'running', 'paused', 'done', 'cancelled',
@@ -664,6 +664,59 @@ export class CampaignStore {
         }
     }
 
+    /**
+     * A restart empties the manager's in-memory queue while the campaign still
+     * reads `running` and its rows are still QUEUED: nothing would ever send
+     * them. Rebuild the queue from those rows (same ids, same order) and carry on.
+     * Waits for a connected transport, like `start`. True when it re-queued.
+     *
+     * ponytail: a row caught mid-send (SENDING) goes out again; the window
+     * between the transport accepting a message and the db write is milliseconds.
+     */
+    recover(id) {
+        const campaign = this.get(id);
+        const manager = this.manager;
+        if (!campaign || !manager || !['running', 'paused'].includes(campaign.status)) return false;
+        // This run is already in the manager, or the manager is busy with another one.
+        if (this.#isLive(campaign) || manager.queue.pending || manager.inFlight) return false;
+        if (this.canSend && !this.canSend()) return false;
+        const key = campaignKey(campaign.id);
+        const rows = this.db.prepare(
+            `SELECT * FROM messages WHERE tenant_id = ? AND campaign_id = ? AND status IN ('QUEUED', 'SENDING')
+             ORDER BY rowid`).all(this.tenantId, key);
+        if (!rows.length) return false;
+
+        const options = campaign.options ?? {};
+        const media = this.#media(campaign);
+        const meta = this.#metaTemplates(campaign, options);
+        const jobs = [];
+        const mark = this.db.prepare('UPDATE messages SET status = ?, error = ?, updated_at = ? WHERE message_id = ? AND tenant_id = ?');
+        for (const row of rows) {
+            const contact = this.#contactFor(campaign, row.recipient, row.name);
+            const context = withFallbacks(contactContext(contact), options.fallbacks ?? {});
+            const sends = templateSendsFor(meta, context);
+            if (sends.missing) {
+                mark.run(Status.FAILED, 'A template variable is missing for this person', this.now(), row.message_id, this.tenantId);
+                continue;
+            }
+            if (row.status === Status.SENDING) mark.run(Status.QUEUED, null, this.now(), row.message_id, this.tenantId);
+            jobs.push({
+                messageId: row.message_id, attempt: row.attempt, recipient: row.recipient, text: row.message,
+                name: row.name ?? '', media, template: sends.template, fallbackTemplate: sends.fallbackTemplate,
+                interactive: options.interactive ? personalizeInteractive(options.interactive, context) : null,
+            });
+        }
+        const byStatus = this.counts(key);
+        const open = OPEN_STATUSES.reduce((n, s) => n + (byStatus[s] ?? 0), 0);
+        const failed = byStatus.FAILED ?? 0;
+        manager.restoreRun({
+            campaignId: key, jobs, failed,
+            sent: Object.values(byStatus).reduce((n, v) => n + v, 0) - open - failed,
+            paused: campaign.status === 'paused', pacing: options.pacing ?? 'balanced',
+        });
+        return true;
+    }
+
     // ------------------------------------------------------------ helpers --
     #isLive(campaign) {
         return ['running', 'paused'].includes(campaign.status)
@@ -818,6 +871,15 @@ export function dueCampaigns(database, now = new Date()) {
         `SELECT id, tenant_id, channel_id FROM campaigns WHERE status = 'scheduled' AND scheduled_at <= ?
          ORDER BY scheduled_at`).all(iso(now))
         .map((row) => ({ id: row.id, tenantId: row.tenant_id, channelId: row.channel_id }));
+}
+
+/** For the scheduler: running or paused campaigns that still own QUEUED rows (see `recover`). */
+export function openCampaigns(database) {
+    return database.db.prepare(
+        `SELECT c.id, c.tenant_id FROM campaigns c WHERE c.status IN ('running', 'paused')
+           AND EXISTS (SELECT 1 FROM messages m WHERE m.tenant_id = c.tenant_id
+                       AND m.campaign_id = 'camp-' || c.id AND m.status IN ('QUEUED', 'SENDING'))`)
+        .all().map((row) => ({ id: row.id, tenantId: row.tenant_id }));
 }
 
 /** For the scheduler: running spread campaigns that need their daily nudge (see `tick`). */

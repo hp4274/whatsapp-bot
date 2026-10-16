@@ -92,7 +92,7 @@
             <strong>{{ duration(q.minutesToday) }}</strong>
             <small class="muted">
               @if (q.active) {
-                Resting now, back in {{ duration(q.leftSeconds / 60) }}
+                Resting now, back in {{ duration(restLeftMinutes()) }}
               } @else {
                 {{ clock(q.startMinute) }}–{{ clock(q.startMinute + q.minutesToday) }}
               }

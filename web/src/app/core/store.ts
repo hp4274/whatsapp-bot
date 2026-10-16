@@ -52,8 +52,14 @@ export class Store {
   readonly stats = signal<CampaignStats>(EMPTY_STATS);
   readonly qr = signal<string | null>(null);
   readonly safety = signal<SafetyStatus | null>(null);
-  /** Set while the engine is deliberately waiting between messages. */
-  readonly pacing = signal<{ seconds: number; resting: boolean } | null>(null);
+  /**
+   * Set while the engine is deliberately waiting between messages. `until` is when the wait ends
+   * on this browser's clock: the server says "wait 12s" once, the countdown is ours.
+   */
+  readonly pacing = signal<{ seconds: number; resting: boolean; until: number } | null>(null);
+  /** Wall clock, ticking every second while the stream is open: countdowns read it instead of timers of their own. */
+  readonly now = signal(Date.now());
+  private readonly quietUntil = signal(0);
   readonly statusLine = signal('Ready.');
   readonly statusTone = signal<'muted' | 'primary' | 'warning' | 'danger'>('muted');
   readonly connecting = signal(false);
@@ -64,6 +70,15 @@ export class Store {
   /** Which WhatsApp number the UI is working on; owned by Auth, mirrored here. */
   readonly channelId = this.auth.channelId;
 
+  /** Whole seconds left of the current wait between messages; 0 once it is over. */
+  readonly pacingLeft = computed(() => {
+    const wait = this.pacing();
+    return wait ? Math.max(0, Math.ceil((wait.until - this.now()) / 1000)) : 0;
+  });
+
+  /** Seconds left of tonight's rest; 0 outside it. */
+  readonly quietLeft = computed(() => Math.max(0, Math.ceil((this.quietUntil() - this.now()) / 1000)));
+
   /** 0 to 1 share of the current campaign already processed. */
   readonly progress = computed(() => {
     const { total, processed } = this.stats();
@@ -72,6 +87,7 @@ export class Store {
 
   private readonly listeners = new Set<(topic: string) => void>();
   private source: EventSource | null = null;
+  private clock: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.applyTheme(this.theme());
@@ -93,13 +109,11 @@ export class Store {
     });
     // A send keeps running on the server after a tab closes, so ask where it got to.
     this.api.stats().subscribe({
-      next: ({ stats }) => {
-        this.stats.set(stats);
-        if (stats.safety) this.safety.set(stats.safety);
-      },
+      next: ({ stats }) => this.takeStats(stats),
       error: () => undefined,
     });
     this.listen();
+    this.clock ??= setInterval(() => this.now.set(Date.now()), 1000);
   }
 
   /** Switch the number every later request acts on, and re-open the stream. */
@@ -113,8 +127,7 @@ export class Store {
 
   /** Close the stream on sign-out, or when switching tenant. */
   stop() {
-    this.source?.close();
-    this.source = null;
+    this.dispose();
     this.streamOnline.set(false);
     this.setStatus('Ready.');
   }
@@ -228,19 +241,18 @@ export class Store {
   /** Fold an event into the signals the UI reads. */
   private handleEvent(event: ServerEvent) {
     switch (event.type) {
-      case 'stats': {
-        const stats = event['stats'] as CampaignStats;
-        this.stats.set(stats);
-        if (stats.safety) this.safety.set(stats.safety);
-        if (!stats.safety?.waitingSeconds) this.pacing.set(null);
+      case 'stats':
+        this.takeStats(event['stats'] as CampaignStats);
         break;
-      }
-      case 'pacing':
+      case 'pacing': {
+        const seconds = Number(event['seconds']);
         this.pacing.set({
-          seconds: Number(event['seconds']),
+          seconds,
           resting: Boolean(event['resting']),
+          until: Date.now() + seconds * 1000,
         });
         break;
+      }
       case 'quotaReached':
         this.safety.update((current) =>
           current ? { ...current, ...(event as unknown as SafetyStatus) } : current,
@@ -305,6 +317,24 @@ export class Store {
   dispose() {
     this.source?.close();
     this.source = null;
+    clearInterval(this.clock ?? undefined);
+    this.clock = null;
+  }
+
+  /** Fold engine stats in, and turn the seconds the server reports into deadlines the countdowns can run down. */
+  private takeStats(stats: CampaignStats) {
+    this.stats.set(stats);
+    if (stats.safety) {
+      this.safety.set(stats.safety);
+      const { quiet } = stats.safety;
+      this.quietUntil.set(quiet?.active ? Date.now() + quiet.leftSeconds * 1000 : 0);
+    }
+    const wait = stats.safety?.waitingSeconds ?? 0;
+    // A page opened mid-wait never saw the `pacing` event: build the wait from the stats.
+    if (!wait) this.pacing.set(null);
+    else if (!this.pacing()) {
+      this.pacing.set({ seconds: wait, resting: false, until: Date.now() + wait * 1000 });
+    }
   }
 }
 

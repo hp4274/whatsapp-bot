@@ -42,6 +42,11 @@ export class SendingHealth {
   protected readonly steps = TIER_STEPS;
   protected readonly tier = computed(() => this.safety()?.tier ?? null);
   protected readonly quiet = computed(() => this.safety()?.quiet ?? null);
+  /** When tonight's rest ends on this browser's clock; the server only says how long was left when it answered. */
+  private readonly restEndsAt = signal(0);
+  protected readonly restLeftMinutes = computed(
+    () => Math.max(0, this.restEndsAt() - this.store.now()) / 60_000,
+  );
 
   /** Share of the way to the next tier, 0-100. */
   protected readonly climb = computed(() => {
@@ -79,6 +84,7 @@ export class SendingHealth {
       next: ({ health, safety }) => {
         this.health.set(health);
         this.safety.set(safety);
+        this.restEndsAt.set(Date.now() + (safety.quiet?.active ? safety.quiet.leftSeconds * 1000 : 0));
         this.loading.set(false);
       },
       error: (err: Error) => {
