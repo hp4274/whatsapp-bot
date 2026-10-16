@@ -77,6 +77,20 @@ export class CampaignsListView {
       .filter((c) => !q || c.name.toLowerCase().includes(q) || String(c.id) === q);
   });
 
+  protected readonly pageSize = 10;
+  protected readonly page = signal(0);
+  protected readonly pageCount = computed(() =>
+    Math.max(1, Math.ceil(this.visible().length / this.pageSize)),
+  );
+  /** Clamped here so a shrinking list (filter, delete) never leaves an empty page. */
+  protected readonly pageIndex = computed(() => Math.min(this.page(), this.pageCount() - 1));
+  protected readonly offset = computed(() => this.pageIndex() * this.pageSize);
+  protected readonly rows = computed(() =>
+    this.visible().slice(this.offset(), this.offset() + this.pageSize),
+  );
+  protected readonly from = computed(() => (this.visible().length ? this.offset() + 1 : 0));
+  protected readonly to = computed(() => Math.min(this.visible().length, this.offset() + this.pageSize));
+
   protected readonly canStart = canStart;
   protected readonly canPause = canPause;
   protected readonly canResume = canResume;
@@ -87,6 +101,21 @@ export class CampaignsListView {
   constructor() {
     this.load();
     this.store.watch(['campaigns', 'campaign', 'history'], () => this.load());
+  }
+
+  protected goTo(page: number): void {
+    this.page.set(Math.min(Math.max(0, page), this.pageCount() - 1));
+  }
+
+  /** Filter or search changed: back to the first page. */
+  protected setFilter(f: Filter): void {
+    this.filter.set(f);
+    this.page.set(0);
+  }
+
+  protected setSearch(q: string): void {
+    this.search.set(q);
+    this.page.set(0);
   }
 
   protected load(): void {

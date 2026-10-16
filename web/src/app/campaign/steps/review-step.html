@@ -335,8 +335,13 @@
             <p class="banner danger">
               <i class="ti ti-alert-circle" aria-hidden="true"></i>
               <span
-                >{{ plan.reason ?? 'Too many people per day for this number.' }} You need at least
-                <strong>{{ plan.minDays }} days</strong>.</span
+                >@if (spreadShort(); as short) {
+                  <strong>{{ short.perDay }} messages over the limit every day</strong> - this range
+                  would miss <strong>{{ short.missed }} contacts</strong>.
+                } @else {
+                  {{ plan.reason ?? 'Too many people per day for this number.' }}
+                }
+                You need at least <strong>{{ plan.minDays }} days</strong>.</span
               >
               <button type="button" class="btn small" (click)="useMinDays(plan.minDays)">
                 <i class="ti ti-wand" aria-hidden="true"></i> Use {{ plan.minDays }} days

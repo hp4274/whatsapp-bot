@@ -34,7 +34,7 @@
         type="button"
         class="s-chip"
         [attr.aria-pressed]="filter() === f.key"
-        (click)="filter.set(f.key)"
+        (click)="setFilter(f.key)"
       >
         {{ f.label }}
         <b>{{ counts()[f.key] ?? 0 }}</b>
@@ -48,7 +48,7 @@
       placeholder="Search campaigns"
       aria-label="Search campaigns"
       [value]="search()"
-      (input)="search.set($any($event.target).value)"
+      (input)="setSearch($any($event.target).value)"
     />
   </label>
 </section>
@@ -88,6 +88,7 @@
       <table>
         <thead>
           <tr>
+            <th scope="col" class="idx">No.</th>
             <th scope="col">Name</th>
             <th scope="col">Created</th>
             <th scope="col">Scheduled</th>
@@ -98,8 +99,9 @@
           </tr>
         </thead>
         <tbody>
-          @for (c of visible(); track c.id) {
+          @for (c of rows(); track c.id) {
             <tr [class.live]="c.status === 'running'" [style.--i]="$index">
+              <td class="idx mono">{{ offset() + $index + 1 }}</td>
               <td class="name">
                 <a [routerLink]="['/campaigns', c.id]">{{ c.name || 'Untitled campaign' }}</a>
                 <small class="muted mono">#{{ c.id }}</small>
@@ -120,7 +122,8 @@
                 <span class="muted"> / </span>
                 <span [class.bad]="failed(c) > 0">{{ failed(c) }}</span>
               </td>
-              <td class="actions">
+              <td class="actions-cell">
+                <div class="actions">
                 @if (canStart(c.status)) {
                   <button
                     type="button"
@@ -193,11 +196,12 @@
                 >
                   Open<i class="ti ti-arrow-right" aria-hidden="true"></i>
                 </a>
+                </div>
               </td>
             </tr>
           } @empty {
             <tr class="none">
-              <td colspan="7">
+              <td colspan="8">
                 <div class="s-empty">
                   <i class="ti ti-filter-off" aria-hidden="true"></i>
                   <strong>Nothing here</strong>
@@ -209,5 +213,29 @@
         </tbody>
       </table>
     </div>
+    @if (visible().length > pageSize) {
+      <nav class="pager" aria-label="Pages">
+        <span class="muted">{{ from() }}&ndash;{{ to() }} of {{ visible().length }}</span>
+        <div class="pager-btns">
+          <button class="btn ghost icon" type="button" aria-label="First page"
+            [disabled]="pageIndex() === 0" (click)="goTo(0)">
+            <i class="ti ti-chevrons-left" aria-hidden="true"></i>
+          </button>
+          <button class="btn ghost icon" type="button" aria-label="Previous page"
+            [disabled]="pageIndex() === 0" (click)="goTo(pageIndex() - 1)">
+            <i class="ti ti-chevron-left" aria-hidden="true"></i>
+          </button>
+          <span class="page-no" aria-live="polite">Page {{ pageIndex() + 1 }} of {{ pageCount() }}</span>
+          <button class="btn ghost icon" type="button" aria-label="Next page"
+            [disabled]="pageIndex() >= pageCount() - 1" (click)="goTo(pageIndex() + 1)">
+            <i class="ti ti-chevron-right" aria-hidden="true"></i>
+          </button>
+          <button class="btn ghost icon" type="button" aria-label="Last page"
+            [disabled]="pageIndex() >= pageCount() - 1" (click)="goTo(pageCount() - 1)">
+            <i class="ti ti-chevrons-right" aria-hidden="true"></i>
+          </button>
+        </div>
+      </nav>
+    }
   </section>
 }
