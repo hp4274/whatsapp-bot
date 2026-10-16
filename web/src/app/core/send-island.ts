@@ -501,8 +501,9 @@ export class SendIsland {
 
   protected readonly note = computed(() => {
     const pacing = this.store.pacing();
-    if (this.phase() === 'sending' && pacing) {
-      return `${pacing.resting ? 'Resting between batches' : 'Spacing messages'}, next in about ${pacing.seconds}s`;
+    const left = this.store.pacingLeft();
+    if (this.phase() === 'sending' && pacing && left) {
+      return `${pacing.resting ? 'Resting between batches' : 'Spacing messages'}, next in ${left}s`;
     }
     if (this.phase() === 'paused') return 'Waiting for you, or for the daily limit to reset.';
     if (this.phase() === 'sending') return 'Keeps running on the server if you close this tab.';

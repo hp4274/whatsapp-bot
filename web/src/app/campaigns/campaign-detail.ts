@@ -106,12 +106,14 @@ export class CampaignDetailView {
   });
 
   protected readonly restLeft = computed(() => {
-    const min = Math.ceil((this.store.safety()?.quiet?.leftSeconds ?? 0) / 60);
+    const min = Math.ceil(this.store.quietLeft() / 60);
     return min >= 60 ? `${Math.floor(min / 60)}h ${min % 60}m` : `${min}m`;
   });
 
   protected readonly localTime = localTime;
-  protected readonly relativeTime = relativeTime;
+  /** Reads the store's ticking clock, so "in 5s" runs down by itself. */
+  protected readonly relativeTime = (iso: string | null | undefined) =>
+    relativeTime(iso, this.store.now());
 
   constructor() {
     this.policy.load();

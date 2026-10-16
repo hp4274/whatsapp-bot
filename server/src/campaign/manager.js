@@ -360,6 +360,45 @@ export class CampaignManager extends EventEmitter {
         return item.messageId;
     }
 
+    /**
+     * Put a run back after a restart. The queue lives in memory, but the rows it
+     * held are still QUEUED in the db: queue them again under their own ids
+     * (nothing is inserted) and rebuild the counters from what the db already
+     * counts, so the run carries on where it stopped instead of reading 0 / N.
+     *
+     * @param {{campaignId: string, jobs: object[], sent: number, failed: number, paused?: boolean, pacing?: string}} run
+     * @returns {number} how many were queued
+     */
+    restoreRun({ campaignId, jobs, sent = 0, failed = 0, paused = false, pacing = 'balanced' }) {
+        this.queue.reset();
+        this.pausedByQuota = false;
+        this.resumeRefusal = null;
+        this.stopReason = 'Stopped by operator';
+        this.campaignId = campaignId;
+        // A repeated number is a row of its own when "skip duplicates" was off.
+        const dedupe = this.queue.dedupe;
+        this.queue.dedupe = false;
+        let queued = 0;
+        for (const job of jobs) {
+            const item = queueItem({
+                recipient: job.recipient, message: job.text, name: job.name, campaignId,
+                media: job.media, interactive: job.interactive ?? null,
+                template: job.template ?? null, fallbackTemplate: job.fallbackTemplate ?? null,
+            });
+            item.messageId = job.messageId;
+            item.attempt = job.attempt ?? 0;
+            if (this.queue.put(item)) queued += 1;
+        }
+        this.queue.dedupe = dedupe;
+        this.stats = { total: queued + sent + failed, successful: sent, failed, processed: sent + failed, skippedOptOut: 0 };
+        this.sentInRun = 0;
+        this.nextRestAt = null;
+        this.setPace(pacing, queued);
+        if (paused) this.queue.pause();
+        this.start();
+        return queued;
+    }
+
     /** Queue depth broken down by what produced each item. */
     pendingByType() {
         return this.queue.pendingByType();

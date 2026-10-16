@@ -57,8 +57,6 @@ export class CampaignsListView {
   /** Row id + action awaiting its second click. */
   protected readonly confirming = signal<{ id: number; action: RowAction } | null>(null);
   protected readonly busy = signal<number | null>(null);
-  /** Reference clock for "in 2h" labels; refreshed on each load, not ticking. */
-  protected readonly now = signal(Date.now());
 
   protected readonly counts = computed(() => {
     const out: Record<string, number> = { all: 0 };
@@ -125,7 +123,6 @@ export class CampaignsListView {
         this.campaigns.set(
           [...campaigns].sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')),
         );
-        this.now.set(Date.now());
         this.error.set('');
         this.loading.set(false);
         this.loaded.set(true);
@@ -139,7 +136,7 @@ export class CampaignsListView {
   }
 
   protected relative(iso: string | null): string {
-    return relativeTime(iso, this.now());
+    return relativeTime(iso, this.store.now());
   }
 
   protected sent(c: Campaign): number {

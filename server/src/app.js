@@ -82,7 +82,7 @@ import { InteractiveStore, createInteractiveRouter, handleInteractiveReply, norm
 import { MediaStore } from './mediaStore.js';
 import { createBillingRouter } from './billing/routes.js';
 import { createCampaignRouter } from './campaigns/routes.js';
-import { dueCampaigns, runningSpreadCampaigns } from './campaigns/store.js';
+import { dueCampaigns, openCampaigns, runningSpreadCampaigns } from './campaigns/store.js';
 import { DEFAULT_PLANS } from './billing/plans.js';
 import { BillingError, BillingStore } from './billing/store.js';
 import { POLICY_FIELDS, PolicyError, PolicyStore } from './policy/index.js';
@@ -2518,6 +2518,20 @@ export function createApp({
                     if (!sweepWarned.has(key)) {
                         sweepWarned.add(key);
                         console.error(`[campaigns] ${id} failed to start (will keep retrying):`, err.message);
+                    }
+                }
+            }
+            // After a restart the in-memory queue is empty but the campaigns still read running/paused:
+            // queue their unsent rows again once the number is back online.
+            for (const { id, tenantId } of openCampaigns(db)) {
+                try {
+                    const channel = runtimeFor(tenantId).channels.getDefault();
+                    if (channel) runtimeFor(tenantId).runtimeFor(channel).state.campaigns?.recover(id);
+                } catch (err) {
+                    const key = `recover:${tenantId}:${id}`;
+                    if (!sweepWarned.has(key)) {
+                        sweepWarned.add(key);
+                        console.error(`[campaigns] ${id} could not resume after restart (will keep retrying):`, err.message);
                     }
                 }
             }

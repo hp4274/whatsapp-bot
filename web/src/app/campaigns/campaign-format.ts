@@ -31,7 +31,8 @@ export function relativeTime(iso: string | null | undefined, now = Date.now()): 
   const diff = at - now;
   const abs = Math.abs(diff);
   const minute = 60_000;
-  if (abs < minute) return 'just now';
+  // Under a minute away: count the seconds, so a start time reads "in 5s", "in 4s", ...
+  if (abs < minute) return diff > 1000 ? `in ${Math.ceil(abs / 1000)}s` : 'just now';
   const units: [number, string][] = [
     [86_400_000, 'd'],
     [3_600_000, 'h'],
