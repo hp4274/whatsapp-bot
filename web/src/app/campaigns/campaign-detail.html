@@ -83,9 +83,46 @@
       -->
     </dl>
 
+    @if (spread(); as sp) {
+      <section class="spread" aria-labelledby="spread-title">
+        <div class="spread-head">
+          <h3 id="spread-title">
+            <i class="ti ti-calendar-event" aria-hidden="true"></i>Multi-day send
+          </h3>
+          <span class="day">Day {{ sp.day }} of {{ sp.days }}</span>
+        </div>
+        <div
+          class="progress"
+          role="progressbar"
+          aria-label="Multi-day send progress"
+          [attr.aria-valuenow]="sp.sent"
+          aria-valuemin="0"
+          [attr.aria-valuemax]="sp.total"
+        >
+          <div class="track"><div class="fill" [style.width.%]="sp.pct"></div></div>
+          <div class="progress-text">
+            <span
+              ><strong>{{ sp.sent }}</strong> / {{ sp.total }} sent</span
+            >
+            @if (c.status === 'scheduled' && c.scheduledAt) {
+              <span class="muted"
+                >Next batch {{ localTime(c.scheduledAt) }} · {{ relativeTime(c.scheduledAt) }}</span
+              >
+            }
+          </div>
+        </div>
+        @if (canContinueEarly()) {
+          <p id="spread-hint" class="hint">
+            Uses today's remaining sending limit; anything that does not fit goes out tomorrow as
+            planned.
+          </p>
+        }
+      </section>
+    }
+
     @if (status() === 'running' && store.safety()?.quiet?.active) {
       <p class="muted">
-        <i class="ti ti-moon" aria-hidden="true"></i> Night rest: sending resumes in about
+        <i class="ti ti-moon" aria-hidden="true"></i> Quiet time: sending resumes in about
         {{ restLeft() }}.
       </p>
     }
@@ -119,8 +156,18 @@
 
     <div class="controls" role="toolbar" aria-label="Campaign controls">
       @if (c.status === 'draft' || c.status === 'scheduled') {
-        <button type="button" class="btn primary" [disabled]="!!busy()" (click)="act('start')">
-          <i class="ti ti-player-play" aria-hidden="true"></i>Start now
+        <button
+          type="button"
+          class="btn primary"
+          [disabled]="!!busy()"
+          [attr.aria-describedby]="canContinueEarly() ? 'spread-hint' : null"
+          (click)="act('start')"
+        >
+          @if (canContinueEarly()) {
+            <i class="ti ti-player-track-next" aria-hidden="true"></i>Send next day's batch now
+          } @else {
+            <i class="ti ti-player-play" aria-hidden="true"></i>Start now
+          }
         </button>
       }
       @if (c.status === 'running') {

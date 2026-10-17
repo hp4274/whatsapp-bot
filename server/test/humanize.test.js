@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-    TIERS, contentError, dayPlan, inQuiet, quietExtraSeconds, isDaytimeFor, seeded, shuffle, tierFromWeeks, typingMs, zoneOf,
+    TIERS, contentError, dayPlan, inQuiet, quietExtraSeconds, quietLeftSeconds, quietStatus, isDaytimeFor, seeded, shuffle, tierFromWeeks, typingMs, zoneOf,
 } from '../src/campaign/humanize.js';
 import { MessageQueue, queueItem } from '../src/campaign/queue.js';
 
@@ -40,6 +40,37 @@ describe('day plan', () => {
         const plan = { quietStart: 120, quietMinutes: 60 };
         assert.ok(inQuiet(plan, new Date(2026, 5, 1, 2, 30)));
         assert.ok(!inQuiet(plan, new Date(2026, 5, 1, 3, 0)));
+    });
+
+    it('splits the rest into 2-3 separate windows that never touch', () => {
+        const counts = new Set();
+        for (const tier of TIERS) {
+            const [lo, hi] = tier.quietHours;
+            for (let n = 0; n < 400; n += 1) {
+                const day = new Date(2026, 0, 1 + (n % 365));
+                const plan = dayPlan(`seed:${n}`, tier, day, 'UTC');
+                const { windows } = plan;
+                const label = `tier ${tier.tier} seed ${n}`;
+                counts.add(windows.length);
+                assert.ok(windows.length >= 2 && windows.length <= 3, label);
+                assert.equal(windows.reduce((sum, w) => sum + w.minutes, 0), plan.quietMinutes, `${label}: total preserved`);
+                assert.ok(plan.quietMinutes >= lo * 60 && plan.quietMinutes <= hi * 60, label);
+                assert.equal(plan.quietStart, windows[0].start);
+                windows.forEach((w, i) => {
+                    assert.ok(w.minutes >= 40, `${label}: window of ${w.minutes} min`);
+                    assert.ok(Number.isInteger(w.start) && Number.isInteger(w.minutes), label);
+                    assert.ok(w.start >= 0 && w.start + w.minutes <= 1440, `${label}: inside the day`);
+                    if (i) assert.ok(w.start - (windows[i - 1].start + windows[i - 1].minutes) >= 120, `${label}: 2h of sending between rests`);
+                });
+            }
+        }
+        assert.deepEqual([...counts].sort(), [2, 3], 'both shapes occur');
+    });
+
+    it('draws the same windows for the same seed and day', () => {
+        const a = dayPlan('t:1', TIERS[1], new Date(2026, 5, 1, 9), 'UTC');
+        assert.deepEqual(a, dayPlan('t:1', TIERS[1], new Date(2026, 5, 1, 21), 'UTC'));
+        assert.notDeepEqual(a.windows, dayPlan('t:1', TIERS[1], new Date(2026, 5, 2, 9), 'UTC').windows);
     });
 
     it('seeded() repeats', () => {
@@ -204,5 +235,75 @@ describe('quietExtraSeconds', () => {
         const at = new Date('2026-06-01T22:00:00Z');   // 2h before midnight, rest runs 01:00-07:00 UTC
         assert.equal(quietExtraSeconds(planFor, 3600, at), 0);
         assert.ok(Math.abs(quietExtraSeconds(planFor, 4 * 3600, at) - 6 * 3600) <= 1);
+    });
+
+    // Rests 01:00-02:00 and 05:00-07:00 UTC, every day.
+    const two = { quietStart: 60, quietMinutes: 180, windows: [{ start: 60, minutes: 60 }, { start: 300, minutes: 120 }], zone: 'UTC' };
+    const utc = (hhmm, day = 1) => new Date(`2026-06-0${day}T${hhmm}:00Z`);
+
+    it('counts every window it passes, across midnight', () => {
+        const planTwo = () => two;
+        // 23:00 + 3h of sending: 2h reach 01:00 across midnight, the 1h window is waited out, the last hour ends at 03:00.
+        assert.ok(Math.abs(quietExtraSeconds(planTwo, 3 * 3600, utc('23:00')) - 3600) <= 1);
+        // 23:00 + 6h of sending: 1h (01-02) and 2h (05-07) of rest land inside the run.
+        assert.ok(Math.abs(quietExtraSeconds(planTwo, 6 * 3600, utc('23:00')) - 3 * 3600) <= 2);
+        // Starting inside a window counts its remainder first.
+        assert.ok(Math.abs(quietExtraSeconds(planTwo, 600, utc('06:00')) - 3600) <= 1);
+        // A run that ends before the first window sees none.
+        assert.equal(quietExtraSeconds(planTwo, 3600, utc('00:00')), 0);
+    });
+
+    it('agrees with a minute-by-minute walk over several days of real plans', () => {
+        for (const tier of TIERS) {
+            const planFor = (date) => dayPlan('walk', tier, date, 'UTC');
+            const at = utc('22:00');
+            const seconds = 4 * 24 * 3600;
+            let sending = 0;
+            let quiet = 0;
+            for (let t = at.getTime(); sending * 60 < seconds; t += 60_000) {
+                if (inQuiet(planFor(new Date(t)), new Date(t))) quiet += 1;
+                else sending += 1;
+            }
+            // The walk hops 1s past each boundary, so it may differ by a few seconds per window; a missed window is 40+ minutes.
+            assert.ok(Math.abs(quietExtraSeconds(planFor, seconds, at) - quiet * 60) <= 60, `tier ${tier.tier}`);
+        }
+    });
+});
+
+describe('quiet windows', () => {
+    const plan = { quietStart: 60, quietMinutes: 180, windows: [{ start: 60, minutes: 60 }, { start: 300, minutes: 120 }], zone: 'UTC' };
+    const at = (hhmm, sec = '00') => new Date(`2026-06-01T${hhmm}:${sec}Z`);
+
+    it('is resting exactly inside a window, start inclusive and end exclusive', () => {
+        assert.ok(!inQuiet(plan, at('00:59', '59')));
+        assert.ok(inQuiet(plan, at('01:00')));
+        assert.ok(inQuiet(plan, at('01:59', '59')));
+        assert.ok(!inQuiet(plan, at('02:00')));
+        assert.ok(!inQuiet(plan, at('04:59', '59')));
+        assert.ok(inQuiet(plan, at('05:00')));
+        assert.ok(inQuiet(plan, at('06:59', '59')));
+        assert.ok(!inQuiet(plan, at('07:00')));
+    });
+
+    it('counts down the window it is in, not the day', () => {
+        assert.equal(quietLeftSeconds(plan, at('00:30')), 0);
+        assert.equal(quietLeftSeconds(plan, at('01:00')), 3600);
+        assert.equal(quietLeftSeconds(plan, at('01:30')), 1800);
+        assert.equal(quietLeftSeconds(plan, at('01:59', '59')), 1);
+        assert.equal(quietLeftSeconds(plan, at('03:00')), 0);
+        assert.equal(quietLeftSeconds(plan, at('05:00')), 7200);
+        assert.equal(quietLeftSeconds(plan, at('06:00')), 3600);
+        assert.equal(quietLeftSeconds(plan, at('07:00')), 0);
+    });
+
+    it('reports every window and the channel clock to the UI', () => {
+        const status = quietStatus(plan, at('05:30'));
+        assert.deepEqual(status.windows, [{ startMinute: 60, endMinute: 120 }, { startMinute: 300, endMinute: 420 }]);
+        assert.equal(status.active, true);
+        assert.equal(status.leftSeconds, 5400);
+        assert.equal(status.nowMinute, 330);
+        assert.equal(status.minutesToday, 180);
+        assert.equal(status.startMinute, 60);
+        assert.equal(quietStatus(plan, at('03:00')).active, false);
     });
 });

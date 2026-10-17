@@ -109,7 +109,7 @@
       {{ size() > 1 ? 'Takes about ' + duration(s.estimateSeconds.typical) : 'Sends right away'
       }}{{
         size() > 1 && s.estimateSeconds.quietSeconds
-          ? ' (includes ' + duration(s.estimateSeconds.quietSeconds) + ' of night rest)'
+          ? ' (includes ' + duration(s.estimateSeconds.quietSeconds) + ' of quiet time)'
           : ''
       }}{{ overQuota() > 0 ? ' - ' + overQuota() + ' wait for tomorrow (daily limit)' : '' }}
     </p>

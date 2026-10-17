@@ -104,7 +104,7 @@ export interface SafetyStatus {
   pausedByQuota: boolean;
   /** Sending tier; null when the tier system is off. */
   tier?: TierStatus | null;
-  /** Today's nightly rest window; null when the tier system is off. */
+  /** Today's quiet-time windows; null when the tier system is off. */
   quiet?: QuietWindow | null;
 }
 
@@ -120,11 +120,18 @@ export interface TierStatus {
 }
 
 export interface QuietWindow {
+  /** Resting right now, in whichever window is open. */
   active: boolean;
+  /** Seconds left of the open window; 0 when not resting. */
   leftSeconds: number;
+  /** Total quiet time today, all windows together. */
   minutesToday: number;
-  /** Minutes after local midnight when today's rest starts. */
+  /** Minutes after local midnight when today's first window starts. */
   startMinute: number;
+  /** Today's separate windows, sorted, in minutes after midnight on the channel's clock. */
+  windows: readonly { readonly startMinute: number; readonly endMinute: number }[];
+  /** Channel clock (minutes after midnight) when the server answered; the browser's own zone may differ. */
+  nowMinute: number;
 }
 
 export interface SafetyEvent {
@@ -1322,6 +1329,8 @@ export class CampaignsApi {
     stats?: CampaignStats | null;
     queued?: number;
     skipped?: number;
+    /** Spread campaigns only: left for tomorrow because today's sending limit was short. */
+    carried?: number;
     safety?: SafetyStatus;
   }> {
     return this.http
@@ -1330,6 +1339,7 @@ export class CampaignsApi {
         stats?: CampaignStats | null;
         queued?: number;
         skipped?: number;
+        carried?: number;
         safety?: SafetyStatus;
       }>(`/api/campaigns/${id}/${action}`, {})
       .pipe(catchError(toMessage));

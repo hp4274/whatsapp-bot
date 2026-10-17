@@ -20,7 +20,14 @@ import {
 } from '../core/api';
 import { CampaignPolicy } from '../campaign/policy-api';
 import { Store } from '../core/store';
-import { canCancel, localTime, percent, relativeTime } from './campaign-format';
+import {
+  canCancel,
+  dayKey,
+  daysBetween,
+  localTime,
+  percent,
+  relativeTime,
+} from './campaign-format';
 import { CampaignInsights } from './campaign-insights';
 import { CampaignRecipients } from './campaign-recipients';
 import { CampaignStatusPill } from './status-pill';
@@ -105,6 +112,40 @@ export class CampaignDetailView {
     };
   });
 
+  /**
+   * Multi-day ("spread") progress, null for a one-off send. The day is counted on
+   * the campaign's calendar (the running or next-booked day), not by batches sent,
+   * so a skipped day still reads as the day it is.
+   */
+  protected readonly spread = computed(() => {
+    const c = this.campaign();
+    const s = c?.options?.spread;
+    if (!c || !s?.total) return null;
+    const days = daysBetween(s.from, s.to) + 1;
+    const at =
+      c.status === 'scheduled' && c.scheduledAt
+        ? new Date(c.scheduledAt)
+        : new Date(this.store.now());
+    const day = Math.min(
+      days,
+      Math.max(1, daysBetween(s.from, dayKey(at, c.options.timezone)) + 1),
+    );
+    const sent = c.stats?.sent ?? s.cursor ?? 0;
+    return { day, days, sent, total: s.total, pct: percent(sent, s.total) };
+  });
+
+  /**
+   * Today's batch is out and the next one is booked for a later local day, so
+   * "start" means "send that one now". The server decides the same way; this
+   * only picks the label, so a timezone mismatch costs a wrong word, not a wrong send.
+   */
+  protected readonly canContinueEarly = computed(() => {
+    const c = this.campaign();
+    if (c?.status !== 'scheduled' || !c.options?.spread?.cursor || !c.scheduledAt) return false;
+    const zone = c.options.timezone;
+    return dayKey(new Date(c.scheduledAt), zone) > dayKey(new Date(this.store.now()), zone);
+  });
+
   protected readonly restLeft = computed(() => {
     const min = Math.ceil(this.store.quietLeft() / 60);
     return min >= 60 ? `${Math.floor(min / 60)}h ${min % 60}m` : `${min}m`;
@@ -167,13 +208,17 @@ export class CampaignDetailView {
     });
   }
 
-  private run(label: string, call: () => Observable<{ campaign: Campaign }>, ok: string) {
+  private run<T extends { campaign: Campaign }>(
+    label: string,
+    call: () => Observable<T>,
+    ok: string | ((res: T) => string),
+  ) {
     this.busy.set(label);
     call().subscribe({
-      next: ({ campaign }) => {
+      next: (res) => {
         this.busy.set(null);
-        this.campaign.set(campaign);
-        this.store.setStatus(ok, 'primary');
+        this.campaign.set(res.campaign);
+        this.store.setStatus(typeof ok === 'string' ? ok : ok(res), 'primary');
         this.reload();
       },
       error: (err: Error) => {
@@ -185,12 +230,20 @@ export class CampaignDetailView {
   }
 
   protected act(action: 'start' | 'pause' | 'resume'): void {
+    const early = action === 'start' && this.canContinueEarly();
     const done = {
       start: 'Campaign started.',
       pause: 'Campaign paused.',
       resume: 'Campaign resumed.',
     };
-    this.run(action, () => this.api.action(this.numericId(), action), done[action]);
+    this.run(
+      action,
+      () => this.api.action(this.numericId(), action),
+      ({ queued, carried }) =>
+        early
+          ? `Sent ${queued ?? 0} now${carried ? `; ${carried} more go out tomorrow` : ''}.`
+          : done[action],
+    );
   }
 
   protected cancel(): void {
