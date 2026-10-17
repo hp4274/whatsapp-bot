@@ -9,8 +9,9 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { filter, map } from 'rxjs';
+import { type Subscription, filter, map } from 'rxjs';
 
+import { type ChannelDetail, OpsApi } from './admin/ops-api';
 import { SERVICE_META } from './admin/service-meta';
 import { TenancyApi } from './core/api';
 import { Auth, Role, Tenant } from './core/auth';
@@ -88,6 +89,11 @@ const THEMES: readonly { value: ThemeMode; label: string; icon: string }[] = [
 
 const COLLAPSE_KEY = 'wsender.sidebar-collapsed';
 
+/** A channel's contribution to the platform average; disabled (`off`) channels do not count. */
+const HEALTH_SCORE: Readonly<Record<string, number>> = { ok: 100, warn: 50, bad: 0 };
+
+const HEALTH_REFRESH_MS = 60_000;
+
 /** Web Storage throws outright in some privacy modes, so the read is guarded. */
 function readCollapsed(): boolean {
   try {
@@ -123,12 +129,48 @@ export class App {
   protected readonly auth = inject(Auth);
   private readonly router = inject(Router);
   private readonly tenancy = inject(TenancyApi);
+  private readonly ops = inject(OpsApi);
   private readonly destroyRef = inject(DestroyRef);
 
   /** The tenant a super admin has opened, so the rail can show what that tenant sees. */
   private readonly acting = signal<Tenant | null>(null);
 
+  /** A super admin looking at the whole platform rather than inside one tenant. */
+  private readonly platformView = computed(
+    () => this.auth.isSuperAdmin() && this.auth.actingTenantId() === null,
+  );
+
+  /** Every channel on the platform; null until the first load lands, 'error' if it failed. */
+  private readonly fleet = signal<readonly ChannelDetail[] | 'error' | null>(null);
+
   constructor() {
+    // Only the platform view needs the fleet, so nobody else pays for the poll. The
+    // computed above flips only on a real view change, which keeps the timer from
+    // restarting whenever the user object is refreshed.
+    effect((onCleanup) => {
+      if (!this.platformView()) {
+        this.fleet.set(null);
+        return;
+      }
+      let inflight: Subscription | undefined;
+      const load = () => {
+        inflight?.unsubscribe();
+        inflight = this.ops
+          .health()
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: ({ channels }) => this.fleet.set(channels),
+            error: () => this.fleet.set('error'),
+          });
+      };
+      load();
+      const timer = setInterval(load, HEALTH_REFRESH_MS);
+      onCleanup(() => {
+        clearInterval(timer);
+        inflight?.unsubscribe();
+      });
+    });
+
     effect(() => {
       const id = this.auth.actingTenantId();
       if (!this.auth.isSuperAdmin() || id === null) {
@@ -289,17 +331,42 @@ export class App {
     return acting === null ? 'Platform admin' : (this.acting()?.name ?? `Tenant ${acting}`);
   });
 
+  /** Average score and online count over the enabled channels; null/'error' mirror `fleet`. */
+  private readonly fleetHealth = computed(() => {
+    const rows = this.fleet();
+    if (rows === null || rows === 'error') return rows;
+    const live = rows.filter((c) => c.severity !== 'off');
+    const total = live.reduce((sum, c) => sum + (HEALTH_SCORE[c.severity] ?? 0), 0);
+    return {
+      count: live.length,
+      online: live.filter((c) => c.state === 'connected').length,
+      score: live.length ? Math.round(total / live.length) : 0,
+    };
+  });
+
+  /** Dot colour in the platform view: the store's tone describes one tenant's number, not the fleet. */
+  private readonly platformTone = computed<'muted' | 'primary' | 'warning' | 'danger'>(() => {
+    const health = this.fleetHealth();
+    if (!health || health === 'error' || !health.count) return 'muted';
+    return health.score >= 90 ? 'primary' : health.score >= 60 ? 'warning' : 'danger';
+  });
+
   protected readonly subtitle = computed(() => {
     const connection = this.store.connection();
     if (!this.auth.user()) return 'Signed out';
-    if (this.auth.isSuperAdmin() && this.auth.actingTenantId() === null)
-      return 'Pick a tenant to work in';
+    if (this.platformView()) {
+      const health = this.fleetHealth();
+      if (health === null) return 'Checking connections...';
+      if (health === 'error') return 'Connection health unavailable';
+      if (!health.count) return 'No connections yet';
+      return `Avg connection health ${health.score}% · ${health.online} of ${health.count} online`;
+    }
     if (!this.store.streamOnline()) return 'Backend not reachable';
     return connection.connected ? `Connected - ${connection.name}` : 'Not connected';
   });
 
   protected readonly toneColor = computed(() => {
-    const tone = this.store.statusTone();
+    const tone = this.platformView() ? this.platformTone() : this.store.statusTone();
     return {
       muted: 'var(--text-muted)',
       primary: 'var(--primary)',

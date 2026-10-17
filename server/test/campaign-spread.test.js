@@ -7,9 +7,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { after, before, describe, it } from 'node:test';
+import { after, afterEach, before, describe, it } from 'node:test';
 
-import { daysBetween, equalSplit, nextDayAt, spreadPlan, todaysBatch } from '../src/campaign/spread.js';
+import { dayKey, daysBetween, equalSplit, isEarlyContinue, nextDayAt, spreadPlan, todaysBatch } from '../src/campaign/spread.js';
 import { CampaignStore, runningSpreadCampaigns } from '../src/campaigns/store.js';
 import { ContactStore } from '../src/contactStore.js';
 import { Database } from '../src/db.js';
@@ -47,6 +47,15 @@ describe('spread helpers', () => {
         const at = nextDayAt(new Date('2026-10-16T12:00:00Z'), 'UTC', '09:00');
         assert.equal(at.toISOString(), '2026-10-17T09:00:00.000Z');
     });
+
+    it('tells an early continue from a booking that is simply still today', () => {
+        const now = new Date('2026-10-16T12:00:00Z');
+        const args = (scheduledAt, cursor = 25) => ({ cursor, scheduledAt, now, zone: 'UTC' });
+        assert.equal(isEarlyContinue(args('2026-10-17T09:00:00Z')), true);
+        assert.equal(isEarlyContinue(args('2026-10-16T15:00:00Z')), false);
+        assert.equal(isEarlyContinue(args('2026-10-17T09:00:00Z', 0)), false, 'nothing sent yet');
+        assert.equal(isEarlyContinue(args(null)), false);
+    });
 });
 
 describe('a spread campaign', () => {
@@ -55,10 +64,11 @@ describe('a spread campaign', () => {
     let scoped;
     let store;
     let quotaLimit = 250;
+    let budgetLeft = Infinity;
     const manager = {
         calls: [],
         campaignId: '',
-        quota: { get limit() { return quotaLimit; } },
+        quota: { get limit() { return quotaLimit; }, remaining: () => budgetLeft },
         pausedByQuota: false,
         queue: { reset() {} },
         resetStats() {},
@@ -100,11 +110,12 @@ describe('a spread campaign', () => {
         manager.calls.length = 0;
         const seen = new Set();
         for (let d = 0; d < 4; d += 1) {
-            // Pretend the days pass: the end date moves with them.
+            // Pretend the days pass: the end date moves with them and the booking falls due
+            // (a booking on a later day would be an early continue instead).
             const current = store.get(campaign.id);
             const spread = { ...current.options.spread, from: day(-d), to: day(3 - d) };
-            scoped.db.prepare('UPDATE campaigns SET options = ?, status = ? WHERE id = ?')
-                .run(JSON.stringify({ ...current.options, spread }), 'scheduled', campaign.id);
+            scoped.db.prepare('UPDATE campaigns SET options = ?, status = ?, scheduled_at = ? WHERE id = ?')
+                .run(JSON.stringify({ ...current.options, spread }), 'scheduled', new Date().toISOString(), campaign.id);
             store.start(campaign.id);
             const slice = manager.calls.at(-1);
             assert.equal(slice.length, 25);
@@ -126,5 +137,87 @@ describe('a spread campaign', () => {
         const campaign = make(40, day(1));
         store.start(campaign.id);
         assert.throws(() => store.update(campaign.id, { audience: list(10) }), (err) => err.status === 409);
+    });
+
+    describe('continuing the next day early', () => {
+        afterEach(() => { budgetLeft = Infinity; });
+
+        const local = (offset) => dayKey(new Date(Date.now() + offset * 86_400_000));
+        let drained = 0;
+        const drain = (id) => {
+            drained += 1;
+            scoped.insert({ messageId: `early${drained}`, recipient: '9100', message: 'm', status: 'SENT', campaignId: `camp-${id}` });
+            store.tick(id);
+        };
+        const cursorOf = (id) => store.get(id).options.spread.cursor;
+        const bookFor = (id, at) => scoped.db.prepare('UPDATE campaigns SET scheduled_at = ? WHERE id = ?').run(at.toISOString(), id);
+
+        /** 100 people over 4 days; day one (25) is out and tomorrow is booked. */
+        function afterDayOne() {
+            const { id } = store.create({
+                name: 'Early', body: 'Hi {name}', audience: list(100), status: 'scheduled',
+                scheduledAt: new Date().toISOString(),
+                options: { spread: { from: local(0), to: local(3), startTime: '09:00' } },
+            });
+            store.start(id);
+            drain(id);
+            assert.equal(store.get(id).status, 'scheduled');
+            assert.equal(cursorOf(id), 25);
+            return id;
+        }
+
+        it("sends tomorrow's share now and moves the cursor by exactly that", () => {
+            const id = afterDayOne();
+            const first = manager.calls.at(-1).map((c) => c.phone);
+            const result = store.start(id);
+            assert.equal(result.carried, 0);
+            assert.equal(manager.calls.at(-1).length, 25); // 75 left over the 3 days after today
+            assert.equal(manager.calls.at(-1).some((c) => first.includes(c.phone)), false);
+            assert.equal(cursorOf(id), 50);
+            assert.equal(store.get(id).status, 'running');
+            drain(id);
+            assert.equal(store.get(id).status, 'scheduled', 'the next day is booked as before');
+        });
+
+        it("sends only what today's budget covers; the next regular start re-divides the rest", () => {
+            const id = afterDayOne();
+            budgetLeft = 10;
+            const result = store.start(id);
+            assert.equal(result.carried, 15);
+            assert.equal(manager.calls.at(-1).length, 10);
+            assert.equal(cursorOf(id), 35);
+            drain(id);
+
+            // A day passes: the booking is due and the range is one day shorter.
+            const current = store.get(id);
+            scoped.db.prepare('UPDATE campaigns SET options = ? WHERE id = ?')
+                .run(JSON.stringify({ ...current.options, spread: { ...current.options.spread, to: local(2) } }), id);
+            bookFor(id, new Date());
+            store.start(id);
+            assert.equal(manager.calls.at(-1).length, 22); // 65 left over 3 days
+            assert.equal(cursorOf(id), 57);
+        });
+
+        it('refuses, queueing nothing, when today is already used up', () => {
+            const id = afterDayOne();
+            const calls = manager.calls.length;
+            const booked = store.get(id).scheduledAt;
+            budgetLeft = 0;
+            assert.throws(() => store.start(id), (err) => err.status === 409 && /limit is already used.*09:00/.test(err.message));
+            assert.equal(manager.calls.length, calls);
+            assert.equal(cursorOf(id), 25);
+            assert.equal(store.get(id).status, 'scheduled');
+            assert.equal(store.get(id).scheduledAt, booked);
+        });
+
+        it('is not an early continue while the booking is still today', () => {
+            const id = afterDayOne();
+            bookFor(id, new Date());
+            budgetLeft = 5; // a regular start leaves the cap to the manager
+            const result = store.start(id);
+            assert.equal(result.carried, 0);
+            assert.equal(manager.calls.at(-1).length, 19); // today's share: 75 over 4 days
+            assert.equal(cursorOf(id), 44);
+        });
     });
 });

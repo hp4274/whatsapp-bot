@@ -28,7 +28,7 @@ import {
 import { capReachedText, clampPreset } from '../policy/campaignOps.js';
 import {
     BLOCK_PAUSE_MIN_SENT, BLOCK_PAUSE_PERCENT, BLOCK_SUSPECT_AFTER_SECONDS, MEDIA_GAP_FACTOR,
-    contentError, dayPlan, inQuiet, isDaytimeFor, quietExtraSeconds, quietLeftSeconds, shuffle, typingMs,
+    contentError, dayPlan, inQuiet, isDaytimeFor, quietExtraSeconds, quietStatus, shuffle, typingMs,
 } from './humanize.js';
 
 const isoAgo = (ms) => new Date(Date.now() - ms).toISOString().replace(/\.\d{3}Z$/, '+00:00');
@@ -126,7 +126,7 @@ export class CampaignManager extends EventEmitter {
         const pace = this.#paceFor(batchSize, pickPreset(preset));
         const plan = this.#dayPlan();
         return {
-            quiet: plan ? { active: inQuiet(plan), leftSeconds: quietLeftSeconds(plan), minutesToday: plan.quietMinutes, startMinute: plan.quietStart } : null,
+            quiet: plan ? quietStatus(plan) : null,
             ...this.quota.status(),
             pacingMode: this.config.pacingMode,
             pacing: pace.preset,

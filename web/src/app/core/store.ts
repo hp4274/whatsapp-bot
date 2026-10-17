@@ -60,6 +60,8 @@ export class Store {
   /** Wall clock, ticking every second while the stream is open: countdowns read it instead of timers of their own. */
   readonly now = signal(Date.now());
   private readonly quietUntil = signal(0);
+  /** The channel's clock when safety last arrived: quiet windows are in its zone, not this browser's. */
+  private readonly quietClock = signal<{ minute: number; at: number } | null>(null);
   readonly statusLine = signal('Ready.');
   readonly statusTone = signal<'muted' | 'primary' | 'warning' | 'danger'>('muted');
   readonly connecting = signal(false);
@@ -76,8 +78,17 @@ export class Store {
     return wait ? Math.max(0, Math.ceil((wait.until - this.now()) / 1000)) : 0;
   });
 
-  /** Seconds left of tonight's rest; 0 outside it. */
+  /** Seconds left of the open quiet window; 0 outside it. */
   readonly quietLeft = computed(() => Math.max(0, Math.ceil((this.quietUntil() - this.now()) / 1000)));
+
+  /**
+   * Minutes after midnight on the channel's clock, ticking with `now`; null until safety has
+   * arrived. Reaches 1440 when the day the windows belong to is over.
+   */
+  readonly quietNow = computed(() => {
+    const clock = this.quietClock();
+    return clock ? clock.minute + (this.now() - clock.at) / 60_000 : null;
+  });
 
   /** 0 to 1 share of the current campaign already processed. */
   readonly progress = computed(() => {
@@ -88,6 +99,7 @@ export class Store {
   private readonly listeners = new Set<(topic: string) => void>();
   private source: EventSource | null = null;
   private clock: ReturnType<typeof setInterval> | null = null;
+  private newDay: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.applyTheme(this.theme());
@@ -107,13 +119,17 @@ export class Store {
       },
       error: () => this.setStatus('Backend not reachable', 'danger'),
     });
-    // A send keeps running on the server after a tab closes, so ask where it got to.
+    this.refreshStats();
+    this.listen();
+    this.clock ??= setInterval(() => this.now.set(Date.now()), 1000);
+  }
+
+  /** A send keeps running on the server after a tab closes, so ask where it got to. */
+  refreshStats() {
     this.api.stats().subscribe({
       next: ({ stats }) => this.takeStats(stats),
       error: () => undefined,
     });
-    this.listen();
-    this.clock ??= setInterval(() => this.now.set(Date.now()), 1000);
   }
 
   /** Switch the number every later request acts on, and re-open the stream. */
@@ -319,6 +335,8 @@ export class Store {
     this.source = null;
     clearInterval(this.clock ?? undefined);
     this.clock = null;
+    clearTimeout(this.newDay ?? undefined);
+    this.newDay = null;
   }
 
   /** Fold engine stats in, and turn the seconds the server reports into deadlines the countdowns can run down. */
@@ -328,6 +346,13 @@ export class Store {
       this.safety.set(stats.safety);
       const { quiet } = stats.safety;
       this.quietUntil.set(quiet?.active ? Date.now() + quiet.leftSeconds * 1000 : 0);
+      this.quietClock.set(quiet ? { minute: quiet.nowMinute, at: Date.now() } : null);
+      // Tomorrow has different windows: ask again once midnight (channel time) has passed.
+      clearTimeout(this.newDay ?? undefined);
+      const untilMidnight = quiet ? ((1440 - quiet.nowMinute) * 60 + 2) * 1000 : NaN;
+      this.newDay = Number.isFinite(untilMidnight)
+        ? setTimeout(() => this.refreshStats(), untilMidnight)
+        : null;
     }
     const wait = stats.safety?.waitingSeconds ?? 0;
     // A page opened mid-wait never saw the `pacing` event: build the wait from the stats.

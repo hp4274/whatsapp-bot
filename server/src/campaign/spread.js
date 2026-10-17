@@ -72,6 +72,17 @@ export function nextDayAt(now, zone, startTime = '09:00') {
     return new Date(now.getTime() + (1440 - minute + h * 60 + m) * 60_000);
 }
 
+/**
+ * Is today's batch already out, with the next one booked for a later local day?
+ * Then "start" means "send tomorrow's share now". A booking still on today
+ * (08:00 before a 09:00 start) is not that: nothing has gone out yet today.
+ */
+export function isEarlyContinue({ cursor, scheduledAt, now = new Date(), zone = null }) {
+    const at = scheduledAt ? new Date(scheduledAt) : null;
+    return cursor > 0 && !!at && !Number.isNaN(at.getTime())
+        && daysBetween(dayKey(now, zone), dayKey(at, zone)) > 0;
+}
+
 /** The batch for today: the rest of the list over the days left, rounded up. */
 export function todaysBatch({ total, cursor, today, to }) {
     const daysLeft = Math.max(1, daysBetween(today, to) + 1);

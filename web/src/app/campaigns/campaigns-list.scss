@@ -43,6 +43,142 @@ a.btn { text-decoration: none; }
   input { padding-left: 36px; }
 }
 
+/* Quiet-time strip: today's pauses as chips over a 24h track, with a "now" pin gliding along it. */
+.quiet {
+  display: grid;
+  gap: var(--space-sm);
+  padding: 14px var(--space-xl) 12px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+}
+
+.quiet-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--space-md);
+
+  h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-strong);
+
+    .ti { font-size: 16px; color: var(--accent); }
+  }
+}
+
+.quiet-note { font-size: 12.5px; color: var(--text-muted); }
+
+.quiet-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+
+.qchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  transition: background var(--base) var(--ease), border-color var(--base) var(--ease), opacity var(--base) var(--ease);
+
+  .ti { font-size: 14px; }
+  .mono { color: var(--text-strong); }
+  b { font-weight: 500; }
+
+  &.done { opacity: 0.6; .ti { color: var(--success); } }
+
+  &.now {
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface-card));
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 8px 18px -12px color-mix(in srgb, var(--accent) 80%, transparent);
+    animation: s-pop 320ms var(--ease) both;
+    .mono { color: inherit; }
+  }
+}
+
+.quiet-bar {
+  position: relative;
+  height: 12px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background-color: var(--surface-sunken);
+  /* a hairline every 6 hours */
+  background-image: linear-gradient(to right, var(--border-color) 1px, transparent 1px);
+  background-size: 25% 100%;
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--text-strong) 10%, transparent);
+}
+
+.seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface-card) 35%, transparent);
+  transform-origin: left center;
+  animation: quiet-grow 700ms var(--ease) both;
+
+  &.now {
+    background: var(--accent);
+    animation: quiet-grow 700ms var(--ease) both, quiet-breathe 2.4s ease-in-out 700ms infinite;
+  }
+}
+
+.marker {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: var(--text-strong);
+  /* the store ticks once a second: gliding between ticks reads as continuous */
+  transition: left 1s linear;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: -4px;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    margin-left: -4px;
+    border-radius: 50%;
+    background: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-glow);
+    animation: quiet-ping 2s ease-out infinite;
+  }
+}
+
+.quiet-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--hint);
+}
+
+@keyframes quiet-grow { from { transform: scaleX(0); opacity: 0; } }
+@keyframes quiet-breathe { 50% { opacity: 0.72; } }
+@keyframes quiet-ping {
+  from { box-shadow: 0 0 0 0 var(--primary-glow); }
+  to { box-shadow: 0 0 0 8px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qchip, .seg, .marker, .marker::before { animation: none; transition: none; }
+}
+
 .sk-row { height: 38px; border-radius: var(--radius-md); }
 
 /* Table card: tighter vertical padding so the table owns the surface. */

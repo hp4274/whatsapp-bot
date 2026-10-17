@@ -17,7 +17,7 @@
 import { toCsv, withFallbacks } from '../campaign/importer.js';
 import { shuffle } from '../campaign/humanize.js';
 import { PACING_PRESETS } from '../campaign/safety.js';
-import { dayKey, daysBetween, isDateKey, nextDayAt, spreadPlan, todaysBatch } from '../campaign/spread.js';
+import { dayKey, daysBetween, isDateKey, isEarlyContinue, nextDayAt, spreadPlan, todaysBatch } from '../campaign/spread.js';
 import { ErrorCode, FRIENDLY, normalizeError } from '../messaging/errors.js';
 import { InteractiveError, normalizeInteractive, personalizeInteractive } from '../messaging/interactive.js';
 import { metaTemplateFor, prepareTemplateSend } from '../messaging/templateSend.js';
@@ -270,16 +270,35 @@ export class CampaignStore {
         const options = campaign.options ?? {};
         const spread = options.spread && Array.isArray(campaign.audience) ? options.spread : null;
         const cursor = spread?.cursor ?? 0;
-        const batch = spread ? todaysBatch({
-            total: campaign.audience.length, cursor, today: dayKey(new Date(), this.#zone(options)), to: spread.to,
+        const now = new Date();
+        const zone = this.#zone(options);
+        const early = Boolean(spread) && campaign.status === 'scheduled'
+            && isEarlyContinue({ cursor, scheduledAt: campaign.scheduledAt, now, zone });
+        let batch = spread ? todaysBatch({
+            total: campaign.audience.length,
+            cursor,
+            // Early: tomorrow's share, so the rest is divided over the days after today.
+            today: dayKey(early ? new Date(campaign.scheduledAt) : now, zone),
+            to: spread.to,
         }) : 0;
+        let carried = 0;
+        if (early) {
+            // Only what today's budget covers goes now: the manager would pause on the
+            // rest, and the next regular start re-divides whatever is left anyway.
+            const take = Math.min(batch, this.#budgetLeft());
+            if (take <= 0) {
+                throw new CampaignError(`Today's sending limit is already used. The next batch goes out tomorrow at ${spread.startTime}.`, 409);
+            }
+            carried = batch - take;
+            batch = take;
+        }
         const recipients = spread
             ? this.resolveAudience(campaign, { offset: cursor, limit: batch })
             : this.resolveAudience(campaign);
         if (spread && !recipients.length) {
             // Everyone left in today's slice opted out: move on instead of retrying forever.
             this.#spreadAdvance(campaign, cursor + batch);
-            return { campaign: this.get(campaign.id), audience: 0, queued: 0 };
+            return { campaign: this.get(campaign.id), audience: 0, queued: 0, carried };
         }
         if (!recipients.length) throw new CampaignError('that audience is empty');
         if (!this.manager) throw new CampaignError('no campaign manager is configured', 500);
@@ -309,7 +328,7 @@ export class CampaignStore {
         this.#set(campaign.id, { status: 'running', started_at: campaign.startedAt ?? this.now(), finished_at: null });
         if (spread) this.#saveSpread(campaign, cursor + batch);
         this.#reason(campaign.id, null);
-        return { campaign: this.get(campaign.id), audience: recipients.length, ...result };
+        return { campaign: this.get(campaign.id), audience: recipients.length, ...result, carried };
     }
 
     /**
@@ -628,6 +647,16 @@ export class CampaignStore {
 
     #zone(options) {
         return options?.timezone || this.manager?.timezone?.() || null;
+    }
+
+    /**
+     * What may still go out today: the tier / plan quota and the platform's business cap,
+     * whichever is tighter (Infinity when neither applies, like `spreadCheck`).
+     */
+    #budgetLeft() {
+        const left = [this.manager?.quota?.remaining?.(), this.manager?.bulkPolicy?.()?.capRemaining?.()?.left]
+            .map(Number).filter(Number.isFinite);
+        return Math.min(...left, Infinity);
     }
 
     #saveSpread(campaign, cursor) {

@@ -1,6 +1,6 @@
 /**
  * Making bulk traffic look like a person: sending tiers, a different rhythm
- * every day, a typing pause, a night's rest per day, the recipient's local
+ * every day, a typing pause, a few quiet windows per day, the recipient's local
  * time, and a content check. Pure functions: the manager and the transport
  * decide when to call them.
  *
@@ -14,7 +14,7 @@ const HOUR = 3600;
  * Sending tiers. A number starts on tier 1 and moves up when it has sent
  * `upgradeAt` messages inside one 7-day block (counted from its first send).
  * Higher tier = bigger day, shorter gaps, shorter nightly rest.
- * Gaps are seconds; `quietHours` is the nightly rest [min, max] hours.
+ * Gaps are seconds; `quietHours` is the day's total quiet time [min, max] hours.
  */
 export const TIERS = Object.freeze([
     { tier: 1, name: 'Warm-up', dailyLimit: 250, minSeconds: 45, maxSeconds: 130, quietHours: [6, 8], restEvery: 20, restMinMinutes: 3, restMaxMinutes: 7, upgradeAt: 1000 },
@@ -95,57 +95,104 @@ export function wallClock(at = new Date(), zone = null) {
 
 export const localDayKey = (at = new Date(), zone = null) => wallClock(at, zone).day;
 
+/** A rest shorter than this is not worth a pause; the day's total is split so none falls below it. */
+const MIN_WINDOW_MINUTES = 40;
+/** Sending time guaranteed between two rests. Each window keeps half of it clear on both sides of its slot. */
+const MIN_GAP_MINUTES = 120;
+
+/**
+ * Splits the day's rest into 2-3 separate windows. The day is cut into one
+ * equal slot per window and each window sits at a random spot inside its slot,
+ * at least half the gap away from the slot edges: so no window crosses
+ * midnight, none overlap, and two neighbours are never closer than the gap.
+ * Window sizes are weighted (0.5x-1.5x) so they differ, but each is at least
+ * MIN_WINDOW_MINUTES and the sizes add up to `total` exactly.
+ */
+function quietWindows(random, total) {
+    const count = Math.max(1, Math.min(random() < 0.5 ? 2 : 3, Math.floor(total / MIN_WINDOW_MINUTES)));
+    const weights = Array.from({ length: count }, () => 0.5 + random());
+    const spare = total - count * MIN_WINDOW_MINUTES;
+    const weightSum = weights.reduce((a, b) => a + b, 0);
+    const sizes = weights.map((w) => MIN_WINDOW_MINUTES + Math.floor((spare * w) / weightSum));
+    sizes[count - 1] += total - sizes.reduce((a, b) => a + b, 0);   // rounding remainder
+    const slot = 1440 / count;
+    const margin = MIN_GAP_MINUTES / 2;
+    return sizes.map((minutes, i) => ({
+        start: Math.round(i * slot + margin + random() * (slot - 2 * margin - minutes)),
+        minutes,
+    }));
+}
+
 /**
  * Today's rhythm for one number: every day draws a different gap multiplier
- * and a different rest window, so no two days repeat the same timing.
+ * and different rest windows, so no two days repeat the same timing.
  * Deterministic per (seed, day) so a restart does not re-roll mid-day.
- * `quiet` is minutes since local midnight in `zone`; the window never crosses
- * midnight. It starts between 00:00 and 02:00, i.e. it is the night's rest:
- * a window drawn anywhere in the day froze daytime campaigns for hours.
+ * `windows` are `{ start, minutes }` in minutes since local midnight in `zone`,
+ * sorted and never crossing midnight. `quietMinutes` is their total and
+ * `quietStart` the first start, for callers that only know one window.
  */
 export function dayPlan(seed, tier, at = new Date(), zone = null) {
     const random = seeded(`${seed}|${localDayKey(at, zone)}`);
     const [lo, hi] = tier.quietHours;
     const quietMinutes = Math.round((lo + random() * (hi - lo)) * 60);
-    return {
-        gapFactor: 0.8 + random() * 0.5,
-        quietStart: Math.floor(random() * 120),
-        quietMinutes,
-        zone,
-    };
+    const gapFactor = 0.8 + random() * 0.5;
+    const windows = quietWindows(random, quietMinutes);
+    return { gapFactor, quietStart: windows[0].start, quietMinutes, windows, zone };
 }
+
+/** A plan with only `quietStart` / `quietMinutes` (older shape) counts as one window. */
+const windowsOf = (plan) => plan.windows ?? [{ start: plan.quietStart, minutes: plan.quietMinutes }];
+
+const windowAt = (plan, minute) => windowsOf(plan).find((w) => minute >= w.start && minute < w.start + w.minutes);
 
 export function inQuiet(plan, at = new Date()) {
-    const { minute } = wallClock(at, plan.zone);
-    return minute >= plan.quietStart && minute < plan.quietStart + plan.quietMinutes;
+    return Boolean(windowAt(plan, wallClock(at, plan.zone).minute));
 }
 
-/** Seconds until today's rest window ends (0 when not resting). */
+/** Seconds until the rest window we are in ends (0 when not resting). */
 export function quietLeftSeconds(plan, at = new Date()) {
-    if (!inQuiet(plan, at)) return 0;
     const { minute } = wallClock(at, plan.zone);
-    return Math.ceil((plan.quietStart + plan.quietMinutes - minute) * 60);
+    const w = windowAt(plan, minute);
+    return w ? Math.ceil((w.start + w.minutes - minute) * 60) : 0;
+}
+
+/**
+ * Today's rest as the UI shows it. `nowMinute` is the channel's clock when
+ * asked: the windows are in that zone, which may not be the viewer's.
+ */
+export function quietStatus(plan, at = new Date()) {
+    return {
+        active: inQuiet(plan, at),
+        leftSeconds: quietLeftSeconds(plan, at),
+        minutesToday: plan.quietMinutes,
+        startMinute: plan.quietStart,
+        windows: windowsOf(plan).map((w) => ({ startMinute: w.start, endMinute: w.start + w.minutes })),
+        nowMinute: Math.round(wallClock(at, plan.zone).minute * 100) / 100,
+    };
 }
 
 /**
  * Rest time a run of `seconds` of sending would meet if it started at `at`:
- * walks forward through each day's window (`planFor(date)` gives that day's plan).
+ * walks forward through every window of each day (`planFor(date)` gives that
+ * day's plan). Up to three windows a day means ~7 steps a day; 250 steps cover
+ * the longest sheets a tier-1 number can work through.
  */
 export function quietExtraSeconds(planFor, seconds, at = new Date()) {
     let t = at.getTime();
     let left = seconds;
     let extra = 0;
-    for (let i = 0; i < 60 && left > 0; i += 1) {
+    for (let i = 0; i < 250 && left > 0; i += 1) {
         const plan = planFor(new Date(t));
         const { minute } = wallClock(new Date(t), plan.zone);
-        const end = plan.quietStart + plan.quietMinutes;
+        const inside = windowAt(plan, minute);
         let step;
-        if (minute >= plan.quietStart && minute < end) {
-            step = (end - minute) * 60;
+        if (inside) {
+            step = (inside.start + inside.minutes - minute) * 60;
             extra += step;
         } else {
-            // Sending until the window opens (still ahead today) or until local midnight.
-            step = ((minute < plan.quietStart ? plan.quietStart : 1440) - minute) * 60;
+            // Sending until the next window opens (still ahead today) or until local midnight.
+            const next = windowsOf(plan).find((w) => w.start > minute);
+            step = ((next ? next.start : 1440) - minute) * 60;
             if (left <= step) break;
             left -= step;
         }

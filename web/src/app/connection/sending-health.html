@@ -1,6 +1,6 @@
 <!--
   Three bands in one card: the tier staircase with progress to the next step,
-  today (budget + rest window), then blocks and reports with who and when.
+  today (budget + quiet-time windows), then blocks and reports with who and when.
 -->
 <section class="card sh" aria-labelledby="sh-title">
   <header class="card-head">
@@ -88,13 +88,14 @@
         -->
         @if (quiet(); as q) {
           <div class="stat rest" [class.resting]="q.active">
-            <span><i class="ti ti-moon" aria-hidden="true"></i>Rest today</span>
+            <span><i class="ti ti-moon" aria-hidden="true"></i>Quiet time today</span>
             <strong>{{ duration(q.minutesToday) }}</strong>
+            @if (q.active) {
+              <small class="muted">Resting now, back in {{ duration(restLeftMinutes()) }}</small>
+            }
             <small class="muted">
-              @if (q.active) {
-                Resting now, back in {{ duration(restLeftMinutes()) }}
-              } @else {
-                {{ clock(q.startMinute) }}–{{ clock(q.startMinute + q.minutesToday) }}
+              @for (w of q.windows; track w.startMinute; let last = $last) {
+                {{ clock(w.startMinute) }}–{{ clock(w.endMinute) }}{{ last ? '' : ' · ' }}
               }
             </small>
           </div>

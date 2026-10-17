@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { RouterLink } from '@angular/router';
 
 import { type Campaign, type CampaignStatus, CampaignsApi } from '../core/api';
+import { clockLabel, durationLabel } from '../core/quiet-time';
 import { Store } from '../core/store';
 import {
   canCancel,
@@ -88,6 +89,31 @@ export class CampaignsListView {
   );
   protected readonly from = computed(() => (this.visible().length ? this.offset() + 1 : 0));
   protected readonly to = computed(() => Math.min(this.visible().length, this.offset() + this.pageSize));
+
+  /**
+   * Today's quiet windows against the channel's own clock (`store.quietNow`): the windows are
+   * minutes in the channel's zone, so the browser's local time would put the marker in the wrong
+   * place. Null when the tier system is off or the windows belong to a day that has ended.
+   */
+  protected readonly quiet = computed(() => {
+    const q = this.store.safety()?.quiet;
+    const now = this.store.quietNow();
+    if (!q?.windows?.length || now === null || now >= 1440) return null;
+    const windows = q.windows.map((w) => ({
+      key: w.startMinute,
+      label: `${clockLabel(w.startMinute)}–${clockLabel(w.endMinute)}`,
+      state: now >= w.endMinute ? 'done' : now >= w.startMinute ? 'now' : 'next',
+      from: (w.startMinute / 1440) * 100,
+      span: ((w.endMinute - w.startMinute) / 1440) * 100,
+      backIn: durationLabel(Math.max(1, Math.ceil(w.endMinute - now))),
+    }));
+    return {
+      windows,
+      total: durationLabel(q.minutesToday),
+      marker: (Math.max(0, now) / 1440) * 100,
+      summary: windows.map((w) => w.label).join(', '),
+    };
+  });
 
   protected readonly canStart = canStart;
   protected readonly canPause = canPause;

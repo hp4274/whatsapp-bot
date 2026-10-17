@@ -43,6 +43,27 @@ export function relativeTime(iso: string | null | undefined, now = Date.now()): 
   return diff > 0 ? `in ${n}${unit}` : `${n}${unit} ago`;
 }
 
+/** `YYYY-MM-DD` on the wall clock of `zone` (the browser's when unset or unknown). */
+export function dayKey(at: Date, zone?: string | null): string {
+  const fmt = (timeZone?: string) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(at);
+  try {
+    return fmt(zone || undefined);
+  } catch {
+    return fmt();
+  }
+}
+
+/** Whole days from `a` to `b`, both `YYYY-MM-DD`. */
+export function daysBetween(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+}
+
 export function percent(part: number, whole: number): number {
   if (!whole || whole <= 0) return 0;
   return Math.max(0, Math.min(100, Math.round((part / whole) * 1000) / 10));

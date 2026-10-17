@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { DatePipe, DecimalPipe } from '@angular/common';
 
 import { Api, SafetyEvent, SafetyHealth, SafetyStatus } from '../core/api';
+import { clockLabel, durationLabel } from '../core/quiet-time';
 import { Store } from '../core/store';
 
 /**
@@ -17,7 +18,7 @@ const TIER_STEPS: readonly { readonly n: number; readonly perDay: string }[] = [
 
 /**
  * How healthy the sending number is: which tier it is on and how far from the
- * next, today's budget and rest window, and the block / report rate with who
+ * next, today's budget and quiet-time windows, and the block / report rate with who
  * and when.
  *
  * Blocks are inferred (a message stuck at one tick for 12 hours), because
@@ -42,7 +43,7 @@ export class SendingHealth {
   protected readonly steps = TIER_STEPS;
   protected readonly tier = computed(() => this.safety()?.tier ?? null);
   protected readonly quiet = computed(() => this.safety()?.quiet ?? null);
-  /** When tonight's rest ends on this browser's clock; the server only says how long was left when it answered. */
+  /** When the open quiet window ends on this browser's clock; the server only says how long was left when it answered. */
   private readonly restEndsAt = signal(0);
   protected readonly restLeftMinutes = computed(
     () => Math.max(0, this.restEndsAt() - this.store.now()) / 60_000,
@@ -94,17 +95,8 @@ export class SendingHealth {
     });
   }
 
-  /** 125 minutes after midnight -> "02:05". */
-  protected clock(minute: number): string {
-    const h = Math.floor(minute / 60) % 24;
-    return `${String(h).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
-  }
-
-  protected duration(minutes: number): string {
-    const h = Math.floor(minutes / 60);
-    const m = Math.round(minutes % 60);
-    return h ? (m ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
-  }
+  protected readonly clock = clockLabel;
+  protected readonly duration = durationLabel;
 
   protected label(event: SafetyEvent): string {
     return event.kind === 'block' ? 'May have blocked you' : 'Complained';
