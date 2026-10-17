@@ -1461,6 +1461,12 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
 
     app.get('/campaign/stats', (req, res) => res.json({ stats: manager.statsSnapshot() }));
 
+    /** Who goes out next, in the worker's own order (the progress card's "up next"). */
+    app.get('/campaign/queue', (req, res) => res.json({
+        next: manager.upNext(Math.min(20, Math.max(1, Number(req.query.limit) || 5))),
+        pending: manager.queue.pending,
+    }));
+
     /** Phase 3 queue observability: depth, what is in it, and how it is going. */
     app.get('/queue', (req, res) => res.json({ queue: messages.snapshot() }));
 

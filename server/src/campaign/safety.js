@@ -21,7 +21,7 @@
 
 import { withinSendingWindow } from '../channels.js';
 import { SUCCESS_STATUSES } from '../protocol.js';
-import { TIERS, tierFromWeeks, tierStatus } from './humanize.js';
+import { TIERS, tierFromWeeks, tierStatus, wallClock } from './humanize.js';
 
 /** Day-one cap for a new number under warm-up (unless `config.warmupStart`); it doubles each day after. */
 export const WARMUP_START = 30;
@@ -157,14 +157,24 @@ export function estimateSeconds(count, pace) {
     };
 }
 
-/** Local midnight for the day `at` falls in - the daily window boundary. */
-export function dayStart(at = new Date()) {
+/**
+ * Midnight for the day `at` falls in - the daily window boundary. `zone` (IANA)
+ * is the sender's own clock, so the budget resets at THEIR 00:00; without one
+ * it is the server's.
+ */
+export function dayStart(at = new Date(), zone = null) {
+    if (zone) {
+        // ponytail: a 24h day; a DST change inside it moves the boundary an hour, twice a year.
+        const whole = Math.floor(at.getTime() / 1000) * 1000;
+        return new Date(whole - wallClock(new Date(whole), zone).minute * 60_000);
+    }
     const start = new Date(at);
     start.setHours(0, 0, 0, 0);
     return start;
 }
 
-export function dayEnd(at = new Date()) {
+export function dayEnd(at = new Date(), zone = null) {
+    if (zone) return new Date(dayStart(at, zone).getTime() + DAY_MS);
     const end = dayStart(at);
     end.setDate(end.getDate() + 1);
     return end;
@@ -179,6 +189,8 @@ export class DailyQuota {
     constructor(db, config) {
         this.db = db;
         this.config = config;
+        /** () => the sender's IANA zone; the day (and so the reset) follows it. Set by the owner. */
+        this.zone = () => null;
     }
 
     get limit() {
@@ -214,14 +226,16 @@ export class DailyQuota {
             return tier ? tier.dailyLimit : base;
         }
         const first = this.db.firstSentAt?.();
-        const age = first ? Math.max(0, Math.round((dayStart(now) - dayStart(new Date(first))) / DAY_MS)) : 0;
+        const zone = this.zone();
+        const age = first ? Math.max(0, Math.round((dayStart(now, zone) - dayStart(new Date(first), zone)) / DAY_MS)) : 0;
         if (age >= days) return base;
         const ramp = (Number(this.config.warmupStart) || WARMUP_START) * 2 ** age;
         return base ? Math.min(base, ramp) : ramp;
     }
 
     usedToday(now = new Date()) {
-        return this.db.countSentBetween(dayStart(now).toISOString(), dayEnd(now).toISOString());
+        const zone = this.zone();
+        return this.db.countSentBetween(dayStart(now, zone).toISOString(), dayEnd(now, zone).toISOString());
     }
 
     remaining(now = new Date()) {
@@ -245,7 +259,7 @@ export class DailyQuota {
             used,
             tier: this.tierStatus(),
             remaining: limited ? Math.max(0, limit - used) : null,
-            resetsAt: dayEnd(now).toISOString(),
+            resetsAt: dayEnd(now, this.zone()).toISOString(),
         };
     }
 }

@@ -248,7 +248,13 @@
   </section>
 
   @if (analytics(); as a) {
-    <app-campaign-insights [analytics]="a" [campaignId]="c.id" />
+    <app-campaign-insights
+      [analytics]="a"
+      [campaignId]="c.id"
+      [updatedAt]="updatedAt()"
+      [refreshing]="inflight() > 0"
+      (refresh)="reload()"
+    />
     <app-campaign-recipients [recipients]="a.recipients" />
   }
 }

@@ -148,10 +148,11 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
                 const s = stats.get(`${tenant.id}:${ch.id}`) ?? {};
                 const config = state?.config ?? { ...DEFAULTS, ...ch.settings, ...tenancy.enforcedSafety(tenant) };
                 const quota = state?.manager?.quota ?? new DailyQuota(scoped.forChannel(ch.id), config);
+                if (!state?.manager) quota.zone = () => ch.timezone || null;
                 const budget = quota.status(new Date(now));
                 const warmDays = Number(config.warmupDays) || 0;
                 const first = warmDays ? quota.db.firstSentAt?.() : null;
-                const age = first ? Math.max(0, Math.round((dayStart(new Date(now)) - dayStart(new Date(first))) / DAY_MS)) : 0;
+                const age = first ? Math.max(0, Math.round((dayStart(new Date(now), ch.timezone) - dayStart(new Date(first), ch.timezone)) / DAY_MS)) : 0;
                 const info = state?.info ?? null;
                 const waiting = Number(s.waiting ?? 0);
                 const hourTotal = Number(s.hour_total ?? 0);

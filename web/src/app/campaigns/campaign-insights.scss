@@ -23,12 +23,66 @@ h3 {
 
 .head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--space-md);
   margin-bottom: var(--space-lg);
 }
+.titles { display: flex; align-items: baseline; gap: var(--space-md); flex-wrap: wrap; }
 .sub { font-size: 12px; color: var(--hint); }
+
+/* Freshness: a dot that pulses while the stream is up, the age of the numbers, a refresh. */
+.fresh { display: flex; align-items: center; gap: var(--space-sm); }
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+
+  .when { font-weight: 400; color: var(--hint); }
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    animation: live-ping 2s var(--ease) infinite;
+  }
+  &.off .dot { background: var(--hint); animation: none; }
+}
+
+.refresh {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--surface-card);
+  color: var(--text-muted);
+  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+
+  .ti { font-size: 16px; }
+  &:hover:not(:disabled) { border-color: var(--border-hover); color: var(--text-strong); }
+  &:disabled { cursor: progress; }
+  &.spinning .ti { animation: live-spin 800ms linear infinite; }
+}
+
+@keyframes live-ping {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 45%, transparent); }
+  70%, 100% { box-shadow: 0 0 0 6px transparent; }
+}
+@keyframes live-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .live .dot, .refresh.spinning .ti { animation: none; }
+}
 
 /* Funnel ------------------------------------------------------------- */
 .stages {

@@ -102,7 +102,6 @@ tbody tr {
   .lbl { font-size: 13px; font-weight: 500; color: var(--text-strong); }
   .req { color: var(--danger-text); }
   .err { font-size: 12px; font-weight: 500; color: var(--danger-text); }
-  input, select { color-scheme: light dark; }
   input[readonly] { background: var(--surface-sunken); color: var(--text-muted); font-family: var(--mono); font-size: 13px; }
   &.invalid input { border-color: var(--danger); }
   &.check { display: flex; align-items: center; gap: var(--space-sm); align-self: end; min-height: 40px; input { width: 18px; height: 18px; } }

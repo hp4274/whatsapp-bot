@@ -2,7 +2,7 @@
   Three bands in one card: the tier staircase with progress to the next step,
   today (budget + quiet-time windows), then blocks and reports with who and when.
 -->
-<section class="card sh" aria-labelledby="sh-title">
+<section #card class="card sh" aria-labelledby="sh-title" (keydown.escape)="close()">
   <header class="card-head">
     <div>
       <h3 id="sh-title">Number health</h3>
@@ -88,17 +88,32 @@
         -->
         @if (quiet(); as q) {
           <div class="stat rest" [class.resting]="resting()">
-            <span><i class="ti ti-moon" aria-hidden="true"></i>Quiet time today</span>
+            <span title="Times are in your local time"
+              ><i class="ti ti-moon" aria-hidden="true"></i>Quiet time today</span
+            >
             <strong>{{ duration(q.minutesToday) }}</strong>
             @if (resting(); as r) {
               <small class="muted">Resting now, back in {{ duration(r.minutesLeft) }}</small>
             }
-            <small class="muted" title="Times are in your local time">
+            <small class="muted">
               @for (w of slots(); track w.key; let last = $last) {
-                <span class="win" [class.done]="w.state === 'done'" [class.now]="w.state === 'now'"
+                <button
+                  type="button"
+                  class="win"
+                  [class.done]="w.state === 'done'"
+                  [class.now]="w.state === 'now'"
+                  [class.hot]="lit() === w.key"
+                  [class.dim]="lit() !== null && lit() !== w.key"
+                  [attr.aria-label]="speech(w)"
+                  [attr.aria-pressed]="pinned() && lit() === w.key"
+                  (pointerenter)="show(w, $event)"
+                  (pointerleave)="hide($event)"
+                  (focus)="show(w, $event)"
+                  (blur)="hide()"
+                  (click)="pin(w, $event)"
                   >{{ w.label }}@if (w.day) {
                     <em> {{ w.day }}</em>
-                  }</span
+                  }</button
                 >{{ last ? '' : ' · ' }}
               }
             </small>
@@ -183,4 +198,6 @@
       </div>
     }
   }
+
+  <app-quiet-tip [info]="tip()" [place]="place()" [top]="tipTop()" />
 </section>

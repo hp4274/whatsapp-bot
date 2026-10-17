@@ -1,0 +1,74 @@
+:host {
+  position: absolute;
+  z-index: 30;
+  display: grid;
+  gap: 2px;
+  padding: 9px 13px 10px;
+  border: 1px solid var(--border-hover);
+  border-radius: 14px;
+  background: var(--surface-card);
+  box-shadow:
+    0 16px 30px -14px color-mix(in srgb, var(--brand-ink) 50%, transparent),
+    0 2px 6px color-mix(in srgb, var(--brand-ink) 10%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--text-strong) 6%, transparent);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  /* Grows out of the point it describes, tipped back a little like a card being lifted. */
+  transform: perspective(520px) translateY(-6px) rotateX(12deg) scale(0.96);
+  transform-origin: var(--ox, 50%) 0;
+  transition:
+    opacity var(--fast) var(--ease),
+    transform var(--fast) var(--ease),
+    visibility 0s linear var(--fast);
+}
+
+:host(.show) {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition-delay: 0s;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+
+  b {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-strong);
+  }
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+:host([data-tone='quiet']) .dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+strong {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :host {
+    transform: none;
+    transition: none;
+  }
+}

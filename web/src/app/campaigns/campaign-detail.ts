@@ -10,7 +10,7 @@ import {
   untracked,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import type { Observable } from 'rxjs';
+import { finalize, type Observable } from 'rxjs';
 
 import {
   type Campaign,
@@ -39,6 +39,11 @@ const SPEEDS: readonly { key: PacingPreset; label: string; icon: string }[] = [
   { key: 'fast', label: 'Fast', icon: 'bolt' },
 ];
 
+/** How often a finished campaign is re-read while Delivered / Read ticks may still be on their way. */
+const RECEIPT_POLL_MS = 10_000;
+/** Phones that stay off or unread for longer than this are not worth a poll. */
+const RECEIPT_WINDOW_MS = 7 * 86_400_000;
+
 /**
  * One campaign: its schedule, live progress and controls, then analytics.
  *
@@ -53,6 +58,11 @@ const SPEEDS: readonly { key: PacingPreset; label: string; icon: string }[] = [
   templateUrl: './campaign-detail.html',
   styleUrl: './campaign-detail.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    // A sleeping tab misses SSE events: ask again the moment it is looked at.
+    '(document:visibilitychange)': 'onSeen()',
+    '(window:focus)': 'onSeen()',
+  },
 })
 export class CampaignDetailView {
   private readonly api = inject(CampaignsApi);
@@ -79,6 +89,18 @@ export class CampaignDetailView {
   /** Which control is in flight; every control disables while any one is. */
   protected readonly busy = signal<string | null>(null);
   protected readonly confirmCancel = signal(false);
+  /** When the analytics on screen were read (ms epoch); null until the first answer. */
+  protected readonly updatedAt = signal<number | null>(null);
+  /** Analytics requests in flight, for the funnel's refresh spinner. */
+  protected readonly inflight = signal(0);
+  /**
+   * Request counter and the newest one applied. Analytics is slow on a big campaign, so an older
+   * answer can land after a newer one and put stale counts back; it is dropped instead. An
+   * older answer that lands first is still applied, so a busy run never starves the screen.
+   */
+  private issued = 0;
+  private applied = 0;
+  private lastAsk = 0;
 
   protected readonly numericId = computed(() => Number(this.id()));
   protected readonly status = computed(() => this.campaign()?.status ?? 'draft');
@@ -164,16 +186,47 @@ export class CampaignDetailView {
         this.loading.set(true);
         this.campaign.set(null);
         this.analytics.set(null);
+        this.updatedAt.set(null);
         this.notFound.set(false);
+        // Whatever is still in flight belongs to the previous campaign.
+        this.applied = ++this.issued;
         this.reload();
       });
     });
     this.store.watch(['campaigns', 'campaign', 'history', 'analytics'], () => this.reload(), 700);
-    // SSE can drop silently (proxy resets, sleeping tabs): while a run is live, poll as a backstop.
+    // Events sent while the stream was down are gone: read again once it is back.
+    let wasOnline = this.store.streamOnline();
+    effect(() => {
+      const online = this.store.streamOnline();
+      if (online && !wasOnline) untracked(() => this.reload());
+      wasOnline = online;
+    });
+    // SSE can drop silently (proxy resets, sleeping tabs), so poll as a backstop: fast while a run
+    // is live, and slowly once it is done for as long as Delivered / Read ticks can still arrive.
     const poll = setInterval(() => {
-      if (!this.loading() && ['running', 'paused', 'scheduled'].includes(this.status())) this.reload();
+      if (this.loading()) return;
+      if (['running', 'paused', 'scheduled'].includes(this.status())) this.reload();
+      else if (this.receiptsPending() && document.visibilityState === 'visible'
+        && Date.now() - this.lastAsk >= RECEIPT_POLL_MS) this.reload();
     }, 3000);
     inject(DestroyRef).onDestroy(() => clearInterval(poll));
+  }
+
+  /**
+   * Ticks land minutes to hours after the last send, long after the status says `done`, so
+   * "finished" is not "settled": some sends are still short of Read, and recently enough to care.
+   */
+  private receiptsPending(): boolean {
+    const funnel = this.analytics()?.funnel;
+    if (!funnel || !['done', 'cancelled', 'paused'].includes(this.status())) return false;
+    const ended = Date.parse(this.campaign()?.finishedAt ?? '');
+    return funnel.sent > funnel.read && !(Date.now() - ended > RECEIPT_WINDOW_MS);
+  }
+
+  /** Tab shown or window focused; both events fire together, so the second is ignored. */
+  protected onSeen(): void {
+    if (document.visibilityState !== 'visible' || this.loading() || Date.now() - this.lastAsk < 1000) return;
+    this.reload();
   }
 
   protected reload(): void {
@@ -183,29 +236,42 @@ export class CampaignDetailView {
       this.loading.set(false);
       return;
     }
-    this.api.analytics(id).subscribe({
-      next: (data) => {
-        this.analytics.set(data);
-        this.campaign.set(data.campaign);
-        this.error.set('');
-        this.loading.set(false);
-      },
-      // Analytics failing does not mean the campaign is gone: ask for it directly.
-      error: (err: Error) => {
-        this.api.get(id).subscribe({
-          next: ({ campaign }) => {
-            this.campaign.set(campaign);
-            this.error.set(`Analytics unavailable: ${err.message}`);
-            this.loading.set(false);
-          },
-          error: (inner: Error) => {
-            if (/not found|404/i.test(inner.message)) this.notFound.set(true);
-            else this.error.set(inner.message);
-            this.loading.set(false);
-          },
-        });
-      },
-    });
+    const ticket = ++this.issued;
+    const stale = () => ticket < this.applied;
+    this.lastAsk = Date.now();
+    this.inflight.update((n) => n + 1);
+    this.api
+      .analytics(id)
+      .pipe(finalize(() => this.inflight.update((n) => n - 1)))
+      .subscribe({
+        next: (data) => {
+          if (stale()) return;
+          this.applied = ticket;
+          this.analytics.set(data);
+          this.campaign.set(data.campaign);
+          this.updatedAt.set(Date.now());
+          this.error.set('');
+          this.loading.set(false);
+        },
+        // Analytics failing does not mean the campaign is gone: ask for it directly.
+        error: (err: Error) => {
+          if (stale()) return;
+          this.api.get(id).subscribe({
+            next: ({ campaign }) => {
+              if (stale()) return;
+              this.campaign.set(campaign);
+              this.error.set(`Analytics unavailable: ${err.message}`);
+              this.loading.set(false);
+            },
+            error: (inner: Error) => {
+              if (stale()) return;
+              if (/not found|404/i.test(inner.message)) this.notFound.set(true);
+              else this.error.set(inner.message);
+              this.loading.set(false);
+            },
+          });
+        },
+      });
   }
 
   private run<T extends { campaign: Campaign }>(

@@ -8,12 +8,12 @@ import {
   signal,
 } from '@angular/core';
 
-import { Api, type MessageRecord } from './api';
+import { Api, type MessageRecord, type QueuedNext } from './api';
 import { Store } from './store';
 
 /** How long a finished run stays on screen before the card closes itself. */
 const AUTO_CLOSE_SECONDS = 10;
-/** How many recent messages the card lists. */
+/** How many messages the card lists: the next ones while sending, the last ones after. */
 const RECENT_COUNT = 5;
 
 /**
@@ -21,8 +21,10 @@ const RECENT_COUNT = 5;
  * tray: how far along it is, what has gone out, and pause / resume / stop.
  * The server owns the send, so this only reads `store.stats` and reflects it.
  *
- * Under the counts it lists the last five messages (who, what, status), so the
- * operator sees names going out rather than only a number. Once a run ends the
+ * Under the counts it lists who goes out next, in the server's own queue order
+ * (the worker's, not the history table's), so the operator sees the real next
+ * names rather than only a number; after the run it lists the last five sent.
+ * Once a run ends the
  * card closes itself after 10 seconds; hovering or focusing it holds it open,
  * so nobody loses it mid-read (WCAG 2.2.1, adjustable timing).
  *
@@ -93,7 +95,20 @@ const RECENT_COUNT = 5;
                 <b>{{ stats().pending }}</b> waiting
               </li>
             </ul>
-            @if (recent().length) {
+            @if (upNextRows().length) {
+              <ol class="recent" aria-label="Up next">
+                @for (m of upNextRows(); track m.messageId) {
+                  <li>
+                    <span class="av" aria-hidden="true">{{ initials(m) }}</span>
+                    <span class="who">
+                      <b>{{ m.name || m.recipient }}</b>
+                      <small>{{ m.message || 'Media' }}</small>
+                    </span>
+                    <span class="st st-{{ m.tone }}">{{ m.label }}</span>
+                  </li>
+                }
+              </ol>
+            } @else if (recent().length) {
               <ol class="recent" aria-label="Recently sent">
                 @for (m of recent(); track m.messageId) {
                   <li>
@@ -403,6 +418,18 @@ export class SendIsland {
 
   /** Newest messages first, refreshed as the server reports sends. */
   protected readonly recent = signal<MessageRecord[]>([]);
+  /** The queue's head while a run is live, in the order the server will send it. */
+  private readonly upNext = signal<QueuedNext[]>([]);
+  protected readonly upNextRows = computed(() => {
+    let nextTaken = false;
+    return this.upNext().map((m) => {
+      if (m.sending) return { ...m, label: 'Sending', tone: 'run' as const };
+      if (m.later) return { ...m, label: 'Later', tone: 'mute' as const };
+      const label = nextTaken ? 'Queued' : 'Next';
+      nextTaken = true;
+      return { ...m, label, tone: label === 'Next' ? ('ok' as const) : ('mute' as const) };
+    });
+  });
   /** Seconds left before a finished run closes; null while running or held. */
   protected readonly closesIn = signal<number | null>(null);
   private readonly held = signal(false);
@@ -514,7 +541,7 @@ export class SendIsland {
     this.held.set(on);
   }
 
-  protected initials(m: MessageRecord): string {
+  protected initials(m: { name: string; recipient: string }): string {
     const source = (m.name || '').trim();
     if (!source) return m.recipient.slice(-2);
     const parts = source.split(/\s+/);
@@ -534,6 +561,14 @@ export class SendIsland {
 
   private loadRecent(): void {
     // One HTTP call that completes on its own; failures just keep the last list.
+    if (this.phase() === 'sending' || this.phase() === 'paused') {
+      this.api.queueNext(RECENT_COUNT).subscribe({
+        next: ({ next }) => this.upNext.set(next),
+        error: () => undefined,
+      });
+    } else {
+      this.upNext.set([]);
+    }
     this.api.history({ limit: RECENT_COUNT }).subscribe({
       next: (res) => {
         if (res.body) this.recent.set(res.body.records.slice(0, RECENT_COUNT));

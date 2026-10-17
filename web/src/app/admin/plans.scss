@@ -163,7 +163,7 @@
   .biz { color: var(--text-strong); font-weight: 500; }
 }
 .note { display: flex; align-items: center; gap: 4px; margin-top: 3px; font-size: 12px; color: var(--warning); }
-.change { display: flex; gap: 6px; select { min-width: 180px; padding: 6px 10px; font-size: 13px; } }
+.change { display: flex; gap: 6px; select { min-width: 180px; padding-block: 6px; padding-inline-start: 10px; font-size: 13px; } }
 .row-actions, .confirm { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
 
 /* Editor drawer --------------------------------------------------------- */

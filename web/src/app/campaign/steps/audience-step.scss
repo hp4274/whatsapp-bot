@@ -211,7 +211,7 @@
 }
 
 .skipped { margin: 0; font-size: 13px; }
-.check select { width: auto; padding: 4px 8px; font-size: 13px; }
+.check select { width: auto; padding-block: 4px; padding-inline-start: 8px; font-size: 13px; }
 
 .reason {
   --tone: var(--danger-text);

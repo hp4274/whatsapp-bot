@@ -1,8 +1,30 @@
 <!-- Funnel tiles, then clicks and failures side by side, then re-target shortcuts. -->
 <section class="s-card s-enter" style="--i: 2" aria-labelledby="funnel-h">
   <header class="head">
-    <h3 id="funnel-h">Delivery funnel</h3>
-    <span class="sub">% of {{ analytics().funnel.audience }} recipients</span>
+    <div class="titles">
+      <h3 id="funnel-h">Delivery funnel</h3>
+      <span class="sub">% of {{ analytics().funnel.audience }} recipients</span>
+    </div>
+    <div class="fresh">
+      <span class="live" [class.off]="!store.streamOnline()">
+        <span class="dot" aria-hidden="true"></span>
+        {{ store.streamOnline() ? 'Live' : 'Reconnecting…' }}
+        @if (updated(); as when) {
+          <span class="when">· updated {{ when }}</span>
+        }
+      </span>
+      <button
+        type="button"
+        class="refresh"
+        [class.spinning]="refreshing()"
+        [disabled]="refreshing()"
+        [attr.aria-busy]="refreshing()"
+        aria-label="Refresh the funnel now"
+        (click)="refresh.emit()"
+      >
+        <i class="ti ti-refresh" aria-hidden="true"></i>
+      </button>
+    </div>
   </header>
   <ol class="stages">
     @for (s of stages(); track s.key; let i = $index) {

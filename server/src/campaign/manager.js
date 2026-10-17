@@ -53,6 +53,8 @@ export class CampaignManager extends EventEmitter {
         // Sending safety: a daily ceiling, and a gap between messages that
         // varies with how many are going out.
         this.quota = new DailyQuota(db, config);
+        // The budget resets at midnight on the channel's clock (`timezone` is set by the channel runtime).
+        this.quota.zone = () => this.timezone?.() || null;
         this.pacePreset = 'balanced';   // 'safe' | 'balanced' | 'fast'
         this.pace = paceFor(0, config, 'balanced', this.quota.tier());
         this.sentInRun = 0;
@@ -120,6 +122,29 @@ export class CampaignManager extends EventEmitter {
             state: this.queue.state,
             safety: this.safetyStatus(),
         };
+    }
+
+    /**
+     * The next bulk messages in the order the worker takes them: the one in
+     * flight, then those it would send now, then those waiting for their
+     * recipient's morning (`later`). Names and text only, for the progress card.
+     */
+    upNext(limit = 5) {
+        const ready = [];
+        const later = [];
+        for (const item of this.queue.snapshot()) {
+            if (item.messageType !== 'campaign') continue;
+            (this.#ready(item) ? ready : later).push(item);
+        }
+        const current = this.current?.messageType === 'campaign' ? [this.current] : [];
+        return [...current, ...ready, ...later].slice(0, limit).map((item) => ({
+            messageId: item.messageId,
+            name: item.name,
+            recipient: item.recipient,
+            message: item.message,
+            sending: item === this.current,
+            later: later.includes(item),
+        }));
     }
 
     /** Everything the UI needs to explain the pacing and the daily budget. */

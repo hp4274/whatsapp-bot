@@ -24,18 +24,18 @@ import { SUCCESS_STATUSES } from '../protocol.js';
 export function tenantSentSince(db, tenantId, sinceIso) {
     const marks = SUCCESS_STATUSES.map(() => '?').join(',');
     return db.prepare(
-        `SELECT COUNT(*) AS n FROM messages WHERE tenant_id = ? AND status IN (${marks}) AND created_at >= ?`,
+        `SELECT COUNT(*) AS n FROM messages WHERE tenant_id = ? AND status IN (${marks}) AND COALESCE(sent_at, created_at) >= ?`,
     ).get(tenantId, ...SUCCESS_STATUSES, sinceIso).n;
 }
 
 const monthStart = (at) => new Date(at.getFullYear(), at.getMonth(), 1);
 
 /** The tightest daily / monthly allowance left, or null when neither cap is set. */
-export function capRemaining(db, tenantId, rules, now = new Date()) {
+export function capRemaining(db, tenantId, rules, now = new Date(), zone = null) {
     const left = [];
     if (rules.dailyCap) {
         left.push({ cap: rules.dailyCap, period: 'daily',
-            left: rules.dailyCap - tenantSentSince(db, tenantId, dayStart(now).toISOString()) });
+            left: rules.dailyCap - tenantSentSince(db, tenantId, dayStart(now, zone).toISOString()) });
     }
     if (rules.monthlyCap) {
         left.push({ cap: rules.monthlyCap, period: 'monthly',
@@ -116,7 +116,7 @@ export function attachCampaignPolicy(state, deps) {
         const r = rules();
         return {
             ...r,
-            capRemaining: () => capRemaining(db.db, db.tenantId, r),
+            capRemaining: () => capRemaining(db.db, db.tenantId, r, new Date(), state.channel?.timezone || null),
             notOptedIn: r.requireOptIn ? () => notOptedIn(db.db, db.tenantId) : null,
         };
     };

@@ -257,7 +257,7 @@
   p { margin: 2px 0 0; color: var(--text-muted); }
 }
 .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; cursor: pointer; input { width: 16px; height: 16px; } }
-.pick { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 var(--space-lg); font-size: 13px; select { width: auto; padding: 6px 10px; } }
+.pick { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 var(--space-lg); font-size: 13px; select { width: auto; padding-block: 6px; padding-inline-start: 10px; } }
 
 .chan {
   --tone: var(--success);

@@ -45,6 +45,9 @@ a.btn { text-decoration: none; }
 
 /* Quiet-time strip: today's pauses as chips over a 24h track, with a "now" pin gliding along it. */
 .quiet {
+  position: relative;
+  /* the entrance animation makes every .s-enter card its own layer; this one floats a tooltip over the toolbar below */
+  z-index: 2;
   display: grid;
   gap: var(--space-sm);
   padding: 14px var(--space-xl) 12px;
@@ -101,7 +104,8 @@ a.btn { text-decoration: none; }
   font-size: 12.5px;
   font-weight: 500;
   color: var(--text-muted);
-  transition: background var(--base) var(--ease), border-color var(--base) var(--ease), opacity var(--base) var(--ease);
+  transition: background var(--base) var(--ease), border-color var(--base) var(--ease), opacity var(--base) var(--ease),
+    box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease), filter var(--fast) var(--ease);
 
   .ti { font-size: 14px; }
   .mono { color: var(--text-strong); }
@@ -122,12 +126,47 @@ a.btn { text-decoration: none; }
     .mono { color: inherit; }
     small { color: inherit; opacity: 0.75; }
   }
+
+  /* Linked with its segment: hovering or focusing either lights both, everything else steps back. */
+  &.hot {
+    opacity: 1;
+    transform: translateY(-1px);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent),
+      0 10px 18px -12px color-mix(in srgb, var(--accent) 75%, transparent);
+  }
+  &.dim { filter: opacity(0.6); }
+}
+
+/* The whole pill is the button, so a tap anywhere on it counts. */
+.qchip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: -5px -12px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* The track is taller than the 12px bar so a pointer or a thumb can find it. */
+.quiet-track {
+  margin: -3px 0 -9px;
+  padding: 9px 0;
+  border-radius: 999px;
+  cursor: crosshair;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .quiet-bar {
   position: relative;
   height: 12px;
-  margin-top: 6px;
   border-radius: 999px;
   background-color: var(--surface-sunken);
   /* a hairline every 6 hours */
@@ -141,16 +180,55 @@ a.btn { text-decoration: none; }
   top: 0;
   bottom: 0;
   min-width: 6px;
+  padding: 0;
+  border: 0;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 45%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface-card) 35%, transparent);
+  background: none;
+  cursor: pointer;
   transform-origin: left center;
   animation: quiet-grow 700ms var(--ease) both;
+  transition: filter var(--fast) var(--ease);
 
-  &.now {
-    background: var(--accent);
-    animation: quiet-grow 700ms var(--ease) both, quiet-breathe 2.4s ease-in-out 700ms infinite;
+  /* The pill is drawn on ::before so the lift and tilt pivot on its own centre, not the grow origin. */
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: color-mix(in srgb, var(--accent) 45%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface-card) 35%, transparent);
+    transition: transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease), background var(--fast) var(--ease);
   }
+
+  &.now::before { background: var(--accent); animation: quiet-breathe 2.4s ease-in-out 700ms infinite; }
+
+  &.hot::before {
+    --glow: color-mix(in srgb, var(--accent) 60%, var(--primary));
+    background: color-mix(in srgb, var(--accent) 72%, transparent);
+    transform: translateY(-1px) scaleY(1.4);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--glow) 55%, transparent),
+      0 6px 16px -3px color-mix(in srgb, var(--glow) 70%, transparent);
+  }
+  &.dim { filter: opacity(0.55) saturate(0.7); }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .seg.hot::before { transform: perspective(160px) translateY(-1px) scaleY(1.4) rotateY(var(--tilt, 0deg)); }
+}
+
+/* The inspector hairline: follows the pointer in 5-minute steps, reaching a little past the bar. */
+.cursor {
+  position: absolute;
+  top: -7px;
+  bottom: -7px;
+  width: 1px;
+  margin-left: -0.5px;
+  border-radius: 1px;
+  background: var(--text-strong);
+  opacity: 0.55;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
+  pointer-events: none;
+  animation: quiet-fade var(--fast) var(--ease) both;
 }
 
 .marker {
@@ -188,6 +266,7 @@ a.btn { text-decoration: none; }
 }
 
 @keyframes quiet-grow { from { transform: scaleX(0); opacity: 0; } }
+@keyframes quiet-fade { from { opacity: 0; } }
 @keyframes quiet-breathe { 50% { opacity: 0.72; } }
 @keyframes quiet-ping {
   from { box-shadow: 0 0 0 0 var(--primary-glow); }
@@ -195,7 +274,8 @@ a.btn { text-decoration: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .qchip, .seg, .marker, .marker::before { animation: none; transition: none; }
+  .qchip, .seg, .seg::before, .seg.now::before, .marker, .marker::before, .cursor { animation: none; transition: none; }
+  .qchip.hot, .seg.hot::before { transform: none; }
 }
 
 .sk-row { height: 38px; border-radius: var(--radius-md); }

@@ -31,6 +31,7 @@ export function channelUsage(channel, { db, config, policy = {}, now = new Date(
     scoped.firstSentAt = () => (first === undefined ? (first = db.firstSentAt() ?? null) : first);
 
     const quota = new DailyQuota(scoped, config);
+    quota.zone = () => channel.timezone || null;
     const status = quota.status(now);
     const base = Math.max(0, Number(config.dailyLimit) || 0);
     const usage = {
@@ -47,7 +48,7 @@ export function channelUsage(channel, { db, config, policy = {}, now = new Date(
     let warmup = null;
     if (days > 0) {
         const firstAt = scoped.firstSentAt();
-        const age = firstAt ? Math.max(0, Math.round((dayStart(now) - dayStart(new Date(firstAt))) / DAY_MS)) : 0;
+        const age = firstAt ? Math.max(0, Math.round((dayStart(now, channel.timezone) - dayStart(new Date(firstAt), channel.timezone)) / DAY_MS)) : 0;
         const ramp = (Number(config.warmupStart) || WARMUP_START) * 2 ** Math.min(age, 30);
         warmup = {
             active: age < days,

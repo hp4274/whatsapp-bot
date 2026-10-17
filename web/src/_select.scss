@@ -1,0 +1,234 @@
+// Dropdowns, app-wide.
+//
+// Every `<select>` takes this look from tokens alone, so it follows light, dark
+// and "auto" (Store.applyTheme always resolves to a concrete `data-theme`, and
+// `color-scheme` in styles.scss follows it) with no per-template markup.
+//
+// Two layers:
+//  1. Everywhere: the closed control (`appearance: none` plus a token-coloured
+//     caret) and OPAQUE option colours. A translucent colour such as `--input-bg`
+//     renders as black or white in the browser-drawn popup, so options never use it.
+//  2. `@supports (appearance: base-select)` (Chromium): the open popup is
+//     ordinary CSS too (`::picker(select)`). Other browsers keep their native
+//     popup, themed by layer 1 and by `color-scheme`.
+//
+// Components size a select (width, `padding-block`, `padding-inline-start`,
+// font-size) but must not use the `padding` shorthand: it would eat the room
+// reserved here for the caret.
+
+// A 12x6 chevron: two 6x6 diagonal hairlines meeting at the bottom centre. Built
+// from gradients because a gradient can read a `var()` colour and a data-URI SVG
+// cannot, so the caret stays on the theme without hard-coding a colour.
+@mixin chevron {
+  background-image:
+    linear-gradient(
+      to top right,
+      transparent calc(50% - 1.2px),
+      var(--caret) calc(50% - 0.6px),
+      var(--caret) calc(50% + 0.6px),
+      transparent calc(50% + 1.2px)
+    ),
+    linear-gradient(
+      to top left,
+      transparent calc(50% - 1.2px),
+      var(--caret) calc(50% - 0.6px),
+      var(--caret) calc(50% + 0.6px),
+      transparent calc(50% + 1.2px)
+    );
+  background-size: 6px 6px;
+  background-repeat: no-repeat;
+}
+
+// Drop-down selects only: listboxes (`multiple`, `size` above 1) are handled below.
+$single: 'select:not([multiple], [size]:not([size="1"]))';
+$listbox: 'select:is([multiple], [size]:not([size="1"]))';
+
+select {
+  --caret: var(--text-muted);
+
+  text-overflow: ellipsis;
+
+  &:hover:not(:disabled),
+  &:focus-visible {
+    --caret: var(--text-strong);
+  }
+}
+
+#{$single} {
+  appearance: none;
+  padding-inline-end: 36px;
+  @include chevron;
+  background-position:
+    right 18px center,
+    right 12px center;
+
+  &:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+// Opaque on purpose, see the header.
+option,
+optgroup {
+  background-color: var(--surface-card);
+  color: var(--text-color);
+}
+
+option:checked {
+  background-color: var(--surface-sunken);
+  color: var(--text-strong);
+}
+
+option:disabled {
+  color: var(--hint);
+}
+
+#{$listbox} {
+  padding: 4px;
+
+  option {
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+  }
+
+  // A gradient, not a colour: only the image layer makes Firefox paint the selected row.
+  option:checked {
+    background: linear-gradient(var(--primary-tint), var(--primary-tint));
+    color: var(--text-strong);
+  }
+}
+
+@supports (appearance: base-select) {
+  #{$single},
+  ::picker(select) {
+    appearance: base-select;
+  }
+
+  // `position`/`overflow`/`nowrap`: the selected label sits in a flex item that
+  // cannot shrink, so a long one would push the caret out of the box. Clip it
+  // instead, and let `::picker-icon` below paint over the clipped tail.
+  #{$single} {
+    position: relative;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    white-space: nowrap;
+    background-image: none;
+  }
+
+  // The caret, anchored where the fallback draws it. Its box is opaque (the
+  // select's own surface) and as wide as the reserved padding so that it hides
+  // whatever label runs under it.
+  select::picker-icon {
+    content: '';
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: 36px;
+    margin: 0;
+    border-radius: inherit;
+    background-color: inherit;
+    @include chevron;
+    background-position:
+      right 18px center,
+      right 12px center;
+    transition: rotate var(--fast) var(--ease);
+  }
+
+  select:open {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--input-focus);
+
+    &::picker-icon {
+      rotate: 180deg;
+    }
+  }
+
+  // The popup is an opaque panel with a hairline and a soft shadow. `--shadow-*`
+  // are `none` in this theme, so the shadow is built from the ink colour.
+  ::picker(select) {
+    margin-block: 6px;
+    padding: 6px;
+    border: 1px solid var(--border-hover);
+    border-radius: var(--radius-md);
+    background: var(--surface-card);
+    color: var(--text-color);
+    box-shadow:
+      0 14px 32px -10px color-mix(in srgb, var(--brand-ink) 32%, transparent),
+      0 2px 6px color-mix(in srgb, var(--brand-ink) 10%, transparent);
+    max-height: min(320px, 50vh);
+    white-space: normal;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-hover) transparent;
+    opacity: 0;
+    scale: 0.97;
+    transition:
+      opacity var(--fast) var(--ease),
+      scale var(--fast) var(--ease),
+      overlay var(--fast) allow-discrete,
+      display var(--fast) allow-discrete;
+
+    &:popover-open {
+      opacity: 1;
+      scale: 1;
+
+      @starting-style {
+        opacity: 0;
+        scale: 0.97;
+      }
+    }
+  }
+
+  #{$single} option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    background-color: transparent;
+    transition: background-color var(--fast) var(--ease);
+
+    &:hover,
+    &:focus-visible {
+      background-color: var(--surface-sunken);
+      color: var(--text-strong);
+    }
+
+    &:focus-visible {
+      outline: none;
+    }
+
+    &:checked {
+      background-color: transparent;
+      font-weight: 500;
+    }
+
+    &:checked:hover {
+      background-color: var(--surface-sunken);
+    }
+
+    &::checkmark {
+      order: 1;
+      margin-inline-start: auto;
+      color: var(--primary-text);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    ::picker(select),
+    select::picker-icon,
+    #{$single} option {
+      transition: none;
+    }
+  }
+}
+
+// Windows high contrast repaints backgrounds, which would blank the gradient
+// caret: hand the closed control back to the system.
+@media (forced-colors: active) {
+  #{$single} {
+    appearance: auto;
+    padding-inline-end: 14px;
+    background-image: none;
+  }
+}
