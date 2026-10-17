@@ -158,16 +158,30 @@ export function quietLeftSeconds(plan, at = new Date()) {
 
 /**
  * Today's rest as the UI shows it. `nowMinute` is the channel's clock when
- * asked: the windows are in that zone, which may not be the viewer's.
+ * asked: the windows are in that zone, which may not be the viewer's, so each
+ * window also carries `startAt` / `endAt` (ms epoch) a viewer in any zone can
+ * format. `nowAt` is the server's clock, for the viewer to correct its own skew.
  */
 export function quietStatus(plan, at = new Date()) {
+    const nowAt = at.getTime();
+    const minute = wallClock(at, plan.zone).minute;
+    // Counted from the whole second `minute` was read at, so a window's instant is the same on every
+    // call and the UI can use it as a stable key.
+    // ponytail: ignores a DST change inside the day (an hour off on those two days); add a zone-aware conversion if it matters.
+    const instant = (m) => Math.round(Math.floor(nowAt / 1000) * 1000 + (m - minute) * 60_000);
     return {
         active: inQuiet(plan, at),
         leftSeconds: quietLeftSeconds(plan, at),
         minutesToday: plan.quietMinutes,
         startMinute: plan.quietStart,
-        windows: windowsOf(plan).map((w) => ({ startMinute: w.start, endMinute: w.start + w.minutes })),
-        nowMinute: Math.round(wallClock(at, plan.zone).minute * 100) / 100,
+        windows: windowsOf(plan).map((w) => ({
+            startMinute: w.start,
+            endMinute: w.start + w.minutes,
+            startAt: instant(w.start),
+            endAt: instant(w.start + w.minutes),
+        })),
+        nowMinute: Math.round(minute * 100) / 100,
+        nowAt,
     };
 }
 
@@ -309,7 +323,7 @@ export function contentError(text) {
 export const COMPLAINT_WORDS = /\b(spam|spammer|report(ed|ing)?|block(ed|ing)?|scam|harass(ing|ment)?|stop (messaging|texting|sending)|don'?t (message|text|contact) me|who gave you my (number|contact))\b/i;
 
 /** A suspected block: delivered to the server but not to the phone for this long. */
-export const BLOCK_SUSPECT_AFTER_SECONDS = 12 * HOUR;
+export const BLOCK_SUSPECT_AFTER_SECONDS = 24 * HOUR;
 
 /** Pause a campaign when blocks + reports reach this share of the week's sends (once enough went out). */
 export const BLOCK_PAUSE_PERCENT = 5;

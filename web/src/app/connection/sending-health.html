@@ -87,15 +87,19 @@
         </div>
         -->
         @if (quiet(); as q) {
-          <div class="stat rest" [class.resting]="q.active">
+          <div class="stat rest" [class.resting]="resting()">
             <span><i class="ti ti-moon" aria-hidden="true"></i>Quiet time today</span>
             <strong>{{ duration(q.minutesToday) }}</strong>
-            @if (q.active) {
-              <small class="muted">Resting now, back in {{ duration(restLeftMinutes()) }}</small>
+            @if (resting(); as r) {
+              <small class="muted">Resting now, back in {{ duration(r.minutesLeft) }}</small>
             }
-            <small class="muted">
-              @for (w of q.windows; track w.startMinute; let last = $last) {
-                {{ clock(w.startMinute) }}–{{ clock(w.endMinute) }}{{ last ? '' : ' · ' }}
+            <small class="muted" title="Times are in your local time">
+              @for (w of slots(); track w.key; let last = $last) {
+                <span class="win" [class.done]="w.state === 'done'" [class.now]="w.state === 'now'"
+                  >{{ w.label }}@if (w.day) {
+                    <em> {{ w.day }}</em>
+                  }</span
+                >{{ last ? '' : ' · ' }}
               }
             </small>
           </div>
@@ -173,7 +177,7 @@
           </p>
         }
         <p class="fine muted">
-          WhatsApp does not tell senders about blocks. A message still at one tick after 12 hours is
+          WhatsApp does not tell senders about blocks. A message still at one tick after 24 hours is
           counted as a possible block, so a phone that was switched off can show up here.
         </p>
       </div>

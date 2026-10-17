@@ -1,0 +1,48 @@
+@if (files(); as list) {
+  @if (list.length) {
+    @let noun = kind() === 'sheet' ? 'file' : 'attachment';
+    <section class="reuse" [attr.aria-label]="'Reuse a previous ' + noun">
+      <div class="head">
+        <strong>
+          <i class="ti ti-history" aria-hidden="true"></i>
+          Or reuse a previous {{ noun }}
+        </strong>
+        <a routerLink="/storage">
+          See all in Storage<i class="ti ti-arrow-right" aria-hidden="true"></i>
+        </a>
+      </div>
+
+      @if (error()) {
+        <p class="err" role="alert">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ error() }}</span>
+        </p>
+      }
+
+      <ul>
+        @for (f of list; track f.id) {
+          <li>
+            <button
+              type="button"
+              class="row"
+              [class.on]="f.id === activeId()"
+              [disabled]="busy() !== null || disabled()"
+              [attr.aria-current]="f.id === activeId() ? 'true' : null"
+              (click)="pick(f)"
+            >
+              <i class="ti ti-{{ icon(f) }} ico" aria-hidden="true"></i>
+              <span class="name">{{ f.name }}</span>
+              <span class="meta">{{ detail(f) }} &middot; {{ date(f.createdAt) }}</span>
+              @if (busy() === f.id) {
+                <span class="spinner" aria-label="Opening"></span>
+              } @else if (f.id === activeId()) {
+                <i class="ti ti-circle-check end" aria-hidden="true"></i>
+              } @else {
+                <span class="use">Use</span>
+              }
+            </button>
+          </li>
+        }
+      </ul>
+    </section>
+  }
+}

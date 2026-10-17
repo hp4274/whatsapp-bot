@@ -14,6 +14,7 @@ import { prepareTemplateSend } from '../messaging/templateSend.js';
 import { EventEmitter } from 'node:events';
 
 import {
+    STATUS_RANK,
     SUCCESS_STATUSES,
     Status,
     contactContext,
@@ -613,11 +614,16 @@ export class CampaignManager extends EventEmitter {
     scanHealth() {
         this.lastHealthScan = Date.now();
         if (!this.db.stuckSent) return;
+        // Take back blocks that the phone has since disproved, before counting new ones.
+        this.db.healBlocks?.();
         const stuck = this.db.stuckSent(isoAgo(7 * 86_400_000), isoAgo(BLOCK_SUSPECT_AFTER_SECONDS * 1000));
         for (const m of stuck) {
+            // The transport may hold a receipt the database never got (it arrived mid-send).
+            const known = m.providerId ? this.transport?.getStatus?.(m.providerId) : null;
+            if (known && (STATUS_RANK[known] ?? 0) > STATUS_RANK.SENT && this.handleReceipt(m.providerId, known)) continue;
             const fresh = this.db.addSafetyEvent({
                 kind: 'block', phone: m.phone, messageId: m.messageId, campaignId: m.campaignId,
-                detail: 'Still one tick after 12 hours: this person may have blocked the number.',
+                detail: 'Still one tick 24 hours after sending: this person may have blocked the number.',
             });
             if (fresh) this.emit('event', { type: 'safetyEvent', kind: 'block', phone: m.phone });
         }
@@ -766,6 +772,10 @@ export class CampaignManager extends EventEmitter {
                     error: SUCCESS_STATUSES.includes(result.status) ? null : result.detail,
                 });
                 this.#finish(item, result.status, { providerId: result.providerId, counted: true });
+                // A receipt that landed before provider_id was written found no row and is gone;
+                // the transport still remembers it (two ticks must not stay one).
+                const late = result.providerId ? this.transport?.getStatus?.(result.providerId) : null;
+                if (late && late !== result.status) this.handleReceipt(result.providerId, late);
                 return;
             } catch (err) {
                 if (err instanceof TransportConnectionError) {

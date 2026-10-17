@@ -40,6 +40,12 @@ export const routes: Routes = [
     loadComponent: () => import('./campaigns/campaign-detail').then((m) => m.CampaignDetailView),
   },
   {
+    path: 'storage',
+    title: 'Storage - WhatsApp Sender',
+    canActivate: [authGuard],
+    loadComponent: () => import('./storage/storage').then((m) => m.StorageView),
+  },
+  {
     path: 'auto-replies',
     title: 'Auto-Replies - WhatsApp Sender',
     canActivate: [authGuard],

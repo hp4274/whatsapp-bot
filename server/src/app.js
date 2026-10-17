@@ -79,7 +79,9 @@ import { friendlyError } from './messaging/errors.js';
 import { MessageService } from './messaging/service.js';
 import { InteractiveError, normalizeInteractive, personalizeInteractive } from './messaging/interactive.js';
 import { InteractiveStore, createInteractiveRouter, handleInteractiveReply, normalizeReplyRules } from './messaging/replies.js';
-import { MediaStore } from './mediaStore.js';
+import { MediaStore, mediaMetadata } from './mediaStore.js';
+import { createStorageRouter } from './storage/routes.js';
+import { safeName, sha256Of, uploadInfo } from './storage/store.js';
 import { createBillingRouter } from './billing/routes.js';
 import { createCampaignRouter } from './campaigns/routes.js';
 import { dueCampaigns, openCampaigns, runningSpreadCampaigns } from './campaigns/store.js';
@@ -166,6 +168,7 @@ const FEATURE_ROUTERS = [
     createAnalyticsRouter,
     createPublicApiRouter,
     createCampaignRouter,
+    createStorageRouter,
     createInteractiveRouter,
     // After createObjectRouter: it reads `state.objects`.
     createSchoolRouter,
@@ -729,6 +732,25 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
     const ccProblem = (value) => value !== undefined && value !== null && String(value).trim() !== ''
         && !cleanCountryCode(value);
 
+    /** Opens an import session for a parsed sheet and returns what the wizard shows. */
+    const sheetPreview = (sheet, filename) => {
+        const importId = `imp_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+        state.imports.set(importId, { sheet, createdAt: Date.now() });
+        // Map keeps insertion order, so the first key is the oldest session.
+        while (state.imports.size > 8) state.imports.delete(state.imports.keys().next().value);
+        return {
+            importId,
+            filename,
+            headers: sheet.headers,
+            columns: sheet.columns,
+            rows: sheet.rows,
+            total: sheet.total,
+            truncated: sheet.truncated,
+            guess: guessMapping(sheet.columns, sheet.rows),
+        };
+    };
+    state.sheetPreview = sheetPreview; // storage/routes.js re-opens a stored sheet the same way
+
     app.post('/campaign/import/preview', upload.single('file'), checkImport, async (req, res) => {
         if (!req.file) return res.status(400).json({ errors: ['no file uploaded'] });
         if (ccProblem(req.body?.countryCode)) return res.status(400).json({ errors: [BAD_CC] });
@@ -741,19 +763,12 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         if (!sheet.headers.length || !sheet.rows.length) {
             return res.status(400).json({ errors: ['the file has no header row or no data rows'] });
         }
-        const importId = `imp_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-        state.imports.set(importId, { sheet, createdAt: Date.now() });
-        // Map keeps insertion order, so the first key is the oldest session.
-        while (state.imports.size > 8) state.imports.delete(state.imports.keys().next().value);
+        // After validation, so a rejected file is never stored. A repeat is parsed
+        // again: the wizard needs a fresh importId, not a second copy on disk.
+        const { row, duplicate } = state.storage.saveSheet(req.file, sheet.total);
         return res.json({
-            importId,
-            filename: req.file.originalname,
-            headers: sheet.headers,
-            columns: sheet.columns,
-            rows: sheet.rows,
-            total: sheet.total,
-            truncated: sheet.truncated,
-            guess: guessMapping(sheet.columns, sheet.rows),
+            ...sheetPreview(sheet, req.file.originalname),
+            ...uploadInfo(row, duplicate),
         });
     });
 
@@ -1294,8 +1309,15 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         if (!req.file.mimetype.startsWith('video/') && req.file.size > MAX_MEDIA_BYTES) {
             return res.status(413).json({ errors: ['Images and documents can be up to 16 MB (videos up to 64 MB).'] });
         }
+        // After validation, so a rejected file is never stored. The same bytes
+        // again hand back the earlier upload instead of writing another copy.
+        const sha256 = sha256Of(req.file.buffer);
+        const reused = state.storage.reuseMedia(sha256);
+        if (reused) {
+            return res.status(200).json({ ...mediaMetadata(reused.media), ...uploadInfo(reused.row, true) });
+        }
         const mediaId = `med_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-        const filename = path.basename(req.file.originalname).replace(/[^\w.\- ]+/g, '_');
+        const filename = safeName(req.file.originalname);
         const storedName = `${mediaId}_${filename}`;
         const filePath = path.join(UPLOAD_DIR, storedName);
         try {
@@ -1304,6 +1326,16 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
             state.media.claim(mediaId);
         } catch (err) {
             return res.status(500).json({ errors: [`Media upload failed: ${err.message}`] });
+        }
+        const stored = state.storage.add({
+            kind: 'media', sha256, name: filename, mimetype: req.file.mimetype, size: req.file.size, storedName, mediaId,
+        });
+        // An identical upload finished while this one was writing: keep theirs, drop ours.
+        const winner = !stored.created && stored.row.kind === 'media' ? state.storage.reuseMedia(sha256) : null;
+        if (winner) {
+            await fs.promises.rm(filePath, { force: true });
+            fs.rmSync(path.join(UPLOAD_DIR, `${mediaId}.tenant`), { force: true });
+            return res.status(200).json({ ...mediaMetadata(winner.media), ...uploadInfo(winner.row, true) });
         }
         const media = {
             mediaId,
@@ -1315,7 +1347,7 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
             url: `/api/media/${mediaId}`,
         };
         state.media.set(mediaId, media);
-        return res.status(201).json(mediaMetadata(media));
+        return res.status(201).json({ ...mediaMetadata(media), ...uploadInfo(stored.row, false) });
     });
 
     app.get('/media/:mediaId', (req, res) => {
@@ -2862,16 +2894,6 @@ function broadcast(state, event) {
             state.clients.delete(client);
         }
     }
-}
-
-function mediaMetadata(media) {
-    return {
-        mediaId: media.mediaId,
-        filename: media.filename,
-        mimetype: media.mimetype,
-        size: media.size,
-        url: media.url,
-    };
 }
 
 async function toQrDataUrl(qr) {

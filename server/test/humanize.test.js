@@ -298,12 +298,39 @@ describe('quiet windows', () => {
 
     it('reports every window and the channel clock to the UI', () => {
         const status = quietStatus(plan, at('05:30'));
-        assert.deepEqual(status.windows, [{ startMinute: 60, endMinute: 120 }, { startMinute: 300, endMinute: 420 }]);
+        const hhmm = (ms) => new Date(ms).toISOString().slice(11, 16);
+        assert.deepEqual(
+            status.windows.map(({ startMinute, endMinute }) => ({ startMinute, endMinute })),
+            [{ startMinute: 60, endMinute: 120 }, { startMinute: 300, endMinute: 420 }],
+        );
         assert.equal(status.active, true);
         assert.equal(status.leftSeconds, 5400);
         assert.equal(status.nowMinute, 330);
         assert.equal(status.minutesToday, 180);
         assert.equal(status.startMinute, 60);
         assert.equal(quietStatus(plan, at('03:00')).active, false);
+        // Absolute instants: the same windows a viewer in any zone can format.
+        assert.equal(status.nowAt, at('05:30').getTime());
+        assert.deepEqual(status.windows.map((w) => [hhmm(w.startAt), hhmm(w.endAt)]), [['01:00', '02:00'], ['05:00', '07:00']]);
+        assert.ok(status.windows.every((w, i, all) => w.startAt < w.endAt && (i === 0 || all[i - 1].endAt < w.startAt)), 'ordered, none overlap');
+        assert.ok(status.windows[1].startAt <= status.nowAt && status.nowAt < status.windows[1].endAt, 'now sits inside the open window');
+    });
+
+    it('gives a window the same instants on every call, whatever the millisecond', () => {
+        const a = quietStatus(plan, new Date('2026-06-01T05:30:00.000Z')).windows;
+        const b = quietStatus(plan, new Date('2026-06-01T05:30:41.789Z')).windows;
+        assert.deepEqual(a.map((w) => w.startAt), b.map((w) => w.startAt));
+        assert.deepEqual(a.map((w) => w.endAt), b.map((w) => w.endAt));
+    });
+
+    it('puts the window instants right when the channel zone is not UTC', () => {
+        const kolkata = { ...plan, zone: 'Asia/Kolkata' };   // UTC+5:30
+        const now = at('05:30');                              // 11:00 in Kolkata
+        const status = quietStatus(kolkata, now);
+        assert.equal(status.nowMinute, 660);
+        assert.equal(status.nowAt, now.getTime());
+        // 01:00 Kolkata is 19:30 UTC the day before.
+        assert.equal(new Date(status.windows[0].startAt).toISOString(), '2026-05-31T19:30:00.000Z');
+        assert.equal(status.windows[0].endAt - status.windows[0].startAt, 60 * 60_000);
     });
 });

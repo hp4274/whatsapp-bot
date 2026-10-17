@@ -206,6 +206,24 @@
     }
   </div>
 
+  @if (file && duplicateOf() !== null) {
+    @let first = date(duplicateOf());
+    <p class="banner info" role="status">
+      <i class="ti ti-info-circle" aria-hidden="true"></i>
+      <span
+        >Already in Storage{{ first ? ' (first uploaded ' + first + ')' : '' }} - reused it, no
+        second copy saved.</span
+      >
+    </p>
+  }
+
+  <app-reuse-picker
+    kind="media"
+    [activeId]="file?.storageId"
+    [disabled]="uploading()"
+    (used)="onReused($event)"
+  />
+
   @if (error()) {
     <p class="error" role="alert">
       <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ error() }}</span>

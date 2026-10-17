@@ -41,6 +41,8 @@ export interface DraftAttachment {
   mimetype: string;
   size: number;
   previewUrl: string;
+  /** The Storage copy, so the "reuse" list can mark the one in use. */
+  storageId?: number;
 }
 
 export interface DraftWarning {
@@ -511,6 +513,16 @@ export class CampaignDraft {
       body.segmentId = this.segmentId()!;
     }
     return body;
+  }
+
+  /**
+   * Make a parsed sheet the audience, whether it was just uploaded or reused from
+   * Storage: a fresh import with the server's guessed phone and name columns.
+   */
+  adoptImport(preview: ImportPreview): void {
+    this.clearImport();
+    this.preview.set(preview);
+    this.mapping.set({ phone: preview.guess.phone ?? '', name: preview.guess.name ?? '' });
   }
 
   /** Clear the import so a new file starts fresh (keeps the message). */

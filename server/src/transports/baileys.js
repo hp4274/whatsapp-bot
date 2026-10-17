@@ -21,7 +21,7 @@ import path from 'node:path';
 
 import { SESSION_DIR } from '../config.js';
 import { renderFallbackText } from '../messaging/interactive.js';
-import { Status } from '../protocol.js';
+import { STATUS_RANK, Status } from '../protocol.js';
 import { Transport, TransportConnectionError, TransportSendError } from './base.js';
 
 export const TOS_WARNING =
@@ -29,12 +29,13 @@ export const TOS_WARNING =
     + 'official API, it violates the WhatsApp Terms of Service, and bulk sending from a '
     + 'personal number can get that number banned.';
 
+// Numbers are proto.WebMessageInfo.Status; some Baileys builds hand over the enum name instead.
 const ACK_STATUS = {
-    0: Status.FAILED,
-    2: Status.SENT,
-    3: Status.DELIVERED,
-    4: Status.READ,
-    5: Status.READ,
+    0: Status.FAILED, ERROR: Status.FAILED,
+    2: Status.SENT, SERVER_ACK: Status.SENT,
+    3: Status.DELIVERED, DELIVERY_ACK: Status.DELIVERED,
+    4: Status.READ, READ: Status.READ,
+    5: Status.READ, PLAYED: Status.READ,
 };
 
 export function ackStatus(status) {
@@ -130,7 +131,7 @@ export class BaileysTransport extends Transport {
         });
         sock.ev.on('message-receipt.update', (updates) => {
             for (const { key, receipt } of updates ?? []) {
-                const status = receipt?.readTimestamp ? Status.READ
+                const status = receipt?.readTimestamp || receipt?.playedTimestamp ? Status.READ
                     : receipt?.receiptTimestamp ? Status.DELIVERED : null;
                 this.#emitReceipt(key?.id, status);
             }
@@ -215,7 +216,11 @@ export class BaileysTransport extends Transport {
 
     #emitReceipt(providerId, status) {
         if (!providerId || !status) return;
-        this.receipts.set(providerId, status);
+        // A late "delivered" must not hide a "read" the memory already holds.
+        const known = this.receipts.get(providerId);
+        if (!known || (STATUS_RANK[status] ?? 0) > (STATUS_RANK[known] ?? 0) || status === Status.FAILED) {
+            this.receipts.set(providerId, status);
+        }
         this.events.emit('receipt', {
             providerId,
             status,
@@ -357,7 +362,9 @@ export class BaileysTransport extends Transport {
         try {
             return await this.#deliver(jid, message, attachment, interactive);
         } finally {
-            if (typingMs > 0) await this.#presence('paused', jid);
+            // Not awaited: the caller only learns the provider id when we return, and a
+            // delivery receipt that lands during this round trip finds no row to update.
+            if (typingMs > 0) void this.#presence('paused', jid);
         }
     }
 
@@ -417,7 +424,8 @@ export class BaileysTransport extends Transport {
 
     #accepted(id) {
         const providerId = id ?? `local.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
-        this.receipts.set(providerId, Status.SENT);
+        // A receipt can beat us here; never write SENT over DELIVERED/READ.
+        if (!this.receipts.has(providerId)) this.receipts.set(providerId, Status.SENT);
         return {
             providerId,
             status: Status.SENT,

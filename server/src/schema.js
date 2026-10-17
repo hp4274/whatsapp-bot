@@ -19,6 +19,7 @@ import { OBJECTS_SCHEMA } from './objects/schema.js';
 import { POLICY_SCHEMA } from './policy/schema.js';
 import { PUBLIC_API_SCHEMA } from './publicapi/schema.js';
 import { SCHEDULER_SCHEMA } from './scheduler/schema.js';
+import { STORAGE_SCHEMA } from './storage/schema.js';
 import { TEMPLATES_SCHEMA } from './templates/schema.js';
 import { SCHOOL_SCHEMA } from './school/settings.js';
 import { TICKETS_SCHEMA } from './tickets/schema.js';
@@ -38,4 +39,5 @@ export const MODULE_SCHEMAS = [
     SCHOOL_SCHEMA,
     INTERACTIVE_SCHEMA,
     POLICY_SCHEMA,
+    STORAGE_SCHEMA,
 ];

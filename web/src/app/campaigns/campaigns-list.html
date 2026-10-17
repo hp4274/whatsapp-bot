@@ -34,16 +34,28 @@
       <span class="quiet-note">
         {{ q.total }} in {{ q.windows.length }} breaks. Bulk sends pause, then carry on by themselves.
       </span>
+      <span class="quiet-now" title="Times are in your local time">
+        <i class="ti ti-clock" aria-hidden="true"></i>Now <b>{{ q.clock }}</b>
+        <span class="sr">Times are in your local time.</span>
+      </span>
     </div>
 
     <ul class="quiet-chips">
       @for (w of q.windows; track w.key) {
-        <li class="qchip" [class.now]="w.state === 'now'" [class.done]="w.state === 'done'">
+        <li
+          class="qchip"
+          [class.now]="w.state === 'now'"
+          [class.done]="w.state === 'done'"
+          [class.off]="!w.onBar"
+        >
           <i
             class="ti {{ w.state === 'now' ? 'ti-moon' : w.state === 'done' ? 'ti-check' : 'ti-clock' }}"
             aria-hidden="true"
           ></i>
           <span class="mono">{{ w.label }}</span>
+          @if (w.day) {
+            <small>{{ w.day }}</small>
+          }
           @if (w.state === 'now') {
             <b>Resting · back in {{ w.backIn }}</b>
           }
@@ -51,14 +63,20 @@
       }
     </ul>
 
-    <div class="quiet-bar" role="img" [attr.aria-label]="'Quiet windows across the day: ' + q.summary">
+    <div
+      class="quiet-bar"
+      role="img"
+      [attr.aria-label]="'Quiet windows across your local day: ' + q.summary"
+    >
       @for (w of q.windows; track w.key) {
-        <span
-          class="seg"
-          [class.now]="w.state === 'now'"
-          [style.left.%]="w.from"
-          [style.width.%]="w.span"
-        ></span>
+        @if (w.onBar) {
+          <span
+            class="seg"
+            [class.now]="w.state === 'now'"
+            [style.left.%]="w.from"
+            [style.width.%]="w.span"
+          ></span>
+        }
       }
       <span class="marker" [style.left.%]="q.marker"></span>
     </div>
