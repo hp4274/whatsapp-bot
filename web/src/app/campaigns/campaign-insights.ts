@@ -5,11 +5,13 @@ import {
   computed,
   inject,
   input,
+  output,
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
 
 import type { CampaignAnalytics } from '../core/api';
+import { Store } from '../core/store';
 import { percent } from './campaign-format';
 
 type Tone = 'info' | 'good' | 'accent' | 'bad';
@@ -20,6 +22,10 @@ type Tone = 'info' | 'good' | 'accent' | 'bad';
  * Funnel percentages are of the audience, not of the previous stage, so a
  * drop at any step is comparable. Click bars are scaled to the most-clicked
  * button (their label still says % of sent) so small counts stay visible.
+ *
+ * The funnel header says how fresh the numbers are: Delivered and Read arrive
+ * long after a campaign is done, so "Live" is only claimed while the event
+ * stream is up, and a manual refresh is always one click away.
  */
 @Component({
   selector: 'app-campaign-insights',
@@ -29,9 +35,24 @@ type Tone = 'info' | 'good' | 'accent' | 'bad';
 })
 export class CampaignInsights {
   private readonly router = inject(Router);
+  protected readonly store = inject(Store);
 
   readonly analytics = input.required<CampaignAnalytics>();
   readonly campaignId = input.required<number>();
+  /** When `analytics` was read (ms epoch); null before the first answer. */
+  readonly updatedAt = input<number | null>(null);
+  /** A re-read is in flight: the refresh button spins and waits. */
+  readonly refreshing = input(false);
+  readonly refresh = output<void>();
+
+  /** "just now", "12s ago", "3m ago"; reads the store's ticking clock, so it counts up by itself. */
+  protected readonly updated = computed(() => {
+    const at = this.updatedAt();
+    if (at === null) return '';
+    const s = Math.max(0, Math.floor((this.store.now() - at) / 1000));
+    if (s < 3) return 'just now';
+    return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s / 60)}m ago` : `${Math.floor(s / 3600)}h ago`;
+  });
 
   /** Bars start at 0 and grow once painted, so the width transition plays. */
   protected readonly ready = signal(false);

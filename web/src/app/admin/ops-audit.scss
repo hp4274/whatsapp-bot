@@ -26,7 +26,7 @@
   font-size: 13px;
   font-weight: 500;
   color: var(--text-strong);
-  select, input { padding: 8px 12px; font-size: 14px; font-weight: 400; }
+  select, input { padding-block: 8px; padding-inline-start: 12px; font-size: 14px; font-weight: 400; }
 }
 .tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-sm); grid-column: -2 / -1; }
 

@@ -98,9 +98,14 @@ export class Store {
   private source: EventSource | null = null;
   private clock: ReturnType<typeof setInterval> | null = null;
   private newDay: ReturnType<typeof setTimeout> | null = null;
+  private reopen: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.applyTheme(this.theme());
+    // "Auto" follows the OS live: without this a day/night switch needs a reload.
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (this.theme() === 'auto') this.applyTheme('auto');
+    });
   }
 
   /**
@@ -195,7 +200,14 @@ export class Store {
 
     source.onerror = () => {
       this.zone.run(() => this.streamOnline.set(false));
-      // EventSource retries on its own; this only reports it.
+      // A dropped connection is retried by the browser. A non-200 answer (a 502 from the proxy
+      // while the API restarts, a 401) is not: the source is CLOSED for good and every later
+      // receipt, stat and status would be missed until a page reload, so reopen it ourselves.
+      if (source.readyState !== EventSource.CLOSED || this.source !== source) return;
+      this.reopen ??= setTimeout(() => {
+        this.reopen = null;
+        this.listen();
+      }, 3000);
     };
   }
 
@@ -331,6 +343,8 @@ export class Store {
   dispose() {
     this.source?.close();
     this.source = null;
+    clearTimeout(this.reopen ?? undefined);
+    this.reopen = null;
     clearInterval(this.clock ?? undefined);
     this.clock = null;
     clearTimeout(this.newDay ?? undefined);

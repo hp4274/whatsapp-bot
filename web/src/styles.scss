@@ -10,6 +10,10 @@
 // `--border`, `--text`, ...) as aliases onto the Kardlyz tokens. Component
 // stylesheets written against the old names re-skin without being touched; new
 // code uses the Kardlyz names directly.
+//
+// Dropdowns (closed control and open popup) live in `_select.scss`.
+
+@use 'select';
 
 :root {
   color-scheme: light;

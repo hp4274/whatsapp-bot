@@ -202,6 +202,16 @@ export interface MessageRecord {
   updatedAt: string;
 }
 
+/** One row of the "up next" list: `later` = waits for the recipient's morning. */
+export interface QueuedNext {
+  readonly messageId: string;
+  readonly name: string;
+  readonly recipient: string;
+  readonly message: string;
+  readonly sending: boolean;
+  readonly later: boolean;
+}
+
 export interface HistoryPage {
   records: MessageRecord[];
   counts: Record<string, number>;
@@ -347,6 +357,13 @@ export class Api {
         onePerNumber,
         ...(mediaId ? { mediaId } : {}),
       })
+      .pipe(catchError(toMessage));
+  }
+
+  /** The next bulk messages in the order the server will send them. */
+  queueNext(limit = 5): Observable<{ next: QueuedNext[]; pending: number }> {
+    return this.http
+      .get<{ next: QueuedNext[]; pending: number }>('/api/campaign/queue', { params: { limit } })
       .pipe(catchError(toMessage));
   }
 

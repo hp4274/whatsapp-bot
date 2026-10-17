@@ -23,6 +23,7 @@ p {
 }
 
 .sh {
+  position: relative;
   display: grid;
   gap: var(--space-lg);
   padding-bottom: var(--space-xl);
@@ -229,8 +230,21 @@ p {
     color: var(--accent);
   }
 
+  /* A button, so touch and keyboard get the same "ends in / ended ago" tooltip as hover. */
   .win {
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    font: inherit;
     font-variant-numeric: tabular-nums;
+    color: inherit;
+    cursor: pointer;
+    transition:
+      background var(--fast) var(--ease),
+      box-shadow var(--fast) var(--ease),
+      opacity var(--fast) var(--ease),
+      transform var(--fast) var(--ease);
 
     &.done {
       opacity: 0.6;
@@ -239,6 +253,17 @@ p {
     &.now {
       font-weight: 500;
       color: var(--accent);
+    }
+
+    &.hot {
+      opacity: 1;
+      transform: translateY(-1px);
+      background: color-mix(in srgb, var(--accent) 14%, transparent);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+    }
+
+    &.dim {
+      opacity: 0.45;
     }
 
     em {
@@ -356,8 +381,13 @@ table {
 
 @media (prefers-reduced-motion: reduce) {
   .stairs li,
-  .meter .bar {
+  .meter .bar,
+  .stat .win {
     transition: none;
     animation: none;
+  }
+
+  .stat .win.hot {
+    transform: none;
   }
 }

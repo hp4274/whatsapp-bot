@@ -14,7 +14,7 @@
   .ti { position: absolute; left: 12px; top: 50%; translate: 0 -50%; font-size: 17px; color: var(--hint); pointer-events: none; }
   input { padding-left: 36px; width: 100%; font-size: 13.5px; }
 }
-.ib-status select { width: auto; max-width: 118px; font-size: 13px; padding-left: 10px; padding-right: 8px; }
+.ib-status select { width: auto; max-width: 118px; font-size: 13px; padding-left: 10px; }
 
 // Segments: the Kardlyz tab strip, scrolling sideways when it runs out of room.
 .ib-chips {

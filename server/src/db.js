@@ -142,7 +142,8 @@ CREATE TABLE IF NOT EXISTS messages (
     name         TEXT DEFAULT '',
     campaign_id  TEXT DEFAULT '',
     created_at   TEXT NOT NULL,
-    updated_at   TEXT NOT NULL
+    updated_at   TEXT NOT NULL,
+    sent_at      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_recipient   ON messages(recipient);
 CREATE INDEX IF NOT EXISTS idx_messages_status      ON messages(status);
@@ -287,6 +288,15 @@ function addChannelColumns(db) {
         if (!cols.includes('idempotency_key')) {
             db.exec('ALTER TABLE messages ADD COLUMN idempotency_key TEXT');
         }
+        // When the message actually left. `created_at` is when a campaign queued it, which can be
+        // days earlier; the daily budget counts the send, not the queueing.
+        if (!cols.includes('sent_at')) {
+            db.exec('ALTER TABLE messages ADD COLUMN sent_at TEXT');
+            // Old rows: updated_at is the send for SENT/DELIVERED (receipts follow within minutes);
+            // a READ row's updated_at is the read, possibly a day later, so it keeps its queue time.
+            db.exec(`UPDATE messages SET sent_at = CASE WHEN status = 'READ' THEN created_at ELSE updated_at END
+                     WHERE status IN ('SENT', 'DELIVERED', 'READ')`);
+        }
     }
 }
 
@@ -416,21 +426,28 @@ export class Database {
             campaign_id: record.campaignId ?? '',
             created_at: record.createdAt ?? now,
             updated_at: record.updatedAt ?? now,
+            sent_at: SUCCESS_STATUSES.includes(record.status) ? (record.sentAt ?? record.updatedAt ?? record.createdAt ?? now) : null,
         };
         this.db.prepare(`
             INSERT INTO messages (tenant_id, channel_id, message_id, message_type, direction,
                                   idempotency_key, recipient, message, status, attempt,
-                                  provider_id, error, name, campaign_id, created_at, updated_at)
+                                  provider_id, error, name, campaign_id, created_at, updated_at, sent_at)
             VALUES (:tenant_id, :channel_id, :message_id, :message_type, :direction,
                     :idempotency_key, :recipient, :message, :status, :attempt,
-                    :provider_id, :error, :name, :campaign_id, :created_at, :updated_at)
+                    :provider_id, :error, :name, :campaign_id, :created_at, :updated_at, :sent_at)
         `).run(row);
         return toRecord(row);
     }
 
     updateStatus(messageId, status, { attempt, providerId, error } = {}) {
+        const now = utcNow();
         const sets = ['status = ?', 'updated_at = ?'];
-        const args = [status, utcNow()];
+        const args = [status, now];
+        // The first time it counts as sent is when it left, whatever happens to it afterwards.
+        if (SUCCESS_STATUSES.includes(status)) {
+            sets.push('sent_at = COALESCE(sent_at, ?)');
+            args.push(now);
+        }
         if (attempt !== undefined) {
             sets.push('attempt = ?');
             args.push(attempt);
@@ -459,8 +476,9 @@ export class Database {
         const current = STATUS_RANK[row.status] ?? 0;
         const incoming = STATUS_RANK[status] ?? 0;
         if (incoming <= current && status !== Status.FAILED) return false;
-        this.db.prepare('UPDATE messages SET status = ?, error = ?, updated_at = ? WHERE message_id = ? AND tenant_id = ?')
-            .run(status, error, utcNow(), row.message_id, this.tenantId);
+        const now = utcNow();
+        this.db.prepare('UPDATE messages SET status = ?, error = ?, updated_at = ?, sent_at = COALESCE(sent_at, ?) WHERE message_id = ? AND tenant_id = ?')
+            .run(status, error, now, SUCCESS_STATUSES.includes(status) ? now : null, row.message_id, this.tenantId);
         // The phone has it (two ticks): whoever it was flagged as having blocked us has not.
         if (status === Status.DELIVERED || status === Status.READ) this.clearBlocks(row.recipient);
         return true;
@@ -589,12 +607,12 @@ export class Database {
             return this.db.prepare(
                 `SELECT COUNT(*) AS n FROM messages
                  WHERE tenant_id = ? AND channel_id = ? AND status IN (${placeholders})
-                   AND created_at >= ? AND created_at < ?`,
+                   AND COALESCE(sent_at, created_at) >= ? AND COALESCE(sent_at, created_at) < ?`,
             ).get(this.tenantId, this.channelId, ...SUCCESS_STATUSES, startIso, endIso).n;
         }
         const row = this.db.prepare(
             `SELECT COUNT(*) AS n FROM messages
-             WHERE tenant_id = ? AND status IN (${placeholders}) AND created_at >= ? AND created_at < ?`
+             WHERE tenant_id = ? AND status IN (${placeholders}) AND COALESCE(sent_at, created_at) >= ? AND COALESCE(sent_at, created_at) < ?`
         ).get(this.tenantId, ...SUCCESS_STATUSES, startIso, endIso);
         return row.n;
     }
@@ -691,7 +709,7 @@ export class Database {
             `SELECT message_id AS messageId, recipient AS phone, campaign_id AS campaignId, provider_id AS providerId
              FROM messages
              WHERE tenant_id = ?${scope} AND status = 'SENT' AND message_type = 'campaign'
-               AND created_at >= ? AND updated_at < ?
+               AND created_at >= ? AND COALESCE(sent_at, updated_at) < ?
                AND NOT EXISTS (SELECT 1 FROM messages d WHERE d.tenant_id = messages.tenant_id
                                AND d.recipient = messages.recipient AND d.status IN ('DELIVERED', 'READ')
                                AND d.updated_at > messages.updated_at)

@@ -28,7 +28,14 @@
 </header>
 
 @if (quiet(); as q) {
-  <section class="quiet s-enter" style="--i: 1" aria-labelledby="quiet-title">
+  <section
+    #strip
+    class="quiet s-enter"
+    style="--i: 1"
+    aria-labelledby="quiet-title"
+    (keydown.escape)="hide()"
+    (focusout)="blurred()"
+  >
     <div class="quiet-top">
       <h3 id="quiet-title"><i class="ti ti-moon" aria-hidden="true"></i>Quiet time today</h3>
       <span class="quiet-note">
@@ -47,42 +54,80 @@
           [class.now]="w.state === 'now'"
           [class.done]="w.state === 'done'"
           [class.off]="!w.onBar"
+          [class.hot]="lit() === w.key"
+          [class.dim]="lit() !== null && lit() !== w.key"
         >
-          <i
-            class="ti {{ w.state === 'now' ? 'ti-moon' : w.state === 'done' ? 'ti-check' : 'ti-clock' }}"
-            aria-hidden="true"
-          ></i>
-          <span class="mono">{{ w.label }}</span>
-          @if (w.day) {
-            <small>{{ w.day }}</small>
-          }
-          @if (w.state === 'now') {
-            <b>Resting · back in {{ w.backIn }}</b>
-          }
+          <button
+            type="button"
+            class="qchip-btn"
+            [attr.aria-pressed]="pinKey() === w.key"
+            (pointerenter)="hoverChip(w, $event)"
+            (pointerleave)="leaveChip()"
+            (focus)="focusChip(w, $event)"
+            (blur)="unlight()"
+            (click)="pin(w, $event)"
+          >
+            <i
+              class="ti {{ w.state === 'now' ? 'ti-moon' : w.state === 'done' ? 'ti-check' : 'ti-clock' }}"
+              aria-hidden="true"
+            ></i>
+            <span class="mono">{{ w.label }}</span>
+            @if (w.day) {
+              <small>{{ w.day }}</small>
+            }
+            @if (w.state === 'now') {
+              <b>Resting · back in {{ w.backIn }}</b>
+            }
+          </button>
         </li>
       }
     </ul>
 
     <div
-      class="quiet-bar"
-      role="img"
-      [attr.aria-label]="'Quiet windows across your local day: ' + q.summary"
+      class="quiet-track"
+      tabindex="0"
+      role="group"
+      [attr.aria-label]="
+        'Quiet windows across your local day: ' +
+        q.summary +
+        '. Left and Right arrows move through the day, Home and End jump, Escape closes.'
+      "
+      (pointermove)="move($event)"
+      (pointerdown)="press($event)"
+      (pointerleave)="leave($event)"
+      (keydown)="key($event)"
     >
-      @for (w of q.windows; track w.key) {
-        @if (w.onBar) {
-          <span
-            class="seg"
-            [class.now]="w.state === 'now'"
-            [style.left.%]="w.from"
-            [style.width.%]="w.span"
-          ></span>
+      <div #bar class="quiet-bar">
+        @for (w of q.windows; track w.key) {
+          @if (w.onBar) {
+            <button
+              type="button"
+              class="seg"
+              [class.now]="w.state === 'now'"
+              [class.hot]="lit() === w.key"
+              [class.dim]="lit() !== null && lit() !== w.key"
+              [style.left.%]="w.from"
+              [style.width.%]="w.span"
+              [style.--tilt]="lit() === w.key ? tilt() : null"
+              [attr.aria-label]="w.speech"
+              [attr.aria-pressed]="pinKey() === w.key"
+              (focus)="focusWindow(w, $event)"
+              (click)="pin(w, $event, true)"
+            ></button>
+          }
         }
-      }
-      <span class="marker" [style.left.%]="q.marker"></span>
+        <span class="marker" [style.left.%]="q.marker"></span>
+        @if (cursor() !== null) {
+          <span class="cursor" [style.left.%]="cursor()"></span>
+        }
+      </div>
     </div>
     <div class="quiet-scale" aria-hidden="true">
       <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
     </div>
+
+    <app-quiet-tip [info]="tip()" [place]="place()" [top]="tipTop()" />
+    <p class="sr" aria-live="polite">{{ live() }}</p>
   </section>
 }
 

@@ -63,3 +63,135 @@ export function quietSlots(
     minutesLeft: Math.max(1, Math.ceil((w.endAt - now) / 60_000)),
   }));
 }
+
+/** The inspector cursor snaps to this: finer than anyone can aim on a 24h strip. */
+export const CURSOR_STEP = 5 * 60_000;
+
+/** `at` rounded to the nearest 5 minutes of the local day that starts at `dayStart`. */
+export const snapToStep = (at: number, dayStart: number): number =>
+  dayStart + Math.round((at - dayStart) / CURSOR_STEP) * CURSOR_STEP;
+
+/** What a tooltip says about one minute, or one window, of the quiet-time day. */
+export interface TipInfo {
+  /** "11:39" under the cursor; "Now" at the pin; "Tomorrow" for a window's own chip. */
+  readonly time: string;
+  readonly tone: 'quiet' | 'sending';
+  /** The window the minute falls in; null while sending between windows. */
+  readonly key: number | null;
+  /** "Quiet time · 11:39–14:23 · 2h 44m", or "Sending". */
+  readonly title: string;
+  /** "ends in 1h 12m", "ended 40m ago", "next quiet time 17:11 · in 3h 5m". */
+  readonly note: string;
+  /** The same as one sentence for a live region (no middle dots to be read aloud). */
+  readonly speech: string;
+}
+
+/** Countdowns round up and "ago" rounds down, never below a minute, so a ticking readout never shows 0m. */
+const ahead = (ms: number): string => durationLabel(Math.max(1, Math.ceil(ms / 60_000)));
+const behind = (ms: number): string => durationLabel(Math.max(1, Math.floor(ms / 60_000)));
+
+/** "17:11", plus "tomorrow" / "yesterday" when it falls outside the local day `now` is in. */
+function clockOn(at: number, now: number): string {
+  const day = at < localDayStart(now) ? ' yesterday' : at >= localDayEnd(now) ? ' tomorrow' : '';
+  return localClock(at) + day;
+}
+
+function tipInfo(time: string, key: number | null, title: string, note: string): TipInfo {
+  return {
+    time,
+    tone: key === null ? 'sending' : 'quiet',
+    key,
+    title,
+    note,
+    speech: `${time}. ${title}. ${note}.`.replaceAll(' · ', ', '),
+  };
+}
+
+function windowFacts(w: QuietSlot, now: number): { title: string; note: string } {
+  const span = durationLabel(Math.round((w.endAt - w.startAt) / 60_000));
+  return {
+    title: `Quiet time · ${w.label}${w.day ? ` ${w.day}` : ''} · ${span}`,
+    note:
+      w.state === 'now'
+        ? `ends in ${ahead(w.endAt - now)}`
+        : w.state === 'done'
+          ? `ended ${behind(now - w.endAt)} ago`
+          : `starts in ${ahead(w.startAt - now)} · ends in ${ahead(w.endAt - now)}`,
+  };
+}
+
+/**
+ * Tooltip text for a window on its own (a chip, a row in the health card). The state comes from
+ * `w.state`, which `quietSlots` cut on the same `now`, so it ticks with the store's clock.
+ */
+export function describeWindow(w: QuietSlot, now: number): TipInfo {
+  const time =
+    w.state === 'now' ? 'Now' : w.day ? w.day[0].toUpperCase() + w.day.slice(1) : 'Today';
+  const { title, note } = windowFacts(w, now);
+  return tipInfo(time, w.key, title, note);
+}
+
+/**
+ * Tooltip text for the minute under the strip's cursor. `slots` must be ascending, as the server
+ * sends them. Countdowns are measured from `now` (not from the cursor) so they read true however
+ * far the cursor sits from the pin.
+ */
+export function describeMinute(at: number, slots: readonly QuietSlot[], now: number): TipInfo {
+  const atPin = Math.abs(at - now) <= CURSOR_STEP / 2;
+  const time = atPin ? 'Now' : localClock(at);
+  const inside = slots.find((w) => at >= w.startAt && at < w.endAt);
+  if (inside) {
+    const { title, note } = windowFacts(inside, now);
+    return tipInfo(time, inside.key, title, note);
+  }
+  const past = !atPin && at < now;
+  const prev = past ? slots.filter((w) => w.endAt <= at).at(-1) : undefined;
+  const next = slots.find((w) => w.startAt > at);
+  const note = prev
+    ? `since ${clockOn(prev.endAt, now)}`
+    : next
+      ? past
+        ? `quiet time starts ${clockOn(next.startAt, now)}`
+        : `next quiet time ${clockOn(next.startAt, now)} · in ${ahead(next.startAt - now)}`
+      : past
+        ? 'no quiet time yet today'
+        : 'no more quiet time today';
+  return tipInfo(time, null, 'Sending', note);
+}
+
+/** "Quiet time 11:39 to 14:23, 2 hours 44 minutes": the aria-label of a segment. */
+export function windowSpeech(w: QuietSlot): string {
+  const m = Math.round((w.endAt - w.startAt) / 60_000);
+  const unit = (n: number, name: string): string => `${n} ${name}${n === 1 ? '' : 's'}`;
+  const parts = [
+    m >= 60 ? unit(Math.floor(m / 60), 'hour') : '',
+    m % 60 ? unit(m % 60, 'minute') : '',
+  ];
+  const day = w.day ? ` ${w.day}` : '';
+  return `Quiet time ${localClock(w.startAt)} to ${localClock(w.endAt)}${day}, ${parts.filter(Boolean).join(' ')}`;
+}
+
+/** Widest a tooltip gets; the text wraps inside it so a pure function can place it without measuring. */
+export const TIP_WIDTH = 264;
+
+export interface TipPlace {
+  /** Left edge in px, in the coordinates `lo` / `hi` were given in. */
+  readonly left: number;
+  readonly width: number;
+  /** Where the anchor sits inside the tooltip, in px: the origin its pop-in grows from. */
+  readonly origin: number;
+}
+
+/**
+ * Where a `tip`-px-wide tooltip goes for an anchor at `x` inside the strip `lo`..`hi`: centred on
+ * the anchor, flipped to hang off one side of it when centring would spill, then clamped so it can
+ * never leave the strip (and shrunk if the strip is narrower than the tooltip).
+ */
+export function tipPlacement(x: number, tip: number, lo: number, hi: number, gap = 10): TipPlace {
+  const width = Math.min(tip, Math.max(0, hi - lo));
+  let left = x - width / 2;
+  if (left < lo) left = x + gap;
+  else if (left + width > hi) left = x - gap - width;
+  left = Math.min(Math.max(left, lo), hi - width);
+  return { left, width, origin: Math.min(Math.max(x - left, 0), width) };
+}
