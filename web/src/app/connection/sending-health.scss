@@ -228,6 +228,24 @@ p {
   &.resting > strong {
     color: var(--accent);
   }
+
+  .win {
+    font-variant-numeric: tabular-nums;
+
+    &.done {
+      opacity: 0.6;
+    }
+
+    &.now {
+      font-weight: 500;
+      color: var(--accent);
+    }
+
+    em {
+      font-style: normal;
+      color: var(--hint);
+    }
+  }
 }
 
 /* Blocks and reports */

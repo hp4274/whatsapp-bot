@@ -2,7 +2,13 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { RouterLink } from '@angular/router';
 
 import { type Campaign, type CampaignStatus, CampaignsApi } from '../core/api';
-import { clockLabel, durationLabel } from '../core/quiet-time';
+import {
+  durationLabel,
+  localClock,
+  localDayEnd,
+  localDayStart,
+  quietSlots,
+} from '../core/quiet-time';
 import { Store } from '../core/store';
 import {
   canCancel,
@@ -91,27 +97,36 @@ export class CampaignsListView {
   protected readonly to = computed(() => Math.min(this.visible().length, this.offset() + this.pageSize));
 
   /**
-   * Today's quiet windows against the channel's own clock (`store.quietNow`): the windows are
-   * minutes in the channel's zone, so the browser's local time would put the marker in the wrong
-   * place. Null when the tier system is off or the windows belong to a day that has ended.
+   * Today's quiet windows on the viewer's own local day: the server sends absolute instants (its
+   * channel zone may differ from this browser's), so labels, the 00:00-24:00 bar and the "now" pin
+   * are all in local time. The pin and the readout tick with `store.serverNow` (every second) so
+   * the pin matches the server's idea of the windows even if this browser's clock is off.
+   * Windows entirely outside the local day (the channel's day spills over it) stay as chips only.
+   * Null when the tier system is off.
    */
   protected readonly quiet = computed(() => {
     const q = this.store.safety()?.quiet;
-    const now = this.store.quietNow();
-    if (!q?.windows?.length || now === null || now >= 1440) return null;
-    const windows = q.windows.map((w) => ({
-      key: w.startMinute,
-      label: `${clockLabel(w.startMinute)}–${clockLabel(w.endMinute)}`,
-      state: now >= w.endMinute ? 'done' : now >= w.startMinute ? 'now' : 'next',
-      from: (w.startMinute / 1440) * 100,
-      span: ((w.endMinute - w.startMinute) / 1440) * 100,
-      backIn: durationLabel(Math.max(1, Math.ceil(w.endMinute - now))),
-    }));
+    if (!q?.windows?.length) return null;
+    const now = this.store.serverNow();
+    const dayStart = localDayStart(now);
+    const dayLength = localDayEnd(now) - dayStart;
+    const windows = quietSlots(q.windows, now).map((w) => {
+      const from = Math.max(w.startAt, dayStart);
+      const to = Math.min(w.endAt, dayStart + dayLength);
+      return {
+        ...w,
+        onBar: to > from,
+        from: ((from - dayStart) / dayLength) * 100,
+        span: ((to - from) / dayLength) * 100,
+        backIn: durationLabel(w.minutesLeft),
+      };
+    });
     return {
       windows,
       total: durationLabel(q.minutesToday),
-      marker: (Math.max(0, now) / 1440) * 100,
-      summary: windows.map((w) => w.label).join(', '),
+      marker: ((now - dayStart) / dayLength) * 100,
+      clock: localClock(now, true),
+      summary: windows.map((w) => w.label + (w.day ? ` ${w.day}` : '')).join(', '),
     };
   });
 

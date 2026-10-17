@@ -11,7 +11,10 @@ import {
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
-import { Api } from '../../core/api';
+import { Api, type UploadedMedia } from '../../core/api';
+import { ReusePicker } from '../../storage/reuse-picker';
+import { StorageApi, type StorageUse } from '../../storage/storage-api';
+import { shortDate } from '../../storage/storage-format';
 import { Template, TemplatesApi } from '../../templates/templates-api';
 import { InteractiveEditor } from '../interactive/interactive-editor';
 import { CampaignDraft } from '../draft';
@@ -32,7 +35,7 @@ const SPIN_SAMPLE = '{Hi|Hello|Hey}';
  */
 @Component({
   selector: 'app-message-step',
-  imports: [FormsModule, RouterLink, InteractiveEditor, MetaParams],
+  imports: [FormsModule, RouterLink, InteractiveEditor, MetaParams, ReusePicker],
   templateUrl: './message-step.html',
   styleUrl: './message-step.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -41,6 +44,7 @@ export class MessageStep {
   protected readonly draft = inject(CampaignDraft);
   private readonly api = inject(Api);
   private readonly templatesApi = inject(TemplatesApi);
+  private readonly storage = inject(StorageApi);
   /** Interactive buttons can be off on the plan; the editor is then replaced by a note. */
   protected readonly policy = inject(CampaignPolicy);
   private readonly editor = viewChild<ElementRef<HTMLTextAreaElement>>('editor');
@@ -48,6 +52,9 @@ export class MessageStep {
   protected readonly uploading = signal(false);
   protected readonly error = signal('');
   protected readonly spinHelp = signal(false);
+  /** First-upload time of the attachment when identical bytes were already stored; else null. */
+  protected readonly duplicateOf = signal<string | null>(null);
+  protected readonly date = shortDate;
 
   /** Approved Meta templates (Cloud API channels only), loaded once on demand. */
   protected readonly approved = signal<Template[] | null>(null);
@@ -167,19 +174,49 @@ export class MessageStep {
     this.api.uploadMedia(file).subscribe({
       next: (media) => {
         const visual = file.type.startsWith('image/') || video;
-        this.draft.setAttachment({
-          mediaId: media.mediaId,
-          filename: media.filename,
-          mimetype: media.mimetype || file.type,
-          size: media.size,
-          previewUrl: visual ? URL.createObjectURL(file) : '',
-        });
+        this.attach(media, media.mimetype || file.type, visual ? URL.createObjectURL(file) : '');
+        this.duplicateOf.set(media.duplicate ? (media.firstUploadedAt ?? '') : null);
         this.uploading.set(false);
       },
       error: (err: Error) => {
         this.uploading.set(false);
         this.error.set(err.message);
       },
+    });
+  }
+
+  /** A file picked from Storage becomes the attachment exactly as a fresh upload does. */
+  protected onReused({ file, media }: StorageUse): void {
+    if (!media) {
+      this.error.set('The server did not return the attachment. Try again.');
+      return;
+    }
+    this.error.set('');
+    // The server flags every reopened file as a duplicate; picking one on purpose is not news.
+    this.duplicateOf.set(null);
+    const mimetype = media.mimetype || file.mimetype;
+    this.attach({ ...media, storageId: media.storageId ?? file.id }, mimetype, '');
+    // No local File to preview: fetch an image back so the phone preview is not blank.
+    if (mimetype.startsWith('image/')) {
+      this.storage.download(file.id).subscribe({
+        next: (blob) => {
+          const current = this.draft.attachment();
+          if (current?.mediaId !== media.mediaId) return;
+          this.draft.setAttachment({ ...current, previewUrl: URL.createObjectURL(blob) });
+        },
+        error: () => undefined,
+      });
+    }
+  }
+
+  private attach(media: UploadedMedia, mimetype: string, previewUrl: string): void {
+    this.draft.setAttachment({
+      mediaId: media.mediaId,
+      filename: media.filename,
+      mimetype,
+      size: media.size,
+      previewUrl,
+      storageId: media.storageId,
     });
   }
 

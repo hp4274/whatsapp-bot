@@ -8,12 +8,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const MIME = {
+export const MEDIA_MIME = {
     '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
     '.pdf': 'application/pdf', '.doc': 'application/msword',
     '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     '.mp4': 'video/mp4', '.3gp': 'video/3gpp',
 };
+
+/** The shape /media/upload and /storage/:id/use hand the browser. */
+export function mediaMetadata(media) {
+    return {
+        mediaId: media.mediaId,
+        filename: media.filename,
+        mimetype: media.mimetype,
+        size: media.size,
+        url: media.url,
+    };
+}
 
 export class MediaStore extends Map {
     constructor(uploadDir, tenantId = null) {
@@ -49,7 +60,7 @@ export class MediaStore extends Map {
             const media = {
                 mediaId,
                 filename: stored.slice(mediaId.length + 1),
-                mimetype: MIME[path.extname(stored).toLowerCase()] ?? 'application/octet-stream',
+                mimetype: MEDIA_MIME[path.extname(stored).toLowerCase()] ?? 'application/octet-stream',
                 size: buffer.length,
                 filePath,
                 buffer,

@@ -1,0 +1,259 @@
+<!-- Header, error banner, then skeleton / empty / (summary, toolbar, file cards, pager). -->
+<header class="s-head s-enter">
+  <div>
+    <p class="eyebrow"><i class="ti ti-folders" aria-hidden="true"></i>Uploads</p>
+    <h2>Storage</h2>
+    <p>Files you've uploaded before. Uploading the same file again reuses it - no duplicates.</p>
+  </div>
+  <div class="head-actions">
+    <button
+      type="button"
+      class="btn"
+      (click)="load()"
+      [disabled]="loading()"
+      aria-label="Refresh storage"
+    >
+      @if (loading()) {
+        <span class="spinner" aria-hidden="true"></span>
+      } @else {
+        <i class="ti ti-refresh" aria-hidden="true"></i>
+      }
+      Refresh
+    </button>
+  </div>
+</header>
+
+@if (error()) {
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="msg">{{ error() }}</span>
+    <button type="button" class="btn sm" (click)="error.set(''); load()">Try again</button>
+  </p>
+}
+
+@if (!loaded()) {
+  <div class="skeleton-page" aria-busy="true" aria-label="Loading stored files">
+    <div class="s-skel sk-summary"></div>
+    <div class="files">
+      @for (i of [1, 2, 3, 4, 5, 6]; track i) {
+        <div class="s-skel sk-card"></div>
+      }
+    </div>
+  </div>
+} @else if (!files().length) {
+  @if (!error()) {
+    <section class="s-card s-enter" style="--i: 1">
+      <div class="s-empty">
+        <i class="ti ti-folders" aria-hidden="true"></i>
+        <strong>Nothing stored yet</strong>
+        <p>Files you upload for campaigns show up here.</p>
+        <a class="btn primary" routerLink="/campaign">
+          <i class="ti ti-plus" aria-hidden="true"></i>
+          Start a campaign
+        </a>
+      </div>
+    </section>
+  }
+} @else {
+  <section class="summary s-card s-enter" style="--i: 1" aria-label="Storage summary">
+    <div class="figures">
+      <div class="fig">
+        <small>Files</small>
+        <b>{{ totals().count | number }}</b>
+      </div>
+      <div class="fig">
+        <small>Space used</small>
+        <b>{{ bytes(totals().bytes) }}</b>
+      </div>
+    </div>
+    @if (share(); as s) {
+      <div class="mix">
+        <div
+          class="bar"
+          role="img"
+          [attr.aria-label]="
+            'Contact lists take ' +
+            (s.sheet | number: '1.0-0') +
+            ' percent of the space, attachments ' +
+            (s.media | number: '1.0-0') +
+            ' percent'
+          "
+        >
+          @if (s.sheet > 0) {
+            <span class="seg sheet" [style.flex-basis.%]="s.sheet"></span>
+          }
+          @if (s.media > 0) {
+            <span class="seg media" [style.flex-basis.%]="s.media"></span>
+          }
+        </div>
+        <ul class="legend">
+          <li>
+            <i class="dot sheet" aria-hidden="true"></i>
+            Contact lists <b>{{ split().sheet.count }}</b> &middot;
+            {{ bytes(split().sheet.bytes) }}
+          </li>
+          <li>
+            <i class="dot media" aria-hidden="true"></i>
+            Attachments <b>{{ split().media.count }}</b> &middot; {{ bytes(split().media.bytes) }}
+          </li>
+        </ul>
+      </div>
+    }
+  </section>
+
+  <section class="toolbar s-enter" style="--i: 2">
+    <div class="chips" role="group" aria-label="Filter by type">
+      @for (f of filters; track f.key) {
+        <button
+          type="button"
+          class="s-chip"
+          [attr.aria-pressed]="filter() === f.key"
+          (click)="setFilter(f.key)"
+        >
+          {{ f.label }}
+          <b>{{ counts()[f.key] }}</b>
+        </button>
+      }
+    </div>
+    <label class="search">
+      <i class="ti ti-search" aria-hidden="true"></i>
+      <input
+        type="search"
+        placeholder="Search files"
+        aria-label="Search files"
+        [value]="search()"
+        (input)="setSearch($any($event.target).value)"
+      />
+    </label>
+  </section>
+
+  @if (cards().length) {
+    <ul class="files">
+      @for (f of cards(); track f.id) {
+        <li>
+          <article
+            class="file s-enter"
+            schoolTilt="3"
+            [attr.data-type]="type(f)"
+            [style.--i]="$index"
+          >
+            <div class="top">
+              <span class="ico"><i class="ti ti-{{ icon(f) }}" aria-hidden="true"></i></span>
+              <div class="id">
+                <h3 [title]="f.name">{{ f.name }}</h3>
+                <p>{{ meta(f) }}</p>
+              </div>
+            </div>
+
+            <ul class="facts">
+              <li>
+                <i class="ti ti-calendar" aria-hidden="true"></i>
+                Uploaded {{ date(f.createdAt) }}
+              </li>
+              <li [title]="'Last used ' + date(f.lastUsedAt)">
+                <i class="ti ti-repeat" aria-hidden="true"></i>
+                @if (f.uses > 0) {
+                  Used {{ f.uses }}&times;
+                } @else {
+                  Not used yet
+                }
+              </li>
+            </ul>
+
+            <div class="actions">
+              @if (f.kind === 'sheet' && canWrite()) {
+                <button
+                  type="button"
+                  class="btn sm primary"
+                  [disabled]="!!busy()"
+                  (click)="useInCampaign(f)"
+                  [attr.aria-label]="'Use ' + f.name + ' in a campaign'"
+                >
+                  @if (isBusy(f, 'use')) {
+                    <span class="spinner" aria-hidden="true"></span>
+                  } @else {
+                    <i class="ti ti-send" aria-hidden="true"></i>
+                  }
+                  Use in campaign
+                </button>
+              }
+              <div class="end">
+                <button
+                  type="button"
+                  class="btn sm ghost"
+                  [disabled]="!!busy()"
+                  (click)="download(f)"
+                  [attr.aria-label]="'Download ' + f.name"
+                >
+                  @if (isBusy(f, 'download')) {
+                    <span class="spinner" aria-hidden="true"></span>
+                  } @else {
+                    <i class="ti ti-download" aria-hidden="true"></i>
+                  }
+                  Download
+                </button>
+                @if (canWrite()) {
+                  <button
+                    type="button"
+                    class="btn sm ghost"
+                    [class.danger-ghost]="confirming() === f.id"
+                    [disabled]="!!busy()"
+                    (click)="remove(f)"
+                    (blur)="confirming() === f.id && confirming.set(null)"
+                    [attr.aria-label]="
+                      confirming() === f.id ? 'Confirm delete ' + f.name : 'Delete ' + f.name
+                    "
+                  >
+                    @if (isBusy(f, 'delete')) {
+                      <span class="spinner" aria-hidden="true"></span>
+                    } @else {
+                      <i class="ti ti-trash" aria-hidden="true"></i>
+                    }
+                    {{ confirming() === f.id ? 'Delete?' : '' }}
+                  </button>
+                }
+              </div>
+            </div>
+          </article>
+        </li>
+      }
+    </ul>
+
+    @if (visible().length > pageSize) {
+      <nav class="pager" aria-label="Pages">
+        <span class="muted">{{ from() }}&ndash;{{ to() }} of {{ visible().length }}</span>
+        <div class="pager-btns">
+          <button
+            type="button"
+            class="btn ghost icon"
+            aria-label="Previous page"
+            [disabled]="pageIndex() === 0"
+            (click)="goTo(pageIndex() - 1)"
+          >
+            <i class="ti ti-chevron-left" aria-hidden="true"></i>
+          </button>
+          <span class="page-no" aria-live="polite">
+            Page {{ pageIndex() + 1 }} of {{ pageCount() }}
+          </span>
+          <button
+            type="button"
+            class="btn ghost icon"
+            aria-label="Next page"
+            [disabled]="pageIndex() >= pageCount() - 1"
+            (click)="goTo(pageIndex() + 1)"
+          >
+            <i class="ti ti-chevron-right" aria-hidden="true"></i>
+          </button>
+        </div>
+      </nav>
+    }
+  } @else {
+    <section class="s-card">
+      <div class="s-empty">
+        <i class="ti ti-filter-off" aria-hidden="true"></i>
+        <strong>Nothing here</strong>
+        <p>No stored files match this filter or search.</p>
+      </div>
+    </section>
+  }
+}

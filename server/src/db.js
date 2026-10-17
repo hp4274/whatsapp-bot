@@ -453,7 +453,7 @@ export class Database {
      */
     applyReceipt(providerId, status, error = null) {
         const row = this.db.prepare(
-            'SELECT message_id, status FROM messages WHERE provider_id = ? AND tenant_id = ?')
+            'SELECT message_id, status, recipient FROM messages WHERE provider_id = ? AND tenant_id = ?')
             .get(providerId, this.tenantId);
         if (!row) return false;
         const current = STATUS_RANK[row.status] ?? 0;
@@ -461,7 +461,34 @@ export class Database {
         if (incoming <= current && status !== Status.FAILED) return false;
         this.db.prepare('UPDATE messages SET status = ?, error = ?, updated_at = ? WHERE message_id = ? AND tenant_id = ?')
             .run(status, error, utcNow(), row.message_id, this.tenantId);
+        // The phone has it (two ticks): whoever it was flagged as having blocked us has not.
+        if (status === Status.DELIVERED || status === Status.READ) this.clearBlocks(row.recipient);
         return true;
+    }
+
+    /** Drop the suspected-block events of a number that has since received a message. */
+    clearBlocks(phone) {
+        this.db.prepare("DELETE FROM safety_events WHERE tenant_id = ? AND kind = 'block' AND phone = ?")
+            .run(this.tenantId, phone);
+    }
+
+    /**
+     * Sweep up block events that turned out wrong: the flagged message got its
+     * ticks after all, a later message to the same number was delivered, or the
+     * number wrote back. Events written before this check existed heal here too.
+     */
+    healBlocks() {
+        const scope = this.channelId != null ? ' AND e.channel_id = ?' : '';
+        const args = this.channelId != null ? [this.channelId] : [];
+        return this.db.prepare(
+            `DELETE FROM safety_events AS e WHERE e.tenant_id = ? AND e.kind = 'block'${scope} AND EXISTS (
+               SELECT 1 FROM messages m WHERE m.tenant_id = e.tenant_id AND m.message_id = e.message_id AND (
+                    m.status IN ('DELIVERED', 'READ')
+                 OR EXISTS (SELECT 1 FROM messages d WHERE d.tenant_id = m.tenant_id AND d.recipient = m.recipient
+                            AND d.status IN ('DELIVERED', 'READ') AND d.updated_at > m.updated_at)
+                 OR EXISTS (SELECT 1 FROM inbound_messages i WHERE i.tenant_id = m.tenant_id
+                            AND i.sender = m.recipient AND i.received_at > m.created_at)))`,
+        ).run(this.tenantId, ...args).changes;
     }
 
     get(messageId) {
@@ -649,16 +676,28 @@ export class Database {
 
     /**
      * Campaign messages the server accepted (SENT) that never reached the
-     * phone: created between `afterIso` and `beforeIso`. A long-undelivered
-     * single tick is how a block looks from the sender's side.
+     * phone: queued after `afterIso`, accepted before `beforeIso`. A long-
+     * undelivered single tick is how a block looks from the sender's side.
+     *
+     * Age counts from the send (`updated_at` of the SENT row), not from
+     * `created_at`: a long campaign queues every row at its start, so a message
+     * sent 25 hours in is "24 hours old" the moment it goes out. A number that
+     * got a later message delivered, or wrote back, has not blocked us.
      */
     stuckSent(afterIso, beforeIso) {
         const scope = this.channelId != null ? ' AND channel_id = ?' : '';
         const args = this.channelId != null ? [this.channelId] : [];
         return this.db.prepare(
-            `SELECT message_id AS messageId, recipient AS phone, campaign_id AS campaignId FROM messages
+            `SELECT message_id AS messageId, recipient AS phone, campaign_id AS campaignId, provider_id AS providerId
+             FROM messages
              WHERE tenant_id = ?${scope} AND status = 'SENT' AND message_type = 'campaign'
-               AND created_at >= ? AND created_at < ? LIMIT 500`,
+               AND created_at >= ? AND updated_at < ?
+               AND NOT EXISTS (SELECT 1 FROM messages d WHERE d.tenant_id = messages.tenant_id
+                               AND d.recipient = messages.recipient AND d.status IN ('DELIVERED', 'READ')
+                               AND d.updated_at > messages.updated_at)
+               AND NOT EXISTS (SELECT 1 FROM inbound_messages i WHERE i.tenant_id = messages.tenant_id
+                               AND i.sender = messages.recipient AND i.received_at > messages.created_at)
+             LIMIT 500`,
         ).all(this.tenantId, ...args, afterIso, beforeIso);
     }
 

@@ -43,6 +43,18 @@ export interface AppConfig {
   restMaxMinutes: number;
 }
 
+/** `POST /api/media/upload`; the optional fields come from Storage (see `ImportPreview`). */
+export interface UploadedMedia {
+  mediaId: string;
+  filename: string;
+  mimetype: string;
+  size: number;
+  url: string;
+  storageId?: number;
+  duplicate?: boolean;
+  firstUploadedAt?: string;
+}
+
 export interface ConnectionState {
   connected: boolean;
   connecting?: boolean;
@@ -129,9 +141,19 @@ export interface QuietWindow {
   /** Minutes after local midnight when today's first window starts. */
   startMinute: number;
   /** Today's separate windows, sorted, in minutes after midnight on the channel's clock. */
-  windows: readonly { readonly startMinute: number; readonly endMinute: number }[];
+  windows: readonly QuietSpan[];
   /** Channel clock (minutes after midnight) when the server answered; the browser's own zone may differ. */
   nowMinute: number;
+  /** Server clock (ms epoch) when it answered: the viewer measures its own clock skew against it. */
+  nowAt: number;
+}
+
+/** One quiet window: channel-zone minutes, plus the same span as ms-epoch instants for local display. */
+export interface QuietSpan {
+  readonly startMinute: number;
+  readonly endMinute: number;
+  readonly startAt: number;
+  readonly endAt: number;
 }
 
 export interface SafetyEvent {
@@ -260,23 +282,10 @@ export class Api {
       .pipe(catchError(toMessage));
   }
 
-  uploadMedia(
-    file: File,
-  ): Observable<{
-    mediaId: string;
-    filename: string;
-    mimetype: string;
-    size: number;
-    url: string;
-  }> {
+  uploadMedia(file: File): Observable<UploadedMedia> {
     const form = new FormData();
     form.append('file', file);
-    return this.http
-      .post<{ mediaId: string; filename: string; mimetype: string; size: number; url: string }>(
-        '/api/media/upload',
-        form,
-      )
-      .pipe(catchError(toMessage));
+    return this.http.post<UploadedMedia>('/api/media/upload', form).pipe(catchError(toMessage));
   }
 
   importContacts(file: File): Observable<ImportResult> {
@@ -1111,6 +1120,12 @@ export interface ImportPreview {
   total: number;
   truncated: boolean;
   guess: { phone: string | null; name: string | null };
+  /** Storage copy of the file (`GET /api/storage`); absent on servers without Storage. */
+  storageId?: number;
+  /** True when identical bytes were already stored, so no second copy was saved. */
+  duplicate?: boolean;
+  /** ISO time of the first upload of those bytes. */
+  firstUploadedAt?: string;
 }
 
 export interface ImportMapping {

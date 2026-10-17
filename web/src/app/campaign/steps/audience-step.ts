@@ -15,9 +15,13 @@ import {
   CampaignsApi,
   ContactsApi,
   ImportIssueReason,
+  ImportPreview,
   RetargetFilter,
   Segment,
 } from '../../core/api';
+import { ReusePicker } from '../../storage/reuse-picker';
+import type { StorageUse } from '../../storage/storage-api';
+import { shortDate } from '../../storage/storage-format';
 import { AudienceSource, CampaignDraft } from '../draft';
 import { CampaignPolicy } from '../policy-api';
 
@@ -76,7 +80,7 @@ const ISSUE_LIMIT = 200;
  */
 @Component({
   selector: 'app-audience-step',
-  imports: [FormsModule],
+  imports: [FormsModule, ReusePicker],
   templateUrl: './audience-step.html',
   styleUrl: './audience-step.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -93,6 +97,9 @@ export class AudienceStep {
   protected readonly filters = FILTERS;
   protected readonly reasons = REASONS;
   protected readonly dedupePresets = DEDUPE_PRESETS;
+  /** First-upload time of the sheet when identical bytes were already stored; else null. */
+  protected readonly duplicateOf = signal<string | null>(null);
+  protected readonly date = shortDate;
 
   protected readonly uploading = signal(false);
   protected readonly auditing = signal(false);
@@ -285,22 +292,32 @@ export class AudienceStep {
       .subscribe({
         next: (preview) => {
           this.uploading.set(false);
-          this.draft.clearImport();
-          this.draft.preview.set(preview);
-          this.draft.mapping.set({
-            phone: preview.guess.phone ?? '',
-            name: preview.guess.name ?? '',
-          });
-          if (!preview.guess.phone)
-            this.error.set(
-              'We could not tell which column holds the phone number - pick it below.',
-            );
+          this.duplicateOf.set(preview.duplicate ? (preview.firstUploadedAt ?? '') : null);
+          this.adopt(preview);
         },
         error: (err: Error) => {
           this.uploading.set(false);
           this.error.set(err.message);
         },
       });
+  }
+
+  /** A sheet picked from Storage is handled exactly like a fresh upload. */
+  protected onReused({ preview }: StorageUse): void {
+    if (!preview) {
+      this.error.set('The server did not return the contact list. Try again.');
+      return;
+    }
+    this.error.set('');
+    // The server flags every reopened file as a duplicate; picking one on purpose is not news.
+    this.duplicateOf.set(null);
+    this.adopt(preview);
+  }
+
+  private adopt(preview: ImportPreview): void {
+    this.draft.adoptImport(preview);
+    if (!preview.guess.phone)
+      this.error.set('We could not tell which column holds the phone number - pick it below.');
   }
 
   protected setMapping(key: 'phone' | 'name', value: string): void {

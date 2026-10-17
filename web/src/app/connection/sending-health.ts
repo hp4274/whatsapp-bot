@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { DatePipe, DecimalPipe } from '@angular/common';
 
 import { Api, SafetyEvent, SafetyHealth, SafetyStatus } from '../core/api';
-import { clockLabel, durationLabel } from '../core/quiet-time';
+import { durationLabel, quietSlots } from '../core/quiet-time';
 import { Store } from '../core/store';
 
 /**
@@ -21,7 +21,7 @@ const TIER_STEPS: readonly { readonly n: number; readonly perDay: string }[] = [
  * next, today's budget and quiet-time windows, and the block / report rate with who
  * and when.
  *
- * Blocks are inferred (a message stuck at one tick for 12 hours), because
+ * Blocks are inferred (a message stuck at one tick for 24 hours), because
  * WhatsApp never tells a sender they were blocked. The copy says "may have".
  */
 @Component({
@@ -43,11 +43,12 @@ export class SendingHealth {
   protected readonly steps = TIER_STEPS;
   protected readonly tier = computed(() => this.safety()?.tier ?? null);
   protected readonly quiet = computed(() => this.safety()?.quiet ?? null);
-  /** When the open quiet window ends on this browser's clock; the server only says how long was left when it answered. */
-  private readonly restEndsAt = signal(0);
-  protected readonly restLeftMinutes = computed(
-    () => Math.max(0, this.restEndsAt() - this.store.now()) / 60_000,
-  );
+  /** Today's windows in local time, judged against the server's clock so they tick on their own. */
+  protected readonly slots = computed(() => {
+    const q = this.quiet();
+    return q ? quietSlots(q.windows, this.store.serverNow()) : [];
+  });
+  protected readonly resting = computed(() => this.slots().find((s) => s.state === 'now') ?? null);
 
   /** Share of the way to the next tier, 0-100. */
   protected readonly climb = computed(() => {
@@ -85,7 +86,6 @@ export class SendingHealth {
       next: ({ health, safety }) => {
         this.health.set(health);
         this.safety.set(safety);
-        this.restEndsAt.set(Date.now() + (safety.quiet?.active ? safety.quiet.leftSeconds * 1000 : 0));
         this.loading.set(false);
       },
       error: (err: Error) => {
@@ -95,7 +95,6 @@ export class SendingHealth {
     });
   }
 
-  protected readonly clock = clockLabel;
   protected readonly duration = durationLabel;
 
   protected label(event: SafetyEvent): string {

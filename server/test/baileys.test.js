@@ -360,3 +360,20 @@ it('normalises recipients to jids and parses envelopes', () => {
     assert.deepEqual(extractContent({ documentMessage: { caption: 'doc' } }), { body: 'doc', replyId: null, mediaType: 'document' });
     assert.deepEqual(extractContent({ interactiveResponseMessage: { body: { text: 'Yes' }, nativeFlowResponseMessage: { paramsJson: '{"id":"YES"}' } } }), { body: 'Yes', replyId: 'YES', mediaType: null });
 });
+
+it('hands back the provider id without waiting for the "paused" presence, and keeps a receipt that lands meanwhile', async () => {
+    const { transport, sock } = makeTransport();
+    await transport.connect();
+    sock().sendPresenceUpdate = async (state) => {
+        if (state !== 'paused') return;
+        // The phone answers during the presence round trip; it hangs long enough to prove we do not wait.
+        sock().ev.emit('messages.update', [{ key: { id: 'BAE51' }, update: { status: 3 } }]);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+    };
+    const started = Date.now();
+    const result = await transport.sendMessage('+91 98000 00001', 'Hello', { typingMs: 1 });
+    assert.equal(result.providerId, 'BAE51');
+    assert.ok(Date.now() - started < 250, 'sendMessage must not wait on the paused presence');
+    await tick();
+    assert.equal(transport.getStatus('BAE51'), Status.DELIVERED, 'a late SENT must not overwrite the receipt');
+});

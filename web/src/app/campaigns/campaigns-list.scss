@@ -74,6 +74,20 @@ a.btn { text-decoration: none; }
 
 .quiet-note { font-size: 12.5px; color: var(--text-muted); }
 
+/* Ticks every second: the pin barely moves on a 24h bar, so this is what proves the strip is live. */
+.quiet-now {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+
+  .ti { font-size: 14px; color: var(--primary-text); }
+  b { font-weight: 500; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+}
+
 .quiet-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
 
 .qchip {
@@ -92,8 +106,12 @@ a.btn { text-decoration: none; }
   .ti { font-size: 14px; }
   .mono { color: var(--text-strong); }
   b { font-weight: 500; }
+  small { font-size: 11px; font-weight: 500; color: var(--hint); }
 
   &.done { opacity: 0.6; .ti { color: var(--success); } }
+
+  /* Not on today's local day: a chip only, nothing on the bar. */
+  &.off { opacity: 0.55; border-style: dashed; }
 
   &.now {
     background: color-mix(in srgb, var(--accent) 12%, var(--surface-card));
@@ -102,6 +120,7 @@ a.btn { text-decoration: none; }
     box-shadow: 0 8px 18px -12px color-mix(in srgb, var(--accent) 80%, transparent);
     animation: s-pop 320ms var(--ease) both;
     .mono { color: inherit; }
+    small { color: inherit; opacity: 0.75; }
   }
 }
 

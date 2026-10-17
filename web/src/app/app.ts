@@ -237,6 +237,7 @@ export class App {
     { path: '/contacts', label: 'Contacts', icon: ICONS.contacts, service: 'contacts' },
     { path: '/campaign', label: 'New Campaign', icon: ICONS.campaign, service: 'bulk_messages' },
     { path: '/campaigns', label: 'Campaigns', icon: 'speakerphone', service: 'bulk_messages' },
+    { path: '/storage', label: 'Storage', icon: 'folders', service: 'bulk_messages' },
     { path: '/auto-replies', label: 'Auto-Replies', icon: ICONS.replies, service: 'auto_replies' },
     { path: '/templates', label: 'Templates', icon: 'file-text', service: 'templates' },
     { path: '/inbox', label: 'Inbox', icon: 'inbox', service: 'inbox' },

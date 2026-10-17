@@ -65,6 +65,10 @@ export interface UploadedMedia {
   mimetype: string;
   size: number;
   url: string;
+  /** Storage fields, present when the server keeps uploads (no UI here yet). */
+  storageId?: number;
+  duplicate?: boolean;
+  firstUploadedAt?: string;
 }
 
 /** Subset of GET /api/templates used for quick replies. */

@@ -100,6 +100,10 @@ export interface UploadedMedia {
   mimetype: string;
   size: number;
   url: string;
+  /** Storage fields, present when the server keeps uploads (no UI here yet). */
+  storageId?: number;
+  duplicate?: boolean;
+  firstUploadedAt?: string;
 }
 
 /** Error carrying the HTTP status, so the page can tell a 403 from a 400. */
