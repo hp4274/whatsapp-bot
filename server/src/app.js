@@ -2703,7 +2703,8 @@ async function handleInbound(state, message) {
     });
     broadcast(state, { type: 'inbound_message', message: saved, conversationId: conversation?.id ?? null });
     // "spam" / "I will report you": a report in the making. Recorded with who and when; may pause the run.
-    if (COMPLAINT_WORDS.test(saved.body ?? '')) {
+    // Only from someone we really sent to: a stranger's text cannot be a report of us.
+    if (COMPLAINT_WORDS.test(saved.body ?? '') && state.db.hasSentTo(saved.sender)) {
         const fresh = state.db.addSafetyEvent({
             kind: 'report', phone: saved.sender, messageId: saved.messageId ?? saved.id ?? '',
             detail: String(saved.body).slice(0, 160),

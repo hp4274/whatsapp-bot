@@ -14,6 +14,14 @@ import { Auth } from './auth';
 /** `auto` follows the operating system. */
 export type ThemeMode = 'auto' | 'light' | 'dark';
 
+/** Where the wave starts: the pointer, or the button's centre for a keyboard "click". */
+function clickPoint(event: Event): { x: number; y: number } {
+  const { clientX, clientY } = event as MouseEvent;
+  if (clientX || clientY) return { x: clientX, y: clientY };
+  const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+}
+
 /** One message from the SSE stream; `type` selects the handler, the rest is payload. */
 export interface ServerEvent {
   type: string;
@@ -158,16 +166,32 @@ export class Store {
   }
 
   /** Persist the choice and apply it to the document right away. */
-  setTheme(mode: ThemeMode) {
+  setTheme(mode: ThemeMode, from?: Event) {
     this.theme.set(mode);
     localStorage.setItem('wsender.theme', mode);
-    this.applyTheme(mode);
+    this.applyTheme(mode, from);
   }
 
-  private applyTheme(mode: ThemeMode) {
+  private applyTheme(mode: ThemeMode, from?: Event) {
     const dark =
       mode === 'dark' || (mode === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
-    document.documentElement.dataset['theme'] = dark ? 'dark' : 'light';
+    const root = document.documentElement;
+    const next = dark ? 'dark' : 'light';
+    if (root.dataset['theme'] === next) return;
+    const set = () => (root.dataset['theme'] = next);
+    // Only a click gets the wave; boot, OS changes and reduced-motion users switch at once.
+    if (!from || !document.startViewTransition || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      set();
+      return;
+    }
+    const { x, y } = clickPoint(from);
+    const radius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+    document.startViewTransition(set).ready.then(() =>
+      root.animate(
+        { clipPath: [`circle(0 at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+        { duration: 700, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', pseudoElement: '::view-transition-new(root)' },
+      ),
+    );
   }
 
   /** Subscribe to the server's event stream, reconnecting if it drops. */

@@ -629,6 +629,14 @@ export class Database {
         return new Set(rows.map((r) => r.recipient));
     }
 
+    /** True when a real message (not sandbox, not failed) ever went to this number. */
+    hasSentTo(phone) {
+        const placeholders = SUCCESS_STATUSES.map(() => '?').join(',');
+        return Boolean(this.db.prepare(
+            `SELECT 1 FROM messages WHERE tenant_id = ? AND recipient = ? AND status IN (${placeholders}) LIMIT 1`
+        ).get(this.tenantId, phone, ...SUCCESS_STATUSES));
+    }
+
     /** When this channel (or tenant) first really sent: a number's age for warm-up. */
     firstSentAt() {
         const placeholders = SUCCESS_STATUSES.map(() => '?').join(',');
