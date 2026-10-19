@@ -417,6 +417,14 @@ input[type='radio'] {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+// Theme wave: the new theme is revealed by a growing circle (see Store.applyTheme),
+// so the default crossfade must not blend the two snapshots.
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
 // Anything that moves must be skippable.
 @media (prefers-reduced-motion: reduce) {
   *,

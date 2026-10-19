@@ -408,9 +408,9 @@ export class App {
   }
 
   /** The icon rail has room for one theme button, so it steps auto → light → dark. */
-  protected cycleTheme(): void {
+  protected cycleTheme(event: Event): void {
     const index = THEMES.findIndex((theme) => theme.value === this.store.theme());
-    this.store.setTheme(THEMES[(index + 1) % THEMES.length].value);
+    this.store.setTheme(THEMES[(index + 1) % THEMES.length].value, event);
   }
 
   /** Glyph for the rail's single theme button, matching the mode it is in. */

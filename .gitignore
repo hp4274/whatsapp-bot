@@ -13,3 +13,5 @@ server/.wwebjs_cache/
 # Stray tool logs and superseded specs
 .reticle-setup-crash.log
 .trash-phases/
+.claude/
+.impeccable/
