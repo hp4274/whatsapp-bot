@@ -20,6 +20,7 @@ const STATUSES: readonly string[] = [
   'DELIVERED',
   'READ',
   'FAILED',
+  'CANCELLED',
   'SANDBOX',
 ];
 

@@ -8,7 +8,7 @@ import { catchError } from 'rxjs/operators';
 import { Role, Tenant, TenantControls, User } from './auth';
 
 export type MessageStatus =
-  'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | 'SANDBOX';
+  'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | 'CANCELLED' | 'SANDBOX';
 
 export interface AppConfig {
   transport: 'cloud_api' | 'baileys';

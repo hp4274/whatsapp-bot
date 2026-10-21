@@ -20,6 +20,7 @@ export const Status = Object.freeze({
     DELIVERED: 'DELIVERED',
     READ: 'READ',
     FAILED: 'FAILED',
+    CANCELLED: 'CANCELLED',
     SANDBOX: 'SANDBOX',
 });
 
@@ -32,10 +33,11 @@ export const STATUS_RANK = Object.freeze({
     DELIVERED: 3,
     READ: 4,
     FAILED: 5,
+    CANCELLED: 5,
 });
 
 export const SUCCESS_STATUSES = Object.freeze([Status.SENT, Status.DELIVERED, Status.READ]);
-export const TERMINAL_STATUSES = Object.freeze([Status.DELIVERED, Status.READ, Status.FAILED]);
+export const TERMINAL_STATUSES = Object.freeze([Status.DELIVERED, Status.READ, Status.FAILED, Status.CANCELLED]);
 
 export function utcNow() {
     return new Date().toISOString().replace(/\.\d{3}Z$/, '+00:00');

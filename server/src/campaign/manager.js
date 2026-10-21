@@ -491,11 +491,9 @@ export class CampaignManager extends EventEmitter {
         this.stopReason = reason;
         const dropped = this.queue.stop();
         for (const item of dropped) {
-            this.db.updateStatus(item.messageId, Status.FAILED,
+            this.db.updateStatus(item.messageId, Status.CANCELLED,
                 { attempt: item.attempt, error: reason });
         }
-        this.stats.failed += dropped.length;
-        this.stats.processed += dropped.length;
         this.emit('event', { type: 'historyDirty' });
         this.#emitStats();
         return dropped.length;
@@ -758,7 +756,7 @@ export class CampaignManager extends EventEmitter {
     async #attempt(item) {
         for (;;) {
             if (this.#stopped()) {
-                this.#finish(item, Status.FAILED, { error: this.stopReason });
+                this.#finish(item, Status.CANCELLED, { error: this.stopReason });
                 return;
             }
             if (await this.#heldOutsideWindow(item)) return;
@@ -770,7 +768,7 @@ export class CampaignManager extends EventEmitter {
             }
             // Rate limit sits between the queue and the transport.
             if (!await this.rateLimiter.acquire(() => this.#stopped())) {
-                this.#finish(item, Status.FAILED, { error: this.stopReason });
+                this.#finish(item, Status.CANCELLED, { error: this.stopReason });
                 return;
             }
 
@@ -840,7 +838,7 @@ export class CampaignManager extends EventEmitter {
                     { attempt: item.attempt, error: 'Waiting for WhatsApp to reconnect' });
                 if (await this.#settleAfterReconnect()) continue;
                 if (this.#stopped()) {
-                    this.#finish(item, Status.FAILED, { error: this.stopReason });
+                    this.#finish(item, Status.CANCELLED, { error: this.stopReason });
                     return;
                 }
                 item.attempt += 1;   // never came back: treat as an ordinary failure
@@ -870,7 +868,7 @@ export class CampaignManager extends EventEmitter {
                     attempt: item.attempt, error: errorText,
                 });
                 if (!await interruptibleSleep(delay, () => this.#stopped())) {
-                    this.#finish(item, Status.FAILED, { error: this.stopReason });
+                    this.#finish(item, Status.CANCELLED, { error: this.stopReason });
                     return;
                 }
                 continue; // same item, next attempt
@@ -886,6 +884,11 @@ export class CampaignManager extends EventEmitter {
     #finish(item, status, { providerId = null, error = null, counted = false } = {}) {
         if (!counted) {
             this.db.updateStatus(item.messageId, status, { attempt: item.attempt, error });
+        }
+        if (status === Status.CANCELLED) {   // an operator's stop is not a failure
+            this.emit('event', { type: 'status', messageId: item.messageId, status, error, attempt: item.attempt });
+            this.#emitStats();
+            return;
         }
         this.stats.processed += 1;
         if (SUCCESS_STATUSES.includes(status) || status === Status.SANDBOX) {

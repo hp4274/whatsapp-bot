@@ -51,12 +51,6 @@ const SOURCES: { value: AudienceSource; icon: string; title: string; text: strin
     title: 'Re-target a campaign',
     text: 'Follow up on failed, unread or clicked',
   },
-  {
-    value: 'segment',
-    icon: 'users-group',
-    title: 'Saved segment',
-    text: 'A filter over your contacts',
-  },
 ];
 
 const FILTERS: { value: RetargetFilter; label: string; hint: string }[] = [

@@ -50,6 +50,8 @@ export class WarmupSetup {
 
   /** Opened from the connection card instead of by a fresh connection. */
   readonly isLater = input(false);
+  /** Warm-up is on right now, so the way out is labelled as leaving it. */
+  readonly warmingUp = input(false);
   /** The saved config once an answer is stored. */
   readonly answered = output<AppConfig>();
   /** Closed without changing anything (only when `isLater`). */
