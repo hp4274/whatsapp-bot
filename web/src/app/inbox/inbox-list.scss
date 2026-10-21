@@ -76,7 +76,7 @@
   }
 }
 @keyframes ib-pulse { 50% { opacity: 0.5; } }
-@keyframes ib-badge { from { transform: scale(0.4); opacity: 0; } }
+@keyframes ib-badge { from { opacity: 0; } }
 
 .s-empty { padding: 36px 16px; }
 .ib-kbd-hint {

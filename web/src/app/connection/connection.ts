@@ -5,6 +5,7 @@ import { Api, AppConfig, SafetyStatus } from '../core/api';
 import { Store } from '../core/store';
 import { SafetyControls } from './safety-controls';
 import { SendingHealth } from './sending-health';
+import { WarmupSetup } from './warmup-setup';
 
 /** The three things a person does, in order; the card lights the one they are on. */
 const STEPS: readonly { readonly title: string; readonly text: string }[] = [
@@ -22,7 +23,7 @@ const STEPS: readonly { readonly title: string; readonly text: string }[] = [
  */
 @Component({
   selector: 'app-connection',
-  imports: [DatePipe, SafetyControls, SendingHealth],
+  imports: [DatePipe, SafetyControls, SendingHealth, WarmupSetup],
   templateUrl: './connection.html',
   styleUrl: './connection.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -39,6 +40,8 @@ export class ConnectionView {
   protected readonly customSafety = signal(false);
 
   protected readonly steps = STEPS;
+  /** The warm-up dialog reopened from the connected card, after the first answer. */
+  protected readonly changingWarmup = signal(false);
 
   /** Which step is lit: none before Connect, 1 while connecting, 2 with the code up, all done once linked. */
   protected readonly stepIndex = computed(() =>
@@ -81,6 +84,11 @@ export class ConnectionView {
       next: ({ safety }) => this.safety.set(safety),
       error: () => this.safety.set(null),
     });
+  }
+
+  protected warmupAnswered(config: AppConfig): void {
+    this.config.set(config);
+    this.changingWarmup.set(false);
   }
 
   protected connect(): void {

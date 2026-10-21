@@ -15,3 +15,5 @@ server/.wwebjs_cache/
 .trash-phases/
 .claude/
 .impeccable/
+.env
+package-lock.json

@@ -78,6 +78,8 @@ export const DEFAULTS = Object.freeze({
     safetyEnabled: true,
     dailyLimit: 250,          // used only when tierSystem is off; the sending tier sets the day otherwise
     tierSystem: true,         // start slow, earn bigger days and faster gaps
+    // Asked once after the first QR scan: '' = not answered, 'warmup' = fresh SIM on the tiers, 'plan' = send to the plan's limits (tierSystem off).
+    warmupChoice: '',
     // Nightly rest, recipient-local sending hours and typing pauses. Off only for the test run (WHATSAPP_SENDER_FAST=1).
     humanTiming: process.env.WHATSAPP_SENDER_FAST !== '1',
     pacingMode: 'adaptive',

@@ -208,7 +208,8 @@ export class DailyQuota {
     }
 
     tierStatus() {
-        this.tier();
+        // Off (warm-up declined): no tier, not the one cached before it was switched off.
+        if (this.tier() === null) return null;
         return this.tierCache ? tierStatus(this.tierCache.weeks) : null;
     }
 
