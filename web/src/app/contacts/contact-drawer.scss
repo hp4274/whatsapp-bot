@@ -55,7 +55,7 @@
 }
 
 @keyframes avatar-in {
-  from { transform: perspective(400px) rotateX(30deg) rotateY(-30deg) scale(0.8); opacity: 0; }
+  from { transform: translateY(4px); opacity: 0; }
 }
 
 .hero-text { display: grid; gap: 2px; min-width: 0; }

@@ -29,7 +29,7 @@
 @mixin keyframes {
   @keyframes s-rise {
     /* individual transform props, so it composes with .s-tilt's transform */
-    from { opacity: 0; translate: 0 14px; rotate: x -8deg; }
+    from { opacity: 0; translate: 0 6px; }
     to { opacity: 1; translate: none; rotate: none; }
   }
   @keyframes s-shimmer { to { background-position: -200% 0; } }
@@ -38,7 +38,7 @@
     50% { translate: 0 -5px; }
   }
   @keyframes s-pop {
-    from { opacity: 0; scale: 0.94; translate: 0 6px; }
+    from { opacity: 0; translate: 0 4px; }
     to { opacity: 1; scale: none; translate: none; }
   }
 }
@@ -53,7 +53,7 @@
 
 @mixin enter {
   .s-enter {
-    animation: s-rise 520ms var(--ease) both;
+    animation: s-rise 380ms var(--ease) both;
     animation-delay: calc(var(--i, 0) * 40ms);
   }
 }

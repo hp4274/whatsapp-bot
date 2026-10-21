@@ -158,9 +158,10 @@
   --font: var(--font-body);
   --mono: var(--font-mono);
 
-  --ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --fast: 200ms;
-  --base: 300ms;
+  // A soft ease-out: the old expo curve (0.16, 1, 0.3, 1) jumped most of the way in the first frames, which read as flashing.
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --fast: 220ms;
+  --base: 320ms;
 }
 
 * {
@@ -367,7 +368,7 @@ input[type='radio'] {
 @keyframes fade-in-up {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -423,6 +424,81 @@ input[type='radio'] {
 ::view-transition-new(root) {
   animation: none;
   mix-blend-mode: normal;
+}
+
+// Route changes crossfade with a small rise. The class is set only for router
+// transitions (app.config.ts), so the theme wave above keeps its own reveal.
+html.route-vt::view-transition-old(root) {
+  animation: ui-out var(--fast) var(--ease) both;
+}
+
+html.route-vt::view-transition-new(root) {
+  animation: ui-in var(--base) var(--ease) both;
+}
+
+// Smooth UI, app-wide. Every rule sits in :where() (zero specificity), so a
+// component's own transition or animation always wins over these defaults.
+:root {
+  interpolate-size: allow-keywords; // lets height/width animate to and from `auto`
+}
+
+// Controls ease between states instead of snapping.
+:where(button, a, input, select, textarea, label, summary, [role='tab'], [role='option'], .btn, .s-pill) {
+  transition:
+    color var(--fast) var(--ease),
+    background-color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease),
+    box-shadow var(--fast) var(--ease),
+    opacity var(--fast) var(--ease);
+}
+
+// Anything that opens (a dialog, menu, drawer, toast) fades in instead of
+// popping. Alerts and banners are left out: they come and go with every status
+// change, and a replayed entrance on each one reads as flashing.
+:where(
+    [role='dialog'],
+    [role='alertdialog'],
+    [role='menu'],
+    [role='listbox'],
+    [role='tooltip'],
+    .drawer,
+    .s-drawer,
+    .sheet,
+    .toast
+  ) {
+  animation: ui-in var(--base) var(--ease) both;
+}
+
+// Accordions morph open and shut instead of jumping.
+details::details-content {
+  height: 0;
+  overflow: clip;
+  transition:
+    height var(--base) var(--ease),
+    content-visibility var(--base) var(--ease) allow-discrete;
+}
+
+details[open]::details-content {
+  height: auto;
+}
+
+// Closing: put `animate.leave="ui-leave"` on an @if'd element and Angular keeps
+// it in the DOM until this finishes.
+.ui-leave {
+  animation: ui-out var(--fast) var(--ease) both;
+}
+
+@keyframes ui-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+
+@keyframes ui-out {
+  to {
+    opacity: 0;
+  }
 }
 
 // Anything that moves must be skippable.

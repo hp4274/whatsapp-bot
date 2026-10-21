@@ -41,6 +41,9 @@ export interface AppConfig {
   restEvery: number;
   restMinMinutes: number;
   restMaxMinutes: number;
+  tierSystem: boolean;
+  /** Answer to the fresh-number question after the first scan; '' until asked. */
+  warmupChoice: '' | 'warmup' | 'plan';
 }
 
 /** `POST /api/media/upload`; the optional fields come from Storage (see `ImportPreview`). */

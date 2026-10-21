@@ -43,6 +43,12 @@
         {{ connection.account ? '+' + connection.account + ' · ' : '' }}Session is live. It reconnects by itself
         after a restart.
       </p>
+      <p class="fine muted">
+        Sending mode: {{ config()?.warmupChoice === 'warmup' ? 'warm-up tiers' : 'your plan\'s limits' }}.
+        <button type="button" class="btn sm" (click)="changingWarmup.set(true)">
+          <i class="ti ti-flame" aria-hidden="true"></i>{{ config()?.warmupChoice === 'warmup' ? 'Change warm-up' : 'Turn on warm-up' }}
+        </button>
+      </p>
       <div class="link-actions">
         <button type="button" class="btn danger" (click)="disconnect()">
           <i class="ti ti-plug-connected-x" aria-hidden="true"></i>Disconnect
@@ -98,6 +104,14 @@
     </div>
   </div>
 </section>
+
+@if (live && config(); as cfg) {
+  @if (!cfg.warmupChoice) {
+    <app-warmup-setup animate.leave="ui-leave" (answered)="config.set($event)" />
+  } @else if (changingWarmup()) {
+    <app-warmup-setup animate.leave="ui-leave" [isLater]="true" (answered)="warmupAnswered($event)" (dismissed)="changingWarmup.set(false)" />
+  }
+}
 
 <section class="card safety enter" aria-labelledby="safety-title">
   <header class="card-head">
