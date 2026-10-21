@@ -109,7 +109,7 @@
   @if (!cfg.warmupChoice) {
     <app-warmup-setup animate.leave="ui-leave" (answered)="config.set($event)" />
   } @else if (changingWarmup()) {
-    <app-warmup-setup animate.leave="ui-leave" [isLater]="true" (answered)="warmupAnswered($event)" (dismissed)="changingWarmup.set(false)" />
+    <app-warmup-setup animate.leave="ui-leave" [isLater]="true" [warmingUp]="cfg.warmupChoice === 'warmup'" (answered)="warmupAnswered($event)" (dismissed)="changingWarmup.set(false)" />
   }
 }
 

@@ -428,7 +428,7 @@ export class CampaignStore {
         const total = Object.values(byStatus).reduce((n, v) => n + v, 0);
         const pending = OPEN_STATUSES.reduce((n, s) => n + (byStatus[s] ?? 0), 0);
         const failed = byStatus.FAILED ?? 0;
-        const snapshot = { total, pending, failed, sent: total - pending - failed, byStatus };
+        const snapshot = { total, pending, failed, sent: total - pending - failed - (byStatus.CANCELLED ?? 0), byStatus };
 
         if (campaign.status === 'running' && total > 0 && pending === 0) {
             const spread = campaign.options?.spread;

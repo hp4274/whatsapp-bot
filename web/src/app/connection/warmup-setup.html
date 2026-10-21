@@ -48,7 +48,7 @@
         <i class="ti ti-flame" aria-hidden="true"></i>Start warm-up
       </button>
       <button type="button" class="btn" (click)="choose('plan')" [disabled]="busy()">
-        No thanks, send per my plan
+        @if (warmingUp()) { <i class="ti ti-logout" aria-hidden="true"></i>Exit warm-up } @else { No thanks, send per my plan }
       </button>
       @if (isLater()) {
         <button type="button" class="btn" (click)="dismissed.emit()" [disabled]="busy()">Cancel</button>
