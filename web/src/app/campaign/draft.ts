@@ -33,7 +33,7 @@ import {
 export type TemplateMode = 'free' | 'meta';
 
 export type AudienceSource = 'file' | 'retarget' | 'segment';
-export type ComposerStep = 1 | 2 | 3 | 4;
+export type ComposerStep = 1 | 2 | 3;
 
 export interface DraftAttachment {
   mediaId: string;
@@ -367,6 +367,9 @@ export class CampaignDraft {
       ? this.metaTemplate() !== null
       : this.message().trim().length > 0 && this.interactiveErrors().length === 0,
   );
+
+  /** Step 1 shows audience and message together, so Review opens only when both are ready. */
+  readonly composeReady = computed(() => this.audienceReady() && this.messageReady());
 
   /** Load the tenant's default country code once. */
   init(): void {

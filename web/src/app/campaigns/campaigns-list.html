@@ -198,7 +198,7 @@
             <th scope="col">Scheduled</th>
             <th scope="col">Status</th>
             <th scope="col" class="num">Audience</th>
-            <th scope="col" class="num">Sent / Failed</th>
+            <th scope="col" class="num">Results</th>
             <th scope="col" class="actions-col"><span class="sr">Actions</span></th>
           </tr>
         </thead>
@@ -219,11 +219,28 @@
                 }
               </td>
               <td><app-campaign-status [status]="c.status" /></td>
-              <td class="num mono">{{ c.audienceSize ?? '-' }}</td>
-              <td class="num mono">
-                <span class="good">{{ sent(c) }}</span>
-                <span class="muted"> / </span>
-                <span [class.bad]="failed(c) > 0">{{ failed(c) }}</span>
+              <td class="num mono">{{ count(c.audienceSize) }}</td>
+              <td class="num result">
+                @let r = result(c);
+                @if (r.sending) {
+                  <span
+                    class="mini"
+                    role="progressbar"
+                    [attr.aria-label]="'Sending progress for ' + (c.name || 'campaign')"
+                    [attr.aria-valuenow]="r.done"
+                    aria-valuemin="0"
+                    [attr.aria-valuemax]="r.total"
+                    ><i [style.width.%]="r.donePct"></i
+                  ></span>
+                  <span class="line">{{ count(r.done) }} of {{ count(r.total) }} done</span>
+                } @else if (r.attempted) {
+                  <span class="line"><b>{{ count(r.sent) }}</b> sent</span>
+                } @else {
+                  <span class="muted">Not sent yet</span>
+                }
+                @if (r.failed) {
+                  <small class="bad">{{ count(r.failed) }} failed ({{ pct(r.failedPct) }})</small>
+                }
               </td>
               <td class="actions-cell">
                 <div class="actions">
@@ -309,6 +326,9 @@
                   <i class="ti ti-filter-off" aria-hidden="true"></i>
                   <strong>Nothing here</strong>
                   <p>No campaigns match this filter.</p>
+                  <button type="button" class="btn sm" (click)="setFilter('all'); setSearch('')">
+                    Show all campaigns
+                  </button>
                 </div>
               </td>
             </tr>

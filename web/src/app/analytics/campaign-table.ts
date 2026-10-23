@@ -1,7 +1,8 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { count, pct } from '../campaigns/campaign-format';
 import { CampaignRow } from './analytics-api';
 import { downloadCsv, toCsv, today } from './analytics-util';
 
@@ -24,7 +25,7 @@ const COLUMNS: Column[] = [
 /** Per-campaign breakdown for the range: sortable, each row opens its campaign. */
 @Component({
   selector: 'app-campaign-table',
-  imports: [RouterLink, DecimalPipe, DatePipe],
+  imports: [RouterLink, DatePipe],
   templateUrl: './campaign-table.html',
   styleUrl: './campaign-table.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -34,6 +35,9 @@ export class CampaignTable {
   readonly days = input(30);
 
   protected readonly columns = COLUMNS;
+  /** Shared with the campaign list and report so numbers and percentages read the same. */
+  protected readonly count = count;
+  protected readonly pct = pct;
   protected readonly sortKey = signal<SortKey>('lastSentAt');
   protected readonly dir = signal<'asc' | 'desc'>('desc');
 

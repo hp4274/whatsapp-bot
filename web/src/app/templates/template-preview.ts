@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
 
-import { InteractiveDraft, formatWhatsApp } from './templates-api';
+import { linkify } from '../campaign/wa-format';
+import { InteractiveDraft, formatWhatsApp, previewHtml } from './templates-api';
 
 /** What the header shows: a local or fetched object URL, or just a kind + name. */
 export interface HeaderMedia {
@@ -16,6 +17,10 @@ const CTA_ICONS = { url: 'external-link', call: 'phone', copy: 'copy' } as const
  * A phone mock that renders a template the way a customer sees it. Pure
  * display; the chat uses WhatsApp's own colours on purpose, only the frame
  * around it follows the app theme.
+ *
+ * With `samples`, `text` is the raw template body: placeholders are filled from
+ * the samples and highlighted, and unfilled ones are flagged. Without it,
+ * `text` is shown as-is.
  */
 @Component({
   selector: 'app-template-preview',
@@ -25,6 +30,7 @@ const CTA_ICONS = { url: 'external-link', call: 'phone', copy: 'copy' } as const
 })
 export class TemplatePreview {
   readonly text = input('');
+  readonly samples = input<Record<string, string> | null>(null);
   readonly media = input<HeaderMedia | null>(null);
   readonly interactive = input<InteractiveDraft | null>(null);
 
@@ -35,5 +41,10 @@ export class TemplatePreview {
     hour: '2-digit',
     minute: '2-digit',
   });
-  protected readonly html = computed(() => formatWhatsApp(this.text()));
+  protected readonly rendered = computed(() => {
+    const samples = this.samples();
+    if (samples) return previewHtml(this.text(), samples);
+    const text = String(this.text() ?? '').trim();
+    return { html: linkify(formatWhatsApp(text)), text, missing: [] as string[] };
+  });
 }

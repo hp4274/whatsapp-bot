@@ -15,7 +15,7 @@ import { closeApp } from '../src/app.js';
 import { AutoReplyEngine } from '../src/autoreply/engine.js';
 import { fold, matchOne } from '../src/autoreply/match.js';
 import { AutoReplyStore } from '../src/autoreply/store.js';
-import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_CLOUD_API, TRANSPORT_SANDBOX } from '../src/config.js';
 import { ContactStore } from '../src/contactStore.js';
 import { Database } from '../src/db.js';
 import { ConversationStore } from '../src/inbox/store.js';
@@ -60,7 +60,7 @@ function setup({ timezone = 'UTC' } = {}) {
         const saved = db.insertInbound({ messageId: `in.${seq}.${++n}`, sender, senderName, body, receivedAt: now.toISOString() });
         const before = jobs.length;
         const early = await engine.handlePre({ ...saved, replyId }, { now });
-        if (!early.handled) await engine.handleInbound(saved, { greeted: early.greeted, now });
+        if (!early.handled) await engine.handleInbound(saved, { greeted: early.greeted, greeting: early.greeting, now });
         return jobs.slice(before);
     };
     return { db, engine, jobs, store, contacts, conversations, inbound };
@@ -187,12 +187,34 @@ describe('rules', () => {
 });
 
 describe('system replies', () => {
-    it('welcomes a contact on the first message only, and still answers a keyword', async () => {
+    it('welcomes a contact on the first message only, in the same message as the keyword answer', async () => {
         const { store, inbound } = setup();
         store.saveSettings({ welcome: { enabled: true, text: 'Welcome {first_name}!' } });
         store.save({ matchType: 'EXACT', keywords: ['menu please'], replyBody: 'Here is the menu' });
-        assert.deepEqual((await inbound('menu please')).map((j) => j.text), ['Welcome Asha!', 'Here is the menu']);
+        assert.deepEqual((await inbound('menu please')).map((j) => j.text), ['Welcome Asha!\n\nHere is the menu']);
         assert.deepEqual((await inbound('menu please')).map((j) => j.text), ['Here is the menu']);
+    });
+
+    it('away message and a keyword answer go out as one message; the away throttle still counts it', async () => {
+        const { store, inbound } = setup();
+        store.saveSettings({ away: { enabled: true, text: 'We are closed', throttleHours: 12 } });
+        store.save({ matchType: 'EXACT', keywords: ['price'], replyBody: 'From 99' });
+        assert.deepEqual((await inbound('price', { now: SAT_NOON })).map((j) => j.text), ['We are closed\n\nFrom 99']);
+        assert.deepEqual((await inbound('price', { now: new Date(SAT_NOON.getTime() + 3_600_000) })).map((j) => j.text), ['From 99']);
+    });
+
+    it('welcome and away together, with nothing else to say, are one message', async () => {
+        const { store, inbound } = setup();
+        store.saveSettings({ welcome: { enabled: true, text: 'Hi!' }, away: { enabled: true, text: 'We are closed', throttleHours: 12 } });
+        const jobs = await inbound('hello', { now: SAT_NOON });
+        assert.deepEqual(jobs.map((j) => j.text), ['Hi!\n\nWe are closed']);
+    });
+
+    it('a welcome with media is still its own message', async () => {
+        const { store, inbound } = setup();
+        store.saveSettings({ welcome: { enabled: true, text: 'Welcome', media: { mediaId: 'med_1' } } });
+        store.save({ matchType: 'EXACT', keywords: ['price'], replyBody: 'From 99' });
+        assert.deepEqual((await inbound('price')).map((j) => j.text), ['Welcome', 'From 99']);
     });
 
     it('away message outside business hours and on holidays, once per throttle window', async () => {
@@ -423,10 +445,11 @@ describe('HTTP', () => {
 
         const first = await call('POST', '/api/auto-replies/test', { body: 'support', sender: '919811111111', senderName: 'Ravi Kumar', firstContact: true, at: MON_10AM.toISOString() });
         assert.equal(first.status, 200);
-        assert.deepEqual(first.body.replies.map((r) => r.source), ['welcome', 'rule']);
-        assert.equal(first.body.replies[0].text, 'Welcome Ravi');
-        assert.equal(first.body.replies[1].interactive.type, 'buttons');
-        assert.match(first.body.replies[1].fallbackText, /1\. Billing/);
+        // The welcome rides in front of the rule's reply: one message, as the live path sends it.
+        assert.deepEqual(first.body.replies.map((r) => r.source), ['rule']);
+        assert.equal(first.body.replies[0].text, 'Welcome Ravi\n\nPick one');
+        assert.equal(first.body.replies[0].interactive.type, 'buttons');
+        assert.match(first.body.replies[0].fallbackText, /^Welcome Ravi\n\nPick one[\s\S]*1\. Billing/);
         assert.equal(first.body.matched.ruleId, menu.body.rule.id);
         assert.equal(first.body.session.ruleId, menu.body.rule.id);
         assert.ok(first.body.trace.length >= 2);
@@ -445,6 +468,86 @@ describe('HTTP', () => {
         const rule = (await call('GET', '/api/auto-replies')).body.rules.find((r) => r.id === menu.body.rule.id);
         assert.equal(rule.stats.hits, 0, 'nothing was counted');
         await call('PUT', '/api/auto-replies/settings', { welcome: { enabled: false } });
+    });
+});
+
+describe('live path: one message per inbound (Cloud API webhook)', () => {
+    let app;
+    let server;
+    let base;
+    let db;
+    let posts;
+
+    const call = async (method, url, body) => {
+        const res = await fetch(base + url, {
+            method, headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined,
+        });
+        return { status: res.status, body: await res.json().catch(() => null) };
+    };
+    let n = 0;
+    const inbound = (from, body, id = `wamid.live.${(n += 1)}`) => call('POST', '/api/webhook', { entry: [{ changes: [{ value: {
+        contacts: [{ wa_id: from, profile: { name: 'Mira' } }],
+        messages: [{ id, from, timestamp: String(Math.floor(Date.now() / 1000)), type: 'text', text: { body } }],
+    } }] }] });
+    const textsTo = (to) => posts.filter((p) => p.to === to).map((p) => p.text?.body ?? p.interactive?.body?.text);
+    const settle = async (to, count) => {
+        const end = Date.now() + 6000;
+        while (Date.now() < end && textsTo(to).length < count) await new Promise((resolve) => setTimeout(resolve, 25));
+        await new Promise((resolve) => setTimeout(resolve, 300)); // room for a second message, if one were coming
+        return textsTo(to);
+    };
+
+    before(async () => {
+        posts = [];
+        const fetchImpl = async (url, init) => {
+            if (init?.method === 'POST') {
+                posts.push(JSON.parse(init.body));
+                return new Response(JSON.stringify({ messages: [{ id: `wamid.out.${posts.length}` }] }), { status: 200 });
+            }
+            return new Response(JSON.stringify({ display_phone_number: '15550783881', verified_name: 'Acme', quality_rating: 'GREEN' }), { status: 200 });
+        };
+        db = new Database(path.join(tmp, 'live.db'));
+        db.db.exec('DELETE FROM auto_replies');
+        app = createTestApp({
+            db, dataDir: tmp, deps: { fetchImpl },
+            config: {
+                ...DEFAULTS, transport: TRANSPORT_CLOUD_API, phoneNumberId: '1', accessToken: 'good', requestTimeout: 5,
+                safetyEnabled: false, pacingMode: 'fixed', rateLimitPerSecond: 50, rateLimitBurst: 50,
+            },
+        });
+        server = app.listen(0, '127.0.0.1');
+        await new Promise((resolve) => server.once('listening', resolve));
+        base = `http://127.0.0.1:${server.address().port}`;
+        assert.equal((await call('POST', '/api/connection/connect')).status, 200);
+        await call('PUT', '/api/auto-replies/settings', { welcome: { enabled: true, text: 'Welcome!' } });
+        await call('POST', '/api/auto-replies', { matchType: 'EXACT', keywords: ['price'], replyBody: 'From 99' });
+    });
+
+    after(async () => {
+        await closeApp(app);
+        await new Promise((resolve) => server.close(resolve));
+        db.close();
+    });
+
+    it('a first-time contact asking a keyword gets the welcome and the answer in one message', async () => {
+        await inbound('919822200001', 'price');
+        assert.deepEqual(await settle('919822200001', 1), ['Welcome!\n\nFrom 99']);
+    });
+
+    it('the welcome rides in front of an FAQ answer too', async () => {
+        const faq = await call('POST', '/api/faq', { question: 'Where are you?', answer: 'MG Road', keywords: ['where'], matchType: 'CONTAINS' });
+        assert.equal(faq.status, 201, JSON.stringify(faq.body));
+        await inbound('919822200002', 'where are you');
+        assert.deepEqual(await settle('919822200002', 1), ['Welcome!\n\nMG Road']);
+    });
+
+    it('the same inbound message delivered twice is answered once', async () => {
+        await inbound('919822200003', 'price', 'wamid.live.dup');
+        await settle('919822200003', 1);
+        await inbound('919822200003', 'price', 'wamid.live.dup');
+        assert.deepEqual(await settle('919822200003', 2), ['Welcome!\n\nFrom 99']);
+        const rows = db.db.prepare("SELECT COUNT(*) AS n FROM inbound_messages WHERE message_id = 'wamid.live.dup'").get();
+        assert.equal(rows.n, 1);
     });
 });
 

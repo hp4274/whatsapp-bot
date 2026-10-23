@@ -1,13 +1,19 @@
 import { Routes } from '@angular/router';
 
-import { authGuard, roleGuard } from './core/auth';
+import { authGuard, homeGuard, roleGuard } from './core/auth';
 
 export const routes: Routes = [
-  { path: '', pathMatch: 'full', redirectTo: 'connection' },
+  { path: '', pathMatch: 'full', redirectTo: 'home' },
   {
     path: 'login',
     title: 'Sign in - WhatsApp Sender',
     loadComponent: () => import('./auth/login').then((m) => m.LoginView),
+  },
+  {
+    path: 'home',
+    title: 'Home - WhatsApp Sender',
+    canActivate: [homeGuard],
+    loadComponent: () => import('./home/home').then((m) => m.Home),
   },
   {
     path: 'connection',
@@ -175,5 +181,5 @@ export const routes: Routes = [
     canActivate: [roleGuard('super_admin')],
     loadComponent: () => import('./admin/service').then((m) => m.ServiceView),
   },
-  { path: '**', redirectTo: 'connection' },
+  { path: '**', redirectTo: 'home' },
 ];

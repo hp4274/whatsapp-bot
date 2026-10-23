@@ -1,6 +1,6 @@
 <!-- Header, then either the quick single-message card or the composer:
      step rail, the current step on the left and the sticky phone preview on
-     the right; step 4 swaps both for the result card. -->
+     the right; step 3 swaps both for the result card. -->
 @let d = draft;
 @let step = d.step();
 
@@ -84,6 +84,65 @@
         ></textarea>
       </div>
     </div>
+    @let f = file();
+    <div class="attach">
+      <label class="btn" for="single-attach" [class.disabled]="uploading()">
+        @if (uploading()) {
+          <span class="spinner"></span>
+        } @else {
+          <i class="ti ti-paperclip" aria-hidden="true"></i>
+        }
+        {{ f ? 'Replace attachment' : 'Attach image, video or PDF' }}
+      </label>
+      <input
+        id="single-attach"
+        class="sr"
+        type="file"
+        accept="image/jpeg,image/png,application/pdf,video/mp4,video/3gpp"
+        (change)="onAttach($event)"
+        [disabled]="uploading()"
+      />
+      @if (f) {
+        <div class="fchip">
+          <i
+            class="ti ti-{{
+              f.mimetype.startsWith('image/')
+                ? 'photo'
+                : f.mimetype.startsWith('video/')
+                  ? 'movie'
+                  : 'file-type-pdf'
+            }} thumb"
+            aria-hidden="true"
+          ></i>
+          <span class="fname">{{ f.filename }}</span>
+          <span class="muted">{{ size(f.size) }}</span>
+          <button
+            type="button"
+            class="x"
+            (click)="file.set(null)"
+            [attr.aria-label]="'Remove attachment ' + f.filename"
+          >
+            <i class="ti ti-x" aria-hidden="true"></i>
+          </button>
+        </div>
+      } @else {
+        <small class="muted">Optional - the message becomes the caption.</small>
+      }
+    </div>
+    @if (policy.allowInteractive()) {
+      <details class="more" [open]="!!buttons()">
+        <summary>
+          <i class="ti ti-hand-click" aria-hidden="true"></i> Add buttons
+          <small class="muted">optional - quick replies, a link or a menu</small>
+        </summary>
+        <app-interactive-editor [(value)]="buttons" [variables]="['name']" />
+      </details>
+    }
+    @if (buttonErrors().length) {
+      <p class="error" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ buttonErrors()[0] }}</span>
+      </p>
+    }
     <div class="row">
       @if (!connected()) {
         <span class="muted small"
@@ -96,7 +155,9 @@
         type="button"
         class="btn primary"
         (click)="sendSingle()"
-        [disabled]="busy() || !recipient() || !message()"
+        [disabled]="
+          busy() || uploading() || !recipient() || !message() || buttonErrors().length > 0
+        "
       >
         @if (busy()) {
           <span class="spinner"></span>
@@ -124,7 +185,7 @@
             {{ s.n }}
           }
         </span>
-        <span class="lbl">{{ s.n === 4 && step === 4 ? 'Done' : s.label }}</span>
+        <span class="lbl">{{ s.n === 3 && step === 3 ? 'Done' : s.label }}</span>
       </button>
       @if (!$last) {
         <span class="line" [class.fill]="step > s.n" aria-hidden="true"></span>
@@ -132,7 +193,7 @@
     }
   </nav>
 
-  @if (step === 4) {
+  @if (step === 3) {
     @if (d.result(); as r) {
       <section class="card finish enter">
         <span
@@ -217,11 +278,29 @@
         @switch (step) {
           @case (1) {
             <app-audience-step />
+            <app-message-step />
+            <div class="foot">
+              @if (!d.audienceReady()) {
+                <small class="hint">Choose who receives it to continue.</small>
+              } @else if (!d.messageReady()) {
+                <small class="hint">{{
+                  d.interactiveErrors().length
+                    ? 'Fix the button errors to continue.'
+                    : 'Write the message to continue.'
+                }}</small>
+              }
+              <span class="grow"></span>
+              <button
+                type="button"
+                class="btn primary"
+                [disabled]="!d.composeReady()"
+                (click)="d.goTo(2)"
+              >
+                Continue to Review <i class="ti ti-arrow-right" aria-hidden="true"></i>
+              </button>
+            </div>
           }
           @case (2) {
-            <app-message-step />
-          }
-          @case (3) {
             <app-review-step />
           }
         }

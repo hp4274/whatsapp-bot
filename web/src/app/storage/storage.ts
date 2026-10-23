@@ -189,7 +189,7 @@ export class StorageView {
           this.error.set('The server did not return the contact list. Try again.');
           return;
         }
-        if (this.draft.step() === 4) this.draft.reset();
+        if (this.draft.step() === 3) this.draft.reset();
         this.draft.source.set('file');
         this.draft.adoptImport(preview);
         this.draft.goTo(1);

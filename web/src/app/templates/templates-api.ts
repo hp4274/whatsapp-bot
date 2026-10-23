@@ -9,6 +9,7 @@ import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import type { InteractiveDraft } from '../campaign/interactive/interactive.model';
 import type { MetaMapping } from './meta-mapping';
+import { linkify } from '../campaign/wa-format';
 
 export type { InteractiveDraft };
 
@@ -246,4 +247,37 @@ export function formatWhatsApp(text: string): string {
         .replace(/(^|[^\w~])~(?=\S)([^~\n]*?\S)~(?!\w)/g, '$1<s>$2</s>');
     })
     .join('');
+}
+
+const VAR_ON = '\u0001';
+const VAR_OFF = '\u0002';
+const MISS_ON = '\u0003';
+const MISS_OFF = '\u0004';
+
+/**
+ * Preview HTML for a template body: `render()` plus WhatsApp formatting, with
+ * substituted values wrapped in `<mark class="var">` (so you can see what is a
+ * variable) and placeholders nothing fills in `<mark class="missing">`. Links
+ * are styled. `missing` lists the keys with neither a sample nor a fallback.
+ */
+export function previewHtml(
+  body: string,
+  sample: Record<string, string>,
+): { html: string; text: string; missing: string[] } {
+  const missing: string[] = [];
+  const value = (key: string, fallback = '') => {
+    const v = sample[key] || fallback;
+    if (v) return `${VAR_ON}${v}${VAR_OFF}`;
+    if (!missing.includes(key)) missing.push(key);
+    return `${MISS_ON}${key}${MISS_OFF}`;
+  };
+  const marked = String(body ?? '')
+    .replace(/\{(\w+)\|([^{}]*)\}/g, (_, key: string, fallback: string) => value(key, fallback))
+    .replace(/\{(\w+)\}/g, (_, key: string) => value(key))
+    .trim();
+  const html = linkify(formatWhatsApp(marked))
+    .replace(/\u0001([^\u0002]*)\u0002/g, '<mark class="var">$1</mark>')
+    .replace(/\u0003(\w+)\u0004/g, '<mark class="missing">{$1}</mark>');
+  const text = marked.replace(/[\u0001\u0002]/g, '').replace(/\u0003(\w+)\u0004/g, '{$1}');
+  return { html, text, missing };
 }

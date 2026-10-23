@@ -67,7 +67,7 @@ export const DEDUPE_PRESETS = [0, 7, 30, 90];
 const ISSUE_LIMIT = 200;
 
 /**
- * Step 1: pick who gets the campaign — an uploaded file, a re-target of a past
+ * Step 1 (top half): pick who gets the campaign — an uploaded file, a re-target of a past
  * campaign, or a saved segment. Uploaded files are audited on the server
  * (debounced) every time the mapping or cleaning rules change, so the count
  * shown is always what will actually be sent.
@@ -98,6 +98,8 @@ export class AudienceStep {
   protected readonly uploading = signal(false);
   protected readonly auditing = signal(false);
   protected readonly dragOver = signal(false);
+  /** Numbers typed by hand, one per line, optionally "number, name". */
+  protected readonly typed = signal('');
   protected readonly error = signal('');
   protected readonly copied = signal<string | null>(null);
   protected readonly campaigns = signal<Campaign[] | null>(null);
@@ -274,6 +276,25 @@ export class AudienceStep {
     if (file) this.load(file);
   }
 
+  /**
+   * Typed numbers go through the same import as a file, so cleaning, dedupe
+   * and the skipped-rows report work the same.
+   */
+  protected useTyped(): void {
+    const cell = (v: string) => `"${v.trim().replace(/"/g, '""')}"`;
+    const rows = this.typed()
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [phone, ...name] = line.split(/[,\t;]/);
+        return `${cell(phone)},${cell(name.join(' '))}`;
+      });
+    if (!rows.length) return;
+    const csv = ['phone,name', ...rows].join('\n');
+    this.load(new File([csv], 'Typed numbers.csv', { type: 'text/csv' }));
+  }
+
   private load(file: File): void {
     if (!/\.(csv|xlsx|xlsm)$/i.test(file.name)) {
       this.error.set('Choose a .csv or .xlsx file.');
@@ -402,10 +423,6 @@ export class AudienceStep {
     const segment = this.segments()?.find((s) => String(s.id) === id) ?? null;
     this.draft.segment.set(segment);
     this.draft.segmentId.set(segment?.id ?? null);
-  }
-
-  protected proceed(): void {
-    if (this.draft.audienceReady()) this.draft.goTo(2);
   }
 
   protected dedupeLabel(days: number): string {

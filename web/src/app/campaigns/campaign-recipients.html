@@ -2,17 +2,30 @@
   <header class="head">
     <div>
       <h3 id="rcp-h">Recipients</h3>
-      <p>{{ filtered().length }} of {{ recipients().length }} shown by latest status</p>
+      <p>{{ count(filtered().length) }} of {{ count(recipients().length) }} shown by latest status</p>
     </div>
     <div class="filters">
+      @if (failedCount()) {
+        <button
+          type="button"
+          class="s-chip"
+          [attr.aria-pressed]="status() === 'FAILED'"
+          (click)="setStatus(status() === 'FAILED' ? 'ALL' : 'FAILED')"
+        >
+          <i class="ti ti-alert-circle" aria-hidden="true"></i>Failed only
+          <b>{{ count(failedCount()) }}</b>
+        </button>
+      }
       <select
         [value]="status()"
         (change)="setStatus($any($event.target).value)"
         aria-label="Filter recipients by status"
       >
-        <option value="ALL">All statuses ({{ recipients().length }})</option>
+        <option value="ALL" [selected]="status() === 'ALL'">All statuses ({{ count(recipients().length) }})</option>
         @for (entry of statusCounts(); track entry[0]) {
-          <option [value]="entry[0]">{{ entry[0] }} ({{ entry[1] }})</option>
+          <option [value]="entry[0]" [selected]="status() === entry[0]">
+            {{ statusLabel(entry[0]) }} ({{ count(entry[1]) }})
+          </option>
         }
       </select>
       <input
@@ -33,7 +46,7 @@
           <th scope="col">Name</th>
           <th scope="col">Status</th>
           <th scope="col">Updated</th>
-          <th scope="col">Error</th>
+          <th scope="col">Failure reason</th>
           <th scope="col">Button</th>
           <th scope="col" class="c">Replied</th>
         </tr>
@@ -45,7 +58,7 @@
             <td>{{ r.name || '-' }}</td>
             <td><app-campaign-status [status]="r.status" /></td>
             <td class="mono">{{ localTime(r.updatedAt) }}</td>
-            <td class="err" [title]="r.error || ''">{{ friendlyError(r.error) }}</td>
+            <td class="err" [title]="r.error || ''">{{ reason(r) }}</td>
             <td>
               @if (r.clicked) {
                 <span class="tag">{{ r.clicked }}</span>

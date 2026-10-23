@@ -50,6 +50,23 @@ export function waToHtml(text: string): string {
   return html.replace(/\r?\n/g, '<br>');
 }
 
+/**
+ * Style http(s):// and www. links in already-escaped preview HTML the way
+ * WhatsApp does. A span, not an anchor: previews are not navigable. Stops at
+ * whitespace, tags and control-character markers; trailing punctuation and
+ * escaped quotes stay outside the link.
+ */
+export function linkify(html: string): string {
+  return html.replace(
+    /\b(?:https?:\/\/|www\.)[^\s<\u0000-\u001f]+/gi,
+    (url) => {
+      const tail = /(?:[.,!?:)\]]|&#39;|&quot;)+$/.exec(url)?.[0] ?? '';
+      const link = url.slice(0, url.length - tail.length);
+      return link ? `<span class="link">${link}</span>${tail}` : url;
+    },
+  );
+}
+
 /** Small deterministic PRNG (mulberry32), so one seed always gives the same variants. */
 function rng(seed: number): () => number {
   let a = Math.floor(seed) >>> 0 || 0x9e3779b9;

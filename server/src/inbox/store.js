@@ -20,6 +20,7 @@
  */
 
 import { utcNow } from '../protocol.js';
+import { NUMBER_SINCE } from '../db.js';
 
 export const CONVERSATION_STATUSES = Object.freeze(['open', 'pending', 'closed']);
 
@@ -29,6 +30,10 @@ export class InboxError extends Error {
         this.status = status;
     }
 }
+
+/** Hides conversations that belonged to a channel's previous number (no bound args). */
+const CURRENT_NUMBER = `NOT EXISTS (SELECT 1 FROM whatsapp_channels w WHERE w.id = conversations.channel_id
+    AND w.number_since IS NOT NULL AND COALESCE(conversations.last_message_at, conversations.created_at) < w.number_since)`;
 
 export class ConversationStore {
     /** @param {import('../db.js').Database} database a tenant- or channel-scoped handle */
@@ -162,7 +167,7 @@ export class ConversationStore {
     }
 
     list({ status = null, assignedTo = undefined, unread = false, botPaused = false, search = null, limit = 100 } = {}) {
-        const clauses = ['tenant_id = ?'];
+        const clauses = ['tenant_id = ?', CURRENT_NUMBER];
         const args = [this.tenantId];
         if (status) {
             clauses.push('status = ?');
@@ -199,17 +204,20 @@ export class ConversationStore {
         const channelMatch = conversation.channelId
             ? 'AND (channel_id = ? OR channel_id IS NULL)' : '';
         const channelArgs = conversation.channelId ? [conversation.channelId] : [];
+        // A channel that changed number shows only what the current number said.
+        const since = conversation.channelId
+            ? this.db.prepare(`SELECT ${NUMBER_SINCE} AS at`).get(conversation.channelId).at : '';
 
         const outbound = this.db.prepare(
             `SELECT message_id, message_type, message, status, created_at, campaign_id
-             FROM messages WHERE tenant_id = ? AND recipient = ? ${channelMatch}
+             FROM messages WHERE tenant_id = ? AND recipient = ? ${channelMatch} AND created_at >= ?
              ORDER BY created_at DESC LIMIT ?`)
-            .all(this.tenantId, conversation.phone, ...channelArgs, cap);
+            .all(this.tenantId, conversation.phone, ...channelArgs, since, cap);
         const inbound = this.db.prepare(
             `SELECT message_id, sender_name, body, received_at, media_url, media_type, replied_rule
-             FROM inbound_messages WHERE tenant_id = ? AND sender = ? ${channelMatch}
+             FROM inbound_messages WHERE tenant_id = ? AND sender = ? ${channelMatch} AND received_at >= ?
              ORDER BY received_at DESC, id DESC LIMIT ?`)
-            .all(this.tenantId, conversation.phone, ...channelArgs, cap);
+            .all(this.tenantId, conversation.phone, ...channelArgs, since, cap);
 
         const attached = this.#mediaFor(outbound.map((row) => row.message_id));
         const clicks = this.#clicksFor(inbound.map((row) => row.message_id));
@@ -253,18 +261,18 @@ export class ConversationStore {
     stats({ userId = null } = {}) {
         const byStatus = Object.fromEntries(CONVERSATION_STATUSES.map((status) => [status, 0]));
         for (const row of this.db.prepare(
-            'SELECT status, COUNT(*) AS n FROM conversations WHERE tenant_id = ? GROUP BY status')
+            `SELECT status, COUNT(*) AS n FROM conversations WHERE tenant_id = ? AND ${CURRENT_NUMBER} GROUP BY status`)
             .all(this.tenantId)) {
             byStatus[row.status] = row.n;
         }
         const row = this.db.prepare(
             `SELECT COUNT(*) AS unassigned FROM conversations
-             WHERE tenant_id = ? AND assigned_to IS NULL AND status != 'closed'`).get(this.tenantId);
+             WHERE tenant_id = ? AND ${CURRENT_NUMBER} AND assigned_to IS NULL AND status != 'closed'`).get(this.tenantId);
         // Unanswered means the last thing that happened was the customer
         // talking: last_message_at is still the inbound one.
         const oldest = this.db.prepare(
             `SELECT MIN(last_inbound_at) AS at FROM conversations
-             WHERE tenant_id = ? AND status != 'closed'
+             WHERE tenant_id = ? AND ${CURRENT_NUMBER} AND status != 'closed'
                AND last_inbound_at IS NOT NULL AND last_inbound_at = last_message_at`)
             .get(this.tenantId).at;
 
@@ -273,14 +281,14 @@ export class ConversationStore {
             total: Object.values(byStatus).reduce((sum, n) => sum + n, 0),
             unassigned: row.unassigned,
             unread: this.db.prepare(
-                'SELECT COUNT(*) AS n FROM conversations WHERE tenant_id = ? AND unread_count > 0')
+                `SELECT COUNT(*) AS n FROM conversations WHERE tenant_id = ? AND ${CURRENT_NUMBER} AND unread_count > 0`)
                 .get(this.tenantId).n,
             // Filter-chip counts; like `unassigned`, closed conversations are not work.
             botPaused: this.db.prepare(
-                "SELECT COUNT(*) AS n FROM conversations WHERE tenant_id = ? AND bot_paused = 1 AND status != 'closed'")
+                `SELECT COUNT(*) AS n FROM conversations WHERE tenant_id = ? AND ${CURRENT_NUMBER} AND bot_paused = 1 AND status != 'closed'`)
                 .get(this.tenantId).n,
             mine: userId == null ? 0 : this.db.prepare(
-                "SELECT COUNT(*) AS n FROM conversations WHERE tenant_id = ? AND assigned_to = ? AND status != 'closed'")
+                `SELECT COUNT(*) AS n FROM conversations WHERE tenant_id = ? AND ${CURRENT_NUMBER} AND assigned_to = ? AND status != 'closed'`)
                 .get(this.tenantId, Number(userId)).n,
             oldestUnansweredAt: oldest ?? null,
             oldestUnansweredSeconds: oldest

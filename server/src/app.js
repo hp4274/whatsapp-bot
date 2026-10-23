@@ -44,7 +44,7 @@ import {
     remindersToContacts,
 } from './paymentReminders.js';
 import {
-    PREVIEW_ROWS, contactsToCsv, importContacts, mappedRowsToContacts, parseTable, resolveMapping, suggestMapping,
+    PREVIEW_ROWS, contactsToCsv, csvCell, importContacts, mappedRowsToContacts, parseTable, resolveMapping, suggestMapping,
 } from './contacts.js';
 import { PhoneError, contactContext, normalizePhone, personalize } from './protocol.js';
 import {
@@ -262,7 +262,7 @@ function tenantAccessError(tenant, req) {
  * `config` is the channel's `settings`; `save` persists an edited copy back to
  * the channel row.  Nothing here knows about other channels.
  */
-function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
+function createChannelRuntime({ db, channel, config, save, linked = () => channel, sessionDir, deps }) {
     const app = express.Router();
     deps = { ...deps, sessionDir };
 
@@ -508,6 +508,8 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
             broadcast(state, { type: 'transportState', ...payload });
         });
         transport.events?.on('ready', (info) => {
+            // Remember which number scanned in, so linking a different one resets warm-up and inbox.
+            if (info?.account) state.channel = linked(info.account);
             state.info = info;
             state.qr = null;
             state.connecting = false;
@@ -851,6 +853,92 @@ function createChannelRuntime({ db, channel, config, save, sessionDir, deps }) {
         res.set('content-disposition', `attachment; filename="contacts-${stamp}.csv"`);
         res.set('cache-control', 'no-store');
         return res.send(contactsToCsv(list));
+    });
+
+    // ------------------------------------------------- WhatsApp groups --
+    // The members of the groups and communities the linked QR number is in.
+    // Only Baileys can read them; Cloud API and the sandbox have no groups.
+    const GROUPS_TTL_MS = 60_000;
+    /** The groups, fetched at most once a minute per connection: listing then exporting is one call to WhatsApp. */
+    const whatsappGroups = async () => {
+        const transport = state.transport;
+        if (!transport?.isConnected?.() || !transport.supportsGroups) return null;
+        const cached = state.groupsCache;
+        if (cached?.transport === transport && Date.now() - cached.at < GROUPS_TTL_MS) return cached.groups;
+        const groups = await transport.listGroups();
+        state.groupsCache = { transport, at: Date.now(), groups };
+        return groups;
+    };
+    const notLinked = (res) => res.status(409).json({ errors: ['Connect a WhatsApp QR number first.'] });
+    /** `all`, or ids picked from the listing; [] when nothing was picked. */
+    const pickGroups = (groups, ids, all) => {
+        if (all || ids === 'all') return groups;
+        const wanted = new Set((Array.isArray(ids) ? ids : String(ids ?? '').split(',')).map((id) => String(id).trim()).filter(Boolean));
+        return groups.filter((g) => wanted.has(g.id));
+    };
+    const communityName = (groups, g) => (g.community ? groups.find((c) => c.id === g.community)?.name ?? '' : '');
+
+    app.get('/contacts/whatsapp-groups', async (req, res) => {
+        const groups = await whatsappGroups();
+        if (!groups) return notLinked(res);
+        // Counts only: the numbers themselves leave through export/import.
+        return res.json({
+            groups: groups.map((g) => ({
+                id: g.id, name: g.name, size: g.size, isCommunity: g.isCommunity,
+                community: g.community, communityName: communityName(groups, g),
+                members: g.members.length, hidden: g.hidden,
+            })),
+        });
+    });
+
+    app.get('/contacts/whatsapp-groups/export', async (req, res) => {
+        const groups = await whatsappGroups();
+        if (!groups) return notLinked(res);
+        const picked = pickGroups(groups, req.query.ids);
+        if (!picked.length) return res.status(400).json({ errors: ['Pick at least one group.'] });
+        const lines = [['phone', 'name', 'group', 'community', 'admin'].map(csvCell).join(',')];
+        // WhatsApp gives no member names; a number already in contacts brings its own.
+        const nameOf = (phone) => {
+            try {
+                return contacts.getByPhone(contacts.normalize(phone, true))?.name ?? '';
+            } catch {
+                return '';
+            }
+        };
+        for (const g of picked) {
+            const community = communityName(groups, g);
+            for (const m of g.members) {
+                lines.push([m.phone, nameOf(m.phone), g.name, community, m.admin ? 'yes' : 'no'].map(csvCell).join(','));
+            }
+        }
+        const stamp = new Date().toISOString().slice(0, 10);
+        res.set('content-type', 'text/csv; charset=utf-8');
+        res.set('content-disposition', `attachment; filename="whatsapp-groups-${stamp}.csv"`);
+        res.set('cache-control', 'no-store');
+        // BOM so Excel opens UTF-8 names correctly, as contactsToCsv does.
+        return res.send(`﻿${lines.join('\r\n')}\r\n`);
+    });
+
+    app.post('/contacts/whatsapp-groups/import', async (req, res) => {
+        const groups = await whatsappGroups();
+        if (!groups) return notLinked(res);
+        const picked = pickGroups(groups, req.body?.ids, req.body?.all === true);
+        if (!picked.length) return res.status(400).json({ errors: ['Pick at least one group.'] });
+        // One row per number, tagged with every picked group it is in.
+        const rows = new Map();
+        for (const g of picked) {
+            for (const m of g.members) {
+                const row = rows.get(m.phone) ?? { phone: m.phone, tags: [] };
+                if (g.name && !row.tags.includes(g.name)) row.tags.push(g.name);
+                rows.set(m.phone, row);
+            }
+        }
+        // WhatsApp numbers are already international digits.
+        const saved = contacts.importMany([...rows.values()], { source: 'whatsapp_group', normalized: true });
+        return res.json({
+            created: saved.created, updated: saved.updated, failed: saved.failed.length,
+            hidden: picked.reduce((n, g) => n + g.hidden, 0),
+        });
     });
 
     app.get('/contacts/duplicates', (req, res) => res.json(contacts.duplicates({ limit: req.query.limit })));
@@ -1638,6 +1726,7 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
                 channel,
                 config: channel.settings,
                 save: (settings) => channels.update(channel.id, { settings }).settings,
+                linked: (account) => channels.update(channel.id, { providerAccountId: account }),
                 // Each number needs its own browser profile, or they fight over the lock.
                 sessionDir: channel.isDefault
                     ? sessionDir
@@ -2695,6 +2784,9 @@ export function createApp({
 
 async function handleInbound(state, message) {
     const saved = state.db.insertInbound(message);
+    // A message id we already have is a redelivery (webhook retry, reconnect
+    // replay): it was counted and answered the first time.
+    if (!saved.isNew) return saved;
     // Every inbound message belongs to a conversation, whether or not anyone is
     // watching the inbox. Created here because this is the one place every
     // transport's inbound converges.
@@ -2733,21 +2825,28 @@ async function handleInbound(state, message) {
         if (state.conversations?.isBotPaused(saved.sender, state.channel.id)) return saved;
 
         // Menu answers, human handoff, welcome and away messages (autoreply/engine.js).
+        // A text-only welcome/away comes back unsent as `early.greeting`: the
+        // first stage below that answers puts it in front of its own text, so
+        // the contact gets one message; handleInbound sends it alone otherwise.
         const early = await state.autoReply.handlePre({ ...saved, replyId: message.replyId ?? null });
         if (early.replies.some((r) => r.accepted)) {
             state.db.markInboundReplied(saved.messageId, early.replies.find((r) => r.accepted).source);
             broadcast(state, { type: 'auto_reply', sender: saved.sender, rule: early.replies.map((r) => r.ruleName).join(', ') });
         }
         if (early.handled) return saved;
+        const { greeting } = early;
+        const greet = (text) => state.autoReply.withGreeting(text, greeting);
+        const greetingSent = () => state.autoReply.noteGreeting(saved, greeting);
 
         // HELP lists every keyword the customer can use, whichever engine owns it.
         if (isHelp(saved.body)) {
             const text = helpText(state);
             if (text) {
                 const outcome = state.messages.send({
-                    messageType: 'auto_reply', recipient: saved.sender, text, idempotencyKey: `help.${saved.messageId}`,
+                    messageType: 'auto_reply', recipient: saved.sender, text: greet(text), idempotencyKey: `help.${saved.messageId}`,
                 });
                 if (outcome.accepted) {
+                    greetingSent();
                     state.db.markInboundReplied(saved.messageId, 'help');
                     return saved;
                 }
@@ -2756,7 +2855,11 @@ async function handleInbound(state, message) {
 
         // Parent keywords (ATTENDANCE, FEES, LEAVE...) before the FAQ; only a
         // number linked to a student is answered, everyone else falls through.
-        if ((await handleSchoolCommand(state, saved)).handled) return saved;
+        const school = await handleSchoolCommand(state, saved, { greeting: greeting?.text ?? '' });
+        if (school.handled) {
+            if (school.sent) greetingSent();
+            return saved;
+        }
 
         // The knowledge base answers first and the keyword engine is the
         // fallback, so an operator migrates at their own pace: with no FAQ
@@ -2768,10 +2871,11 @@ async function handleInbound(state, message) {
             const outcome = state.messages.send({
                 messageType: 'auto_reply',
                 recipient: saved.sender,
-                text: hit.item.answer,
+                text: greet(hit.item.answer),
                 idempotencyKey: `faq.${saved.messageId}.${hit.item.id}`,
             });
             if (outcome.accepted) {
+                greetingSent();
                 state.db.markInboundReplied(saved.messageId, `faq:${hit.item.id}`);
                 broadcast(state, {
                     type: 'faq_reply', sender: saved.sender, itemId: hit.item.id, level: hit.level,
@@ -2779,7 +2883,7 @@ async function handleInbound(state, message) {
                 return saved;
             }
         }
-        const reply = await state.autoReply.handleInbound(saved, { greeted: early.greeted });
+        const reply = await state.autoReply.handleInbound(saved, { greeted: early.greeted, greeting });
         if (reply?.rule) {
             state.db.markInboundReplied(saved.messageId, reply.rule.keyword);
             broadcast(state, {

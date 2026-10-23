@@ -3,7 +3,7 @@
   <header class="head">
     <div class="titles">
       <h3 id="funnel-h">Delivery funnel</h3>
-      <span class="sub">% of {{ analytics().funnel.audience }} recipients</span>
+      <span class="sub">{{ count(analytics().funnel.audience) }} recipients</span>
     </div>
     <div class="fresh">
       <span class="live" [class.off]="!store.streamOnline()">
@@ -32,14 +32,14 @@
         <span class="label"
           ><i class="ti ti-{{ s.icon }}" aria-hidden="true"></i>{{ s.label }}</span
         >
-        <strong class="count">{{ s.count }}</strong>
-        <span class="pct">{{ s.pct }}%</span>
+        <strong class="count">{{ s.countText }}</strong>
+        <span class="pct">{{ s.pctText }} {{ s.base }}</span>
         <div
           class="bar"
           role="img"
-          [attr.aria-label]="s.label + ': ' + s.count + ', ' + s.pct + ' percent of audience'"
+          [attr.aria-label]="s.label + ': ' + s.countText + ', ' + s.pctText + ' ' + s.base"
         >
-          <div class="bar-fill" [style.width.%]="ready() ? s.pct : 0"></div>
+          <div class="bar-fill" [style.width.%]="ready() ? s.width : 0"></div>
         </div>
       </li>
     }
@@ -59,7 +59,7 @@
               <div class="row">
                 <span class="t">{{ c.title }}</span
                 ><span class="n"
-                  >{{ c.count }} <small>· {{ c.pct }}% of sent</small></span
+                  >{{ count(c.count) }} <small>· {{ pct(c.pct) }} of sent</small></span
                 >
               </div>
               <div class="bar">
@@ -87,6 +87,11 @@
   <section class="s-card s-enter" style="--i: 4" aria-labelledby="fail-h">
     <header class="head">
       <h3 id="fail-h"><i class="ti ti-flag" aria-hidden="true"></i>Failures by reason</h3>
+      @if (failures().length) {
+        <button type="button" class="btn sm" (click)="showFailed.emit()">
+          <i class="ti ti-list-search" aria-hidden="true"></i>See who failed
+        </button>
+      }
     </header>
     @if (failures().length) {
       <ul class="bars">
@@ -94,7 +99,7 @@
           <li [style.--i]="i">
             <div class="row">
               <span class="t">{{ f.label }}</span
-              ><span class="n bad">{{ f.count }}</span>
+              ><span class="n bad">{{ count(f.count) }}</span>
             </div>
             <div class="bar">
               <div class="bar-fill danger" [style.width.%]="ready() ? f.width : 0"></div>
@@ -130,7 +135,7 @@
         <span
           >Send to: <strong>{{ r.label.toLowerCase() }}</strong></span
         >
-        <span class="n">{{ r.count }}</span>
+        <span class="n">{{ count(r.count) }}</span>
       </button>
     }
   </div>

@@ -24,13 +24,9 @@ type NavItem = {
   icon: string;
   min?: Role;
   service?: string;
-  heading?: undefined;
 };
-type NavEntry =
-  | NavItem
-  | { heading: string; children: NavItem[]; path?: undefined; label?: undefined; icon?: undefined };
 
-/** One labelled block of the sidebar, as the template renders it. */
+/** One block of the sidebar, as the template renders it; an empty heading renders no label. */
 interface NavSection {
   readonly heading: string;
   readonly items: readonly NavItem[];
@@ -209,118 +205,98 @@ export class App {
   /** The sidebar as a drawer, below `lg`. */
   protected readonly navOpen = signal(false);
 
-  private readonly allNav: NavItem[] = [
-    { path: '/admin/tenants', label: 'Tenants', icon: ICONS.tenants, min: 'super_admin' },
-    { path: '/admin/plans', label: 'Plans & billing', icon: ICONS.plans, min: 'super_admin' },
-    { path: '/admin/usage', label: 'Usage', icon: ICONS.usage, min: 'super_admin' },
-    { path: '/admin/health', label: 'Health', icon: ICONS.health, min: 'super_admin' },
-    { path: '/admin/audit-logs', label: 'Audit logs', icon: ICONS.audit, min: 'super_admin' },
-    { path: '/admin/channels', label: 'Channels', icon: ICONS.channels, min: 'super_admin' },
+  /**
+   * A tenant's sidebar, grouped by what someone came to do: send, look after
+   * customers, see results, or set things up. Home stands alone above them.
+   * Items the tenant lacks the service or role for drop out, and a section
+   * left with nothing drops with them.
+   */
+  private readonly tenantNav: readonly NavSection[] = [
+    { heading: '', items: [{ path: '/home', label: 'Home', icon: 'smart-home' }] },
     {
-      path: '/connection',
-      label: 'Connection',
-      icon: ICONS.connection,
-      service: 'whatsapp_channels',
+      heading: 'Messaging',
+      items: [
+        { path: '/campaign', label: 'New Campaign', icon: ICONS.campaign, service: 'bulk_messages' },
+        { path: '/campaigns', label: 'Campaigns', icon: 'speakerphone', service: 'bulk_messages' },
+        { path: '/templates', label: 'Templates', icon: 'file-text', service: 'templates' },
+        { path: '/auto-replies', label: 'Auto-Replies', icon: ICONS.replies, service: 'auto_replies' },
+        { path: '/inbox', label: 'Inbox', icon: 'inbox', service: 'inbox' },
+        { path: '/storage', label: 'Storage', icon: 'folders', service: 'bulk_messages' },
+        { path: '/school', label: 'School Assistant', icon: ICONS.school, service: 'school_whatsapp_bot' },
+      ],
     },
     {
-      path: '/channels',
-      label: 'WhatsApp Numbers',
-      icon: ICONS.channels,
-      service: 'whatsapp_channels',
+      heading: 'Customers',
+      items: [
+        { path: '/contacts', label: 'Contacts', icon: ICONS.contacts, service: 'contacts' },
+        { path: '/tickets', label: 'Tickets', icon: 'ticket', service: 'tickets' },
+        { path: '/knowledge', label: 'FAQ', icon: 'help-circle', service: 'faq' },
+        { path: '/payment-reminder', label: 'Payment Reminder', icon: ICONS.payment, service: 'payment_reminders' },
+        { path: '/records/appointment', label: 'Appointments', icon: 'calendar-event', service: 'appointments' },
+        { path: '/records/order', label: 'Orders', icon: 'shopping-cart', service: 'orders' },
+        { path: '/records/lead', label: 'Leads', icon: 'user-search', service: 'leads' },
+        { path: '/records/subscription', label: 'Subscriptions', icon: 'refresh', service: 'subscriptions' },
+        { path: '/records/event', label: 'Events', icon: 'confetti', service: 'events' },
+      ],
     },
     {
-      path: '/school',
-      label: 'School Assistant',
-      icon: ICONS.school,
-      service: 'school_whatsapp_bot',
-    },
-    { path: '/contacts', label: 'Contacts', icon: ICONS.contacts, service: 'contacts' },
-    { path: '/campaign', label: 'New Campaign', icon: ICONS.campaign, service: 'bulk_messages' },
-    { path: '/campaigns', label: 'Campaigns', icon: 'speakerphone', service: 'bulk_messages' },
-    { path: '/storage', label: 'Storage', icon: 'folders', service: 'bulk_messages' },
-    { path: '/auto-replies', label: 'Auto-Replies', icon: ICONS.replies, service: 'auto_replies' },
-    { path: '/templates', label: 'Templates', icon: 'file-text', service: 'templates' },
-    { path: '/inbox', label: 'Inbox', icon: 'inbox', service: 'inbox' },
-    { path: '/tickets', label: 'Tickets', icon: 'ticket', service: 'tickets' },
-    { path: '/knowledge', label: 'FAQ', icon: 'help-circle', service: 'faq' },
-    {
-      path: '/payment-reminder',
-      label: 'Payment Reminder',
-      icon: ICONS.payment,
-      service: 'payment_reminders',
+      heading: 'Insights',
+      items: [
+        { path: '/analytics', label: 'Analytics', icon: 'chart-bar', service: 'analytics' },
+        { path: '/history', label: 'History', icon: ICONS.history },
+      ],
     },
     {
-      path: '/records/appointment',
-      label: 'Appointments',
-      icon: 'calendar-event',
-      service: 'appointments',
+      heading: 'Settings',
+      items: [
+        { path: '/connection', label: 'Connection', icon: ICONS.connection, service: 'whatsapp_channels' },
+        { path: '/channels', label: 'WhatsApp Numbers', icon: ICONS.channels, service: 'whatsapp_channels' },
+        { path: '/team', label: 'Team', icon: ICONS.team, min: 'admin' },
+        { path: '/workflows', label: 'Workflows', icon: 'hierarchy-3', service: 'workflows' },
+        { path: '/developer', label: 'API & Webhooks', icon: 'api', service: 'api' },
+      ],
     },
-    { path: '/records/order', label: 'Orders', icon: 'shopping-cart', service: 'orders' },
-    { path: '/records/lead', label: 'Leads', icon: 'user-search', service: 'leads' },
-    {
-      path: '/records/subscription',
-      label: 'Subscriptions',
-      icon: 'refresh',
-      service: 'subscriptions',
-    },
-    { path: '/records/event', label: 'Events', icon: 'confetti', service: 'events' },
-    { path: '/workflows', label: 'Workflows', icon: 'hierarchy-3', service: 'workflows' },
-    { path: '/analytics', label: 'Analytics', icon: 'chart-bar', service: 'analytics' },
-    { path: '/developer', label: 'API & Webhooks', icon: 'api', service: 'api' },
-    { path: '/history', label: 'History', icon: ICONS.history },
-    { path: '/team', label: 'Team', icon: ICONS.team, min: 'admin' },
+  ];
+
+  /** The super admin's own pages, above the per-service settings on the platform view. */
+  private readonly platformNav: readonly NavItem[] = [
+    { path: '/admin/tenants', label: 'Tenants', icon: ICONS.tenants },
+    { path: '/admin/plans', label: 'Plans & billing', icon: ICONS.plans },
+    { path: '/admin/usage', label: 'Usage', icon: ICONS.usage },
+    { path: '/admin/health', label: 'Health', icon: ICONS.health },
+    { path: '/admin/audit-logs', label: 'Audit logs', icon: ICONS.audit },
+    { path: '/admin/channels', label: 'Channels', icon: ICONS.channels },
   ];
 
   /**
    * Tenant users see the services they have.  A super admin on the platform view
    * sees each service as its own settings page; once inside a tenant they get
-   * that tenant's sections like anyone else.
+   * that tenant's sections like anyone else, owner-level.
    */
-  protected readonly navigation = computed<NavEntry[]>(() => {
+  protected readonly sections = computed<NavSection[]>(() => {
     if (!this.auth.user()) return [];
     const superAdmin = this.auth.isSuperAdmin();
-    if (superAdmin && this.auth.actingTenantId() === null) {
+    if (this.platformView()) {
       return [
-        { heading: 'Platform', children: this.allNav.slice(0, 6) },
+        { heading: 'Platform', items: this.platformNav },
         ...SERVICE_GROUPS.map((group) => ({
           heading: group.heading,
-          children: group.services
+          items: group.services
             .filter((key) => SERVICE_META[key])
             .map((key) => {
               const meta = SERVICE_META[key];
               return { path: `/admin/services/${key}`, label: meta.label, icon: meta.icon };
             }),
         })),
-      ];
+      ].filter((section) => section.items.length);
     }
-    // Inside a tenant a super admin sees the tenant's own rail: its services, owner-level.
-    const inTenant = superAdmin;
-    const owned = inTenant ? this.acting()?.services : this.auth.tenant()?.services;
-    return this.allNav.filter((item) => {
-      if (item.min === 'super_admin') return false;
-      if (item.service && owned && !owned.includes(item.service)) return false;
-      return inTenant || !item.min || this.auth.atLeast(item.min);
-    });
-  });
-
-  /**
-   * `navigation` regrouped into labelled sections, so the template renders one
-   * shape. Loose items (a tenant's flat list) gather under "Workspace", the
-   * way Kardlyz heads its own first block "Main".
-   */
-  protected readonly sections = computed<NavSection[]>(() => {
-    const out: NavSection[] = [];
-    let loose: NavItem[] | null = null;
-    for (const entry of this.navigation()) {
-      if (entry.heading !== undefined) {
-        loose = null;
-        if (entry.children.length) out.push({ heading: entry.heading, items: entry.children });
-      } else {
-        if (!loose) out.push({ heading: 'Workspace', items: (loose = []) });
-        loose.push(entry);
-      }
-    }
-    return out;
+    const owned = superAdmin ? this.acting()?.services : this.auth.tenant()?.services;
+    const visible = (item: NavItem) =>
+      !(item.service && owned && !owned.includes(item.service)) &&
+      (superAdmin || !item.min || this.auth.atLeast(item.min));
+    return this.tenantNav
+      .map((section) => ({ heading: section.heading, items: section.items.filter(visible) }))
+      .filter((section) => section.items.length);
   });
 
   /** What the header calls the current workspace. */

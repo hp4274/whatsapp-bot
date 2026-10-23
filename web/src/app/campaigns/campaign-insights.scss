@@ -4,6 +4,7 @@
 @include s.enter;
 @include s.card;
 @include s.empty;
+@include s.buttons;
 
 :host {
   display: grid;

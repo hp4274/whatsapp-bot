@@ -96,6 +96,32 @@
         </p>
       }
 
+      <details class="more" [open]="!preview">
+        <summary>
+          <i class="ti ti-keyboard" aria-hidden="true"></i> Or type the numbers
+        </summary>
+        <div class="field">
+          <label for="aud-typed">One number per line - add a name after a comma if you like</label>
+          <textarea
+            id="aud-typed"
+            rows="5"
+            [ngModel]="typed()"
+            (ngModelChange)="typed.set($event)"
+            placeholder="+919876543210, Asha&#10;+919812345678"
+          ></textarea>
+        </div>
+        <div class="typed-foot">
+          <button
+            type="button"
+            class="btn primary small"
+            (click)="useTyped()"
+            [disabled]="uploading() || !typed().trim()"
+          >
+            <i class="ti ti-check" aria-hidden="true"></i> Use these numbers
+          </button>
+        </div>
+      </details>
+
       <app-reuse-picker
         kind="sheet"
         [activeId]="preview?.storageId"
@@ -326,17 +352,6 @@
             </details>
           }
 
-          <div class="foot">
-            <span class="grow"></span>
-            <button
-              type="button"
-              class="btn primary"
-              [disabled]="!d.audienceReady() || auditing()"
-              (click)="proceed()"
-            >
-              Next: write message <i class="ti ti-arrow-right" aria-hidden="true"></i>
-            </button>
-          </div>
         } @else if (auditing()) {
           <p class="muted"><span class="spinner"></span> Checking numbers...</p>
         } @else {
@@ -409,17 +424,6 @@
         >
       </p>
 
-      <div class="foot">
-        <span class="grow"></span>
-        <button
-          type="button"
-          class="btn primary"
-          [disabled]="!d.audienceReady()"
-          (click)="proceed()"
-        >
-          Continue <i class="ti ti-arrow-right" aria-hidden="true"></i>
-        </button>
-      </div>
     </section>
   }
 
@@ -454,17 +458,6 @@
           {{ '{phone}' }}.</span
         >
       </p>
-      <div class="foot">
-        <span class="grow"></span>
-        <button
-          type="button"
-          class="btn primary"
-          [disabled]="!d.audienceReady()"
-          (click)="proceed()"
-        >
-          Continue <i class="ti ti-arrow-right" aria-hidden="true"></i>
-        </button>
-      </div>
     </section>
   }
 }

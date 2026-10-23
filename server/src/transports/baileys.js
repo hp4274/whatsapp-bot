@@ -52,6 +52,7 @@ export class BaileysTransport extends Transport {
     static name_ = 'WhatsApp via Baileys (QR login, no browser, no access token)';
     realDelivery = true;
     supportsReceipts = true;
+    supportsGroups = true;
 
     /**
      * @param {object} config
@@ -368,6 +369,42 @@ export class BaileysTransport extends Transport {
         }
     }
 
+    /**
+     * Every group and community this number is in, with the members' numbers:
+     * [{ id, name, size, isCommunity, community, members: [{ phone, admin }], hidden }].
+     * `community` is the parent community's id for a subgroup. A member WhatsApp
+     * shows only by LID (privacy in large and community groups) is resolved
+     * through the LID mapping when it knows the number, else counted in `hidden`.
+     * Broadcast lists have no protocol call to read them, so they are not here.
+     */
+    async listGroups() {
+        if (!this.connected || !this.sock) {
+            throw new TransportConnectionError('WhatsApp is not connected', { retryable: true });
+        }
+        const sock = this.sock;
+        const all = Object.values(await sock.groupFetchAllParticipating() ?? {});
+        const groups = [];
+        for (const g of all) {
+            const members = new Map();
+            let hidden = 0;
+            for (const p of g.participants ?? []) {
+                const phone = await participantPhone(sock, p);
+                if (!phone) hidden += 1;
+                else if (phone !== this.account && !members.has(phone)) members.set(phone, { phone, admin: p.admin ?? null });
+            }
+            groups.push({
+                id: g.id,
+                name: String(g.subject ?? ''),
+                size: Number(g.size ?? g.participants?.length ?? 0),
+                isCommunity: Boolean(g.isCommunity),
+                community: g.linkedParent ?? null,
+                members: [...members.values()],
+                hidden,
+            });
+        }
+        return groups.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
     /** Online / offline / typing state. Never throws: presence is cosmetic, the send is not. */
     async setPresence(state) {
         await this.#presence(state);
@@ -612,6 +649,20 @@ async function toInboundMessage(msg, sock) {
         mediaType,
         timestamp: ts ? new Date(ts * 1000).toISOString() : new Date().toISOString(),
     };
+}
+
+/** A group member's phone digits: the PN jid, the phone number WhatsApp sent with a LID, or the LID mapping. */
+async function participantPhone(sock, p) {
+    let jid = String(p?.phoneNumber ?? '');
+    if (/^\d+$/.test(jid)) jid += '@s.whatsapp.net';
+    if (!jid && String(p?.id ?? '').endsWith('@s.whatsapp.net')) jid = String(p.id);
+    if (!jid && String(p?.id ?? '').endsWith('@lid')) {
+        try {
+            jid = String(await sock?.signalRepository?.lidMapping?.getPNForLID?.(p.id) ?? '');
+        } catch { /* unknown LID */ }
+    }
+    if (!jid.endsWith('@s.whatsapp.net')) return null;
+    return jid.split('@')[0].split(':')[0] || null;
 }
 
 async function defaultSocketFactory({ authDir }) {

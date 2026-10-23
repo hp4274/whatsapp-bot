@@ -32,8 +32,13 @@ import {
   canPause,
   canResume,
   canStart,
+  count,
+  listCounts,
   localTime,
+  pct,
+  percent,
   relativeTime,
+  reportRates,
 } from './campaign-format';
 import { CampaignStatusPill } from './status-pill';
 
@@ -234,6 +239,8 @@ export class CampaignsListView {
   protected readonly canCancel = canCancel;
   protected readonly canDelete = canDelete;
   protected readonly localTime = localTime;
+  protected readonly count = count;
+  protected readonly pct = pct;
 
   constructor() {
     this.load();
@@ -432,15 +439,25 @@ export class CampaignsListView {
     return relativeTime(iso, this.store.now());
   }
 
-  protected sent(c: Campaign): number {
-    const s = c.stats ?? {};
-    if (typeof s.sent === 'number') return s.sent;
-    const by = s.byStatus ?? {};
-    return (by['SENT'] ?? 0) + (by['DELIVERED'] ?? 0) + (by['READ'] ?? 0) + (by['SANDBOX'] ?? 0);
-  }
-
-  protected failed(c: Campaign): number {
-    return c.stats?.failed ?? c.stats?.byStatus?.['FAILED'] ?? 0;
+  /**
+   * The Results cell. Only sent / failed / progress: the list's stats are a snapshot written on
+   * status changes, so Delivered / Read (which keep arriving after a run) live on the detail page.
+   */
+  protected result(c: Campaign) {
+    const n = listCounts(c.stats);
+    const total = n.total || c.audienceSize || 0;
+    const done = Math.max(0, total - n.pending);
+    const r = reportRates(n);
+    return {
+      sending: c.status === 'running',
+      total,
+      done,
+      donePct: percent(done, total),
+      attempted: r.attempted,
+      sent: n.sent,
+      failed: n.failed,
+      failedPct: r.failed,
+    };
   }
 
   protected isConfirming(id: number, action: RowAction): boolean {

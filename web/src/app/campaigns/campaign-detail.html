@@ -29,7 +29,7 @@
       </div>
     </div>
     <div class="audience">
-      <strong>{{ audience() }}</strong>
+      <strong>{{ count(audience()) }}</strong>
       <span>recipients</span>
     </div>
   </header>
@@ -50,6 +50,24 @@
         <i class="ti ti-x" aria-hidden="true"></i>
       </button>
     </p>
+  }
+
+  @if (outcome(); as o) {
+    <section
+      [class]="'s-card outcome s-enter tone-' + o.tone"
+      aria-labelledby="outcome-title"
+    >
+      <span class="outcome-icon" aria-hidden="true"><i class="ti ti-{{ o.icon }}"></i></span>
+      <div class="outcome-text">
+        <h3 id="outcome-title">{{ o.title }}</h3>
+        <p>{{ o.detail }}</p>
+      </div>
+      @if (failedCount() > 0 && analytics()) {
+        <button type="button" class="btn sm" (click)="showFailed()">
+          <i class="ti ti-list-search" aria-hidden="true"></i>See who failed
+        </button>
+      }
+    </section>
   }
 
   <section class="s-card overview s-enter" style="--i: 1" aria-label="Campaign overview">
@@ -102,7 +120,7 @@
           <div class="track"><div class="fill" [style.width.%]="sp.pct"></div></div>
           <div class="progress-text">
             <span
-              ><strong>{{ sp.sent }}</strong> / {{ sp.total }} sent</span
+              ><strong>{{ count(sp.sent) }}</strong> / {{ count(sp.total) }} sent</span
             >
             @if (c.status === 'scheduled' && c.scheduledAt) {
               <span class="muted"
@@ -139,11 +157,11 @@
         <div class="track"><div class="fill" [style.width.%]="p.pct"></div></div>
         <div class="progress-text">
           <span
-            ><span class="live-dot" aria-hidden="true"></span> {{ p.processed }} /
-            {{ p.total }} processed ({{ p.pct }}%)</span
+            ><span class="live-dot" aria-hidden="true"></span> {{ count(p.processed) }} /
+            {{ count(p.total) }} processed ({{ pct(p.pct) }})</span
           >
           <span class="muted"
-            >{{ p.successful }} ok · {{ p.failed }} failed · {{ p.pending }} pending</span
+            >{{ count(p.successful) }} sent · {{ count(p.failed) }} failed · {{ count(p.pending) }} waiting</span
           >
           @if (store.pacing(); as wait) {
             @if (store.pacingLeft(); as left) {
@@ -211,7 +229,7 @@
         </button>
         <small id="retry-hint" class="muted">
           @if (failedCount() > 0) {
-            Re-queues {{ failedCount() }} failed recipient{{ failedCount() === 1 ? '' : 's' }} with
+            Re-queues {{ count(failedCount()) }} failed recipient{{ failedCount() === 1 ? '' : 's' }} with
             the same message and attachment
           } @else {
             No failed recipients to retry
@@ -254,7 +272,8 @@
       [updatedAt]="updatedAt()"
       [refreshing]="inflight() > 0"
       (refresh)="reload()"
+      (showFailed)="showFailed()"
     />
-    <app-campaign-recipients [recipients]="a.recipients" />
+    <app-campaign-recipients [recipients]="a.recipients" [failures]="a.failures" />
   }
 }

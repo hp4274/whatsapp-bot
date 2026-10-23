@@ -9,6 +9,7 @@
 @include s.empty;
 @include s.skeleton;
 @include s.banner;
+@include s.tones;
 
 :host {
   display: grid;
@@ -210,4 +211,34 @@ a.btn { text-decoration: none; }
   .audience { justify-items: start; }
   .controls > * { flex: 1 1 auto; }
   .speed { width: 100%; button { flex: 1; justify-content: center; } }
+}
+
+/* Headline outcome: the plain-language answer before the detailed numbers. */
+.outcome {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+
+  .outcome-icon {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-md);
+    color: var(--tone);
+    background: color-mix(in srgb, var(--tone) 12%, transparent);
+    .ti { font-size: 22px; }
+  }
+  .outcome-text { flex: 1 1 240px; min-width: 0; }
+  h3 {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 500;
+    letter-spacing: -0.4px;
+    color: var(--text-strong);
+    font-variant-numeric: tabular-nums;
+  }
+  p { margin: 4px 0 0; font-size: 13.5px; color: var(--text-muted); }
 }

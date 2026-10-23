@@ -121,6 +121,9 @@ CREATE TABLE IF NOT EXISTS whatsapp_channels (
     timezone                 TEXT NOT NULL DEFAULT 'UTC',
     business_hours           TEXT,
     is_default               INTEGER NOT NULL DEFAULT 0,
+    -- When the number now on this channel took over (NULL = the only one it has had).
+    -- Warm-up and the inbox start counting here; history before it was another number's.
+    number_since             TEXT,
     created_at               TEXT NOT NULL,
     updated_at               TEXT NOT NULL
 );
@@ -264,6 +267,7 @@ function addTenantControlColumns(db) {
     if (!cols.includes('custom_safety')) db.exec("ALTER TABLE tenants ADD COLUMN custom_safety TEXT NOT NULL DEFAULT '{}'");
     // Session idle timeout (see Tenancy.resolveSession).
     if (!columnsOf(db, 'sessions').includes('last_seen_at')) db.exec('ALTER TABLE sessions ADD COLUMN last_seen_at TEXT');
+    if (!columnsOf(db, 'whatsapp_channels').includes('number_since')) db.exec('ALTER TABLE whatsapp_channels ADD COLUMN number_since TEXT');
 }
 
 /** Adds channel_id to tables that predate channels. Existing rows keep NULL
@@ -299,6 +303,9 @@ function addChannelColumns(db) {
         }
     }
 }
+
+/** SQL for when the channel bound to the next `?` got its current number ('' = always). */
+export const NUMBER_SINCE = "COALESCE((SELECT number_since FROM whatsapp_channels WHERE id = ?), '')";
 
 /** Tables that predate tenancy. Their rows all become tenant 1. */
 function legacyTables(db) {
@@ -607,8 +614,9 @@ export class Database {
             return this.db.prepare(
                 `SELECT COUNT(*) AS n FROM messages
                  WHERE tenant_id = ? AND channel_id = ? AND status IN (${placeholders})
-                   AND COALESCE(sent_at, created_at) >= ? AND COALESCE(sent_at, created_at) < ?`,
-            ).get(this.tenantId, this.channelId, ...SUCCESS_STATUSES, startIso, endIso).n;
+                   AND COALESCE(sent_at, created_at) >= ? AND COALESCE(sent_at, created_at) < ?
+                   AND created_at >= ${NUMBER_SINCE}`,
+            ).get(this.tenantId, this.channelId, ...SUCCESS_STATUSES, startIso, endIso, this.channelId).n;
         }
         const row = this.db.prepare(
             `SELECT COUNT(*) AS n FROM messages
@@ -637,11 +645,11 @@ export class Database {
         ).get(this.tenantId, phone, ...SUCCESS_STATUSES));
     }
 
-    /** When this channel (or tenant) first really sent: a number's age for warm-up. */
+    /** When this channel's current number (or the tenant) first really sent: its age for warm-up. */
     firstSentAt() {
         const placeholders = SUCCESS_STATUSES.map(() => '?').join(',');
-        const scope = this.channelId != null ? ' AND channel_id = ?' : '';
-        const args = this.channelId != null ? [this.channelId] : [];
+        const scope = this.channelId != null ? ` AND channel_id = ? AND created_at >= ${NUMBER_SINCE}` : '';
+        const args = this.channelId != null ? [this.channelId, this.channelId] : [];
         return this.db.prepare(
             `SELECT MIN(created_at) AS first FROM messages
              WHERE tenant_id = ?${scope} AND status IN (${placeholders})`,
@@ -656,8 +664,8 @@ export class Database {
         const first = this.firstSentAt();
         if (!first) return [];
         const placeholders = SUCCESS_STATUSES.map(() => '?').join(',');
-        const scope = this.channelId != null ? ' AND channel_id = ?' : '';
-        const args = this.channelId != null ? [this.channelId] : [];
+        const scope = this.channelId != null ? ` AND channel_id = ? AND created_at >= ${NUMBER_SINCE}` : '';
+        const args = this.channelId != null ? [this.channelId, this.channelId] : [];
         const rows = this.db.prepare(
             `SELECT CAST((julianday(created_at) - julianday(?)) / 7 AS INTEGER) AS wk, COUNT(*) AS n
              FROM messages WHERE tenant_id = ?${scope} AND status IN (${placeholders})
@@ -777,7 +785,7 @@ export class Database {
             replied_rule: record.repliedRule ?? null,
             received_at: record.receivedAt ?? record.timestamp ?? now,
         };
-        this.db.prepare(`
+        const { changes } = this.db.prepare(`
             INSERT OR IGNORE INTO inbound_messages
                 (tenant_id, channel_id, message_id, sender, sender_name, body, media_url, media_type, replied_rule, received_at)
             VALUES
@@ -785,7 +793,8 @@ export class Database {
         `).run(row);
         const saved = this.db.prepare('SELECT * FROM inbound_messages WHERE message_id = ? AND tenant_id = ?')
             .get(row.message_id, this.tenantId);
-        return toInboundRecord(saved);
+        // isNew is false for a message id already stored: a redelivery, not a new message.
+        return { ...toInboundRecord(saved), isNew: changes > 0 };
     }
 
     markInboundReplied(messageId, ruleKeyword) {

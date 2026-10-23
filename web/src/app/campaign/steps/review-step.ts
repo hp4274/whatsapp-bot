@@ -77,7 +77,7 @@ function zones(current: string): string[] {
 }
 
 /**
- * Step 3: name, pace and timing, then send. Safety previews for all three
+ * Step 2: name, pace and timing, then send. Safety previews for all three
  * presets load together so switching pace is instant; blockers keep the send
  * button honest about why it is disabled.
  */
@@ -214,7 +214,7 @@ export class ReviewStep {
     if (!d.audienceReady()) out.push('Choose an audience first.');
     if (!d.messageReady()) out.push('Finish the message (and fix any button errors).');
     if (d.interactive() && !this.policy.allowInteractive()) {
-      out.push('Interactive buttons are not on your plan - remove them in the message step.');
+      out.push('Interactive buttons are not on your plan - remove them in the audience and message step.');
     }
     if (d.scheduleMode() === 'later') {
       const s = this.sendsAt();
@@ -355,7 +355,7 @@ export class ReviewStep {
               : `Campaign "${campaign.name}" scheduled for ${this.sendsAt()?.zoned ?? campaign.scheduledAt}`,
             'primary',
           );
-          d.goTo(4);
+          d.goTo(3);
           return;
         }
         this.campaignsApi.action(campaign.id, 'start').subscribe({
@@ -379,13 +379,13 @@ export class ReviewStep {
               `Campaign started: ${res.queued ?? 0} queued, ${res.skipped ?? 0} skipped${notes.length ? '. ' + notes.join(' ') : ''}`,
               'primary',
             );
-            d.goTo(4);
+            d.goTo(3);
           },
           error: (err: Error) => {
             this.busy.set(false);
             d.result.set({ campaign, started: false, error: err.message });
             this.store.setStatus(`Campaign saved but not started: ${err.message}`, 'warning');
-            d.goTo(4);
+            d.goTo(3);
           },
         });
       },

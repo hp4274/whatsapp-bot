@@ -44,11 +44,11 @@
           @if (ix?.header) {
             <div class="htext">{{ ix?.header }}</div>
           }
-          <div
-            class="body"
-            aria-live="polite"
-            [innerHTML]="html() || 'Start typing to see your message.'"
-          ></div>
+          @if (rendered().text) {
+            <div class="body" [innerHTML]="rendered().html"></div>
+          } @else {
+            <div class="body empty">Type your message to see it here.</div>
+          }
           @if (ix?.footer) {
             <div class="footer">{{ ix?.footer }}</div>
           }
@@ -127,3 +127,13 @@
     }
   </div>
 </div>
+
+@if (rendered().missing.length; as n) {
+  <p class="missing-note" role="status">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    {{ n }} variable{{ n === 1 ? '' : 's' }} without a sample value:
+    @for (k of rendered().missing; track k) {
+      <code>{{ '{' + k + '}' }}</code>
+    }
+  </p>
+}

@@ -112,14 +112,14 @@
             <p class="hdr">{{ fill(block?.header ?? '').text }}</p>
           }
           @if (r.text) {
-            <p class="body" [innerHTML]="r.html"></p>
+            <p class="body" [innerHTML]="bodyHtml()"></p>
           } @else {
             <p class="body empty">Your message appears here</p>
           }
           @if (block?.footer) {
             <p class="ftr">{{ fill(block?.footer ?? '').text }}</p>
           }
-          <span class="meta">{{ time }} <i class="ti ti-checks tick" aria-hidden="true"></i></span>
+          <span class="meta">{{ time }}</span>
         </div>
 
         @if (block) {

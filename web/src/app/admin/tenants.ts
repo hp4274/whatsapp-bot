@@ -439,7 +439,7 @@ export class TenantsView {
   protected open(tenant: Tenant) {
     this.auth.actAs(tenant.id);
     this.store.start();
-    this.router.navigate(['/connection']);
+    this.router.navigate(['/home']);
   }
 }
 

@@ -285,12 +285,14 @@ export class Api {
     recipient: string,
     message: string,
     name = '',
+    extras: { mediaId?: string | null; interactive?: unknown } = {},
   ): Observable<{ messageId: string; recipient: string; message: string }> {
     return this.http
       .post<{ messageId: string; recipient: string; message: string }>('/api/messages', {
         recipient,
         message,
         name,
+        ...extras,
       })
       .pipe(catchError(toMessage));
   }
@@ -913,6 +915,19 @@ export interface BulkResult {
   missing: number[];
 }
 
+export interface WhatsappGroup {
+  id: string;
+  name: string;
+  size: number;
+  isCommunity: boolean;
+  /** Parent community jid, or null. */
+  community: string | null;
+  /** Members whose number WhatsApp keeps hidden. */
+  hidden: number;
+  /** Members with a readable number. */
+  members: number;
+}
+
 export interface DuplicateGroup {
   key: string;
   contacts: Contact2[];
@@ -1028,6 +1043,34 @@ export class ContactsApi {
   duplicates(): Observable<{ total: number; groups: DuplicateGroup[] }> {
     return this.http
       .get<{ total: number; groups: DuplicateGroup[] }>('/api/contacts/duplicates')
+      .pipe(catchError(toMessage));
+  }
+
+  /** Groups and communities the linked QR number belongs to (409 when none is linked). */
+  whatsappGroups(): Observable<{ groups: WhatsappGroup[] }> {
+    return this.http
+      .get<{ groups: WhatsappGroup[] }>('/api/contacts/whatsapp-groups')
+      .pipe(catchError(toMessage));
+  }
+
+  /** CSV (phone,name,group,community,admin) of the chosen groups, or of all of them. */
+  exportGroups(ids: string[] | 'all'): Observable<Blob> {
+    const params = new HttpParams().set('ids', ids === 'all' ? 'all' : ids.join(','));
+    return this.http
+      .get('/api/contacts/whatsapp-groups/export', { params, responseType: 'blob' })
+      .pipe(catchError(toMessage));
+  }
+
+  /** Save the members of the chosen groups as contacts, tagged with the group name. */
+  importGroups(
+    ids: string[] | 'all',
+  ): Observable<{ created: number; updated: number; failed: number }> {
+    return this.http
+      .post<{
+        created: number;
+        updated: number;
+        failed: number;
+      }>('/api/contacts/whatsapp-groups/import', ids === 'all' ? { all: true } : { ids })
       .pipe(catchError(toMessage));
   }
 

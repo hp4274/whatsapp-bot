@@ -1,0 +1,141 @@
+<!--
+  Header with the one primary action, then the number's status, then the
+  campaign numbers and the latest campaigns. Connection and campaign parts
+  each appear only when the workspace has that service.
+-->
+<header class="s-head s-enter">
+  <div>
+    <p class="eyebrow"><i class="ti ti-smart-home" aria-hidden="true"></i>Home</p>
+    <h2>{{ greeting() }}</h2>
+    <p>Your WhatsApp number and latest campaigns at a glance.</p>
+  </div>
+  @if (showCampaigns()) {
+    <a class="btn primary" routerLink="/campaign">
+      <i class="ti ti-plus" aria-hidden="true"></i>
+      New campaign
+    </a>
+  }
+</header>
+
+@if (showConnection()) {
+  <section class="s-card conn s-enter" style="--i: 1" aria-labelledby="conn-title">
+    @if (connection(); as c) {
+      <span class="conn-icon" [class.is-live]="c.connected" aria-hidden="true">
+        <i class="ti" [class.ti-wifi]="c.connected" [class.ti-wifi-off]="!c.connected"></i>
+      </span>
+      <div class="conn-text">
+        <h3 id="conn-title">WhatsApp number</h3>
+        <p>
+          @if (c.connected) {
+            Connected{{ c.name ? ' as ' + c.name : '' }}. Campaigns and replies can go out.
+          } @else {
+            Not connected. Connect a number to send campaigns and receive replies.
+          }
+        </p>
+      </div>
+      <span class="s-pill" [class.tone-ok]="c.connected" [class.tone-warn]="!c.connected">
+        {{ c.connected ? 'Connected' : 'Offline' }}
+      </span>
+      @if (!c.connected) {
+        <a class="btn primary" routerLink="/connection">
+          <i class="ti ti-plug-connected" aria-hidden="true"></i>
+          Connect number
+        </a>
+      }
+    } @else {
+      <div class="conn-text" aria-busy="true">
+        <h3 id="conn-title">WhatsApp number</h3>
+        <p>Checking connection...</p>
+      </div>
+    }
+  </section>
+}
+
+@if (showCampaigns()) {
+  @if (error(); as message) {
+    <p class="s-banner" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i>
+      Could not load campaigns: {{ message }}
+      <button type="button" class="btn sm" (click)="load()">Try again</button>
+    </p>
+  }
+
+  <section class="stats s-enter" style="--i: 2" aria-label="Campaign totals">
+    @if (loading() && !loaded()) {
+      @for (n of [1, 2, 3, 4]; track n) {
+        <div class="s-stat" aria-busy="true">
+          <span class="s-skel" style="width: 50%"></span>
+          <span class="s-skel" style="width: 35%; height: 28px"></span>
+        </div>
+      }
+    } @else if (loaded()) {
+      <div class="s-stat">
+        <small>Campaigns</small>
+        <b>{{ format(totals().campaigns) }}</b>
+      </div>
+      <div class="s-stat tone-info">
+        <small>Running now</small>
+        <b>{{ format(totals().running) }}</b>
+      </div>
+      <div class="s-stat tone-ok">
+        <small>Messages sent</small>
+        <b>{{ format(totals().sent) }}</b>
+      </div>
+      <div class="s-stat tone-bad">
+        <small>Failed</small>
+        <b>{{ format(totals().failed) }}</b>
+      </div>
+    }
+  </section>
+
+  <section class="s-card s-enter" style="--i: 3" aria-labelledby="recent-title">
+    <div class="card-head">
+      <h3 id="recent-title">Recent campaigns</h3>
+      <a class="btn sm ghost" routerLink="/campaigns">
+        View all
+        <i class="ti ti-arrow-right" aria-hidden="true"></i>
+      </a>
+    </div>
+
+    @if (loading() && !loaded()) {
+      <div aria-busy="true">
+        @for (n of [1, 2, 3]; track n) {
+          <span class="s-skel"></span>
+        }
+      </div>
+    } @else if (loaded()) {
+      <ul class="recent">
+        @for (c of recent(); track c.id) {
+          <li>
+            <a [routerLink]="['/campaigns', c.id]">
+              <span class="recent-name">
+                <strong>{{ c.name }}</strong>
+                <small>{{ format(c.sent) }} of {{ format(c.total) }} sent · {{ relative(c.when) }}</small>
+              </span>
+              <app-campaign-status [status]="c.status" />
+              <i class="ti ti-chevron-right" aria-hidden="true"></i>
+            </a>
+          </li>
+        } @empty {
+          <li class="s-empty">
+            <i class="ti ti-speakerphone" aria-hidden="true"></i>
+            <strong>No campaigns yet</strong>
+            <p>Your first bulk send will show up here with its progress.</p>
+            <a class="btn primary" routerLink="/campaign">
+              <i class="ti ti-plus" aria-hidden="true"></i>
+              New campaign
+            </a>
+          </li>
+        }
+      </ul>
+    }
+  </section>
+}
+
+@if (!showConnection() && !showCampaigns()) {
+  <section class="s-card s-empty">
+    <i class="ti ti-layout-dashboard" aria-hidden="true"></i>
+    <strong>Nothing to summarise yet</strong>
+    <p>Pick a section from the sidebar to get started.</p>
+  </section>
+}
