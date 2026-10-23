@@ -262,3 +262,6 @@
 
 // A source the plan switches off stays visible but inert.
 .source:disabled { opacity: 0.55; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.typed-foot { display: flex; justify-content: flex-end; }
+.more textarea { resize: vertical; }

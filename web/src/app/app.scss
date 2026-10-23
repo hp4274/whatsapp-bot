@@ -13,7 +13,9 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
   gap: 14px;
   height: 100dvh;
   padding: 12px;
-  overflow: hidden;
+  // `clip`, not `hidden`: a hidden box is still a scroll container, so a
+  // focus() or scrollIntoView() inside could scroll the whole shell up.
+  overflow: clip;
   background: var(--bg-color);
 
   @media (min-width: $md) {
@@ -636,6 +638,11 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
 // The page scrolls here. The deep bottom padding keeps the floating send card
 // from covering the last controls on a page.
 .page {
+  // The containing block for absolutely positioned page content (visually
+  // hidden `.sr` / `.sr-only` inputs and labels). Without it they resolve to
+  // the viewport, escape this scroller's clip at their in-flow offset, and
+  // make the document taller than the shell, so the window scrolls.
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;

@@ -30,6 +30,16 @@
       <span class="muted">- {{ buttonsLabel() }}</span>
     }
   </p>
+  <div class="recap-msg">
+    <i class="ti ti-message" aria-hidden="true"></i>
+    <span class="snippet">{{
+      d.metaMode() ? 'Meta template: ' + (d.metaTemplate()?.name ?? '') : d.message()
+    }}</span>
+    <button type="button" class="btn small" (click)="d.goTo(1)">
+      <i class="ti ti-pencil" aria-hidden="true"></i> Edit
+      <span class="sr-only">audience and message</span>
+    </button>
+  </div>
   @if (spreadSummary(); as sp) {
     <p class="banner info">
       <i class="ti ti-calendar-stats" aria-hidden="true"></i>
@@ -369,8 +379,8 @@
 </section>
 
 <div class="foot">
-  <button type="button" class="btn" (click)="d.goTo(2)">
-    <i class="ti ti-arrow-left" aria-hidden="true"></i> Message
+  <button type="button" class="btn" (click)="d.goTo(1)">
+    <i class="ti ti-arrow-left" aria-hidden="true"></i> Audience &amp; message
   </button>
   <span class="grow"></span>
   <button
@@ -391,8 +401,13 @@
       ></i>
     }
     {{ mode === 'now' ? 'Send now' : mode === 'spread' ? 'Schedule spread' : 'Schedule' }}
+    @if (d.source() !== 'retarget' && size() > 0) {
+      to {{ size() }} {{ size() === 1 ? 'person' : 'people' }}
+    }
   </button>
 </div>
 @if (blockers().length) {
   <p class="muted hint">{{ blockers()[0] }}</p>
+} @else if (d.scheduleMode() === 'now' && !connected()) {
+  <p class="muted hint">Connect a WhatsApp number to send now - or schedule it instead.</p>
 }

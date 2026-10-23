@@ -34,6 +34,7 @@ import {
 } from './contact-util';
 import { ImportWizard } from './import-wizard';
 import { MergeDialog } from './merge-dialog';
+import { GroupsDialog } from './groups-dialog';
 
 interface Draft {
   phone: string;
@@ -73,7 +74,7 @@ const VERB: Record<BulkAction, string> = {
  */
 @Component({
   selector: 'app-contacts',
-  imports: [FormsModule, Tilt, BulkBar, ContactDrawer, ImportWizard, MergeDialog],
+  imports: [FormsModule, Tilt, BulkBar, ContactDrawer, ImportWizard, MergeDialog, GroupsDialog],
   templateUrl: './contacts.html',
   styleUrl: './contacts.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -117,6 +118,7 @@ export class ContactsView {
   protected readonly openId = signal<number | null>(null);
   protected readonly importOpen = signal(false);
   protected readonly mergeOpen = signal(false);
+  protected readonly groupsOpen = signal(false);
   protected readonly dupes = signal<DuplicateGroup[]>([]);
   protected readonly dupeTotal = signal(0);
   protected readonly dupeDismissed = signal(false);

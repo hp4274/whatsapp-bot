@@ -8,6 +8,7 @@ import {
   input,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { finalize, type Observable } from 'rxjs';
@@ -22,9 +23,13 @@ import { CampaignPolicy } from '../campaign/policy-api';
 import { Store } from '../core/store';
 import {
   canCancel,
+  count,
   dayKey,
   daysBetween,
+  listCounts,
   localTime,
+  outcome,
+  pct,
   percent,
   relativeTime,
 } from './campaign-format';
@@ -81,6 +86,7 @@ export class CampaignDetailView {
   protected readonly statusReason = computed(
     () => (this.campaign()?.options as { statusReason?: string | null } | undefined)?.statusReason ?? null,
   );
+  private readonly recipientsTable = viewChild(CampaignRecipients);
   protected readonly campaign = signal<Campaign | null>(null);
   protected readonly analytics = signal<CampaignAnalytics | null>(null);
   protected readonly loading = signal(true);
@@ -118,6 +124,17 @@ export class CampaignDetailView {
     return this.failedCount() > 0 && (s === 'done' || s === 'cancelled' || s === 'paused');
   });
   protected readonly canCancel = computed(() => canCancel(this.status()));
+
+  /**
+   * The headline answer ("1,240 of 1,300 delivered · 52 failed") above the detailed numbers.
+   * Uses the analytics funnel when it loaded, else the campaign's own stored stats.
+   */
+  protected readonly outcome = computed(() => {
+    const c = this.campaign();
+    if (!c) return null;
+    const funnel = this.analytics()?.funnel;
+    return outcome(c.status, this.audience(), funnel ?? listCounts(c.stats));
+  });
 
   /** Live engine progress; only meaningful while this campaign is the running one. */
   protected readonly live = computed(() => {
@@ -174,6 +191,8 @@ export class CampaignDetailView {
   });
 
   protected readonly localTime = localTime;
+  protected readonly count = count;
+  protected readonly pct = pct;
   /** Reads the store's ticking clock, so "in 5s" runs down by itself. */
   protected readonly relativeTime = (iso: string | null | undefined) =>
     relativeTime(iso, this.store.now());
@@ -342,6 +361,11 @@ export class CampaignDetailView {
         this.error.set(err.message);
       },
     });
+  }
+
+  /** Filters the recipient table to failures and scrolls to it. */
+  protected showFailed(): void {
+    this.recipientsTable()?.showStatus('FAILED');
   }
 
   protected setSpeed(pacing: PacingPreset): void {

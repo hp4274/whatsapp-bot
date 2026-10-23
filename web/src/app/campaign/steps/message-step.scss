@@ -74,46 +74,6 @@
   .lbl { font-size: 12.5px; }
 }
 
-.attach {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-md);
-
-  small { font-size: 12.5px; line-height: 1.5; }
-  label.btn { cursor: pointer; }
-  label.disabled { opacity: 0.6; pointer-events: none; }
-  label:has(+ input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
-}
-
-.fchip {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  max-width: 100%;
-  padding: 5px 6px 5px 5px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--surface-card);
-  font-size: 13px;
-
-  img, .thumb { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; }
-  .thumb { display: grid; place-items: center; background: var(--surface-sunken); font-size: 22px; color: var(--text-muted); }
-  .fname { max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-strong); font-weight: 500; }
-  .x {
-    display: grid;
-    place-items: center;
-    width: 28px;
-    height: 28px;
-    border: 0;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--text-muted);
-    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
-  }
-  .x:hover { background: var(--danger-soft); color: var(--danger-text); }
-}
-
 // Free-form / Meta template switch: the Kardlyz segmented track, with the
 // lifted surface gliding between the two options.
 .mode {

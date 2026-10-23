@@ -506,7 +506,14 @@ textarea { resize: vertical; line-height: 1.5; }
     &:hover { background: var(--surface-card); color: var(--text-strong); box-shadow: var(--shadow-sm); }
   }
   .var { margin-left: auto; color: var(--primary-text); font-weight: 500; font-size: 12.5px; }
+  /* The preview sits beside the editor on wide screens; below it, a shortcut down to it. */
+  .jump {
+    display: none;
+    @media (max-width: 900px) { display: inline-flex; }
+  }
 }
+
+.count.over { color: var(--danger-text); font-weight: 600; }
 
 .err {
   font-size: 12px;

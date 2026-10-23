@@ -27,6 +27,9 @@
       <button class="btn" type="button" (click)="importOpen.set(true)">
         <i class="ti ti-file-upload" aria-hidden="true"></i> Import
       </button>
+      <button class="btn" type="button" (click)="groupsOpen.set(true)">
+        <i class="ti ti-users-group" aria-hidden="true"></i> From WhatsApp groups
+      </button>
       <button
         class="btn primary"
         type="button"
@@ -614,6 +617,10 @@
     (closed)="importOpen.set(false)"
     (imported)="onImported()"
   />
+}
+
+@if (groupsOpen()) {
+  <app-groups-dialog (closed)="groupsOpen.set(false)" (imported)="onImported()" />
 }
 
 @if (mergeOpen()) {

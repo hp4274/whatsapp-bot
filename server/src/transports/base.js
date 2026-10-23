@@ -42,6 +42,8 @@ export class Transport {
     realDelivery = false;
     /** True when the transport can report DELIVERED/READ receipts. */
     supportsReceipts = false;
+    /** True when the transport can list the groups the number is in (`listGroups()`). */
+    supportsGroups = false;
 
     get name() {
         return this.constructor.name_;

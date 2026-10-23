@@ -146,17 +146,26 @@ export class Channels {
             throw new ChannelError(`status must be one of ${CHANNEL_STATUSES.join(', ')}`);
         }
 
+        const phoneNumber = patch.phoneNumber === undefined ? channel.phoneNumber : String(patch.phoneNumber).trim();
+        const accountId = patch.providerAccountId === undefined ? channel.providerAccountId : String(patch.providerAccountId);
+        // A different number on the same channel starts fresh: new warm-up, new inbox.
+        const was = digits(channel.providerAccountId) || digits(channel.phoneNumber);
+        const now = digits(patch.providerAccountId) || digits(patch.phoneNumber);
+        // endsWith: a number typed without its country code is still the same number.
+        const changed = was && now && !was.endsWith(now) && !now.endsWith(was);
+        const numberSince = changed ? utcNow() : channel.numberSince;
+
         this.db.prepare(
             `UPDATE whatsapp_channels SET
                provider = ?, phone_number = ?, provider_phone_number_id = ?, provider_account_id = ?,
                status = ?, display_name = ?, settings = ?, capabilities = ?,
-               timezone = ?, business_hours = ?, updated_at = ?
+               timezone = ?, business_hours = ?, number_since = ?, updated_at = ?
              WHERE id = ? AND tenant_id = ?`)
             .run(
                 settings.transport,
-                patch.phoneNumber === undefined ? channel.phoneNumber : String(patch.phoneNumber).trim(),
+                phoneNumber,
                 settings.phoneNumberId,
-                patch.providerAccountId === undefined ? channel.providerAccountId : String(patch.providerAccountId),
+                accountId,
                 patch.status ?? channel.status,
                 patch.displayName === undefined ? channel.displayName : String(patch.displayName).trim(),
                 JSON.stringify(sealSettings(settings)),
@@ -165,7 +174,7 @@ export class Channels {
                 patch.businessHours === undefined
                     ? (channel.businessHours ? JSON.stringify(channel.businessHours) : null)
                     : (patch.businessHours ? JSON.stringify(patch.businessHours) : null),
-                utcNow(), channel.id, this.tenantId,
+                numberSince ?? null, utcNow(), channel.id, this.tenantId,
             );
         if (patch.isDefault) this.setDefault(channel.id);
         return this.get(channel.id);
@@ -248,10 +257,13 @@ function toChannel(row) {
         timezone: row.timezone || 'UTC',
         businessHours: parse(row.business_hours, null),
         isDefault: Boolean(row.is_default),
+        numberSince: row.number_since ?? null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };
 }
+
+const digits = (value) => String(value ?? '').replace(/\D/g, '');
 
 function retire(settings) {
     return { ...settings, transport: currentTransport(settings.transport) };

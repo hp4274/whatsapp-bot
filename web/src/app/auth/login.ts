@@ -48,7 +48,7 @@ export class LoginView {
         if (user.role === 'super_admin') this.router.navigate(['/admin/tenants']);
         else {
           this.store.start();
-          this.router.navigate(['/connection']);
+          this.router.navigate(['/home']);
         }
       },
       error: (err: Error) => {

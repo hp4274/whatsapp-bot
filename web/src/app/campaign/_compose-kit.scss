@@ -1,0 +1,100 @@
+// Pieces the composer steps and the quick single-message card share:
+// the file-attach row with its chip, and the disclosure rows.
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+// Disclosure sections as Kardlyz accordion rows: hairline, chevron, and an
+// open state that earns the orange (tint + 3px bar). Two sizes: a whole card
+// (`.more-card`) and an inline row inside a panel (`.more`).
+.more-card,
+.more {
+  > summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    list-style: none;
+    cursor: pointer;
+    transition: background var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+
+    &::-webkit-details-marker { display: none; }
+    &::after {
+      content: '\ea5f';
+      margin-left: auto;
+      font-family: 'tabler-icons';
+      color: var(--text-muted);
+      transition: transform var(--base) var(--ease), color var(--fast) var(--ease);
+    }
+    &:hover { background: var(--surface-sunken); }
+  }
+
+  &[open] > summary {
+    background: color-mix(in srgb, var(--primary-tint) 60%, transparent);
+    box-shadow: inset 3px 0 0 var(--primary);
+
+    &::after { transform: rotate(180deg); color: var(--text-strong); }
+  }
+}
+
+.more {
+  display: block;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+
+  > summary {
+    padding: 11px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-strong);
+  }
+
+  > :not(summary) { margin: 12px 14px 0; }
+  > :last-child { margin-bottom: 14px; }
+}
+
+.attach {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+
+  small { font-size: 12.5px; line-height: 1.5; }
+  label.btn { cursor: pointer; }
+  label.disabled { opacity: 0.6; pointer-events: none; }
+  label:has(+ input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
+}
+
+.fchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  padding: 5px 6px 5px 5px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  font-size: 13px;
+
+  img, .thumb { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; }
+  .thumb { display: grid; place-items: center; background: var(--surface-sunken); font-size: 22px; color: var(--text-muted); }
+  .fname { max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-strong); font-weight: 500; }
+  .x {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .x:hover { background: var(--danger-soft); color: var(--danger-text); }
+}

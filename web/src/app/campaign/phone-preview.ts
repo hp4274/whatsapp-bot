@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, output } f
 import { Auth } from '../core/auth';
 import { InteractiveDraft } from './interactive/interactive.model';
 import { DraftAttachment } from './draft';
-import { formatBytes, substitute } from './wa-format';
+import { formatBytes, linkify, substitute } from './wa-format';
 
 /** Tabler icon per call-to-action kind, matching what WhatsApp draws on the button. */
 const CTA_ICONS = { url: 'external-link', call: 'phone', copy: 'copy' } as const;
@@ -49,6 +49,8 @@ export class PhonePreview {
   protected readonly rendered = computed(() =>
     substitute(this.text(), this.context(), this.fallbacks(), this.seed()),
   );
+  /** The bubble body with links styled like WhatsApp draws them. */
+  protected readonly bodyHtml = computed(() => linkify(this.rendered().html));
 
   /** Unresolved keys in the message and in the interactive block. */
   protected readonly missing = computed(() => {

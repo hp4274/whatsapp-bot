@@ -13,6 +13,11 @@
  *         6. fallback      - a FALLBACK rule, else the system fallback (throttled);
  *                            skipped when the welcome/away reply already answered
  *
+ * A text-only welcome/away message is not sent on its own: it is held as the
+ * plan's `greeting` and goes out in front of whatever answers next (HELP,
+ * school command, FAQ, rule), so the contact gets one message, not two. Only
+ * when nothing answers is it sent alone.
+ *
  * `plan()` decides without side effects, which is what the test console shows;
  * `execute()` sends the plan through the message service (opt-out, bot pause,
  * idempotency, pacing) and only then applies actions and remembers menus.
@@ -55,27 +60,45 @@ export class AutoReplyEngine {
     }
 
     // ------------------------------------------------------------ live path --
-    /** Stage 1-4. Returns { handled, greeted, replies, actions }. */
+    /**
+     * Stage 1-4. Returns { handled, greeted, greeting, replies, actions }.
+     * `greeting` ({ text, replies } or null) is the welcome/away message, not
+     * yet sent: whatever answers next puts it in front (`withGreeting`, then
+     * `noteGreeting` once accepted), and handleInbound sends it either way.
+     */
     async handlePre(msg, { now = new Date() } = {}) {
-        if (!this.store || !this.transport?.isConnected?.()) return { handled: false, greeted: false, replies: [], actions: [] };
+        if (!this.store || !this.transport?.isConnected?.()) return { handled: false, greeted: false, greeting: null, replies: [], actions: [] };
         const plan = this.plan(msg, { now, stage: 'pre' });
         const sent = await this.execute(msg, plan, now);
-        return { handled: plan.handled, greeted: plan.greeted, replies: sent, actions: plan.actions };
+        // Quiet hours or the hourly cap would have kept it from going out alone; it does not ride along either.
+        const greeting = plan.greeting && this.#canSend(msg, now) ? plan.greeting : null;
+        return { handled: plan.handled, greeted: plan.greeted, greeting, replies: sent, actions: plan.actions };
     }
 
     /**
      * Stage 5-6. Returns null when nothing was sent, else
      * { rule, responseText, result, replies, actions } (rule/responseText/result
-     * describe the first reply, as v1 did).
+     * describe the first reply, as v1 did). A held `greeting` goes in front of
+     * the first reply, or alone when no rule answers.
      */
-    async handleInbound(msg, { greeted = false, now = new Date() } = {}) {
-        if (!fold(msg.body) || !this.transport?.isConnected?.()) return null;
-        const plan = this.plan(msg, { now, stage: 'main', greeted });
+    async handleInbound(msg, { greeted = false, greeting = null, now = new Date() } = {}) {
+        if (!this.transport?.isConnected?.() || (!fold(msg.body) && !greeting)) return null;
+        const plan = this.plan(msg, { now, stage: 'main', greeted, greeting });
         const sent = await this.execute(msg, plan, now);
         const first = sent.find((r) => r.accepted);
         if (!first) return null;
         const rule = first.ruleId ? this.store?.get(first.ruleId) ?? { id: first.ruleId, keyword: first.ruleName } : { id: null, keyword: first.source };
         return { rule, responseText: first.text, result: first.result, replies: sent, actions: plan.actions };
+    }
+
+    /** `text` with the held welcome/away message in front, for a reply sent outside the engine. */
+    withGreeting(text, greeting) {
+        return greeting?.text ? joinText(greeting.text, text) : text;
+    }
+
+    /** A reply carrying `greeting` was accepted: count it as sent (analytics, the away throttle). */
+    noteGreeting(msg, greeting, now = new Date()) {
+        for (const r of greeting?.replies ?? []) this.store?.recordHit(r.key ?? r.source, msg.sender, now);
     }
 
     /** Platform quiet hours right now (channel time zone)? FAQ answers use this too. */
@@ -89,12 +112,13 @@ export class AutoReplyEngine {
      * @param {object} msg { sender, senderName, body, messageId, replyId? }
      * @param {object} opts stage 'pre'|'main'|'all'; firstContact/tags/session
      *   override what the database says (test console); `between(msg)` may
-     *   return a reply that ends the run after the pre stage (HELP, FAQ).
+     *   return a reply that ends the run after the pre stage (HELP, FAQ);
+     *   `greeting` is the one the pre stage held back (stage 'main').
      */
-    plan(msg, { now = new Date(), stage = 'all', greeted = false, firstContact = null, tags = null, session, between = null } = {}) {
+    plan(msg, { now = new Date(), stage = 'all', greeted = false, greeting = null, firstContact = null, tags = null, session, between = null } = {}) {
         const ctx = this.#context(msg, { now, firstContact, tags });
         const out = {
-            replies: [], actions: [], trace: [], matched: null, handled: false, greeted,
+            replies: [], actions: [], trace: [], matched: null, handled: false, greeted, greeting,
             session: undefined, // undefined = leave as is, null = clear, object = set
             context: {
                 firstContact: ctx.firstContact, newContact: ctx.newContact, withinHours: ctx.withinHours,
@@ -104,6 +128,8 @@ export class AutoReplyEngine {
         if (stage !== 'main') {
             this.#pre(msg, ctx, out, session);
             if (out.handled) return out;
+            this.#holdGreeting(out);
+            if (stage === 'pre') return out;
         }
         if (stage === 'all' && between) {
             const reply = between(msg);
@@ -111,12 +137,49 @@ export class AutoReplyEngine {
                 out.trace.push(reply.note ?? `Answered by ${reply.source}`);
                 out.replies.push(reply);
                 out.handled = true;
+                this.#mergeGreeting(out);
                 return out;
             }
         }
-        if (stage !== 'pre') this.#main(msg, ctx, out);
+        this.#main(msg, ctx, out);
+        this.#mergeGreeting(out);
         if (!out.replies.length) out.trace.push('No reply');
         return out;
+    }
+
+    /**
+     * Take text-only welcome/away replies off the plan into `out.greeting`. One
+     * with media or buttons cannot be folded into another message's text, so
+     * then they all stay their own messages, as before.
+     */
+    #holdGreeting(out) {
+        const held = out.replies.filter((r) => r.source === 'welcome' || r.source === 'away');
+        if (!held.length || held.some((r) => r.media || r.interactive)) return;
+        out.replies = out.replies.filter((r) => !held.includes(r));
+        out.greeting = { text: held.map((r) => r.text).reduce(joinText), replies: held };
+    }
+
+    /** Put the held greeting in front of the first reply, or send it alone when nothing answered. */
+    #mergeGreeting(out) {
+        const greeting = out.greeting;
+        if (!greeting) return;
+        out.greeting = null;
+        const [first] = out.replies;
+        if (!first) {
+            // Welcome and away both: still one message, sent under the first one's key.
+            const [lead, ...rest] = greeting.replies;
+            out.replies.push(rest.length
+                ? { ...lead, text: greeting.text, fallbackText: greeting.text, greeting: { text: '', replies: rest } }
+                : lead);
+            return;
+        }
+        out.trace.push(`${greeting.replies.map((r) => r.ruleName).join(' and ')} sent in the same message`);
+        out.replies[0] = {
+            ...first,
+            text: joinText(greeting.text, first.text),
+            fallbackText: joinText(greeting.text, first.fallbackText ?? first.text),
+            greeting,
+        };
     }
 
     #pre(msg, ctx, out, sessionOverride) {
@@ -282,10 +345,8 @@ export class AutoReplyEngine {
         const results = [];
         if (!plan.replies.length) return results;
         // Platform rules: quiet hours, and a per-contact hourly cap against bot-to-bot loops.
-        const policy = this.deps.platformPolicy();
         if (this.quiet(now)) return results;
-        const cap = Number(policy['autoReplies.maxPerContactHour'] ?? 0);
-        let budget = cap > 0 ? cap - this.store.hitsSince(msg.sender, new Date(now.getTime() - HOUR)) : Infinity;
+        let budget = this.#budget(msg, now);
         if (budget <= 0) return results;
         await this.#delay();
         let accepted = false;
@@ -316,6 +377,7 @@ export class AutoReplyEngine {
                 accepted = true;
                 budget -= 1;
                 this.store?.recordHit(reply.key ?? reply.source, msg.sender, now);
+                this.noteGreeting(msg, reply.greeting, now);
             }
             results.push({ ...reply, accepted: ok, result });
         }
@@ -330,6 +392,16 @@ export class AutoReplyEngine {
             }
         }
         return results;
+    }
+
+    /** Replies this contact may still get this hour (the platform's per-contact cap). */
+    #budget(msg, now) {
+        const cap = Number(this.deps.platformPolicy()['autoReplies.maxPerContactHour'] ?? 0);
+        return cap > 0 ? cap - this.store.hitsSince(msg.sender, new Date(now.getTime() - HOUR)) : Infinity;
+    }
+
+    #canSend(msg, now) {
+        return !this.quiet(now) && this.#budget(msg, now) > 0;
     }
 
     #apply(action, phone) {
@@ -434,7 +506,9 @@ export class AutoReplyEngine {
 }
 
 // --------------------------------------------------------------- pure bits --
-const label = (rule) => rule.name || rule.keywords?.[0] || rule.keyword || `Rule ${rule.id}`;
+const joinText = (a, b) => [a, b].filter(Boolean).join('\n\n');
+
+const label =(rule) => rule.name || rule.keywords?.[0] || rule.keyword || `Rule ${rule.id}`;
 
 function audienceLabel(audience) {
     if (audience?.type === 'new') return 'new contacts only';

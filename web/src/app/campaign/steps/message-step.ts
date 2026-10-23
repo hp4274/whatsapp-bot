@@ -28,7 +28,7 @@ const ALLOWED = ['image/jpeg', 'image/png', 'application/pdf', 'video/mp4', 'vid
 const SPIN_SAMPLE = '{Hi|Hello|Hey}';
 
 /**
- * Step 2: the message itself — free-form text with WhatsApp formatting and
+ * Step 1 (bottom half): the message itself — free-form text with WhatsApp formatting and
  * variables, or (on Cloud API) a Meta-approved template mapped to columns.
  * Optional extras (backup template, buttons) fold away so the main
  * path stays short.

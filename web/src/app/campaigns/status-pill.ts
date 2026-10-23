@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
 import type { CampaignStatus } from '../core/api';
-import { STATUS_LABEL } from './campaign-format';
+import { statusLabel } from './campaign-format';
 
 type Tone = 'ok' | 'info' | 'warn' | 'bad' | 'mute';
 
@@ -92,7 +92,5 @@ export class CampaignStatusPill {
 
   protected readonly key = computed(() => this.status().toLowerCase());
   protected readonly tone = computed<Tone>(() => TONES[this.key()] ?? 'mute');
-  protected readonly label = computed(
-    () => STATUS_LABEL[this.status() as CampaignStatus] ?? this.key(),
-  );
+  protected readonly label = computed(() => statusLabel(this.status()));
 }

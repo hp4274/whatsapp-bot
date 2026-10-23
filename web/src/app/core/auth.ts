@@ -259,8 +259,21 @@ export const roleGuard =
     const auth = inject(Auth);
     const router = inject(Router);
     if (!auth.user()) return router.createUrlTree(['/login']);
-    return auth.atLeast(min) ? true : router.createUrlTree(['/connection']);
+    return auth.atLeast(min) ? true : router.createUrlTree(['/home']);
   };
+
+/**
+ * Home is a tenant's overview. A super admin on the platform view has no
+ * tenant to summarise, so they land on the tenant list instead.
+ */
+export const homeGuard: CanActivateFn = () => {
+  const auth = inject(Auth);
+  const router = inject(Router);
+  if (!auth.user()) return router.createUrlTree(['/login']);
+  return auth.isSuperAdmin() && auth.actingTenantId() === null
+    ? router.createUrlTree(['/admin/tenants'])
+    : true;
+};
 
 function readNumber(key: string): number | null {
   const raw = localStorage.getItem(key);

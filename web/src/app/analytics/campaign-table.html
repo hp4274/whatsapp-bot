@@ -29,23 +29,34 @@
         @for (c of sorted(); track c.campaignId; let i = $index) {
           <tr style="--i: {{ i }}">
             <th scope="row" class="name">
-              <a routerLink="/campaign" [queryParams]="{ id: c.campaignId }" [attr.aria-label]="'Open campaign ' + c.name">
+              @if (c.recordId) {
+                <a [routerLink]="['/campaigns', c.recordId]" [attr.aria-label]="'Open campaign report ' + c.name">
+                  <span class="ttl">{{ c.name }}</span>
+                  <small class="muted">{{ c.campaignId }}@if (c.pending) { · {{ count(c.pending) }} waiting }</small>
+                </a>
+              } @else {
                 <span class="ttl">{{ c.name }}</span>
-                <small class="muted">{{ c.campaignId }}@if (c.pending) { · {{ c.pending | number }} queued }</small>
-              </a>
+                <small class="muted">{{ c.campaignId }}@if (c.pending) { · {{ count(c.pending) }} waiting }</small>
+              }
             </th>
-            <td class="num">{{ c.sent | number }}</td>
+            <td class="num">{{ count(c.sent) }}</td>
             <td class="num">
-              <span class="rate">{{ c.deliveryRate === null ? '—' : (c.deliveryRate | number: '1.0-1') + '%' }}</span>
-              <small class="muted">{{ c.delivered | number }}</small>
+              <span class="rate">{{ pct(c.deliveryRate) }}</span>
+              <small class="muted">{{ count(c.delivered) }} delivered</small>
             </td>
             <td class="num">
               <span class="rr tier-{{ tier(c.readRate) }}">
                 <span class="rr-track" aria-hidden="true"><i [style.width.%]="c.readRate ?? 0"></i></span>
-                <span class="rate">{{ c.readRate === null ? '—' : (c.readRate | number: '1.0-1') + '%' }}</span>
+                <span class="rate">{{ pct(c.readRate) }}</span>
               </span>
+              <small class="muted">of delivered</small>
             </td>
-            <td class="num" [class.bad]="c.failed > 0">{{ c.failed | number }}</td>
+            <td class="num" [class.bad]="c.failed > 0">
+              {{ count(c.failed) }}
+              @if (c.failed) {
+                <small class="muted">{{ pct(c.failureRate) }} of attempted</small>
+              }
+            </td>
             <td class="when">
               @if (c.lastSentAt) {
                 <time [attr.datetime]="c.lastSentAt" [title]="'First send ' + (c.firstSentAt | date: 'medium')">{{ c.lastSentAt | date: 'd MMM, HH:mm' }}</time>

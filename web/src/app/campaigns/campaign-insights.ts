@@ -12,15 +12,15 @@ import { Router } from '@angular/router';
 
 import type { CampaignAnalytics } from '../core/api';
 import { Store } from '../core/store';
-import { percent } from './campaign-format';
+import { count, pct, percent, reportRates } from './campaign-format';
 
 type Tone = 'info' | 'good' | 'accent' | 'bad';
 
 /**
  * Funnel, button clicks, failure breakdown and re-target shortcuts.
  *
- * Funnel percentages are of the audience, not of the previous stage, so a
- * drop at any step is comparable. Click bars are scaled to the most-clicked
+ * Funnel percentages use the shared report bases (delivered of attempted,
+ * read and replied of delivered), each stage saying its base. Click bars are scaled to the most-clicked
  * button (their label still says % of sent) so small counts stay visible.
  *
  * The funnel header says how fresh the numbers are: Delivered and Read arrive
@@ -44,6 +44,11 @@ export class CampaignInsights {
   /** A re-read is in flight: the refresh button spins and waits. */
   readonly refreshing = input(false);
   readonly refresh = output<void>();
+  /** "Show failed recipients": the parent filters its recipient table to them. */
+  readonly showFailed = output<void>();
+
+  protected readonly count = count;
+  protected readonly pct = pct;
 
   /** "just now", "12s ago", "3m ago"; reads the store's ticking clock, so it counts up by itself. */
   protected readonly updated = computed(() => {
@@ -57,17 +62,30 @@ export class CampaignInsights {
   /** Bars start at 0 and grow once painted, so the width transition plays. */
   protected readonly ready = signal(false);
 
+  /**
+   * Each stage is a share of the stage it follows (see `reportRates`), so the
+   * numbers match the campaign list and the Analytics table. Sent is of the audience.
+   */
   protected readonly stages = computed(() => {
     const f = this.analytics().funnel;
-    const base = f.audience || f.queued || f.sent + f.failed || 0;
-    const rows: { key: string; label: string; icon: string; count: number; tone: Tone }[] = [
-      { key: 'sent', label: 'Sent', icon: 'send', count: f.sent, tone: 'info' },
-      { key: 'delivered', label: 'Delivered', icon: 'checks', count: f.delivered, tone: 'good' },
-      { key: 'read', label: 'Read', icon: 'eye', count: f.read, tone: 'good' },
-      { key: 'replied', label: 'Replied', icon: 'arrow-back-up', count: f.replied, tone: 'accent' },
-      { key: 'failed', label: 'Failed', icon: 'alert-circle', count: f.failed, tone: 'bad' },
+    const audience = f.audience || f.queued || f.sent + f.failed || 0;
+    const r = reportRates(f);
+    const rows: {
+      key: string;
+      label: string;
+      icon: string;
+      count: number;
+      tone: Tone;
+      rate: number | null;
+      base: string;
+    }[] = [
+      { key: 'sent', label: 'Sent', icon: 'send', count: f.sent, tone: 'info', rate: audience ? percent(f.sent, audience) : null, base: 'of audience' },
+      { key: 'delivered', label: 'Delivered', icon: 'checks', count: f.delivered, tone: 'good', rate: r.delivered, base: 'of attempted' },
+      { key: 'read', label: 'Read', icon: 'eye', count: f.read, tone: 'good', rate: r.read, base: 'of delivered' },
+      { key: 'replied', label: 'Replied', icon: 'arrow-back-up', count: f.replied, tone: 'accent', rate: r.replied, base: 'of delivered' },
+      { key: 'failed', label: 'Failed', icon: 'alert-circle', count: f.failed, tone: 'bad', rate: r.failed, base: 'of attempted' },
     ];
-    return rows.map((r) => ({ ...r, pct: percent(r.count, base) }));
+    return rows.map((s) => ({ ...s, countText: count(s.count), pctText: pct(s.rate), width: s.rate ?? 0 }));
   });
 
   protected readonly clicks = computed(() => {

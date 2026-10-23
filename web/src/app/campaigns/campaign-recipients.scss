@@ -5,6 +5,7 @@
 @include s.card;
 @include s.table;
 @include s.empty;
+@include s.chip;
 
 :host { display: block; }
 
@@ -22,9 +23,11 @@
 
 .filters {
   display: flex;
+  align-items: center;
   gap: var(--space-sm);
   flex-wrap: wrap;
   select, input { width: auto; min-width: 180px; }
+  .s-chip .ti { font-size: 15px; }
 }
 
 /* Long audiences scroll inside the card; the header row stays pinned. */

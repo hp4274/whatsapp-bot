@@ -1,7 +1,16 @@
-import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  ElementRef,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
 
 import type { CampaignAnalytics } from '../core/api';
-import { localTime } from './campaign-format';
+import { scrollToTop } from '../core/scroll';
+import { count, localTime, statusLabel } from './campaign-format';
 import { CampaignStatusPill } from './status-pill';
 
 type Recipient = CampaignAnalytics['recipients'][number];
@@ -29,7 +38,11 @@ function friendlyError(error: string | null): string {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CampaignRecipients {
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+
   readonly recipients = input.required<Recipient[]>();
+  /** The failure buckets from analytics: their labels name a recipient's failure in plain words. */
+  readonly failures = input<CampaignAnalytics['failures']>([]);
 
   protected readonly status = signal('ALL');
   protected readonly search = signal('');
@@ -40,6 +53,16 @@ export class CampaignRecipients {
     for (const r of this.recipients()) counts.set(r.status, (counts.get(r.status) ?? 0) + 1);
     return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b));
   });
+
+  protected readonly failedCount = computed(
+    () => this.statusCounts().find(([s]) => s === 'FAILED')?.[1] ?? 0,
+  );
+
+  /** errorCode -> friendly label; the generic UNKNOWN bucket is per-text, so it is left out. */
+  private readonly reasonByCode = computed(
+    () =>
+      new Map(this.failures().filter((f) => f.code !== 'UNKNOWN').map((f) => [f.code, f.label])),
+  );
 
   protected readonly filtered = computed(() => {
     const status = this.status();
@@ -55,7 +78,21 @@ export class CampaignRecipients {
   protected readonly shown = computed(() => this.filtered().slice(0, this.limit()));
 
   protected readonly localTime = localTime;
-  protected readonly friendlyError = friendlyError;
+  protected readonly count = count;
+  protected readonly statusLabel = statusLabel;
+
+  /** Plain-words reason for a failed row; the raw provider text stays in the tooltip. */
+  protected reason(r: Recipient): string {
+    if (r.status !== 'FAILED') return friendlyError(r.error);
+    return (r.errorCode && this.reasonByCode().get(r.errorCode)) || friendlyError(r.error) || 'Unknown error';
+  }
+
+  /** Filter to one status and bring the table into view (used by "See who failed"). */
+  showStatus(value: string): void {
+    this.setStatus(value);
+    this.search.set('');
+    scrollToTop(this.host.nativeElement);
+  }
 
   protected setStatus(value: string): void {
     this.status.set(value);

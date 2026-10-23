@@ -45,6 +45,7 @@ tbody tr {
     &:hover .ttl { color: var(--primary-text); text-decoration: underline; text-underline-offset: 3px; }
   }
   .ttl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  > .ttl, > small { display: block; }
   small { font-size: 11.5px; font-weight: 400; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 td.num {

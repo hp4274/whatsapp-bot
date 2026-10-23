@@ -338,3 +338,28 @@ a.btn { text-decoration: none; }
   .search { margin-left: 0; width: 100%; min-width: 0; }
   .pager { justify-content: center; }
 }
+
+/* Results cell: sent and failed for a finished run, a thin progress bar while one is sending. */
+.result {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  .line { display: block; font-size: 12.5px; color: var(--text-color); }
+  b { font-weight: 500; color: var(--text-strong); }
+  small { display: block; margin-top: 2px; font-size: 11.5px; }
+}
+.mini {
+  display: block;
+  width: 96px;
+  height: 6px;
+  margin: 0 0 4px auto;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+  i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--info);
+    transition: width var(--base) var(--ease);
+  }
+}

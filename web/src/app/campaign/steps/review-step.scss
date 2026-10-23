@@ -13,6 +13,18 @@
   .ti { align-self: center; font-size: 18px; color: var(--primary-text); }
 }
 
+// What goes out, in one line, with the way back to change it.
+.recap-msg {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+  color: var(--text-color);
+
+  .ti { font-size: 18px; color: var(--primary-text); }
+  .snippet { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
 .eta { margin: 0; font-size: 13px; }
 
 // Pace / when choices: the Kardlyz segmented track, big enough for a label

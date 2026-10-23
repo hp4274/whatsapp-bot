@@ -185,7 +185,38 @@
   ::ng-deep {
     code { font-family: var(--mono); font-size: 12.5px; padding: 0 3px; border-radius: 4px; background: color-mix(in srgb, var(--wa-muted) 18%, transparent); }
     code.mono { display: inline; padding: 0; background: none; }
+    .link { color: var(--wa-link); text-decoration: underline; }
+    /* A filled variable: a quiet tint, so the text still reads as the customer sees it. */
+    mark.var {
+      padding: 0 2px;
+      border-radius: 3px;
+      background: color-mix(in srgb, var(--wa-link) 14%, transparent);
+      color: inherit;
+    }
+    mark.missing {
+      padding: 0 3px;
+      border-radius: 4px;
+      background: var(--danger-soft);
+      color: var(--danger-text);
+      font-weight: 700;
+      outline: 1px dashed var(--danger);
+    }
   }
+
+  &.empty { color: var(--wa-muted); font-style: italic; }
+}
+
+.missing-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  width: min(320px, 100%);
+  margin: var(--space-md, 12px) auto 0;
+  color: var(--danger-text);
+  font-size: 12px;
+
+  code { font-family: var(--mono); }
 }
 
 .footer { padding: 2px 6px 0; color: var(--wa-muted); font-size: 12.5px; }

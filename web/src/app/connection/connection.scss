@@ -143,6 +143,48 @@ h3 {
   }
 }
 
+/* Ban recovery: a quiet checklist, same rhythm as the safety card. */
+.recover {
+  display: grid;
+  gap: var(--space-md);
+  padding-bottom: var(--space-xl);
+
+  > .recover-steps,
+  > .fine {
+    margin: 0 var(--space-xl);
+  }
+
+  .recover-steps {
+    li {
+      align-items: flex-start;
+      max-width: 72ch;
+    }
+
+    .num {
+      margin-top: 1px;
+    }
+
+    small {
+      line-height: 1.55;
+    }
+
+    a {
+      color: var(--primary-text);
+      font-weight: 500;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+
+      .ti {
+        font-size: 12px;
+      }
+    }
+
+    b {
+      font-weight: 500;
+      color: var(--text-strong);
+    }
+  }
+}
 
 /* The link card: steps on the left, a phone that holds the QR on the right. */
 .link {

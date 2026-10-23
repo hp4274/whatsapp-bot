@@ -1,0 +1,170 @@
+<!-- Kardlyz-style modal: head, search + select-all strip, scrolling group list, foot actions. -->
+<div class="overlay" (click)="close()" aria-hidden="true"></div>
+
+<div
+  #panel
+  class="dialog"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="gd-title"
+  [attr.aria-busy]="loading()"
+>
+  <header class="top">
+    <div>
+      <h3 id="gd-title"><i class="ti ti-users-group" aria-hidden="true"></i> From WhatsApp groups</h3>
+      <p class="muted">
+        Pick the groups and communities your linked number is in. Download their members as a CSV, or
+        add them to your contacts tagged with the group name.
+      </p>
+    </div>
+    <button
+      class="btn ghost icon"
+      type="button"
+      aria-label="Close"
+      [disabled]="!!busy()"
+      (click)="close()"
+    >
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
+  </header>
+
+  <div class="strip">
+    @if (!loadError() && !loading() && groups().length) {
+      <div class="search">
+        <i class="ti ti-search" aria-hidden="true"></i>
+        <input
+          type="search"
+          aria-label="Search groups"
+          placeholder="Search groups"
+          autocomplete="off"
+          [value]="query()"
+          (input)="setQuery($any($event.target).value)"
+          (keydown.escape)="clearQuery($event)"
+        />
+      </div>
+      <label class="all">
+        <input
+          type="checkbox"
+          [checked]="allVisibleSelected()"
+          [indeterminate]="someVisibleSelected()"
+          [disabled]="!rows().length"
+          (change)="toggleAll()"
+        />
+        Select all
+      </label>
+    }
+    @if (status(); as st) {
+      <p
+        class="s-banner"
+        [class.tone-ok]="st.tone === 'ok'"
+       
+        [attr.role]="st.tone === 'bad' ? 'alert' : 'status'"
+      >
+        <i
+          class="ti ti-{{ st.tone === 'ok' ? 'circle-check' : 'alert-circle' }}"
+          aria-hidden="true"
+        ></i>
+        {{ st.text }}
+      </p>
+    }
+  </div>
+
+  <div class="body">
+    @if (loading()) {
+      <div class="skel-list" aria-label="Loading groups">
+        @for (k of [0, 1, 2, 3, 4]; track k) {
+          <div class="skel-row">
+            <span class="s-skel box"></span>
+            <span class="s-skel" [style.width.%]="35 + k * 8"></span>
+          </div>
+        }
+      </div>
+    } @else if (loadError()) {
+      <div class="s-empty">
+        <i class="ti ti-plug-connected-x" aria-hidden="true"></i>
+        <strong>Can't read your groups yet</strong>
+        <p>{{ loadError() }}</p>
+        <a class="btn primary sm" routerLink="/connection" (click)="closed.emit()">
+          <i class="ti ti-qrcode" aria-hidden="true"></i> Link a WhatsApp number by QR to read your
+          groups
+        </a>
+      </div>
+    } @else if (!groups().length) {
+      <div class="s-empty">
+        <i class="ti ti-users-group" aria-hidden="true"></i>
+        <strong>No groups found</strong>
+        <p>This number is not in any WhatsApp group or community.</p>
+      </div>
+    } @else if (!rows().length) {
+      <div class="s-empty">
+        <i class="ti ti-search" aria-hidden="true"></i>
+        <strong>No groups match</strong>
+        <p>Try a different name.</p>
+      </div>
+    } @else {
+      <ul class="list" aria-label="WhatsApp groups">
+        @for (r of rows(); track r.group.id; let i = $index) {
+          <li [class.child]="r.child" [style.--i]="i">
+            <label class="row" [class.on]="isOn(r.group.id)" [class.head]="r.group.isCommunity">
+              <input type="checkbox" [checked]="isOn(r.group.id)" (change)="toggle(r.group.id)" />
+              <span class="ico" aria-hidden="true">
+                <i class="ti ti-{{ r.group.isCommunity ? 'building-community' : 'users' }}"></i>
+              </span>
+              <span class="info">
+                <strong>{{ r.group.name || 'Unnamed group' }}</strong>
+                <span class="facts">
+                  {{ r.group.isCommunity ? 'Community &middot; ' : '' }}{{ r.group.members }}
+                  {{ r.group.members === 1 ? 'number' : 'numbers' }}
+                  @if (r.group.hidden > 0) {
+                    &middot;
+                    <span
+                      class="hidden-count"
+                      title="WhatsApp hides some numbers in large and community groups, so they can't be exported."
+                      >{{ r.group.hidden }} hidden</span
+                    >
+                  }
+                </span>
+              </span>
+            </label>
+          </li>
+        }
+      </ul>
+    }
+  </div>
+
+  <footer class="foot">
+    <p class="note muted">
+      <i class="ti ti-info-circle" aria-hidden="true"></i>
+      Broadcast lists can't be read from WhatsApp - only groups and communities.
+    </p>
+    <div class="acts">
+      <button
+        class="btn"
+        type="button"
+        [disabled]="!selectedCount() || !!busy()"
+        (click)="download()"
+      >
+        @if (busy() === 'download') {
+          <span class="spinner" aria-hidden="true"></span> Preparing...
+        } @else {
+          <i class="ti ti-download" aria-hidden="true"></i> Download CSV
+        }
+      </button>
+      <button
+        class="btn primary"
+        type="button"
+        [disabled]="!selectedCount() || !!busy()"
+        (click)="addToContacts()"
+      >
+        @if (busy() === 'import') {
+          <span class="spinner" aria-hidden="true"></span> Adding...
+        } @else {
+          <i class="ti ti-user-plus" aria-hidden="true"></i> Add to contacts
+          @if (selectedCount()) {
+            ({{ selectedCount() }})
+          }
+        }
+      </button>
+    </div>
+  </footer>
+</div>

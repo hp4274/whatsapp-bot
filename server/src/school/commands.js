@@ -27,9 +27,11 @@ const COMMANDS = new Set(['ATTENDANCE', 'TIMETABLE', 'HOMEWORK', 'HOLIDAYS', 'CA
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
 /**
- * @returns {Promise<{ handled: boolean }>} handled when a reply was queued
+ * @param {object} [opts] greeting: a held welcome/away text to put in front of the answer
+ * @returns {Promise<{ handled: boolean, sent?: boolean }>} handled when the
+ *   command was ours; sent when the reply was queued
  */
-export async function handleSchoolCommand(state, message) {
+export async function handleSchoolCommand(state, message, { greeting = '' } = {}) {
     const [first = '', ...rest] = String(message.body ?? '').trim().split(/\s+/);
     const word = first.toUpperCase().replace(/[^A-Z]/g, '');
     if (!COMMANDS.has(word)) return { handled: false };
@@ -42,22 +44,24 @@ export async function handleSchoolCommand(state, message) {
     if (!children.length) {
         // Say why instead of going quiet: a number saved without the same country
         // code, or one the school never added, would otherwise look like a dead bot.
-        deliver(state, {
+        const outcome = deliver(state, {
             recipient: message.sender, messageType: 'auto_reply', key: `school.cmd.${message.messageId}`,
-            text: `${settings.schoolName || 'The school'}: we could not find a student linked to this number. Please ask the school office to add it.`,
+            text: withGreeting(greeting, `${settings.schoolName || 'The school'}: we could not find a student linked to this number. Please ask the school office to add it.`),
         });
         state.db.markInboundReplied?.(message.messageId, `school:unlinked`);
-        return { handled: true };
+        return { handled: true, sent: outcome === 'sent' };
     }
 
     const ctx = { state, settings, contact, children, args: rest, message, now: localNow(state.channel?.timezone) };
     const text = await (HANDLERS[word] ?? help)(ctx);
-    deliver(state, {
-        recipient: message.sender, text, messageType: 'auto_reply', key: `school.cmd.${message.messageId}`,
+    const outcome = deliver(state, {
+        recipient: message.sender, text: withGreeting(greeting, text), messageType: 'auto_reply', key: `school.cmd.${message.messageId}`,
     });
     state.db.markInboundReplied?.(message.messageId, `school:${word.toLowerCase()}`);
-    return { handled: true };
+    return { handled: true, sent: outcome === 'sent' };
 }
+
+const withGreeting = (greeting, text) => (greeting ? `${greeting}\n\n${text}` : text);
 
 /**
  * The parent behind a WhatsApp number, and their children. Numbers are matched on

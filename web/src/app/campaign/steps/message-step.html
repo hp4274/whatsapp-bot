@@ -281,12 +281,3 @@
     <app-interactive-editor [(value)]="d.interactive" [variables]="d.variables()" />
   </details>
 }
-<div class="foot">
-  <button type="button" class="btn" (click)="d.goTo(1)">
-    <i class="ti ti-arrow-left" aria-hidden="true"></i> Audience
-  </button>
-  <span class="grow"></span>
-  <button type="button" class="btn primary" [disabled]="!d.messageReady()" (click)="d.goTo(3)">
-    Review <i class="ti ti-arrow-right" aria-hidden="true"></i>
-  </button>
-</div>

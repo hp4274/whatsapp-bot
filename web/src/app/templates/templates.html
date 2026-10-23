@@ -539,6 +539,13 @@
               <button type="button" class="var" (click)="insertVar(area)">
                 <i class="ti ti-braces" aria-hidden="true"></i> Variable
               </button>
+              <button
+                type="button"
+                class="jump"
+                (click)="toPreview(side)"
+              >
+                <i class="ti ti-eye" aria-hidden="true"></i> Preview
+              </button>
             </div>
             <textarea
               #area
@@ -551,8 +558,17 @@
             ></textarea>
             <span class="hint"
               >Use <code>{{ '{' }}key{{ '}' }}</code> or
-              <code>{{ '{' }}key|fallback{{ '}' }}</code> · {{ draft().body.length }} / 1024</span
+              <code>{{ '{' }}key|fallback{{ '}' }}</code> ·
+              <span class="count" [class.over]="draft().body.length > 1024"
+                >{{ draft().body.length }} / 1024</span
+              ></span
             >
+            @if (draft().body.length > 1024) {
+              <span class="err" role="status"
+                >WhatsApp templates allow 1024 characters. Shorten the message by
+                {{ draft().body.length - 1024 }}.</span
+              >
+            }
             @if (spam(); as sp) {
               <span class="spam" aria-live="polite">
                 <span class="s-pill" [class]="spamTone()" [attr.title]="spamWhy() || null"
@@ -601,10 +617,11 @@
           </section>
         </div>
 
-        <div class="side">
+        <div class="side" #side>
           <span class="plabel">Live preview</span>
           <app-template-preview
-            [text]="preview()"
+            [text]="draft().body"
+            [samples]="draft().sampleValues"
             [media]="draft().headerMediaId ? media() : null"
             [interactive]="draft().interactive"
           />

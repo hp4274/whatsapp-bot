@@ -12,6 +12,7 @@ import { Router } from '@angular/router';
 
 import { validateInteractive } from '../campaign/interactive/interactive.model';
 import { Auth } from '../core/auth';
+import { scrollToTop } from '../core/scroll';
 import { Store } from '../core/store';
 import { Tilt } from '../school/tilt';
 import { ButtonsEditor } from './buttons-editor';
@@ -31,7 +32,6 @@ import {
   TemplateType,
   TemplateVersion,
   TemplatesApi,
-  render,
   usedIn,
   validate,
 } from './templates-api';
@@ -206,7 +206,6 @@ export class TemplatesView {
   protected readonly vars = computed(() => usedIn(this.draft().body));
   protected readonly problems = computed(() => validate(this.draft().body));
   protected readonly ixProblems = computed(() => validateInteractive(this.draft().interactive));
-  protected readonly preview = computed(() => render(this.draft().body, this.draft().sampleValues));
 
   constructor() {
     this.load();
@@ -294,6 +293,11 @@ export class TemplatesView {
       area.focus();
       area.setSelectionRange(at + 1, at + 5);
     });
+  }
+
+  /** The "Preview" jump on narrow screens: scroll the page, not the shell. */
+  protected toPreview(side: HTMLElement): void {
+    scrollToTop(side);
   }
 
   /** Wrap the selection in a WhatsApp format marker (*, _, ~, ```). */
