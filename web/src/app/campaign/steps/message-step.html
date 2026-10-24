@@ -451,7 +451,11 @@
         <small class="muted">optional - quick replies, a link or a menu</small></span
       >
     </summary>
-    <app-interactive-editor [(value)]="d.interactive" [variables]="d.variables()" />
+    <app-interactive-editor
+      [(value)]="d.interactive"
+      [variables]="d.variables()"
+      [carousel]="true"
+    />
     @if (d.interactive()) {
       <div class="rules">
         <h4>Auto-reply when someone taps a button</h4>

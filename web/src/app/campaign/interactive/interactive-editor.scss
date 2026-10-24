@@ -224,3 +224,47 @@
     .icon { grid-column: 2; grid-row: 1; }
   }
 }
+
+// Carousel card: number, image picker, text, then the kind's button fields.
+.item.card {
+  align-items: start;
+
+  .field, .wide, .pic, .add { grid-column: 2 / 4; }
+  .rm { grid-column: 4; grid-row: 1; }
+
+  .pic {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+
+    .btn { margin: 0; }
+  }
+
+  .thumb {
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    object-fit: cover;
+
+    &.empty { background: var(--surface-sunken); color: var(--text-muted); font-size: 22px; }
+  }
+
+  .spin { animation: spin 800ms linear infinite; }
+  .up-err { flex-basis: 100%; color: var(--danger-text); font-size: 12.5px; font-weight: 500; }
+  .with-var input { font-family: inherit; font-size: inherit; }
+  .with-var .icon { flex: none; }
+}
+
+@media (max-width: 640px) {
+  .item.card {
+    grid-template-columns: minmax(0, 1fr) auto;
+
+    .num { display: none; }
+    .field, .wide, .pic, .add { grid-column: 1; }
+    .rm { grid-column: 2; grid-row: 1; }
+  }
+}

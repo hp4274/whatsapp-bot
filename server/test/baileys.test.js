@@ -194,6 +194,24 @@ it('native:false sends the numbered text menu', async () => {
     assert.equal(sock().sends[0].content.text, 'Confirm?\n\nReply 1 or 2:\n1. Yes\n2. No\n\n_Reply soon_');
 });
 
+it('carousel fallback sends the main text, then one captioned image per card', async () => {
+    const { transport, sock } = makeTransport();
+    await transport.connect();
+    const media = { buffer: Buffer.from('png'), mimetype: 'image/png' };
+    const buttons = (t) => [{ id: t, title: t }];
+    const interactive = { type: 'carousel', native: false, carousel: { kind: 'reply', cards: [
+        { mediaId: 'a', text: 'One', media, buttons: buttons('Buy') },
+        { mediaId: 'b', text: 'Two', media, buttons: buttons('Buy') },
+    ] } };
+    const result = await transport.sendMessage('919800000005', 'Hello', { interactive });
+    assert.equal(sock().relays.length, 0);
+    assert.equal(sock().sends.length, 3);
+    assert.deepEqual(sock().sends[0].content, { text: 'Hello' });
+    assert.equal(sock().sends[1].content.caption, 'One\n\nReply 1:\n1. Buy');
+    assert.equal(sock().sends[2].content.caption, 'Two\n\nReply 2:\n2. Buy');
+    assert.equal(result.providerId, 'BAE51', 'the receipt is the first message');
+});
+
 it('falls back to the text menu when the native relay throws, without resending media', async () => {
     const { transport, sock } = makeTransport({ sockOptions: { relay: async () => { throw new Error('bad node'); } } });
     await transport.connect();
@@ -307,6 +325,26 @@ it('stops and reports auth_failure when the session is logged out', async () => 
     assert.equal(last.state, 'auth_failure');
     assert.match(last.detail, /logged out/);
     await assert.rejects(transport.sendMessage('919800000001', 'x'), /reconnecting/);
+});
+
+it('does not fight another socket for the login (440 replaced): no reconnect, session kept', async () => {
+    const { transport, socks, sock } = makeTransport();
+    const states = [];
+    transport.events.on('state', (s) => states.push(s));
+    await transport.connect();
+    fs.mkdirSync(transport.authDir, { recursive: true });
+    sock().ev.emit('connection.update', closeWith(440, 'Stream Errored (conflict)'));
+    await tick();
+    await tick();
+    assert.equal(socks.length, 1, 'no reconnect, or the two sockets kick each other forever');
+    assert.equal(transport.replaced, true);
+    assert.equal(transport.reconnectTimer, null);
+    assert.equal(states.at(-1).state, 'error');
+    assert.ok(fs.existsSync(transport.authDir), 'the session is still valid, so it is kept');
+
+    await transport.connect(); // a manual Connect takes the number back
+    assert.equal(transport.replaced, false);
+    assert.equal(transport.isConnected(), true);
 });
 
 it('hands the QR to the caller and the events when the session is new', async () => {

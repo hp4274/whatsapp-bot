@@ -313,6 +313,43 @@
   .ti { font-size: 17px; }
 }
 
+// Carousel: a swipeable row of mini cards under the bubble.
+.cards {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar { display: none; }
+}
+
+.card {
+  display: grid;
+  gap: 3px;
+  flex: 0 0 72%;
+  scroll-snap-align: start;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--wa-card);
+  color: var(--wa-text);
+
+  .pic {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    object-fit: cover;
+
+    &.empty { background: var(--wa-paper); color: var(--wa-meta); font-size: 28px; }
+  }
+
+  .body { margin: 0; padding: 2px 4px 4px; font-size: 13px; overflow-wrap: anywhere; }
+  .act { padding: 7px; border-top: 1px solid color-mix(in srgb, var(--wa-meta) 18%, transparent); border-radius: 0 0 8px 8px; }
+}
+
 .sheet {
   width: 100%;
   margin-top: 8px;

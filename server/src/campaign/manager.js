@@ -270,7 +270,7 @@ export class CampaignManager extends EventEmitter {
         const versions = !metaTemplate && Array.isArray(variants) && variants.length ? variants : null;
         const tracking = Boolean(trackLinks && !metaTemplate && this.links);
         // Throws InteractiveError (status 400) before anything is queued.
-        const block = normalizeInteractive(interactive);
+        const block = normalizeInteractive(interactive, { carousel: true, keepMedia: true });
         // Platform policy (policy/campaignOps.js): refusals before anything is queued.
         const rules = this.bulkPolicy?.() ?? null;
         let skippedNoOptIn = 0;

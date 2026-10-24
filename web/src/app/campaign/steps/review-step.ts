@@ -196,8 +196,10 @@ export class ReviewStep {
         ? (block.buttons?.length ?? 0)
         : block.type === 'cta'
           ? (block.cta?.length ?? 0)
-          : (block.list?.sections ?? []).reduce((t, s) => t + s.rows.length, 0);
-    return `${{ buttons: 'Reply buttons', cta: 'Call-to-action', list: 'List menu' }[block.type]} (${n})`;
+          : block.type === 'carousel'
+            ? (block.carousel?.cards.length ?? 0)
+            : (block.list?.sections ?? []).reduce((t, s) => t + s.rows.length, 0);
+    return `${{ buttons: 'Reply buttons', cta: 'Call-to-action', list: 'List menu', carousel: 'Carousel' }[block.type]} (${n})`;
   });
 
   protected readonly confirmText = computed(() => {

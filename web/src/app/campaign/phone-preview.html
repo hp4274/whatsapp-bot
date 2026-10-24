@@ -157,6 +157,34 @@
                 }
               </div>
             }
+            @case ('carousel') {
+              <div class="cards" role="list" aria-label="Carousel cards">
+                @for (c of block.carousel?.cards ?? []; track $index) {
+                  <div class="card" role="listitem">
+                    @if (c.mediaUrl) {
+                      <img class="pic" [src]="c.mediaUrl" alt="" />
+                    } @else {
+                      <span class="pic empty" aria-hidden="true"
+                        ><i class="ti ti-photo" aria-hidden="true"></i
+                      ></span>
+                    }
+                    <p class="body">{{ fill(c.text).text || 'Card text' }}</p>
+                    @for (b of c.buttons ?? []; track $index) {
+                      <span class="act"
+                        ><i class="ti ti-arrow-back-up" aria-hidden="true"></i
+                        >{{ fill(b.title).text || 'Button' }}</span
+                      >
+                    }
+                    @for (l of c.cta ?? []; track $index) {
+                      <span class="act"
+                        ><i class="ti ti-external-link" aria-hidden="true"></i
+                        >{{ fill(l.title).text || 'Open' }}</span
+                      >
+                    }
+                  </div>
+                }
+              </div>
+            }
             @case ('list') {
               <div class="actions">
                 <span class="act"

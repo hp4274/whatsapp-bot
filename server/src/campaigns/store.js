@@ -358,7 +358,7 @@ export class CampaignStore {
                 // The "skip duplicate numbers" box: off sends every row, even a repeated number.
                 onePerNumber: onePerNumber && options.skipDuplicates !== false,
                 media: attachment,
-                interactive: options.interactive ?? null,
+                interactive: this.#withCardMedia(options.interactive),
                 fallbacks: options.fallbacks ?? {},
                 pacing: options.pacing ?? 'balanced',
                 variants: options.variants ?? null,
@@ -549,7 +549,7 @@ export class CampaignStore {
             const sends = templateSendsFor(meta, context);
             if (sends.missing) continue;
             const interactive = options.interactive
-                ? personalizeInteractive(options.interactive,
+                ? personalizeInteractive(this.#withCardMedia(options.interactive),
                     withFallbacks(contactContext(contact), options.fallbacks ?? {}))
                 : null;
             const messageId = this.manager.enqueueJob({
@@ -856,7 +856,7 @@ export class CampaignStore {
             jobs.push({
                 messageId: row.message_id, attempt: row.attempt, recipient: row.recipient, text: row.message,
                 name: row.name ?? '', media, template: sends.template, fallbackTemplate: sends.fallbackTemplate,
-                interactive: options.interactive ? personalizeInteractive(options.interactive, context) : null,
+                interactive: options.interactive ? personalizeInteractive(this.#withCardMedia(options.interactive), context) : null,
                 variant: row.variant ?? null,
             });
         }
@@ -883,6 +883,17 @@ export class CampaignStore {
         const media = this.mediaLookup?.(campaign.mediaId) ?? null;
         if (!media) throw new CampaignError('media not found', 404);
         return media;
+    }
+
+    /** The interactive block ready to send: a carousel's cards get their image file resolved (kept in memory, rebuilt from options after a restart). */
+    #withCardMedia(interactive) {
+        if (interactive?.type !== 'carousel') return interactive ?? null;
+        const cards = interactive.carousel.cards.map((card) => {
+            const media = this.mediaLookup?.(card.mediaId) ?? null;
+            if (!media) throw new CampaignError('media not found', 404);
+            return { ...card, media };
+        });
+        return { ...interactive, carousel: { ...interactive.carousel, cards } };
     }
 
     #optOuts() {
@@ -1114,7 +1125,7 @@ export function normalizeOptions(input) {
     const src = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
     const out = { ...src };
     try {
-        out.interactive = normalizeInteractive(src.interactive);
+        out.interactive = normalizeInteractive(src.interactive, { carousel: true });
     } catch (err) {
         if (err instanceof InteractiveError) throw new CampaignError(err.message, 400);
         throw err;
