@@ -2244,12 +2244,12 @@ export function createApp({
      * is on.  `setLimits` merges, so the operator's blockedWords and custom
      * safety switch survive a plan change.
      */
-    const applyPlan = (tenantId, plan, trialDays) => {
+    const applyPlan = (tenantId, plan, trialDays, services = plan.services) => {
         const days = Math.max(0, Math.min(365, Math.floor(Number(trialDays) || 0)));
         const subscription = new BillingStore(db.forTenant(tenantId)).subscribe(tenantId, plan.key, {
             trialEndsAt: days ? new Date(Date.now() + days * 24 * 3600 * 1000) : null,
         });
-        tenancy.updateTenant(tenantId, { services: plan.services });
+        tenancy.updateTenant(tenantId, { services });
         tenancy.setLimits(tenantId, plan.tenantLimits);
         runtimes.get(tenantId)?.applyPolicy();
         return subscription;
@@ -2323,9 +2323,11 @@ export function createApp({
             const body = req.body ?? {};
             // Resolved before the tenant exists, so a bad key creates nothing.
             const plan = body.planKey ? planOr404(body.planKey) : null;
+            // The admin may hand-pick services on top of a plan; omitted = the plan's own.
+            const services = Array.isArray(body.services) ? body.services : plan?.services;
             const { tenant: created, owner: user } = await tenancy.createTenantWithOwner(
-                plan ? { ...body, services: plan.services } : body);
-            if (plan) applyPlan(created.id, plan, body.trialDays ?? plan.trialDays);
+                plan ? { ...body, services } : body);
+            if (plan) applyPlan(created.id, plan, body.trialDays ?? plan.trialDays, services);
             const tenant = tenancy.getTenant(created.id);
             audit(req, 'tenant.create', tenant.id, plan ? `${tenant.slug} on ${plan.key}` : tenant.slug);
             return res.status(201).json({ tenant: tenantOverview(tenant), owner: user });
