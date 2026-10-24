@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { SESSION_DIR } from '../config.js';
-import { renderFallbackText } from '../messaging/interactive.js';
+import { carouselCaptions, renderFallbackText } from '../messaging/interactive.js';
 import { STATUS_RANK, Status } from '../protocol.js';
 import { NOT_ON_WHATSAPP_CODE, Transport, TransportConnectionError, TransportSendError } from './base.js';
 
@@ -43,6 +43,7 @@ export function ackStatus(status) {
 }
 
 const LOGGED_OUT = 401;
+const CONNECTION_REPLACED = 440;
 const CONNECT_TIMEOUT_MS = 60000;
 const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 60000;
@@ -97,6 +98,7 @@ export class BaileysTransport extends Transport {
         this.qr = null;
         this.closed = false;
         this.connecting = false;
+        this.replaced = false; // 440: another socket took this login; the watchdog must not grab it back
         this.reconnectTimer = null;
         this.reconnectAttempt = 0;
         this.receipts = new Map();
@@ -109,6 +111,7 @@ export class BaileysTransport extends Transport {
 
     async connect() {
         this.closed = false;
+        this.replaced = false;
         this.#clearReconnectTimer();
         if (this.connecting) {
             throw new TransportConnectionError('Baileys connection already in progress');
@@ -220,6 +223,14 @@ export class BaileysTransport extends Transport {
                 this.#stopAutoReconnect();
                 this.qr = null;
                 this.events.emit('state', { state: 'auth_failure', detail: `Baileys session logged out: ${detail}` });
+                return;
+            }
+            if (code === CONNECTION_REPLACED) {
+                // Another socket is using this login. Reconnecting would kick it, and it kicks
+                // us back: the endless disconnect loop. Keep the session and wait for a manual Connect.
+                this.#stopAutoReconnect();
+                this.replaced = true;
+                this.events.emit('state', { state: 'error', detail: 'This number was connected from another session, so this one stopped. Press Connect to take it back.' });
                 return;
             }
             this.events.emit('state', { state: 'disconnected', detail });
@@ -446,9 +457,22 @@ export class BaileysTransport extends Transport {
             }
         }
 
+        if (interactive?.type === 'carousel') return this.#deliverCarouselText(jid, message, attachment, interactive);
         const text = interactive ? renderFallbackText(message, interactive) : message;
         const sent = await this.#send(jid, attachment ? { ...attachment, caption: text } : { text });
         return this.#accepted(sent?.key?.id);
+    }
+
+    // shortcut: N+1 messages in one paced job (main text, then one image per card); the job's receipt is the
+    // first message's, and a failure midway leaves the earlier ones sent. Per-card jobs would need queue changes.
+    async #deliverCarouselText(jid, message, attachment, interactive) {
+        const text = String(message ?? '');
+        const first = await this.#send(jid, attachment ? { ...attachment, caption: text } : { text });
+        const captions = carouselCaptions(interactive);
+        for (const [i, card] of interactive.carousel.cards.entries()) {
+            await this.#send(jid, mediaContent(card.media, captions[i]));
+        }
+        return this.#accepted(first?.key?.id);
     }
 
     async #send(jid, content) {
@@ -466,8 +490,13 @@ export class BaileysTransport extends Transport {
      * failure so the caller falls back to the text menu.
      */
     async #relayNative(jid, text, interactive) {
-        const { generateWAMessageFromContent } = await import('@whiskeysockets/baileys');
-        const msg = generateWAMessageFromContent(jid, nativeInteractiveContent(text, interactive), { userJid: this.sock.user?.id });
+        const { generateWAMessageFromContent, prepareWAMessageMedia } = await import('@whiskeysockets/baileys');
+        // Each card's image is uploaded first; the card header carries the uploaded imageMessage.
+        const images = interactive.type === 'carousel'
+            ? await Promise.all(interactive.carousel.cards.map(async (card) =>
+                (await prepareWAMessageMedia({ image: mediaContent(card.media).image }, { upload: this.sock.waUploadToServer })).imageMessage))
+            : null;
+        const msg = generateWAMessageFromContent(jid, nativeInteractiveContent(text, interactive, images), { userJid: this.sock.user?.id });
         await this.sock.relayMessage(jid, msg.message, { messageId: msg.key.id, additionalNodes: [NATIVE_FLOW_NODE] });
         return msg.key.id;
     }
@@ -605,8 +634,32 @@ export function nativeFlowButtons(interactive) {
     throw new Error(`no native buttons for interactive type "${interactive.type}"`);
 }
 
-/** The Message content (pre-proto) for a native-flow interactive message. */
-export function nativeInteractiveContent(text, interactive) {
+/** The Message content (pre-proto) for a native-flow interactive message. A carousel also needs `images`: one uploaded imageMessage per card. */
+export function nativeInteractiveContent(text, interactive, images = null) {
+    if (interactive.type === 'carousel') {
+        const { kind, cards } = interactive.carousel;
+        return {
+            viewOnceMessage: {
+                message: {
+                    messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+                    interactiveMessage: {
+                        body: { text: String(text ?? '') },
+                        carouselMessage: {
+                            messageVersion: 1,
+                            cards: cards.map((card, i) => ({
+                                header: { imageMessage: images[i], hasMediaAttachment: true },
+                                body: { text: card.text },
+                                nativeFlowMessage: {
+                                    buttons: nativeFlowButtons(kind === 'reply' ? { type: 'buttons', buttons: card.buttons } : { type: 'cta', cta: card.cta }),
+                                    messageParamsJson: '',
+                                },
+                            })),
+                        },
+                    },
+                },
+            },
+        };
+    }
     return {
         viewOnceMessage: {
             message: {

@@ -68,6 +68,11 @@ export class PhonePreview {
         block.footer,
         ...(block.buttons ?? []).map((b) => b.title),
         ...(block.cta ?? []).map((c) => c.title),
+        ...(block.carousel?.cards ?? []).flatMap((c) => [
+          c.text,
+          ...(c.buttons ?? []).map((b) => b.title),
+          ...(c.cta ?? []).map((l) => l.title),
+        ]),
       ]) {
         for (const k of this.fill(part ?? '').missing) keys.add(k);
       }

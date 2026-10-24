@@ -456,9 +456,13 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     /**
      * Open the transport. A route and the boot/watchdog reconnect both call this,
      * so a restart brings back every connection a user had up.
-     * @returns {{ status: number, body: object }}
+     * Single-flight: a watchdog tick and a Connect click used to overlap across the
+     * disconnect await, each opening a socket on the same login; the two kicked each
+     * other off (440) forever. Overlapping callers now share one attempt.
+     * @returns {Promise<{ status: number, body: object }>}
      */
-    const connectChannel = async () => {
+    const connectChannel = () => (state.connectRun ??= openChannel().finally(() => { state.connectRun = null; }));
+    const openChannel = async () => {
         if (state.connecting) {
             return { status: 200, body: connectionState(state) };
         }
@@ -2822,7 +2826,7 @@ export function createApp({
                     const { state } = runtime.runtimeFor(channel);
                     const t = state.transport;
                     // A transport mid-reconnect has its own backoff: do not fight it.
-                    if (state.connecting || t?.isConnected?.() || t?.reconnectTimer || t?.connecting) continue;
+                    if (state.connecting || t?.isConnected?.() || t?.reconnectTimer || t?.connecting || t?.replaced) continue;
                     const result = await state.connect();
                     if (result.status >= 400) {
                         logger.warn('auto-reconnect failed', { tenantId: tenant.id, channelId: channel.id, error: result.body?.errors?.[0] });

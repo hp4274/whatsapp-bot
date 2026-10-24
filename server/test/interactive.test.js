@@ -17,9 +17,10 @@ import { createTestApp as createApp } from './helpers.js';
 import { DEFAULTS, TRANSPORT_CLOUD_API } from '../src/config.js';
 import { Database } from '../src/db.js';
 import {
-    InteractiveError, interactiveOptions, matchReply, normalizeInteractive, personalizeInteractive, renderFallbackText,
+    InteractiveError, carouselCaptions, interactiveOptions, matchReply, normalizeInteractive, personalizeInteractive, renderFallbackText,
 } from '../src/messaging/interactive.js';
 import { campaignIdFromParam, normalizeReplyRules } from '../src/messaging/replies.js';
+import { nativeInteractiveContent } from '../src/transports/baileys.js';
 import { CloudApiTransport, interactivePayload, nativeInteractive, parseInboundPayload } from '../src/transports/cloudApi.js';
 import { SandboxTransport } from '../src/transports/sandbox.js';
 
@@ -99,6 +100,77 @@ describe('interactive.js', () => {
         const off = normalizeInteractive({ ...BUTTONS, native: false });
         assert.equal(off.native, false);
         assert.equal(personalizeInteractive(off, { order_id: '1' }).native, false);
+    });
+});
+
+describe('carousel', () => {
+    const card = (n, extra) => ({ mediaId: `m${n}`, mediaUrl: `/u/${n}.png`, text: `Card ${n} for {name}`, ...extra });
+    const REPLY = { type: 'carousel', carousel: { kind: 'reply', cards: [
+        card(1, { buttons: [{ title: 'Buy' }, { title: 'Info' }] }),
+        card(2, { buttons: [{ title: 'Buy' }] }),
+    ] } };
+    const URLS = { type: 'carousel', carousel: { kind: 'url', cards: [
+        card(1, { cta: [{ title: 'Open', value: 'https://x.test/1' }] }),
+        card(2, { cta: [{ title: 'Open', value: 'https://x.test/2' }] }),
+    ] } };
+    const norm = (v) => normalizeInteractive(v, { carousel: true });
+
+    it('enforces card, kind and button limits', () => {
+        const cards = (n) => Array.from({ length: n }, (_, i) => card(i + 1, { buttons: [{ title: 'Go' }] }));
+        assert.throws(() => norm({ type: 'carousel', carousel: { kind: 'reply', cards: cards(1) } }), /2 to 10 cards/);
+        assert.throws(() => norm({ type: 'carousel', carousel: { kind: 'reply', cards: cards(11) } }), /2 to 10 cards/);
+        assert.equal(norm({ type: 'carousel', carousel: { kind: 'reply', cards: cards(10) } }).carousel.cards.length, 10);
+        assert.throws(() => norm({ type: 'carousel', carousel: { cards: cards(2) } }), InteractiveError);
+        const noImage = cards(2); noImage[1].mediaId = '';
+        assert.throws(() => norm({ type: 'carousel', carousel: { kind: 'reply', cards: noImage } }), /Card 2 needs an image/);
+        const three = cards(2); three[0].buttons = [1, 2, 3].map((i) => ({ title: 'B' + i }));
+        assert.throws(() => norm({ type: 'carousel', carousel: { kind: 'reply', cards: three } }), /Card 1 needs 1 or 2/);
+        // a link card in a quick reply carousel (mixed kinds) has no buttons, so it is refused
+        const mixed = cards(2); mixed[1] = card(2, { cta: [{ title: 'Open', value: 'https://x.test' }] });
+        assert.throws(() => norm({ type: 'carousel', carousel: { kind: 'reply', cards: mixed } }), /Card 2 needs 1 or 2/);
+        const twoLinks = URLS.carousel.cards.map((c) => ({ ...c, cta: [...c.cta, ...c.cta] }));
+        assert.throws(() => norm({ type: 'carousel', carousel: { kind: 'url', cards: twoLinks } }), /one link button/);
+        assert.equal(norm({ ...REPLY, header: 'H', footer: 'F' }).header, undefined);
+    });
+
+    it('is campaign-only and never trusts media from the request', () => {
+        assert.throws(() => normalizeInteractive(REPLY), /only available in campaigns/);
+        const withMedia = { ...REPLY, carousel: { ...REPLY.carousel, cards: REPLY.carousel.cards.map((c) => ({ ...c, media: { filePath: '/etc/passwd' } })) } };
+        assert.equal(norm(withMedia).carousel.cards[0].media, undefined);
+        assert.deepEqual(normalizeInteractive(withMedia, { carousel: true, keepMedia: true }).carousel.cards[0].media, { filePath: '/etc/passwd' });
+    });
+
+    it('gives the same title a distinct default id per card', () => {
+        const ids = interactiveOptions(norm(REPLY)).map((o) => o.id);
+        assert.deepEqual(ids, ['BUY_1', 'INFO_1', 'BUY_2']);
+    });
+
+    it('numbers replies across all cards in the fallback and captions', () => {
+        const p = personalizeInteractive(norm(REPLY), { name: 'Asha' });
+        assert.deepEqual(carouselCaptions(p), [
+            'Card 1 for Asha\n\nReply 1 or 2:\n1. Buy\n2. Info',
+            'Card 2 for Asha\n\nReply 3:\n3. Buy',
+        ]);
+        assert.equal(renderFallbackText('Hi', p), 'Hi\n\n' + carouselCaptions(p).join('\n\n'));
+        assert.equal(matchReply(p, { body: '3' }).id, 'BUY_2');
+        assert.equal(matchReply(p, { body: '3' }).index, 2);
+        assert.equal(matchReply(p, { replyId: 'BUY_2' }).index, 2);
+        assert.deepEqual(carouselCaptions(norm(URLS)), ['Card 1 for {name}\n\n\u{1F517} Open: https://x.test/1', 'Card 2 for {name}\n\n\u{1F517} Open: https://x.test/2']);
+        assert.deepEqual(carouselCaptions(norm(BUTTONS)), []);
+    });
+
+    it('builds the native carousel with the uploaded card images', () => {
+        const images = [{ url: 'u1' }, { url: 'u2' }];
+        const msg = nativeInteractiveContent('Main', norm(REPLY), images).viewOnceMessage.message.interactiveMessage;
+        assert.equal(msg.body.text, 'Main');
+        assert.equal(msg.carouselMessage.messageVersion, 1);
+        const [c1, c2] = msg.carouselMessage.cards;
+        assert.deepEqual(c1.header, { imageMessage: images[0], hasMediaAttachment: true });
+        assert.equal(c1.body.text, 'Card 1 for {name}');
+        assert.deepEqual(c1.nativeFlowMessage.buttons.map((b) => [b.name, JSON.parse(b.buttonParamsJson).id]), [['quick_reply', 'BUY_1'], ['quick_reply', 'INFO_1']]);
+        assert.deepEqual(c2.nativeFlowMessage.buttons.map((b) => JSON.parse(b.buttonParamsJson).id), ['BUY_2']);
+        const link = nativeInteractiveContent('Main', norm(URLS), images).viewOnceMessage.message.interactiveMessage.carouselMessage.cards[0];
+        assert.equal(link.nativeFlowMessage.buttons[0].name, 'cta_url');
     });
 });
 

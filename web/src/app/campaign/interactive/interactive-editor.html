@@ -1,7 +1,7 @@
 @let draft = value();
 
 <div class="seg" role="radiogroup" aria-label="Interactive message type">
-  @for (t of types; track t.value) {
+  @for (t of types(); track t.value) {
     <button
       type="button"
       role="radio"
@@ -16,6 +16,7 @@
 </div>
 
 @if (draft) {
+  @if (draft.type !== 'carousel') {
   <div class="grid2">
     <div class="field">
       <label [for]="uid + '-header'"
@@ -46,6 +47,7 @@
       />
     </div>
   </div>
+  }
 
   <div class="native">
     <ar-switch
@@ -208,6 +210,195 @@
           <i class="ti ti-info-circle" aria-hidden="true"></i> Call and copy buttons are sent as
           text on browser-linked WhatsApp Web numbers and on Cloud API.
         </p>
+      </div>
+    }
+
+    @case ('carousel') {
+      <div class="stack">
+        <div class="seg" role="radiogroup" aria-label="Card buttons">
+          <button
+            type="button"
+            role="radio"
+            class="seg-opt"
+            [class.on]="kind() === 'url'"
+            [attr.aria-checked]="kind() === 'url'"
+            (click)="setKind('url')"
+          >
+            <i class="ti ti-link" aria-hidden="true"></i>Link
+          </button>
+          <button
+            type="button"
+            role="radio"
+            class="seg-opt"
+            [class.on]="kind() === 'reply'"
+            [attr.aria-checked]="kind() === 'reply'"
+            (click)="setKind('reply')"
+          >
+            <i class="ti ti-message-reply" aria-hidden="true"></i>Quick reply
+          </button>
+        </div>
+
+        @for (c of cards(); track $index; let i = $index) {
+          <div class="item card enter">
+            <span class="num" aria-hidden="true">{{ i + 1 }}</span>
+            <div class="pic">
+              @if (c.mediaUrl) {
+                <img class="thumb" [src]="c.mediaUrl" [alt]="'Card ' + (i + 1) + ' image'" />
+              } @else {
+                <span class="thumb empty" aria-hidden="true"
+                  ><i class="ti ti-photo" aria-hidden="true"></i
+                ></span>
+              }
+              <input
+                #file
+                type="file"
+                class="sr-only"
+                accept="image/jpeg,image/png"
+                tabindex="-1"
+                [attr.aria-label]="'Card ' + (i + 1) + ' image file'"
+                (change)="pickCardImage(file, i)"
+              />
+              <button
+                type="button"
+                class="btn ghost"
+                [disabled]="uploading() === i"
+                [attr.aria-label]="(c.mediaUrl ? 'Replace' : 'Upload') + ' card ' + (i + 1) + ' image'"
+                (click)="file.click()"
+              >
+                @if (uploading() === i) {
+                  <i class="ti ti-loader-2 spin" aria-hidden="true"></i> Uploading
+                } @else {
+                  <i class="ti ti-photo-plus" aria-hidden="true"></i>
+                  {{ c.mediaUrl ? 'Replace' : 'Add image' }}
+                }
+              </button>
+              @if (c.mediaUrl && uploading() !== i) {
+                <button
+                  type="button"
+                  class="icon"
+                  [attr.aria-label]="'Remove card ' + (i + 1) + ' image'"
+                  (click)="clearCardImage(i)"
+                >
+                  <i class="ti ti-x" aria-hidden="true"></i>
+                </button>
+              }
+              @if (uploadError(); as ue) {
+                @if (ue[0] === i) {
+                  <span class="up-err" role="alert">{{ ue[1] }}</span>
+                }
+              }
+            </div>
+            <div class="field wide">
+              <label [for]="uid + '-cx' + i"
+                >Card {{ i + 1 }} text
+                <span class="count" [class.over]="len(c.text) > limits.cardText"
+                  >{{ len(c.text) }}/{{ limits.cardText }}</span
+                ></label
+              >
+              <textarea
+                [id]="uid + '-cx' + i"
+                rows="2"
+                [value]="c.text"
+                (input)="patchCard(i, { text: text($event) })"
+              ></textarea>
+            </div>
+            @if (kind() === 'url') {
+              <div class="field">
+                <label [for]="uid + '-cl' + i"
+                  >Button title
+                  <span class="count" [class.over]="len(c.cta?.[0]?.title) > limits.ctaTitle"
+                    >{{ len(c.cta?.[0]?.title) }}/{{ limits.ctaTitle }}</span
+                  ></label
+                >
+                <input
+                  [id]="uid + '-cl' + i"
+                  [value]="c.cta?.[0]?.title ?? ''"
+                  (input)="updateCardLink(i, { title: text($event) })"
+                />
+              </div>
+              <div class="field">
+                <label [for]="uid + '-cu' + i">Link</label>
+                <div class="with-var">
+                  <input
+                    [id]="uid + '-cu' + i"
+                    [value]="c.cta?.[0]?.value ?? ''"
+                    placeholder="https://shop.com/item/{id}"
+                    inputmode="url"
+                    (input)="updateCardLink(i, { value: text($event) })"
+                  />
+                  @if (variables().length) {
+                    <select
+                      #cu
+                      class="var"
+                      [attr.aria-label]="'Insert variable into card ' + (i + 1) + ' link'"
+                      (change)="insertCardLinkVar(cu, i)"
+                    >
+                      <option value="">{{ '{x}' }}</option>
+                      @for (v of variables(); track v) {
+                        <option [value]="v">{{ '{' + v + '}' }}</option>
+                      }
+                    </select>
+                  }
+                </div>
+              </div>
+            } @else {
+              @for (b of c.buttons ?? []; track $index; let bi = $index) {
+                <div class="field">
+                  <label [for]="uid + '-cb' + i + '-' + bi"
+                    >Button {{ bi + 1 }} title
+                    <span class="count" [class.over]="len(b.title) > limits.buttonTitle"
+                      >{{ len(b.title) }}/{{ limits.buttonTitle }}</span
+                    ></label
+                  >
+                  <div class="with-var">
+                    <input
+                      [id]="uid + '-cb' + i + '-' + bi"
+                      [value]="b.title"
+                      (input)="updateCardReply(i, bi, text($event))"
+                    />
+                    <button
+                      type="button"
+                      class="icon"
+                      [disabled]="(c.buttons ?? []).length < 2"
+                      [attr.aria-label]="'Remove button ' + (bi + 1) + ' from card ' + (i + 1)"
+                      (click)="removeCardReply(i, bi)"
+                    >
+                      <i class="ti ti-x" aria-hidden="true"></i>
+                    </button>
+                  </div>
+                </div>
+              }
+              @if ((c.buttons ?? []).length < limits.cardButtons) {
+                <button
+                  type="button"
+                  class="btn add ghost"
+                  [attr.aria-label]="'Add a second button to card ' + (i + 1)"
+                  (click)="addCardReply(i)"
+                >
+                  <i class="ti ti-plus" aria-hidden="true"></i> Add button
+                </button>
+              }
+            }
+            <button
+              type="button"
+              class="icon rm"
+              [disabled]="cards().length <= limits.cards.min"
+              [attr.aria-label]="'Remove card ' + (i + 1)"
+              (click)="removeCard(i)"
+            >
+              <i class="ti ti-trash" aria-hidden="true"></i>
+            </button>
+          </div>
+        }
+        <button
+          type="button"
+          class="btn add"
+          [disabled]="cards().length >= limits.cards.max"
+          (click)="addCard()"
+        >
+          <i class="ti ti-plus" aria-hidden="true"></i> Add card
+          <span class="muted">{{ cards().length }}/{{ limits.cards.max }}</span>
+        </button>
       </div>
     }
 
