@@ -63,9 +63,23 @@ export class ConnectionView {
   constructor() {
     this.loadConfig();
     this.refreshSafety();
-    // Only safety is refreshed live: `config` is the editable form and must not be clobbered.
-    // store.watch unregisters itself through the caller's DestroyRef.
-    this.store.watch(['config', 'connection'], () => this.refreshSafety());
+    // Safety is refreshed live; `config` is the editable form, so only the warm-up answer is
+    // re-read (a newly linked number resets it on the server). store.watch unregisters itself
+    // through the caller's DestroyRef.
+    this.store.watch(['config', 'connection'], () => {
+      this.refreshSafety();
+      this.refreshWarmup();
+    });
+  }
+
+  private refreshWarmup(): void {
+    this.api.getConfig().subscribe({
+      next: ({ config }) =>
+        this.config.update((c) =>
+          c ? { ...c, warmupChoice: config.warmupChoice, tierSystem: config.tierSystem } : c,
+        ),
+      error: () => undefined,
+    });
   }
 
   protected loadConfig(): void {
