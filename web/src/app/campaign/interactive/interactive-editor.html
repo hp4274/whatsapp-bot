@@ -243,7 +243,7 @@
             <span class="num" aria-hidden="true">{{ i + 1 }}</span>
             <div class="pic">
               @if (c.mediaUrl) {
-                <img class="thumb" [src]="c.mediaUrl" [alt]="'Card ' + (i + 1) + ' image'" />
+                <img class="thumb" [mediaSrc]="c.mediaUrl" [alt]="'Card ' + (i + 1) + ' image'" />
               } @else {
                 <span class="thumb empty" aria-hidden="true"
                   ><i class="ti ti-photo" aria-hidden="true"></i

@@ -16,7 +16,8 @@
     </p>
   </div>
   <span class="s-pill {{ statusTone() }}">
-    {{ live ? 'Connected' : qr ? 'Waiting for scan' : busy ? 'Connecting' : 'Not connected' }}
+    {{ stop() === 'ban' ? 'Banned' : stop() ? 'Paused'
+      : live ? 'Connected' : qr ? 'Waiting for scan' : busy ? 'Connecting' : 'Not connected' }}
   </span>
 </header>
 
@@ -28,10 +29,53 @@
         <p>{{ error }}</p>
       }
     </div>
-    <button type="button" class="btn sm" (click)="connect()" [disabled]="busy">
+    <button type="button" class="btn sm" (click)="connect()" [disabled]="busy || !!stop()">
       <i class="ti ti-refresh" aria-hidden="true"></i>Try again
     </button>
   </div>
+}
+
+@if (stop(); as kind) {
+  <section class="card stopped enter" role="alert" aria-labelledby="stopped-title">
+    <header class="card-head">
+      <span class="badge bad"><i class="ti {{ kind === 'ban' ? 'ti-ban' : 'ti-hand-stop' }}" aria-hidden="true"></i></span>
+      <div>
+        <h3 id="stopped-title">{{
+          kind === 'ban' ? 'WhatsApp banned this number'
+            : kind === 'ban_guard' ? 'Sending stopped: too many reports'
+            : 'Your platform admin paused this number'
+        }}</h3>
+        @if (connection.paused?.at; as at) {
+          <p class="muted">{{ at | date: 'medium' }}</p>
+        }
+      </div>
+    </header>
+    @if (stopReason()) {
+      <p class="reason">{{ stopReason() }}</p>
+    }
+    @if (kind === 'ban') {
+      <p class="fine muted">
+        WhatsApp does not say why. The figures above are this app's own records.
+        <a href="#recover-title">See how to ask for a review <i class="ti ti-arrow-down" aria-hidden="true"></i></a>
+      </p>
+    } @else if (kind === 'ban_guard') {
+      <div class="link-actions">
+        <button type="button" class="btn danger" (click)="resume()" [disabled]="resuming()">
+          @if (resuming()) {
+            <span class="spinner"></span>Reconnecting…
+          } @else {
+            <i class="ti ti-player-play" aria-hidden="true"></i>{{ resumeConfirm() ? 'Click again to reconnect' : 'Reconnect anyway' }}
+          }
+        </button>
+        @if (resumeConfirm()) {
+          <button type="button" class="btn" (click)="resumeConfirm.set(false)">Cancel</button>
+        }
+      </div>
+      <p class="fine muted">More reports can get the number banned for good.</p>
+    } @else {
+      <p class="fine muted">Ask your platform admin to turn this number back on.</p>
+    }
+  </section>
 }
 
 <section class="card link enter" [class.live]="live" aria-labelledby="link-title" aria-live="polite">
@@ -77,7 +121,7 @@
       <div class="link-actions">
         @if (qr || busy) {
           <button type="button" class="btn" (click)="disconnect()">Cancel</button>
-        } @else {
+        } @else if (!stop()) {
           <button type="button" class="btn primary big" (click)="connect()">
             <i class="ti ti-qrcode" aria-hidden="true"></i>Connect WhatsApp
           </button>

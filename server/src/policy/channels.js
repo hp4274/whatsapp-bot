@@ -47,6 +47,9 @@ export const CHANNEL_POLICY = Object.freeze([
       ],
       label: 'Quality rating threshold', hint: 'Cloud API numbers only; Meta reports the rating.' },
 
+    { key: 'channels.banGuardReports', service: S, group: 'Ban-risk guard', type: 'int', default: 10, min: 0, max: 1000,
+      label: 'Pause at spam reports (7 days)', hint: 'Pause a number when this many different people report it in 7 days. 0 turns it off.' },
+
     // ------------------------------------------------------------ health --
     { key: 'channels.offlineAfterMinutes', service: S, group: 'Health', type: 'int', default: 30, min: 1, max: 10080,
       label: 'Flag offline after (min)', hint: 'A number not seen for this long shows as offline in the health view.' },

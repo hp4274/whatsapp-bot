@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, output } f
 
 import { Auth } from '../core/auth';
 import { InteractiveDraft } from './interactive/interactive.model';
+import { MediaSrc } from './interactive/media-src';
 import { DraftAttachment, VariantKey } from './draft';
 import { formatBytes, linkify, substitute } from './wa-format';
 
@@ -16,6 +17,7 @@ const CTA_ICONS = { url: 'external-link', call: 'phone', copy: 'copy' } as const
  */
 @Component({
   selector: 'app-phone-preview',
+  imports: [MediaSrc],
   templateUrl: './phone-preview.html',
   styleUrl: './phone-preview.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -44,6 +44,8 @@ export function ackStatus(status) {
 
 const LOGGED_OUT = 401;
 const CONNECTION_REPLACED = 440;
+const FORBIDDEN = 403; // WhatsApp banned the number (CB:failure)
+export const BAN_TEXT = 'WhatsApp banned this number.';
 const CONNECT_TIMEOUT_MS = 60000;
 const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 60000;
@@ -99,6 +101,7 @@ export class BaileysTransport extends Transport {
         this.closed = false;
         this.connecting = false;
         this.replaced = false; // 440: another socket took this login; the watchdog must not grab it back
+        this.banned = false; // 403: WhatsApp banned this number; reconnecting only deepens it
         this.reconnectTimer = null;
         this.reconnectAttempt = 0;
         this.receipts = new Map();
@@ -112,6 +115,7 @@ export class BaileysTransport extends Transport {
     async connect() {
         this.closed = false;
         this.replaced = false;
+        this.banned = false;
         this.#clearReconnectTimer();
         if (this.connecting) {
             throw new TransportConnectionError('Baileys connection already in progress');
@@ -173,6 +177,8 @@ export class BaileysTransport extends Transport {
                     });
                 } else if (connection === 'open') {
                     finish(resolve, this.#readyInfo(sock));
+                } else if (connection === 'close' && statusCode(lastDisconnect) === FORBIDDEN) {
+                    finish(reject, new TransportConnectionError(`${BAN_TEXT} (${reasonText(lastDisconnect)})`, { retryable: false }));
                 } else if (connection === 'close' && statusCode(lastDisconnect) === LOGGED_OUT) {
                     this.#dropSession();
                     finish(reject, new TransportConnectionError(
@@ -231,6 +237,14 @@ export class BaileysTransport extends Transport {
                 this.#stopAutoReconnect();
                 this.replaced = true;
                 this.events.emit('state', { state: 'error', detail: 'This number was connected from another session, so this one stopped. Press Connect to take it back.' });
+                return;
+            }
+            if (code === FORBIDDEN) {
+                // Retrying a banned number only deepens the ban. Keep the session: a temporary ban lifts, and wiping it would force a new QR.
+                console.warn('[baileys] banned (403):', JSON.stringify(lastDisconnect?.error?.data ?? null));
+                this.#stopAutoReconnect();
+                this.banned = true;
+                this.events.emit('state', { state: 'banned', detail: BAN_TEXT });
                 return;
             }
             this.events.emit('state', { state: 'disconnected', detail });

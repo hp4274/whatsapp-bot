@@ -82,10 +82,10 @@ export class Channels {
      * sending appointment reminders down a number set up for campaigns is the
      * kind of surprise that gets a number banned.
      */
-    route({ channelId = null, capability = null, rule = 'default', remaining = null } = {}) {
+    route({ channelId = null, capability = null, rule = 'default', remaining = null, any = false } = {}) {
         const channel = channelId == null ? this.pick(rule, capability, remaining) : this.get(channelId);
         if (!channel) throw new ChannelError('channel not found', 404);
-        if (channel.status !== 'active') throw new ChannelError(`channel ${channel.id} is disabled`, 409);
+        if (channel.status !== 'active' && !any) throw new ChannelError(`channel ${channel.id} is disabled`, 409);
         if (capability && !channel.capabilities.includes(capability)) {
             throw new ChannelError(`channel ${channel.id} is not enabled for ${capability}`, 409);
         }

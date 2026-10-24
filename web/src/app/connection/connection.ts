@@ -51,13 +51,31 @@ export class ConnectionView {
   /** WhatsApp's terms note for QR-linked numbers, from the server. */
   protected readonly warning = computed(() => this.warnings()['baileys'] ?? '');
 
+  /** Why the number cannot send: a WhatsApp ban, or a pause by the ban guard or the platform admin. */
+  protected readonly stop = computed<'ban' | 'ban_guard' | 'admin' | null>(() => {
+    const c = this.store.connection();
+    return c.code === 'WHATSAPP_BANNED' ? 'ban' : (c.paused?.by ?? null);
+  });
+  /** The reason text to show: the pause's own, else the ban detail. */
+  protected readonly stopReason = computed(() => {
+    const c = this.store.connection();
+    return c.paused?.reason || c.error || c.detail || '';
+  });
+  /** First click of "Reconnect anyway" arms it; the second sends it. */
+  protected readonly resumeConfirm = signal(false);
+  protected readonly resuming = signal(false);
+
   /** Pill tone for the header: connecting is in-between, not an error. */
   protected readonly statusTone = computed(() =>
-    this.store.connecting()
-      ? 'tone-warn'
-      : this.store.connection().connected
-        ? 'tone-ok'
-        : 'tone-mute',
+    this.stop() === 'ban'
+      ? 'tone-bad'
+      : this.stop()
+        ? 'tone-warn'
+        : this.store.connecting()
+          ? 'tone-warn'
+          : this.store.connection().connected
+            ? 'tone-ok'
+            : 'tone-mute',
   );
 
   constructor() {
@@ -142,6 +160,35 @@ export class ConnectionView {
       error: (err: Error) => {
         this.errors.set(err.message.split('\n'));
         this.store.connecting.set(false);
+      },
+    });
+  }
+
+  /** Reconnect after a ban-guard pause; the first click only asks for confirmation. */
+  protected resume(): void {
+    if (!this.resumeConfirm()) {
+      this.resumeConfirm.set(true);
+      return;
+    }
+    this.resumeConfirm.set(false);
+    this.resuming.set(true);
+    this.errors.set([]);
+    this.api.resumeConnection().subscribe({
+      next: (state) => {
+        this.resuming.set(false);
+        this.store.connection.set(state);
+        if (state.qr) {
+          this.store.qr.set(state.qr);
+          this.store.setStatus('Scan the QR code to link WhatsApp.', 'primary');
+        }
+        if (state.connected) {
+          this.store.connecting.set(false);
+          this.store.qr.set(null);
+        }
+      },
+      error: (err: Error) => {
+        this.resuming.set(false);
+        this.errors.set(err.message.split('\n'));
       },
     });
   }

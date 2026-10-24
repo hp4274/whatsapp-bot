@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 
-import { Api, SafetyEvent, SafetyHealth, SafetyStatus } from '../core/api';
+import { Api, SafetyCause, SafetyEvent, SafetyHealth, SafetyStatus } from '../core/api';
 import { QuietTip, type TipAnchor, anchorBelow, isHovered, tipLayout } from '../core/quiet-tip';
 import {
   type QuietSlot,
@@ -30,6 +30,16 @@ const TIER_STEPS: readonly { readonly n: number; readonly perDay: string }[] = [
   { n: 2, perDay: '2,000' },
   { n: 3, perDay: '10,000' },
 ];
+
+/** Icon per cause key from the server; an unknown key falls back to a shield. */
+const CAUSE_ICONS: Readonly<Record<string, string>> = {
+  reports: 'ti-flag',
+  blocks: 'ti-ban',
+  optouts: 'ti-user-minus',
+  failed: 'ti-alert-triangle',
+  volume: 'ti-send',
+  optin: 'ti-user-check',
+};
 
 /**
  * How healthy the sending number is: which tier it is on and how far from the
@@ -55,6 +65,7 @@ export class SendingHealth {
   protected readonly error = signal<string | null>(null);
   protected readonly health = signal<SafetyHealth | null>(null);
   protected readonly safety = signal<SafetyStatus | null>(null);
+  protected readonly causes = signal<SafetyCause[]>([]);
 
   protected readonly steps = TIER_STEPS;
   protected readonly tier = computed(() => this.safety()?.tier ?? null);
@@ -115,8 +126,9 @@ export class SendingHealth {
     if (showSkeleton) this.loading.set(true);
     this.error.set(null);
     this.api.safetyHealth().subscribe({
-      next: ({ health, safety }) => {
+      next: ({ health, safety, causes }) => {
         this.health.set(health);
+        this.causes.set(causes ?? []);
         this.safety.set(safety);
         this.loading.set(false);
       },
@@ -164,6 +176,10 @@ export class SendingHealth {
   private point(w: QuietSlot, el: Element): void {
     const card = this.card()?.nativeElement;
     if (card) this.spot.set({ ...anchorBelow(card, el), key: w.key });
+  }
+
+  protected causeIcon(key: string): string {
+    return CAUSE_ICONS[key] ?? 'ti-shield';
   }
 
   protected label(event: SafetyEvent): string {

@@ -347,6 +347,37 @@ it('does not fight another socket for the login (440 replaced): no reconnect, se
     assert.equal(transport.isConnected(), true);
 });
 
+it('a banned number (403) stops for good: no reconnect, session kept, state banned', async () => {
+    const { transport, socks, sock } = makeTransport();
+    const states = [];
+    transport.events.on('state', (s) => states.push(s));
+    await transport.connect();
+    fs.mkdirSync(transport.authDir, { recursive: true });
+    sock().ev.emit('connection.update', closeWith(403, 'Connection Failure'));
+    await tick();
+    await tick();
+    assert.equal(socks.length, 1, 'retrying a banned number only deepens the ban');
+    assert.equal(transport.banned, true);
+    assert.equal(transport.reconnectTimer, null);
+    assert.equal(states.at(-1).state, 'banned');
+    assert.match(states.at(-1).detail, /banned this number/);
+    assert.ok(fs.existsSync(transport.authDir), 'a temporary ban can lift, so the session is kept');
+
+    await transport.connect(); // a manual Connect tries again
+    assert.equal(transport.banned, false);
+});
+
+it('a 403 during the first connect rejects at once, not after the 60s timeout', async () => {
+    const { transport } = makeTransport();
+    transport.createSocket = async () => {
+        const sock = new FakeSock();
+        setImmediate(() => sock.ev.emit('connection.update', closeWith(403, 'Connection Failure')));
+        return sock;
+    };
+    await assert.rejects(transport.connect(), (err) => err.retryable === false && /banned this number/.test(err.message));
+    assert.equal(transport.banned, true);
+});
+
 it('hands the QR to the caller and the events when the session is new', async () => {
     const { transport } = makeTransport({ first: 'qr' });
     const qrs = [];
