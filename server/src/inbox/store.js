@@ -166,7 +166,39 @@ export class ConversationStore {
         return row ? toConversation(row) : null;
     }
 
+    /**
+     * Conversations are only opened by an inbound message, so a number we messaged
+     * (campaign, quick send) or that wrote before this table existed had no row and
+     * never showed in the inbox.  Open the missing ones from the message tables.
+     * Cheap when nothing is new: it only runs when either table has grown.
+     */
+    #syncFromHistory() {
+        const mark = `${this.db.prepare('SELECT MAX(rowid) AS n FROM messages').get().n ?? 0}:`
+            + `${this.db.prepare('SELECT MAX(rowid) AS n FROM inbound_messages').get().n ?? 0}`;
+        if (mark === this.#synced) return;
+        const scope = this.channelId ? 'AND (channel_id = ? OR channel_id IS NULL)' : '';
+        const scopeArgs = this.channelId ? [this.channelId] : [];
+        this.db.prepare(
+            `INSERT INTO conversations (tenant_id, channel_id, phone, status, unread_count,
+                                        last_message_at, last_inbound_at, tags, created_at, updated_at)
+             SELECT ?, ?, phone, 'open', SUM(unread), MAX(at), MAX(CASE WHEN inbound THEN at END), '[]', MIN(at), MAX(at)
+             FROM (SELECT recipient AS phone, created_at AS at, 0 AS inbound, 0 AS unread
+                   FROM messages WHERE tenant_id = ? ${scope}
+                   UNION ALL
+                   SELECT sender, received_at, 1, CASE WHEN COALESCE(is_read, 0) = 0 THEN 1 ELSE 0 END
+                   FROM inbound_messages WHERE tenant_id = ? ${scope}) h
+             WHERE phone <> '' AND NOT EXISTS (SELECT 1 FROM conversations c
+                   WHERE c.tenant_id = ? AND c.channel_id = ? AND c.phone = h.phone)
+             GROUP BY phone`)
+            .run(this.tenantId, this.channelId, this.tenantId, ...scopeArgs, this.tenantId, ...scopeArgs,
+                this.tenantId, this.channelId);
+        this.#synced = mark;
+    }
+
+    #synced = '';
+
     list({ status = null, assignedTo = undefined, unread = false, botPaused = false, search = null, limit = 100 } = {}) {
+        this.#syncFromHistory();
         const clauses = ['tenant_id = ?', CURRENT_NUMBER];
         const args = [this.tenantId];
         if (status) {
@@ -259,6 +291,7 @@ export class ConversationStore {
     }
 
     stats({ userId = null } = {}) {
+        this.#syncFromHistory();
         const byStatus = Object.fromEntries(CONVERSATION_STATUSES.map((status) => [status, 0]));
         for (const row of this.db.prepare(
             `SELECT status, COUNT(*) AS n FROM conversations WHERE tenant_id = ? AND ${CURRENT_NUMBER} GROUP BY status`)

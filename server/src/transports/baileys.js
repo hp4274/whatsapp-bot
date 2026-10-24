@@ -22,7 +22,7 @@ import path from 'node:path';
 import { SESSION_DIR } from '../config.js';
 import { renderFallbackText } from '../messaging/interactive.js';
 import { STATUS_RANK, Status } from '../protocol.js';
-import { Transport, TransportConnectionError, TransportSendError } from './base.js';
+import { NOT_ON_WHATSAPP_CODE, Transport, TransportConnectionError, TransportSendError } from './base.js';
 
 export const TOS_WARNING =
     'Baileys automates a WhatsApp account over the multi-device protocol. It is not an '
@@ -47,12 +47,24 @@ const CONNECT_TIMEOUT_MS = 60000;
 const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 60000;
 const RECONNECT_JITTER = 0.25;
+/** Numbers per `onWhatsApp` lookup, and how long one may take before its numbers count as unknown. */
+const REGISTRY_BATCH = 50;
+const REGISTRY_TIMEOUT_MS = 15000;
+
+const withTimeout = (promise, ms) => {
+    let timer;
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timed out')), ms); }),
+    ]).finally(() => clearTimeout(timer));
+};
 
 export class BaileysTransport extends Transport {
     static name_ = 'WhatsApp via Baileys (QR login, no browser, no access token)';
     realDelivery = true;
     supportsReceipts = true;
     supportsGroups = true;
+    supportsRegistrationCheck = true;
 
     /**
      * @param {object} config
@@ -339,13 +351,14 @@ export class BaileysTransport extends Transport {
         fs.rmSync(this.authDir, { recursive: true, force: true });
     }
 
-    async sendMessage(recipient, message, { media = null, interactive = null, typingMs = 0 } = {}) {
+    async sendMessage(recipient, message, { media = null, interactive = null, typingMs = 0, registered = false } = {}) {
         if (!this.connected || !this.sock) {
             throw new TransportConnectionError('Transport is reconnecting', { retryable: true });
         }
         const jid = toJid(recipient);
         if (!jid) throw new TransportSendError(`${recipient} is not a phone number`, { retryable: false });
-        if (!String(recipient).includes('@')) await this.#assertOnWhatsApp(jid, recipient);
+        // `registered`: the campaign engine's batch check already said yes, no need to ask again.
+        if (!registered && !String(recipient).includes('@')) await this.#assertOnWhatsApp(jid, recipient);
 
         let attachment = null;
         try {
@@ -470,16 +483,51 @@ export class BaileysTransport extends Transport {
         };
     }
 
+    /**
+     * One `sock.onWhatsApp(...jids)` lookup per batch of 50. Baileys 7 answers
+     * only for the numbers that have an account, so a number missing from a
+     * successful answer is not on WhatsApp - unless WhatsApp also answered for
+     * a jid we did not ask about (it rewrites some numbers, e.g. Brazil's extra
+     * 9), in which case the missing ones stay unknown. A batch that fails or
+     * takes over 15s leaves its numbers unknown too: the send decides.
+     */
+    async checkRegistered(phones) {
+        const answers = new Map();
+        if (!this.connected || typeof this.sock?.onWhatsApp !== 'function') return answers;
+        const wanted = [...new Set(phones.map(String).filter((p) => /^\d+$/.test(p)))];
+        for (let i = 0; i < wanted.length; i += REGISTRY_BATCH) {
+            const batch = wanted.slice(i, i + REGISTRY_BATCH);
+            let results;
+            try {
+                results = await withTimeout(this.sock.onWhatsApp(...batch.map(toJid)), REGISTRY_TIMEOUT_MS);
+            } catch (err) {
+                console.warn(`[baileys] registration check failed: ${err?.message ?? err}`);
+                continue;
+            }
+            if (!Array.isArray(results)) continue;
+            let unexplained = false;
+            for (const r of results) {
+                const phone = String(r?.jid ?? '').split('@')[0].split(':')[0];
+                if (batch.includes(phone)) answers.set(phone, r.exists !== false);
+                else unexplained = true;
+            }
+            if (!unexplained) for (const phone of batch) if (!answers.has(phone)) answers.set(phone, false);
+        }
+        return answers;
+    }
+
     async #assertOnWhatsApp(jid, recipient) {
         if (typeof this.sock.onWhatsApp !== 'function') return;
-        let result;
+        let results;
         try {
-            [result] = await this.sock.onWhatsApp(jid) ?? [];
+            results = await withTimeout(this.sock.onWhatsApp(jid), REGISTRY_TIMEOUT_MS);
         } catch {
             return; // the lookup failed, not the number: let the send decide
         }
-        if (result && result.exists === false) {
-            throw new TransportSendError(`${recipient} is not on WhatsApp`, { retryable: false });
+        if (!Array.isArray(results)) return;
+        // One number asked: an empty answer (Baileys 7) or exists:false (older) both mean no account.
+        if (!results.length || results[0]?.exists === false) {
+            throw new TransportSendError(`${recipient} is not on WhatsApp`, { retryable: false, code: NOT_ON_WHATSAPP_CODE });
         }
     }
 

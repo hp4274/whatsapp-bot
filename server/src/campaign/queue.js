@@ -31,7 +31,10 @@ export function queueItem({
         idempotencyKey,
         messageId: newMessageId(),
         attempt: 0,
+        // A job's idempotency key already says what counts as "the same message"
+        // (the message service checks it); content is the key only for campaign rows.
         get key() {
+            if (this.idempotencyKey) return this.idempotencyKey;
             return dedupeKey(this.recipient, `${this.message}|${this.media?.mediaId ?? ''}`);
         },
     };
@@ -76,9 +79,13 @@ export class MessageQueue {
         return dropped;
     }
 
-    /** Make a stopped queue usable again (new campaign, clean dedupe set). */
-    reset() {
-        this.items = [];
+    /**
+     * Make a stopped queue usable again (new campaign, clean dedupe set).
+     * `keepOneOff`: a campaign starting replaces only campaign rows; a reply or
+     * a quick send still waiting is someone's message, so it keeps its place.
+     */
+    reset({ keepOneOff = false } = {}) {
+        this.items = keepOneOff ? this.items.filter((i) => (i.messageType ?? 'campaign') !== 'campaign') : [];
         this.seen.clear();
         this.duplicatesRejected = 0;
         this.state = QueueState.RUNNING;

@@ -624,6 +624,7 @@ export class SendIsland {
   }
 
   protected label(status: MessageRecord['status']): string {
+    if (status === 'NOT_ON_WHATSAPP') return 'Not on WhatsApp';
     return status === 'SANDBOX' ? 'Test' : status.charAt(0) + status.slice(1).toLowerCase();
   }
 

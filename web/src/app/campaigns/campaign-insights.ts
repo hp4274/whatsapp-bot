@@ -14,7 +14,7 @@ import type { CampaignAnalytics } from '../core/api';
 import { Store } from '../core/store';
 import { count, pct, percent, reportRates } from './campaign-format';
 
-type Tone = 'info' | 'good' | 'accent' | 'bad';
+type Tone = 'info' | 'good' | 'accent' | 'warn' | 'bad';
 
 /**
  * Funnel, button clicks, failure breakdown and re-target shortcuts.
@@ -85,6 +85,18 @@ export class CampaignInsights {
       { key: 'replied', label: 'Replied', icon: 'arrow-back-up', count: f.replied, tone: 'accent', rate: r.replied, base: 'of delivered' },
       { key: 'failed', label: 'Failed', icon: 'alert-circle', count: f.failed, tone: 'bad', rate: r.failed, base: 'of attempted' },
     ];
+    // Numbers with no WhatsApp account were checked and skipped: their own stage, never "failed".
+    if (f.notOnWhatsapp) {
+      rows.push({
+        key: 'notOnWhatsapp',
+        label: 'Not on WhatsApp',
+        icon: 'phone-off',
+        count: f.notOnWhatsapp,
+        tone: 'warn',
+        rate: audience ? percent(f.notOnWhatsapp, audience) : null,
+        base: 'of audience',
+      });
+    }
     if (this.showLinks()) {
       rows.splice(4, 0, {
         key: 'clickedLink',

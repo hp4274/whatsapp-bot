@@ -176,6 +176,38 @@ describe('conversations', () => {
     });
 });
 
+describe('numbers without a conversation row', () => {
+    it('lists numbers we messaged, and numbers that wrote before conversations existed', () => {
+        const inbox = store();
+        const scoped = db.forTenant(1).forChannel(CHANNEL);
+        const sentOnly = uniquePhone();
+        const wroteOnly = uniquePhone();
+        scoped.insert({
+            messageId: `out.${sentOnly}`, recipient: sentOnly, message: 'promo',
+            status: 'SENT', messageType: 'campaign', createdAt: '2026-03-01T10:00:00Z',
+        });
+        scoped.insertInbound({ messageId: `in.${wroteOnly}`, sender: wroteOnly, body: 'hi', receivedAt: '2026-03-01T11:00:00Z' });
+
+        const rows = inbox.list({ limit: 1000 });
+        const sent = rows.find((c) => c.phone === sentOnly);
+        const wrote = rows.find((c) => c.phone === wroteOnly);
+        assert.ok(sent, 'a number we only messaged has a conversation');
+        assert.equal(sent.unreadCount, 0);
+        assert.equal(sent.lastMessageAt, '2026-03-01T10:00:00Z');
+        assert.ok(wrote, 'a number that wrote with no conversation row has one');
+        assert.equal(wrote.unreadCount, 1);
+        assert.equal(wrote.lastInboundAt, '2026-03-01T11:00:00Z');
+        assert.deepEqual(inbox.thread(sent.id).map((row) => row.body), ['promo']);
+
+        // A later send is picked up too, and nothing is duplicated.
+        const later = uniquePhone();
+        scoped.insert({ messageId: `out.${later}`, recipient: later, message: 'x', status: 'SENT', createdAt: '2026-03-02T10:00:00Z' });
+        const again = inbox.list({ limit: 1000 });
+        assert.ok(again.some((c) => c.phone === later));
+        assert.equal(again.filter((c) => c.phone === sentOnly).length, 1);
+    });
+});
+
 describe('human takeover', () => {
     it('pauses and resumes the bot for one number only', () => {
         const inbox = store();

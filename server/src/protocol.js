@@ -22,6 +22,8 @@ export const Status = Object.freeze({
     FAILED: 'FAILED',
     CANCELLED: 'CANCELLED',
     SANDBOX: 'SANDBOX',
+    /** Checked before sending: the number has no WhatsApp account, so nothing went out. */
+    NOT_ON_WHATSAPP: 'NOT_ON_WHATSAPP',
 });
 
 /** Ranking that stops a late receipt from downgrading a message. */
@@ -34,10 +36,11 @@ export const STATUS_RANK = Object.freeze({
     READ: 4,
     FAILED: 5,
     CANCELLED: 5,
+    NOT_ON_WHATSAPP: 5,
 });
 
 export const SUCCESS_STATUSES = Object.freeze([Status.SENT, Status.DELIVERED, Status.READ]);
-export const TERMINAL_STATUSES = Object.freeze([Status.DELIVERED, Status.READ, Status.FAILED, Status.CANCELLED]);
+export const TERMINAL_STATUSES = Object.freeze([Status.DELIVERED, Status.READ, Status.FAILED, Status.CANCELLED, Status.NOT_ON_WHATSAPP]);
 
 export function utcNow() {
     return new Date().toISOString().replace(/\.\d{3}Z$/, '+00:00');

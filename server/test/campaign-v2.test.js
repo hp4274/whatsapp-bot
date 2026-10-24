@@ -352,7 +352,7 @@ describe('the campaign store', () => {
         scoped.insertInbound({ sender: '919833300001', body: 'thanks!' });
 
         const report = store.analytics(c.id);
-        assert.deepEqual(report.funnel, { audience: 4, queued: 4, sent: 3, delivered: 2, read: 1, replied: 1, failed: 1, clickedLink: 0 });
+        assert.deepEqual(report.funnel, { audience: 4, queued: 4, sent: 3, delivered: 2, read: 1, replied: 1, failed: 1, notOnWhatsapp: 0, clickedLink: 0 });
         assert.deepEqual(report.failures, [{ code: ErrorCode.INVALID_RECIPIENT, label: FRIENDLY[ErrorCode.INVALID_RECIPIENT], count: 1 }]);
         assert.equal(report.clicks, null);
         const p1 = report.recipients.find((r) => r.phone === '919833300001');

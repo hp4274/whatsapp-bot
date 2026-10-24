@@ -349,7 +349,7 @@ export class CampaignStore {
         const meta = this.#metaTemplates(campaign, options);
 
         this.manager.resetStats();
-        this.manager.queue.reset();
+        this.manager.queue.reset({ keepOneOff: true });
         this.manager.pausedByQuota = false;
         let result;
         try {
@@ -473,7 +473,8 @@ export class CampaignStore {
         const total = Object.values(byStatus).reduce((n, v) => n + v, 0);
         const pending = OPEN_STATUSES.reduce((n, s) => n + (byStatus[s] ?? 0), 0);
         const failed = byStatus.FAILED ?? 0;
-        const snapshot = { total, pending, failed, sent: total - pending - failed - (byStatus.CANCELLED ?? 0), byStatus };
+        const notSent = (byStatus.CANCELLED ?? 0) + (byStatus.NOT_ON_WHATSAPP ?? 0);
+        const snapshot = { total, pending, failed, sent: total - pending - failed - notSent, byStatus };
 
         if (campaign.status === 'running' && total > 0 && pending === 0) {
             const spread = campaign.options?.spread;
@@ -536,7 +537,7 @@ export class CampaignStore {
         const key = campaignKey(campaign.id);
         const meta = this.#metaTemplates(campaign, options);
         this.manager.resetStats();
-        this.manager.queue.reset();
+        this.manager.queue.reset({ keepOneOff: true });
         this.manager.pausedByQuota = false;
         this.manager.campaignId = key;
         let queued = 0;
@@ -650,6 +651,8 @@ export class CampaignStore {
                 read: count(['READ']),
                 replied: recipients.filter((r) => r.replied).length,
                 failed: count(['FAILED']),
+                // Checked before sending and skipped: not a failure, and never retried.
+                notOnWhatsapp: count(['NOT_ON_WHATSAPP']),
                 clickedLink: recipients.filter((r) => r.clickedLink).length,
             },
             failures: [...failures.values()].sort((a, b) => b.count - a.count),
@@ -860,9 +863,10 @@ export class CampaignStore {
         const byStatus = this.counts(key);
         const open = OPEN_STATUSES.reduce((n, s) => n + (byStatus[s] ?? 0), 0);
         const failed = byStatus.FAILED ?? 0;
+        const notOnWhatsapp = byStatus.NOT_ON_WHATSAPP ?? 0;
         manager.restoreRun({
-            campaignId: key, jobs, failed,
-            sent: Object.values(byStatus).reduce((n, v) => n + v, 0) - open - failed,
+            campaignId: key, jobs, failed, notOnWhatsapp,
+            sent: Object.values(byStatus).reduce((n, v) => n + v, 0) - open - failed - notOnWhatsapp,
             paused: campaign.status === 'paused', pacing: options.pacing ?? 'balanced',
         });
         return true;

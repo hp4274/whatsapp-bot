@@ -106,6 +106,7 @@ export const RECIPIENT_STATUS_LABEL: Readonly<Record<string, string>> = {
   FAILED: 'Failed',
   CANCELLED: 'Cancelled',
   SANDBOX: 'Test send',
+  NOT_ON_WHATSAPP: 'Not on WhatsApp',
 };
 
 /** Human label for a campaign status or a recipient status; unknown values pass through. */

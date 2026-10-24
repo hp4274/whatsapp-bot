@@ -255,6 +255,14 @@ describe('queue', () => {
         queue.reset();
         assert.equal(queue.put(queueItem({ recipient: '91', message: 'c' })), true);
     });
+
+    it('keeps waiting one-off messages when a new campaign resets it', () => {
+        const queue = new MessageQueue();
+        queue.put(queueItem({ recipient: '91', message: 'old campaign row' }));
+        queue.put(queueItem({ recipient: '92', message: 'quick send', messageType: 'transactional', idempotencyKey: 'k1' }));
+        queue.reset({ keepOneOff: true });
+        assert.deepEqual(queue.items.map((i) => i.message), ['quick send']);
+    });
 });
 
 describe('rate limiter', () => {

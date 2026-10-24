@@ -18,7 +18,7 @@ import multer from 'multer';
 import { AutoReplyEngine } from './autoreply/engine.js';
 import { processOptOut } from './autoreply/optout.js';
 import { COMPLAINT_WORDS } from './campaign/humanize.js';
-import { CampaignManager } from './campaign/manager.js';
+import { CampaignManager, NOT_ON_WHATSAPP_TEXT } from './campaign/manager.js';
 import { auditRows, cleanCountryCode, guessMapping, parseSheet } from './campaign/importer.js';
 import { channelInputProblems, channelUsage } from './channelUsage.js';
 import {
@@ -74,7 +74,7 @@ import { metaTemplateFor } from './messaging/templateSend.js';
 import { WorkflowEngine } from './workflows/engine.js';
 import { WorkflowError } from './workflows/definition.js';
 import { WorkflowStore, dueRuns } from './workflows/store.js';
-import { MessageJobError, messageJob } from './messaging/job.js';
+import { MessageJobError, messageJob, uniqueKey } from './messaging/job.js';
 import { friendlyError } from './messaging/errors.js';
 import { MessageService } from './messaging/service.js';
 import { InteractiveError, normalizeInteractive, personalizeInteractive } from './messaging/interactive.js';
@@ -636,7 +636,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     app.post('/connection/logout', logout);
 
     // ----------------------------------------------------------- messages --
-    app.post('/messages', (req, res) => {
+    app.post('/messages', async (req, res) => {
         const { recipient, message, name = '', mediaId = null } = req.body ?? {};
         if (!message) return res.status(400).json({ errors: ['message is required'] });
         let normalized;
@@ -667,6 +667,10 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             if (err instanceof InteractiveError) return res.status(400).json({ errors: [err.message] });
             throw err;
         }
+        // Said up front, not as a failed row later; an unknown answer sends as before.
+        if ((await manager.checkRegistered([normalized])).get(normalized) === false) {
+            return res.status(422).json({ errors: [NOT_ON_WHATSAPP_TEXT], reason: 'not_on_whatsapp' });
+        }
 
         let outcome;
         try {
@@ -679,7 +683,9 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
                 interactive,
                 // A caller retrying a timed-out POST sends the same key and
                 // gets the original message id back, not a second message.
-                idempotencyKey: req.get('idempotency-key') || undefined,
+                // Without one, every send is its own: the content-derived key
+                // would refuse the same text to the same number forever.
+                idempotencyKey: req.get('idempotency-key') || uniqueKey('single'),
             });
         } catch (err) {
             if (err instanceof MessageJobError) return res.status(err.status).json({ errors: [err.message] });
@@ -1553,6 +1559,23 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         if (!['pause', 'resume', 'stop'].includes(action)) {
             return res.status(404).json({ errors: [`unknown action: ${action}`] });
         }
+        // The run belongs to a saved campaign ('camp-7'): act through its record, so the
+        // Campaigns page shows the same paused / running / cancelled state as the engine.
+        const id = Number(String(manager.campaignId ?? '').replace(/^camp-/, ''));
+        const record = Number.isInteger(id) && id > 0 ? state.campaigns?.get(id) : null;
+        if (record && ['running', 'paused'].includes(record.status)) {
+            const store = state.campaigns;
+            try {
+                if (action === 'stop') store.cancel(id);
+                else if (action === 'pause' && record.status === 'running') store.pause(id);
+                else if (action === 'resume' && record.status === 'paused') store.resume(id);
+                else manager[action]();
+            } catch (err) {
+                if (!err.status) throw err;
+                return res.status(err.status).json({ errors: [err.message], stats: manager.statsSnapshot() });
+            }
+            return res.json({ stats: manager.statsSnapshot() });
+        }
         const accepted = manager[action]();
         if (action === 'resume' && accepted === false) {
             return res.status(409).json({
@@ -1639,10 +1662,11 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     app.get('/history', (req, res) => {
         const status = req.query.status && req.query.status !== 'ALL' ? req.query.status : null;
         const recipient = req.query.recipient || null;
-        const signature = db.historySignature({ status, recipient });
+        const sig = db.historySignature({ status, recipient });
+        const signature = `${sig.count}:${sig.last}:${sig.mix}`;
         // The browser sends back the signature it already has: same answer
         // means no rows are shipped at all.
-        if (req.query.signature === `${signature.count}:${signature.last}`) {
+        if (req.query.signature === signature) {
             return res.status(204).end();
         }
         return res.json({
@@ -1650,7 +1674,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             records: db.history({ limit: Number(req.query.limit) || 1000, status, recipient })
                 .map((r) => (r.error ? { ...r, error: friendlyError(r.error) } : r)),
             counts: db.countsByStatus(),
-            signature: `${signature.count}:${signature.last}`,
+            signature,
         });
     });
 

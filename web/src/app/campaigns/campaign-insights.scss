@@ -120,6 +120,7 @@ h3 {
 
   &.tone-info { --tone: var(--info); }
   &.tone-accent { --tone: var(--accent); }
+  &.tone-warn { --tone: var(--warning); }
   &.tone-bad { --tone: var(--danger-text); }
 }
 

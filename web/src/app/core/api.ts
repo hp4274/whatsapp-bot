@@ -9,7 +9,16 @@ import type { ReplyRule } from '../campaign/interactive/interactive.model';
 import { Role, Tenant, TenantControls, User } from './auth';
 
 export type MessageStatus =
-  'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | 'CANCELLED' | 'SANDBOX';
+  | 'QUEUED'
+  | 'SENDING'
+  | 'SENT'
+  | 'DELIVERED'
+  | 'READ'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'SANDBOX'
+  /** Checked before sending: the number has no WhatsApp account, so nothing went out. */
+  | 'NOT_ON_WHATSAPP';
 
 export interface AppConfig {
   transport: 'cloud_api' | 'baileys';
@@ -1429,6 +1438,8 @@ export interface CampaignAnalytics {
     read: number;
     replied: number;
     failed: number;
+    /** Skipped because the number has no WhatsApp account; not counted in `failed`. */
+    notOnWhatsapp?: number;
     /** Recipients who tapped a tracked link at least once. */
     clickedLink?: number;
   };

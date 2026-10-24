@@ -572,8 +572,11 @@ export class Database {
     }
 
     /**
-     * (row count, latest update) for a filter: the cheap "did anything
-     * change?" question, so a client never re-fetches rows it already has.
+     * (row count, latest update, status mix) for a filter: the cheap "did
+     * anything change?" question, so a client never re-fetches rows it already
+     * has. `updated_at` has one-second resolution, and a campaign queues a row
+     * and sends it inside the same second: the mix (rows per status, attempts)
+     * is what tells those writes apart.
      */
     historySignature({ status = null, recipient = null } = {}) {
         const clauses = ['tenant_id = ?'];
@@ -586,10 +589,14 @@ export class Database {
             clauses.push('recipient LIKE ?');
             args.push(`%${recipient}%`);
         }
-        let sql = "SELECT COUNT(*) AS n, COALESCE(MAX(updated_at), '') AS last FROM messages";
-        sql += ` WHERE ${clauses.join(' AND ')}`;
-        const row = this.db.prepare(sql).get(...args);
-        return { count: row.n, last: row.last };
+        let sql = 'SELECT status, COUNT(*) AS n, MAX(updated_at) AS last, SUM(attempt) AS tries FROM messages';
+        sql += ` WHERE ${clauses.join(' AND ')} GROUP BY status ORDER BY status`;
+        const rows = this.db.prepare(sql).all(...args);
+        return {
+            count: rows.reduce((sum, r) => sum + r.n, 0),
+            last: rows.reduce((max, r) => (r.last > max ? r.last : max), ''),
+            mix: rows.map((r) => `${r.status}${r.n}.${r.tries}`).join(','),
+        };
     }
 
     countsByStatus(campaignId = null, channelId = null) {
@@ -768,7 +775,7 @@ export class Database {
         const rows = this.db.prepare(
             `SELECT recipient, COUNT(*) AS n FROM messages
              WHERE tenant_id = ? AND message_type = 'campaign' AND created_at >= ?
-               AND status NOT IN ('FAILED', 'SANDBOX')
+               AND status NOT IN ('FAILED', 'SANDBOX', 'NOT_ON_WHATSAPP')
              GROUP BY recipient`,
         ).all(this.tenantId, sinceIso);
         return new Map(rows.map((r) => [r.recipient, r.n]));
