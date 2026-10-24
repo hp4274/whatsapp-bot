@@ -27,7 +27,18 @@
 
 .eta { margin: 0; font-size: 13px; }
 
-// Pace / when choices: the Kardlyz segmented track, big enough for a label
+// The plan's speed: read-only, one line.
+.plan-speed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+
+  .ti { font-size: 17px; color: var(--text-muted); }
+}
+
+// When choices: the Kardlyz segmented track, big enough for a label
 // and a hint, the active item lifted onto the card surface.
 .seg {
   display: grid;

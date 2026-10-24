@@ -99,23 +99,12 @@
     }
   </div>
 
-  <div class="seg" role="radiogroup" aria-label="Sending speed">
-    @for (p of presets; track p.value) {
-      <button
-        type="button"
-        role="radio"
-        class="opt"
-        [class.on]="d.pacing() === p.value"
-        [attr.aria-checked]="d.pacing() === p.value"
-        [disabled]="policy.tooFast(p.value)"
-        (click)="pickPacing(p.value)"
-      >
-        <i class="ti ti-{{ p.icon }}" aria-hidden="true"></i>
-        <strong>{{ p.label }}</strong>
-        <small>{{ policy.tooFast(p.value) ? 'Not on your plan' : p.text }}</small>
-      </button>
-    }
-  </div>
+  @let speed = planSpeed();
+  <p class="plan-speed">
+    <i class="ti ti-{{ speed.icon }}" aria-hidden="true"></i>
+    <strong>{{ speed.label }}</strong>
+    <span class="muted">- set by your plan. {{ speed.text }}</span>
+  </p>
 
   @if (!s && loadingSafety()) {
     <span class="skel" aria-busy="true" aria-label="Loading send estimate"></span>

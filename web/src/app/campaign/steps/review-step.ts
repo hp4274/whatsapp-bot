@@ -28,11 +28,11 @@ type Safety = SafetyStatus & {
   withinSendingWindow?: boolean;
 };
 
-/** Pacing presets; the server owns the actual delays and returns them per preset. */
+/** The plan's sending speed (bulk.maxSpeed), named as in Admin > Plans; the server owns the delays. */
 const PRESETS: { value: PacingPreset; label: string; icon: string; text: string }[] = [
-  { value: 'safe', label: 'Safe', icon: 'shield', text: 'Slower - best for new numbers' },
-  { value: 'balanced', label: 'Balanced', icon: 'scale', text: 'Recommended for most sends' },
-  { value: 'fast', label: 'Fast', icon: 'bolt', text: 'Quicker, a little riskier' },
+  { value: 'safe', label: 'Slow', icon: 'shield', text: 'Long gaps between messages.' },
+  { value: 'balanced', label: 'Normal', icon: 'scale', text: 'Steady gaps between messages.' },
+  { value: 'fast', label: 'Fast', icon: 'bolt', text: 'Short gaps between messages.' },
 ];
 
 /** Used when the browser cannot list IANA zones (Intl.supportedValuesOf is missing). */
@@ -94,10 +94,12 @@ export class ReviewStep {
   protected readonly store = inject(Store);
   private readonly api = inject(Api);
   private readonly campaignsApi = inject(CampaignsApi);
-  /** Plan rules: presets above the speed ceiling and scheduling can be switched off. */
+  /** Plan rules: the plan's sending speed, and whether scheduling is allowed. */
   protected readonly policy = inject(CampaignPolicy);
 
-  protected readonly presets = PRESETS;
+  protected readonly planSpeed = computed(
+    () => PRESETS.find((p) => p.value === this.policy.maxSpeed()) ?? PRESETS[1],
+  );
   protected readonly zones = zones(this.draft.timezone());
   protected readonly safety = signal<Partial<Record<PacingPreset, Safety>>>({});
   protected readonly loadingSafety = signal(false);
@@ -271,7 +273,9 @@ export class ReviewStep {
     // A draft from before the rules loaded (or changed) is pulled back inside them.
     effect(() => {
       const d = this.draft;
-      if (this.policy.tooFast(d.pacing())) untracked(() => d.pacing.set(this.policy.maxSpeed()));
+      // The plan sets the speed; the draft follows it so the estimate matches what the server does.
+      const planned = this.policy.maxSpeed();
+      if (d.pacing() !== planned) untracked(() => d.pacing.set(planned));
       const mode = d.scheduleMode();
       const offPlan = !this.policy.allowScheduling() && mode !== 'now';
       // Switching the audience away from the file makes a spread impossible.
@@ -349,12 +353,6 @@ export class ReviewStep {
         });
       },
     });
-  }
-
-  protected pickPacing(preset: PacingPreset): void {
-    if (this.policy.tooFast(preset)) return;
-    this.draft.pacing.set(preset);
-    if (!this.safety()[preset]) this.loadSafety(this.size());
   }
 
   /** One click out of an infeasible range: stretch the end date to the server's minimum. */

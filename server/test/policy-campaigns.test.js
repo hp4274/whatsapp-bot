@@ -74,13 +74,16 @@ describe('bulk.* in the campaign manager', () => {
         assert.match(result.policyNotes[0], /1 contacts were skipped because they have not opted in/);
     });
 
-    it('clamps a faster speed preset to the ceiling', () => {
+    it('sends at the plan speed, whatever preset is asked for', () => {
         const { manager } = rig({ 'bulk.maxSpeed': 'safe' });
-        const result = manager.enqueueContacts(people(1), 'Hi {name}', { pacing: 'fast' });
-        assert.deepEqual(result.pacingClamped, { requested: 'fast', applied: 'safe' });
+        manager.enqueueContacts(people(1), 'Hi {name}', { pacing: 'fast' });
         assert.equal(manager.pacePreset, 'safe');
         manager.setPace('balanced');
         assert.equal(manager.pacePreset, 'safe');
+
+        const business = rig({ 'bulk.maxSpeed': 'fast' }).manager;
+        business.enqueueContacts(people(1), 'Hi {name}', { pacing: 'safe' });
+        assert.equal(business.pacePreset, 'fast', 'a slower request does not slow a faster plan');
     });
 
     it('refuses a send bigger than the business has left of its daily cap', () => {
