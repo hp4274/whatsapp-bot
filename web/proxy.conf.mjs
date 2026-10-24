@@ -12,12 +12,18 @@ export default {
     changeOrigin: true,
     timeout: 600000,
     configure: (proxy) => {
-      proxy.on('error', (err, req, res) => {
-        if (req.url?.startsWith('/api/events') && err.code === 'ECONNRESET') {
+      // Vite adds its own 'error' listener (the "[vite] http proxy error" line) after this
+      // runs, so a listener alone can't silence it: drop the reset before any listener sees it.
+      const emit = proxy.emit.bind(proxy);
+      proxy.emit = (event, err, req, res, ...rest) => {
+        if (event === 'error' && req?.url?.startsWith('/api/events') && err?.code === 'ECONNRESET') {
           // Hand the browser a clean end so EventSource retries at once.
           if (res && !res.writableEnded) res.end();
-          return;
+          return true;
         }
+        return emit(event, err, req, res, ...rest);
+      };
+      proxy.on('error', (err, req, res) => {
         console.error(`[proxy] ${req.url}: ${err.message}`);
         if (res && !res.headersSent && typeof res.writeHead === 'function') {
           res.writeHead(502, { 'Content-Type': 'application/json' });
