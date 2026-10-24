@@ -39,7 +39,7 @@ class FakeSock {
         this.sends += 1;
         return { key: { id: `LIVE${this.sends}`, remoteJid: jid, fromMe: true } };
     }
-    async onWhatsApp(jid) { return [{ jid, exists: true }]; }
+    async onWhatsApp(...jids) { return jids.map((jid) => ({ jid, exists: true })); }
     async logout() {}
     async end() {}
 }

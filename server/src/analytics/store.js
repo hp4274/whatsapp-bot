@@ -91,6 +91,8 @@ function add(counts, status, n) {
         counts.pending += n;
         return;
     }
+    // Never attempted: the number was checked first and has no WhatsApp account.
+    if (status === 'NOT_ON_WHATSAPP') return;
     counts.attempted += n;
     if (status === 'FAILED') counts.failed += n;
     else counts.sent += n;

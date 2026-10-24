@@ -22,6 +22,7 @@ const STATUSES: readonly string[] = [
   'FAILED',
   'CANCELLED',
   'SANDBOX',
+  'NOT_ON_WHATSAPP',
 ];
 
 /** Placeholder rows shown while the first page loads. */
@@ -35,6 +36,7 @@ const STATUS_TONE: Readonly<Record<string, string>> = {
   SENDING: 'tone-info',
   FAILED: 'tone-bad',
   SANDBOX: 'tone-warn',
+  NOT_ON_WHATSAPP: 'tone-warn',
 };
 
 /**

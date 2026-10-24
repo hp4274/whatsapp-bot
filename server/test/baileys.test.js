@@ -35,8 +35,8 @@ class FakeSock {
         if (this.sendResult) return this.sendResult(jid, content, this.sends.length);
         return { key: { id: `BAE5${this.sends.length}`, remoteJid: jid, fromMe: true } };
     }
-    async onWhatsApp(jid) {
-        return this.onWhatsAppFn ? this.onWhatsAppFn(jid) : [{ jid, exists: true }];
+    async onWhatsApp(...jids) {
+        return this.onWhatsAppFn ? this.onWhatsAppFn(...jids) : jids.map((jid) => ({ jid, exists: true }));
     }
     async logout() { this.loggedOut = true; }
     async end() { this.ended = true; }

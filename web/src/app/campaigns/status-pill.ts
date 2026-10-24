@@ -24,6 +24,7 @@ const TONES: Readonly<Record<string, Tone>> = {
   paused: 'warn',
   sandbox: 'warn',
   warning: 'warn',
+  not_on_whatsapp: 'warn',
   failed: 'bad',
   cancelled: 'bad',
   error: 'bad',

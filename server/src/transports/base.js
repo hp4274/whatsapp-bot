@@ -13,6 +13,9 @@ export class TransportError extends Error {
     }
 }
 
+/** `TransportError.code` of a send refused because the number has no WhatsApp account. */
+export const NOT_ON_WHATSAPP_CODE = 'not_on_whatsapp';
+
 export class TransportConnectionError extends TransportError {
     constructor(message, options) {
         super(message, options);
@@ -44,6 +47,8 @@ export class Transport {
     supportsReceipts = false;
     /** True when the transport can list the groups the number is in (`listGroups()`). */
     supportsGroups = false;
+    /** True when `checkRegistered()` can actually ask WhatsApp. */
+    supportsRegistrationCheck = false;
 
     get name() {
         return this.constructor.name_;
@@ -61,6 +66,15 @@ export class Transport {
     async sendMessage(_recipient, _message, { media = null } = {}) {
         void media;
         throw new Error('not implemented');
+    }
+
+    /**
+     * Which of these numbers have a WhatsApp account: phone -> true | false.
+     * A number left out is unknown, and an unknown number is sent to as usual,
+     * so a transport that cannot tell answers with an empty map.
+     */
+    async checkRegistered(_phones) {
+        return new Map();
     }
 
     /** Latest status known for a provider message id, or null - never a guess. */

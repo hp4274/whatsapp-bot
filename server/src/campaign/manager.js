@@ -7,7 +7,7 @@
  * written to SQLite and emitted for the browser.
  */
 
-import { ErrorCode, friendlyError, normalizeError } from '../messaging/errors.js';
+import { ErrorCode, FRIENDLY, friendlyError, normalizeError } from '../messaging/errors.js';
 import { normalizeInteractive, personalizeInteractive } from '../messaging/interactive.js';
 import { renderMessage, withFallbacks } from './importer.js';
 import { prepareTemplateSend } from '../messaging/templateSend.js';
@@ -20,7 +20,7 @@ import {
     contactContext,
     personalize,
 } from '../protocol.js';
-import { TransportConnectionError, TransportError } from '../transports/base.js';
+import { NOT_ON_WHATSAPP_CODE, TransportConnectionError, TransportError } from '../transports/base.js';
 import { RateLimiter, RetryPolicy, interruptibleSleep } from './limits.js';
 import { MessageQueue, QueueState, queueItem } from './queue.js';
 import {
@@ -36,6 +36,16 @@ const isoAgo = (ms) => new Date(Date.now() - ms).toISOString().replace(/\.\d{3}Z
 const between = (min, max) => min + Math.random() * (max - min);
 /** Someone is waiting on these: the daily cap counts them but never pauses the queue for them. */
 const QUOTA_EXEMPT = new Set(['auto_reply', 'transactional']);
+/**
+ * Registration answers are kept a day (accounts come and go slowly); an
+ * unknown one (the check failed) only 10 minutes, so a hiccup is retried soon
+ * without asking again for every message in between.
+ */
+const REGISTERED_TTL_MS = 24 * 3600_000;
+const UNKNOWN_TTL_MS = 10 * 60_000;
+/** Numbers asked about in one go: this message's and the next unchecked ones in the queue. */
+const CHECK_AHEAD = 50;
+export const NOT_ON_WHATSAPP_TEXT = FRIENDLY[ErrorCode.INVALID_RECIPIENT];
 
 export class CampaignManager extends EventEmitter {
     constructor(db, transport, config) {
@@ -47,7 +57,9 @@ export class CampaignManager extends EventEmitter {
         this.rateLimiter = new RateLimiter(config.rateLimitPerSecond, config.rateLimitBurst);
         this.retryPolicy = RetryPolicy.fromConfig(config);
         this.campaignId = '';
-        this.stats = { total: 0, successful: 0, failed: 0, processed: 0, skippedOptOut: 0 };
+        this.stats = { total: 0, successful: 0, failed: 0, processed: 0, skippedOptOut: 0, notOnWhatsapp: 0 };
+        // phone -> { registered: true | false | null (unknown), at } (see checkRegistered).
+        this.registry = new Map();
         this.worker = null;
         this.shuttingDown = false;
         this.inFlight = 0;
@@ -116,6 +128,52 @@ export class CampaignManager extends EventEmitter {
 
     setTransport(transport) {
         this.transport = transport;
+        this.registry.clear();   // unknowns from the old transport must not stick
+    }
+
+    /**
+     * Which of these numbers are on WhatsApp: phone -> true | false | null.
+     * null is unknown (no check on this transport, or it failed) and is sent
+     * to as before. Answers are remembered (see REGISTERED_TTL_MS), so the
+     * quick send and the worker never ask twice about the same number.
+     */
+    async checkRegistered(phones) {
+        const answers = new Map();
+        const ask = [];
+        for (const phone of new Set(phones)) {
+            const known = this.#registered(phone);
+            if (known === undefined) ask.push(phone);
+            else answers.set(phone, known);
+        }
+        if (!ask.length) return answers;
+        if (!this.transport?.supportsRegistrationCheck) {
+            for (const phone of ask) answers.set(phone, null);
+            return answers;
+        }
+        let found = new Map();
+        try {
+            found = await this.transport.checkRegistered(ask) ?? new Map();
+        } catch (err) {
+            console.warn(`[send] registration check failed, sending as usual: ${err?.message ?? err}`);
+        }
+        const at = Date.now();
+        for (const phone of ask) {
+            const registered = typeof found.get(phone) === 'boolean' ? found.get(phone) : null;
+            this.registry.set(phone, { registered, at });
+            answers.set(phone, registered);
+        }
+        return answers;
+    }
+
+    /** The remembered answer for a number, or undefined when it has to be asked. */
+    #registered(phone) {
+        const hit = this.registry.get(phone);
+        if (!hit) return undefined;
+        if (Date.now() - hit.at > (hit.registered === null ? UNKNOWN_TTL_MS : REGISTERED_TTL_MS)) {
+            this.registry.delete(phone);
+            return undefined;
+        }
+        return hit.registered;
     }
 
     statsSnapshot() {
@@ -415,7 +473,7 @@ export class CampaignManager extends EventEmitter {
      * @param {{campaignId: string, jobs: object[], sent: number, failed: number, paused?: boolean, pacing?: string}} run
      * @returns {number} how many were queued
      */
-    restoreRun({ campaignId, jobs, sent = 0, failed = 0, paused = false, pacing = 'balanced' }) {
+    restoreRun({ campaignId, jobs, sent = 0, failed = 0, notOnWhatsapp = 0, paused = false, pacing = 'balanced' }) {
         this.queue.reset();
         this.pausedByQuota = false;
         this.resumeRefusal = null;
@@ -437,7 +495,10 @@ export class CampaignManager extends EventEmitter {
             if (this.queue.put(item)) queued += 1;
         }
         this.queue.dedupe = dedupe;
-        this.stats = { total: queued + sent + failed, successful: sent, failed, processed: sent + failed, skippedOptOut: 0 };
+        this.stats = {
+            total: queued + sent + failed + notOnWhatsapp, successful: sent, failed,
+            processed: sent + failed + notOnWhatsapp, skippedOptOut: 0, notOnWhatsapp,
+        };
         this.sentInRun = 0;
         this.nextRestAt = null;
         this.setPace(pacing, queued);
@@ -524,7 +585,7 @@ export class CampaignManager extends EventEmitter {
     resetStats() {
         this.stopReason = 'Stopped by operator';
         this.resumeRefusal = null;
-        this.stats = { total: 0, successful: 0, failed: 0, processed: 0, skippedOptOut: 0 };
+        this.stats = { total: 0, successful: 0, failed: 0, processed: 0, skippedOptOut: 0, notOnWhatsapp: 0 };
         this.#emitStats();
     }
 
@@ -790,6 +851,26 @@ export class CampaignManager extends EventEmitter {
         return true;
     }
 
+    /**
+     * A number with no WhatsApp account is marked NOT_ON_WHATSAPP and never
+     * sent: no attempt, no daily-cap use, no retry. Replies are not checked
+     * (whoever wrote in has an account), nor jids (groups, @lid).
+     * Returns true when the item was settled that way.
+     */
+    async #notOnWhatsapp(item) {
+        const checkable = (i) => i.messageType !== 'auto_reply' && !String(i.recipient).includes('@');
+        if (!this.transport?.supportsRegistrationCheck || !checkable(item)) return false;
+        if (this.#registered(item.recipient) === undefined) {
+            const ahead = this.queue.snapshot()
+                .filter((i) => checkable(i) && this.#registered(i.recipient) === undefined)
+                .map((i) => i.recipient);
+            await this.checkRegistered([...new Set([item.recipient, ...ahead])].slice(0, CHECK_AHEAD));
+        }
+        if (this.#registered(item.recipient) !== false) return false;
+        this.#finish(item, Status.NOT_ON_WHATSAPP, { error: NOT_ON_WHATSAPP_TEXT });
+        return true;
+    }
+
     async #attempt(item) {
         for (;;) {
             if (this.#stopped()) {
@@ -797,6 +878,8 @@ export class CampaignManager extends EventEmitter {
                 return;
             }
             if (await this.#heldOutsideWindow(item)) return;
+            // Before the cap and the gap: a number with no account costs neither.
+            if (await this.#notOnWhatsapp(item)) return;
             if (this.#quotaBlocked(item)) return;
             if (this.#capBlocked(item)) return;
             if (!await this.#paceBeforeSend(item)) {
@@ -823,8 +906,9 @@ export class CampaignManager extends EventEmitter {
                 // A person types before sending: the transport shows "typing..." for this long.
                 const typing = this.transport?.realDelivery && this.config.safetyEnabled && this.config.humanTiming !== false
                     ? typingMs(item.message, { media: Boolean(item.media) }) : 0;
+                const registered = this.#registered(item.recipient) === true;
                 const result = await this.transport.sendMessage(item.recipient, item.message,
-                    { media: item.media, interactive: item.interactive, template: item.template, ...(typing ? { typingMs: typing } : {}) });
+                    { media: item.media, interactive: item.interactive, template: item.template, ...(typing ? { typingMs: typing } : {}), ...(registered ? { registered } : {}) });
                 if (this.transport?.realDelivery) this.sentInRun += 1;
                 this.db.updateStatus(item.messageId, result.status, {
                     attempt: item.attempt,
@@ -838,6 +922,12 @@ export class CampaignManager extends EventEmitter {
                 if (late && late !== result.status) this.handleReceipt(result.providerId, late);
                 return;
             } catch (err) {
+                // The transport's own last-moment lookup said no account (the batch check could not tell).
+                if (err?.code === NOT_ON_WHATSAPP_CODE) {
+                    this.registry.set(item.recipient, { registered: false, at: Date.now() });
+                    this.#finish(item, Status.NOT_ON_WHATSAPP, { error: NOT_ON_WHATSAPP_TEXT });
+                    return;
+                }
                 if (err instanceof TransportConnectionError) {
                     this.emit('event', { type: 'connectionLost', error: err.message });
                     retryable = err.retryable;
@@ -936,6 +1026,8 @@ export class CampaignManager extends EventEmitter {
             } catch (err) {
                 console.warn(`[send] onSent hook failed for ${item.messageId}: ${err.message}`);
             }
+        } else if (status === Status.NOT_ON_WHATSAPP) {
+            this.stats.notOnWhatsapp += 1;   // a bad number, not a failed send: never trips the failure stop
         } else this.stats.failed += 1;
         this.emit('event', {
             type: 'status', messageId: item.messageId, status, providerId, error,

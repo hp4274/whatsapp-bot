@@ -60,7 +60,7 @@ class FakeSock {
         return structuredClone(GROUPS);
     }
     async sendMessage(jid) { return { key: { id: 'X', remoteJid: jid, fromMe: true } }; }
-    async onWhatsApp(jid) { return [{ jid, exists: true }]; }
+    async onWhatsApp(...jids) { return jids.map((jid) => ({ jid, exists: true })); }
     async logout() {}
     async end() {}
 }

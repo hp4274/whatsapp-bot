@@ -19,6 +19,7 @@ export class SandboxTransport extends Transport {
     static name_ = 'Local sandbox (NO real delivery)';
     realDelivery = false;
     supportsReceipts = false;
+    supportsRegistrationCheck = true;
 
     constructor(config, outboxPath = path.join(APP_DIR, 'sandbox_outbox.log')) {
         super();
@@ -28,6 +29,10 @@ export class SandboxTransport extends Transport {
         this.sent = new Map();
         /** Set to a phone prefix to force failures while testing retries. */
         this.failPrefix = null;
+        /** Set to a phone prefix to make those numbers "not on WhatsApp" in the registration check. */
+        this.notOnWhatsappPrefix = null;
+        /** Set to true to make the registration check itself fail. */
+        this.checkFails = false;
     }
 
     async connect() {
@@ -79,6 +84,12 @@ export class SandboxTransport extends Transport {
             status: Status.SANDBOX,
             detail: 'written to local outbox, not sent to WhatsApp',
         };
+    }
+
+    async checkRegistered(phones) {
+        if (this.checkFails) throw new TransportSendError('Simulated registration check failure');
+        const prefix = this.notOnWhatsappPrefix;
+        return new Map(phones.map((phone) => [phone, !(prefix && String(phone).startsWith(prefix))]));
     }
 
     getStatus(providerId) {
