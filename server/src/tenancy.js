@@ -99,6 +99,21 @@ export class Tenancy {
         this.db = database.db;
         // Compared against when an email is unknown, so timing does not leak it.
         this.dummyHash = null;
+        // Tenants deleted before deletion freed their emails and slug.
+        for (const { id } of this.db.prepare("SELECT id FROM tenants WHERE status = 'archived'").all()) this.#release(id);
+    }
+
+    /**
+     * A deleted tenant keeps its rows for history, but its users' emails and its
+     * slug are suffixed so they can be registered again; its users are disabled.
+     * Idempotent: an already-suffixed value is left alone.
+     */
+    #release(id) {
+        const tag = `#deleted-${Number(id)}`;
+        this.db.prepare(`UPDATE users SET email = email || ?, disabled = 1
+                         WHERE tenant_id = ? AND email NOT LIKE '%#deleted-%'`).run(tag, Number(id));
+        this.db.prepare(`UPDATE tenants SET slug = slug || ?
+                         WHERE id = ? AND slug NOT LIKE '%#deleted-%'`).run(tag, Number(id));
     }
 
     // ------------------------------------------------------------ tenants --
@@ -197,6 +212,7 @@ export class Tenancy {
         if (!info.changes) throw new TenancyError('tenant not found', 404);
         this.db.prepare(`DELETE FROM sessions WHERE user_id IN
                          (SELECT id FROM users WHERE tenant_id = ?)`).run(Number(id));
+        this.#release(id);
         return this.getTenant(id);
     }
 
