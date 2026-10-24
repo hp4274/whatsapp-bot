@@ -77,6 +77,8 @@ export interface ConnectionState {
   detail: string;
   error?: string | null;
   code?: string | null;
+  /** Set while sending is stopped: by the ban guard (business may resume) or the platform admin. */
+  paused?: { reason: string; by: 'ban_guard' | 'admin'; at: string } | null;
   realDelivery: boolean;
   supportsReceipts: boolean;
   qr: string | null;
@@ -190,6 +192,21 @@ export interface SafetyHealth {
   events: SafetyEvent[];
 }
 
+export interface SafetyHealthView {
+  health: SafetyHealth;
+  safety: SafetyStatus;
+  causes?: SafetyCause[];
+}
+
+/** One thing that can get a number banned, and how close this number is to it. */
+export interface SafetyCause {
+  key: string;
+  label: string;
+  value: string;
+  level: 'ok' | 'warn' | 'bad';
+  hint: string;
+}
+
 export interface CampaignStats {
   total: number;
   successful: number;
@@ -282,6 +299,12 @@ export class Api {
   disconnect(): Observable<ConnectionState> {
     return this.http
       .post<ConnectionState>('/api/connection/disconnect', {})
+      .pipe(catchError(toMessage));
+  }
+
+  resumeConnection(): Observable<ConnectionState> {
+    return this.http
+      .post<ConnectionState>('/api/connection/resume', {})
       .pipe(catchError(toMessage));
   }
 
@@ -388,9 +411,9 @@ export class Api {
       .pipe(catchError(toMessage));
   }
 
-  safetyHealth(): Observable<{ health: SafetyHealth; safety: SafetyStatus }> {
+  safetyHealth(): Observable<SafetyHealthView> {
     return this.http
-      .get<{ health: SafetyHealth; safety: SafetyStatus }>('/api/safety/health')
+      .get<SafetyHealthView>('/api/safety/health')
       .pipe(catchError(toMessage));
   }
 

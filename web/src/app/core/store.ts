@@ -319,6 +319,12 @@ export class Store {
           this.connecting.set(false);
           this.qr.set(null);
           this.setStatus(`Connected - ${event['name'] ?? 'transport'}`, 'primary');
+        } else if (event['code'] === 'WHATSAPP_BANNED' || event['paused']) {
+          // A ban or pause is not a plain disconnect: say why instead.
+          this.connecting.set(false);
+          this.qr.set(null);
+          const paused = event['paused'] as ConnectionState['paused'];
+          this.setStatus(String(paused?.reason ?? event['error'] ?? 'WhatsApp banned this number.'), 'danger');
         } else if (event['error']) {
           this.connecting.set(false);
           this.setStatus(`Connection failed: ${event['error']}`, 'danger');

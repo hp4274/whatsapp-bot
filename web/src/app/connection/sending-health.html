@@ -122,6 +122,23 @@
       </div>
     }
 
+    <!-- What gets numbers banned -->
+    @if (causes().length) {
+      <div class="band">
+        <strong class="cause-title">What gets numbers banned</strong>
+        <ul class="causes">
+          @for (c of causes(); track c.key) {
+            <li class="{{ 'tone-' + c.level }}">
+              <i class="ti {{ causeIcon(c.key) }}" aria-hidden="true"></i>
+              <span class="cause-label">{{ c.label }}</span>
+              <span class="s-pill {{ 'tone-' + c.level }}">{{ c.value }}</span>
+              <small class="muted">{{ c.hint }}</small>
+            </li>
+          }
+        </ul>
+      </div>
+    }
+
     <!-- Blocks and reports -->
     @if (health(); as h) {
       <div class="band risk">

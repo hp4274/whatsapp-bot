@@ -391,3 +391,42 @@ table {
     transform: none;
   }
 }
+
+/* What gets numbers banned: one compact row per cause, hint underneath. */
+.cause-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-strong);
+}
+
+.causes {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    column-gap: var(--space-sm);
+    row-gap: 2px;
+    font-size: 13px;
+  }
+
+  .ti {
+    font-size: 16px;
+    color: var(--tone);
+  }
+
+  .cause-label {
+    color: var(--text-color);
+  }
+
+  small {
+    grid-column: 2 / -1;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+}

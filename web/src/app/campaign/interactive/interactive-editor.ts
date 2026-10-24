@@ -10,6 +10,7 @@ import {
 
 import { ArSwitch } from '../../auto-replies/ar-fields';
 import { Api } from '../../core/api';
+import { MediaSrc } from './media-src';
 import {
   InteractiveButton,
   InteractiveCard,
@@ -85,7 +86,7 @@ function uniqueId(base: string, taken: string[]): string {
  */
 @Component({
   selector: 'app-interactive-editor',
-  imports: [ArSwitch],
+  imports: [ArSwitch, MediaSrc],
   templateUrl: './interactive-editor.html',
   styleUrl: './interactive-editor.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

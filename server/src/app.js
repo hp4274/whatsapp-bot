@@ -113,7 +113,7 @@ import { capMessage, createChannelOps, newNumberSafety, numberCap, overCap, prov
 import { TransportError } from './transports/base.js';
 import { CloudApiTransport, parseInboundPayload, parseStatusPayload } from './transports/cloudApi.js';
 import { SandboxTransport } from './transports/sandbox.js';
-import { BaileysTransport, TOS_WARNING } from './transports/baileys.js';
+import { BAN_TEXT, BaileysTransport, TOS_WARNING } from './transports/baileys.js';
 
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -123,6 +123,8 @@ const upload = multer({
 // Multer stops at the larger one; the route applies the per-type cap.
 const MAX_VIDEO_BYTES = 64 * 1024 * 1024;
 const MAX_MEDIA_BYTES = 16 * 1024 * 1024;
+/** Opt-outs per 100 sent in a week that count as a danger sign (the health panel's line). */
+const OPT_OUT_WARN_PERCENT = 2;
 const mediaUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: MAX_VIDEO_BYTES },
@@ -286,6 +288,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     // Feature routers push to the browser through this rather than importing
     // `broadcast` and the client set.
     state.broadcast = (event) => broadcast(state, event);
+    state.paused = () => deps.channelPaused?.(state.channel?.id) ?? null; // channel_ops row, written by pause()
+    state.announce = () => broadcast(state, { type: 'connection', ...connectionState(state) });
 
     // Live UI: after any successful write, tell every open browser on this number
     // what changed, so pages reload that data without anyone pressing refresh.
@@ -451,6 +455,18 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     });
 
     // --------------------------------------------------------- connection --
+    /** WhatsApp never says why it bans; this is the app's own evidence from the last 7 days. */
+    const banText = (detail) => {
+        const at = (ms) => new Date(Date.now() - ms).toISOString().replace(/.d{3}Z$/, '+00:00');
+        const { reports, blocks } = manager.healthRates();
+        const q = db.channelQuality(at(7 * 86_400_000), at(86_400_000));
+        const done = q.sent7 + q.failed7;
+        const parts = [`${reports} report${reports === 1 ? '' : 's'}`, `${blocks} likely block${blocks === 1 ? '' : 's'}`];
+        if (done) parts.push(`${Math.round((q.failed7 / done) * 100)}% failed`);
+        if (q.optOuts7) parts.push(`${q.optOuts7} opt-out${q.optOuts7 === 1 ? '' : 's'}`);
+        return `${detail} In the last 7 days: ${parts.join(', ')}.`;
+    };
+
     app.get('/connection', (req, res) => res.json(connectionState(state)));
 
     /**
@@ -497,20 +513,22 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             broadcast(state, { type: 'qr', qr, image: state.qr });
         });
         transport.events?.on('state', (payload) => {
-            if (['disconnected', 'error', 'reconnecting', 'reconnect_failed', 'auth_failure'].includes(payload.state)) {
+            if (['disconnected', 'error', 'reconnecting', 'reconnect_failed', 'auth_failure', 'banned'].includes(payload.state)) {
                 state.info = {
                     connected: false,
                     account: state.info?.account ?? '',
                     detail: payload.detail ?? '',
-                    error: ['error', 'reconnect_failed', 'auth_failure'].includes(payload.state)
-                        ? payload.detail ?? ''
-                        : null,
-                    code: payload.state === 'auth_failure' ? 'WHATSAPP_WEB_AUTH_FAILURE' : null,
+                    error: payload.state === 'banned' ? banText(payload.detail)
+                        : ['error', 'reconnect_failed', 'auth_failure'].includes(payload.state)
+                            ? payload.detail ?? ''
+                            : null,
+                    code: payload.state === 'auth_failure' ? 'WHATSAPP_WEB_AUTH_FAILURE'
+                        : (payload.state === 'banned' ? 'WHATSAPP_BANNED' : null),
                     realDelivery: Boolean(transport.realDelivery),
                 };
                 state.connecting = payload.state === 'reconnecting';
                 state.qr = null;
-                if (payload.state === 'auth_failure') {
+                if (payload.state === 'auth_failure' || payload.state === 'banned') {
                     manager.setTransport(new NullTransport());
                     autoReply.setTransport(new NullTransport());
                 }
@@ -568,12 +586,13 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         } catch (err) {
             state.connecting = false;
             state.transport = transport;
+            const banned = transport.banned; // the 'banned' state event fired first; keep its evidence text
             state.info = {
                 connected: false,
                 account: '',
                 detail: err.message,
-                error: err.message,
-                code: err.code ?? null,
+                error: banned ? banText(BAN_TEXT) : err.message,
+                code: banned ? 'WHATSAPP_BANNED' : (err.code ?? null),
                 realDelivery: Boolean(transport.realDelivery),
             };
             state.qr = null;
@@ -1591,9 +1610,44 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     });
 
     /** Sending tier, today's rest window, and the block / report rate with who and when. */
-    app.get('/safety/health', (req, res) => res.json({
-        health: manager.healthStatus(), safety: manager.safetyStatus(),
-    }));
+    app.get('/safety/health', (req, res) => {
+        const health = manager.healthStatus();
+        const safety = manager.safetyStatus();
+        return res.json({ health, safety, causes: banCauses(health, safety) });
+    });
+
+    /** What gets numbers banned, each against its line: bad at or above it, warn from half of it. */
+    const banCauses = (health, safety) => {
+        const p = deps.platformPolicy?.() ?? {};
+        const at = (ms) => new Date(Date.now() - ms).toISOString().replace(/.d{3}Z$/, '+00:00');
+        const q = db.channelQuality(at(7 * 86_400_000), at(86_400_000));
+        const level = (value, limit) => (!limit ? 'ok' : value >= limit ? 'bad' : value >= limit / 2 ? 'warn' : 'ok');
+        const reportLimit = p['channels.banGuardReports'] ?? 0;
+        const sent24 = q.sent24 + q.failed24;
+        const failPct = sent24 ? Math.round((q.failed24 / sent24) * 100) : 0;
+        const optOutPct = q.sent7 ? Math.round((q.optOuts7 / q.sent7) * 1000) / 10 : 0;
+        const optIn = Boolean(manager.bulkPolicy?.().requireOptIn);
+        return [
+            { key: 'reports', label: 'Spam reports', level: level(health.reports, reportLimit),
+              value: reportLimit ? `${health.reports} of ${reportLimit} this week` : `${health.reports} this week`,
+              hint: 'People who replied that your message was spam. Reaching the limit pauses the number.' },
+            { key: 'blocks', label: 'Likely blocks', level: level(health.blockRatePercent, health.pauseAtPercent),
+              value: `${health.blocks} this week (${health.blockRatePercent}% of sent)`,
+              hint: 'Messages that stayed on one tick for a day. Blocks and reports together pause a running campaign.' },
+            { key: 'optouts', label: 'Opt-outs', level: level(optOutPct, OPT_OUT_WARN_PERCENT),
+              value: `${q.optOuts7} this week (${optOutPct}% of sent)`,
+              hint: 'People who asked to stop. Many opt-outs mean the list is not wanted.' },
+            { key: 'failed', label: 'Failed sends (24h)',
+              level: sent24 < (p['channels.banGuardMinSample'] ?? 0) ? 'ok' : level(failPct, p['channels.banGuardFailurePct'] ?? 0),
+              value: `${q.failed24} of ${sent24} (${failPct}%)`,
+              hint: 'Many failures to numbers that are not on WhatsApp look like guessing numbers.' },
+            { key: 'volume', label: 'Sent today', level: level(safety.used, safety.limit),
+              value: safety.limit ? `${safety.used} of ${safety.limit}` : `${safety.used}`,
+              hint: 'Sending more than the daily tier limit is a common reason for a ban.' },
+            { key: 'optin', label: 'Opt-in required', level: optIn ? 'ok' : 'warn', value: optIn ? 'On' : 'Off',
+              hint: 'Messaging only people who agreed to hear from you is the best protection.' },
+        ];
+    };
 
     app.get('/campaign/stats', (req, res) => res.json({ stats: manager.statsSnapshot() }));
 
@@ -1903,7 +1957,17 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         }
     });
 
+    /** The business resumes a number the ban guard paused, after confirming; an admin pause stays (403). */
+    const resumePaused = async (channel, res) => {
+        if (!deps.channelResume?.(channel.id)) return res.status(403).json({ errors: ['This number can only be resumed by your platform admin.'] });
+        const result = await runtimeFor(channels.get(channel.id)).state.connect(); // fresh row: it is active again
+        return res.status(result.status).json(result.body);
+    };
+
     // -------------------------------------------------- channel routes --
+    // A paused number must still show why: these reads (and the ban_guard resume) reach it, nothing else does.
+    const pausedPages = (req) => (req.method === 'GET' && (req.path === '/connection' || req.path === '/events'))
+        || (req.method === 'POST' && req.path === '/connection/resume');
     app.use((req, res, next) => {
         const named = req.get('x-channel-id') ?? req.query.channel;
         try {
@@ -1913,10 +1977,11 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
                 ? channels.route(sending ? {
                     rule: deps.platformPolicy?.()['channels.routing'],
                     remaining: (ch) => quotaLeft(db, ch, runtimes.get(ch.id), policy()),
-                } : {})
-                : channels.route({ channelId: Number(named) });
+                } : { any: pausedPages(req) })
+                : channels.route({ channelId: Number(named), any: pausedPages(req) });
             req.channel = channel;
             bindContext({ channelId: channel.id });
+            if (req.method === 'POST' && req.path === '/connection/resume') return resumePaused(channel, res);
             return runtimeFor(channel).router(req, res, next);
         } catch (err) {
             return fail(res, err);
@@ -2014,6 +2079,8 @@ export function createApp({
                     limits: () => tenancy.getTenant(tenantId)?.limits ?? {},
                     platformPolicy: () => policyStore.resolve(tenantId).values,
                     bulkKill: () => bulkKillReason(policyStore, tenantId),
+                    channelPaused: (channelId) => app.locals.channelOps?.pausedOf(channelId),
+                    channelResume: (channelId) => app.locals.channelOps?.resumeBanGuard(channelId),
                     publicBaseUrl,
                 },
                 audit,
@@ -2826,7 +2893,7 @@ export function createApp({
                     const { state } = runtime.runtimeFor(channel);
                     const t = state.transport;
                     // A transport mid-reconnect has its own backoff: do not fight it.
-                    if (state.connecting || t?.isConnected?.() || t?.reconnectTimer || t?.connecting || t?.replaced) continue;
+                    if (state.connecting || t?.isConnected?.() || t?.reconnectTimer || t?.connecting || t?.replaced || t?.banned) continue;
                     const result = await state.connect();
                     if (result.status >= 400) {
                         logger.warn('auto-reconnect failed', { tenantId: tenant.id, channelId: channel.id, error: result.body?.errors?.[0] });
@@ -3086,6 +3153,7 @@ function connectionState(state) {
         realDelivery: Boolean(state.info?.realDelivery),
         supportsReceipts: Boolean(transport?.supportsReceipts),
         qr: state.qr,
+        paused: state.paused?.() ?? null,
     };
 }
 

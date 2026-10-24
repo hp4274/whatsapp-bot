@@ -130,7 +130,14 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
     const pause = async (row, reason, by) => {
         setStatus(row, 'disabled');
         upsert(row.id, { paused_reason: reason, paused_by: by, paused_at: stamp(now()) });
+        stateOf(row.tenant_id, row.id)?.announce?.(); // open pages learn why before close() ends their stream
         await close(row.tenant_id, row.id);
+    };
+
+    /** Why a number is paused (null when it is not), for the business's own Connection page. */
+    const pausedOf = (channelId) => {
+        const r = raw.prepare('SELECT paused_reason, paused_by, paused_at FROM channel_ops WHERE channel_id = ?').get(Number(channelId));
+        return r?.paused_by ? { reason: r.paused_reason, by: r.paused_by, at: r.paused_at } : null;
     };
 
     const resume = (row) => {
@@ -161,6 +168,13 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
             WHERE m.direction = 'outbound' AND m.channel_id IS NOT NULL
               AND m.updated_at >= ? AND (o.resumed_at IS NULL OR m.updated_at > o.resumed_at)
             GROUP BY m.channel_id, m.tenant_id`).all(since).map((r) => [`${r.tenant_id}:${r.id}`, r]));
+        // Distinct people who reported the number in 7 days, since it was last resumed.
+        const reports = new Map(raw.prepare(`
+            SELECT e.channel_id AS id, COUNT(DISTINCT e.phone) AS n
+            FROM safety_events e LEFT JOIN channel_ops o ON o.channel_id = e.channel_id
+            WHERE e.kind = 'report' AND e.channel_id IS NOT NULL
+              AND e.at >= ? AND (o.resumed_at IS NULL OR e.at > o.resumed_at)
+            GROUP BY e.channel_id`).all(stamp(at - 7 * DAY_MS)).map((r) => [r.id, r.n]));
         const policies = new Map();
         const paused = [];
         for (const row of raw.prepare("SELECT * FROM whatsapp_channels WHERE status = 'active'").all()) {
@@ -180,8 +194,12 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
             const total = Number(s?.total ?? 0);
             const pct = total ? (Number(s.failed) / total) * 100 : 0;
             const rating = quality ?? ops.get(row.id)?.quality_rating ?? null;
+            const reported = reports.get(row.id) ?? 0;
+            const reportLimit = p['channels.banGuardReports'];
             let reason = null;
-            if (total >= p['channels.banGuardMinSample'] && pct > p['channels.banGuardFailurePct']) {
+            if (reportLimit > 0 && reported >= reportLimit) {
+                reason = `Auto-paused: ${reported} people reported this number as spam in 7 days (limit ${reportLimit}).`;
+            } else if (total >= p['channels.banGuardMinSample'] && pct > p['channels.banGuardFailurePct']) {
                 reason = `Auto-paused: ${Math.round(pct)}% of ${total} messages failed in 24 hours (limit ${p['channels.banGuardFailurePct']}%).`;
             } else if (row.provider === TRANSPORT_CLOUD_API && QUALITY_HIT[p['channels.banGuardQuality']]?.includes(String(rating).toUpperCase())) {
                 reason = `Auto-paused: Meta quality rating is ${rating}.`;
@@ -264,5 +282,13 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
         });
     };
 
-    return { guard, register, rows };
+    /** The business resumes its own number, but only one the guard paused (an admin pause stays). */
+    const resumeBanGuard = (channelId) => {
+        const row = findRow(channelId);
+        if (!row || pausedOf(channelId)?.by !== 'ban_guard') return false;
+        resume(row);
+        return true;
+    };
+
+    return { guard, register, rows, pausedOf, resumeBanGuard };
 }

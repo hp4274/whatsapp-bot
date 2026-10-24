@@ -156,6 +156,69 @@ describe('ban-risk guard', () => {
         assert.deepEqual(await app.locals.channelOps.guard({ force: true }), [], 'old failures do not count after resume');
     });
 
+    it('pauses at the report limit, shows the business why, and lets it resume only a guard pause', async () => {
+        const id = (await call(owner, 'GET', '/api/channels')).body.channels[1].id;
+        const own = { 'x-channel-id': String(id) };
+        const guard = () => app.locals.channelOps.guard({ force: true });
+        // Future-dated, so they are newer than any resume made earlier in this second.
+        const report = (i, msg = i) => db.db.prepare(`INSERT INTO safety_events (tenant_id, channel_id, kind, phone, message_id, at)
+            VALUES (?, ?, 'report', ?, ?, ?)`).run(tenant.id, id, `1555000${i}`, `r${msg}`, stamp(Date.now() + 5000));
+        const ops = () => db.db.prepare('SELECT * FROM channel_ops WHERE channel_id = ?').get(id);
+        for (let i = 0; i < 9; i += 1) report(i);
+        report(0, "again"); // the same person twice is still one reporter
+        assert.deepEqual(await guard(), [], '9 people is under the default limit of 10');
+
+        policy(`tenant:${tenant.id}`, { 'channels.banGuardReports': 0 });
+        report(9);
+        assert.deepEqual(await guard(), [], '0 turns the report limit off');
+        policy(`tenant:${tenant.id}`, { 'channels.banGuardReports': null });
+
+        const paused = await guard();
+        assert.equal(paused.length, 1);
+        assert.match(paused[0].reason, /10 people reported this number as spam in 7 days \(limit 10\)/);
+        assert.equal(rowOf(id).status, 'disabled');
+        assert.ok(db.db.prepare("SELECT 1 FROM audit_logs WHERE action = 'channel.ban_guard.pause' AND target = ?").get(String(id)));
+
+        // The paused number's page still loads, with the reason; sending stays shut.
+        const conn = await call(owner, 'GET', '/api/connection', null, own);
+        assert.equal(conn.status, 200);
+        assert.deepEqual([conn.body.paused.by, conn.body.paused.reason], ['ban_guard', paused[0].reason]);
+        const stream = new AbortController(); // the live stream must open too, or the page never hears the ban
+        const events = await fetch(`${base}/api/events`, { headers: { authorization: `Bearer ${owner}`, ...own }, signal: stream.signal });
+        assert.equal(events.status, 200);
+        stream.abort();
+        assert.equal((await call(owner, 'POST', '/api/connection/connect', null, own)).status, 409);
+
+        const back = await call(owner, 'POST', '/api/connection/resume', null, own);
+        assert.equal(back.status, 200, JSON.stringify(back.body));
+        assert.equal(rowOf(id).status, 'active');
+        assert.equal(ops().paused_by, null);
+        assert.equal((await call(owner, 'GET', '/api/connection', null, own)).body.paused, null);
+
+        const causes = (await call(owner, 'GET', '/api/safety/health', null, own)).body.causes;
+        assert.deepEqual(causes.map((c) => c.key), ['reports', 'blocks', 'optouts', 'failed', 'volume', 'optin']);
+        for (const c of causes) {
+            assert.deepEqual(Object.keys(c).sort(), ['hint', 'key', 'label', 'level', 'value']);
+            assert.ok(['ok', 'warn', 'bad'].includes(c.level));
+        }
+        assert.deepEqual([causes[0].value, causes[0].level], ['10 of 10 this week', 'bad']);
+
+        db.db.prepare('UPDATE channel_ops SET resumed_at = ? WHERE channel_id = ?').run(stamp(Date.now() + 10_000), id);
+        assert.deepEqual(await guard(), [], 'reports at or before resumed_at are ignored');
+        db.db.prepare('DELETE FROM safety_events WHERE channel_id = ?').run(id); // later resumes must not meet them again
+    });
+
+    it('does not let the business resume a number the platform admin paused', async () => {
+        const id = (await call(owner, 'GET', '/api/channels')).body.channels[1].id;
+        const own = { 'x-channel-id': String(id) };
+        await call(sup, 'POST', `/api/admin/numbers/${id}/pause`, { reason: 'Review' });
+        const conn = await call(owner, 'GET', '/api/connection', null, own);
+        assert.equal(conn.body.paused.by, 'admin');
+        assert.equal((await call(owner, 'POST', '/api/connection/resume', null, own)).status, 403);
+        assert.equal(rowOf(id).status, 'disabled');
+        await call(sup, 'POST', `/api/admin/numbers/${id}/resume`);
+    });
+
     it('pauses a Cloud API number at a bad quality rating, and skips when the guard is off', async () => {
         const cloud = new Channels(db.forTenant(other.id)).create({
             displayName: 'Cloud', settings: { transport: TRANSPORT_CLOUD_API, phoneNumberId: '1', accessToken: 'x' },

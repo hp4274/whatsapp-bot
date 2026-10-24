@@ -162,7 +162,7 @@
                 @for (c of block.carousel?.cards ?? []; track $index) {
                   <div class="card" role="listitem">
                     @if (c.mediaUrl) {
-                      <img class="pic" [src]="c.mediaUrl" alt="" />
+                      <img class="pic" [mediaSrc]="c.mediaUrl" alt="" />
                     } @else {
                       <span class="pic empty" aria-hidden="true"
                         ><i class="ti ti-photo" aria-hidden="true"></i

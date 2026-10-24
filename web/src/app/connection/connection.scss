@@ -75,6 +75,43 @@ h3 {
   }
 }
 
+.badge.bad {
+  --tone: var(--danger-text);
+}
+
+/* Banned or paused: the reason comes first, in the danger tone. */
+.stopped {
+  display: grid;
+  gap: var(--space-md);
+  padding-bottom: var(--space-xl);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background:
+    radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--danger) 12%, transparent), transparent 55%),
+    var(--surface-card);
+
+  .card-head {
+    padding-bottom: 0;
+  }
+
+  > .reason,
+  > .fine,
+  > .link-actions {
+    margin: 0 var(--space-xl);
+  }
+
+  .reason {
+    line-height: 1.6;
+    color: var(--text-strong);
+  }
+
+  a {
+    color: var(--primary-text);
+    font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+}
+
 .s-banner .errors {
   flex: 1;
   min-width: 0;
