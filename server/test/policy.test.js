@@ -38,6 +38,16 @@ describe('PolicyStore', () => {
         assert.equal(store.resolve(2).values['channels.maxNumbers'], 5);
     });
 
+    it('starts each built-in plan at its own speed, keeping an admin value', () => {
+        assert.equal(store.values('plan:starter')['bulk.maxSpeed'], 'safe');
+        assert.equal(store.values('plan:business')['bulk.maxSpeed'], 'balanced');
+        assert.equal(store.values('plan:enterprise')['bulk.maxSpeed'], 'fast');
+        assert.equal(store.resolve(1).values['bulk.maxSpeed'], 'safe', 'tenant 1 is on starter');
+        store.set('plan:business', { 'bulk.maxSpeed': 'fast' });
+        new PolicyStore(db);
+        assert.equal(store.values('plan:business')['bulk.maxSpeed'], 'fast');
+    });
+
     it('null removes an override; bad values and keys are refused', () => {
         store.set('tenant:1', { 'channels.dailyCap': null });
         assert.equal(store.resolve(1).values['channels.dailyCap'], 100);

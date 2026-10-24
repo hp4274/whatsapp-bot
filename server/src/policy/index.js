@@ -20,7 +20,7 @@
 
 import { BillingStore } from '../billing/store.js';
 import { AUTOREPLY_POLICY } from './autoreplies.js';
-import { BULK_POLICY } from './bulk.js';
+import { BULK_POLICY, PLAN_SPEEDS } from './bulk.js';
 import { CAMPAIGN_POLICY } from './campaigns.js';
 import { CHANNEL_POLICY } from './channels.js';
 import { TEMPLATE_POLICY } from './templates.js';
@@ -87,6 +87,11 @@ export class PolicyStore {
         this.database = database;
         this.db = database.db;
         this.now = now;
+        // Each built-in plan starts with its own sending speed; an admin's value is never overwritten.
+        // shortcut: an override the admin removes comes back at the next start; add a seeded flag if that matters.
+        const seed = this.db.prepare(
+            "INSERT OR IGNORE INTO platform_policy (scope, key, value, updated_at) VALUES (?, 'bulk.maxSpeed', ?, ?)");
+        for (const [plan, speed] of Object.entries(PLAN_SPEEDS)) seed.run(`plan:${plan}`, JSON.stringify(speed), now().toISOString());
     }
 
     /** The overrides stored at one scope, keyed by field key. Unknown keys are dropped. */

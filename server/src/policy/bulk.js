@@ -2,6 +2,9 @@
 
 const S = 'bulk_messages';
 
+/** Starting `bulk.maxSpeed` per built-in plan: a higher plan sends faster. Admins can change them. */
+export const PLAN_SPEEDS = Object.freeze({ starter: 'safe', business: 'balanced', enterprise: 'fast' });
+
 export const BULK_POLICY = Object.freeze([
     { key: 'bulk.dailyCap', service: S, group: 'Volume', type: 'int', default: 0, min: 0, max: 10000000, unlimitedAt: 0,
       label: 'Daily message cap', hint: 'Across all numbers of one business. 0 = no limit.' },
@@ -17,7 +20,7 @@ export const BULK_POLICY = Object.freeze([
           { value: 'balanced', label: 'Normal' },
           { value: 'fast', label: 'Fast' },
       ],
-      label: 'Fastest speed allowed', hint: 'Businesses can pick this preset or slower, never faster.' },
+      label: 'Sending speed', hint: 'Every bulk send on this plan goes out at this speed; businesses cannot change it.' },
     { key: 'bulk.windowEnabled', service: S, group: 'Sending window', type: 'bool', default: false,
       label: 'Restrict sending hours', hint: 'In the recipient’s time zone when known, else the business’s.' },
     { key: 'bulk.windowStart', service: S, group: 'Sending window', type: 'text', default: '09:00',

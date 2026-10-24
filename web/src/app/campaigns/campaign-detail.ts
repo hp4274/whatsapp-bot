@@ -20,7 +20,6 @@ import {
   ContactsApi,
   type PacingPreset,
 } from '../core/api';
-import { CampaignPolicy } from '../campaign/policy-api';
 import { Store } from '../core/store';
 import {
   canCancel,
@@ -37,13 +36,6 @@ import {
 import { CampaignInsights } from './campaign-insights';
 import { CampaignRecipients } from './campaign-recipients';
 import { CampaignStatusPill } from './status-pill';
-
-/** Pacing presets the engine accepts; changing one applies to the next send, mid-run. */
-const SPEEDS: readonly { key: PacingPreset; label: string; icon: string }[] = [
-  { key: 'safe', label: 'Safe', icon: 'shield' },
-  { key: 'balanced', label: 'Balanced', icon: 'scale' },
-  { key: 'fast', label: 'Fast', icon: 'bolt' },
-];
 
 /** How often a finished campaign is re-read while Delivered / Read ticks may still be on their way. */
 const RECEIPT_POLL_MS = 10_000;
@@ -78,9 +70,6 @@ export class CampaignDetailView {
   /** Route param, bound by withComponentInputBinding. */
   readonly id = input.required<string>();
 
-  protected readonly speeds = SPEEDS;
-  /** Plan rules: speeds above the ceiling are shown but disabled. */
-  protected readonly policy = inject(CampaignPolicy);
   /**
    * Why the platform paused or stopped this run (auto-pause on failures, the
    * business's message cap, the kill switch, an admin action). Server-written.
@@ -234,7 +223,6 @@ export class CampaignDetailView {
     relativeTime(iso, this.store.now());
 
   constructor() {
-    this.policy.load();
     effect(() => {
       const c = this.campaign();
       const segmentId = c?.segmentId ?? null;
@@ -418,11 +406,6 @@ export class CampaignDetailView {
   /** Filters the recipient table to failures and scrolls to it. */
   protected showFailed(): void {
     this.recipientsTable()?.showStatus('FAILED');
-  }
-
-  protected setSpeed(pacing: PacingPreset): void {
-    if (pacing === this.pacing() || this.busy()) return;
-    this.run('speed', () => this.api.speed(this.numericId(), pacing), `Speed set to ${pacing}.`);
   }
 
   protected exportCsv(): void {

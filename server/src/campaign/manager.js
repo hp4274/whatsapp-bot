@@ -26,7 +26,7 @@ import { MessageQueue, QueueState, queueItem } from './queue.js';
 import {
     DailyQuota, SafetyError, estimateSeconds, nextDelay, paceFor, pickPreset, variationError,
 } from './safety.js';
-import { capReachedText, clampPreset } from '../policy/campaignOps.js';
+import { capReachedText } from '../policy/campaignOps.js';
 import {
     BLOCK_PAUSE_MIN_SENT, BLOCK_PAUSE_PERCENT, BLOCK_SUSPECT_AFTER_SECONDS, MEDIA_GAP_FACTOR,
     contentError, dayPlan, inQuiet, isDaytimeFor, quietExtraSeconds, quietStatus, shuffle, typingMs,
@@ -107,8 +107,8 @@ export class CampaignManager extends EventEmitter {
 
     /** Change the speed preset of the current run (live): recomputes the gap range. */
     setPace(preset, batchSize = this.pace.batchSize) {
-        const ceiling = this.bulkPolicy?.()?.maxSpeed;
-        this.pacePreset = ceiling ? clampPreset(pickPreset(preset), ceiling) : pickPreset(preset);
+        // Under platform policy the plan sets the speed; the requested preset only counts without one.
+        this.pacePreset = this.bulkPolicy?.()?.maxSpeed ?? pickPreset(preset);
         this.pace = this.#paceFor(batchSize, this.pacePreset);
         this.#emitStats();
         return this.pace;
@@ -216,7 +216,6 @@ export class CampaignManager extends EventEmitter {
         // Platform policy (policy/campaignOps.js): refusals before anything is queued.
         const rules = this.bulkPolicy?.() ?? null;
         let skippedNoOptIn = 0;
-        let pacingClamped = null;
         if (rules) {
             if (this.killSwitch?.()) throw new SafetyError('Bulk sending is switched off right now, so a new send cannot start.', 409);
             if (block && rules.allowInteractive === false) throw new SafetyError('Interactive buttons are not on your plan.', 403);
@@ -235,10 +234,8 @@ export class CampaignManager extends EventEmitter {
                 throw new SafetyError(`This send has ${contacts.length} recipients, but your business has only ${cap.left} `
                     + `messages left of its ${cap.period} cap of ${cap.cap}.`, 403);
             }
-            const wanted = pickPreset(pacing);
-            const applied = clampPreset(wanted, rules.maxSpeed);
-            if (applied !== wanted) pacingClamped = { requested: wanted, applied };
-            pacing = applied;
+            // The plan's speed, whatever was asked for.
+            pacing = rules.maxSpeed;
         }
         // Meta fixes an approved template's wording; variation is not ours to add.
         const bodies = versions ? versions.map((v) => v.body) : [template];
@@ -351,12 +348,11 @@ export class CampaignManager extends EventEmitter {
         const remaining = this.quota.remaining();
         const policyNotes = [];
         if (skippedNoOptIn) policyNotes.push(`${skippedNoOptIn} contacts were skipped because they have not opted in.`);
-        if (pacingClamped) policyNotes.push(`Speed was lowered to "${pacingClamped.applied}", the fastest your plan allows.`);
         return {
             queued,
             skipped: skipped + skippedNoOptIn,
             skippedNoOptIn,
-            pacingClamped,
+            pacingClamped: null, // kept for older clients; the plan now sets the speed outright
             policyNotes,
             skippedOptOut,
             skippedFrequency,

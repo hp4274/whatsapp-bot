@@ -258,23 +258,6 @@
         </small>
       </div>
 
-      @if (c.status === 'running' || c.status === 'paused') {
-        <div class="s-seg speed" role="radiogroup" aria-label="Sending speed">
-          @for (s of speeds; track s.key) {
-            <button
-              type="button"
-              role="radio"
-              [attr.aria-checked]="pacing() === s.key"
-              [disabled]="busy() === 'speed' || policy.tooFast(s.key)"
-              [attr.title]="policy.tooFast(s.key) ? 'Not on your plan' : null"
-              (click)="setSpeed(s.key)"
-            >
-              <i class="ti ti-{{ s.icon }}" aria-hidden="true"></i>{{ s.label }}
-            </button>
-          }
-        </div>
-      }
-
       @if (c.status === 'draft' || c.status === 'scheduled') {
         <a class="btn" routerLink="/campaign" [queryParams]="{ edit: c.id }">
           <i class="ti ti-pencil" aria-hidden="true"></i>Edit
