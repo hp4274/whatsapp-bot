@@ -123,12 +123,25 @@
 
       @if (draftPlan(); as plan) {
         <div class="plan-services">
-          <div class="chips" aria-label="Services from this plan">
-            @for (service of plan.services; track service) {
-              <span class="s-pill tone-mute">{{ serviceLabel(service) }}</span>
+          <h4 id="plan-services-title">
+            Services <span class="muted">{{ serviceSummary(draft().services) }}</span>
+          </h4>
+          <div class="chips" role="group" aria-labelledby="plan-services-title">
+            @for (service of services(); track service) {
+              <button
+                class="s-chip"
+                type="button"
+                [attr.aria-pressed]="draft().services.includes(service)"
+                (click)="toggleDraftService(service, !draft().services.includes(service))"
+              >
+                <i class="ti ti-{{ serviceIcon(service) }}" aria-hidden="true"></i
+                >{{ serviceLabel(service) }}
+              </button>
             }
           </div>
-          <p class="muted compact">You can customise after creating.</p>
+          <p class="muted compact">
+            Starts with {{ plan.name }}'s services. Changing or renewing the plan later resets them.
+          </p>
           <div class="field trial">
             <label for="t-trial">Trial days <small class="muted">0 = start billing now</small></label>
             <input

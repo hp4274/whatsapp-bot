@@ -105,10 +105,13 @@ describe('admin plans & subscriptions', () => {
     });
 
     it('creates a tenant on a plan: services, limits and a trial', async () => {
-        const res = await createTenant({ planKey: 'starter', services: ['ai'] });
+        const res = await createTenant({ planKey: 'starter' });
         assert.equal(res.status, 201);
         const { tenant } = res.body;
-        assert.ok(tenant.services.includes('contacts') && !tenant.services.includes('ai'), 'plan wins over body');
+        assert.ok(tenant.services.includes('contacts') && !tenant.services.includes('ai'), 'plan services by default');
+        const picked = await createTenant({ planKey: 'starter', services: ['ai', 'contacts', 'bogus'] });
+        assert.deepEqual(picked.body.tenant.services, ['contacts', 'ai'], 'hand-picked services win, unknown dropped');
+        assert.equal(picked.body.tenant.limits.maxChannels, 1, 'limits still come from the plan');
         assert.equal(tenant.limits.maxChannels, 1);
         assert.equal(tenant.limits.maxUsers, 2);
         assert.equal(tenant.subscription.planKey, 'starter');
@@ -120,7 +123,7 @@ describe('admin plans & subscriptions', () => {
         assert.equal(list.body.tenants.find((t) => t.id === tenant.id).subscription.planName, 'Starter');
         assert.equal(list.body.tenants.find((t) => t.id === 1).subscription, null);
         const plans = await call(sup, 'GET', '/api/admin/billing/plans');
-        assert.equal(plans.body.plans.find((p) => p.key === 'starter').subscribers, 1);
+        assert.equal(plans.body.plans.find((p) => p.key === 'starter').subscribers, 2);
 
         assert.equal((await createTenant({ planKey: 'ghost' })).status, 404);
     });

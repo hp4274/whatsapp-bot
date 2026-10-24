@@ -304,6 +304,10 @@ export class TenantsView {
     return serviceMeta(service).label;
   }
 
+  protected serviceIcon(service: string): string {
+    return serviceMeta(service).icon;
+  }
+
   protected controlLabel(key: keyof TenantControls): string {
     return CONTROL_LABELS[key];
   }
