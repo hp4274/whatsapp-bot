@@ -32,6 +32,9 @@ describe('phone numbers', () => {
         assert.equal(normalizePhone('0091 9876543210'), '919876543210');
         assert.equal(normalizePhone('(987) 654-3210', '91'), '919876543210');
         assert.equal(normalizePhone('09876543210', '91'), '919876543210');
+        // already international without the '+': not prefixed again
+        assert.equal(normalizePhone('919800000000', '91'), '919800000000');
+        assert.equal(normalizePhone('9198000000', '91'), '919198000000');
     });
 
     it('rejects what is not a number', () => {

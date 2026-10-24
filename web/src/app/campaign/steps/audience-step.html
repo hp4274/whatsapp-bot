@@ -7,20 +7,20 @@
     <span class="badge"><i class="ti ti-users-plus" aria-hidden="true"></i></span>
     <div>
       <h3>Who gets this?</h3>
-      <p class="muted">Pick where the recipients come from</p>
+      <p class="muted">Choose where the recipients come from</p>
     </div>
   </div>
 
   <div class="sources" role="radiogroup" aria-label="Audience source">
-    @for (s of sources; track s.value) {
+    @for (s of sources; track s.id) {
       <button
         type="button"
         class="source"
         role="radio"
-        [attr.aria-checked]="d.source() === s.value"
-        [class.on]="d.source() === s.value"
+        [attr.aria-checked]="isPicked(s)"
+        [class.on]="isPicked(s)"
         [disabled]="s.value === 'retarget' && !policy.allowFollowUps()"
-        (click)="pickSource(s.value)"
+        (click)="pickSource(s)"
       >
         <span class="ico"><i class="ti ti-{{ s.icon }}" aria-hidden="true"></i></span>
         <strong>{{ s.title }}</strong>
@@ -48,42 +48,52 @@
 @switch (d.source()) {
   @case ('file') {
     <section class="card panel enter">
-      <label
-        class="drop"
-        for="aud-file"
-        [class.over]="dragOver()"
-        [class.has]="!!preview"
-        (dragover)="$event.preventDefault(); dragOver.set(true)"
-        (dragleave)="dragOver.set(false)"
-        (drop)="onDrop($event)"
-      >
-        @if (uploading()) {
-          <span class="spinner"></span><strong>Reading your file...</strong>
-        } @else if (preview) {
-          <i class="ti ti-checkbox big" aria-hidden="true"></i>
-          <span
-            ><strong>{{ preview.filename }}</strong> - {{ preview.total }} rows,
-            {{ preview.columns.length }} columns
-            @if (preview.truncated) {
-              <span class="warn-text"
-                >(only the first {{ preview.rows.length }} rows are used)</span
-              >
-            }
-          </span>
-          <span class="btn small">Replace file</span>
-        } @else {
-          <i class="ti ti-cloud-upload big" aria-hidden="true"></i>
-          <strong>Drop a CSV or Excel file here</strong>
-          <small class="muted">or click to browse - first row must be the column headers</small>
-        }
-      </label>
-      <input
-        id="aud-file"
-        type="file"
-        accept=".csv,.xlsx,.xlsm"
-        class="sr"
-        (change)="onPick($event)"
-      />
+      @if (!preview && d.savedAudience(); as saved) {
+        <div class="drop has">
+          <i class="ti ti-users big" aria-hidden="true"></i>
+          <span><strong>{{ saved.length }} people</strong> from the original campaign</span>
+          <button type="button" class="btn small" (click)="replaceFile()">
+            Replace with a new file
+          </button>
+        </div>
+      } @else {
+        <label
+          class="drop"
+          for="aud-file"
+          [class.over]="dragOver()"
+          [class.has]="!!preview"
+          (dragover)="$event.preventDefault(); dragOver.set(true)"
+          (dragleave)="dragOver.set(false)"
+          (drop)="onDrop($event)"
+        >
+          @if (uploading()) {
+            <span class="spinner"></span><strong>Reading your file...</strong>
+          } @else if (preview) {
+            <i class="ti ti-checkbox big" aria-hidden="true"></i>
+            <span
+              ><strong>{{ preview.filename }}</strong> - {{ preview.total }} rows,
+              {{ preview.columns.length }} columns
+              @if (preview.truncated) {
+                <span class="warn-text"
+                  >(only the first {{ preview.rows.length }} rows are used)</span
+                >
+              }
+            </span>
+            <span class="btn small">Replace file</span>
+          } @else {
+            <i class="ti ti-cloud-upload big" aria-hidden="true"></i>
+            <strong>Drop a CSV or Excel file here</strong>
+            <small class="muted">or click to browse - first row must be the column headers</small>
+          }
+        </label>
+        <input
+          id="aud-file"
+          type="file"
+          accept=".csv,.xlsx,.xlsm"
+          class="sr"
+          (change)="onPick($event)"
+        />
+      }
 
       @if (preview && duplicateOf() !== null) {
         @let first = date(duplicateOf());
@@ -96,38 +106,14 @@
         </p>
       }
 
-      <details class="more" [open]="!preview">
-        <summary>
-          <i class="ti ti-keyboard" aria-hidden="true"></i> Or type the numbers
-        </summary>
-        <div class="field">
-          <label for="aud-typed">One number per line - add a name after a comma if you like</label>
-          <textarea
-            id="aud-typed"
-            rows="5"
-            [ngModel]="typed()"
-            (ngModelChange)="typed.set($event)"
-            placeholder="+919876543210, Asha&#10;+919812345678"
-          ></textarea>
-        </div>
-        <div class="typed-foot">
-          <button
-            type="button"
-            class="btn primary small"
-            (click)="useTyped()"
-            [disabled]="uploading() || !typed().trim()"
-          >
-            <i class="ti ti-check" aria-hidden="true"></i> Use these numbers
-          </button>
-        </div>
-      </details>
-
-      <app-reuse-picker
-        kind="sheet"
-        [activeId]="preview?.storageId"
-        [disabled]="uploading()"
-        (used)="onReused($event)"
-      />
+      @if (!d.savedAudience()) {
+        <app-reuse-picker
+          kind="sheet"
+          [activeId]="preview?.storageId"
+          [disabled]="uploading()"
+          (used)="onReused($event)"
+        />
+      }
 
       @if (preview) {
         <div class="map">
@@ -179,6 +165,9 @@
           </div>
         </div>
 
+        <details class="more">
+          <summary><i class="ti ti-adjustments" aria-hidden="true"></i> More options</summary>
+          <div class="more-body">
         <div class="opts">
           <label class="check">
             <input
@@ -268,6 +257,9 @@
             }
           </ul>
         }
+
+          </div>
+        </details>
 
         <div class="cols">
           <p class="muted">Use any column in your message - click to copy:</p>
@@ -364,7 +356,7 @@
   @case ('retarget') {
     <section class="card panel enter">
       <div class="field">
-        <label for="rt-campaign">Past campaign</label>
+        <label for="rt-campaign">Which campaign?</label>
         @if (campaigns(); as list) {
           <select
             id="rt-campaign"
@@ -387,7 +379,7 @@
       </div>
 
       <fieldset class="filters">
-        <legend>Send to people who...</legend>
+        <legend>Send to people who</legend>
         @for (f of filters; track f.value) {
           <label class="filter" [class.on]="d.retarget().filter === f.value">
             <input
@@ -406,7 +398,7 @@
 
       @if (d.retarget().filter === 'clicked') {
         <div class="field">
-          <label for="rt-option">Button / option id</label>
+          <label for="rt-option">Which button (its id)</label>
           <input
             id="rt-option"
             [ngModel]="d.retarget().optionId"
@@ -427,17 +419,27 @@
     </section>
   }
 
-  @case ('segment') {
+  @case ('contacts') {
     <section class="card panel enter">
+      @if (handPicked(); as picked) {
+        <div class="drop has">
+          <i class="ti ti-user-check big" aria-hidden="true"></i>
+          <span
+            ><strong>{{ picked }} hand-picked {{ picked === 1 ? 'contact' : 'contacts' }}</strong>
+            from your contact list</span
+          >
+          <button type="button" class="btn small" (click)="clearHandPicked()">Change</button>
+        </div>
+      } @else {
       <div class="field">
-        <label for="seg">Segment</label>
+        <label for="seg">Saved segment</label>
         @if (segments(); as list) {
           <select
             id="seg"
             [ngModel]="d.segmentId()?.toString() ?? ''"
             (ngModelChange)="pickSegment($event)"
           >
-            <option value="">Choose a segment...</option>
+            <option value="">None - choose by tags instead</option>
             @for (s of list; track s.id) {
               <option [value]="s.id.toString()">
                 {{ s.name }}{{ s.count != null ? ' - ' + s.count + ' contacts' : '' }}
@@ -451,13 +453,94 @@
           <span class="skel" aria-busy="true" aria-label="Loading segments"></span>
         }
       </div>
+
+      @if (d.segmentId() === null) {
+        <div class="tag-rows">
+          <div class="field">
+            <label for="tag-all">Has all of these tags</label>
+            <input
+              id="tag-all"
+              list="aud-tag-list"
+              placeholder="vip, follow-up"
+              autocomplete="off"
+              [ngModel]="allTagsText()"
+              (ngModelChange)="setTags('tags', allTagsText, $event)"
+            />
+          </div>
+          <div class="field">
+            <label for="tag-any">Has any of these tags</label>
+            <input
+              id="tag-any"
+              list="aud-tag-list"
+              placeholder="delhi, mumbai"
+              autocomplete="off"
+              [ngModel]="anyTagsText()"
+              (ngModelChange)="setTags('anyTags', anyTagsText, $event)"
+            />
+          </div>
+          <div class="field">
+            <label for="tag-not">Leave out anyone with</label>
+            <input
+              id="tag-not"
+              list="aud-tag-list"
+              placeholder="cold"
+              autocomplete="off"
+              [ngModel]="notTagsText()"
+              (ngModelChange)="setTags('notTags', notTagsText, $event)"
+            />
+          </div>
+        </div>
+        <datalist id="aud-tag-list">
+          @for (t of knownTags(); track t) {
+            <option [value]="t"></option>
+          }
+        </datalist>
+      }
+      }
+
+      <div class="summary" aria-live="polite">
+        @if (!d.audienceReady()) {
+          <p class="muted">Pick a segment, or type at least one tag.</p>
+        } @else if (d.segmentId() === null && counting()) {
+          <span class="spinner" aria-label="Counting"></span>
+          <span class="muted">Counting contacts...</span>
+        } @else {
+          <i class="ti ti-circle-check ok" aria-hidden="true"></i>
+          <strong>{{ d.audienceSize() - d.extraList().length }} contacts match</strong>
+        }
+      </div>
       <p class="banner info">
         <i class="ti ti-info-circle" aria-hidden="true"></i>
         <span
-          >Only messageable contacts are sent to. Variables available: {{ '{name}' }} and
-          {{ '{phone}' }}.</span
+          >Only people you can message are sent to - opted-out contacts are always left out.
+          Variables available: {{ '{name}' }} and {{ '{phone}' }}.</span
         >
       </p>
     </section>
   }
 }
+
+<section class="card panel">
+  <details class="more" [open]="!!d.extraNumbers()">
+    <summary><i class="ti ti-plus" aria-hidden="true"></i> Add numbers that aren't in this list</summary>
+    <div class="more-body">
+      <div class="field">
+        <label for="aud-extra">One number per line - add a name after a comma if you like</label>
+        <textarea
+          id="aud-extra"
+          rows="4"
+          [ngModel]="d.extraNumbers()"
+          (ngModelChange)="d.extraNumbers.set($event)"
+          placeholder="+919876543210, Asha&#10;9812345678"
+          aria-describedby="aud-extra-hint"
+        ></textarea>
+        <small id="aud-extra-hint" class="hint" aria-live="polite">{{
+          d.extraList().length
+            ? d.extraList().length + (d.extraList().length === 1 ? ' number' : ' numbers') +
+              ' will be added. Numbers without + get the +' + d.countryCode() + ' country code.'
+            : 'They get the same message. Opted-out numbers are still skipped.'
+        }}</small>
+      </div>
+    </div>
+  </details>
+</section>

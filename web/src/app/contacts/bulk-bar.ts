@@ -39,10 +39,15 @@ export class BulkBar {
   readonly allMatching = input(false);
   readonly pageAll = input(false);
   readonly busy = input(false);
+  /** True when the selection can open the composer: hand-picked rows, or every match of a segment or tag view. */
+  readonly canSend = input(false);
+  /** Why "Send campaign" is off for a selection that is otherwise fine; empty when it is not. */
+  readonly sendHint = input('');
   readonly knownTags = input<{ tag: string; count: number }[]>([]);
 
   readonly run = output<BulkRequest>();
   readonly export = output<void>();
+  readonly sendCampaign = output<void>();
   readonly selectAll = output<void>();
   readonly clear = output<void>();
 

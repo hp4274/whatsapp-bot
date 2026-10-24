@@ -15,6 +15,7 @@ import { CAMPAIGNS_SCHEMA } from './campaigns/schema.js';
 import { INBOX_SCHEMA } from './inbox/schema.js';
 import { INTERACTIVE_SCHEMA } from './messaging/replies.js';
 import { KNOWLEDGE_SCHEMA } from './knowledge/schema.js';
+import { LINKS_SCHEMA } from './links/schema.js';
 import { OBJECTS_SCHEMA } from './objects/schema.js';
 import { POLICY_SCHEMA } from './policy/schema.js';
 import { PUBLIC_API_SCHEMA } from './publicapi/schema.js';
@@ -40,4 +41,5 @@ export const MODULE_SCHEMAS = [
     INTERACTIVE_SCHEMA,
     POLICY_SCHEMA,
     STORAGE_SCHEMA,
+    LINKS_SCHEMA,
 ];

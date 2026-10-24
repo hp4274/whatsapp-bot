@@ -52,7 +52,8 @@ const db = new Database();
 // key, and idempotent, so it is safe on every boot.
 migrateChannelSettings(db.db);
 // The real server runs the workflow sweeper; tests opt in explicitly.
-const app = createApp({ db, config, scheduler: true });
+// PUBLIC_BASE_URL (e.g. https://send.example.com): where recipients' phones reach /l/<code> for tracked links.
+const app = createApp({ db, config, scheduler: true, publicBaseUrl: process.env.PUBLIC_BASE_URL || null });
 
 // Serve the built frontend when it exists, so `npm start` is the whole app.
 const webDist = path.join(HERE, '..', '..', 'web', 'dist', 'web', 'browser');

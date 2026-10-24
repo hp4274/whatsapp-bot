@@ -62,7 +62,7 @@
   line-height: 1.55;
 
   > .ti { flex: none; margin-top: 2px; font-size: 16px; color: var(--tone); }
-  > span { flex: 1; min-width: 0; }
+  > span { flex: 1 1 12rem; min-width: 0; } // a basis, so buttons wrap under the text on a phone
   a { color: var(--primary-text); font-weight: 500; }
   code { font-family: var(--mono); font-size: 12px; }
   .btn { margin-left: auto; }

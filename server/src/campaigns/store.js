@@ -18,6 +18,7 @@ import { toCsv, withFallbacks } from '../campaign/importer.js';
 import { shuffle } from '../campaign/humanize.js';
 import { PACING_PRESETS } from '../campaign/safety.js';
 import { dayKey, daysBetween, isDateKey, isEarlyContinue, nextDayAt, spreadPlan, todaysBatch } from '../campaign/spread.js';
+import { linkClicksByRecipient } from '../links/store.js';
 import { ErrorCode, FRIENDLY, normalizeError } from '../messaging/errors.js';
 import { InteractiveError, normalizeInteractive, personalizeInteractive } from '../messaging/interactive.js';
 import { metaTemplateFor, prepareTemplateSend } from '../messaging/templateSend.js';
@@ -54,7 +55,11 @@ const OPEN_STATUSES = Object.freeze(['QUEUED', 'SENDING']);
 const SENT_STATUSES = Object.freeze(['SENT', 'DELIVERED', 'READ', 'SANDBOX']);
 const DELIVERED_STATUSES = Object.freeze(['DELIVERED', 'READ']);
 
-export const RETARGET_FILTERS = Object.freeze(['failed', 'unread', 'noreply', 'replied', 'clicked']);
+export const RETARGET_FILTERS = Object.freeze(['failed', 'unread', 'noreply', 'replied', 'clicked', 'clickedLink']);
+
+/** A/B version keys, in order. */
+export const VARIANT_KEYS = Object.freeze(['A', 'B', 'C']);
+export const RECURRENCE_EVERY = Object.freeze(['day', 'week', 'month']);
 
 export class CampaignError extends Error {
     constructor(message, status = 400) {
@@ -75,12 +80,14 @@ export class CampaignStore {
      * @param {(id: string) => object|null} [deps.media]  uploaded media by id
      * @param {(campaignKey: string) => ({clicks, byRecipient}|null)} [deps.interactiveStats]
      * @param {() => object} [deps.policy]  the tenant's effective platform policy values
+     * @param {() => object} [deps.replies]  InteractiveStore (reply rules), copied onto a repeat run
      */
     constructor(database, {
         contacts, templates = null, manager = null, now = null,
-        canSend = null, media = null, interactiveStats = null, policy = null,
+        canSend = null, media = null, interactiveStats = null, policy = null, replies = null,
     } = {}) {
         this.policy = policy;
+        this.replies = replies;
         this.db = database.db;
         ensureCampaignOptionsColumn(this.db);
         this.tenantId = database.tenantId;
@@ -206,7 +213,33 @@ export class CampaignStore {
      * dropped here; the manager checks opt-out again at enqueue time, and two
      * checks on a one-way door is the right number.
      */
-    resolveAudience(campaign, { limit = 5000, offset = 0 } = {}) {
+    resolveAudience(campaign, options = {}) {
+        const list = this.#baseAudience(campaign, options);
+        const extras = campaign.options?.extraNumbers;
+        // A file's typed numbers are already in its explicit list (which spread pages through).
+        if (Array.isArray(campaign.audience) || !extras?.length) return list;
+        const seen = new Set(list.map((r) => this.#normalized(r.phone)));
+        for (const entry of extras) {
+            const phone = this.#normalized(entry.phone);
+            if (!phone || seen.has(phone)) continue;
+            seen.add(phone);
+            const known = this.contacts.getByPhone(phone);
+            if (known && !known.messageable) continue;
+            list.push({ name: entry.name || known?.name || '', phone: known?.phone ?? phone, extra: {} });
+        }
+        return list;
+    }
+
+    /** A phone in the contact book's form, or '' when it isn't a number. */
+    #normalized(phone) {
+        try {
+            return this.contacts.normalize(String(phone ?? '').trim());
+        } catch {
+            return '';
+        }
+    }
+
+    #baseAudience(campaign, { limit = 5000, offset = 0 } = {}) {
         const { segmentId, audience } = campaign;
         const isObject = audience && typeof audience === 'object' && !Array.isArray(audience);
         if (isObject && audience.retarget) {
@@ -238,8 +271,15 @@ export class CampaignStore {
         return [];
     }
 
-    /** The text the manager personalises per contact: the template body, or `body`. */
+    /**
+     * The text the manager personalises per contact: the campaign's own `body`
+     * when it has one (the composer's edits and opt-out line), else the
+     * template's stored body.
+     */
     messageText(campaign) {
+        if (campaign.body?.trim()) return campaign.body;
+        // A/B: each version carries its own body; A stands for the campaign.
+        if (campaign.options?.variants?.[0]?.body) return campaign.options.variants[0].body;
         if (campaign.templateId != null) {
             const template = this.templates?.get(campaign.templateId);
             if (!template) throw new CampaignError(`template ${campaign.templateId} not found`, 404);
@@ -265,7 +305,10 @@ export class CampaignStore {
         this.#checkPolicy(campaign, { starting: true, except: campaign.id });
         const text = this.messageText(campaign);
         // Platform template review (templates/policy.js reviewBlock).
-        const blocked = campaign.templateId != null ? this.templates?.sendBlock?.(campaign.templateId) : null;
+        // A template deleted since it was picked does not block a campaign that
+        // sends its own body (messageText already refused one that needs it).
+        const linked = campaign.templateId != null ? this.templates?.get?.(campaign.templateId) : null;
+        const blocked = linked ? this.templates?.sendBlock?.(linked) : null;
         if (blocked) throw new CampaignError(blocked, 409);
         const options = campaign.options ?? {};
         const spread = options.spread && Array.isArray(campaign.audience) ? options.spread : null;
@@ -318,6 +361,8 @@ export class CampaignStore {
                 interactive: options.interactive ?? null,
                 fallbacks: options.fallbacks ?? {},
                 pacing: options.pacing ?? 'balanced',
+                variants: options.variants ?? null,
+                trackLinks: options.trackLinks === true,
                 ...meta,
             });
         } catch (err) {
@@ -516,6 +561,7 @@ export class CampaignStore {
                 interactive,
                 template: sends.template,
                 fallbackTemplate: sends.fallbackTemplate,
+                variant: row.variant ?? null,
             });
             if (messageId !== null) queued += 1;
         }
@@ -546,6 +592,7 @@ export class CampaignStore {
         const rows = this.latestRows(campaign.id);
         const replied = this.#repliedSet(campaign.startedAt);
         const clickData = this.#clickData(campaignKey(campaign.id));
+        const linkClicks = linkClicksByRecipient(this.db, this.tenantId, campaignKey(campaign.id));
         const count = (statuses) => rows.filter((r) => statuses.includes(r.status)).length;
 
         const failures = new Map();
@@ -570,8 +617,27 @@ export class CampaignStore {
                 errorCode,
                 clicked: picks.length ? picks.map((p) => p.title || p.id).join(', ') : null,
                 replied: replied.has(digits(row.recipient)),
+                clickedLink: linkClicks.has(digits(row.recipient)),
+                variant: row.variant ?? null,
             };
         });
+
+        // One line per A/B version, the same cumulative buckets as the funnel.
+        const versions = campaign.options?.variants;
+        const variants = Array.isArray(versions) && versions.length ? versions.map(({ key }) => {
+            const mine = rows.filter((r) => r.variant === key);
+            const people = recipients.filter((r) => r.variant === key);
+            const of = (statuses) => mine.filter((r) => statuses.includes(r.status)).length;
+            return {
+                key,
+                sent: of(SENT_STATUSES),
+                delivered: of(DELIVERED_STATUSES),
+                read: of(['READ']),
+                replied: people.filter((r) => r.replied).length,
+                failed: of(['FAILED']),
+                clickedLink: people.filter((r) => r.clickedLink).length,
+            };
+        }) : null;
 
         const hasButtons = Boolean(campaign.options?.interactive);
         return {
@@ -584,9 +650,11 @@ export class CampaignStore {
                 read: count(['READ']),
                 replied: recipients.filter((r) => r.replied).length,
                 failed: count(['FAILED']),
+                clickedLink: recipients.filter((r) => r.clickedLink).length,
             },
             failures: [...failures.values()].sort((a, b) => b.count - a.count),
             clicks: clickData && (hasButtons || clickData.clicks.length) ? clickData.clicks : null,
+            variants,
             recipients,
         };
     }
@@ -595,8 +663,9 @@ export class CampaignStore {
     exportCsv(id) {
         const { recipients } = this.analytics(id);
         return toCsv([
-            ['timestamp', 'phone', 'name', 'status', 'error', 'button_clicked'],
-            ...recipients.map((r) => [r.updatedAt, r.phone, r.name, r.status, r.error ?? '', r.clicked ?? '']),
+            ['timestamp', 'phone', 'name', 'status', 'error', 'button_clicked', 'link_clicked', 'variant'],
+            ...recipients.map((r) => [r.updatedAt, r.phone, r.name, r.status, r.error ?? '', r.clicked ?? '',
+                r.clickedLink ? 'yes' : '', r.variant ?? '']),
         ]);
     }
 
@@ -608,6 +677,58 @@ export class CampaignStore {
         return this.db.prepare(
             `SELECT * FROM campaigns WHERE tenant_id = ? AND status = 'scheduled' AND scheduled_at <= ?
              ORDER BY scheduled_at`).all(this.tenantId, iso(now)).map(toCampaign);
+    }
+
+    // --------------------------------------------------------- recurrence --
+    /**
+     * Repeating campaigns: once a run with `options.recurrence` is done, book
+     * the next one as a fresh scheduled campaign - same message, media, options
+     * and audience definition (a segment, filter or retarget re-resolves when
+     * it starts, so it is today's list). The parent's `nextId`, or its
+     * `recurrenceNote` when the chain stops, makes this happen once.
+     * Called from the app sweep; returns the campaigns it booked.
+     */
+    spawnRecurrences(now = new Date()) {
+        const rows = this.db.prepare(`SELECT id, status FROM campaigns WHERE tenant_id = ? AND ${RECURRING_OPEN}`)
+            .all(this.tenantId);
+        const booked = [];
+        for (const row of rows) {
+            // `done` is written lazily by stats(): a run that just emptied its queue is noticed here.
+            const campaign = row.status === 'running' ? this.stats(row.id).campaign : this.get(row.id);
+            if (campaign.status !== 'done') continue;
+            const { recurrence } = campaign.options;
+            const at = nextRun(campaign.scheduledAt || campaign.startedAt, recurrence.every, now);
+            if (!at || (recurrence.until && iso(at).slice(0, 10) > recurrence.until)) {
+                this.#mergeOptions(campaign.id, { recurrenceNote: 'The repeat schedule has ended.' });
+                continue;
+            }
+            const {
+                statusReason, nextId, recurrenceNote, previousId, spread, ...options
+            } = campaign.options;
+            try {
+                const next = this.create({
+                    name: campaign.name, status: 'scheduled', templateId: campaign.templateId, body: campaign.body,
+                    segmentId: campaign.segmentId, audience: campaign.audience, mediaId: campaign.mediaId,
+                    scheduledAt: at, channelId: campaign.channelId, options: { ...options, previousId: campaign.id },
+                });
+                const replies = this.replies?.();
+                const rules = replies?.rules(campaignKey(campaign.id)) ?? [];
+                if (rules.length) replies.setRules(campaignKey(next.id), rules);
+                this.#mergeOptions(campaign.id, { nextId: next.id });
+                booked.push(next);
+            } catch (err) {
+                // A plan limit (say, too many scheduled): say so on the parent and stop, not retry every tick.
+                if (!(err instanceof CampaignError)) throw err;
+                this.#mergeOptions(campaign.id, { recurrenceNote: `The next run could not be booked: ${err.message}` });
+            }
+        }
+        return booked;
+    }
+
+    #mergeOptions(id, patch) {
+        const campaign = this.get(id);
+        this.db.prepare('UPDATE campaigns SET options = ?, updated_at = ? WHERE id = ? AND tenant_id = ?')
+            .run(JSON.stringify({ ...(campaign.options ?? {}), ...patch }), this.now(), campaign.id, this.tenantId);
     }
 
     // ------------------------------------------------------------- spread --
@@ -733,6 +854,7 @@ export class CampaignStore {
                 messageId: row.message_id, attempt: row.attempt, recipient: row.recipient, text: row.message,
                 name: row.name ?? '', media, template: sends.template, fallbackTemplate: sends.fallbackTemplate,
                 interactive: options.interactive ? personalizeInteractive(options.interactive, context) : null,
+                variant: row.variant ?? null,
             });
         }
         const byStatus = this.counts(key);
@@ -855,7 +977,10 @@ export class CampaignStore {
         else if (filter === 'noreply') {
             keep = (r) => ['SENT', 'DELIVERED', 'READ'].includes(r.status) && !replied.has(digits(r.recipient));
         } else if (filter === 'replied') keep = (r) => replied.has(digits(r.recipient));
-        else {
+        else if (filter === 'clickedLink') {
+            const tapped = linkClicksByRecipient(this.db, this.tenantId, campaignKey(source.id));
+            keep = (r) => tapped.has(digits(r.recipient));
+        } else {
             const clicks = this.#clickData(campaignKey(source.id));
             const wanted = spec.optionId == null || spec.optionId === '' ? null : String(spec.optionId);
             keep = (r) => (clicks?.byRecipient.get(digits(r.recipient)) ?? [])
@@ -918,6 +1043,43 @@ export function runningSpreadCampaigns(database) {
         .all().map((row) => ({ id: row.id, tenantId: row.tenant_id }));
 }
 
+/** Repeating campaigns whose next run is not booked yet (and whose chain has not stopped). */
+const RECURRING_OPEN = `status IN ('running', 'done') AND options LIKE '%"recurrence"%' AND json_valid(options)
+    AND json_extract(options, '$.recurrence.every') IS NOT NULL
+    AND json_extract(options, '$.nextId') IS NULL AND json_extract(options, '$.recurrenceNote') IS NULL`;
+
+/** For the scheduler: tenants with a repeating campaign that may need its next run booked. */
+export function recurringTenants(database) {
+    return database.db.prepare(`SELECT DISTINCT tenant_id FROM campaigns WHERE ${RECURRING_OPEN}`)
+        .all().map((row) => row.tenant_id);
+}
+
+/**
+ * The first `every` step after `base` that is still ahead of `now`. A missed
+ * run (the server was off) is skipped, not sent late. A month step keeps the
+ * day where it can: the 31st repeats on the 30th, or the 28th in February.
+ *
+ * ponytail: UTC arithmetic, so a daily send moves by an hour of local time
+ * across a DST change.
+ */
+export function nextRun(base, every, now = new Date()) {
+    const start = new Date(base ?? NaN);
+    if (Number.isNaN(start.getTime()) || !RECURRENCE_EVERY.includes(every)) return null;
+    for (let k = 1; k <= 10_000; k += 1) {
+        const at = new Date(start);
+        if (every === 'month') {
+            at.setUTCDate(1);
+            at.setUTCMonth(start.getUTCMonth() + k);
+            const last = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 0)).getUTCDate();
+            at.setUTCDate(Math.min(start.getUTCDate(), last));
+        } else {
+            at.setTime(start.getTime() + k * (every === 'week' ? 7 : 1) * 86_400_000);
+        }
+        if (at > now) return at;
+    }
+    return null;
+}
+
 /** Same shape as `utcNow()`, so timestamps compare as strings across tables. */
 export const iso = (value) => (typeof value === 'string' ? value
     : new Date(value).toISOString().replace(/\.\d{3}Z$/, '+00:00'));
@@ -939,7 +1101,9 @@ export function ensureCampaignOptionsColumn(db) {
 
 /**
  * Clean a campaign's v2 options: { interactive, fallbacks, pacing, timezone,
- * dedupeDays, variables, mediaMeta }. Unknown keys pass through untouched
+ * dedupeDays, variables, mediaMeta, trackLinks, recurrence, variants }. The
+ * server writes statusReason, nextId / previousId and recurrenceNote itself.
+ * Unknown keys pass through untouched
  * (other features may keep their own there); known ones are validated.
  */
 export function normalizeOptions(input) {
@@ -967,7 +1131,57 @@ export function normalizeOptions(input) {
     if (src.variables !== undefined) {
         out.variables = (Array.isArray(src.variables) ? src.variables : []).map(String).slice(0, 100);
     }
+    // Only spawnRecurrences writes these: a duplicated campaign must still repeat.
+    delete out.nextId;
+    delete out.recurrenceNote;
+    if (src.trackLinks !== undefined) out.trackLinks = src.trackLinks === true;
+    if (src.recurrence !== undefined) out.recurrence = normalizeRecurrence(src.recurrence);
+    if (out.recurrence && out.spread) {
+        throw new CampaignError('a repeating campaign cannot also be spread over several days');
+    }
+    if (src.extraNumbers !== undefined) out.extraNumbers = normalizeExtraNumbers(src.extraNumbers);
+    if (src.variants !== undefined) out.variants = normalizeVariants(src.variants);
+    if (out.variants && out.templateMode === 'meta') {
+        throw new CampaignError('an approved Meta template has one fixed wording, so it cannot be A/B tested');
+    }
     return out;
+}
+
+/** `{every: 'day'|'week'|'month', until?: 'YYYY-MM-DD'}`, or null for a one-off. */
+function normalizeRecurrence(input) {
+    if (!input) return null;
+    if (!RECURRENCE_EVERY.includes(input.every)) {
+        throw new CampaignError(`recurrence.every must be one of ${RECURRENCE_EVERY.join(', ')}`);
+    }
+    const until = input.until ? String(input.until) : null;
+    if (until && !isDateKey(until)) throw new CampaignError('recurrence.until must be a date (YYYY-MM-DD)');
+    return until ? { every: input.every, until } : { every: input.every };
+}
+
+/** Typed numbers added to a contacts / past-campaign audience: `[{phone, name}]`, at most 500. */
+function normalizeExtraNumbers(input) {
+    if (input == null || (Array.isArray(input) && !input.length)) return null;
+    if (!Array.isArray(input)) throw new CampaignError('extraNumbers must be a list of numbers');
+    if (input.length > 500) throw new CampaignError('add at most 500 numbers by hand - upload a file for more');
+    return input
+        .map((e) => ({ phone: String(e?.phone ?? '').trim().slice(0, 20), name: String(e?.name ?? '').trim().slice(0, 100) }))
+        .filter((e) => e.phone);
+}
+
+/** 2 or 3 versions `[{key: 'A', body}, {key: 'B', body}]`, or null without A/B testing. */
+function normalizeVariants(input) {
+    if (input == null || (Array.isArray(input) && !input.length)) return null;
+    if (!Array.isArray(input) || input.length < 2 || input.length > VARIANT_KEYS.length) {
+        throw new CampaignError(`an A/B test needs 2 to ${VARIANT_KEYS.length} versions`);
+    }
+    return input.map((entry, i) => {
+        const key = entry?.key ?? VARIANT_KEYS[i];
+        if (key !== VARIANT_KEYS[i]) throw new CampaignError(`A/B versions must be keyed ${VARIANT_KEYS.slice(0, input.length).join(', ')} in order`);
+        const body = String(entry?.body ?? '');
+        if (!body.trim()) throw new CampaignError(`version ${key} needs a message`);
+        if (body.length > 4096) throw new CampaignError(`version ${key} is longer than 4096 characters`);
+        return { key, body };
+    });
 }
 
 /** `{from, to, startTime}` for spread sending; the counters are the server's, not the client's. */
@@ -998,7 +1212,10 @@ function toCampaign(row) {
         body: row.body ?? '',
         segmentId: row.segment_id,
         audience,
-        audienceSize: Array.isArray(audience) ? audience.length : null,
+        // A segment campaign is saved with `audience: []`, so its size is the
+        // queued count once it has started (null before: counted at start).
+        audienceSize: row.segment_id == null && Array.isArray(audience) ? audience.length
+            : (Array.isArray(audience?.ids) ? audience.ids.length : (parse(row.stats, {}).total || null)),
         mediaId: row.media_id,
         scheduledAt: row.scheduled_at,
         startedAt: row.started_at,

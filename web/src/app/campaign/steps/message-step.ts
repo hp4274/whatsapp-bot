@@ -20,10 +20,29 @@ import { InteractiveEditor } from '../interactive/interactive-editor';
 import { CampaignDraft } from '../draft';
 import { CampaignPolicy } from '../policy-api';
 import { MetaParams } from './meta-params';
-import { formatBytes } from '../wa-format';
+import { ReplyRulesEditor } from '../interactive/reply-rules-editor';
+import { formatBytes, substitute } from '../wa-format';
 
 /** Media types WhatsApp accepts as an attachment; the server checks the same list. */
-const ALLOWED = ['image/jpeg', 'image/png', 'application/pdf', 'video/mp4', 'video/3gpp'];
+const ALLOWED = [
+  'image/jpeg',
+  'image/png',
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'video/mp4',
+  'video/3gpp',
+];
+/** Where "Send a test" remembers the number. */
+const TEST_PHONE_KEY = 'wsender.testPhone';
+
+function readTestPhone(): string {
+  try {
+    return localStorage.getItem(TEST_PHONE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
 /** Inserted by the Spintax button: a working example the user edits in place. */
 const SPIN_SAMPLE = '{Hi|Hello|Hey}';
 
@@ -35,7 +54,14 @@ const SPIN_SAMPLE = '{Hi|Hello|Hey}';
  */
 @Component({
   selector: 'app-message-step',
-  imports: [FormsModule, RouterLink, InteractiveEditor, MetaParams, ReusePicker],
+  imports: [
+    FormsModule,
+    RouterLink,
+    InteractiveEditor,
+    MetaParams,
+    ReusePicker,
+    ReplyRulesEditor,
+  ],
   templateUrl: './message-step.html',
   styleUrl: './message-step.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -60,8 +86,21 @@ export class MessageStep {
   protected readonly approved = signal<Template[] | null>(null);
   protected readonly templatesError = signal('');
 
+  /** Saved templates for the picker; null until loaded. */
+  protected readonly saved = signal<Template[] | null>(null);
+  protected readonly savedError = signal('');
+  protected readonly savedNote = signal('');
+  /** The "Save as template" name box: null while closed. */
+  protected readonly savingName = signal<string | null>(null);
+  protected readonly saving = signal(false);
+
+  protected readonly testPhone = signal(readTestPhone());
+  protected readonly testing = signal(false);
+  protected readonly testResult = signal<{ ok: boolean; text: string } | null>(null);
+
   constructor() {
     this.policy.load();
+    this.loadSaved();
     effect(() => {
       if (this.draft.cloudApi() && untracked(this.approved) === null)
         untracked(() => this.loadTemplates());
@@ -80,6 +119,111 @@ export class MessageStep {
       },
       error: (err: Error) => this.templatesError.set(`Could not load templates: ${err.message}`),
     });
+  }
+
+  /** Also the picker's Try again. */
+  protected loadSaved(): void {
+    this.savedError.set('');
+    this.templatesApi.list().subscribe({
+      next: ({ templates }) =>
+        this.saved.set(templates.filter((t) => t.templateType !== 'provider_template' && t.body)),
+      error: (err: Error) => {
+        this.saved.set([]);
+        this.savedError.set(`Could not load saved templates: ${err.message}`);
+      },
+    });
+  }
+
+  /** Same fill as the ?template= link: message, buttons and attachment. */
+  protected useSaved(select: HTMLSelectElement): void {
+    const t = this.saved()?.find((x) => String(x.id) === select.value);
+    select.value = '';
+    if (!t) return;
+    this.draft.message.set(t.body);
+    this.draft.templateId.set(t.id);
+    this.draft.interactive.set(t.interactive ?? null);
+    if (t.headerMediaId) {
+      this.draft.setAttachment({
+        mediaId: t.headerMediaId,
+        filename: 'Template attachment',
+        mimetype: '',
+        size: 0,
+        previewUrl: '',
+      });
+    }
+    this.savedNote.set(`Loaded "${t.name}".`);
+  }
+
+  protected saveAsTemplate(): void {
+    const name = (this.savingName() ?? '').trim();
+    if (!name) return;
+    const d = this.draft;
+    this.saving.set(true);
+    this.savedNote.set('');
+    this.templatesApi
+      .create({
+        name,
+        templateType: d.interactive() ? 'interactive' : d.attachment() ? 'media' : 'text',
+        body: d.message(),
+        // The templates check also reads a word-choice group such as {Hello|Hey} as a
+        // placeholder, so every braced word in the body is declared or the save is refused.
+        variables: [
+          ...new Set([
+            ...d.usedVariables(),
+            ...[...d.message().matchAll(/\{(\w+)(?:\|[^{}]*)?\}/g)].map((m) => m[1]),
+          ]),
+        ],
+        providerTemplateName: '',
+        approvalStatus: 'draft',
+        category: 'marketing',
+        sampleValues: {},
+        headerMediaId: d.attachment()?.mediaId ?? null,
+        interactive: d.interactive(),
+      })
+      .subscribe({
+        next: ({ template }) => {
+          this.saving.set(false);
+          this.savingName.set(null);
+          this.saved.update((list) => [template, ...(list ?? [])]);
+          this.savedNote.set(`Saved as "${template.name}".`);
+        },
+        error: (err: Error) => {
+          this.saving.set(false);
+          this.savedNote.set('');
+          this.savedError.set(`Could not save the template: ${err.message}`);
+        },
+      });
+  }
+
+  /** Sends the message as the previewed contact would get it, to the typed number. */
+  protected sendTest(): void {
+    const phone = this.testPhone().trim();
+    if (!phone) return;
+    try {
+      localStorage.setItem(TEST_PHONE_KEY, phone);
+    } catch {
+      // Private mode: the number is just not remembered.
+    }
+    const d = this.draft;
+    // The version on screen, so each A/B text can be tried on a real phone.
+    const text = substitute(d.previewText(), d.previewContext(), d.fallbacks(), d.seed()).text;
+    this.testing.set(true);
+    this.testResult.set(null);
+    this.api
+      .sendMessage(phone, text, '', {
+        mediaId: d.attachment()?.mediaId ?? null,
+        interactive: d.interactive(),
+      })
+      .subscribe({
+        next: ({ recipient }) => {
+          this.testing.set(false);
+          this.testResult.set({ ok: true, text: `Test sent to +${recipient}.` });
+        },
+        error: (err: Error) => {
+          this.testing.set(false);
+          this.testResult.set({ ok: false, text: `Test not sent: ${err.message}` });
+        },
+      });
   }
 
   protected pick(id: string, which: 'main' | 'fallback'): void {
@@ -114,9 +258,9 @@ export class MessageStep {
   /** Insert text at the caret. */
   protected insert(text: string): void {
     const el = this.editor()?.nativeElement;
-    const value = this.draft.message();
+    const value = this.draft.activeMessage();
     if (!el) {
-      this.draft.message.set(value + text);
+      this.draft.setActiveMessage(value + text);
       return;
     }
     const s = el.selectionStart ?? value.length;
@@ -134,7 +278,7 @@ export class MessageStep {
   }
 
   private apply(next: string, from: number, to: number): void {
-    this.draft.message.set(next);
+    this.draft.setActiveMessage(next);
     const el = this.editor()?.nativeElement;
     if (!el) return;
     el.value = next;
@@ -142,6 +286,24 @@ export class MessageStep {
       el.focus();
       el.setSelectionRange(from, to);
     });
+  }
+
+  /** Turn the A/B test on (and start writing version B) or off (version A, the main message, stays). */
+  protected setAb(on: boolean): void {
+    const d = this.draft;
+    d.variantB.set(on ? '' : null);
+    d.variantC.set(null);
+    d.activeVersion.set(on ? 'B' : 'A');
+  }
+
+  protected addVersionC(): void {
+    this.draft.variantC.set('');
+    this.draft.activeVersion.set('C');
+  }
+
+  protected removeVersionC(): void {
+    this.draft.variantC.set(null);
+    this.draft.activeVersion.set('B');
   }
 
   protected onKey(event: KeyboardEvent): void {
@@ -160,7 +322,7 @@ export class MessageStep {
     input.value = '';
     if (!file) return;
     if (!ALLOWED.includes(file.type)) {
-      this.error.set('Attach a JPG, PNG, PDF or MP4 file.');
+      this.error.set('Attach a JPG, PNG, PDF, Word or MP4 file.');
       return;
     }
     const video = file.type.startsWith('video/');

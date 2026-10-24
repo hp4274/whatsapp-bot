@@ -34,6 +34,8 @@ import {
 
 const isoAgo = (ms) => new Date(Date.now() - ms).toISOString().replace(/\.\d{3}Z$/, '+00:00');
 const between = (min, max) => min + Math.random() * (max - min);
+/** Someone is waiting on these: the daily cap counts them but never pauses the queue for them. */
+const QUOTA_EXEMPT = new Set(['auto_reply', 'transactional']);
 
 export class CampaignManager extends EventEmitter {
     constructor(db, transport, config) {
@@ -76,6 +78,8 @@ export class CampaignManager extends EventEmitter {
         this.policyWindowOpen = null;  // () => false outside the platform's sending hours
         this.stopReason = 'Stopped by operator';
         this.resumeRefusal = null;     // why a policy hold cannot be resumed yet
+        // Set by the channel runtime when PUBLIC_BASE_URL is known: a links/store.js LinkStore.
+        this.links = null;
         this.current = null;
     }
 
@@ -201,7 +205,12 @@ export class CampaignManager extends EventEmitter {
         metaTemplate = null, fallbackTemplate = null,
         // Bulk Campaigns v2: per-variable fallback text and the speed preset.
         fallbacks = null, pacing = 'balanced',
+        // A/B bodies [{key, body}] split evenly over the batch; tracked links (see links/store.js).
+        variants = null, trackLinks = false,
     } = {}) {
+        // An approved Meta template has one fixed wording: no versions, no rewritten links.
+        const versions = !metaTemplate && Array.isArray(variants) && variants.length ? variants : null;
+        const tracking = Boolean(trackLinks && !metaTemplate && this.links);
         // Throws InteractiveError (status 400) before anything is queued.
         const block = normalizeInteractive(interactive);
         // Platform policy (policy/campaignOps.js): refusals before anything is queued.
@@ -232,11 +241,13 @@ export class CampaignManager extends EventEmitter {
             pacing = applied;
         }
         // Meta fixes an approved template's wording; variation is not ours to add.
-        const unvaried = this.config.safetyEnabled === false || metaTemplate ? null : variationError(template, contacts, this.config);
+        const bodies = versions ? versions.map((v) => v.body) : [template];
+        const unvaried = this.config.safetyEnabled === false || metaTemplate ? null
+            : bodies.map((body) => variationError(body, contacts, this.config)).find(Boolean);
         if (unvaried) throw new SafetyError(unvaried);
         if (this.config.safetyEnabled !== false && !metaTemplate) {
             const own = (c) => String(c?.extra?.message ?? c?.extra?.custom_message ?? '');
-            const shouting = [template, ...(Array.isArray(contacts) ? contacts.map(own) : [])]
+            const shouting = [...bodies, ...(Array.isArray(contacts) ? contacts.map(own) : [])]
                 .map(contentError).find(Boolean);
             if (shouting) throw new SafetyError(shouting);
         }
@@ -257,6 +268,7 @@ export class CampaignManager extends EventEmitter {
         let skippedOptOut = 0;
         let skippedMuted = 0;
         let skippedTemplateVars = 0;
+        let split = 0; // recipients given a version so far: the next one gets versions[split % n]
         const optedOut = new Set(this.db.getAllOptOuts?.() ?? []);
         // Contacts a reply rule muted ("not now, ask me in 30 days").
         const muted = this.db.bulkMutedPhones?.() ?? new Set();
@@ -301,18 +313,29 @@ export class CampaignManager extends EventEmitter {
                 const fallback = fallbackTemplate
                     ? prepareTemplateSend(fallbackTemplate.template, withFallbacks(contactContext(contact), fallbacks ?? {}), fallbackTemplate.params) : null;
                 // --- end Meta approved template ---
+                // Round-robin over the (already shuffled) batch: an even split. A sheet's own text is no version.
+                const version = versions && !own ? versions[split % versions.length] : null;
+                let message = meta ? meta.text : renderMessage(own || (version?.body ?? template), contact, fallbacks ?? {});
+                // Rewritten here, before the row is written: a retry or a restart resends the stored text, same codes.
+                const tracked = tracking ? this.links.rewrite(message) : null;
+                if (tracked) message = tracked.text;
                 const item = queueItem({
                     recipient: contact.phone,
-                    message: meta ? meta.text : renderMessage(own || template, contact, fallbacks ?? {}),
+                    message,
                     template: meta?.template ?? null,
                     fallbackTemplate: fallback && !fallback.missing.length ? fallback : null,
                     name: contact.name ?? '',
                     campaignId: this.campaignId,
                     media,
                     interactive: personalizeInteractive(block, withFallbacks(contactContext(contact), fallbacks ?? {})),
+                    variant: version?.key ?? null,
                 });
                 if (this.#enqueueItem(item)) {
                     queued += 1;
+                    if (version) split += 1;
+                    if (tracked?.links.length) {
+                        this.links.save(tracked.links, { campaignId: this.campaignId, messageId: item.messageId, recipient: item.recipient });
+                    }
                     if (perRecipient) recent.set(contact.phone, (recent.get(contact.phone) ?? 0) + 1);
                 } else skipped += 1;
             }
@@ -379,6 +402,7 @@ export class CampaignManager extends EventEmitter {
             interactive: job.interactive ?? null,
             fallbackTemplate: job.fallbackTemplate ?? null,
             template: job.template ?? null,
+            variant: job.variant ?? null,
         });
         if (!this.#enqueueItem(item)) return null;
         this.stats.total += 1;
@@ -410,6 +434,7 @@ export class CampaignManager extends EventEmitter {
                 recipient: job.recipient, message: job.text, name: job.name, campaignId,
                 media: job.media, interactive: job.interactive ?? null,
                 template: job.template ?? null, fallbackTemplate: job.fallbackTemplate ?? null,
+                variant: job.variant ?? null,
             });
             item.messageId = job.messageId;
             item.attempt = job.attempt ?? 0;
@@ -441,6 +466,7 @@ export class CampaignManager extends EventEmitter {
             campaignId: item.campaignId,
             messageType: item.messageType,
             idempotencyKey: item.idempotencyKey,
+            variant: item.variant ?? null,
         });
         this.emit('event', { type: 'message', record });
         return true;
@@ -515,7 +541,7 @@ export class CampaignManager extends EventEmitter {
     // -------------------------------------------------------------- worker --
     async #run() {
         while (!this.shuttingDown) {
-            const item = this.queue.get((candidate) => this.#ready(candidate));
+            const item = this.queue.get((candidate) => this.#ready(candidate)) ?? this.#pastQuotaPause();
             if (!item) {
                 if (this.queue.isStopped && !this.shuttingDown) {
                     // Stopped, but stay alive for the next campaign.
@@ -528,6 +554,19 @@ export class CampaignManager extends EventEmitter {
             }
             await this.#process(item);
         }
+    }
+
+    /**
+     * A quota pause holds bulk only: a reply that arrives after it still goes
+     * out (and counts toward the day). An operator's pause holds everything.
+     */
+    #pastQuotaPause() {
+        if (!this.pausedByQuota || !this.queue.isPaused) return null;
+        // ponytail: the queue has no "take while paused"; reopen it for one synchronous pick.
+        this.queue.resume();
+        const item = this.queue.get((candidate) => QUOTA_EXEMPT.has(candidate.messageType) && this.#ready(candidate));
+        this.queue.pause();
+        return item;
     }
 
     /**
@@ -691,6 +730,8 @@ export class CampaignManager extends EventEmitter {
      */
     #quotaBlocked(item) {
         if (!this.config.safetyEnabled || !this.transport?.realDelivery) return false;
+        // A reply to someone who wrote in is not bulk: it counts toward the day, but never holds the queue.
+        if (QUOTA_EXEMPT.has(item.messageType)) return false;
         if (!this.quota.exhausted()) return false;
         this.queue.putFront(item);
         this.queue.pause();

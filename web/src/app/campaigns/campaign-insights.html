@@ -3,7 +3,7 @@
   <header class="head">
     <div class="titles">
       <h3 id="funnel-h">Delivery funnel</h3>
-      <span class="sub">{{ count(analytics().funnel.audience) }} recipients</span>
+      <span class="sub">{{ count(analytics().funnel.audience || analytics().funnel.queued) }} recipients</span>
     </div>
     <div class="fresh">
       <span class="live" [class.off]="!store.streamOnline()">
@@ -26,7 +26,7 @@
       </button>
     </div>
   </header>
-  <ol class="stages">
+  <ol class="stages" [style.--cols]="stages().length">
     @for (s of stages(); track s.key; let i = $index) {
       <li class="stage" [class]="'stage tone-' + s.tone" [style.--i]="i">
         <span class="label"
@@ -117,7 +117,51 @@
   </section>
 </div>
 
-<section class="s-card retarget s-enter" style="--i: 5" aria-labelledby="rt-h">
+@if (ab(); as t) {
+  <section class="s-card s-enter" style="--i: 5" aria-labelledby="ab-h">
+    <header class="head">
+      <h3 id="ab-h"><i class="ti ti-flask" aria-hidden="true"></i>Version comparison</h3>
+    </header>
+    <div class="s-table">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Version</th>
+            <th scope="col" class="num">Sent</th>
+            <th scope="col" class="num">Delivered</th>
+            <th scope="col" class="num">Read</th>
+            <th scope="col" class="num">Replied</th>
+            @if (showLinks()) {
+              <th scope="col" class="num">Clicked a link</th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          @for (r of t.rows; track r.key; let i = $index) {
+            <tr [style.--i]="i">
+              <th scope="row" class="ver">
+                Version {{ r.key }}
+                @if (t.winner === r.key) {
+                  <span class="win"><i class="ti ti-trophy" aria-hidden="true"></i>Doing better</span>
+                }
+              </th>
+              <td class="num">{{ r.sent }}</td>
+              <td class="num">{{ r.delivered }}</td>
+              <td class="num">{{ r.read }}</td>
+              <td class="num">{{ r.replied }}</td>
+              @if (showLinks()) {
+                <td class="num">{{ r.clicked }}</td>
+              }
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <p class="ab-note" role="status">{{ t.note }}</p>
+  </section>
+}
+
+<section class="s-card retarget s-enter" style="--i: 6" aria-labelledby="rt-h">
   <div>
     <h3 id="rt-h">Re-target</h3>
     <p>Start a follow-up campaign for a slice of this audience.</p>

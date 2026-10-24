@@ -75,6 +75,7 @@ describe('classifyPhone', () => {
         [' +91 98765-43210 ', {}, '919876543210', null],
         ['09876543210', { countryCode: '91' }, '919876543210', null],
         ['9876543210', {}, null, 'bad_country_code'],
+        ['919800000000', { countryCode: '91' }, '919800000000', null],
         ['abc123', {}, null, 'letters'],
         ['98765 43210x', { autoClean: true, countryCode: '91' }, '919876543210', null],
         ['+12345', {}, null, 'too_short'],

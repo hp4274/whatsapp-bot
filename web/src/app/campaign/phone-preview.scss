@@ -58,6 +58,34 @@
   &:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 
+// A / B / C: the same sunken track as the message step's version switch.
+.vers {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--surface-sunken);
+
+  button {
+    min-width: 30px;
+    padding: 4px 9px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    font-weight: 500;
+
+    &:hover { color: var(--text-strong); }
+    &[aria-pressed='true'] {
+      background: var(--surface-card);
+      box-shadow: inset 0 0 0 1px var(--border-color);
+      color: var(--text-strong);
+      font-weight: 600;
+    }
+  }
+}
+
 .miss-pill {
   display: inline-flex;
   align-items: center;

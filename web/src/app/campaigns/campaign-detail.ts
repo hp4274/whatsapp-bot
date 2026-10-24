@@ -17,6 +17,7 @@ import {
   type Campaign,
   type CampaignAnalytics,
   CampaignsApi,
+  ContactsApi,
   type PacingPreset,
 } from '../core/api';
 import { CampaignPolicy } from '../campaign/policy-api';
@@ -71,6 +72,7 @@ const RECEIPT_WINDOW_MS = 7 * 86_400_000;
 })
 export class CampaignDetailView {
   private readonly api = inject(CampaignsApi);
+  private readonly contactsApi = inject(ContactsApi);
   protected readonly store = inject(Store);
 
   /** Route param, bound by withComponentInputBinding. */
@@ -86,6 +88,33 @@ export class CampaignDetailView {
   protected readonly statusReason = computed(
     () => (this.campaign()?.options as { statusReason?: string | null } | undefined)?.statusReason ?? null,
   );
+  /**
+   * The repeat schedule and the runs it links to. The server writes `nextId`,
+   * `previousId` and `recurrenceNote`; null for a campaign that is neither
+   * repeating nor part of a series.
+   */
+  protected readonly series = computed(() => {
+    const o = this.campaign()?.options;
+    if (!o) return null;
+    const r = o.recurrence;
+    if (!r && !o.nextId && !o.previousId && !o.recurrenceNote) return null;
+    let until = '';
+    if (r?.until) {
+      const [y, m, d] = r.until.split('-').map(Number);
+      until = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined, {
+        timeZone: 'UTC',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
+    }
+    return {
+      repeats: r ? `Repeats every ${r.every}${until ? ` (until ${until})` : ''}` : null,
+      nextId: o.nextId ?? null,
+      previousId: o.previousId ?? null,
+      note: o.recurrenceNote ?? null,
+    };
+  });
   private readonly recipientsTable = viewChild(CampaignRecipients);
   protected readonly campaign = signal<Campaign | null>(null);
   protected readonly analytics = signal<CampaignAnalytics | null>(null);
@@ -113,8 +142,15 @@ export class CampaignDetailView {
   protected readonly pacing = computed<PacingPreset>(
     () => this.campaign()?.options?.pacing ?? 'balanced',
   );
+  /** A segment campaign stores no audience until it starts: its size is the segment's live count. */
+  private readonly segmentCount = signal<number | null>(null);
   protected readonly audience = computed(
-    () => this.analytics()?.funnel.audience || this.campaign()?.audienceSize || 0,
+    () =>
+      this.analytics()?.funnel.audience ||
+      this.campaign()?.audienceSize ||
+      this.analytics()?.funnel.queued ||
+      this.segmentCount() ||
+      0,
   );
   protected readonly failedCount = computed(
     () => this.analytics()?.funnel.failed ?? this.campaign()?.stats?.failed ?? 0,
@@ -199,6 +235,22 @@ export class CampaignDetailView {
 
   constructor() {
     this.policy.load();
+    effect(() => {
+      const c = this.campaign();
+      const segmentId = c?.segmentId ?? null;
+      const waiting = c?.status === 'draft' || c?.status === 'scheduled';
+      if (segmentId === null || c?.audienceSize || !waiting) {
+        untracked(() => this.segmentCount.set(null));
+        return;
+      }
+      untracked(() =>
+        this.contactsApi.segments().subscribe({
+          next: ({ segments }) =>
+            this.segmentCount.set(segments.find((x) => x.id === segmentId)?.count ?? null),
+          error: () => this.segmentCount.set(null),
+        }),
+      );
+    });
     effect(() => {
       this.id();
       untracked(() => {

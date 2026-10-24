@@ -265,3 +265,7 @@
 
 .typed-foot { display: flex; justify-content: flex-end; }
 .more textarea { resize: vertical; }
+
+// "More options" body and the three tag boxes share the map row's grid rhythm.
+.more-body { display: grid; gap: var(--space-lg); padding-top: var(--space-md); }
+.tag-rows { display: grid; gap: var(--space-md); }

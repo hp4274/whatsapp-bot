@@ -268,6 +268,8 @@ function addTenantControlColumns(db) {
     // Session idle timeout (see Tenancy.resolveSession).
     if (!columnsOf(db, 'sessions').includes('last_seen_at')) db.exec('ALTER TABLE sessions ADD COLUMN last_seen_at TEXT');
     if (!columnsOf(db, 'whatsapp_channels').includes('number_since')) db.exec('ALTER TABLE whatsapp_channels ADD COLUMN number_since TEXT');
+    // A/B campaigns: which version ('A', 'B', 'C') a row carried; NULL for everything else.
+    if (!columnsOf(db, 'messages').includes('variant')) db.exec('ALTER TABLE messages ADD COLUMN variant TEXT');
 }
 
 /** Adds channel_id to tables that predate channels. Existing rows keep NULL
@@ -434,14 +436,15 @@ export class Database {
             created_at: record.createdAt ?? now,
             updated_at: record.updatedAt ?? now,
             sent_at: SUCCESS_STATUSES.includes(record.status) ? (record.sentAt ?? record.updatedAt ?? record.createdAt ?? now) : null,
+            variant: record.variant ?? null,
         };
         this.db.prepare(`
             INSERT INTO messages (tenant_id, channel_id, message_id, message_type, direction,
                                   idempotency_key, recipient, message, status, attempt,
-                                  provider_id, error, name, campaign_id, created_at, updated_at, sent_at)
+                                  provider_id, error, name, campaign_id, created_at, updated_at, sent_at, variant)
             VALUES (:tenant_id, :channel_id, :message_id, :message_type, :direction,
                     :idempotency_key, :recipient, :message, :status, :attempt,
-                    :provider_id, :error, :name, :campaign_id, :created_at, :updated_at, :sent_at)
+                    :provider_id, :error, :name, :campaign_id, :created_at, :updated_at, :sent_at, :variant)
         `).run(row);
         return toRecord(row);
     }

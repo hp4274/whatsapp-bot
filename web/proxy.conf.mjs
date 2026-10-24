@@ -26,4 +26,11 @@ export default {
       });
     },
   },
+  // Tracked campaign links (public redirect, served by the API). The trailing
+  // slash matters: a bare '/l' prefix would also swallow '/login'.
+  '/l/': {
+    target: 'http://127.0.0.1:3000',
+    secure: false,
+    changeOrigin: true,
+  },
 };

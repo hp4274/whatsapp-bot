@@ -7,22 +7,25 @@ import {
   inject,
   signal,
   untracked,
+  WritableSignal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import {
   Campaign,
   CampaignsApi,
+  ContactFilter,
   ContactsApi,
   ImportIssueReason,
   ImportPreview,
   RetargetFilter,
   Segment,
 } from '../../core/api';
+import { splitTags } from '../../contacts/contact-util';
 import { ReusePicker } from '../../storage/reuse-picker';
 import type { StorageUse } from '../../storage/storage-api';
 import { shortDate } from '../../storage/storage-format';
-import { AudienceSource, CampaignDraft } from '../draft';
+import { AudienceSource, CampaignDraft, hasCriteria } from '../draft';
 import { CampaignPolicy } from '../policy-api';
 
 const REASONS: Record<ImportIssueReason, string> = {
@@ -37,28 +40,48 @@ const REASONS: Record<ImportIssueReason, string> = {
   recent: 'Messaged recently',
 };
 
-/** Where recipients can come from; the order is the order of the choice cards. */
-const SOURCES: { value: AudienceSource; icon: string; title: string; text: string }[] = [
+/**
+ * Where recipients can come from; the order is the order of the choice cards.
+ * Typed numbers are not a source of their own: they can be added to any of these.
+ */
+const SOURCES: {
+  id: string;
+  value: AudienceSource;
+  icon: string;
+  title: string;
+  text: string;
+}[] = [
   {
+    id: 'contacts',
+    value: 'contacts',
+    icon: 'users-group',
+    title: 'Your contacts',
+    text: 'A saved segment, or everyone with certain tags',
+  },
+  {
+    id: 'upload',
     value: 'file',
     icon: 'file-upload',
     title: 'Upload a file',
     text: 'CSV or Excel - every column becomes a variable',
   },
   {
+    id: 'retarget',
     value: 'retarget',
     icon: 'reload',
-    title: 'Re-target a campaign',
-    text: 'Follow up on failed, unread or clicked',
+    title: 'People from a past campaign',
+    text: 'Follow up with people who did not read or reply',
   },
 ];
 
+/** Plain-words versions of the server's re-target filters. */
 const FILTERS: { value: RetargetFilter; label: string; hint: string }[] = [
-  { value: 'failed', label: 'Failed', hint: 'The message never arrived' },
-  { value: 'unread', label: 'Delivered but not read', hint: 'Sent or delivered, no blue ticks' },
-  { value: 'noreply', label: 'Read but did not reply', hint: 'Got it, said nothing' },
+  { value: 'failed', label: 'Message failed', hint: 'The message never arrived' },
+  { value: 'unread', label: "Didn't read it", hint: 'Sent or delivered, no blue ticks' },
+  { value: 'noreply', label: "Didn't reply", hint: 'Read it, but said nothing' },
   { value: 'replied', label: 'Replied', hint: 'Wrote back after the campaign started' },
-  { value: 'clicked', label: 'Picked a button', hint: 'Chose a specific reply option' },
+  { value: 'clicked', label: 'Tapped a button', hint: 'Chose a specific reply option' },
+  { value: 'clickedLink', label: 'Tapped a link', hint: 'Tapped a tracked link in the message' },
 ];
 
 /** "Skip if messaged within N days" choices; 0 turns the check off. */
@@ -67,8 +90,8 @@ export const DEDUPE_PRESETS = [0, 7, 30, 90];
 const ISSUE_LIMIT = 200;
 
 /**
- * Step 1 (top half): pick who gets the campaign — an uploaded file, a re-target of a past
- * campaign, or a saved segment. Uploaded files are audited on the server
+ * Step 1 (top half): pick who gets the campaign — the contact book (a saved segment or a
+ * tag filter), an uploaded file, or people from a past campaign, plus any typed numbers. Uploaded files are audited on the server
  * (debounced) every time the mapping or cleaning rules change, so the count
  * shown is always what will actually be sent.
  */
@@ -98,12 +121,19 @@ export class AudienceStep {
   protected readonly uploading = signal(false);
   protected readonly auditing = signal(false);
   protected readonly dragOver = signal(false);
-  /** Numbers typed by hand, one per line, optionally "number, name". */
-  protected readonly typed = signal('');
+  /** The three tag boxes as typed; the filter holds the parsed lists. */
+  protected readonly allTagsText = signal('');
+  protected readonly anyTagsText = signal('');
+  protected readonly notTagsText = signal('');
+  protected readonly knownTags = signal<string[]>([]);
+  protected readonly counting = signal(false);
   protected readonly error = signal('');
   protected readonly copied = signal<string | null>(null);
   protected readonly campaigns = signal<Campaign[] | null>(null);
   protected readonly segments = signal<Segment[] | null>(null);
+
+  /** Contacts ticked on the Contacts page and sent here; 0 for every other kind of audience. */
+  protected readonly handPicked = computed(() => this.draft.contactFilter().ids?.length ?? 0);
 
   protected readonly ccValid = computed(() => /^\d{1,4}$/.test(this.draft.countryCode()));
   protected readonly columns = computed(() => this.draft.preview()?.columns ?? []);
@@ -157,6 +187,10 @@ export class AudienceStep {
   );
 
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** The debounced audit waiting on `timer`. */
+  private pendingAudit: (() => void) | null = null;
+  private countTimer: ReturnType<typeof setTimeout> | null = null;
+  private countSeq = 0;
   /** Bumped per audit request so a slow, stale response never overwrites a newer one. */
   private auditSeq = 0;
 
@@ -172,19 +206,88 @@ export class AudienceStep {
       const skipDuplicates = this.draft.onePerNumber();
       untracked(() => {
         if (this.timer) clearTimeout(this.timer);
+        this.timer = null;
+        this.pendingAudit = null;
         if (!preview || !mapping.phone || !/^\d{1,4}$/.test(countryCode)) return;
-        this.timer = setTimeout(
-          () => this.runAudit(preview.importId, mapping, countryCode, autoClean, dedupeDays, skipDuplicates),
-          350,
-        );
+        this.pendingAudit = () =>
+          this.runAudit(preview.importId, mapping, countryCode, autoClean, dedupeDays, skipDuplicates);
+        this.timer = setTimeout(() => {
+          this.timer = null;
+          this.pendingAudit?.();
+          this.pendingAudit = null;
+        }, 350);
       });
     });
     effect(() => {
       const source = this.draft.source();
-      untracked(() => this.loadFor(source));
+      untracked(() => {
+        // The older segment-only source is the same picker as "Your contacts".
+        if (source === 'segment') this.draft.source.set('contacts');
+        else this.loadFor(source);
+      });
+    });
+    // Show the filter's tags in the boxes (a prefill or a restored draft), without
+    // rewriting what is being typed when the box already says the same thing.
+    effect(() => {
+      const f = this.draft.contactFilter();
+      untracked(() => {
+        this.syncText(this.allTagsText, f.tags);
+        this.syncText(this.anyTagsText, f.anyTags);
+        this.syncText(this.notTagsText, f.notTags);
+      });
+    });
+    // Live "N contacts match" for a tag filter (a segment brings its own count).
+    effect(() => {
+      const source = this.draft.source();
+      const filter = this.draft.contactFilter();
+      const segmentId = this.draft.segmentId();
+      untracked(() => {
+        if (this.countTimer) clearTimeout(this.countTimer);
+        ++this.countSeq;
+        // Up to 5,000 ids would not fit in a query string, and the list is the count anyway.
+        if (source === 'contacts' && segmentId === null && filter.ids?.length) {
+          this.counting.set(false);
+          this.draft.contactsCount.set(filter.ids.length);
+          return;
+        }
+        if (source !== 'contacts' || segmentId !== null || !hasCriteria(filter)) {
+          this.counting.set(false);
+          this.draft.contactsCount.set(null);
+          return;
+        }
+        this.counting.set(true);
+        this.countTimer = setTimeout(() => this.runCount(filter), 350);
+      });
     });
     this.destroyRef.onDestroy(() => {
       if (this.timer) clearTimeout(this.timer);
+      // Leaving the step mid-debounce: run the audit now, or the draft keeps the
+      // previous mapping's recipients (the request outlives this component).
+      this.pendingAudit?.();
+      this.pendingAudit = null;
+      if (this.countTimer) clearTimeout(this.countTimer);
+    });
+  }
+
+  private syncText(text: WritableSignal<string>, tags: string[] | undefined): void {
+    const list = tags ?? [];
+    if (splitTags(text()).join('|') !== list.join('|')) text.set(list.join(', '));
+  }
+
+  private runCount(filter: ContactFilter): void {
+    const seq = this.countSeq;
+    this.contactsApi.list(filter, 1).subscribe({
+      next: ({ total }) => {
+        if (seq !== this.countSeq) return;
+        this.counting.set(false);
+        this.draft.contactsCount.set(total);
+      },
+      error: (err: Error) => {
+        if (seq !== this.countSeq) return;
+        this.counting.set(false);
+        this.draft.contactsCount.set(null);
+        this.error.set(err.message);
+      },
     });
   }
 
@@ -237,7 +340,13 @@ export class AudienceStep {
         },
       });
     }
-    if (source === 'segment' && !this.segments()) {
+    if (source === 'contacts' && !this.knownTags().length) {
+      this.contactsApi.list({}, 1).subscribe({
+        next: ({ tags }) => this.knownTags.set(tags.map((t) => t.tag)),
+        error: () => undefined,
+      });
+    }
+    if (source === 'contacts' && !this.segments()) {
       this.contactsApi.segments().subscribe({
         next: ({ segments }) => this.segments.set(segments),
         error: (err: Error) => {
@@ -253,13 +362,48 @@ export class AudienceStep {
     const source = this.draft.source();
     this.error.set('');
     if (source === 'retarget') this.campaigns.set(null);
-    if (source === 'segment') this.segments.set(null);
+    if (source === 'contacts') this.segments.set(null);
     this.loadFor(source);
   }
 
-  protected pickSource(source: AudienceSource): void {
+  protected pickSource(card: (typeof SOURCES)[number]): void {
     this.error.set('');
-    this.draft.source.set(source);
+    this.draft.source.set(card.value);
+  }
+
+  protected isPicked(card: (typeof SOURCES)[number]): boolean {
+    return this.draft.source() === card.value;
+  }
+
+  /** Drop the loaded file (and a saved list) so the upload area comes back. */
+  protected replaceFile(): void {
+    this.draft.clearImport();
+    this.duplicateOf.set(null);
+    this.error.set('');
+  }
+
+  /** "Change": drop the hand-picked ids so the usual segment / tag picker comes back. */
+  protected clearHandPicked(): void {
+    this.draft.contactFilter.update((f) => {
+      const next = { ...f };
+      delete next.ids;
+      return next;
+    });
+  }
+
+  protected setTags(
+    key: 'tags' | 'anyTags' | 'notTags',
+    text: WritableSignal<string>,
+    value: string,
+  ): void {
+    text.set(value);
+    const tags = splitTags(value);
+    this.draft.contactFilter.update((f) => {
+      const next = { ...f };
+      if (tags.length) next[key] = tags;
+      else delete next[key];
+      return next;
+    });
   }
 
   protected onDrop(event: DragEvent): void {
@@ -274,25 +418,6 @@ export class AudienceStep {
     const file = input.files?.[0];
     input.value = '';
     if (file) this.load(file);
-  }
-
-  /**
-   * Typed numbers go through the same import as a file, so cleaning, dedupe
-   * and the skipped-rows report work the same.
-   */
-  protected useTyped(): void {
-    const cell = (v: string) => `"${v.trim().replace(/"/g, '""')}"`;
-    const rows = this.typed()
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const [phone, ...name] = line.split(/[,\t;]/);
-        return `${cell(phone)},${cell(name.join(' '))}`;
-      });
-    if (!rows.length) return;
-    const csv = ['phone,name', ...rows].join('\n');
-    this.load(new File([csv], 'Typed numbers.csv', { type: 'text/csv' }));
   }
 
   private load(file: File): void {
@@ -423,6 +548,8 @@ export class AudienceStep {
     const segment = this.segments()?.find((s) => String(s.id) === id) ?? null;
     this.draft.segment.set(segment);
     this.draft.segmentId.set(segment?.id ?? null);
+    // A segment and a tag filter are alternatives: choosing one clears the other.
+    if (segment) this.draft.contactFilter.set({});
   }
 
   protected dedupeLabel(days: number): string {

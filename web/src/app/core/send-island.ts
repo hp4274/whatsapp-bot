@@ -6,9 +6,11 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
-import { Api, type MessageRecord, type QueuedNext } from './api';
+import { Api, CampaignsApi, type Campaign, type MessageRecord, type QueuedNext } from './api';
 import { Store } from './store';
 
 /** How long a finished run stays on screen before the card closes itself. */
@@ -34,6 +36,7 @@ const RECENT_COUNT = 5;
  */
 @Component({
   selector: 'app-send-island',
+  imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (visible()) {
@@ -80,6 +83,12 @@ const RECENT_COUNT = 5;
 
         @if (open()) {
           <div class="body">
+            @if (current(); as c) {
+              <p class="line">
+                <span class="cname">{{ c.name }}</span>
+                <a class="link" [routerLink]="['/campaigns', c.id]">Details</a>
+              </p>
+            }
             <p class="line">
               <span>{{ stats().processed }} of {{ stats().total }} processed</span>
               <b>{{ percent() }}%</b>
@@ -135,7 +144,14 @@ const RECENT_COUNT = 5;
                 } @else {
                   <button type="button" class="b" (click)="act('resume')">Resume</button>
                 }
-                <button type="button" class="b danger" (click)="act('stop')">Stop</button>
+                <button
+                  type="button"
+                  class="b danger"
+                  (click)="stop()"
+                  (blur)="confirmStop.set(false)"
+                >
+                  {{ confirmStop() ? 'Stop sending?' : 'Stop' }}
+                </button>
               </div>
             }
             @if (error()) {
@@ -268,6 +284,20 @@ const RECENT_COUNT = 5;
       color: var(--text-strong);
       font-variant-numeric: tabular-nums;
       letter-spacing: -0.2px;
+    }
+
+    .cname {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text-strong);
+    }
+    .link {
+      flex: none;
+      margin-left: 10px;
+      font-weight: 500;
+      color: var(--primary-text);
     }
 
     .counts {
@@ -414,6 +444,7 @@ const RECENT_COUNT = 5;
 export class SendIsland {
   private readonly store = inject(Store);
   private readonly api = inject(Api);
+  private readonly campaignsApi = inject(CampaignsApi);
   private readonly destroyRef = inject(DestroyRef);
 
   /** Newest messages first, refreshed as the server reports sends. */
@@ -430,10 +461,20 @@ export class SendIsland {
       return { ...m, label, tone: label === 'Next' ? ('ok' as const) : ('mute' as const) };
     });
   });
+  /**
+   * The campaign being sent. The engine-wide stats carry no id, so the live
+   * campaign is looked up once per run; null (no name, no link) if that fails.
+   */
+  protected readonly current = signal<Pick<Campaign, 'id' | 'name'> | null>(null);
+  /** First Stop click arms it; the second sends it. Resets on blur. */
+  protected readonly confirmStop = signal(false);
   /** Seconds left before a finished run closes; null while running or held. */
   protected readonly closesIn = signal<number | null>(null);
   private readonly held = signal(false);
   private countdown: ReturnType<typeof setInterval> | undefined;
+  /** When this page loaded, and whether a live run was seen since: tells old news from a run just finished. */
+  private readonly bornAt = Date.now();
+  private sawLive = false;
   private recentTimer: ReturnType<typeof setTimeout> | undefined;
 
   protected readonly stats = this.store.stats.asReadonly();
@@ -446,9 +487,31 @@ export class SendIsland {
     // A new run brings the card back even if the last one was closed.
     effect(() => {
       if (this.phase() === 'sending' || this.phase() === 'paused') {
+        if (this.stats().total > 0) this.sawLive = true; // empty stats read as "sending" before the first answer
         this.dismissed.set(null);
         this.open.set(true);
       }
+    });
+
+    // Name the live campaign when a run begins (or a different one replaces it).
+    // Keyed on a number, not the stats object: stats change on every send, and
+    // re-listing campaigns per message would hammer the server.
+    const liveTotal = computed(() => {
+      const live = this.phase() === 'sending' || this.phase() === 'paused';
+      const total = this.stats().total;
+      return live && total > 0 ? total : 0;
+    });
+    effect(() => {
+      if (!liveTotal()) return;
+      untracked(() => {
+        this.campaignsApi.list().subscribe({
+          next: ({ campaigns }) =>
+            this.current.set(
+              campaigns.find((c) => c.status === 'running' || c.status === 'paused') ?? null,
+            ),
+          error: () => this.current.set(null),
+        });
+      });
     });
 
     // Every send bumps historyRevision; coalesce a burst into one small fetch.
@@ -464,6 +527,11 @@ export class SendIsland {
       const ended = this.visible() && (this.phase() === 'done' || this.phase() === 'stopped');
       this.stopCountdown();
       if (!ended || this.held()) return;
+      // A run that finished before this page loaded is old news: do not pop it up on every reload.
+      if (!this.sawLive && Date.now() - this.bornAt < 5000) {
+        untracked(() => this.dismiss());
+        return;
+      }
       this.closesIn.set(AUTO_CLOSE_SECONDS);
       this.countdown = setInterval(() => {
         const left = (this.closesIn() ?? 1) - 1;
@@ -585,6 +653,15 @@ export class SendIsland {
 
   protected dismiss(): void {
     this.dismissed.set({ total: this.stats().total });
+  }
+
+  protected stop(): void {
+    if (!this.confirmStop()) {
+      this.confirmStop.set(true);
+      return;
+    }
+    this.confirmStop.set(false);
+    this.act('stop');
   }
 
   protected act(action: 'pause' | 'resume' | 'stop'): void {

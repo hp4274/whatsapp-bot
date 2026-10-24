@@ -241,6 +241,11 @@
           </div>
         }
       </div>
+      @if (campaignLink()) {
+        <button class="btn sm send-view" type="button" (click)="sendCampaign()">
+          <i class="ti ti-send" aria-hidden="true"></i> Send campaign to this view
+        </button>
+      }
       @if (canWrite()) {
         <form class="save-seg" (submit)="$event.preventDefault(); saveSegment()">
           <input
@@ -359,9 +364,12 @@
         [busy]="busy()"
         [knownTags]="tags()"
         [pageAll]="pageAllSelected()"
+        [canSend]="canSend()"
+        [sendHint]="sendHint()"
         (run)="runBulk($event)"
         (export)="exportCsv(true)"
         (selectAll)="selectAllMatching()"
+        (sendCampaign)="sendCampaign()"
         (clear)="clearSelection()"
       />
     }

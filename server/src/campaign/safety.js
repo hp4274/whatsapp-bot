@@ -103,6 +103,9 @@ export const pickPreset = (preset) => (PACING_PRESETS.includes(preset) ? preset 
 
 /** The pacing that applies to a batch of `batchSize` messages. */
 export function paceFor(batchSize, config = {}, preset = 'balanced', sendTier = null) {
+    // "Send per my plan" (warm-up declined) runs at the top tier's pace; the plan's
+    // speed ceiling (bulk.maxSpeed) clamps the preset before it gets here.
+    if (!sendTier && config.warmupChoice === 'plan') sendTier = TIERS.at(-1);
     // A sending tier (humanize.js) sets the gap and the rests; batch size no longer does.
     const tier = sendTier ?? PACING_TIERS.find((t) => batchSize <= t.upTo) ?? PACING_TIERS.at(-1);
     let min = config.minDelaySeconds > 0 ? config.minDelaySeconds : tier.minSeconds;
@@ -224,7 +227,9 @@ export class DailyQuota {
         if (!days) {
             // The tier's day (250 / 2,000 / 10,000) is the limit; `dailyLimit` only applies with tierSystem off.
             const tier = this.tier();
-            return tier ? tier.dailyLimit : base;
+            if (tier) return tier.dailyLimit;
+            // "Send per my plan": no per-number cap; the plan's own bulk.dailyCap holds the queue instead.
+            return this.config.warmupChoice === 'plan' ? 0 : base;
         }
         const first = this.db.firstSentAt?.();
         const zone = this.zone();

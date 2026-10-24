@@ -55,6 +55,17 @@
     >
       <i class="ti ti-user-check" aria-hidden="true"></i> Opt in
     </button>
+    @if (canSend()) {
+      <button
+        class="btn sm"
+        type="button"
+        [disabled]="busy() || !!sendHint()"
+        [attr.aria-describedby]="sendHint() ? 'bulk-send-hint' : null"
+        (click)="sendCampaign.emit()"
+      >
+        <i class="ti ti-send" aria-hidden="true"></i> Send campaign
+      </button>
+    }
     <button class="btn sm" type="button" [disabled]="busy()" (click)="export.emit()">
       <i class="ti ti-download" aria-hidden="true"></i> CSV
     </button>
@@ -76,6 +87,10 @@
       <i class="ti ti-x" aria-hidden="true"></i>
     </button>
   </div>
+
+  @if (canSend() && sendHint()) {
+    <p id="bulk-send-hint" class="hint">{{ sendHint() }}</p>
+  }
 
   @switch (mode()) {
     @case ('addTags') {

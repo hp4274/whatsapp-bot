@@ -97,6 +97,7 @@ Other env vars:
 | `HOST` | `127.0.0.1` | Bind address |
 | `WHATSAPP_ACCESS_TOKEN` | — | Cloud API access token |
 | `WHATSAPP_PHONE_NUMBER_ID` | — | Cloud API phone number ID |
+| `PUBLIC_BASE_URL` | — | Public origin recipients' phones can reach (e.g. `https://send.example.com`). Needed for campaign link click tracking: links become `<PUBLIC_BASE_URL>/l/<code>`. Unset, links are sent untouched |
 
 All other settings (transport, rate limits, retry policy, safety pacing, webhook, sending windows) are managed through the dashboard or `PUT /api/config`.
 

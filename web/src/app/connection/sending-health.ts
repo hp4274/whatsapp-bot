@@ -107,8 +107,8 @@ export class SendingHealth {
 
   constructor() {
     this.load();
-    // The numbers move with sends and with the connection; reload on either.
-    this.store.watch(['connection', 'history', 'stats'], () => this.load(false));
+    // The numbers move with sends, the connection and settings (warm-up on or off); reload on any.
+    this.store.watch(['config', 'connection', 'history', 'stats'], () => this.load(false));
   }
 
   protected load(showSkeleton = true): void {
