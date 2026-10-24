@@ -139,7 +139,7 @@ export class Channels {
         const channel = this.get(id);
         if (!channel) throw new ChannelError('channel not found', 404);
 
-        const settings = patch.settings === undefined
+        let settings = patch.settings === undefined
             ? channel.settings
             : mergeConfig(channel.settings, patch.settings);
         if (patch.status !== undefined && !CHANNEL_STATUSES.includes(patch.status)) {
@@ -154,6 +154,8 @@ export class Channels {
         // endsWith: a number typed without its country code is still the same number.
         const changed = was && now && !was.endsWith(now) && !now.endsWith(was);
         const numberSince = changed ? utcNow() : channel.numberSince;
+        // The warm-up answer was about the old SIM: ask again, tiers on until answered.
+        if (changed) settings = { ...settings, warmupChoice: '', warmupFor: '', tierSystem: true };
 
         this.db.prepare(
             `UPDATE whatsapp_channels SET

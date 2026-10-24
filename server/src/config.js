@@ -80,6 +80,7 @@ export const DEFAULTS = Object.freeze({
     tierSystem: true,         // start slow, earn bigger days and faster gaps
     // Asked once after the first QR scan: '' = not answered, 'warmup' = fresh SIM on the tiers, 'plan' = send to the plan's limits (tierSystem off).
     warmupChoice: '',
+    warmupFor: '',            // digits of the number that answer was given for; another number is asked again
     // Nightly rest, recipient-local sending hours and typing pauses. Off only for the test run (WHATSAPP_SENDER_FAST=1).
     humanTiming: process.env.WHATSAPP_SENDER_FAST !== '1',
     pacingMode: 'adaptive',

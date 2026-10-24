@@ -436,6 +436,10 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         const body = { ...req.body };
         for (const key of POLICY_KEYS) delete body[key];
         const merged = mergeConfig(state.config, body);
+        // Remember which number the warm-up answer is for; linking another one asks again.
+        if (body.warmupChoice !== undefined) {
+            merged.warmupFor = String(state.info?.account || state.channel?.providerAccountId || '').replace(/\D/g, '');
+        }
         const problems = validateConfig(merged);
         if (problems.length) return res.status(400).json({ errors: problems });
         const blocked = transportBlocked(merged);
@@ -512,7 +516,21 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         });
         transport.events?.on('ready', (info) => {
             // Remember which number scanned in, so linking a different one resets warm-up and inbox.
-            if (info?.account) state.channel = linked(info.account);
+            if (info?.account) {
+                const before = state.channel?.numberSince;
+                state.channel = linked(info.account);
+                let settings = state.channel.settings;
+                const stale = warmupStale(settings, info.account, state.channel.numberSince);
+                if (stale) settings = state.save({ warmupChoice: '', warmupFor: '', tierSystem: true });
+                if (stale || state.channel.numberSince !== before) {
+                    // A new number: its own warm-up question and tier, counted from its first send.
+                    const { warmupChoice, warmupFor, tierSystem } = settings;
+                    state.config = { ...state.config, warmupChoice, warmupFor, tierSystem };
+                    manager.applyConfig(state.config);
+                    manager.quota.tierCache = null;
+                    broadcast(state, { type: 'changed', topic: 'config' });
+                }
+            }
             state.info = info;
             state.qr = null;
             state.connecting = false;
@@ -3039,6 +3057,23 @@ function connectionState(state) {
         supportsReceipts: Boolean(transport?.supportsReceipts),
         qr: state.qr,
     };
+}
+
+/** Same phone number, allowing one side to be written without its country code. */
+function sameNumber(a, b) {
+    const x = String(a ?? '').replace(/\D/g, '');
+    const y = String(b ?? '').replace(/\D/g, '');
+    return Boolean(x && y) && (x.endsWith(y) || y.endsWith(x));
+}
+
+/**
+ * Whether a channel's warm-up answer belongs to another number than `account`.
+ * One saved before `warmupFor` was recorded is the old number's once the
+ * channel has changed number (`numberSince` set).
+ */
+export function warmupStale(settings, account, numberSince) {
+    if (!settings?.warmupChoice) return false;
+    return settings.warmupFor ? !sameNumber(settings.warmupFor, account) : Boolean(numberSince);
 }
 
 function broadcast(state, event) {
