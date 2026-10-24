@@ -105,6 +105,29 @@
   a:not(.btn) { color: var(--primary-text); font-weight: 500; }
 }
 
+/* Resume banner ---------------------------------------------------------- */
+.resume {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 16px 18px;
+
+  .grow { flex: 1; min-width: 200px; }
+  h3 { margin: 0; font-size: 15px; font-weight: 500; color: var(--text-strong); }
+  p { margin: 2px 0 0; font-size: 13px; }
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 44px var(--space-xl);
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+
 /* Step rail -------------------------------------------------------------- */
 // Numbered steps on hairline connectors: the current one in ink with an
 // orange halo, finished ones a success check.
@@ -202,7 +225,7 @@
 
 .main { min-width: 0; }
 
-/* One shared foot under the audience and message sections. */
+/* Back / Continue under the Who and Message steps; When & send has its own. */
 .foot {
   display: flex;
   flex-wrap: wrap;
@@ -276,25 +299,22 @@
   .warn strong { color: var(--warning); }
 }
 
-.empty {
+// Skip reasons under the counts: one plain sentence per reason.
+.why {
   display: grid;
-  justify-items: center;
-  gap: 6px;
-  color: var(--text-muted);
+  gap: 8px;
+  max-width: 560px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--surface-sunken);
+  list-style: none;
+  text-align: left;
 
-  .ti {
-    display: grid;
-    place-items: center;
-    width: 56px;
-    height: 56px;
-    margin-bottom: 6px;
-    border-radius: 16px;
-    background: var(--primary-tint);
-    color: var(--primary-text);
-    font-size: 26px;
-  }
-  strong { font-size: 15px; font-weight: 500; color: var(--text-strong); }
-  p { font-size: 13.5px; }
+  li { display: flex; align-items: flex-start; gap: 10px; font-size: 13.5px; line-height: 1.5; color: var(--text-color); }
+  .ti { flex: none; margin-top: 2px; color: var(--text-muted); font-size: 16px; }
+  strong { font-weight: 500; color: var(--text-strong); font-variant-numeric: tabular-nums; }
 }
 
 @media (max-width: 1000px) {

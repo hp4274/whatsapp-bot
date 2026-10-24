@@ -89,6 +89,8 @@ export class ConnectionView {
   protected warmupAnswered(config: AppConfig): void {
     this.config.set(config);
     this.changingWarmup.set(false);
+    // Tier on or off changes the limit and pace now; don't wait for the live event.
+    this.refreshSafety();
   }
 
   protected connect(): void {

@@ -1,14 +1,16 @@
 <!-- Header, then either the quick single-message card or the composer:
-     step rail, the current step on the left and the sticky phone preview on
-     the right; step 3 swaps both for the result card. -->
+     the "continue where you left off" banner, the step rail (Who, Message,
+     When & send), the current step on the left and the sticky phone preview
+     on the right. Once sent, the result card replaces the steps. -->
 @let d = draft;
 @let step = d.step();
+@let finished = !!d.result();
 
 <header class="s-head">
   <div>
     <p class="eyebrow"><i class="ti ti-speakerphone" aria-hidden="true"></i> Bulk campaigns</p>
-    <h2>New campaign</h2>
-    <p>Upload, personalise, preview on a real-looking phone, then send at a safe pace.</p>
+    <h2>{{ title() }}</h2>
+    <p>Choose who gets it, write the message, then pick when it goes out - at a safe pace.</p>
   </div>
   <div class="head-actions">
     <div class="tabs" role="tablist" aria-label="Mode">
@@ -167,122 +169,177 @@
     </div>
   </section>
 } @else {
+  @if (d.savedDraft(); as saved) {
+    <section class="card resume enter" aria-labelledby="resume-title">
+      <span class="badge"><i class="ti ti-history" aria-hidden="true"></i></span>
+      <div class="grow">
+        <h3 id="resume-title">Continue where you left off?</h3>
+        <p class="muted">"{{ saved.name }}" - last changed {{ saved.savedAt | date: 'medium' }}</p>
+      </div>
+      <button type="button" class="btn" (click)="startFresh()">Start fresh</button>
+      <button type="button" class="btn primary" (click)="resume()">
+        <i class="ti ti-arrow-right" aria-hidden="true"></i> Continue
+      </button>
+    </section>
+  }
+
+  @if (loadError(); as e) {
+    <p class="notice" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i
+      ><span>Could not load the campaign: {{ e.message }}</span>
+      <button type="button" class="btn small" (click)="loadCampaign(e.id, e.mode)">
+        <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+      </button>
+    </p>
+  }
+
   <nav class="rail" aria-label="Campaign steps">
     @for (s of steps; track s.n) {
+      @let done = finished || step > s.n;
       <button
         type="button"
         class="st"
-        [class.on]="step === s.n"
-        [class.done]="step > s.n"
+        [class.on]="!finished && step === s.n"
+        [class.done]="done"
         [disabled]="!canOpen(s.n)"
         (click)="open(s.n)"
-        [attr.aria-current]="step === s.n ? 'step' : null"
+        [attr.aria-current]="!finished && step === s.n ? 'step' : null"
       >
         <span class="num">
-          @if (step > s.n) {
+          @if (done) {
             <i class="ti ti-check" aria-hidden="true"></i>
           } @else {
             {{ s.n }}
           }
         </span>
-        <span class="lbl">{{ s.n === 3 && step === 3 ? 'Done' : s.label }}</span>
+        <span class="lbl">{{ s.label }}</span>
       </button>
       @if (!$last) {
-        <span class="line" [class.fill]="step > s.n" aria-hidden="true"></span>
+        <span class="line" [class.fill]="done" aria-hidden="true"></span>
       }
     }
   </nav>
 
-  @if (step === 3) {
-    @if (d.result(); as r) {
-      <section class="card finish enter">
-        <span
-          class="orb"
-          [class.warn]="!!r.error"
-          [class.later]="!r.error && !r.started"
+  @if (d.result(); as r) {
+    <section class="card finish enter">
+      <span
+        class="orb"
+        [class.warn]="!!r.error"
+        [class.later]="!r.error && !r.started"
+        aria-hidden="true"
+      >
+        <i
+          class="ti ti-{{ r.error ? 'exclamation-mark' : r.started ? 'rocket' : 'calendar-check' }}"
           aria-hidden="true"
-        >
-          <i
-            class="ti ti-{{
-              r.error ? 'exclamation-mark' : r.started ? 'rocket' : 'calendar-check'
-            }}"
-            aria-hidden="true"
-          ></i>
-        </span>
-        @if (r.error) {
-          <h3>Saved, but not started</h3>
-          <p class="error" role="alert">
-            <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ r.error }}</span>
-          </p>
-          <p class="muted">
-            "{{ r.campaign.name }}" is saved as a draft - start it from the campaign page once the
-            problem is fixed.
-          </p>
-        } @else if (r.started) {
-          <h3>"{{ r.campaign.name }}" is on its way</h3>
-          <div class="nums">
-            <div>
-              <strong>{{ r.queued ?? 0 }}</strong
-              ><small>queued</small>
-            </div>
-            <div>
-              <strong>{{ r.skipped ?? 0 }}</strong
-              ><small>skipped</small>
-            </div>
-            @if (r.overQuota) {
-              <div class="warn">
-                <strong>{{ r.overQuota }}</strong
-                ><small>over today's quota</small>
-              </div>
-            }
+        ></i>
+      </span>
+      @if (r.error) {
+        <h3>Saved, but not started</h3>
+        <p class="error" role="alert">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ r.error }}</span>
+        </p>
+        <p class="muted">
+          "{{ r.campaign.name }}" is saved as a draft - start it from the campaign page once the
+          problem is fixed.
+        </p>
+      } @else if (r.started) {
+        <h3>"{{ r.campaign.name }}" is on its way</h3>
+        <div class="nums">
+          <div>
+            <strong>{{ r.queued ?? 0 }}</strong
+            ><small>queued</small>
           </div>
-          <p class="muted">
-            Progress shows in the island at the bottom of the screen - you can leave this page,
-            sending continues on the server.
-          </p>
-        } @else {
-          <h3>Scheduled</h3>
-          <p>
-            "{{ r.campaign.name }}" sends at
-            <strong>{{
-              r.campaign.scheduledAt ? (r.campaign.scheduledAt | date: 'medium') : ''
-            }}</strong>
-            <span class="muted">({{ d.timezone() }})</span>
-          </p>
-          <p class="muted">
-            It starts automatically when a WhatsApp number is connected at that time.
-          </p>
+          <div>
+            <strong>{{ r.skipped ?? 0 }}</strong
+            ><small>skipped</small>
+          </div>
+          @if (r.overQuota) {
+            <div class="warn">
+              <strong>{{ r.overQuota }}</strong
+              ><small>over today's quota</small>
+            </div>
+          }
+        </div>
+        @if (skipReasons().length || r.policyNotes?.length) {
+          <ul class="why" aria-label="Why some people were skipped">
+            @for (x of skipReasons(); track x.icon) {
+              <li>
+                <i class="ti ti-{{ x.icon }}" aria-hidden="true"></i>
+                <span
+                  ><strong>{{ x.n }}</strong> {{ x.n === 1 ? 'person' : 'people' }}
+                  {{ x.text }}</span
+                >
+              </li>
+            }
+            @for (note of r.policyNotes ?? []; track $index) {
+              <li>
+                <i class="ti ti-info-circle" aria-hidden="true"></i><span>{{ note }}</span>
+              </li>
+            }
+          </ul>
         }
-        <div class="row center">
-          <a class="btn primary" [routerLink]="['/campaigns', r.campaign.id]"
-            ><i class="ti ti-chart-line" aria-hidden="true"></i> Open campaign</a
-          >
-          <button type="button" class="btn" (click)="startOver()">
-            <i class="ti ti-plus" aria-hidden="true"></i> New campaign
-          </button>
-        </div>
-      </section>
-    } @else {
-      <section class="card finish">
-        <div class="empty">
-          <i class="ti ti-send" aria-hidden="true"></i>
-          <strong>Nothing sent yet</strong>
-          <p>Build a campaign to see its result here.</p>
-        </div>
-        <button type="button" class="btn primary" (click)="startOver()">Start a campaign</button>
-      </section>
-    }
+        <p class="muted">
+          Progress shows in the island at the bottom of the screen - you can leave this page,
+          sending continues on the server.
+        </p>
+      } @else {
+        <h3>Scheduled</h3>
+        <p>
+          "{{ r.campaign.name }}" sends at
+          <strong>{{
+            r.campaign.scheduledAt ? (r.campaign.scheduledAt | date: 'medium') : ''
+          }}</strong>
+          <span class="muted">({{ d.timezone() }})</span>
+        </p>
+        <p class="muted">
+          It starts automatically when a WhatsApp number is connected at that time.
+        </p>
+      }
+      <div class="row center">
+        <a class="btn primary" [routerLink]="['/campaigns', r.campaign.id]"
+          ><i class="ti ti-chart-line" aria-hidden="true"></i> Open campaign</a
+        >
+        <button type="button" class="btn" (click)="duplicateSent(r.campaign.id)">
+          <i class="ti ti-copy" aria-hidden="true"></i> Duplicate
+        </button>
+        <button type="button" class="btn" (click)="startOver()">
+          <i class="ti ti-plus" aria-hidden="true"></i> New campaign
+        </button>
+      </div>
+    </section>
+  } @else if (loadingCampaign() || restoring()) {
+    <section class="card loading" aria-busy="true" aria-live="polite">
+      <span class="spinner"></span>
+      {{ restoring() ? 'Reopening your draft...' : 'Loading the campaign...' }}
+    </section>
   } @else {
     <div class="layout">
       <div class="main">
         @switch (step) {
           @case (1) {
             <app-audience-step />
-            <app-message-step />
             <div class="foot">
               @if (!d.audienceReady()) {
-                <small class="hint">Choose who receives it to continue.</small>
-              } @else if (!d.messageReady()) {
+                <small class="hint">Choose who gets it to continue.</small>
+              }
+              <span class="grow"></span>
+              <button
+                type="button"
+                class="btn primary"
+                [disabled]="!d.audienceReady()"
+                (click)="d.goTo(2)"
+              >
+                Continue to Message <i class="ti ti-arrow-right" aria-hidden="true"></i>
+              </button>
+            </div>
+          }
+          @case (2) {
+            <app-message-step />
+            <div class="foot">
+              <button type="button" class="btn" (click)="d.goTo(1)">
+                <i class="ti ti-arrow-left" aria-hidden="true"></i> Who
+              </button>
+              @if (!d.messageReady()) {
                 <small class="hint">{{
                   d.interactiveErrors().length
                     ? 'Fix the button errors to continue.'
@@ -294,13 +351,13 @@
                 type="button"
                 class="btn primary"
                 [disabled]="!d.composeReady()"
-                (click)="d.goTo(2)"
+                (click)="d.goTo(3)"
               >
-                Continue to Review <i class="ti ti-arrow-right" aria-hidden="true"></i>
+                Continue to When &amp; send <i class="ti ti-arrow-right" aria-hidden="true"></i>
               </button>
             </div>
           }
-          @case (2) {
+          @case (3) {
             <app-review-step />
           }
         }
@@ -317,6 +374,9 @@
           [contactLabel]="contactLabel()"
           [seed]="d.seed()"
           [sample]="d.validContacts().length === 0"
+          [versions]="d.versionKeys()"
+          [version]="d.shownVersion()"
+          (versionChange)="d.activeVersion.set($event)"
           (prev)="d.movePreview(-1)"
           (next)="d.movePreview(1)"
           (shuffle)="d.shuffle()"

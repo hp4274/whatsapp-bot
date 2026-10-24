@@ -46,6 +46,19 @@
       <i class="ti ti-arrows-shuffle" aria-hidden="true"></i>
     </button>
   </div>
+  @if (versions().length) {
+    <div class="vers" role="group" aria-label="Message version">
+      @for (v of versions(); track v) {
+        <button
+          type="button"
+          [attr.aria-pressed]="version() === v"
+          (click)="versionChange.emit(v)"
+        >
+          {{ v }}
+        </button>
+      }
+    </div>
+  }
   @if (missing().length) {
     <span class="miss-pill" role="status">
       <i class="ti ti-alert-circle" aria-hidden="true"></i>

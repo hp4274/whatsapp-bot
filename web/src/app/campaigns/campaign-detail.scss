@@ -13,6 +13,8 @@
 
 :host {
   display: grid;
+  // One column that may shrink: an auto column grows to the recipients table's width on a phone.
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-lg);
   align-content: start;
   min-width: 0;
@@ -119,6 +121,28 @@ a.btn { text-decoration: none; }
 }
 
 /* Multi-day send: the whole date range at a glance, apart from the live batch progress. */
+// Repeat schedule and the links to the neighbouring runs of a series.
+.series {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-lg);
+  font-size: 13px;
+
+  .repeat { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; color: var(--text-strong); }
+  a {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--primary-text);
+    font-weight: 500;
+    text-decoration: none;
+    &:hover { text-decoration: underline; }
+  }
+  .ti { font-size: 16px; }
+  .note { flex: 1 1 100%; margin: 0; }
+}
+
 .spread {
   display: grid;
   gap: var(--space-md);

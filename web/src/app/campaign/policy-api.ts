@@ -15,13 +15,19 @@ const SPEEDS: readonly PacingPreset[] = ['safe', 'balanced', 'fast'];
 
 interface PolicyResponse {
   readonly values: Readonly<Record<string, unknown>>;
+  /** Whether the server can rewrite links (it has a public base URL). */
+  readonly linkTracking?: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
 export class CampaignPolicy {
   private readonly http = inject(HttpClient);
   private readonly values = signal<Readonly<Record<string, unknown>>>({});
+  private readonly tracking = signal(false);
   private requested = false;
+
+  /** False until the load says otherwise, so the checkbox is never offered on a guess. */
+  readonly linkTracking = this.tracking.asReadonly();
 
   /** The fastest preset the plan allows. */
   readonly maxSpeed = computed<PacingPreset>(() => {
@@ -37,7 +43,10 @@ export class CampaignPolicy {
     if (this.requested) return;
     this.requested = true;
     this.http.get<PolicyResponse>('/api/policy').subscribe({
-      next: ({ values }) => this.values.set(values ?? {}),
+      next: ({ values, linkTracking }) => {
+        this.values.set(values ?? {});
+        this.tracking.set(linkTracking === true);
+      },
       error: () => {
         this.requested = false;
       },

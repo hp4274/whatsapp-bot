@@ -29,22 +29,38 @@
     @if (d.interactive()) {
       <span class="muted">- {{ buttonsLabel() }}</span>
     }
+    <button type="button" class="btn small" (click)="d.goTo(1)">
+      <i class="ti ti-pencil" aria-hidden="true"></i> Edit
+      <span class="sr-only">who gets it</span>
+    </button>
   </p>
   <div class="recap-msg">
     <i class="ti ti-message" aria-hidden="true"></i>
     <span class="snippet">{{
       d.metaMode() ? 'Meta template: ' + (d.metaTemplate()?.name ?? '') : d.message()
     }}</span>
-    <button type="button" class="btn small" (click)="d.goTo(1)">
+    <button type="button" class="btn small" (click)="d.goTo(2)">
       <i class="ti ti-pencil" aria-hidden="true"></i> Edit
-      <span class="sr-only">audience and message</span>
+      <span class="sr-only">message</span>
     </button>
   </div>
+  @if (repeatSummary(); as rep) {
+    <p class="banner info">
+      <i class="ti ti-calendar-repeat" aria-hidden="true"></i>
+      <span>{{ rep }}.</span>
+    </p>
+  }
+  @if (d.versions().length) {
+    <p class="banner info">
+      <i class="ti ti-flask" aria-hidden="true"></i>
+      <span>Testing {{ d.versions().length }} versions - recipients are split evenly between them.</span>
+    </p>
+  }
   @if (spreadSummary(); as sp) {
     <p class="banner info">
       <i class="ti ti-calendar-stats" aria-hidden="true"></i>
       <span
-        >Spread over dates: shuffled and sent in equal daily batches from
+        >Spread over several days: shuffled and sent in equal daily batches from
         <strong>{{ sp.from }}</strong> to <strong>{{ sp.to }}</strong>, each day starting at
         {{ sp.time }} ({{ d.timezone() }}).</span
       >
@@ -75,7 +91,7 @@
   <div class="ph">
     <span class="badge accent"><i class="ti ti-gauge" aria-hidden="true"></i></span>
     <div>
-      <h3>Estimated time</h3>
+      <h3>Speed</h3>
       <p class="muted">Messages go out gradually to keep your number safe</p>
     </div>
     @if (loadingSafety()) {
@@ -83,10 +99,8 @@
     }
   </div>
 
-  <!-- Speed picker (safe / balanced / fast) hidden for now: every send uses balanced. Restore with the block below.
-  <div class="seg" role="radiogroup" aria-label="Sending pace">
+  <div class="seg" role="radiogroup" aria-label="Sending speed">
     @for (p of presets; track p.value) {
-      @let ps = safety()[p.value];
       <button
         type="button"
         role="radio"
@@ -98,18 +112,10 @@
       >
         <i class="ti ti-{{ p.icon }}" aria-hidden="true"></i>
         <strong>{{ p.label }}</strong>
-        <small>{{
-          policy.tooFast(p.value)
-            ? 'Not on your plan'
-            : ps
-              ? ps.minSeconds + '-' + ps.maxSeconds + 's apart'
-              : p.text
-        }}</small>
+        <small>{{ policy.tooFast(p.value) ? 'Not on your plan' : p.text }}</small>
       </button>
     }
   </div>
-
-  -->
 
   @if (!s && loadingSafety()) {
     <span class="skel" aria-busy="true" aria-label="Loading send estimate"></span>
@@ -188,7 +194,7 @@
       [attr.aria-checked]="d.scheduleMode() === 'now'"
       (click)="d.scheduleMode.set('now')"
     >
-      <i class="ti ti-send" aria-hidden="true"></i><strong>Send now</strong>
+      <i class="ti ti-send" aria-hidden="true"></i><strong>Now</strong>
     </button>
     <button
       type="button"
@@ -199,7 +205,7 @@
       [disabled]="!policy.allowScheduling()"
       (click)="d.scheduleMode.set('later')"
     >
-      <i class="ti ti-clock-share" aria-hidden="true"></i><strong>Schedule</strong>
+      <i class="ti ti-clock-share" aria-hidden="true"></i><strong>Later</strong>
       @if (!policy.allowScheduling()) {
         <small>Not on your plan</small>
       }
@@ -213,11 +219,11 @@
       [disabled]="!policy.allowScheduling() || d.source() !== 'file'"
       (click)="d.scheduleMode.set('spread')"
     >
-      <i class="ti ti-calendar-stats" aria-hidden="true"></i><strong>Spread over dates</strong>
+      <i class="ti ti-calendar-stats" aria-hidden="true"></i><strong>Spread over several days</strong>
       @if (!policy.allowScheduling()) {
         <small>Not on your plan</small>
       } @else if (d.source() !== 'file') {
-        <small>Uploaded file only</small>
+        <small>Needs an uploaded file</small>
       }
     </button>
   </div>
@@ -371,6 +377,36 @@
     </p>
   }
 
+  @if (d.scheduleMode() !== 'spread') {
+    <div class="when">
+      <div class="field">
+        <label for="rv-repeat">Repeat</label>
+        <select
+          id="rv-repeat"
+          [ngModel]="d.repeatEvery()"
+          (ngModelChange)="d.repeatEvery.set($event)"
+        >
+          <option value="">Don't repeat</option>
+          <option value="day">Every day</option>
+          <option value="week">Every week</option>
+          <option value="month">Every month</option>
+        </select>
+      </div>
+      @if (d.repeatEvery()) {
+        <div class="field">
+          <label for="rv-until">Until (optional)</label>
+          <input
+            id="rv-until"
+            type="date"
+            [min]="minDate"
+            [ngModel]="d.repeatUntil()"
+            (ngModelChange)="d.repeatUntil.set($event)"
+          />
+        </div>
+      }
+    </div>
+  }
+
   @if (error()) {
     <p class="error" role="alert">
       <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ error() }}</span>
@@ -378,11 +414,44 @@
   }
 </section>
 
+@if (missingNote(); as note) {
+  <p class="banner">
+    <i class="ti ti-alert-triangle" aria-hidden="true"></i><span>{{ note }}</span>
+  </p>
+}
+@if (draftSaved(); as saved) {
+  <p class="banner info" role="status">
+    <i class="ti ti-device-floppy" aria-hidden="true"></i>
+    <span
+      >Saved as draft. <a [routerLink]="['/campaigns', saved.id]">See it in Campaigns</a></span
+    >
+  </p>
+}
+@if (confirmSend() && d.scheduleMode() === 'now') {
+  <p class="banner info" role="alertdialog" aria-label="Confirm sending">
+    <i class="ti ti-send" aria-hidden="true"></i>
+    <span>{{ confirmText() }}</span>
+    <button type="button" class="btn small" (click)="confirmSend.set(false)">Not yet</button>
+    <button type="button" class="btn small primary" [disabled]="busy()" (click)="send(true)">
+      Yes, send now
+    </button>
+  </p>
+}
 <div class="foot">
-  <button type="button" class="btn" (click)="d.goTo(1)">
-    <i class="ti ti-arrow-left" aria-hidden="true"></i> Audience &amp; message
+  <button type="button" class="btn" (click)="d.goTo(2)">
+    <i class="ti ti-arrow-left" aria-hidden="true"></i> Message
   </button>
   <span class="grow"></span>
+  @if (d.scheduleMode() === 'now') {
+    <button
+      type="button"
+      class="btn"
+      (click)="saveDraft()"
+      [disabled]="busy() || !d.composeReady()"
+    >
+      <i class="ti ti-device-floppy" aria-hidden="true"></i> Save draft
+    </button>
+  }
   <button
     type="button"
     class="btn primary go"
@@ -400,7 +469,15 @@
         aria-hidden="true"
       ></i>
     }
-    {{ mode === 'now' ? 'Send now' : mode === 'spread' ? 'Schedule spread' : 'Schedule' }}
+    {{
+      mode === 'now'
+        ? 'Send now'
+        : d.editingId() !== null
+          ? 'Update schedule'
+          : mode === 'spread'
+            ? 'Schedule spread'
+            : 'Schedule'
+    }}
     @if (d.source() !== 'retarget' && size() > 0) {
       to {{ size() }} {{ size() === 1 ? 'person' : 'people' }}
     }

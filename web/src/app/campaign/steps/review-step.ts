@@ -10,9 +10,10 @@ import {
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
-import type { Subscription } from 'rxjs';
+import { Observable, of, type Subscription } from 'rxjs';
+import { catchError, map, switchMap } from 'rxjs/operators';
 
-import { Api, CampaignsApi, PacingPreset, SafetyStatus } from '../../core/api';
+import { Api, Campaign, CampaignsApi, PacingPreset, SafetyStatus } from '../../core/api';
 import type { SpreadPlan } from '../../core/api';
 import { Store } from '../../core/store';
 import { CampaignDraft, addDays, today } from '../draft';
@@ -29,9 +30,9 @@ type Safety = SafetyStatus & {
 
 /** Pacing presets; the server owns the actual delays and returns them per preset. */
 const PRESETS: { value: PacingPreset; label: string; icon: string; text: string }[] = [
-  { value: 'safe', label: 'Safe', icon: 'shield', text: 'Slowest, most human' },
-  { value: 'balanced', label: 'Balanced', icon: 'scale', text: 'Recommended' },
-  { value: 'fast', label: 'Fast', icon: 'bolt', text: 'Down to the policy floor' },
+  { value: 'safe', label: 'Safe', icon: 'shield', text: 'Slower - best for new numbers' },
+  { value: 'balanced', label: 'Balanced', icon: 'scale', text: 'Recommended for most sends' },
+  { value: 'fast', label: 'Fast', icon: 'bolt', text: 'Quicker, a little riskier' },
 ];
 
 /** Used when the browser cannot list IANA zones (Intl.supportedValuesOf is missing). */
@@ -102,6 +103,12 @@ export class ReviewStep {
   protected readonly loadingSafety = signal(false);
   protected readonly busy = signal(false);
   protected readonly error = signal('');
+  /** Armed by the first "Send now" click; "Yes, send now" sends. */
+  protected readonly confirmSend = signal(false);
+  /** Set after "Save draft", so the page can link to the saved campaign. */
+  protected readonly draftSaved = signal<Campaign | null>(null);
+  /** People missing a variable, from the server preview; a warning only, never a blocker. */
+  protected readonly missingNote = signal('');
 
   protected readonly minDate = today();
   protected readonly spreadPlan = signal<SpreadPlan | null>(null);
@@ -191,6 +198,16 @@ export class ReviewStep {
     return `${{ buttons: 'Reply buttons', cta: 'Call-to-action', list: 'List menu' }[block.type]} (${n})`;
   });
 
+  protected readonly confirmText = computed(() => {
+    const who =
+      this.draft.source() === 'retarget'
+        ? 'this audience'
+        : `${this.size().toLocaleString()} ${this.size() === 1 ? 'person' : 'people'}`;
+    const s = this.current();
+    const took = s && this.size() > 1 ? ` It will take about ${formatDuration(s.estimateSeconds.typical)}.` : '';
+    return `Send to ${who} now?${took}`;
+  });
+
   protected readonly sendsAt = computed(() => {
     const at = this.draft.scheduledAt();
     if (!at) return null;
@@ -207,6 +224,15 @@ export class ReviewStep {
     };
   });
 
+  /** "Repeats every week until 31 Jan 2027" for the recap; null for a one-off. */
+  protected readonly repeatSummary = computed(() => {
+    const d = this.draft;
+    const every = d.repeatEvery();
+    if (!every) return null;
+    const until = d.repeatUntil();
+    return `Repeats every ${every}${until ? ` until ${dayLabel(until)}` : ''}`;
+  });
+
   /** Reasons sending is not allowed yet, most important first; the first is shown under the button. */
   protected readonly blockers = computed(() => {
     const out: string[] = [];
@@ -214,16 +240,19 @@ export class ReviewStep {
     if (!d.audienceReady()) out.push('Choose an audience first.');
     if (!d.messageReady()) out.push('Finish the message (and fix any button errors).');
     if (d.interactive() && !this.policy.allowInteractive()) {
-      out.push('Interactive buttons are not on your plan - remove them in the audience and message step.');
+      out.push('Interactive buttons are not on your plan - remove them in the Message step.');
     }
     if (d.scheduleMode() === 'later') {
       const s = this.sendsAt();
       if (!s) out.push('Pick a valid date, time and time zone.');
       else if (s.past) out.push('The scheduled time is in the past.');
     }
+    if (d.repeatEvery() && d.repeatUntil() && d.repeatUntil() < this.minDate) {
+      out.push('The repeat end date is in the past.');
+    }
     if (d.scheduleMode() === 'spread') {
       const plan = this.spreadPlan();
-      if (d.source() !== 'file') out.push('Spreading over dates needs an uploaded file audience.');
+      if (d.source() !== 'file') out.push('Spreading over several days only works with an uploaded file.');
       else if (this.spreadRangeIssue()) out.push(this.spreadRangeIssue());
       else if (this.sendsAt()?.past) {
         out.push('The first batch time has passed - pick a later start time or date.');
@@ -248,6 +277,13 @@ export class ReviewStep {
       // Switching the audience away from the file makes a spread impossible.
       if (offPlan || (mode === 'spread' && d.source() !== 'file')) {
         untracked(() => d.scheduleMode.set('now'));
+      }
+      // The server refuses a repeating spread, so choosing Spread drops the repeat.
+      if (mode === 'spread' && (d.repeatEvery() || d.repeatUntil())) {
+        untracked(() => {
+          d.repeatEvery.set('');
+          d.repeatUntil.set('');
+        });
       }
     });
     /**
@@ -330,9 +366,51 @@ export class ReviewStep {
     return formatDuration(seconds);
   }
 
-  protected send(): void {
-    const d = this.draft;
+  /** Save without starting; only offered for "Now", where the status is draft. */
+  protected saveDraft(): void {
+    if (this.busy()) return;
     this.error.set('');
+    this.draftSaved.set(null);
+    this.busy.set(true);
+    this.draft.save().subscribe({
+      next: (campaign) => {
+        this.busy.set(false);
+        this.draftSaved.set(campaign);
+      },
+      error: (err: Error) => {
+        this.busy.set(false);
+        this.error.set(err.message);
+      },
+    });
+  }
+
+  /**
+   * Ask the server which of the first recipients would miss a variable. Cheap
+   * and advisory: an error here never stops the send.
+   */
+  private checkMissing(id: number): Observable<void> {
+    this.missingNote.set('');
+    if (!this.draft.usedVariables().length) return of(undefined);
+    return this.campaignsApi.preview(id, 25).pipe(
+      map((p) => {
+        const people = p.previews.filter((x) => x.missing.length).length;
+        if (people) {
+          const vars = p.missing.map((v) => '{' + v + '}').join(', ');
+          this.missingNote.set(
+            `${people} of the first ${p.previews.length} people checked are missing ${vars} - they'll get the fallback or a blank.`,
+          );
+        }
+      }),
+      catchError(() => of(undefined)),
+    );
+  }
+
+  protected send(confirmed = false): void {
+    const d = this.draft;
+    // A second click while the first save/start is in flight must not send twice.
+    if (this.busy()) return;
+    this.error.set('');
+    this.draftSaved.set(null);
     if (this.blockers().length) {
       this.error.set(this.blockers()[0]);
       return;
@@ -342,56 +420,73 @@ export class ReviewStep {
       this.error.set('Connect a WhatsApp number before sending now - or schedule it instead.');
       return;
     }
+    if (now && !confirmed) {
+      this.confirmSend.set(true);
+      return;
+    }
+    this.confirmSend.set(false);
     this.busy.set(true);
-    this.campaignsApi.create(d.buildCreate()).subscribe({
-      next: ({ campaign }) => {
-        if (!now) {
-          this.busy.set(false);
-          d.result.set({ campaign, started: false });
-          const spread = this.spreadSummary();
-          this.store.setStatus(
-            spread
-              ? `Campaign "${campaign.name}" spread from ${spread.from} to ${spread.to}, daily at ${spread.time}`
-              : `Campaign "${campaign.name}" scheduled for ${this.sendsAt()?.zoned ?? campaign.scheduledAt}`,
-            'primary',
-          );
-          d.goTo(3);
-          return;
-        }
-        this.campaignsApi.action(campaign.id, 'start').subscribe({
-          next: (res) => {
+    d.save()
+      .pipe(switchMap((campaign) => this.checkMissing(campaign.id).pipe(map(() => campaign))))
+      .subscribe({
+        next: (campaign) => {
+          if (!now) {
             this.busy.set(false);
-            const overQuota =
-              res.safety && res.safety.remaining !== null
-                ? Math.max(0, (res.queued ?? 0) - res.safety.remaining)
-                : 0;
-            d.result.set({
-              campaign: res.campaign ?? campaign,
-              started: true,
-              queued: res.queued,
-              skipped: res.skipped,
-              overQuota,
-            });
-            if (res.stats) this.store.stats.set(res.stats);
-            // Plan rules applied at send time (opt-in skips, speed lowered) - say so.
-            const notes = (res as { policyNotes?: string[] }).policyNotes ?? [];
+            d.result.set({ campaign, started: false });
+            const spread = this.spreadSummary();
             this.store.setStatus(
-              `Campaign started: ${res.queued ?? 0} queued, ${res.skipped ?? 0} skipped${notes.length ? '. ' + notes.join(' ') : ''}`,
+              spread
+                ? `Campaign "${campaign.name}" spread from ${spread.from} to ${spread.to}, daily at ${spread.time}`
+                : `Campaign "${campaign.name}" scheduled for ${this.sendsAt()?.zoned ?? campaign.scheduledAt}`,
               'primary',
             );
             d.goTo(3);
-          },
-          error: (err: Error) => {
-            this.busy.set(false);
-            d.result.set({ campaign, started: false, error: err.message });
-            this.store.setStatus(`Campaign saved but not started: ${err.message}`, 'warning');
-            d.goTo(3);
-          },
+            return;
+          }
+          this.start(campaign);
+        },
+        error: (err: Error) => {
+          this.busy.set(false);
+          this.error.set(err.message);
+        },
+      });
+  }
+
+  private start(campaign: Campaign): void {
+    const d = this.draft;
+    this.campaignsApi.action(campaign.id, 'start').subscribe({
+      next: (res) => {
+        this.busy.set(false);
+        const overQuota =
+          res.safety && res.safety.remaining !== null
+            ? Math.max(0, (res.queued ?? 0) - res.safety.remaining)
+            : 0;
+        // The server's own notes may already explain a lowered speed; add ours only if they do not.
+        const notes = [...(res.policyNotes ?? [])];
+        const clamp = res.pacingClamped;
+        if (clamp && !notes.some((n) => /speed|pace/i.test(n))) {
+          notes.push(`Speed lowered to ${clamp.applied} by your plan.`);
+        }
+        if (this.missingNote()) notes.push(this.missingNote());
+        d.result.set({
+          ...res,
+          campaign: res.campaign ?? campaign,
+          started: true,
+          policyNotes: notes,
+          overQuota,
         });
+        if (res.stats) this.store.stats.set(res.stats);
+        this.store.setStatus(
+          `Campaign started: ${res.queued ?? 0} queued, ${res.skipped ?? 0} skipped${notes.length ? '. ' + notes.join(' ') : ''}`,
+          'primary',
+        );
+        d.goTo(3);
       },
       error: (err: Error) => {
         this.busy.set(false);
-        this.error.set(err.message);
+        d.result.set({ campaign, started: false, error: err.message });
+        this.store.setStatus(`Campaign saved but not started: ${err.message}`, 'warning');
+        d.goTo(3);
       },
     });
   }

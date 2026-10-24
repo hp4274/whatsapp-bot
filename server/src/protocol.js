@@ -70,7 +70,9 @@ export function normalizePhone(raw, defaultCountryCode = '') {
         text = text.slice(2);
     } else {
         const cc = String(defaultCountryCode || '').replace(NON_DIGITS, '').replace(/^\+/, '');
-        if (cc) {
+        // Already carries the code: longer than a national number (at most
+        // 10 digits) and starts with it - 919800000000 with 91 stays as is.
+        if (cc && !(text.startsWith(cc) && text.length > 10)) {
             // National number: strip a single national trunk '0', then prefix.
             const national = text.startsWith('0') ? text.slice(1) : text;
             text = cc + national;

@@ -3,6 +3,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   effect,
   ElementRef,
   inject,
@@ -14,6 +15,7 @@ import {
 } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 
 import { Api, CampaignsApi, RetargetFilter, type UploadedMedia } from '../core/api';
@@ -30,22 +32,25 @@ import { AudienceStep } from './steps/audience-step';
 import { MessageStep } from './steps/message-step';
 import { ReviewStep } from './steps/review-step';
 
-/** The composer's rail; step 3 is the result screen, reached only by sending. */
+/** The composer's rail, in plain words; the result screen after sending is not a step. */
 const STEPS: { n: ComposerStep; label: string; icon: string }[] = [
-  { n: 1, label: 'Audience & message', icon: 'users' },
-  { n: 2, label: 'Review', icon: 'list-check' },
-  { n: 3, label: 'Send', icon: 'send' },
+  { n: 1, label: 'Who', icon: 'users' },
+  { n: 2, label: 'Message', icon: 'message' },
+  { n: 3, label: 'When & send', icon: 'send' },
 ];
 
 /** Accepted `?filter=` values for a re-target link; anything else falls back to 'failed'. */
-const FILTERS: RetargetFilter[] = ['failed', 'unread', 'noreply', 'replied', 'clicked'];
+const FILTERS: RetargetFilter[] = ['failed', 'unread', 'noreply', 'replied', 'clicked', 'clickedLink'];
 
 /**
- * The campaign composer page: a three-step wizard (audience and message, review,
- * result) beside a live phone preview, plus a quick single-message mode.
- * All draft state lives in the root-provided CampaignDraft, so a half-built
- * campaign survives navigating away; this view only routes between steps and
- * applies `?template=` / `?retarget=` prefills.
+ * The campaign composer page: a three-step wizard (who, message, when & send)
+ * beside a live phone preview, a result screen once sent, plus a quick
+ * single-message mode. All draft state lives in the root-provided
+ * CampaignDraft, so a half-built campaign survives navigating away (and a
+ * reload, through its autosave); this view routes between steps and applies
+ * the prefill links: `?template=`, `?retarget=&filter=`, `?segment=`,
+ * `?tags=a,b`, `?duplicate=` and `?edit=`. Hand-picked contacts arrive in the
+ * navigation state (`contactIds`), never the URL, since there can be thousands.
  */
 @Component({
   selector: 'app-campaign',
@@ -68,6 +73,15 @@ export class CampaignView implements OnInit {
   private readonly campaignsApi = inject(CampaignsApi);
   private readonly templatesApi = inject(TemplatesApi);
   private readonly router = inject(Router);
+  /**
+   * Read while the route activates: ngOnInit runs after NavigationEnd (zoneless
+   * change detection), when `currentNavigation()` is already null. Only a fresh
+   * navigation carries it, so a reload never re-applies hand-picked ids.
+   */
+  private readonly navState = this.router.currentNavigation()?.extras.state as
+    | { contactIds?: unknown }
+    | undefined;
+  private readonly destroyRef = inject(DestroyRef);
   protected readonly store = inject(Store);
   protected readonly draft = inject(CampaignDraft);
   protected readonly policy = inject(CampaignPolicy);
@@ -79,10 +93,24 @@ export class CampaignView implements OnInit {
   readonly id = input<string>();
   readonly retarget = input<string>();
   readonly filter = input<string>();
+  readonly segment = input<string>();
+  readonly tags = input<string>();
+  readonly duplicate = input<string>();
+  readonly edit = input<string>();
 
   protected readonly steps = STEPS;
   protected readonly tab = signal<'composer' | 'single'>('composer');
   protected readonly notice = signal('');
+  /** A ?duplicate= / ?edit= campaign is loading; the steps would show a blank draft meanwhile. */
+  protected readonly loadingCampaign = signal(false);
+  /** The failed campaign load, so its banner can offer Try again. */
+  protected readonly loadError = signal<{
+    message: string;
+    id: number;
+    mode: 'duplicate' | 'edit';
+  } | null>(null);
+  /** Continue was picked and the draft's sheet or saved list is still loading. */
+  protected readonly restoring = signal(false);
 
   // Quick single message
   protected readonly recipient = signal('');
@@ -101,12 +129,48 @@ export class CampaignView implements OnInit {
     return c.name ? `${c.name}` : `+${c.phone}`;
   });
 
+  protected readonly title = computed(() =>
+    this.draft.editingId() !== null && !this.draft.result() ? 'Edit campaign' : 'New campaign',
+  );
+
+  /**
+   * Why people were left out, from the start response. Not-opted-in and a
+   * lowered speed are already spelled out in `policyNotes`, so they are not
+   * repeated here; whatever the counters do not explain was already queued or
+   * a repeated number.
+   */
+  protected readonly skipReasons = computed(() => {
+    const r = this.draft.result();
+    if (!r?.started) return [];
+    const rows = [
+      { n: r.skippedOptOut ?? 0, icon: 'user-off', text: 'opted out of your messages' },
+      { n: r.skippedMuted ?? 0, icon: 'bell-off', text: 'asked not to get campaigns for a while' },
+      {
+        n: r.skippedFrequency ?? 0,
+        icon: 'clock-pause',
+        text: "already got today's maximum of bulk messages",
+      },
+      {
+        n: r.skippedTemplateVars ?? 0,
+        icon: 'template-off',
+        text: 'had no value for a slot the template needs',
+      },
+    ];
+    const explained = rows.reduce((t, x) => t + x.n, 0) + (r.skippedNoOptIn ?? 0);
+    const other = (r.skipped ?? 0) - explained;
+    if (other > 0) {
+      rows.push({ n: other, icon: 'repeat', text: 'were repeated numbers or already queued' });
+    }
+    return rows.filter((x) => x.n > 0);
+  });
+
   constructor() {
-    // A step change swaps the whole panel, so move focus (and the screen
-    // reader) to the new step's heading; the first render leaves focus alone.
+    // A step change (or the result screen) swaps the whole panel, so move focus
+    // (and the screen reader) to the new heading; the first render leaves focus alone.
     let first = true;
     effect(() => {
       this.draft.step();
+      this.draft.result();
       if (first) {
         first = false;
         return;
@@ -131,10 +195,69 @@ export class CampaignView implements OnInit {
       this.router.navigate(['/campaigns', id]);
       return;
     }
+    // Only a fresh navigation carries ids: a reload must not overwrite the draft with them again.
+    const picked = this.navState?.contactIds;
+    const contactIds = Array.isArray(picked)
+      ? picked.filter((n): n is number => Number.isInteger(n))
+      : [];
+    // A "start from this" link is a new intent: it replaces an earlier session's draft.
+    const linked = [
+      contactIds.length ? 'ids' : '',
+      this.template(),
+      this.retarget(),
+      this.segment(),
+      this.tags(),
+      this.duplicate(),
+      this.edit(),
+    ];
+    if (linked.some(Boolean)) this.draft.discardSaved();
+    const editId = Number(this.edit());
+    const duplicateId = Number(this.duplicate());
+    if (editId || duplicateId) {
+      this.loadCampaign(editId || duplicateId, editId ? 'edit' : 'duplicate');
+      return;
+    }
+    if (contactIds.length) {
+      this.prefillContacts(contactIds);
+      // The browser keeps navigation state across a reload, and Angular hands it back as
+      // the initial navigation's state: drop the ids once used so a reload keeps the draft.
+      const rest = { ...((history.state ?? {}) as Record<string, unknown>) };
+      delete rest['contactIds'];
+      history.replaceState(rest, '');
+    }
     const templateId = Number(this.template());
     if (templateId) this.prefillTemplate(templateId);
     const retargetId = Number(this.retarget());
     if (retargetId) this.prefillRetarget(retargetId, this.filter());
+    const segmentId = Number(this.segment());
+    if (segmentId) this.prefillSegment(segmentId);
+    const tags = (this.tags() ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (tags.length && !segmentId) this.prefillTags(tags);
+  }
+
+  protected loadCampaign(id: number, mode: 'duplicate' | 'edit'): void {
+    this.loadError.set(null);
+    this.loadingCampaign.set(true);
+    this.tab.set('composer');
+    this.draft
+      .prefillFrom(id, mode)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (campaign) => {
+          this.loadingCampaign.set(false);
+          this.store.setStatus(
+            mode === 'edit' ? `Editing "${campaign.name}"` : `Copied "${campaign.name}"`,
+            'primary',
+          );
+        },
+        error: (err: Error) => {
+          this.loadingCampaign.set(false);
+          this.loadError.set({ message: err.message, id, mode });
+        },
+      });
   }
 
   private prefillTemplate(id: number): void {
@@ -164,6 +287,7 @@ export class CampaignView implements OnInit {
 
   private prefillRetarget(campaignId: number, filter: string | undefined): void {
     const f = FILTERS.includes(filter as RetargetFilter) ? (filter as RetargetFilter) : 'failed';
+    this.leaveResult();
     this.draft.source.set('retarget');
     this.draft.retarget.set({ campaignId, filter: f, optionId: '' });
     this.draft.step.set(1);
@@ -176,14 +300,77 @@ export class CampaignView implements OnInit {
     });
   }
 
+  /** `?segment=<id>` from the contacts page: the saved segment is the audience. */
+  private prefillSegment(id: number): void {
+    const d = this.draft;
+    this.leaveResult();
+    d.source.set('contacts');
+    d.contactFilter.set({});
+    d.segment.set(null);
+    d.segmentId.set(id);
+    d.step.set(1);
+    d.loadSegment(id).subscribe({
+      next: (segment) => {
+        if (!segment) this.notice.set('That segment no longer exists - pick who gets it below.');
+      },
+      error: (err: Error) => this.notice.set(`Could not load the segment: ${err.message}`),
+    });
+  }
+
+  /** `?tags=a,b` from the contacts page: everyone carrying all of those tags. */
+  private prefillTags(tags: string[]): void {
+    const d = this.draft;
+    this.leaveResult();
+    d.source.set('contacts');
+    d.segmentId.set(null);
+    d.segment.set(null);
+    d.contactsCount.set(null);
+    d.contactFilter.set({ tags });
+    d.step.set(1);
+  }
+
+  /** Rows ticked on the contacts page: the audience is exactly those contacts. */
+  private prefillContacts(ids: number[]): void {
+    const d = this.draft;
+    this.leaveResult();
+    d.source.set('contacts');
+    d.segmentId.set(null);
+    d.segment.set(null);
+    d.contactFilter.set({ ids });
+    d.contactsCount.set(ids.length);
+    d.step.set(1);
+  }
+
+  /** A prefill link opened over a finished campaign starts a new one. */
+  private leaveResult(): void {
+    if (this.draft.result()) this.draft.reset();
+  }
+
+  protected resume(): void {
+    this.restoring.set(true);
+    this.draft
+      .restore()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => this.restoring.set(false),
+        error: (err: Error) => {
+          this.restoring.set(false);
+          this.notice.set(err.message);
+        },
+      });
+  }
+
+  protected startFresh(): void {
+    this.draft.discardSaved();
+  }
+
   /** Steps open in order: you can always go back, forward only once the earlier steps are ready. */
   protected canOpen(n: ComposerStep): boolean {
     const d = this.draft;
-    const step = d.step();
-    if (step === 3) return n === 3;
-    if (n <= step) return true;
-    if (n === 2) return d.composeReady();
-    return false;
+    if (d.result()) return false;
+    if (n <= d.step()) return true;
+    if (n === 2) return d.audienceReady();
+    return d.composeReady();
   }
 
   protected open(n: ComposerStep): void {
@@ -192,6 +379,11 @@ export class CampaignView implements OnInit {
 
   protected startOver(): void {
     this.draft.reset();
+  }
+
+  /** The /campaign?duplicate= flow, run in place: this page is already the composer. */
+  protected duplicateSent(id: number): void {
+    this.loadCampaign(id, 'duplicate');
   }
 
   /** The server checks type and size (16 MB, 64 MB for video) and says why it refused. */

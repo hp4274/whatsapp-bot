@@ -7,6 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 
 import {
   BulkAction,
@@ -56,6 +57,9 @@ const CONSENT_OPTIONS: readonly { value: ConsentFilter; label: string }[] = [
   { value: 'opted_out', label: 'Opted out' },
 ];
 
+/** The most contacts one campaign can be hand-picked from (the server's cap on an id list). */
+const MAX_HAND_PICKED = 5000;
+
 /** Past-tense verb for the toast after a bulk action. */
 const VERB: Record<BulkAction, string> = {
   addTags: 'Tagged',
@@ -84,6 +88,7 @@ export class ContactsView {
   private readonly store = inject(Store);
   private readonly auth = inject(Auth);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
 
   protected readonly pageSize = 50;
   protected readonly consentOptions = CONSENT_OPTIONS;
@@ -154,6 +159,43 @@ export class ContactsView {
     else if (consent) base.optInStatus = consent;
     return base;
   });
+
+  /**
+   * Where "Send campaign" can go for "every match of this view". The composer
+   * only takes a saved segment or an all-of tag list as a link, so a view
+   * narrowed by search or consent, or by a segment and tags together, has none.
+   * Individually ticked rows do not use it: they travel as ids (see sendCampaign).
+   */
+  protected readonly campaignLink = computed<{ segment: number } | { tags: string } | null>(() => {
+    if (this.search().trim() || this.consent()) return null;
+    const segment = this.segmentId();
+    const tags = this.tagFilter();
+    if (segment !== null) return tags.length ? null : { segment };
+    return tags.length ? { tags: tags.join(',') } : null;
+  });
+
+  protected readonly canSend = computed(() =>
+    this.allMatching() ? !!this.campaignLink() : this.selected().size > 0,
+  );
+
+  /** The server refuses a hand-picked list over this many ids. */
+  protected readonly sendHint = computed(() =>
+    !this.allMatching() && this.selected().size > MAX_HAND_PICKED
+      ? `Pick ${MAX_HAND_PICKED.toLocaleString()} contacts or fewer to send a campaign.`
+      : '',
+  );
+
+  protected sendCampaign() {
+    if (this.sendHint()) return;
+    if (this.allMatching()) {
+      const queryParams = this.campaignLink();
+      if (queryParams) void this.router.navigate(['/campaign'], { queryParams });
+      return;
+    }
+    // Ids go in the navigation state, not the URL: a few thousand would not fit.
+    const contactIds = [...this.selected()];
+    if (contactIds.length) void this.router.navigate(['/campaign'], { state: { contactIds } });
+  }
 
   protected readonly hasFilters = computed(() =>
     Boolean(this.search().trim() || this.tagFilter().length || this.segmentId() || this.consent()),

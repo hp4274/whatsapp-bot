@@ -219,7 +219,13 @@
                 }
               </td>
               <td><app-campaign-status [status]="c.status" /></td>
-              <td class="num mono">{{ count(c.audienceSize) }}</td>
+              <td class="num mono">
+                @if (c.segmentId !== null && !c.audienceSize && (c.status === 'draft' || c.status === 'scheduled')) {
+                  <span class="muted" title="A saved segment: counted when it starts">Segment</span>
+                } @else {
+                  {{ count(c.audienceSize) }}
+                }
+              </td>
               <td class="num result">
                 @let r = result(c);
                 @if (r.sending) {
@@ -309,6 +315,24 @@
                     {{ isConfirming(c.id, 'delete') ? 'Delete?' : '' }}
                   </button>
                 }
+                @if (c.status === 'draft' || c.status === 'scheduled') {
+                  <a
+                    class="btn sm"
+                    routerLink="/campaign"
+                    [queryParams]="{ edit: c.id }"
+                    [attr.aria-label]="'Edit ' + c.name"
+                  >
+                    <i class="ti ti-pencil" aria-hidden="true"></i>Edit
+                  </a>
+                }
+                <a
+                  class="btn sm"
+                  routerLink="/campaign"
+                  [queryParams]="{ duplicate: c.id }"
+                  [attr.aria-label]="'Duplicate ' + c.name"
+                >
+                  <i class="ti ti-copy" aria-hidden="true"></i>Duplicate
+                </a>
                 <a
                   class="btn sm"
                   [routerLink]="['/campaigns', c.id]"

@@ -352,7 +352,7 @@ describe('the campaign store', () => {
         scoped.insertInbound({ sender: '919833300001', body: 'thanks!' });
 
         const report = store.analytics(c.id);
-        assert.deepEqual(report.funnel, { audience: 4, queued: 4, sent: 3, delivered: 2, read: 1, replied: 1, failed: 1 });
+        assert.deepEqual(report.funnel, { audience: 4, queued: 4, sent: 3, delivered: 2, read: 1, replied: 1, failed: 1, clickedLink: 0 });
         assert.deepEqual(report.failures, [{ code: ErrorCode.INVALID_RECIPIENT, label: FRIENDLY[ErrorCode.INVALID_RECIPIENT], count: 1 }]);
         assert.equal(report.clicks, null);
         const p1 = report.recipients.find((r) => r.phone === '919833300001');
@@ -363,7 +363,7 @@ describe('the campaign store', () => {
         assert.equal(p3.errorCode, ErrorCode.INVALID_RECIPIENT);
 
         const csv = store.exportCsv(c.id).split('\r\n');
-        assert.equal(csv[0], 'timestamp,phone,name,status,error,button_clicked');
+        assert.equal(csv[0], 'timestamp,phone,name,status,error,button_clicked,link_clicked,variant');
         assert.ok(csv.some((line) => line.includes('919833300002,P2,DELIVERED')));
     });
 

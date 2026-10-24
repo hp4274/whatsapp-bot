@@ -5,6 +5,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
+import type { ReplyRule } from '../campaign/interactive/interactive.model';
 import { Role, Tenant, TenantControls, User } from './auth';
 
 export type MessageStatus =
@@ -966,6 +967,8 @@ export interface ContactFilter {
   source?: string;
   search?: string;
   custom?: Record<string, string>;
+  /** Hand-picked contacts; combines with the other keys, and an empty list matches nobody. */
+  ids?: number[];
 }
 
 export interface Segment {
@@ -1230,7 +1233,13 @@ export interface ImportAudit {
 }
 
 export type PacingPreset = 'safe' | 'balanced' | 'fast';
-export type RetargetFilter = 'failed' | 'unread' | 'noreply' | 'replied' | 'clicked';
+export type RetargetFilter =
+  | 'failed'
+  | 'unread'
+  | 'noreply'
+  | 'replied'
+  | 'clicked'
+  | 'clickedLink';
 
 /** Resolved at send time from a past campaign's message rows (+ inbound replies, button clicks). */
 export interface RetargetAudience {
@@ -1262,6 +1271,36 @@ export interface CampaignOptions {
    * progress fields on the stored campaign.
    */
   spread?: CampaignSpread;
+  /**
+   * The composer appended its opt-out line to `body`. Stored so a duplicate or
+   * edit shows the toggle on instead of the line inside the editable text.
+   */
+  optOutLine?: boolean;
+  /** Rewrite links so taps are counted; the server ignores it without a public base URL or in Meta template mode. */
+  trackLinks?: boolean;
+  /** Run again every day, week or month once a run finishes; not combinable with `spread`. */
+  recurrence?: CampaignRecurrence | null;
+  /** Typed numbers added on top of a contacts or past-campaign audience at send time. */
+  extraNumbers?: { phone: string; name: string }[] | null;
+  /** 2-3 versions of the message, split evenly between recipients; not for Meta templates. */
+  variants?: CampaignVariant[] | null;
+  /** Server-set on a finished recurring run: the next run's campaign id. */
+  readonly nextId?: number;
+  /** Server-set on a spawned run: the run it repeats. */
+  readonly previousId?: number;
+  /** Server-set: why the repeat ended or could not be booked. */
+  readonly recurrenceNote?: string;
+}
+
+export interface CampaignRecurrence {
+  every: 'day' | 'week' | 'month';
+  /** Last day a run may start, `YYYY-MM-DD`. */
+  until?: string;
+}
+
+export interface CampaignVariant {
+  key: 'A' | 'B' | 'C';
+  body: string;
 }
 
 export interface CampaignSpread {
@@ -1329,6 +1368,55 @@ export interface CampaignCreate {
   status?: 'draft' | 'scheduled';
   scheduledAt?: string | null;
   templateId?: number | null;
+  /** A saved segment, resolved at send time; takes precedence over `audience`. */
+  segmentId?: number | null;
+}
+
+/**
+ * `POST /api/campaigns/:id/start`. Pause, resume and cancel answer with only
+ * `campaign` and `stats`. The skip counters come from the manager
+ * (`campaign/manager.js` enqueueContacts) and add up to `skipped`, together
+ * with numbers the queue already held.
+ */
+export interface CampaignStartResult {
+  campaign: Campaign;
+  stats?: CampaignStats | null;
+  /** Recipients the audience resolved to before any skip. */
+  audience?: number;
+  queued?: number;
+  skipped?: number;
+  skippedOptOut?: number;
+  /** Muted by a reply rule ("ask me again in 30 days"). */
+  skippedMuted?: number;
+  /** Already got the per-recipient daily maximum of bulk messages. */
+  skippedFrequency?: number;
+  /** The plan requires opt-in and these contacts have not given it. */
+  skippedNoOptIn?: number;
+  /** Meta template mode: a template slot came out empty for them. */
+  skippedTemplateVars?: number;
+  /** The plan's speed ceiling lowered the chosen preset. */
+  pacingClamped?: { requested: PacingPreset; applied: PacingPreset } | null;
+  /** Plain-language notes on plan rules applied at send time. */
+  policyNotes?: string[];
+  overQuota?: number;
+  /** Spread campaigns only: left for tomorrow because today's sending limit was short. */
+  carried?: number;
+  safety?: SafetyStatus;
+}
+
+/** `POST /api/campaigns/:id/preview`: the message rendered for the first few recipients. */
+export interface CampaignPreview {
+  previews: { phone: string; name: string; preview: string; missing: string[] }[];
+  /** Everyone the audience resolves to right now. */
+  audience: number;
+  /** Every variable left empty for at least one previewed recipient. */
+  missing: string[];
+}
+
+/** `/api/campaigns/:id/reply-rules`; `campaignId` is the manager's key ('camp-7'). */
+export interface CampaignReplyRules {
+  campaignId: string;
+  rules: ReplyRule[];
 }
 
 export interface CampaignAnalytics {
@@ -1341,7 +1429,11 @@ export interface CampaignAnalytics {
     read: number;
     replied: number;
     failed: number;
+    /** Recipients who tapped a tracked link at least once. */
+    clickedLink?: number;
   };
+  /** Per-version results; null when the campaign was not an A/B test. */
+  variants?: CampaignVariantStats[] | null;
   failures: { code: string; label: string; count: number }[];
   /** Null when the interactive module has not recorded anything for this campaign. */
   clicks: { id: string; title: string; count: number }[] | null;
@@ -1354,7 +1446,19 @@ export interface CampaignAnalytics {
     errorCode: string | null;
     clicked: string | null;
     replied: boolean;
+    clickedLink?: boolean;
+    variant?: 'A' | 'B' | 'C' | null;
   }[];
+}
+
+export interface CampaignVariantStats {
+  key: 'A' | 'B' | 'C';
+  sent: number;
+  delivered: number;
+  read: number;
+  replied: number;
+  failed: number;
+  clickedLink: number;
 }
 
 /** Campaign creation, audiences and per-campaign results. */
@@ -1393,6 +1497,20 @@ export class CampaignsApi {
       .pipe(catchError(toMessage));
   }
 
+  /** Only a draft or scheduled campaign can be edited (409 otherwise); omitted fields are kept. */
+  update(id: number, body: Partial<CampaignCreate>): Observable<{ campaign: Campaign }> {
+    return this.http
+      .put<{ campaign: Campaign }>(`/api/campaigns/${id}`, body)
+      .pipe(catchError(toMessage));
+  }
+
+  /** Render the saved campaign for its first `limit` recipients (the server caps it at 25). */
+  preview(id: number, limit = 3): Observable<CampaignPreview> {
+    return this.http
+      .post<CampaignPreview>(`/api/campaigns/${id}/preview`, { limit })
+      .pipe(catchError(toMessage));
+  }
+
   remove(id: number): Observable<{ deleted: boolean }> {
     return this.http
       .delete<{ deleted: boolean }>(`/api/campaigns/${id}`)
@@ -1402,24 +1520,22 @@ export class CampaignsApi {
   action(
     id: number,
     action: 'start' | 'pause' | 'resume' | 'cancel',
-  ): Observable<{
-    campaign: Campaign;
-    stats?: CampaignStats | null;
-    queued?: number;
-    skipped?: number;
-    /** Spread campaigns only: left for tomorrow because today's sending limit was short. */
-    carried?: number;
-    safety?: SafetyStatus;
-  }> {
+  ): Observable<CampaignStartResult> {
     return this.http
-      .post<{
-        campaign: Campaign;
-        stats?: CampaignStats | null;
-        queued?: number;
-        skipped?: number;
-        carried?: number;
-        safety?: SafetyStatus;
-      }>(`/api/campaigns/${id}/${action}`, {})
+      .post<CampaignStartResult>(`/api/campaigns/${id}/${action}`, {})
+      .pipe(catchError(toMessage));
+  }
+
+  replyRules(id: number): Observable<CampaignReplyRules> {
+    return this.http
+      .get<CampaignReplyRules>(`/api/campaigns/${id}/reply-rules`)
+      .pipe(catchError(toMessage));
+  }
+
+  /** Replaces the whole list; the server drops rules without actions and answers with what it kept. */
+  saveReplyRules(id: number, rules: readonly ReplyRule[]): Observable<CampaignReplyRules> {
+    return this.http
+      .put<CampaignReplyRules>(`/api/campaigns/${id}/reply-rules`, { rules })
       .pipe(catchError(toMessage));
   }
 

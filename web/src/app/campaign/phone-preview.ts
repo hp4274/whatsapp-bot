@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, output } f
 
 import { Auth } from '../core/auth';
 import { InteractiveDraft } from './interactive/interactive.model';
-import { DraftAttachment } from './draft';
+import { DraftAttachment, VariantKey } from './draft';
 import { formatBytes, linkify, substitute } from './wa-format';
 
 /** Tabler icon per call-to-action kind, matching what WhatsApp draws on the button. */
@@ -36,6 +36,12 @@ export class PhonePreview {
   /** True when there is no audience yet and the preview uses a made-up contact. */
   readonly sample = input(false);
 
+  /** A/B test versions on offer (`['A', 'B']`); empty hides the switch. */
+  readonly versions = input<readonly VariantKey[]>([]);
+  /** The version `text` is showing. */
+  readonly version = input<VariantKey>('A');
+
+  readonly versionChange = output<VariantKey>();
   readonly prev = output<void>();
   readonly next = output<void>();
   readonly shuffle = output<void>();

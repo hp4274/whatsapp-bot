@@ -85,7 +85,62 @@ export class CampaignInsights {
       { key: 'replied', label: 'Replied', icon: 'arrow-back-up', count: f.replied, tone: 'accent', rate: r.replied, base: 'of delivered' },
       { key: 'failed', label: 'Failed', icon: 'alert-circle', count: f.failed, tone: 'bad', rate: r.failed, base: 'of attempted' },
     ];
+    if (this.showLinks()) {
+      rows.splice(4, 0, {
+        key: 'clickedLink',
+        label: 'Clicked a link',
+        icon: 'click',
+        count: f.clickedLink ?? 0,
+        tone: 'accent',
+        rate: f.delivered ? percent(f.clickedLink ?? 0, f.delivered) : null,
+        base: 'of delivered',
+      });
+    }
     return rows.map((s) => ({ ...s, countText: count(s.count), pctText: pct(s.rate), width: s.rate ?? 0 }));
+  });
+
+  /** The link stage and shortcut only matter if links were tracked (or someone tapped one anyway). */
+  protected readonly showLinks = computed(() => {
+    const a = this.analytics();
+    return a.campaign.options?.trackLinks === true || (a.funnel.clickedLink ?? 0) > 0;
+  });
+
+  /** Fewest sends per version before a "doing better" call means anything. */
+  private static readonly MIN_PER_VERSION = 20;
+
+  /**
+   * A/B comparison. The better version is judged on reply rate, or read rate when
+   * nobody replied to any version, and only once every version has enough sends;
+   * a tie names nobody.
+   */
+  protected readonly ab = computed(() => {
+    const list = this.analytics().variants;
+    if (!list?.length) return null;
+    const byReply = list.some((v) => v.replied > 0);
+    const rows = list.map((v) => {
+      const r = reportRates({ sent: v.sent, delivered: v.delivered, read: v.read, failed: v.failed, replied: v.replied });
+      return {
+        key: v.key,
+        sent: count(v.sent),
+        delivered: `${count(v.delivered)} · ${pct(r.delivered)}`,
+        read: `${count(v.read)} · ${pct(r.read)}`,
+        replied: `${count(v.replied)} · ${pct(r.replied)}`,
+        clicked: `${count(v.clickedLink)} · ${pct(v.delivered ? percent(v.clickedLink, v.delivered) : null)}`,
+        score: (byReply ? r.replied : r.read) ?? 0,
+        enough: v.sent >= CampaignInsights.MIN_PER_VERSION,
+      };
+    });
+    const ready = rows.every((r) => r.enough);
+    const best = Math.max(...rows.map((r) => r.score));
+    const leaders = rows.filter((r) => r.score === best);
+    const winner = ready && leaders.length === 1 && best > 0 ? leaders[0].key : null;
+    const metric = byReply ? 'reply rate' : 'read rate';
+    const note = !ready
+      ? `Too early to tell - each version needs at least ${CampaignInsights.MIN_PER_VERSION} sends.`
+      : winner
+        ? `Version ${winner} has the higher ${metric}.`
+        : `No clear difference in ${metric} yet.`;
+    return { rows, winner, note };
   });
 
   protected readonly clicks = computed(() => {
@@ -110,7 +165,7 @@ export class CampaignInsights {
 
   protected readonly retargets = computed(() => {
     const f = this.analytics().funnel;
-    return [
+    const out = [
       {
         filter: 'unread',
         label: 'Not read',
@@ -125,6 +180,10 @@ export class CampaignInsights {
       },
       { filter: 'failed', label: 'Failed', icon: 'refresh-alert', count: f.failed },
     ];
+    if (this.showLinks()) {
+      out.push({ filter: 'clickedLink', label: 'Clicked a link', icon: 'click', count: f.clickedLink ?? 0 });
+    }
+    return out;
   });
 
   constructor() {

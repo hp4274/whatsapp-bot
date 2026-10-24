@@ -30,6 +30,7 @@ export function createCampaignRouter({ db, state }) {
         media: (id) => state.media?.get(id) ?? null,
         interactiveStats: (key) => state.interactiveStats?.(key) ?? null,
         policy: () => state.platformPolicy?.() ?? {},
+        replies: () => state.interactions ?? null,
     });
     state.campaigns = campaigns;
     // The manager halted a run on a platform rule: the record says so, and why.
@@ -79,10 +80,12 @@ export function createCampaignRouter({ db, state }) {
                 throw err;
             }
         }
-        if (Array.isArray(out.audience)) {
+        // Hand-picked contacts ({ids: [...]}) count the same; other filters are held to it at send time.
+        const picked = Array.isArray(out.audience) ? out.audience : (Array.isArray(out.audience?.ids) ? out.audience.ids : null);
+        if (picked) {
             const cap = state.limits?.()?.maxContactsPerCampaign;
-            if (cap && out.audience.length > cap) {
-                throw new CampaignError(`A campaign can reach ${cap} contacts on your plan; this one has ${out.audience.length}.`, 403);
+            if (cap && picked.length > cap) {
+                throw new CampaignError(`A campaign can reach ${cap} contacts on your plan; this one has ${picked.length}.`, 403);
             }
         }
         return out;
@@ -162,7 +165,9 @@ export function createCampaignRouter({ db, state }) {
             const text = campaigns.messageText(campaign);
             const previews = recipients.map((contact) => {
                 const context = contactContext(contact);
-                const rendered = campaign.templateId != null
+                // Same source as the send: the campaign's own body (or A/B
+                // version A) wins; only Meta mode sends the template as stored.
+                const rendered = campaign.templateId != null && campaign.options?.templateMode === 'meta'
                     ? state.templates.render(campaign.templateId, context)
                     : { body: personalize(text, context), missing: missingIn(text, context) };
                 return { phone: contact.phone, name: contact.name, preview: rendered.body, missing: rendered.missing };

@@ -72,6 +72,95 @@
       }
     </div>
   } @else {
+    <div class="tpl-row">
+      <label class="field" for="saved-tpl">
+        <span class="sr">Use a saved template</span>
+        <select id="saved-tpl" (change)="useSaved($any($event.target))" [disabled]="!saved()?.length">
+          <option value="">
+            {{
+              saved() === null
+                ? 'Loading templates...'
+                : saved()?.length
+                  ? 'Use a saved template...'
+                  : 'No saved templates yet'
+            }}
+          </option>
+          @for (t of saved() ?? []; track t.id) {
+            <option [value]="t.id">{{ t.name }}</option>
+          }
+        </select>
+      </label>
+      @if (savingName() === null) {
+        <button
+          type="button"
+          class="btn"
+          (click)="savingName.set('')"
+          [disabled]="!d.message().trim()"
+        >
+          <i class="ti ti-device-floppy" aria-hidden="true"></i> Save as template
+        </button>
+      } @else {
+        <input
+          type="text"
+          class="tpl-name"
+          aria-label="Template name"
+          placeholder="Template name"
+          [ngModel]="savingName()"
+          (ngModelChange)="savingName.set($event)"
+          (keydown.enter)="saveAsTemplate()"
+        />
+        <button
+          type="button"
+          class="btn primary"
+          (click)="saveAsTemplate()"
+          [disabled]="saving() || !(savingName() ?? '').trim()"
+        >
+          @if (saving()) {
+            <span class="spinner"></span>
+          }
+          Save
+        </button>
+        <button type="button" class="btn" (click)="savingName.set(null)">Cancel</button>
+      }
+    </div>
+    @if (savedNote()) {
+      <p class="banner info" role="status">
+        <i class="ti ti-check" aria-hidden="true"></i><span>{{ savedNote() }}</span>
+      </p>
+    }
+    @if (savedError()) {
+      <div class="error" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i>
+        <span>{{ savedError() }}</span>
+        <button type="button" class="btn small" (click)="loadSaved()">
+          <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+        </button>
+      </div>
+    }
+
+    @if (d.versionKeys().length; as n) {
+      <div class="vtabs" role="group" aria-label="Message version">
+        @for (k of d.versionKeys(); track k) {
+          <button
+            type="button"
+            [attr.aria-pressed]="d.shownVersion() === k"
+            (click)="d.activeVersion.set(k)"
+          >
+            Version {{ k }}
+          </button>
+        }
+        @if (n < 3) {
+          <button type="button" class="add" (click)="addVersionC()">
+            <i class="ti ti-plus" aria-hidden="true"></i> Add version C
+          </button>
+        } @else if (d.shownVersion() === 'C') {
+          <button type="button" class="add" (click)="removeVersionC()">
+            <i class="ti ti-x" aria-hidden="true"></i> Remove version C
+          </button>
+        }
+      </div>
+    }
+
     <div class="editor">
       <div class="toolbar" role="toolbar" aria-label="Formatting">
         @for (f of formats; track f.marker) {
@@ -86,32 +175,34 @@
           </button>
         }
         <span class="sep" aria-hidden="true"></span>
-        <button type="button" class="tb wide" (click)="insertSpin()" title="Insert a spintax group">
-          <i class="ti ti-arrows-shuffle" aria-hidden="true"></i> Spintax
+        <button type="button" class="tb wide" (click)="insertSpin()" title="Insert a choice of words, like {Hi|Hello}">
+          <i class="ti ti-arrows-shuffle" aria-hidden="true"></i> Word choices
         </button>
         <button
           type="button"
           class="tb"
           (click)="spinHelp.set(!spinHelp())"
           [attr.aria-expanded]="spinHelp()"
-          aria-label="What is spintax?"
+          aria-label="What are word choices?"
         >
           <i class="ti ti-help-circle" aria-hidden="true"></i>
         </button>
-        <span class="count" [class.over]="d.message().length > 1024"
-          >{{ d.message().length }} / 1024</span
+        <span class="count" [class.over]="d.activeMessage().length > 1024"
+          >{{ d.activeMessage().length }} / 1024</span
         >
       </div>
 
-      <label class="sr" for="msg">Message</label>
+      <label class="sr" for="msg"
+        >Message{{ d.versionKeys().length ? ', version ' + d.shownVersion() : '' }}</label
+      >
       <textarea
         #editor
         id="msg"
         rows="8"
-        [ngModel]="d.message()"
-        (ngModelChange)="d.message.set($event)"
+        [ngModel]="d.activeMessage()"
+        (ngModelChange)="d.setActiveMessage($event)"
         (keydown)="onKey($event)"
-        placeholder="Hi {name}, ..."
+        [placeholder]="d.shownVersion() === 'A' ? 'Hi {name}, ...' : 'Another way to say it...'"
       ></textarea>
 
       <div class="chips" aria-label="Insert a variable">
@@ -133,10 +224,54 @@
       <p class="banner info enter">
         <i class="ti ti-bulb" aria-hidden="true"></i>
         <span
-          ><code>{{ '{Hi|Hello|Hey}' }}</code> picks one option per recipient, so no two messages
-          are identical. Use <code>{{ '{name|there}' }}</code> for an inline fallback. Press Shuffle
-          on the preview to see other variants.</span
+          >Write options inside curly brackets, like <code>{{ '{Hi|Hello|Hey}' }}</code>. Each person
+          gets one of them, so the messages are not all identical. Use
+          <code>{{ '{name|there}' }}</code> to say "there" when someone has no name. Press Shuffle on
+          the preview to see other versions.</span
         >
+      </p>
+    }
+
+    <label class="check">
+      <input
+        type="checkbox"
+        [ngModel]="d.optOutLine()"
+        (ngModelChange)="d.optOutLine.set($event)"
+      />
+      Add opt-out line ("Reply STOP to stop messages")
+    </label>
+
+    <label class="check">
+      <input
+        type="checkbox"
+        [ngModel]="d.variantB() !== null"
+        (ngModelChange)="setAb($event)"
+      />
+      Test two versions (A/B)
+    </label>
+    @if (d.variantB() !== null) {
+      <p class="note">
+        Version A is the message above. Recipients are split evenly between the versions, and the
+        results are compared once it has been sent.
+      </p>
+    }
+
+    @if (d.hasLink()) {
+      <label class="check" [class.off]="!policy.linkTracking()">
+        <input
+          type="checkbox"
+          [disabled]="!policy.linkTracking()"
+          [ngModel]="d.trackLinks() && policy.linkTracking()"
+          (ngModelChange)="d.trackLinks.set($event)"
+        />
+        Track link clicks
+      </label>
+      <p class="note">
+        {{
+          policy.linkTracking()
+            ? 'Links are swapped for tracked ones, so you can see who tapped.'
+            : "Link tracking isn't set up on this server"
+        }}
       </p>
     }
 
@@ -166,13 +301,13 @@
       } @else {
         <i class="ti ti-paperclip" aria-hidden="true"></i>
       }
-      {{ file ? 'Replace attachment' : 'Attach image, video or PDF' }}
+      {{ file ? 'Replace attachment' : 'Attach image, video or document' }}
     </label>
     <input
       id="msg-attach"
       class="sr"
       type="file"
-      accept="image/jpeg,image/png,application/pdf,video/mp4,video/3gpp"
+      accept="image/jpeg,image/png,application/pdf,.doc,.docx,video/mp4,video/3gpp"
       (change)="onAttach($event)"
       [disabled]="uploading()"
     />
@@ -182,7 +317,7 @@
           <img [src]="file.previewUrl" alt="" />
         } @else {
           <i
-            class="ti ti-{{ file.mimetype.startsWith('video/') ? 'movie' : 'file-type-pdf' }} thumb"
+            class="ti ti-{{ file.mimetype.startsWith('video/') ? 'movie' : file.mimetype.includes('word') ? 'file-type-docx' : 'file-type-pdf' }} thumb"
             aria-hidden="true"
           ></i>
         }
@@ -201,7 +336,7 @@
       <small class="muted">{{
         d.metaMode()
           ? 'Only for templates with an image, video or document header - the file is sent as that header.'
-          : 'Optional - JPG/PNG/PDF up to 16 MB or MP4 up to 64 MB. The message becomes the caption.'
+          : 'Optional - JPG, PNG, PDF or Word up to 16 MB or MP4 up to 64 MB. The message becomes the caption.'
       }}</small>
     }
   </div>
@@ -229,6 +364,44 @@
       <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ error() }}</span>
     </p>
   }
+
+  @if (!d.metaMode()) {
+    <div class="test">
+      <label class="field" for="test-phone">
+        <span>Send a test to my number</span>
+        <div class="test-row">
+          <input
+            id="test-phone"
+            type="tel"
+            inputmode="tel"
+            placeholder="e.g. 919876543210"
+            [ngModel]="testPhone()"
+            (ngModelChange)="testPhone.set($event)"
+            (keydown.enter)="sendTest()"
+          />
+          <button
+            type="button"
+            class="btn"
+            (click)="sendTest()"
+            [disabled]="testing() || !testPhone().trim() || !d.activeMessage().trim()"
+          >
+            @if (testing()) {
+              <span class="spinner"></span>
+            } @else {
+              <i class="ti ti-send" aria-hidden="true"></i>
+            }
+            Send test
+          </button>
+        </div>
+      </label>
+      @if (testResult(); as r) {
+        <p class="banner" [class.info]="r.ok" [class.danger]="!r.ok" role="status">
+          <i class="ti ti-{{ r.ok ? 'check' : 'alert-circle' }}" aria-hidden="true"></i>
+          <span>{{ r.text }}</span>
+        </p>
+      }
+    </div>
+  }
 </section>
 
 @if (d.cloudApi() && !d.metaMode()) {
@@ -237,7 +410,7 @@
       <i class="ti ti-clock-share" aria-hidden="true"></i>
       <span
         ><strong>Backup template</strong>
-        <small class="muted">optional - for people who have not messaged you in 24h</small></span
+        <small class="muted">optional - if they have not messaged you in 24h, send this approved template instead</small></span
       >
     </summary>
     <label class="field" for="meta-fb">
@@ -279,5 +452,15 @@
       >
     </summary>
     <app-interactive-editor [(value)]="d.interactive" [variables]="d.variables()" />
+    @if (d.interactive()) {
+      <div class="rules">
+        <h4>Auto-reply when someone taps a button</h4>
+        <app-reply-rules-editor
+          [interactive]="d.interactive()"
+          [variables]="d.variables()"
+          [(rules)]="d.replyRules"
+        />
+      </div>
+    }
   </details>
 }

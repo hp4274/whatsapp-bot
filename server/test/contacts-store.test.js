@@ -85,10 +85,10 @@ describe('the contact book', () => {
 
     it('does not re-prefix a number that is already normalised', () => {
         const contacts = store();
-        // normalizePhone takes what a human typed, so a bare 91... under country
-        // code 91 is a national number: callers that already normalised say so.
+        // A bare 91... longer than a national number (10 digits) under country
+        // code 91 already carries the code, flagged or not.
         const typed = contacts.normalize('919812345099');
-        assert.equal(typed, '91919812345099', 'unflagged, it is treated as national');
+        assert.equal(typed, '919812345099', 'unflagged, it is not prefixed twice');
         assert.equal(contacts.normalize('919812345099', true), '919812345099');
 
         const saved = contacts.importMany([{ phone: '919812345099', name: 'Pre' }], { normalized: true });

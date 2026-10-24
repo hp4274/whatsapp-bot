@@ -110,7 +110,11 @@ export function classifyPhone(raw, { countryCode = '', autoClean = false } = {})
     if (digits.startsWith('00')) digits = digits.slice(2);
     if (!international) {
         if (countryCode) {
-            digits = countryCode + digits.replace(/^0/, '');
+            // A number already starting with the code (longer than a national
+            // one) is not prefixed twice.
+            if (!(digits.startsWith(countryCode) && digits.length > 10)) {
+                digits = countryCode + digits.replace(/^0/, '');
+            }
         } else if (digits.startsWith('0') || digits.length <= 10) {
             // ponytail: no '+' and no default prefix - a 10-digit number is
             // almost always national, so we ask for a prefix rather than guess one.

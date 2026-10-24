@@ -502,11 +502,20 @@ export class ContactStore {
  *
  * Supported keys: `tags` (all of), `anyTags` (any of), `notTags`, `status`,
  * `optInStatus`, `optedOut`, `source`, `search` (name, phone or email),
- * `custom` ({ key: value }), `createdAfter`, `createdBefore`.
+ * `custom` ({ key: value }), `createdAfter`, `createdBefore`, `ids` (hand-picked
+ * contact ids, at most MAX_BULK; an empty list matches nobody, never everybody).
  */
 export function buildWhere(filter = {}, tenantId) {
     const clauses = ['contacts.tenant_id = ?'];
     const args = [tenantId];
+
+    if (filter.ids !== undefined) {
+        const ids = unique((Array.isArray(filter.ids) ? filter.ids : [])
+            .map(Number).filter((id) => Number.isSafeInteger(id) && id > 0)).slice(0, MAX_BULK);
+        // One bound JSON array, not 10,000 placeholders.
+        clauses.push('contacts.id IN (SELECT value FROM json_each(?))');
+        args.push(JSON.stringify(ids));
+    }
 
     const tagClause = (tag) => {
         clauses.push('EXISTS (SELECT 1 FROM json_each(contacts.tags) WHERE value = ?)');

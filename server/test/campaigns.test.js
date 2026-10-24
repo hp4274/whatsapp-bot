@@ -166,11 +166,37 @@ describe('the message', () => {
         A.store.cancel(campaign.id);
     });
 
+    it('sends the campaign\'s own body, not the template\'s, when both are set', () => {
+        const template = A.templates.create({ name: 'promo2', body: 'Hi {name}, 20% off' });
+        const edited = 'Hi {name}, 30% off\n\nReply STOP to stop messages';
+        const campaign = A.store.create({ name: 'Edited', templateId: template.id, body: edited, audience: { tags: ['vip'] } });
+        assert.equal(A.store.messageText(campaign), edited);
+        A.store.start(campaign.id);
+        assert.equal(A.manager.calls.at(-1).template, edited);
+        A.store.cancel(campaign.id);
+    });
+
     it('refuses a campaign with neither a template nor a body, or a template that is gone', () => {
         const bare = A.store.create({ name: 'Bare', audience: { tags: ['vip'] } });
         assert.throws(() => A.store.start(bare.id), /a template or a body/);
         const ghost = A.store.create({ name: 'Ghost', templateId: 9999, audience: { tags: ['vip'] } });
         assert.throws(() => A.store.start(ghost.id), /template 9999 not found/);
+    });
+
+    it('sends its own body even when the template it came from is deleted', () => {
+        const template = A.templates.create({ name: 'gone-later', body: 'Old {name}' });
+        const campaign = A.store.create({ name: 'Orphan', templateId: template.id, body: 'Own {name}', audience: { tags: ['vip'] } });
+        A.templates.remove(template.id);
+        A.store.start(campaign.id);
+        assert.equal(A.manager.calls.at(-1).template, 'Own {name}');
+        A.store.cancel(campaign.id);
+    });
+
+    it('a segment campaign has no stored size until it starts', () => {
+        const segment = A.contacts.saveSegment({ name: 'VIPs size', filter: { tags: ['vip'] } });
+        const campaign = A.store.create({ name: 'Seg size', body: 'hi', segmentId: segment.id, audience: [] });
+        assert.equal(campaign.audienceSize, null);
+        assert.equal(A.store.list().find((c) => c.id === campaign.id).audienceSize, null);
     });
 });
 
@@ -353,6 +379,15 @@ describe('the routes', () => {
         assert.equal(preview.body.previews[0].preview, 'Hi Asha, your code is {coupon}');
         assert.deepEqual(preview.body.missing, ['coupon']);
         assert.equal(preview.body.audience, 2);
+    });
+
+    it('previews the campaign own body, not the template it was picked from', async () => {
+        const template = state.templates.create({ name: 'preview-src', body: 'Template {name}' });
+        const created = await call('POST', '/campaigns', {
+            name: 'Preview own', templateId: template.id, body: 'Edited {name}', audience: { tags: ['vip'] },
+        });
+        const preview = await call('POST', `/campaigns/${created.body.campaign.id}/preview`, { limit: 1 });
+        assert.equal(preview.body.previews[0].preview, 'Edited Asha');
     });
 
     it('refuses to start without a transport, and reports media that is gone', async () => {

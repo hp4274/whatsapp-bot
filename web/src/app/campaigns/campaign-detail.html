@@ -101,6 +101,27 @@
       -->
     </dl>
 
+    @if (series(); as s) {
+      <div class="series">
+        @if (s.repeats) {
+          <span class="repeat"><i class="ti ti-calendar-repeat" aria-hidden="true"></i>{{ s.repeats }}</span>
+        }
+        @if (s.previousId) {
+          <a [routerLink]="['/campaigns', s.previousId]"
+            ><i class="ti ti-arrow-left" aria-hidden="true"></i>Previous run</a
+          >
+        }
+        @if (s.nextId) {
+          <a [routerLink]="['/campaigns', s.nextId]"
+            >Next run<i class="ti ti-arrow-right" aria-hidden="true"></i></a
+          >
+        }
+        @if (s.note) {
+          <p class="muted note">{{ s.note }}</p>
+        }
+      </div>
+    }
+
     @if (spread(); as sp) {
       <section class="spread" aria-labelledby="spread-title">
         <div class="spread-head">
@@ -237,22 +258,31 @@
         </small>
       </div>
 
-      <!-- Speed picker hidden for now: every campaign runs Balanced.
-      <div class="s-seg speed" role="radiogroup" aria-label="Sending speed">
-        @for (s of speeds; track s.key) {
-          <button
-            type="button"
-            role="radio"
-            [attr.aria-checked]="pacing() === s.key"
-            [disabled]="busy() === 'speed' || policy.tooFast(s.key)"
-            [attr.title]="policy.tooFast(s.key) ? 'Not on your plan' : null"
-            (click)="setSpeed(s.key)"
-          >
-            <i class="ti ti-{{ s.icon }}" aria-hidden="true"></i>{{ s.label }}
-          </button>
-        }
-      </div>
-      -->
+      @if (c.status === 'running' || c.status === 'paused') {
+        <div class="s-seg speed" role="radiogroup" aria-label="Sending speed">
+          @for (s of speeds; track s.key) {
+            <button
+              type="button"
+              role="radio"
+              [attr.aria-checked]="pacing() === s.key"
+              [disabled]="busy() === 'speed' || policy.tooFast(s.key)"
+              [attr.title]="policy.tooFast(s.key) ? 'Not on your plan' : null"
+              (click)="setSpeed(s.key)"
+            >
+              <i class="ti ti-{{ s.icon }}" aria-hidden="true"></i>{{ s.label }}
+            </button>
+          }
+        </div>
+      }
+
+      @if (c.status === 'draft' || c.status === 'scheduled') {
+        <a class="btn" routerLink="/campaign" [queryParams]="{ edit: c.id }">
+          <i class="ti ti-pencil" aria-hidden="true"></i>Edit
+        </a>
+      }
+      <a class="btn" routerLink="/campaign" [queryParams]="{ duplicate: c.id }">
+        <i class="ti ti-copy" aria-hidden="true"></i>Duplicate
+      </a>
 
       <button type="button" class="btn" [disabled]="busy() === 'export'" (click)="exportCsv()">
         @if (busy() === 'export') {

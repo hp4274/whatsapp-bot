@@ -84,7 +84,8 @@ import { createStorageRouter } from './storage/routes.js';
 import { safeName, sha256Of, uploadInfo } from './storage/store.js';
 import { createBillingRouter } from './billing/routes.js';
 import { createCampaignRouter } from './campaigns/routes.js';
-import { dueCampaigns, openCampaigns, runningSpreadCampaigns } from './campaigns/store.js';
+import { dueCampaigns, openCampaigns, recurringTenants, runningSpreadCampaigns } from './campaigns/store.js';
+import { LinkStore, followLink } from './links/store.js';
 import { DEFAULT_PLANS } from './billing/plans.js';
 import { BillingError, BillingStore } from './billing/store.js';
 import { POLICY_FIELDS, PolicyError, PolicyStore } from './policy/index.js';
@@ -336,6 +337,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     // Bulk waits out the sending window / quiet hours instead of failing.
     manager.bulkWindowOpen = () => bulkWindowOpen(state.channel, state.config);
     manager.timezone = () => state.channel?.timezone;
+    // Tracked links need an address the recipient's phone can reach; without one, text goes as written.
+    if (deps.publicBaseUrl) manager.links = new LinkStore(db, deps.publicBaseUrl);
     const autoReply = new AutoReplyEngine(db, new NullTransport());
     // Phase 3: one way out. Everything that sends goes through the service,
     // which reads the live channel row so a capability switched off mid-flight
@@ -1905,14 +1908,29 @@ const AGENT_WRITES = new Set(['/messages', '/inbox/mark-read', '/media/upload'])
 // `/school` checks each staff title's areas itself (class teachers mark attendance).
 const AGENT_WRITE_PREFIXES = ['/conversations', '/tickets', '/school'];
 
+/** An http(s) origin (and optional path) without its trailing slash, or null. */
+function cleanBaseUrl(value) {
+    const text = String(value ?? '').trim().replace(/\/+$/, '');
+    if (!text) return null;
+    try {
+        const url = new URL(text);
+        if (url.protocol === 'http:' || url.protocol === 'https:') return text;
+    } catch { /* fall through */ }
+    console.warn(`[links] PUBLIC_BASE_URL "${text}" is not an http(s) URL; link tracking is off`);
+    return null;
+}
+
 export function createApp({
     db = new Database(), config = loadConfig(), deps = {}, dataDir = APP_DIR,
     // Off by default: a test that builds an app should not start a timer it
     // never asked for. `index.js` turns it on for the real server.
     scheduler = false, sweepMs = 5000,
+    // Where this server is reachable from the internet (PUBLIC_BASE_URL); tracked links need it.
+    publicBaseUrl = null,
 } = {}) {
     const app = express();
     app.disable('x-powered-by');
+    publicBaseUrl = cleanBaseUrl(publicBaseUrl);
     // Before the body parser, so a malformed body is still logged with an id.
     app.use(requestContext());
     app.use(securityHeaders());
@@ -1950,6 +1968,7 @@ export function createApp({
                     limits: () => tenancy.getTenant(tenantId)?.limits ?? {},
                     platformPolicy: () => policyStore.resolve(tenantId).values,
                     bulkKill: () => bulkKillReason(policyStore, tenantId),
+                    publicBaseUrl,
                 },
                 audit,
                 policy: () => tenancy.enforcedSafety(tenancy.getTenant(tenantId)),
@@ -2027,6 +2046,23 @@ export function createApp({
 
     // --------------------------------------------------------- public --
     app.get('/api/health', (req, res) => res.json({ ok: true, status: 'ready' }));
+
+    /**
+     * A tracked campaign link (links/store.js): count the tap, then send the
+     * browser on. Public - the recipient has no session - and it only ever
+     * redirects to a URL a campaign stored, so it is no open redirect. The
+     * code is all it takes and all it reveals: no tenant, campaign or number.
+     * Link-preview fetchers are redirected but not counted as taps.
+     */
+    // Per address, and roomy: behind a reverse proxy every tap shares one address.
+    const linkLimit = rateLimit({ ratePerSecond: 10, burst: 50, keyFor: (req) => `link:${req.ip}` });
+    app.get('/l/:code', linkLimit, (req, res) => {
+        const preview = /WhatsApp\/|facebookexternalhit|bot\b|crawler|spider|preview/i.test(req.get('user-agent') ?? '');
+        const url = followLink(db.db, req.params.code, { count: !preview });
+        res.set('Cache-Control', 'no-store');
+        if (!url) return res.status(404).type('text/plain').send('This link is not valid or has expired.');
+        return res.redirect(302, url);
+    });
 
     // Meta cannot send a bearer token, so the webhook is public and per tenant.
     app.all(['/api/webhook', '/api/webhook/:tenantId'], (req, res, next) => {
@@ -2578,7 +2614,10 @@ export function createApp({
 
     // ------------------------------------------------- tenant routes --
     // What the platform allows this business, so its own screens can show limits before refusing.
-    app.get('/api/policy', withTenant, (req, res) => res.json(policyStore.resolve(req.tenantId)));
+    // `linkTracking`: whether the composer can offer "Track link clicks" (PUBLIC_BASE_URL is set).
+    app.get('/api/policy', withTenant, (req, res) => res.json({
+        ...policyStore.resolve(req.tenantId), linkTracking: Boolean(publicBaseUrl),
+    }));
 
     app.use('/api', withTenant, (req, res, next) => {
         const tenant = tenancy.getTenant(req.tenantId);
@@ -2669,6 +2708,18 @@ export function createApp({
                     if (channel) runtimeFor(tenantId).runtimeFor(channel).state.campaigns?.tick(id);
                 } catch (err) {
                     console.error(`[campaigns] spread tick ${id} failed:`, err.message);
+                }
+            }
+            // Repeating campaigns: a finished run books the next one (once; see spawnRecurrences).
+            for (const tenantId of recurringTenants(db)) {
+                try {
+                    const channel = runtimeFor(tenantId).channels.getDefault();
+                    const state = channel ? runtimeFor(tenantId).runtimeFor(channel).state : null;
+                    for (const campaign of state?.campaigns?.spawnRecurrences() ?? []) {
+                        state.broadcast?.({ type: 'campaignCreated', campaign });
+                    }
+                } catch (err) {
+                    console.error(`[campaigns] repeat booking for tenant ${tenantId} failed:`, err.message);
                 }
             }
         } catch (err) {
