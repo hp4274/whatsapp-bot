@@ -237,6 +237,21 @@ describe('tenant lifecycle', () => {
         assert.equal(dup.status, 409);
     });
 
+    it('frees a deleted tenant\'s owner email and slug for a new tenant', async () => {
+        const body = { name: 'Gone Co', slug: 'gone-co', owner: { email: 'owner@gone-co.dev', password: 'long-enough-1' } };
+        const first = await call(tokens.superAdmin, 'POST', '/api/admin/tenants', body);
+        assert.equal(first.status, 201);
+        assert.equal((await call(tokens.superAdmin, 'DELETE', `/api/admin/tenants/${first.body.tenant.id}`)).status, 200);
+
+        const again = await call(tokens.superAdmin, 'POST', '/api/admin/tenants', body);
+        assert.equal(again.status, 201, JSON.stringify(again.body));
+        assert.notEqual(again.body.tenant.id, first.body.tenant.id);
+        // The old owner cannot sign in with the freed email; the new one can.
+        const login = await call(null, 'POST', '/api/auth/login', { email: 'owner@gone-co.dev', password: 'long-enough-1' });
+        assert.equal(login.status, 200);
+        assert.equal(login.body.user.tenantId, again.body.tenant.id);
+    });
+
     it('does not leave an orphan tenant when owner creation is invalid', async () => {
         const before = tenancy.listTenants().length;
         const bad = await call(tokens.superAdmin, 'POST', '/api/admin/tenants', {
