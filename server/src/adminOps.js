@@ -213,6 +213,12 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
                         level: lv.level, earned: lv.earned, of: lv.of, pinned: lv.pinned ? pin?.level ?? null : null, cap: lv.cap ?? null,
                         // As the business sees it: with safety off nothing is held, so nothing is asked.
                         start, asked: !budget.enabled || quota.allowance(new Date(now)).asked !== false,
+                        // Waiting after a fresh link (not a ban's rest): the admin can end it (end-link-wait). ISO end, else null.
+                        linkWaitUntil: (() => {
+                            const al = quota.allowance(new Date(now));
+                            return budget.enabled && al.level.resting?.active && !al.brakes.some((b) => b.code === 'ban')
+                                ? al.level.resting.endsAt ?? null : null;
+                        })(),
                         // `ready`: what history alone gives (above `earned` while the promotion gate holds it).
                         // `growth`: today's growth cap (campaign/safety.js growthFrom). `health`: the 7-day health
                         // the gate and demotion judge; `probation`: after a demotion, else null. `events`: level

@@ -232,6 +232,32 @@ export class ChannelsOps {
       });
   }
 
+  /** Lets bulk start now instead of after the new-link wait; the server says if a ban rest still holds it. */
+  protected endLinkWait(row: NumberHealth): void {
+    this.pending.set(null);
+    this.busy.set(row.id);
+    this.notice.set(null);
+    this.api
+      .endLinkWait(row.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.busy.set(null);
+          this.notice.set({
+            tone: 'ok',
+            text: r.resting
+              ? `${this.label(row)}: link wait ended, but it is still resting after a WhatsApp ban.`
+              : `${this.label(row)}: link wait ended; bulk can start now at L${r.level}.`,
+          });
+          this.load();
+        },
+        error: (err: Error) => {
+          this.busy.set(null);
+          this.notice.set({ tone: 'bad', text: err.message });
+        },
+      });
+  }
+
   protected confirm(): void {
     const pending = this.pending();
     if (!pending) return;

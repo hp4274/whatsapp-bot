@@ -45,6 +45,10 @@ export const DEFAULT_SENDING = Object.freeze({
     blockPausePercent: BLOCK_PAUSE_PERCENT,
     blockPauseMinSent: BLOCK_PAUSE_MIN_SENT,
     qrVaryAbove: QR_VARY_ABOVE,
+    /** Super admin only (sending.skipQuietTime): bulk ignores the daily rest windows and quiet hours. */
+    skipQuiet: false,
+    /** Super admin only (sending.skipLinkWait): no wait after a fresh link; a ban still rests the number. */
+    skipLinkWait: false,
 });
 
 /** A safety rule refused the request. `status` is what the HTTP layer answers. */
@@ -361,7 +365,8 @@ export class DailyQuota {
             // The day ceiling caps the level (and so a pin), not only the count: see ceilingLevel.
             const caps = [tables.maxLevel, ceilingLevel(levels, dayCeiling(this.config, tables.planDaily))].filter((c) => c != null);
             const lv = levelFor(ledger, {
-                linkedAt: this.config.linkedAt, now, dayStart: start,
+                // A super admin can skip the wait after a fresh link (sending.skipLinkWait); a ban still rests it.
+                linkedAt: tables.skipLinkWait ? '' : this.config.linkedAt, now, dayStart: start,
                 levels, brakes: tables.brakes, cap: caps.length ? Math.min(...caps) : null, pin: pinVoid ? null : pin.level,
                 start: startVoid ? null : answered.level, startedAt: startVoid ? '' : answered.at, state,
             });

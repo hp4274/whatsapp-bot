@@ -345,6 +345,28 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
         });
 
         /**
+         * End a QR number's wait after linking, so bulk can start now. Only the
+         * link wait: a ban still rests the number (humanize levelFor rests from
+         * the later of linkedAt and the last ban), and every other rule applies.
+         */
+        admin.post('/numbers/:channelId/end-link-wait', (req, res) => {
+            const row = req.channelRow;
+            const quota = quotaOf(row);
+            if (!quota.qr) return res.status(400).json({ errors: ['The wait after linking applies to QR-login numbers only.'] });
+            new Channels(db.forTenant(row.tenant_id)).update(row.id, { settings: { linkedAt: '' } });
+            const state = stateOf(row.tenant_id, row.id);
+            if (state) {
+                state.config = { ...state.config, linkedAt: '' };
+                state.manager?.applyConfig(state.config);
+            }
+            const live = quotaOf(row);
+            live.invalidate?.();
+            const lv = live.allowance().level;
+            audit(req, 'channel.admin.end_link_wait', row.id, `level ${lv.level}, resting ${lv.resting.active}`);
+            return res.json({ level: lv.level, resting: lv.resting.active });
+        });
+
+        /**
          * Move a number to another business. Message history, conversations and
          * campaigns stay with the original tenant (their rows carry its
          * tenant_id); only the number and its settings move. A QR-login number

@@ -80,6 +80,12 @@ export const LEVELS_POLICY = Object.freeze([
       ],
       label: 'Delivery, stuck and unstable brakes',
       hint: 'Shadow logs when they would fire (number health, kind shadow) and never slows sending. Switch to enforce after reviewing 7 days of triggers.' },
+    { key: 'sending.skipQuietTime', service: S, group: 'Admin overrides', type: 'bool', default: false,
+      label: 'Skip quiet time',
+      hint: 'Bulk keeps sending through the number\'s daily rest windows and the business\'s quiet hours. The recipient\'s daytime and the plan\'s sending window still apply.' },
+    { key: 'sending.skipLinkWait', service: S, group: 'Admin overrides', type: 'bool', default: false,
+      label: 'Skip new-link wait',
+      hint: 'A newly linked number starts bulk at once instead of waiting first. The rest after a WhatsApp ban still applies. Raises ban risk for fresh numbers.' },
     brake('deliveryMinSent', 'Delivery brake: minimum sent (2-24 hours)', BRAKES.deliveryMinSent, 100000),
     brake('deliveryMinPercent', 'Delivery brake: minimum delivered (%)', BRAKES.deliveryMinPercent, 100, 'Below this, bulk and new chats wait 12 hours.'),
     brake('stuckMaxPercent', 'Stuck brake: maximum still one tick (%)', BRAKES.stuckMaxPercent, 100, 'Of messages sent 2-24 hours ago. Above this, bulk and new chats wait 12 hours.'),
@@ -140,6 +146,8 @@ export function sendingTables(values = {}) {
         blockPausePercent: v('blockPausePercent', BLOCK_PAUSE_PERCENT),
         blockPauseMinSent: v('blockPauseMinSent', BLOCK_PAUSE_MIN_SENT),
         qrVaryAbove: v('qrVaryAbove', DEFAULT_SENDING.qrVaryAbove),
+        skipQuiet: values['sending.skipQuietTime'] === true,
+        skipLinkWait: values['sending.skipLinkWait'] === true,
     };
 }
 

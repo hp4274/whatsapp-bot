@@ -58,6 +58,8 @@ export interface NumberLevel {
   readonly start: NumberLevelStart | null;
   /** False only while safety is on and the start questions are unanswered (bulk held). */
   readonly asked: boolean;
+  /** When the wait after a fresh link ends (ISO); null when not waiting. A ban's rest is never this. */
+  readonly linkWaitUntil?: string | null;
   /** Level changes of the last 30 days, newest first. */
   readonly events?: readonly LevelEvent[];
 }
@@ -121,6 +123,13 @@ export class ChannelsOpsApi {
   pinLevel(id: number, level: number | null): Observable<LevelPinResult> {
     return this.http
       .put<LevelPinResult>(`/api/admin/numbers/${id}/level`, { level })
+      .pipe(catchError(toMessage));
+  }
+
+  /** End a QR number's wait after linking; a ban's rest still applies. */
+  endLinkWait(id: number): Observable<{ level: number; resting: boolean }> {
+    return this.http
+      .post<{ level: number; resting: boolean }>(`/api/admin/numbers/${id}/end-link-wait`, {})
       .pipe(catchError(toMessage));
   }
 
