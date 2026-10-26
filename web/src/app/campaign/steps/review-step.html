@@ -37,7 +37,7 @@
   <div class="recap-msg">
     <i class="ti ti-message" aria-hidden="true"></i>
     <span class="snippet">{{
-      d.metaMode() ? 'Meta template: ' + (d.metaTemplate()?.name ?? '') : d.message()
+      d.message()
     }}</span>
     <button type="button" class="btn small" (click)="d.goTo(2)">
       <i class="ti ti-pencil" aria-hidden="true"></i> Edit
@@ -76,93 +76,25 @@
       ><span>{{ w.text }}</span>
     </p>
   }
+  @if (held()) {
+    <p class="banner">
+      <i class="ti ti-help-circle" aria-hidden="true"></i>
+      <span
+        >Answer this number's 2 questions to start sending. Messages wait until they are answered
+        on the <a routerLink="/connection">Connection page</a>, then go out by themselves.</span
+      >
+    </p>
+  }
   @if (overQuota() > 0) {
     <p class="banner">
       <i class="ti ti-hourglass-high" aria-hidden="true"></i>
       <span
-        >{{ overQuota() }} message(s) go over today's limit - they wait in the queue until the
-        budget resets.</span
+        >{{ overQuota() }} message(s) go over today's limit - they go out tomorrow automatically,
+        nothing to resume.</span
       >
     </p>
   }
-</section>
 
-<section class="card panel">
-  <div class="ph">
-    <span class="badge accent"><i class="ti ti-gauge" aria-hidden="true"></i></span>
-    <div>
-      <h3>Speed</h3>
-      <p class="muted">Messages go out gradually to keep your number safe</p>
-    </div>
-    @if (loadingSafety()) {
-      <span class="spinner" aria-label="Loading"></span>
-    }
-  </div>
-
-  @let speed = planSpeed();
-  <p class="plan-speed">
-    <i class="ti ti-{{ speed.icon }}" aria-hidden="true"></i>
-    <strong>{{ speed.label }}</strong>
-    <span class="muted">- set by your plan. {{ speed.text }}</span>
-  </p>
-
-  @if (!s && loadingSafety()) {
-    <span class="skel" aria-busy="true" aria-label="Loading send estimate"></span>
-  }
-  @if (s) {
-    <p class="muted eta">
-      {{ size() > 1 ? 'Takes about ' + duration(s.estimateSeconds.typical) : 'Sends right away'
-      }}{{
-        size() > 1 && s.estimateSeconds.quietSeconds
-          ? ' (includes ' + duration(s.estimateSeconds.quietSeconds) + ' of quiet time)'
-          : ''
-      }}{{ overQuota() > 0 ? ' - ' + overQuota() + ' wait for tomorrow (daily limit)' : '' }}
-    </p>
-    <details class="more">
-      <summary>Details</summary>
-      <div class="stats">
-        <div>
-          <small>Daily budget</small>
-          <strong>{{ s.remaining === null ? 'No limit' : s.remaining + ' left' }}</strong>
-          <span class="muted"
-            >{{ s.limit ? 'of ' + s.limit + ' - ' : '' }}{{ s.used }} sent today</span
-          >
-          @if (s.limit) {
-            <span class="meter" aria-hidden="true"
-              ><span [style.width.%]="(s.used / s.limit) * 100"></span
-            ></span>
-          }
-        </div>
-        <div>
-          <small>Estimated duration</small>
-          <strong>{{
-            size() > 1 ? 'about ' + duration(s.estimateSeconds.typical) : 'instant'
-          }}</strong>
-          @if (size() > 1) {
-            <span class="muted"
-              >{{ duration(s.estimateSeconds.min) }} - {{ duration(s.estimateSeconds.max) }}</span
-            >
-          }
-        </div>
-        <div>
-          <small>Over today's limit</small>
-          <strong [class.bad]="overQuota() > 0">{{ overQuota() }}</strong>
-          <span class="muted">{{
-            s.restEvery ? 'rests every ' + s.restEvery + ' messages' : 'no rests'
-          }}</span>
-        </div>
-      </div>
-    </details>
-  }
-  @if (quiet(); as q) {
-    <p class="banner info">
-      <i class="ti ti-moon" aria-hidden="true"></i>
-      <span
-        >Quiet hours {{ q.from }}-{{ q.to }}{{ q.open ? '' : ' are on now' }}. Messages due inside
-        quiet hours are held until the window opens, then continue at the same pace.</span
-      >
-    </p>
-  }
 </section>
 
 <section class="card panel">
@@ -309,8 +241,7 @@
               <strong>~{{ plan.perDay }}</strong><small>per day</small>
             </p>
             <span class="tag">
-              {{ plan.tier ? plan.tier.name : 'No tier' }} -
-              {{ plan.dailyLimit ? plan.dailyLimit + '/day limit' : 'no daily limit' }}
+              {{ plan.dailyLimit ? plan.dailyLimit + ' messages a day' : 'No daily limit' }}
             </span>
           </div>
 
@@ -335,6 +266,19 @@
             Shuffled, then {{ spreadBars()[0]?.day }} to {{ spreadBars().at(-1)?.day }}, from
             {{ d.spreadTime() }} each day
           </p>
+
+          @if (plan.worstDays && plan.newChatsPerDay && plan.worstDays > plan.days) {
+            <p class="banner info">
+              <i class="ti ti-user-plus" aria-hidden="true"></i>
+              <span
+                >People who never chatted with this number go at most
+                <strong>{{ plan.newChatsPerDay }} a day</strong>. If everyone on the list is new
+                to it, the spread runs past {{ spreadBars().at(-1)?.day }}, up to
+                <strong>{{ plan.worstDays }} days</strong>. People who wrote to you go on the
+                planned days.</span
+              >
+            </p>
+          }
 
           @if (!plan.feasible) {
             <p class="banner danger">

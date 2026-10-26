@@ -55,7 +55,7 @@ export class PhoneError extends Error {}
 
 const NON_DIGITS = /[^\d+]/g;
 // E.164: leading digit 1-9, 7..15 digits total.  WhatsApp wants the number
-// without the leading '+', which is also what the Cloud API's `to` expects.
+// without the leading '+'.
 const E164 = /^[1-9]\d{6,14}$/;
 
 /**

@@ -8,88 +8,28 @@
  * money is a later phase and will hang off `subscribe`/`changePlan` without
  * changing a line of the limit logic.
  *
- * `/billing/plans` write access is *platform* configuration (ARCHITECTURE.md
- * §8) - the catalogue belongs to the operator, not to a tenant. The router
- * exposes it; the app is expected to gate POST/DELETE on `/billing/plans` to
- * `super_admin`, the way it gates the rest of the control plane.
+ * Billing is view-only for a business: plan and subscription writes are
+ * *platform* configuration (ARCHITECTURE.md §8) and live only on the
+ * super-admin router in app.js (`/admin/billing/*`, `/admin/tenants/:id/subscription`).
  */
 
 import express from 'express';
 
-import { BillingError, BillingStore, periodOf } from './store.js';
+import { BillingStore, periodOf } from './store.js';
 
 export function createBillingRouter({ db, state }) {
     const router = express.Router();
-    const billing = new BillingStore(db);
-
-    const fail = (res, err) => {
-        if (!(err instanceof BillingError)) throw err;
-        return res.status(err.status).json({ errors: [err.message] });
-    };
-    const announce = (subscription) => state?.broadcast?.({ type: 'subscription', subscription });
+    // The runtime's store carries the admin's quota overrides, so usage shows the effective limits.
+    const billing = state?.billing ?? new BillingStore(db);
 
     // ---------------------------------------------------------------- plans --
     router.get('/billing/plans', (req, res) => {
         res.json({ plans: billing.plans() });
     });
 
-    /** Operator override of a catalogue entry. Gate to super_admin. */
-    router.post('/billing/plans', (req, res) => {
-        try {
-            return res.status(201).json({ plan: billing.savePlan(req.body ?? {}) });
-        } catch (err) {
-            return fail(res, err);
-        }
-    });
-
-    router.delete('/billing/plans/:key', (req, res) => {
-        try {
-            // A catalogue key reverts to its constant, so this is a 200 with
-            // the plan that is now in force rather than a 204.
-            return res.json({ plan: billing.removePlan(req.params.key) });
-        } catch (err) {
-            return fail(res, err);
-        }
-    });
-
     // --------------------------------------------------------- subscription --
     router.get('/billing/subscription', (req, res) => {
         res.json({ subscription: billing.subscription() });
-    });
-
-    /**
-     * Subscribe or change plan. One route, because the caller is pressing the
-     * same button either way and the store already knows whether a row exists.
-     */
-    router.post('/billing/subscription', (req, res) => {
-        const body = req.body ?? {};
-        const planKey = body.planKey ?? body.plan_key ?? body.plan;
-        try {
-            const existing = billing.subscription();
-            const subscription = existing
-                ? billing.changePlan(planKey)
-                : billing.subscribe(db.tenantId, planKey, {
-                    startsAt: body.startsAt ?? body.starts_at ?? null,
-                    trialEndsAt: body.trialEndsAt ?? body.trial_ends_at ?? null,
-                });
-            announce(subscription);
-            return res.status(existing ? 200 : 201).json({ subscription });
-        } catch (err) {
-            return fail(res, err);
-        }
-    });
-
-    router.delete('/billing/subscription', (req, res) => {
-        // Immediate cancellation has to be asked for explicitly: the default
-        // leaves the tenant the period they already paid for.
-        const immediate = req.query.immediate === 'true' || req.query.atPeriodEnd === 'false';
-        try {
-            const subscription = billing.cancel({ atPeriodEnd: !immediate });
-            announce(subscription);
-            return res.json({ subscription });
-        } catch (err) {
-            return fail(res, err);
-        }
     });
 
     // ---------------------------------------------------------------- usage --

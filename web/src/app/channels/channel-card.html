@@ -112,8 +112,8 @@
       <span class="label">Today</span>
       <span class="figures">
         <strong>{{ u.sentToday }}</strong>
-        @if (u.dailyLimit) {
-          <span class="of">/ {{ u.dailyLimit }}</span>
+        @if (u.todayLimit) {
+          <span class="of">/ {{ u.todayLimit }}</span>
         } @else {
           <span class="of">sent</span>
         }
@@ -124,47 +124,45 @@
         class="bar"
         role="meter"
         aria-valuemin="0"
-        [attr.aria-valuemax]="u.dailyLimit"
+        [attr.aria-valuemax]="u.todayLimit"
         [attr.aria-valuenow]="u.sentToday"
-        [attr.aria-label]="u.sentToday + ' of ' + u.dailyLimit + ' daily sends used'"
+        [attr.aria-label]="u.sentToday + ' of ' + u.todayLimit + ' daily sends used'"
       >
         <span class="fill" [style.--p]="usedShare()"></span>
       </div>
-      <p class="meter-foot">
-        <span>{{ u.remaining }} left</span>
-        <span>resets {{ u.resetsAt | date: 'shortTime' }}</span>
-        @if (u.setByPlatform) {
-          <span class="policy" title="The platform's anti-ban policy sets this limit"
-            ><i class="ti ti-shield" aria-hidden="true"></i>platform limit</span
-          >
-        }
-      </p>
-    } @else {
-      <p class="meter-foot">
-        <span>{{ u.safetyEnabled ? 'No daily cap set' : 'Sending safety is off' }}</span>
-      </p>
     }
+    <p class="meter-foot" [class.held]="u.asked === false || !!u.blocked">
+      @if (u.asked === false) {
+        <span><i class="ti ti-help-circle" aria-hidden="true"></i>Answer 2 questions to start sending</span>
+        <button
+          type="button"
+          class="btn sm answer"
+          (click)="asking.set(!asking())"
+          [attr.aria-expanded]="asking()"
+          [attr.aria-controls]="'questions-' + ch.id"
+        >
+          {{ asking() ? 'Close' : 'Answer' }}
+        </button>
+      } @else if (u.blocked) {
+        <span><i class="ti ti-hand-stop" aria-hidden="true"></i>{{ u.blocked }}</span>
+      } @else if (u.todayLimit === null) {
+        <span>No daily limit</span>
+      } @else {
+        <span
+          ><strong>{{ u.todayLimit }} messages a day</strong
+          >{{ u.growing ? ' · rises gradually to ' + u.planLimit + ' a day' : '' }}</span
+        >
+      }
+    </p>
   </section>
 }
 
-@if (warmup(); as w) {
-  <div class="warmup" [class.done]="!w.active">
-    <i class="ti ti-{{ w.active ? 'flame' : 'discount-check' }}" aria-hidden="true"></i>
-    <div class="warm-body">
-      <span class="warm-title">
-        @if (w.active) {
-          Warm-up day {{ w.day }}/{{ w.totalDays }}
-        } @else {
-          Warm-up complete
-        }
-        <span class="muted">· cap {{ w.todayCap }} today</span>
-      </span>
-      <span class="steps" aria-hidden="true">
-        @for (s of warmupSteps(); track $index) {
-          <i [class.on]="s"></i>
-        }
-      </span>
-    </div>
+@if (asking()) {
+  <div class="questions" [id]="'questions-' + ch.id">
+    <app-number-questions [channelId]="ch.id" (done)="changed.emit()" />
+    @if (usage()?.asked !== false) {
+      <button type="button" class="btn sm close" (click)="asking.set(false)">Done</button>
+    }
   </div>
 }
 

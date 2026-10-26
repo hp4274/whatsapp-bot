@@ -11,7 +11,6 @@ export interface PlanTenantLimits {
   readonly maxTemplates: number;
   readonly maxContactsPerCampaign: number;
   readonly maxMediaMb: number;
-  readonly allowCloudApi: boolean;
   readonly allowWhatsappWeb: boolean;
 }
 

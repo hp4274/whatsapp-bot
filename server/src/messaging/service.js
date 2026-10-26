@@ -23,7 +23,7 @@ export class MessageService {
      * @param {object} manager the channel's CampaignManager
      * @param {() => object} channel reads the live channel row
      */
-    constructor(db, manager, channel, { isBotPaused = null } = {}) {
+    constructor(db, manager, channel, { isBotPaused = null, guard = null } = {}) {
         this.db = db;
         this.manager = manager;
         this.readChannel = typeof channel === 'function' ? channel : () => channel;
@@ -31,6 +31,8 @@ export class MessageService {
         // engine and again in the workflow engine means every automatic path is
         // covered by one check, and a new automatic path cannot forget it.
         this.isBotPaused = isBotPaused;
+        // (job) => reason while the platform admin's tenant controls refuse it, else null.
+        this.guard = guard;
         this.counts = { accepted: 0, duplicate: 0, suppressed: 0, rejected: 0 };
     }
 
@@ -64,6 +66,10 @@ export class MessageService {
             this.counts.duplicate += 1;
             return { accepted: false, messageId: existing.messageId, reason: 'duplicate', duplicateOf: existing.messageId };
         }
+
+        // After idempotency, so a retry of a message already accepted still gets its id back.
+        const blocked = this.guard?.(job);
+        if (blocked) return this.#reject('tenant_blocked', blocked);
 
         // Opt-out is enforced here so no caller can route around it.
         if (this.db.isOptedOut?.(job.recipient)) {

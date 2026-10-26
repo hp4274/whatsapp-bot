@@ -8,7 +8,7 @@ import { after, before, describe, it } from 'node:test';
 
 import { closeApp } from '../src/app.js';
 import { Channels } from '../src/channels.js';
-import { DEFAULTS, TRANSPORT_CLOUD_API, TRANSPORT_SANDBOX } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { newNumberSafety, numberCap } from '../src/policy/channelOps.js';
 import { createTestApp, sessionFor } from './helpers.js';
@@ -95,40 +95,47 @@ describe('number cap and providers', () => {
     });
 
     it('refuses a provider the policy disallows, on create and on config', async () => {
-        policy(`tenant:${tenant.id}`, { 'channels.allowBaileys': false, 'channels.allowCloudApi': false });
+        policy(`tenant:${tenant.id}`, { 'channels.allowBaileys': false });
         const qr = await call(owner, 'POST', '/api/channels', { displayName: 'QR', settings: { transport: 'baileys' } });
         assert.equal(qr.status, 403);
         assert.match(qr.body.errors[0], /Baileys/);
-        const cfg = await call(owner, 'PUT', '/api/config', { transport: TRANSPORT_CLOUD_API, phoneNumberId: '1', accessToken: 'x' });
+        const cfg = await call(owner, 'PUT', '/api/config', { transport: 'baileys' });
         assert.equal(cfg.status, 403);
-        assert.match(cfg.body.errors[0], /Cloud API/);
-        policy(`tenant:${tenant.id}`, { 'channels.allowBaileys': null, 'channels.allowCloudApi': null });
+        assert.match(cfg.body.errors[0], /Baileys/);
+        policy(`tenant:${tenant.id}`, { 'channels.allowBaileys': null });
     });
 });
 
 describe('safety defaults for new numbers', () => {
-    it('derives warm-up days and lets a tenant start stricter, never looser', () => {
-        const s = newNumberSafety({ 'channels.dailyCap': 100, 'channels.warmupStart': 10 }, { dailyLimit: 5000, maxRetries: 0 });
-        assert.equal(s.dailyLimit, 100);
-        assert.equal(s.warmupDays, 4); // 10, 20, 40, 80, then the cap
+    it('lets a tenant start stricter, never looser', () => {
+        const s = newNumberSafety({ 'channels.retryLimit': 2 }, { maxRetries: 0, minDelaySeconds: 9 });
         assert.equal(s.maxRetries, 0);
-        assert.equal(newNumberSafety({ 'channels.warmupEnabled': false }).warmupDays, 0);
+        assert.equal(s.minDelaySeconds, 9);
+        assert.equal('warmupDays' in s, false);
+    });
+
+    it('never copies the plan day into a number: QR keeps only an asked day, the sandbox the default', () => {
+        const plan = { 'channels.dailyCap': 100 };
+        assert.equal(newNumberSafety(plan, { transport: 'baileys' }).dailyLimit, 0);
+        assert.equal(newNumberSafety(plan, { transport: 'baileys', dailyLimit: 30 }).dailyLimit, 30);
+        assert.equal(newNumberSafety(plan, sandbox).dailyLimit, DEFAULTS.dailyLimit);
+        assert.equal(newNumberSafety(plan, { ...sandbox, dailyLimit: 3 }).dailyLimit, 3);
     });
 
     it('a new number starts with the policy values; existing numbers keep theirs', async () => {
         const before = rowOf(1).settings;
         policy(`tenant:${tenant.id}`, {
-            'channels.dailyCap': 100, 'channels.warmupStart': 10, 'channels.minGapSeconds': 6,
+            'channels.dailyCap': 100, 'channels.minGapSeconds': 6,
             'channels.maxGapSeconds': 20, 'channels.retryLimit': 1,
         });
         const made = await call(owner, 'POST', '/api/channels', { displayName: 'Fresh', settings: sandbox });
         assert.equal(made.status, 201, JSON.stringify(made.body));
         const { settings } = made.body.channel;
         assert.deepEqual(
-            [settings.dailyLimit, settings.warmupDays, settings.warmupStart, settings.minDelaySeconds, settings.maxDelaySeconds, settings.maxRetries],
-            [100, 4, 10, 6, 20, 1]);
+            [settings.dailyLimit, settings.minDelaySeconds, settings.maxDelaySeconds, settings.maxRetries],
+            [DEFAULTS.dailyLimit, 6, 20, 1]);
         const health = (await call(owner, 'GET', `/api/channels/${made.body.channel.id}`)).body.health;
-        assert.equal(health.usage.dailyLimit, 10, 'warm-up day one uses warmupStart');
+        assert.equal(health.usage.todayLimit, DEFAULTS.dailyLimit, 'the plan day is a QR limit; the sandbox keeps its own');
         assert.equal(rowOf(1).settings, before, 'tenant 1 channel untouched');
         // Back under the cap of 2 for later tests.
         await call(owner, 'DELETE', `/api/channels/${made.body.channel.id}`);
@@ -218,23 +225,17 @@ describe('ban-risk guard', () => {
         assert.equal(rowOf(id).status, 'disabled');
         await call(sup, 'POST', `/api/admin/numbers/${id}/resume`);
     });
-
-    it('pauses a Cloud API number at a bad quality rating, and skips when the guard is off', async () => {
-        const cloud = new Channels(db.forTenant(other.id)).create({
-            displayName: 'Cloud', settings: { transport: TRANSPORT_CLOUD_API, phoneNumberId: '1', accessToken: 'x' },
-        });
-        db.db.prepare("INSERT INTO channel_ops (channel_id, quality_rating) VALUES (?, 'YELLOW')").run(cloud.id);
-        assert.deepEqual(await app.locals.channelOps.guard({ force: true }), [], 'YELLOW is fine at the default "low" threshold');
-        policy(`tenant:${other.id}`, { 'channels.banGuardQuality': 'medium', 'channels.banGuardEnabled': false });
-        assert.deepEqual(await app.locals.channelOps.guard({ force: true }), [], 'guard off');
-        policy(`tenant:${other.id}`, { 'channels.banGuardEnabled': null });
-        const paused = await app.locals.channelOps.guard({ force: true });
-        assert.match(paused[0].reason, /quality rating is YELLOW/);
-        assert.equal(rowOf(cloud.id).status, 'disabled');
-    });
 });
 
 describe('super admin number actions', () => {
+    // A second, guard-paused number on the other tenant: the move and the health view count it.
+    before(() => {
+        const extra = new Channels(db.forTenant(other.id)).create({ displayName: 'Paused', settings: { transport: TRANSPORT_SANDBOX } });
+        db.db.prepare("UPDATE whatsapp_channels SET status = 'disabled' WHERE id = ?").run(extra.id);
+        db.db.prepare("INSERT INTO channel_ops (channel_id, paused_reason, paused_by, paused_at) VALUES (?, 'Auto-paused: too many failures.', 'ban_guard', ?)")
+            .run(extra.id, stamp(Date.now()));
+    });
+
     it('pauses, resumes and force-disconnects, audited on the owning tenant', async () => {
         const id = (await call(owner, 'GET', '/api/channels')).body.channels[1].id;
         assert.equal((await call(owner, 'POST', `/api/admin/numbers/${id}/pause`)).status, 403, 'super admin only');
@@ -269,14 +270,13 @@ describe('super admin number actions', () => {
 });
 
 describe('health view', () => {
-    it('shows owner, online/offline with last seen, quality and pause reason per number', async () => {
+    it('shows owner, online/offline with last seen and pause reason per number', async () => {
         const { channels } = (await call(sup, 'GET', '/api/admin/health-detail')).body;
-        const cloud = channels.find((c) => c.displayName === 'Cloud');
-        assert.equal(cloud.tenantId, other.id);
-        assert.equal(cloud.qualityRating, 'YELLOW');
-        assert.equal(cloud.online, false);
-        assert.equal(cloud.lastSeenAt, null);
-        assert.match(cloud.pausedReason, /quality/);
+        const paused = channels.find((c) => c.displayName === 'Paused');
+        assert.equal(paused.tenantId, other.id);
+        assert.equal(paused.online, false);
+        assert.equal(paused.lastSeenAt, null);
+        assert.match(paused.pausedReason, /failures/);
         const seen = channels.find((c) => c.tenantId === tenant.id);
         db.db.prepare(`INSERT INTO channel_ops (channel_id, last_seen_at) VALUES (?, ?)
             ON CONFLICT (channel_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`).run(seen.id, stamp(Date.now() - 5 * 60_000));

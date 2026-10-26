@@ -22,6 +22,7 @@ import {
   stateTone,
   subscriptionWhen,
 } from './plans-api';
+import { PolicyEditor } from './policy-editor';
 import { serviceMeta } from './service-meta';
 
 /** The plan being edited; `isNew` unlocks the key field (keys are immutable ids). */
@@ -46,7 +47,6 @@ const BLANK_PLAN: Plan = {
     maxTemplates: 0,
     maxContactsPerCampaign: 0,
     maxMediaMb: 0,
-    allowCloudApi: true,
     allowWhatsappWeb: true,
   },
   active: true,
@@ -68,7 +68,7 @@ const SKELETON: readonly number[] = [0, 1, 2];
  */
 @Component({
   selector: 'app-admin-plans',
-  imports: [Tilt],
+  imports: [Tilt, PolicyEditor],
   templateUrl: './plans.html',
   styleUrl: './plans.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

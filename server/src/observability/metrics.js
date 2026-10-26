@@ -8,6 +8,9 @@
  * (`inc`, `observe`, `gauge`) do not change.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { ErrorCode } from '../messaging/errors.js';
 
 const counters = new Map();
@@ -79,6 +82,33 @@ export function registerQueue(channelId, depth) {
 
 export function unregisterQueue(channelId) {
     gauges.delete(keyOf('queue_depth', { channelId }));
+}
+
+/**
+ * Process restarts after a crash, across processes: `run-state.json` in `dir` says "running" while the
+ * server is up, and finding it so at boot means the last process died without a clean shutdown (pm2
+ * brought it back). Read as the `process_restarts` gauge. A metric only: the reconnect brake counts
+ * socket drops in memory, so a restart never counts toward it. Call `stopped()` on a clean shutdown.
+ */
+export function trackRestarts(dir) {
+    const file = path.join(dir, 'run-state.json');
+    let previous = {};
+    try {
+        previous = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+        // first start
+    }
+    const restarts = (Number(previous.restarts) || 0) + (previous.running ? 1 : 0);
+    const write = (running) => {
+        try {
+            fs.writeFileSync(file, JSON.stringify({ running, restarts, startedAt: new Date(startedAt).toISOString() }));
+        } catch {
+            // a read-only data dir loses the count, nothing else
+        }
+    };
+    write(true);
+    gauge('process_restarts', () => restarts);
+    return { restarts, stopped: () => write(false) };
 }
 
 // ------------------------------------------------------------------ output --

@@ -53,7 +53,6 @@ describe('plan limits', () => {
     it('defaults to no limit, and rejects nonsense', async () => {
         assert.equal(normalizeLimits({}).maxChannels, 0);
         assert.throws(() => normalizeLimits({ maxChannels: -1 }, true), /maxChannels/);
-        assert.throws(() => normalizeLimits({ allowCloudApi: false, allowWhatsappWeb: false }, true), /transport/);
         assert.equal(blockedWordIn({ blockedWords: 'casino, free crypto' }, 'Win at the Casino!'), 'casino');
         assert.equal(blockedWordIn({ blockedWords: 'casino' }, 'a casinos'), null, 'whole words only');
     });
@@ -88,10 +87,10 @@ describe('plan limits', () => {
     });
 
     it('blocks a transport the plan does not include', async () => {
-        await call(sup, 'PUT', '/api/admin/tenants/1/limits', { allowCloudApi: false });
-        const res = await call(owner, 'PUT', '/api/config', { transport: 'cloud_api', phoneNumberId: '1', accessToken: 'x' });
+        await call(sup, 'PUT', '/api/admin/tenants/1/limits', { allowWhatsappWeb: false });
+        const res = await call(owner, 'PUT', '/api/config', { transport: 'baileys' });
         assert.equal(res.status, 403);
-        await call(sup, 'PUT', '/api/admin/tenants/1/limits', { allowCloudApi: true });
+        await call(sup, 'PUT', '/api/admin/tenants/1/limits', { allowWhatsappWeb: true });
     });
 });
 
@@ -106,7 +105,7 @@ describe('stop on high failure rate', () => {
             async disconnect() {},
         };
         const manager = new CampaignManager(fdb, failing, {
-            ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', maxRetries: 0, failureStopPercent: 10,
+            ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000, pacingMode: 'fixed', maxRetries: 0, failureStopPercent: 10,
         });
         const events = [];
         manager.on('event', (e) => events.push(e));

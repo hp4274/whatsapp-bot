@@ -35,6 +35,17 @@ describe('spread helpers', () => {
         assert.equal(spreadPlan({ count: 5, from: today, to: '2026-10-10', today }).feasible, false);
     });
 
+    it('says how long a list of strangers takes at the new-chat budget', () => {
+        const today = '2026-10-16';
+        const qr = spreadPlan({ count: 100, from: today, to: '2026-10-30', today, limit: 10, newChats: 3, level: { level: 1, name: 'First steps' } });
+        assert.equal(qr.newChatsPerDay, 3);
+        assert.equal(qr.worstDays, 34);
+        assert.deepEqual(qr.level, { level: 1, name: 'First steps' });
+        const plain = spreadPlan({ count: 100, from: today, to: '2026-10-30', today, limit: 250 });
+        assert.equal(plain.worstDays, null);
+        assert.equal(plain.newChatsPerDay, null);
+    });
+
     it('re-divides what is left over the days that remain', () => {
         assert.equal(todaysBatch({ total: 100, cursor: 0, today: '2026-10-16', to: '2026-10-19' }), 25);
         // A missed day: 75 left, 3 days left.
@@ -68,8 +79,10 @@ describe('a spread campaign', () => {
     const manager = {
         calls: [],
         campaignId: '',
-        quota: { get limit() { return quotaLimit; }, remaining: () => budgetLeft },
+        quota: { get limit() { return quotaLimit; }, planLimit: () => quotaLimit, remaining: () => budgetLeft, exhausted: () => false },
         pausedByQuota: false,
+        resumed: 0,
+        resume() { manager.resumed += 1; return true; },
         queue: { reset() {} },
         resetStats() {},
         enqueueContacts(contacts, template, options) {
@@ -131,6 +144,18 @@ describe('a spread campaign', () => {
         }
         assert.equal(seen.size, 100);
         assert.equal(runningSpreadCampaigns(scoped).some((r) => r.id === campaign.id), false);
+    });
+
+    it('leaves a daily-cap pause to the manager, which lifts it by itself', () => {
+        const campaign = make(40, day(1));
+        store.start(campaign.id);
+        manager.pausedByQuota = true;
+        try {
+            store.tick(campaign.id);
+            assert.equal(manager.resumed, 0, 'tick only closes out the day');
+        } finally {
+            manager.pausedByQuota = false;
+        }
     });
 
     it('will not swap the list once sending has begun', () => {

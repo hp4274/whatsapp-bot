@@ -11,7 +11,7 @@ export const QueueState = Object.freeze({
 export function queueItem({
     recipient, message, name = '', campaignId = '', media = null,
     messageType = 'campaign', priority = 4, idempotencyKey = null, interactive = null,
-    template = null, fallbackTemplate = null, variant = null,
+    variant = null,
 }) {
     return {
         recipient,
@@ -20,10 +20,6 @@ export function queueItem({
         campaignId,
         media,
         interactive,
-        // Meta approved template ({name, language, components}) and the one
-        // to swap in on 131047 ({template, text}) - messaging/templateSend.js.
-        template,
-        fallbackTemplate,
         // A/B campaigns: the version ('A' | 'B' | 'C') this recipient got.
         variant,
         messageType,

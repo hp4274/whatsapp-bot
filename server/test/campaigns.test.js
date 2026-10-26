@@ -17,9 +17,11 @@ import { after, before, describe, it } from 'node:test';
 
 import express from 'express';
 
+import { CampaignManager } from '../src/campaign/manager.js';
 import { createCampaignRouter } from '../src/campaigns/routes.js';
 import { CAMPAIGNS_SCHEMA } from '../src/campaigns/schema.js';
 import { CampaignStore, campaignKey, dueCampaigns } from '../src/campaigns/store.js';
+import { DEFAULTS } from '../src/config.js';
 import { ContactStore } from '../src/contactStore.js';
 import { Database } from '../src/db.js';
 import { TemplateStore } from '../src/templates/store.js';
@@ -237,6 +239,26 @@ describe('the controls', () => {
         assert.equal(A.store.cancel(campaign.id).status, 'cancelled'); // idempotent
     });
 
+    it('starts a campaign only on the number it was made for', () => {
+        const elsewhere = A.store.create({ name: 'Number B', body: 'hi {name}', audience: { tags: ['vip'] }, channelId: 99 });
+        assert.throws(() => A.store.start(elsewhere.id), (err) => err.status === 409 && /another number/.test(err.message));
+        assert.equal(A.store.get(elsewhere.id).status, 'draft');
+        A.store.remove(elsewhere.id);
+    });
+
+    it('a refused start leaves the run already queued on that number alone', () => {
+        const manager = new CampaignManager(A.scoped, { isConnected: () => true }, { ...DEFAULTS, requireVariationAbove: 1 });
+        const store = new CampaignStore(A.scoped, { contacts: A.contacts, manager });
+        manager.enqueueContacts([{ name: 'X', phone: '919000000011' }, { name: 'Y', phone: '919000000012' }],
+            'Hi {name}', { campaignId: 'camp-live', reset: {} });
+        const unvaried = store.create({ name: 'Same text', body: 'hello', audience: { tags: ['vip'] } });
+        assert.throws(() => store.start(unvaried.id), /must vary the message/);
+        assert.equal(manager.queue.pending, 2, 'the live run is still queued');
+        assert.equal(manager.campaignId, 'camp-live');
+        store.remove(unvaried.id);
+        manager.queue.reset();
+    });
+
     it('lets the manager refuse a resume that would hit the daily cap', () => {
         const campaign = A.store.create({ name: 'Capped', body: 'hi', audience: { tags: ['vip'] } });
         A.store.start(campaign.id);
@@ -306,6 +328,16 @@ describe('scheduling', () => {
         assert.ok(all.some((row) => row.id === campaign.id && row.tenantId === 1));
         A.store.remove(campaign.id);
         A.store.remove(before.id);
+    });
+
+    it('stores scheduled_at as UTC, so an offset time is due when it should be', () => {
+        const ist = A.store.create({ name: 'IST', body: 'hi', status: 'scheduled', scheduledAt: '2026-03-01T14:30:00+05:30' });
+        assert.equal(ist.scheduledAt, '2026-03-01T09:00:00+00:00');
+        assert.ok(A.store.due('2026-03-01T09:30:00+00:00').some((c) => c.id === ist.id), 'raw text would say 14:30 > 09:30');
+        assert.equal(A.store.update(ist.id, { scheduledAt: '2026-03-02T00:00:00Z' }).scheduledAt, '2026-03-02T00:00:00+00:00');
+        assert.throws(() => A.store.update(ist.id, { scheduledAt: 'next tuesday' }), (err) => err.status === 400 && /scheduled_at/.test(err.message));
+        assert.throws(() => A.store.create({ name: 'Bad', body: 'hi', status: 'scheduled', scheduledAt: 'soon' }), /scheduled_at must be a date/);
+        A.store.remove(ist.id);
     });
 });
 
@@ -407,5 +439,8 @@ describe('the routes', () => {
         const res = await call('POST', '/campaigns', { name: '' });
         assert.equal(res.status, 400);
         assert.match(res.body.errors[0], /needs a name/);
+        const late = await call('POST', '/campaigns', { name: 'Bad time', body: 'hi', status: 'scheduled', scheduledAt: '31/02/2026' });
+        assert.equal(late.status, 400);
+        assert.match(late.body.errors[0], /scheduled_at must be a date and time/);
     });
 });

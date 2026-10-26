@@ -8,10 +8,78 @@ import type { ChannelDetail, PlanRow } from './ops-api';
 export interface NumberHealth extends ChannelDetail {
   readonly online: boolean;
   readonly lastSeenAt: string | null;
-  readonly qualityRating: string | null;
   readonly pausedReason: string | null;
   readonly pausedBy: 'admin' | 'ban_guard' | null;
   readonly pausedAt: string | null;
+  /** QR numbers only (else null): running level, earned level, top level, admin pin, tenant cap and how it started. */
+  readonly level: NumberLevel | null;
+  /** QR numbers only (else null): the delivery / stuck / unstable brakes and their last 7 days. */
+  readonly brakeHealth: BrakeHealth | null;
+}
+
+/** Server: adminOps.health brakeHealth. In 'shadow' mode the brakes are logged but never applied. */
+export interface BrakeHealth {
+  readonly mode: 'shadow' | 'enforce';
+  /** Messages sent 2-24h ago and how they ended. */
+  readonly delivery: {
+    readonly sentWin: number;
+    readonly deliveredWin: number;
+    readonly failedWin: number;
+    readonly stuckWin: number;
+  } | null;
+  /** Newest first. `until` is when an enforced brake ends; `detail` is the reason text. */
+  readonly events: readonly {
+    readonly kind: 'brake' | 'shadow';
+    readonly code: string;
+    readonly until: string | null;
+    readonly detail: string | null;
+    readonly at: string;
+  }[];
+}
+
+/** One level change (db.levelEvents); `shadow` true = computed in shadow mode and never applied. */
+export interface LevelEvent {
+  readonly shadow: boolean;
+  readonly reason: string;
+  readonly from: number | null;
+  readonly to: number | null;
+  readonly text: string;
+  readonly at: string;
+}
+
+export interface NumberLevel {
+  readonly level: number;
+  readonly earned: number;
+  /** The highest level there is. */
+  readonly of: number;
+  readonly pinned: number | null;
+  readonly cap: number | null;
+  /** The level the number started at and why; null if never answered, or voided by a ban or new number. */
+  readonly start: NumberLevelStart | null;
+  /** False only while safety is on and the start questions are unanswered (bulk held). */
+  readonly asked: boolean;
+  /** Level changes of the last 30 days, newest first. */
+  readonly events?: readonly LevelEvent[];
+}
+
+/** How a number's start was set: its 2 answers (each 0-3), a skip, or linked before the questions existed. */
+export interface NumberLevelStart {
+  readonly level: number;
+  readonly answers:
+    | { readonly age: number; readonly usage: number }
+    | { readonly skipped: true }
+    | { readonly legacy: true }
+    | null;
+  readonly at: string;
+}
+
+/** What `PUT /numbers/:id/level` returns (server: policy/channelOps.js). */
+export interface LevelPinResult {
+  readonly earned: number;
+  readonly pinned: number | null;
+  readonly cap: number | null;
+  readonly effective: number;
+  readonly aboveEarned: boolean;
 }
 
 const toMessage = (error: HttpErrorResponse) => {
@@ -47,6 +115,13 @@ export class ChannelsOpsApi {
 
   disconnect(id: number): Observable<{ ok: true }> {
     return this.http.post<{ ok: true }>(`/api/admin/numbers/${id}/disconnect`, {}).pipe(catchError(toMessage));
+  }
+
+  /** Pin a QR number to a sending level, or `null` to go back to the level it earned. */
+  pinLevel(id: number, level: number | null): Observable<LevelPinResult> {
+    return this.http
+      .put<LevelPinResult>(`/api/admin/numbers/${id}/level`, { level })
+      .pipe(catchError(toMessage));
   }
 
   move(id: number, tenantId: number): Observable<{ ok: true; tenantId: number }> {

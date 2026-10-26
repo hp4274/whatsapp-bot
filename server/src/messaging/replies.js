@@ -2,8 +2,8 @@
  * What happens after a campaign with buttons goes out.
  *
  * Every successful send that carried an interactive block is written to
- * `interactive_sends`. When that recipient answers - a native button/list tap
- * on the Cloud API, or "1" / the option title typed on WhatsApp Web - the
+ * `interactive_sends`. When that recipient answers - a native button/list tap,
+ * or "1" / the option title typed on WhatsApp - the
  * inbound path asks `handleInteractiveReply`, which records a `button_clicks`
  * row (once per inbound message id, so a redelivered webhook is a no-op) and
  * runs the campaign's reply rules: tag, set a field, send a follow-up, mute

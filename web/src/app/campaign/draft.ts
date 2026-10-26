@@ -28,20 +28,20 @@ import {
 import { Auth } from '../core/auth';
 import { Store } from '../core/store';
 import { StorageApi } from '../storage/storage-api';
-import type { MetaMapping } from '../templates/meta-mapping';
-import { TemplatesApi, type Template } from '../templates/templates-api';
-import { InteractiveDraft, ReplyRule, validateInteractive } from './interactive/interactive.model';
+import { TemplatesApi } from '../templates/templates-api';
+import {
+  InteractiveDraft,
+  ReplyRule,
+  validateInteractive,
+} from './interactive/interactive.model';
 import {
   blank,
   hasVariation,
   plainPlaceholders,
-  renderTemplateText,
   substitute,
   withFallbacks,
   zonedTimeToUtc,
 } from './wa-format';
-
-export type TemplateMode = 'free' | 'meta';
 
 /**
  * `contacts` is the contact book: a saved segment (`segmentId`) or an inline
@@ -74,7 +74,6 @@ export interface SendResult extends Pick<
   | 'skippedMuted'
   | 'skippedFrequency'
   | 'skippedNoOptIn'
-  | 'skippedTemplateVars'
   | 'pacingClamped'
   | 'policyNotes'
   | 'carried'
@@ -90,6 +89,10 @@ export interface SendResult extends Pick<
 export const DEFAULT_MESSAGE = 'Hi {name}, ';
 /** Appended (after a blank line) when "Add opt-out line" is on; the STOP reply itself is handled server-side. */
 export const OPT_OUT_TEXT = 'Reply STOP to stop messages';
+/** Identical text to more people than this gets a warning (the QR limit comes from the server). */
+const VARY_ABOVE = 50;
+/** QR numbers before the server's safety arrives: its QR_VARY_ABOVE. */
+const QR_VARY_ABOVE = 15;
 /** Stand-in contact for the preview before any audience is loaded. */
 const SAMPLE: Contact = { name: 'Asha', phone: '919876543210', extra: {} };
 /** Statuses the server lets `PUT /campaigns/:id` change. */
@@ -289,8 +292,11 @@ export class CampaignDraft {
   readonly templateId = signal<number | null>(null);
   /** What happens when someone taps a button; saved with `PUT /campaigns/:id/reply-rules`. */
   readonly replyRules = signal<ReplyRule[]>([]);
-  /** Append OPT_OUT_TEXT to the free-form body (never to a Meta template). */
-  readonly optOutLine = signal(false);
+  /**
+   * Append OPT_OUT_TEXT to the body. Ticked to start; a QR number's
+   * server adds it anyway to a first message to someone it never chatted with.
+   */
+  readonly optOutLine = signal(true);
   /** Rewrite links so taps are counted; the server ignores it when it cannot. */
   readonly trackLinks = signal(false);
   /**
@@ -303,18 +309,16 @@ export class CampaignDraft {
   /** The version the editor and the phone preview are showing. Not autosaved. */
   readonly activeVersion = signal<VariantKey>('A');
 
-  // Meta approved template (Cloud API only). The picked records are kept whole
-  // so the preview can render their approved body.
-  readonly templateMode = signal<TemplateMode>('free');
-  readonly metaTemplate = signal<Template | null>(null);
-  readonly templateParams = signal<MetaMapping>({ body: [] });
-  readonly fallbackTemplate = signal<Template | null>(null);
-  readonly fallbackTemplateParams = signal<MetaMapping>({ body: [] });
-  /** Approved templates only exist on a Cloud API channel. */
-  readonly cloudApi = computed(() => this.store.connection().transport === 'cloud_api');
-  /** The mode that actually applies: a non-Cloud channel is always free-form. */
-  readonly metaMode = computed(() => this.templateMode() === 'meta' && this.cloudApi());
-
+  /** QR-linked number: buttons go as a text menu, and bulk text must vary. */
+  readonly qrNumber = computed(() => this.store.qrNumber());
+  /** A QR number's variation threshold today (server `safety.content`); null elsewhere. */
+  readonly content = computed(() =>
+    this.qrNumber() ? (this.store.safety()?.content ?? null) : null,
+  );
+  /** Identical text to more people than this is refused on QR, and warned about elsewhere. */
+  readonly varyAbove = computed(
+    () => this.content()?.varyAbove ?? (this.qrNumber() ? QR_VARY_ABOVE : VARY_ABOVE),
+  );
   // Send
   /** The saved campaign this draft writes to: save() updates it instead of creating another. */
   readonly editingId = signal<number | null>(null);
@@ -367,11 +371,6 @@ export class CampaignDraft {
     trackLinks: this.trackLinks,
     variantB: this.variantB,
     variantC: this.variantC,
-    templateMode: this.templateMode,
-    metaTemplate: this.metaTemplate,
-    templateParams: this.templateParams,
-    fallbackTemplate: this.fallbackTemplate,
-    fallbackTemplateParams: this.fallbackTemplateParams,
     editingId: this.editingId,
     pacing: this.pacing,
     scheduleMode: this.scheduleMode,
@@ -492,12 +491,11 @@ export class CampaignDraft {
 
   /**
    * Every version as it is sent, A first. B and C count only while B has text:
-   * an empty B means "no test", and C without B is dropped. Never in Meta mode,
-   * where Meta fixes the wording.
+   * an empty B means "no test", and C without B is dropped.
    */
   readonly versions = computed<CampaignVariant[]>(() => {
     const b = this.variantB() ?? '';
-    if (this.metaMode() || !b.trim()) return [];
+    if (!b.trim()) return [];
     const withLine = (text: string) => (this.optOutLine() ? withOptOut(text) : text);
     const out: CampaignVariant[] = [
       { key: 'A', body: this.outgoingBody() },
@@ -508,9 +506,9 @@ export class CampaignDraft {
     return out;
   });
 
-  /** The versions the A/B switch currently offers; empty while the test is off or in Meta mode. */
+  /** The versions the A/B switch currently offers; empty while the test is off. */
   readonly versionKeys = computed<VariantKey[]>(() => {
-    if (this.metaMode() || this.variantB() === null) return [];
+    if (this.variantB() === null) return [];
     return this.variantC() === null ? ['A', 'B'] : ['A', 'B', 'C'];
   });
 
@@ -541,33 +539,12 @@ export class CampaignDraft {
     ),
   );
 
-  /** Meta mode: the approved body filled for the preview contact. */
-  readonly metaRendered = computed(() =>
-    renderTemplateText(
-      this.metaTemplate()?.body ?? '',
-      this.templateParams().body ?? [],
-      this.previewContext(),
-    ),
-  );
-
-  /** What the phone preview shows: the free-form message or the filled template. */
+  /** What the phone preview shows: the version being edited, with the opt-out line. */
   readonly previewText = computed(() => {
-    if (this.metaMode()) return this.metaRendered().text;
     const text = this.activeMessage();
     return this.optOutLine() ? withOptOut(text) : text;
   });
 
-  /** Meta mode: recipients the server will skip because a {{n}} comes out empty. */
-  readonly metaSkipped = computed(() => {
-    const tpl = this.metaTemplate();
-    if (!this.metaMode() || !tpl) return 0;
-    const slots = this.templateParams().body ?? [];
-    const list = this.validContacts();
-    if (!list.length) return this.metaRendered().missing.length ? this.estimatedSize() : 0;
-    return list.filter(
-      (c) => renderTemplateText(tpl.body, slots, this.contextFor(c)).missing.length,
-    ).length;
-  });
   readonly unresolved = computed(() => this.rendered().missing);
   readonly hasVariation = computed(() => hasVariation(this.message()));
 
@@ -588,11 +565,6 @@ export class CampaignDraft {
 
   readonly usedVariables = computed(() => {
     const vars = this.variables();
-    if (this.metaMode()) {
-      const m = this.templateParams();
-      const used = [...(m.body ?? []), m.header, ...(m.buttons ?? [])].map((s) => s?.var ?? '');
-      return vars.filter((v) => used.includes(v));
-    }
     const text =
       this.message() +
       (this.variantB() ?? '') +
@@ -610,19 +582,6 @@ export class CampaignDraft {
   readonly warnings = computed<DraftWarning[]>(() => {
     const out: DraftWarning[] = [];
     const size = this.estimatedSize();
-    if (this.metaMode()) {
-      // Meta fixes the wording, so spintax/variation advice does not apply.
-      if (!this.metaTemplate())
-        out.push({ tone: 'danger', text: 'Pick an approved Meta template.' });
-      const skipped = this.metaSkipped();
-      if (skipped > 0) {
-        out.push({
-          tone: 'warning',
-          text: `${skipped} contact${skipped === 1 ? '' : 's'} would be skipped - a template slot (${this.metaRendered().missing.join(', ') || 'one'}) has no value or fallback.`,
-        });
-      }
-      return out;
-    }
     if (!this.message().trim()) out.push({ tone: 'danger', text: 'The message is empty.' });
     if (this.variantB() !== null && !this.variantB()!.trim()) {
       out.push({ tone: 'warning', text: 'Version B is empty, so everyone gets version A.' });
@@ -634,7 +593,7 @@ export class CampaignDraft {
         text: `${missing} contact${missing === 1 ? '' : 's'} would get a blank placeholder - their ${this.unresolvedKeysAll().join(', ') || 'value'} is empty.`,
       });
     }
-    if (size > 50 && !this.hasVariation()) {
+    if (size > this.varyAbove() && !this.hasVariation()) {
       out.push({
         tone: 'warning',
         text: `Identical text to ${size} people is a spam signal - add {name} or {Hi|Hello}.`,
@@ -643,6 +602,11 @@ export class CampaignDraft {
     for (const e of this.interactiveErrors()) out.push({ tone: 'danger', text: `Buttons: ${e}` });
     return out;
   });
+
+  /** Every body that goes out (each A/B version), before the text menu. */
+  private readonly bodies = computed(() =>
+    this.versions().length ? this.versions().map((v) => v.body) : [this.outgoingBody()],
+  );
 
   /** Keys that are blank for at least one contact. */
   readonly unresolvedKeysAll = computed(() => {
@@ -684,10 +648,8 @@ export class CampaignDraft {
     }
   });
 
-  readonly messageReady = computed(() =>
-    this.metaMode()
-      ? this.metaTemplate() !== null
-      : this.message().trim().length > 0 && this.interactiveErrors().length === 0,
+  readonly messageReady = computed(
+    () => this.message().trim().length > 0 && this.interactiveErrors().length === 0,
   );
 
   /** "When & send" opens only once both earlier steps are ready. */
@@ -705,7 +667,6 @@ export class CampaignDraft {
       !this.attachment() &&
       !this.interactive() &&
       this.templateId() === null &&
-      !this.metaTemplate() &&
       this.variantB() === null &&
       this.editingId() === null,
   );
@@ -785,17 +746,19 @@ export class CampaignDraft {
     this.attachment.set(next);
   }
 
-  /** Pick (or clear) the approved template; its stored mapping seeds the per-campaign one. */
-  pickMetaTemplate(t: Template | null, which: 'main' | 'fallback' = 'main'): void {
-    const params: MetaMapping = structuredClone(t?.paramMapping ?? {});
-    params.body ??= [];
-    if (which === 'main') {
-      this.metaTemplate.set(t);
-      this.templateParams.set(params);
-    } else {
-      this.fallbackTemplate.set(t);
-      this.fallbackTemplateParams.set(params);
-    }
+  /**
+   * A restored or duplicated attachment has no local File to preview: fetch an image back so the
+   * phone preview is not blank. The type is checked on the blob since saved metadata may lack it.
+   */
+  private loadPreview(mediaId: string): void {
+    this.templatesApi.mediaBlob(mediaId).subscribe({
+      next: (blob) => {
+        const current = this.attachment();
+        if (current?.mediaId !== mediaId || !blob.type.startsWith('image/')) return;
+        this.setAttachment({ ...current, previewUrl: URL.createObjectURL(blob) });
+      },
+      error: () => undefined,
+    });
   }
 
   /** The POST /api/campaigns (or PUT /api/campaigns/:id) body for the current draft. */
@@ -803,7 +766,7 @@ export class CampaignDraft {
     const source = this.source();
     const attachment = this.attachment();
     const scheduled = this.scheduledAt();
-    const optOut = this.optOutLine() && !this.metaMode();
+    const optOut = this.optOutLine();
     const body: CampaignCreate = {
       name: this.name().trim() || defaultName(),
       body: optOut ? withOptOut(this.message()) : this.message(),
@@ -815,7 +778,6 @@ export class CampaignDraft {
       // An edit may be moving off a segment, so the field is always sent.
       segmentId: null,
       options: {
-        templateMode: 'free',
         interactive: this.interactive(),
         fallbacks: Object.fromEntries(
           Object.entries(this.fallbacks()).filter(([, v]) => !blank(v)),
@@ -829,7 +791,7 @@ export class CampaignDraft {
           ? { filename: attachment.filename, mimetype: attachment.mimetype, size: attachment.size }
           : null,
         optOutLine: optOut,
-        trackLinks: this.trackLinks() && !this.metaMode(),
+        trackLinks: this.trackLinks() && !this.qrNumber(),
         // Always sent, so an edit that turns the test or the repeat off clears the stored one.
         variants: this.versions().length ? this.versions() : null,
         recurrence: null,
@@ -854,26 +816,6 @@ export class CampaignDraft {
       body.options = {
         ...body.options,
         spread: { from: this.spreadFrom(), to: this.spreadTo(), startTime: this.spreadTime() },
-      };
-    }
-    const meta = this.metaTemplate();
-    if (this.metaMode() && meta) {
-      // The approved body goes in `body` for history; the server sends the template.
-      body.body = meta.body;
-      body.templateId = meta.id;
-      body.options = {
-        ...body.options,
-        templateMode: 'meta',
-        templateParams: this.templateParams(),
-        interactive: null,
-      };
-    }
-    const fallback = this.fallbackTemplate();
-    if (this.cloudApi() && !this.metaMode() && fallback) {
-      body.options = {
-        ...body.options,
-        fallbackTemplateId: fallback.id,
-        fallbackTemplateParams: this.fallbackTemplateParams(),
       };
     }
     if (source === 'file') {
@@ -929,7 +871,7 @@ export class CampaignDraft {
       tap(({ campaign }) => this.editingId.set(campaign.id)),
       switchMap(({ campaign }) => {
         // Rules only mean something with buttons; an edit may be clearing earlier ones.
-        const rules = this.interactive() && !this.metaMode() ? this.replyRules() : [];
+        const rules = this.interactive() ? this.replyRules() : [];
         if (!rules.length && id === null) return of(campaign);
         return this.campaignsApi.saveReplyRules(campaign.id, rules).pipe(
           map(() => campaign),
@@ -978,21 +920,6 @@ export class CampaignDraft {
             tap((r) => this.replyRules.set(r?.rules ?? [])),
           ),
         ];
-        if (options.templateMode === 'meta' && campaign.templateId !== null) {
-          loads.push(
-            // Set directly, not via pickMetaTemplate: the campaign's own mapping is already in place.
-            quiet(this.templatesApi.get(campaign.templateId)).pipe(
-              tap((r) => r && this.metaTemplate.set(r.template)),
-            ),
-          );
-        }
-        if (options.fallbackTemplateId) {
-          loads.push(
-            quiet(this.templatesApi.get(options.fallbackTemplateId)).pipe(
-              tap((r) => r && this.fallbackTemplate.set(r.template)),
-            ),
-          );
-        }
         if (campaign.segmentId !== null) loads.push(quiet(this.loadSegment(campaign.segmentId)));
         const retargetId = this.retarget().campaignId;
         if (this.source() === 'retarget' && retargetId !== null) {
@@ -1036,18 +963,10 @@ export class CampaignDraft {
     }
 
     // Message
-    if (options.templateMode === 'meta') {
-      this.templateMode.set('meta');
-      this.templateParams.set((options.templateParams as MetaMapping) ?? { body: [] });
-    } else {
-      const { text, had } = withoutOptOut(campaign.body ?? '');
-      this.message.set(text);
-      this.optOutLine.set(options.optOutLine === true || had);
-      this.templateId.set(campaign.templateId);
-    }
-    if (options.fallbackTemplateParams) {
-      this.fallbackTemplateParams.set(options.fallbackTemplateParams as MetaMapping);
-    }
+    const { text, had } = withoutOptOut(campaign.body ?? '');
+    this.message.set(text);
+    this.optOutLine.set(options.optOutLine === true || had);
+    this.templateId.set(campaign.templateId);
     if (campaign.mediaId) {
       const meta = options.mediaMeta;
       this.setAttachment({
@@ -1057,15 +976,14 @@ export class CampaignDraft {
         size: meta?.size ?? 0,
         previewUrl: '',
       });
+      this.loadPreview(campaign.mediaId);
     }
     this.interactive.set((options.interactive as InteractiveDraft | null) ?? null);
-    if (options.templateMode !== 'meta') {
-      this.trackLinks.set(options.trackLinks === true);
-      const [, b, c] = options.variants ?? [];
-      if (b) {
-        this.variantB.set(withoutOptOut(b.body).text);
-        this.variantC.set(c ? withoutOptOut(c.body).text : null);
-      }
+    this.trackLinks.set(options.trackLinks === true);
+    const [, b, c] = options.variants ?? [];
+    if (b) {
+      this.variantB.set(withoutOptOut(b.body).text);
+      this.variantC.set(c ? withoutOptOut(c.body).text : null);
     }
     if (options.extraNumbers?.length) {
       this.extraNumbers.set(
@@ -1143,14 +1061,11 @@ export class CampaignDraft {
     this.interactive.set(null);
     this.templateId.set(null);
     this.replyRules.set([]);
-    this.optOutLine.set(false);
+    this.optOutLine.set(true);
     this.trackLinks.set(false);
     this.variantB.set(null);
     this.variantC.set(null);
     this.activeVersion.set('A');
-    this.templateMode.set('free');
-    this.pickMetaTemplate(null);
-    this.pickMetaTemplate(null, 'fallback');
     this.editingId.set(null);
     this.pacing.set('balanced');
     this.scheduleMode.set('now');
@@ -1180,7 +1095,10 @@ export class CampaignDraft {
     if (!snap) return of(undefined);
     this.reset();
     for (const [key, value] of Object.entries(snap.signals)) this.kept[key]?.set(value);
-    if (snap.attachment) this.setAttachment({ ...snap.attachment, previewUrl: '' });
+    if (snap.attachment) {
+      this.setAttachment({ ...snap.attachment, previewUrl: '' });
+      this.loadPreview(snap.attachment.mediaId);
+    }
     this.retargetCampaign.set(snap.retargetCampaign);
     const loads: Observable<unknown>[] = [];
     const file = snap.file;

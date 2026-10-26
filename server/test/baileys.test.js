@@ -1,4 +1,4 @@
-/** Baileys transport: media, text, interactive fallback, inbound, receipts, reconnect - no network. */
+/** Baileys transport: media, text, the interactive text menu, inbound, receipts, reconnect, retries - no network. */
 
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
@@ -11,7 +11,7 @@ import { CampaignManager } from '../src/campaign/manager.js';
 import { DEFAULTS } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { Status } from '../src/protocol.js';
-import { BaileysTransport, extractContent, NATIVE_FLOW_NODE, toJid } from '../src/transports/baileys.js';
+import { BaileysTransport, extractContent, quietLogger, toJid } from '../src/transports/baileys.js';
 
 class FakeSock {
     ev = new EventEmitter();
@@ -19,16 +19,9 @@ class FakeSock {
     sends = [];
     ended = false;
     loggedOut = false;
-    relays = [];
-    constructor({ onWhatsApp, sendResult, relay } = {}) {
+    constructor({ onWhatsApp, sendResult } = {}) {
         this.onWhatsAppFn = onWhatsApp;
         this.sendResult = sendResult;
-        this.relayFn = relay;
-    }
-    async relayMessage(jid, message, options) {
-        this.relays.push({ jid, message, options });
-        if (this.relayFn) return this.relayFn(jid, message, options);
-        return options.messageId;
     }
     async sendMessage(jid, content) {
         this.sends.push({ jid, content });
@@ -133,100 +126,165 @@ it('fails a missing attachment file without retrying', async () => {
     );
 });
 
-const nativeOf = (relay) => relay.message.viewOnceMessage.message.interactiveMessage;
-const buttonsOf = (relay) => nativeOf(relay).nativeFlowMessage.buttons.map((b) => [b.name, JSON.parse(b.buttonParamsJson)]);
+it('sends 3gp and other non-mp4 video as a document, so it opens on every device', async () => {
+    const { transport, sock } = makeTransport();
+    await transport.connect();
+    await transport.sendMessage('919800000003', 'Clip', { media: { filename: 'clip.3gp', mimetype: 'video/3gpp', buffer: Buffer.from('3gp') } });
+    const { content } = sock().sends[0];
+    assert.equal(content.video, undefined);
+    assert.equal(content.document.toString(), '3gp');
+    assert.equal(content.fileName, 'clip.3gp');
+    assert.equal(content.caption, 'Clip');
+});
 
-it('sends reply buttons as a native-flow interactive message with the biz node', async () => {
+it('sends reply buttons as the numbered text menu, never native buttons', async () => {
     const { transport, sock } = makeTransport();
     await transport.connect();
     const interactive = { type: 'buttons', header: 'Order 7', buttons: [{ id: 'YES', title: 'Yes' }, { id: 'NO', title: 'No' }], footer: 'Reply soon' };
     const result = await transport.sendMessage('919800000005', 'Confirm?', { interactive });
-    assert.equal(sock().sends.length, 0);
-    const [relay] = sock().relays;
-    assert.equal(relay.jid, '919800000005@s.whatsapp.net');
-    assert.equal(result.providerId, relay.options.messageId);
-    assert.deepEqual(relay.options.additionalNodes, [NATIVE_FLOW_NODE]);
-    assert.deepEqual(NATIVE_FLOW_NODE.content[0].content[0], { tag: 'native_flow', attrs: { v: '9', name: 'mixed' } });
-    const msg = nativeOf(relay);
-    assert.equal(msg.body.text, 'Confirm?');
-    assert.equal(msg.header.title, 'Order 7');
-    assert.equal(msg.footer.text, 'Reply soon');
-    assert.deepEqual(buttonsOf(relay), [['quick_reply', { display_text: 'Yes', id: 'YES' }], ['quick_reply', { display_text: 'No', id: 'NO' }]]);
-});
-
-it('maps CTA kinds and list menus to cta_* and single_select buttons', async () => {
-    const { transport, sock } = makeTransport();
-    await transport.connect();
-    await transport.sendMessage('919800000005', 'Links', { interactive: { type: 'cta', cta: [
-        { kind: 'url', title: 'Open', value: 'https://x.test' }, { kind: 'call', title: 'Call', value: '+15551234' },
-    ] } });
-    await transport.sendMessage('919800000005', 'Code', { interactive: { type: 'cta', cta: [{ kind: 'copy', title: 'Copy', value: 'SAVE10' }] } });
-    await transport.sendMessage('919800000005', 'Pick', { interactive: { type: 'list', list: { button: 'Slots', sections: [
-        { title: 'Morning', rows: [{ id: 'A', title: '9 AM', description: 'Front desk' }] },
-    ] } } });
-    const [cta, copy, list] = sock().relays;
-    assert.deepEqual(buttonsOf(cta), [
-        ['cta_url', { display_text: 'Open', url: 'https://x.test', merchant_url: 'https://x.test' }],
-        ['cta_call', { display_text: 'Call', phone_number: '+15551234' }],
-    ]);
-    assert.deepEqual(buttonsOf(copy), [['cta_copy', { display_text: 'Copy', copy_code: 'SAVE10' }]]);
-    assert.deepEqual(buttonsOf(list), [['single_select', {
-        title: 'Slots', sections: [{ title: 'Morning', rows: [{ id: 'A', title: '9 AM', description: 'Front desk' }] }],
-    }]]);
-});
-
-it('sends media first, then the native buttons', async () => {
-    const { transport, sock } = makeTransport();
-    await transport.connect();
-    await transport.sendMessage('919800000005', 'Look', { media: png(), interactive: { type: 'buttons', buttons: [{ id: 'Y', title: 'Yes' }] } });
     assert.equal(sock().sends.length, 1);
-    assert.ok(Buffer.isBuffer(sock().sends[0].content.image));
-    assert.equal(sock().sends[0].content.caption, undefined);
-    assert.equal(nativeOf(sock().relays[0]).body.text, 'Look');
+    assert.deepEqual(sock().sends[0].content, { text: '*Order 7*\n\nConfirm?\n\nReply 1 or 2:\n1. Yes\n2. No\n\n_Reply soon_' });
+    assert.equal(result.providerId, 'BAE51');
+    assert.equal(result.parts, undefined);
 });
 
-it('native:false sends the numbered text menu', async () => {
+it('sends lists and CTAs as text, and media with the menu as its caption', async () => {
     const { transport, sock } = makeTransport();
     await transport.connect();
-    const interactive = { type: 'buttons', native: false, buttons: [{ id: 'YES', title: 'Yes' }, { id: 'NO', title: 'No' }], footer: 'Reply soon' };
-    await transport.sendMessage('919800000005', 'Confirm?', { interactive });
-    assert.equal(sock().relays.length, 0);
-    assert.equal(sock().sends[0].content.text, 'Confirm?\n\nReply 1 or 2:\n1. Yes\n2. No\n\n_Reply soon_');
+    await transport.sendMessage('919800000005', 'Links', { interactive: { type: 'cta', cta: [{ kind: 'url', title: 'Open', value: 'https://x.test' }] } });
+    await transport.sendMessage('919800000005', 'Pick', { interactive: { type: 'list', list: { button: 'Slots', sections: [
+        { title: 'Morning', rows: [{ id: 'A', title: '9 AM' }] },
+    ] } } });
+    await transport.sendMessage('919800000005', 'Look', { media: png(), interactive: { type: 'buttons', buttons: [{ id: 'Y', title: 'Yes' }] } });
+    const [cta, list, media] = sock().sends.map((s) => s.content);
+    assert.deepEqual(cta, { text: 'Links\n\n\u{1F517} Open: https://x.test' });
+    assert.deepEqual(list, { text: 'Pick\n\n*Slots*\n\n_Morning_\n1. 9 AM' });
+    assert.ok(Buffer.isBuffer(media.image));
+    assert.equal(media.caption, 'Look\n\nReply 1:\n1. Yes');
 });
 
-it('carousel fallback sends the main text, then one captioned image per card', async () => {
+it('a carousel sends the main text, then one captioned image per card, and counts as 1 + cards parts', async () => {
     const { transport, sock } = makeTransport();
     await transport.connect();
     const media = { buffer: Buffer.from('png'), mimetype: 'image/png' };
     const buttons = (t) => [{ id: t, title: t }];
-    const interactive = { type: 'carousel', native: false, carousel: { kind: 'reply', cards: [
+    const interactive = { type: 'carousel', carousel: { kind: 'reply', cards: [
         { mediaId: 'a', text: 'One', media, buttons: buttons('Buy') },
         { mediaId: 'b', text: 'Two', media, buttons: buttons('Buy') },
     ] } };
     const result = await transport.sendMessage('919800000005', 'Hello', { interactive });
-    assert.equal(sock().relays.length, 0);
     assert.equal(sock().sends.length, 3);
     assert.deepEqual(sock().sends[0].content, { text: 'Hello' });
     assert.equal(sock().sends[1].content.caption, 'One\n\nReply 1:\n1. Buy');
     assert.equal(sock().sends[2].content.caption, 'Two\n\nReply 2:\n2. Buy');
     assert.equal(result.providerId, 'BAE51', 'the receipt is the first message');
+    assert.equal(result.parts, 3);
 });
 
-it('falls back to the text menu when the native relay throws, without resending media', async () => {
-    const { transport, sock } = makeTransport({ sockOptions: { relay: async () => { throw new Error('bad node'); } } });
+it('a carousel campaign on a QR number counts each part against the day', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-baileys-carousel-'));
+    const db = new Database(path.join(tmp, 'm.db'));
+    const { transport, sock } = makeTransport();
     await transport.connect();
-    const warn = console.warn;
-    console.warn = () => {};
+    const manager = new CampaignManager(db, transport, { ...DEFAULTS, transport: 'baileys', safetyEnabled: false, rateLimitPerSecond: 1000, pacingMode: 'fixed' });
+    const card = (n) => {
+        const filePath = path.join(tmp, `c${n}.png`);
+        fs.writeFileSync(filePath, png().buffer);
+        return { mediaId: `m${n}`, text: `Card ${n}`, media: { filePath, mimetype: 'image/png' }, cta: [{ title: 'Open', value: `https://x.test/${n}` }] };
+    };
     try {
-        const result = await transport.sendMessage('919800000005', 'Look', { media: png(), interactive: { type: 'buttons', buttons: [{ id: 'Y', title: 'Yes' }] } });
-        assert.equal(sock().relays.length, 1);
-        assert.equal(sock().sends.length, 2);
-        assert.ok(Buffer.isBuffer(sock().sends[0].content.image));
-        assert.deepEqual(sock().sends[1].content, { text: 'Look\n\nReply 1:\n1. Yes' });
-        assert.equal(result.providerId, 'BAE52');
+        manager.enqueueContacts([{ name: 'A', phone: '919855550201' }], 'Hi {name}', { interactive: { type: 'carousel', carousel: { kind: 'url', cards: [card(1), card(2)] } } });
+        manager.start();
+        const deadline = Date.now() + 5000;
+        while (Date.now() < deadline && manager.quota.usedToday() < 3) await new Promise((r) => setTimeout(r, 25));
+        assert.equal(sock().sends.length, 3);
+        manager.quota.invalidate();
+        assert.equal(manager.quota.usedToday(), 3);
+    } finally {
+        await manager.shutdown();
+        db.close();
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }
+});
+
+it('emits restricted on a 463 / 475 ack and on a reach-out timelock, at least 24h out', async () => {
+    const { transport, sock } = makeTransport();
+    await transport.connect();
+    const restricted = [];
+    transport.events.on('restricted', (r) => restricted.push(r));
+    const day = Date.now() + 24 * 3_600_000;
+    sock().ev.emit('messages.update', [{ key: { id: 'A' }, update: { status: 0, messageStubParameters: ['463'] } }]);
+    assert.equal(restricted.length, 1);
+    assert.equal(restricted[0].code, '463');
+    assert.ok(Math.abs(Date.parse(restricted[0].until) - day) < 5000);
+    sock().ev.emit('messages.update', [{ key: { id: 'B' }, update: { status: 0, messageStubParameters: ['475'] } }]);
+    assert.equal(restricted.length, 1, 'a burst of failed acks is one restriction');
+    sock().ev.emit('messages.update', [{ key: { id: 'C' }, update: { status: 0, messageStubParameters: ['479'] } }]);
+    const later = new Date(Date.now() + 3 * 86_400_000);
+    sock().ev.emit('connection.update', { reachoutTimeLock: { isActive: true, timeEnforcementEnds: later } });
+    assert.equal(restricted.length, 2);
+    assert.equal(restricted[1].until, later.toISOString());
+    sock().ev.emit('connection.update', { reachoutTimeLock: { isActive: false } });
+    assert.equal(restricted.length, 2);
+});
+
+it('answers retry requests from the stored proto by id after a reconnect, undefined on a miss', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-baileys-proto-'));
+    const db = new Database(path.join(tmp, 'm.db'));
+    const factoryArgs = [];
+    const { transport, socks, sock } = makeTransport({
+        messageStore: db,
+        sockOptions: { sendResult: (jid, content, n) => ({ key: { id: `BAE5${n}`, remoteJid: jid, fromMe: true }, message: { conversation: content.text } }) },
+    });
+    const create = transport.createSocket;
+    transport.createSocket = async (args) => { factoryArgs.push(args); return create(args); };
+    try {
+        await transport.connect();
+        await transport.sendMessage('919800000001', 'Keep me');
+        sock().ev.emit('connection.update', closeWith(515, 'restart required'));
+        await tick();
+        await tick();
+        assert.equal(socks.length, 2);
+        const { getMessage } = factoryArgs[1];
+        const msg = await getMessage({ remoteJid: '123@lid', id: 'BAE51' });
+        assert.equal(msg.conversation, 'Keep me');
+        assert.equal(await getMessage({ remoteJid: '919800000001@s.whatsapp.net', id: 'NOPE' }), undefined);
+        assert.equal(factoryArgs[0].msgRetryCounterCache, factoryArgs[1].msgRetryCounterCache, 'one retry cache across reconnects');
+        assert.equal(typeof factoryArgs[0].msgRetryCounterCache.get, 'function');
+    } finally {
+        await transport.disconnect();
+        db.close();
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }
+});
+
+it('prunes stored protos after 14 days', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-baileys-prune-'));
+    const db = new Database(path.join(tmp, 'm.db'));
+    try {
+        db.saveSentProto('OLD', Buffer.from([1]));
+        db.db.prepare("UPDATE sent_protos SET at = '2000-01-01T00:00:00.000Z' WHERE id = 'OLD'").run();
+        db.saveSentProto('NEW', Buffer.from([2]));
+        assert.equal(db.sentProto('OLD'), null);
+        assert.deepEqual([...db.sentProto('NEW')], [2]);
+    } finally {
+        db.close();
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }
+});
+
+it('surfaces the retry-miss debug line as a warning', () => {
+    const logger = quietLogger();
+    const warn = console.warn;
+    const lines = [];
+    console.warn = (...args) => lines.push(args.join(' '));
+    try {
+        logger.debug({ jid: '1@s.whatsapp.net', id: 'X' }, 'recv retry request, but message not available');
+        logger.debug({}, 'something else');
     } finally {
         console.warn = warn;
     }
+    assert.deepEqual(lines, ['[baileys] recv retry request, but message not available 1@s.whatsapp.net X']);
 });
 
 it('refuses numbers that are not on WhatsApp, permanently', async () => {
@@ -307,7 +365,7 @@ it('reconnects with a fresh socket after a close (restart required after QR scan
     await tick();
     assert.equal(socks.length, 2);
     assert.equal(transport.isConnected(), true);
-    assert.ok(states.includes('disconnected') && states.includes('reconnecting'));
+    assert.ok(states.includes('reconnecting') && !states.includes('disconnected'), '515 is a restart, not a drop');
     assert.equal(states.filter((s) => s === 'ready').length, 2);
 });
 
@@ -405,7 +463,8 @@ it('a campaign with an attachment reaches Baileys as an image with the personali
     const db = new Database(path.join(tmp, 'm.db'));
     const { transport, sock } = makeTransport();
     await transport.connect();
-    const manager = new CampaignManager(db, transport, { ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed' });
+    // Sending levels would hold media until level 4; this is about the media path, not the levels.
+    const manager = new CampaignManager(db, transport, { ...DEFAULTS, safetyEnabled: false, rateLimitPerSecond: 1000, pacingMode: 'fixed' });
     const media = { mediaId: 'med_aaaaaaaaaaaa', ...png(), size: 8, filePath: 'x' };
     manager.enqueueContacts([{ name: 'A', phone: '919855550101' }, { name: 'B', phone: '919855550102' }], 'Hi {name}', { media });
     manager.start();
@@ -445,4 +504,109 @@ it('hands back the provider id without waiting for the "paused" presence, and ke
     assert.ok(Date.now() - started < 250, 'sendMessage must not wait on the paused presence');
     await tick();
     assert.equal(transport.getStatus('BAE51'), Status.DELIVERED, 'a late SENT must not overwrite the receipt');
+});
+
+it('tags a 429 as RATE_LIMITED, and 3 in an hour turn on the restricted brake', async () => {
+    const limit = Object.assign(new Error('rate-overlimit'), { data: 429 });
+    const { transport } = makeTransport({ sockOptions: { sendResult: () => { throw limit; } } });
+    const restricted = [];
+    transport.events.on('restricted', (r) => restricted.push(r));
+    await transport.connect();
+    for (let i = 0; i < 2; i += 1) {
+        await assert.rejects(transport.sendMessage('919800000001', 'x', { registered: true }), (err) => err.code === 'RATE_LIMITED' && err.retryable);
+    }
+    assert.equal(restricted.length, 0);
+    await assert.rejects(transport.sendMessage('919800000001', 'x', { registered: true }), /rate-overlimit/);
+    assert.equal(restricted.length, 1);
+    assert.equal(restricted[0].code, '429');
+});
+
+it('bad session (500) clears the stored login only on the 3rd in a row with no open between', async () => {
+    const { transport, socks, sock } = makeTransport();
+    const states = [];
+    transport.events.on('state', (s) => states.push(s));
+    await transport.connect();
+    fs.mkdirSync(transport.authDir, { recursive: true });
+    // Baileys also says 500 for network and stream errors: one alone reconnects and keeps the login.
+    sock().ev.emit('connection.update', closeWith(500, 'bad session'));
+    for (let i = 0; i < 5 && socks.length < 2; i += 1) await tick();
+    await tick();
+    assert.equal(socks.length, 2, 'reconnected');
+    assert.equal(fs.existsSync(transport.authDir), true, 'login kept');
+    // From here every new socket closes with 500 before it opens (the open above reset the count).
+    transport.createSocket = async () => {
+        const s = new FakeSock();
+        socks.push(s);
+        setImmediate(() => s.ev.emit('connection.update', closeWith(500, 'bad session')));
+        return s;
+    };
+    sock().ev.emit('connection.update', closeWith(500, 'bad session'));
+    for (let i = 0; i < 50 && states.at(-1)?.state !== 'auth_failure'; i += 1) await tick();
+    await tick();
+    assert.equal(socks.length, 4, 'the open socket and two failed reconnects');
+    assert.equal(fs.existsSync(transport.authDir), false);
+    assert.match(states.findLast((s) => s.state === 'auth_failure').detail, /scan/);
+    assert.equal(transport.reconnectsLastHour, 2, 'only closes of an open socket are drops');
+});
+
+for (const [code, why] of [[411, 'multidevice mismatch']]) {
+    it(`${why} (${code}) clears the stored login and asks for a re-scan instead of looping`, async () => {
+        const { transport, socks, sock } = makeTransport();
+        const states = [];
+        transport.events.on('state', (s) => states.push(s));
+        await transport.connect();
+        fs.mkdirSync(transport.authDir, { recursive: true });
+        sock().ev.emit('connection.update', closeWith(code, why));
+        await tick();
+        await tick();
+        assert.equal(socks.length, 1, 'no reconnect');
+        assert.equal(fs.existsSync(transport.authDir), false);
+        assert.equal(states.at(-1).state, 'auth_failure');
+        assert.match(states.at(-1).detail, /scan a new QR/);
+        assert.equal(transport.reconnectsLastHour, 0, 'not a drop');
+    });
+}
+
+it('counts socket drops per login in memory: over 8 in an hour is unstable; a fresh process starts at 0', async () => {
+    const { transport, sock } = makeTransport();
+    const unstable = [];
+    transport.events.on('unstable', (u) => unstable.push(u));
+    await transport.connect();
+    const drop = async () => {
+        sock().ev.emit('connection.update', closeWith(428, 'Connection Closed'));
+        await tick();
+        await tick();
+    };
+    for (let i = 0; i < 8; i += 1) await drop();
+    assert.equal(transport.reconnectsLastHour, 8);
+    assert.equal(unstable.length, 0, '8 is not more than 8');
+    sock().ev.emit('connection.update', closeWith(515, 'restart required'));
+    await tick();
+    await tick();
+    assert.equal(transport.reconnectsLastHour, 8, 'a 515 restart is not a drop');
+    await drop();
+    assert.deepEqual(unstable, [{ reconnects: 9 }]);
+    // A new transport on the same login in this process keeps counting; a restarted process (a fresh module) starts at 0.
+    const again = new BaileysTransport({ ...DEFAULTS }, { sessionDir: transport.sessionDir });
+    assert.equal(again.reconnectsLastHour, 9);
+    const restarted = await import(`../src/transports/baileys.js?restart=${Date.now()}`);
+    assert.equal(new restarted.BaileysTransport({ ...DEFAULTS }, { sessionDir: transport.sessionDir }).reconnectsLastHour, 0);
+    await transport.disconnect();
+});
+
+it('reports an unexpected logout, never our own', async () => {
+    const { transport, sock } = makeTransport();
+    const out = [];
+    transport.events.on('logged_out', (e) => out.push(e));
+    await transport.connect();
+    sock().ev.emit('connection.update', closeWith(401, 'logged out'));
+    await tick();
+    assert.equal(out.length, 1);
+
+    const own = makeTransport();
+    own.transport.events.on('logged_out', (e) => out.push(e));
+    await own.transport.connect();
+    own.sock().logout = async function logout() { own.sock().ev.emit('connection.update', closeWith(401, 'logged out')); };
+    await own.transport.logout();
+    assert.equal(out.length, 1);
 });

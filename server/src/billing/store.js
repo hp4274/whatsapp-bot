@@ -36,6 +36,7 @@
  * and neither needs to know about the other.
  */
 
+import { billingLimit } from '../policy/billing.js';
 import { utcNow } from '../protocol.js';
 import {
     DEFAULT_PLANS,
@@ -77,11 +78,17 @@ const iso = (value) => (value ? new Date(value).toISOString() : null);
 
 export class BillingStore {
     /** @param {import('../db.js').Database} database a tenant-scoped handle */
-    constructor(database, { now = () => new Date() } = {}) {
+    /**
+     * @param {object} [options]
+     * @param {() => object} [options.overrides] the tenant's resolved platform policy values;
+     *   a `billing.*` value there replaces the plan's limit (policy/billing.js)
+     */
+    constructor(database, { now = () => new Date(), overrides = null } = {}) {
         this.db = database.db;
         this.data = database; // the scoped handle, for countSentBetween
         this.tenantId = database.tenantId;
         this.now = now;
+        this.overrides = overrides;
     }
 
     // ---------------------------------------------------------------- plans --
@@ -270,11 +277,22 @@ export class BillingStore {
             period,
             planKey: this.subscription()?.planKey ?? null,
             metrics: METRICS.map((metric) => {
-                const used = counters[metric] ?? 0;
+                const used = metric === 'storage_mb' && period === periodOf(this.now())
+                    ? this.storageMb() : (counters[metric] ?? 0);
                 const limit = this.limitFor(metric);
                 return { metric, used, limit, remaining: limit === null ? null : Math.max(0, limit - used) };
             }),
         };
+    }
+
+    /**
+     * storage_mb is a stock, but counters are per period and only written on
+     * upload/delete, so the current month reads what is stored right now
+     * (whole MB, rounded up as storage/routes.js meters it).
+     */
+    storageMb() {
+        const { n } = this.db.prepare('SELECT COALESCE(SUM(size), 0) AS n FROM stored_files WHERE tenant_id = ?').get(this.tenantId);
+        return Math.ceil(n / (1024 * 1024));
     }
 
     /** Newest period first, so the UI does not have to reverse it. */
@@ -289,13 +307,12 @@ export class BillingStore {
     }
 
     // ------------------------------------------------------------ decisions --
-    /** The cap on `metric` under the effective plan; null = unlimited. */
+    /** The cap on `metric` under the effective plan and any admin override; null = unlimited. */
     limitFor(metric) {
         const subscription = this.subscription();
         if (!subscription) return null; // billing not in use for this tenant
-        const key = METRIC_LIMITS[String(metric)];
-        if (!key) return null;
-        return subscription.plan.limits[key] ?? null;
+        if (!METRIC_LIMITS[String(metric)]) return null;
+        return billingLimit(String(metric), subscription.plan.limits, this.overrides?.() ?? {});
     }
 
     /**

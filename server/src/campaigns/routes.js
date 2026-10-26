@@ -41,7 +41,6 @@ export function createCampaignRouter({ db, state }) {
         const campaign = campaigns.policyHalt(event.campaignId, halt, reason);
         if (campaign) announce('campaignUpdated', campaign);
     });
-    campaigns.channel = () => state.channel;   // Meta template mode needs the live transport
 
     const fail = (res, err) => {
         const known = err instanceof CampaignError || err instanceof InteractiveError || err instanceof SafetyError;
@@ -165,11 +164,8 @@ export function createCampaignRouter({ db, state }) {
             const text = campaigns.messageText(campaign);
             const previews = recipients.map((contact) => {
                 const context = contactContext(contact);
-                // Same source as the send: the campaign's own body (or A/B
-                // version A) wins; only Meta mode sends the template as stored.
-                const rendered = campaign.templateId != null && campaign.options?.templateMode === 'meta'
-                    ? state.templates.render(campaign.templateId, context)
-                    : { body: personalize(text, context), missing: missingIn(text, context) };
+                // Same source as the send: the campaign's own body (or A/B version A).
+                const rendered = { body: personalize(text, context), missing: missingIn(text, context) };
                 return { phone: contact.phone, name: contact.name, preview: rendered.body, missing: rendered.missing };
             });
             return res.json({

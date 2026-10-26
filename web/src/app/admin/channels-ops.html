@@ -4,7 +4,7 @@
     <div>
       <p class="eyebrow">WhatsApp numbers</p>
       <h2 id="numbers-title">Every number, every business</h2>
-      <p class="lede">Online state, Meta quality and today's sends. Problems are listed first.</p>
+      <p class="lede">Online state and today's sends. Problems are listed first.</p>
     </div>
     <div class="tools">
       <button type="button" class="s-chip" [attr.aria-pressed]="offlineOnly()" (click)="offlineOnly.set(!offlineOnly())">
@@ -59,7 +59,7 @@
               <th scope="col">Number</th>
               <th scope="col">Provider</th>
               <th scope="col">Online</th>
-              <th scope="col">Quality</th>
+              <th scope="col">Level</th>
               <th scope="col" class="num">Today / cap</th>
               <th scope="col">Paused because</th>
               <th scope="col"><span class="sr-only">Actions</span></th>
@@ -78,23 +78,57 @@
                   <span class="strong">{{ row.phoneNumber || '—' }}</span>
                   <span class="sub">{{ row.displayName }}@if (row.isDefault) { · default }</span>
                 </td>
-                <td><span class="prov">{{ row.provider === 'cloud_api' ? 'Cloud API' : row.provider }}</span></td>
+                <td><span class="prov">{{ providerLabel(row.provider) }}</span></td>
                 <td>
                   <span class="s-pill" [class.tone-ok]="row.online" [class.tone-mute]="!row.online">
                     {{ row.online ? 'Online' : 'Offline' }}
                   </span>
                   <span class="sub">Seen {{ ago(row.lastSeenAt) }}</span>
                 </td>
-                <td>
-                  @if (row.qualityRating) {
-                    <span class="s-pill" [class]="qualityTone(row.qualityRating)">{{ row.qualityRating.toLowerCase() }}</span>
+                <td class="lvl">
+                  @if (row.level; as lv) {
+                    <span class="lvl-line">
+                      <span class="strong">L{{ lv.level }}</span>
+                      <span class="sub">/ earned {{ lv.earned }}</span>
+                      <button
+                        type="button"
+                        class="btn sm icon ghost"
+                        [attr.aria-label]="'Set sending level for ' + label(row)"
+                        title="Set sending level"
+                        [disabled]="busy() === row.id"
+                        (click)="askLevel(row)"
+                      >
+                        <i class="ti ti-pin" aria-hidden="true"></i>
+                      </button>
+                      <button
+                        type="button"
+                        class="btn sm icon ghost"
+                        [attr.aria-label]="'Level and brake history for ' + label(row)"
+                        title="Level and brake history"
+                        (click)="askHistory(row)"
+                      >
+                        <i class="ti ti-history" aria-hidden="true"></i>
+                      </button>
+                    </span>
+                    @for (b of activeBrakes(row); track b.at) {
+                      <span class="s-pill tone-bad">{{ brakeName(b.code) }} brake</span>
+                    }
+                    @if (lv.pinned != null) {
+                      <span class="s-pill" [class.tone-warn]="lv.pinned > lv.earned" [class.tone-info]="lv.pinned <= lv.earned">
+                        Pinned L{{ lv.pinned }}
+                      </span>
+                    }
+                    @if (lv.cap != null) {
+                      <span class="sub">Business capped at L{{ lv.cap }}</span>
+                    }
+                    <span class="sub start">{{ startText(lv) }}</span>
                   } @else {
                     <span class="sub">—</span>
                   }
                 </td>
                 <td class="num">
                   <span class="strong">{{ row.quota.used }}</span>
-                  <span class="sub">/ {{ row.quota.limit || 'no cap' }}</span>
+                  <span class="sub">/ {{ row.quota.limit || zeroCap(row) }}</span>
                   @if (row.quota.limit) {
                     <span class="meter" aria-hidden="true"><span [style.width.%]="capPct(row)"></span></span>
                   }
@@ -152,13 +186,104 @@
 <dialog #dialog class="dlg" aria-labelledby="dlg-title" (close)="cancel()">
   @if (pending(); as p) {
     <form method="dialog" (submit)="$event.preventDefault(); confirm()">
-      @if (p.kind === 'disconnect') {
+      @if (p.kind === 'history') {
+        <span class="badge tone-info"><i class="ti ti-history" aria-hidden="true"></i></span>
+        <h3 id="dlg-title">History for {{ label(p.row) }}</h3>
+        @if (p.row.brakeHealth; as bh) {
+          <p>
+            Brakes are
+            <span class="s-pill" [class.tone-warn]="bh.mode === 'shadow'" [class.tone-ok]="bh.mode === 'enforce'">
+              {{ bh.mode === 'shadow' ? 'Shadow: log only' : 'Enforced' }}
+            </span>
+            @if (bh.delivery; as d) {
+              · 2–24h ago: {{ d.sentWin }} sent, {{ d.deliveredWin }} delivered, {{ d.failedWin }} failed,
+              {{ d.stuckWin }} stuck
+            }
+          </p>
+          <h4 class="hist-h">Delivery, stuck and unstable brakes</h4>
+          <ul class="hist">
+            @for (b of activeBrakes(p.row); track b.at) {
+              <li>
+                <span class="strong">{{ brakeName(b.code) }}</span>
+                <span class="sub">Until {{ when(b.until) }}@if (b.detail) { · {{ b.detail }} }</span>
+              </li>
+            } @empty {
+              <li class="sub">None of these holding this number.</li>
+            }
+          </ul>
+          <h4 class="hist-h">Shadow triggers (7 days, not applied)</h4>
+          <ul class="hist">
+            @for (e of shadowTriggers(p.row); track e.at + e.code) {
+              <li>
+                <span class="strong">{{ brakeName(e.code) }}</span>
+                <span class="sub">{{ when(e.at) }}@if (e.detail) { · {{ e.detail }} }</span>
+              </li>
+            } @empty {
+              <li class="sub">No shadow triggers.</li>
+            }
+          </ul>
+        }
+        <h4 class="hist-h">Level changes (30 days)</h4>
+        <ul class="hist">
+          @for (e of p.row.level?.events ?? []; track e.at + e.reason) {
+            <li>
+              <span class="strong">
+                L{{ e.from ?? '?' }} → L{{ e.to ?? '?' }} · {{ reasonName(e.reason) }}
+                @if (e.shadow) {
+                  <span class="s-pill tone-mute">Shadow</span>
+                }
+              </span>
+              <span class="sub">{{ when(e.at) }}@if (e.text) { · {{ e.text }} }</span>
+            </li>
+          } @empty {
+            <li class="sub">No level changes.</li>
+          }
+        </ul>
+      } @else if (p.kind === 'disconnect') {
         <span class="badge tone-bad"><i class="ti ti-plug-connected-x" aria-hidden="true"></i></span>
         <h3 id="dlg-title">Force disconnect {{ label(p.row) }}?</h3>
         <p>
           This logs the number out of WhatsApp and stops it reconnecting on its own. A QR-login number has to
           scan a new code; {{ p.row.tenantName }} reconnects it from their Connection page.
         </p>
+      } @else if (p.kind === 'level' && p.row.level; as lv) {
+        <span class="badge" [class.tone-bad]="aboveEarned()" [class.tone-info]="!aboveEarned()">
+          <i class="ti ti-pin" aria-hidden="true"></i>
+        </span>
+        <h3 id="dlg-title">Sending level for {{ label(p.row) }}</h3>
+        <p>
+          It earned L{{ lv.earned }} and runs at L{{ lv.level }}.
+          A pin replaces the earned level; every brake still applies, and a ban after the pin drops it.
+          While pinned, the number stops moving up or down on its own.
+          @if (lv.cap != null) {
+            {{ p.row.tenantName }} is capped at L{{ lv.cap }}, so it never runs higher.
+          }
+        </p>
+        <label class="field">
+          <span>Pin to level</span>
+          <select required (change)="pickLevel($any($event.target).value)">
+            <option value="" [selected]="pickedLevel() == null">Choose a level…</option>
+            @for (n of levelChoices(); track n) {
+              <option [value]="n" [selected]="pickedLevel() === n">
+                L{{ n }}{{ n === lv.earned ? ' (earned)' : '' }}
+              </option>
+            }
+          </select>
+        </label>
+        @if (aboveEarned()) {
+          <p class="s-banner" role="alert">
+            <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+            <span class="msg">
+              L{{ pickedLevel() }} is above the earned L{{ lv.earned }}. The number skips its gradual start and sends
+              faster than WhatsApp has learned to trust, which is how numbers get banned. This is audited.
+            </span>
+          </p>
+        }
+        @if (lv.pinned != null) {
+          <button type="button" class="btn sm clear-pin" (click)="setLevel(p.row, null)">
+            <i class="ti ti-pinned-off" aria-hidden="true"></i>Clear pin (back to L{{ lv.earned }})
+          </button>
+        }
       } @else {
         <span class="badge tone-info"><i class="ti ti-arrows-exchange" aria-hidden="true"></i></span>
         <h3 id="dlg-title">Move {{ label(p.row) }}</h3>
@@ -179,16 +304,22 @@
         </label>
       }
       <div class="dlg-acts">
-        <button type="button" class="btn" (click)="cancel()">Cancel</button>
-        <button
-          type="submit"
-          class="btn"
-          [class.danger]="p.kind === 'disconnect'"
-          [class.primary]="p.kind === 'move'"
-          [disabled]="p.kind === 'move' && target() == null"
-        >
-          {{ p.kind === 'disconnect' ? 'Disconnect' : 'Move number' }}
-        </button>
+        <button type="button" class="btn" (click)="cancel()">{{ p.kind === 'history' ? 'Close' : 'Cancel' }}</button>
+        @if (p.kind !== 'history') {
+          <button
+            type="submit"
+            class="btn"
+            [class.danger]="p.kind === 'disconnect' || (p.kind === 'level' && aboveEarned())"
+            [class.primary]="p.kind === 'move' || (p.kind === 'level' && !aboveEarned())"
+            [disabled]="(p.kind === 'move' && target() == null) || (p.kind === 'level' && levelUnchanged())"
+          >
+            @switch (p.kind) {
+              @case ('disconnect') { Disconnect }
+              @case ('level') { {{ aboveEarned() ? 'Pin above earned' : 'Pin level' }} }
+              @default { Move number }
+            }
+          </button>
+        }
       </div>
     </form>
   }

@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
-import { TRANSPORT_CLOUD_API, TRANSPORT_SANDBOX, TRANSPORT_BAILEYS } from '../src/config.js';
+import { TRANSPORT_SANDBOX, TRANSPORT_BAILEYS } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { TEMPLATES_SCHEMA } from '../src/templates/schema.js';
 import { TemplateStore, TemplateError, compatibility, validate } from '../src/templates/store.js';
@@ -50,7 +50,6 @@ describe('template CRUD', () => {
         });
         assert.deepEqual(created.variables, ['name', 'order_id']);
         assert.equal(created.currentVersion, 1);
-        assert.equal(created.approvalStatus, 'draft');
         assert.equal(created.channelId, null, 'unpinned means any channel');
         assert.deepEqual(templates.get(created.id), created);
         assert.deepEqual(templates.getByName(created.name), created);
@@ -94,8 +93,8 @@ describe('versioning', () => {
         const renamed = templates.update(created.id, { name: uniqueName('reminder-renamed') });
         assert.equal(renamed.currentVersion, 1, 'a rename does not change what a recipient reads');
 
-        const approved = templates.update(created.id, { approvalStatus: 'pending' });
-        assert.equal(approved.currentVersion, 1, 'an approval flip is not a new wording');
+        const pinned = templates.update(created.id, { channelId: 3 });
+        assert.equal(pinned.currentVersion, 1, 'a channel pin is not a new wording');
 
         const edited = templates.update(created.id, { body: 'Hello {name}, see you soon.' });
         assert.equal(edited.currentVersion, 2);
@@ -207,57 +206,19 @@ describe('variable validation', () => {
 });
 
 describe('channel compatibility', () => {
-    const cloud = { id: 1, provider: TRANSPORT_CLOUD_API };
     const web = { id: 2, provider: TRANSPORT_BAILEYS };
     const sandbox = { id: 3, provider: TRANSPORT_SANDBOX };
 
-    const providerTemplate = (overrides = {}) => ({
-        templateType: 'provider_template',
-        approvalStatus: 'approved',
-        providerTemplateName: 'order_shipped',
-        channelId: null,
-        ...overrides,
-    });
-
-    it('allows an approved provider template only on Cloud API', () => {
-        assert.deepEqual(compatibility(providerTemplate(), cloud), []);
-        assert.ok(compatibility(providerTemplate(), web)
-            .some((p) => p.includes('WhatsApp Web channel cannot send provider templates')));
-        assert.ok(compatibility(providerTemplate(), sandbox)
-            .some((p) => p.includes('need a Cloud API channel')));
-    });
-
-    it('refuses a provider template that Meta has not approved', () => {
-        for (const status of ['draft', 'pending', 'rejected']) {
-            const problems = compatibility(providerTemplate({ approvalStatus: status }), cloud);
-            assert.ok(problems.some((p) => p.includes(`is ${status}, not approved`)), status);
+    it('lets text and interactive templates go out on any transport (QR sends the fallback text)', () => {
+        for (const templateType of ['text', 'interactive']) {
+            for (const channel of [web, sandbox]) assert.deepEqual(compatibility({ templateType, channelId: null }, channel), [], templateType);
         }
     });
 
-    it('refuses a provider template with no provider-side name', () => {
-        assert.ok(compatibility(providerTemplate({ providerTemplateName: '' }), cloud)
-            .some((p) => p.includes('no provider template name')));
-    });
-
-    it('allows interactive messages only on Cloud API', () => {
-        const interactive = { templateType: 'interactive', approvalStatus: 'draft', channelId: null };
-        assert.deepEqual(compatibility(interactive, cloud), []);
-        assert.ok(compatibility(interactive, web).some((p) => p.includes('interactive messages need a Cloud API channel')));
-    });
-
-    it('lets a plain text template go out on any transport', () => {
-        const text = { templateType: 'text', approvalStatus: 'draft', channelId: null };
-        for (const channel of [cloud, web, sandbox]) assert.deepEqual(compatibility(text, channel), []);
-    });
-
     it('honours a channel pin', () => {
-        const pinned = { templateType: 'text', approvalStatus: 'draft', channelId: 2 };
-        assert.ok(compatibility(pinned, cloud).some((p) => p.includes('pinned to channel 2')));
+        const pinned = { templateType: 'text', channelId: 2 };
+        assert.ok(compatibility(pinned, sandbox).some((p) => p.includes('pinned to channel 2')));
         assert.deepEqual(compatibility(pinned, web), []);
-    });
-
-    it('reads the transport from a channel row that only carries settings', () => {
-        assert.deepEqual(compatibility(providerTemplate(), { id: 4, settings: { transport: TRANSPORT_CLOUD_API } }), []);
     });
 });
 

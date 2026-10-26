@@ -4,8 +4,8 @@ import { Observable, catchError, map, throwError } from 'rxjs';
 
 /**
  * Super-admin template moderation endpoints (`/api/admin/template-*`): the
- * review queue for Baileys templates, the starter library every tenant can
- * copy from, and the per-tenant Meta status counts.
+ * review queue for tenant templates and the starter library every tenant can
+ * copy from.
  */
 
 export type StarterCategory = 'marketing' | 'utility' | 'authentication';
@@ -43,17 +43,6 @@ export interface Starter {
 }
 
 export type StarterInput = Pick<Starter, 'name' | 'category' | 'description' | 'body'>;
-
-export interface TenantMetaStatus {
-  readonly tenantId: string | number;
-  readonly tenantName: string;
-  readonly total: number;
-  readonly approved: number;
-  readonly pending: number;
-  readonly rejected: number;
-  readonly draft: number;
-  readonly lastSynced: string | null;
-}
 
 /** The server answers `{ errors: string[] }`; the first one is the actionable message. */
 const toMessage = (error: HttpErrorResponse) => {
@@ -103,11 +92,5 @@ export class TemplateReviewApi {
 
   deleteStarter(id: string | number): Observable<unknown> {
     return this.http.delete(`/api/admin/template-library/${seg(id)}`).pipe(catchError(toMessage));
-  }
-
-  meta(): Observable<readonly TenantMetaStatus[]> {
-    return this.http
-      .get<{ tenants: TenantMetaStatus[] }>('/api/admin/template-meta')
-      .pipe(map((r) => r.tenants), catchError(toMessage));
   }
 }

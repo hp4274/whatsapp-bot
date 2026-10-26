@@ -140,6 +140,30 @@ describe('admin plans & subscriptions', () => {
         assert.equal((await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/subscription`, { planKey: 'ghost' })).status, 404);
     });
 
+    it('keeps a limit the admin overrode across a plan change; the rest follow the new plan', async () => {
+        const { body: { tenant } } = await createTenant({ planKey: 'business' });
+        assert.equal((await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/limits`, { maxUsers: 99 })).status, 200);
+        const res = await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/subscription`, { planKey: 'starter' });
+        assert.equal(res.status, 200);
+        assert.equal(res.body.tenant.limits.maxUsers, 99, 'the override stays');
+        assert.equal(res.body.tenant.limits.maxChannels, 1, 'an untouched limit moves to the new plan');
+    });
+
+    it('pushes an edited plan limit to its subscribers, except where the admin overrode it', async () => {
+        const { body: { tenant: plain } } = await createTenant({ planKey: 'starter' });
+        const { body: { tenant: custom } } = await createTenant({ planKey: 'starter' });
+        assert.equal((await call(sup, 'PUT', `/api/admin/tenants/${custom.id}/limits`, { maxUsers: 99 })).status, 200);
+        const before = (await call(sup, 'GET', '/api/admin/billing/plans')).body.plans.find((p) => p.key === 'starter');
+        const edited = await call(sup, 'PUT', '/api/admin/billing/plans/starter',
+            { tenantLimits: { ...before.tenantLimits, maxUsers: 42 } });
+        assert.equal(edited.status, 200);
+        const reapplied = await call(sup, 'PUT', `/api/admin/tenants/${plain.id}/subscription`, { planKey: 'starter' });
+        assert.equal(reapplied.body.tenant.limits.maxUsers, 42, 'the edit reaches an existing subscriber');
+        const kept = await call(sup, 'PUT', `/api/admin/tenants/${custom.id}/subscription`, { planKey: 'starter' });
+        assert.equal(kept.body.tenant.limits.maxUsers, 99, 'the override stays');
+        await call(sup, 'PUT', '/api/admin/billing/plans/starter', { tenantLimits: before.tenantLimits });
+    });
+
     it('cancels immediately into grace, and an expired business gets 402 but the super admin does not', async () => {
         const { body: { tenant } } = await createTenant({ planKey: 'starter', trialDays: 0 });
         assert.equal(tenant.subscription.state, 'active');

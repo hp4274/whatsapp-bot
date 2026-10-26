@@ -12,7 +12,8 @@ import { CampaignStore } from '../src/campaigns/store.js';
 import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { ContactStore } from '../src/contactStore.js';
 import { Database } from '../src/db.js';
-import { attachCampaignPolicy, bulkKillReason, retentionSweep } from '../src/policy/campaignOps.js';
+import { MessageService } from '../src/messaging/service.js';
+import { attachCampaignPolicy, bulkKillReason, retentionSweep, sendBlockReason } from '../src/policy/campaignOps.js';
 import { Status } from '../src/protocol.js';
 import { TransportError } from '../src/transports/base.js';
 import { createTestApp, sessionFor } from './helpers.js';
@@ -43,7 +44,7 @@ function rig(values = {}, { limits = {}, transport = fakeTransport(), tenantId }
     const root = new Database(path.join(tmp, `m${n++}.db`));
     const db = root.forTenant(tenantId ?? 1).forChannel(1);
     const manager = new CampaignManager(db, transport,
-        { ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', maxRetries: 0, safetyEnabled: true, dailyLimit: 0 });
+        { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000, pacingMode: 'fixed', maxRetries: 0, safetyEnabled: true, dailyLimit: 0 });
     manager.holdPollSeconds = 0.05;
     const policy = { 'bulk.requireOptIn': false, ...values };
     const state = { manager, db, limits: () => limits, channel: { timezone: 'UTC' } };
@@ -133,6 +134,59 @@ describe('bulk.* in the campaign manager', () => {
         await manager.shutdown();
         assert.ok(transport.sent.length < 20);
         assert.throws(() => manager.enqueueContacts(people(1), 'Hi {name}'), (err) => err.status === 409);
+    });
+
+    it('tenant controls: sendingEnabled off stops a running campaign; automations off holds replies and workflows', async () => {
+        const slow = fakeTransport(async () => { await wait(150); return { providerId: `c${n++}`, status: Status.SENT }; });
+        const { manager, transport, events, db } = rig({}, { transport: slow });
+        const controls = { sendingEnabled: true };
+        const noKill = { values: () => ({}), get: () => undefined };
+        attachCampaignPolicy({ manager, db, limits: () => ({}), channel: { timezone: 'UTC' } }, {
+            platformPolicy: () => ({ 'bulk.requireOptIn': false }),
+            bulkKill: () => bulkKillReason(noKill, 1, controls),
+            controls: () => controls,
+        });
+        manager.enqueueContacts(people(20), 'Hi {name}');
+        manager.start();
+        assert.ok(await until(() => transport.sent.length >= 1));
+        controls.sendingEnabled = false;
+        assert.ok(await until(() => events.some((e) => e.type === 'policyStop' && /sending is switched off/.test(e.reason)), 5000));
+        await manager.shutdown();
+        assert.ok(transport.sent.length < 20);
+        assert.ok(manager.sendBlock('transactional'), 'every other send is refused too');
+
+        assert.equal(sendBlockReason({ automationsEnabled: false }, 'campaign'), null);
+        assert.match(sendBlockReason({ automationsEnabled: false }, 'workflow'), /Automations/);
+        assert.match(sendBlockReason({ automationsEnabled: false }, 'auto_reply'), /Automations/);
+        assert.match(sendBlockReason({ campaignsEnabled: false }, 'campaign'), /Campaign/);
+        assert.equal(sendBlockReason({ campaignsEnabled: false }, 'reminder'), null);
+    });
+
+    it('automations off: the service refuses new replies, a retry keeps its id, queued ones wait for the flip', async () => {
+        const { manager, transport, db } = rig();
+        const controls = { automationsEnabled: true };
+        attachCampaignPolicy({ manager, db, limits: () => ({}), channel: { timezone: 'UTC' } }, {
+            platformPolicy: () => ({ 'bulk.requireOptIn': false }), controls: () => controls,
+        });
+        const channel = { id: 1, status: 'active', capabilities: ['auto_replies', 'workflow_messages', 'transactional_messages'] };
+        const service = new MessageService(db, manager, channel, { guard: (job) => manager.sendBlock?.(job.messageType) ?? null });
+        const reply = (key, type = 'auto_reply') => service.send({ messageType: type, recipient: '919800000001', text: 'hi', idempotencyKey: key });
+        const first = reply('r1');
+        assert.ok(first.accepted);
+        reply('w1', 'workflow');
+        controls.automationsEnabled = false;
+        await wait(1100); // sendBlock re-reads the controls once a second
+        assert.throws(() => reply('r2'), (err) => err.reason === 'tenant_blocked');
+        assert.equal(reply('r1').duplicateOf, first.messageId, 'a retry of an accepted reply still gets its id');
+        assert.ok(reply('t1', 'transactional').accepted, 'a human send is not an automation');
+
+        manager.start();
+        assert.ok(await until(() => transport.sent.length >= 1));
+        await wait(300);
+        assert.equal(transport.sent.length, 1, 'only the transactional one went; the reply and the workflow wait');
+        controls.automationsEnabled = true;
+        assert.ok(await until(() => transport.sent.length === 3, 5000), 'held items go once automations are back on');
+        await manager.shutdown();
     });
 
     it('auto-pauses a campaign once failures pass the platform rate after 20 attempts', async () => {

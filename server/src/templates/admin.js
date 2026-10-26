@@ -1,6 +1,6 @@
 /**
  * Super-admin template endpoints, mounted on the /api/admin router:
- * the cross-tenant review queue, the starter library, and Meta status per tenant.
+ * the cross-tenant review queue and the starter library.
  */
 
 import { TemplateError, TemplateStore } from './store.js';
@@ -74,31 +74,5 @@ export function registerTemplateAdmin(admin, { db, tenancy, policy, audit }) {
         } catch (err) {
             return fail(res, err);
         }
-    });
-
-    /**
-     * Meta's verdict on each tenant's Cloud API templates, as stored in
-     * approval_status. `lastSynced` is the latest update to one of them -
-     * status changes are written onto the row, there is no separate sync log.
-     */
-    admin.get('/template-meta', (req, res) => {
-        const rows = db.db.prepare(
-            `SELECT tenant_id, approval_status, COUNT(*) AS n, MAX(updated_at) AS last
-             FROM templates WHERE template_type = 'provider_template' GROUP BY tenant_id, approval_status`).all();
-        const tenants = tenancy.listTenants().map((tenant) => {
-            const mine = rows.filter((r) => r.tenant_id === tenant.id);
-            const count = (status) => mine.filter((r) => r.approval_status === status).reduce((n, r) => n + r.n, 0);
-            return {
-                tenantId: tenant.id,
-                tenantName: tenant.name,
-                total: mine.reduce((n, r) => n + r.n, 0),
-                approved: count('approved'),
-                pending: count('pending'),
-                rejected: count('rejected'),
-                draft: count('draft'),
-                lastSynced: mine.map((r) => r.last).sort().at(-1) ?? null,
-            };
-        });
-        res.json({ tenants });
     });
 }

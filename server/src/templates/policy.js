@@ -152,9 +152,8 @@ export function templateRuleProblem(draft, { policy = {}, limits = {}, media = (
     return null;
 }
 
-/** Does this template go through the platform review queue under this policy? Meta reviews provider templates. */
-export const needsReview = (policy, template) => (policy['templates.requireApproval'] ?? 'off') !== 'off'
-    && template.templateType !== 'provider_template';
+/** Does this template go through the platform review queue under this policy? */
+export const needsReview = (policy) => (policy['templates.requireApproval'] ?? 'off') !== 'off';
 
 /**
  * Why this template may not be sent on this channel, or null. `baileys` mode

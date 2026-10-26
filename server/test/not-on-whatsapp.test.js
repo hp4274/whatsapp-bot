@@ -40,7 +40,7 @@ const waitFor = async (predicate, timeoutMs = 6000) => {
 };
 
 const engineConfig = (extra = {}) => ({
-    ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', retryDelay: 0.01, tierSystem: false,
+    ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', retryDelay: 0.01, transport: TRANSPORT_SANDBOX,
     humanTiming: false, ...extra,
 });
 
@@ -181,7 +181,7 @@ describe('campaigns and the quick send', () => {
 
     before(async () => {
         db = new Database(path.join(tmp, 'app.db'));
-        const config = { ...DEFAULTS, transport: TRANSPORT_SANDBOX, tierSystem: false };
+        const config = { ...DEFAULTS, transport: TRANSPORT_SANDBOX };
         delete config.misc;
         app = createTestApp({ db, config });
         server = app.listen(0, '127.0.0.1');

@@ -52,7 +52,6 @@ export const TENANT_SERVICES = Object.freeze([
 
 export const DEFAULT_TENANT_CONTROLS = Object.freeze({
     sendingEnabled: true,
-    inboundEnabled: true,
     campaignsEnabled: true,
     automationsEnabled: true,
 });
@@ -87,6 +86,22 @@ export const CONSENT_TEXT = [
 ];
 const CONSENT_HASH = sha256(CONSENT_TEXT.join('\n'));
 
+/**
+ * What a business accepts to skip a number's 2 questions and start it at the plan's day
+ * (POST /api/channels/:id/start). Recorded per number as kind `number_skip_questions`.
+ */
+export const NUMBER_SKIP_VERSION = '2026-10-1';
+export const NUMBER_SKIP_TEXT = [
+    'Skipping these questions starts this number at the full daily limit of our plan, instead of a limit that suits its age and use.',
+    'A number that suddenly sends that much is likely to be restricted, or banned by WhatsApp temporarily or permanently. No QR-login number is safe from that.',
+    'I accept full responsibility for any restriction or ban of this number, and for any lost messages, contacts or business that follow. The platform cannot restore a banned number.',
+];
+/** Consent kinds: the text version and hash each one records. */
+const CONSENT_KINDS = Object.freeze({
+    custom_safety: [CONSENT_VERSION, CONSENT_HASH],
+    number_skip_questions: [NUMBER_SKIP_VERSION, sha256(NUMBER_SKIP_TEXT.join('\n'))],
+});
+
 export class TenancyError extends Error {
     constructor(message, status = 400) {
         super(message);
@@ -99,6 +114,8 @@ export class Tenancy {
         this.db = database.db;
         // Compared against when an email is unknown, so timing does not leak it.
         this.dummyHash = null;
+        // Idle timeout per tenant (security.sessionIdleMinutes); app.js swaps it in. Super admins keep the default.
+        this.idleMsFor = () => SESSION_IDLE_MS;
         // Tenants deleted before deletion freed their emails and slug.
         for (const { id } of this.db.prepare("SELECT id FROM tenants WHERE status = 'archived'").all()) this.#release(id);
     }
@@ -228,7 +245,7 @@ export class Tenancy {
     setSafety(id, patch = {}) {
         const before = this.getTenant(id);
         if (!before || before.status === 'archived') throw new TenancyError('tenant not found', 404);
-        const next = { ...before.safety, ...normalizeSafety(patch) };
+        const next = mergeSafety(before.safety, patch);
         checkSafety({ ...DEFAULTS, ...next });
         this.db.prepare('UPDATE tenants SET safety = ? WHERE id = ?').run(JSON.stringify(next), Number(id));
         return this.getTenant(id);
@@ -243,7 +260,7 @@ export class Tenancy {
     /** The latest consent to the current text, or null. */
     currentConsent(tenantId) {
         const row = this.db.prepare(
-            'SELECT * FROM safety_consents WHERE tenant_id = ? AND text_version = ? ORDER BY id DESC LIMIT 1')
+            "SELECT * FROM safety_consents WHERE tenant_id = ? AND kind = 'custom_safety' AND text_version = ? ORDER BY id DESC LIMIT 1")
             .get(Number(tenantId), CONSENT_VERSION);
         return row ? toConsent(row) : null;
     }
@@ -253,13 +270,15 @@ export class Tenancy {
             .all(Number(tenantId)).map(toConsent);
     }
 
-    recordConsent({ tenantId, user, fullName = '', ip = '', userAgent = '' }) {
+    /** `kind`: a CONSENT_KINDS key; `channelId`: the number it is about (number_skip_questions). */
+    recordConsent({ tenantId, user, fullName = '', ip = '', userAgent = '', kind = 'custom_safety', channelId = null }) {
+        const [version, hash] = CONSENT_KINDS[kind];
         const info = this.db.prepare(
             `INSERT INTO safety_consents
-             (tenant_id, user_id, user_email, full_name, accepted_at, ip, user_agent, text_version, text_hash)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+             (tenant_id, user_id, user_email, full_name, accepted_at, ip, user_agent, text_version, text_hash, kind, channel_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
             .run(Number(tenantId), user.id, user.email, String(fullName).trim().slice(0, 200), utcNow(),
-                String(ip).slice(0, 100), String(userAgent).slice(0, 500), CONSENT_VERSION, CONSENT_HASH);
+                String(ip).slice(0, 100), String(userAgent).slice(0, 500), version, hash, kind, channelId == null ? null : Number(channelId));
         return toConsent(this.db.prepare('SELECT * FROM safety_consents WHERE id = ?').get(Number(info.lastInsertRowid)));
     }
 
@@ -286,7 +305,10 @@ export class Tenancy {
     enforcedSafety(tenant) {
         if (!tenant) return {};
         const platform = this.platformSafety(tenant);
-        const touched = Object.fromEntries(Object.keys(tenant.customSafety).map((key) => [key, platform[key]]));
+        // dailyLimit with no admin value falls back to 0 (no own ceiling), not DEFAULTS' 250, which on QR would hold
+        // every number under its plan's day (channels.dailyCap).
+        const touched = Object.fromEntries(Object.keys(tenant.customSafety).map((key) => [key,
+            key === 'dailyLimit' && tenant.safety.dailyLimit == null ? 0 : platform[key]]));
         return { ...touched, ...tenant.safety, ...(this.customSafetyActive(tenant) ? tenant.customSafety : {}) };
     }
 
@@ -294,7 +316,7 @@ export class Tenancy {
     setCustomSafety(id, patch = {}) {
         const before = this.getTenant(id);
         if (!before || before.status === 'archived') throw new TenancyError('tenant not found', 404);
-        const next = { ...before.customSafety, ...normalizeSafety(patch) };
+        const next = mergeSafety(before.customSafety, patch);
         checkSafety({ ...this.platformSafety(before), ...next });
         this.db.prepare('UPDATE tenants SET custom_safety = ? WHERE id = ?').run(JSON.stringify(next), Number(id));
         return this.getTenant(id);
@@ -420,7 +442,8 @@ export class Tenancy {
         if (!row || row.disabled || row.expires_at < new Date(now).toISOString()) return null;
         if (row.tenant_id !== null && row.tenant_status !== 'active') return null;
         const seen = Date.parse(row.last_seen_at ?? row.session_created);
-        if (now - seen > SESSION_IDLE_MS) {
+        const idleMs = row.tenant_id === null ? SESSION_IDLE_MS : this.idleMsFor(row.tenant_id);
+        if (now - seen > idleMs) {
             this.db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hash);
             return null;
         }
@@ -433,6 +456,12 @@ export class Tenancy {
     /** Sign a user out everywhere (password change, compromise). */
     revokeSessions(userId) {
         return this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(Number(userId)).changes;
+    }
+
+    /** Sign every user of one business out (super admin "sign everyone out"). Returns how many sessions ended. */
+    revokeTenantSessions(tenantId) {
+        return this.db.prepare('DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE tenant_id = ?)')
+            .run(Number(tenantId)).changes;
     }
 
     deleteSession(token) {
@@ -489,14 +518,13 @@ export const LIMIT_SPEC = Object.freeze({
     maxTemplates: [0, 100000],
     maxContactsPerCampaign: [0, 1000000],
     maxMediaMb: [0, 500],
-    allowCloudApi: 'bool',
     allowWhatsappWeb: 'bool',
     blockedWords: 'text',
     allowCustomSafety: 'bool',
 });
 export const DEFAULT_LIMITS = Object.freeze({
     maxChannels: 0, maxUsers: 0, maxTemplates: 0, maxContactsPerCampaign: 0, maxMediaMb: 0,
-    allowCloudApi: true, allowWhatsappWeb: true, blockedWords: '',
+    allowWhatsappWeb: true, blockedWords: '',
     // Off: only the platform admin sets anti-ban limits.
     allowCustomSafety: false,
 });
@@ -516,9 +544,6 @@ export function normalizeLimits(input = {}, strict = false) {
             }
             out[key] = Math.floor(n);
         }
-    }
-    if (!out.allowCloudApi && !out.allowWhatsappWeb && strict) {
-        throw new TenancyError('allow at least one transport');
     }
     return out;
 }
@@ -546,13 +571,21 @@ function checkSafety(view) {
     }
 }
 
-/** Keep only known keys, each checked against POLICY_SPEC. */
+/** `patch` over `before`; a key patched to null is dropped, so it falls back to the default. */
+function mergeSafety(before, patch) {
+    const next = { ...before, ...normalizeSafety(patch) };
+    for (const key of Object.keys(next)) if (next[key] === null) delete next[key];
+    return next;
+}
+
+/** Keep only known keys, each checked against POLICY_SPEC; null (reset) passes through. */
 function normalizeSafety(input) {
     const out = {};
     for (const [key, spec] of Object.entries(POLICY_SPEC)) {
         const value = input?.[key];
         if (value === undefined) continue;
-        if (spec === 'bool') out[key] = Boolean(value);
+        if (value === null) out[key] = null;
+        else if (spec === 'bool') out[key] = Boolean(value);
         else if (Array.isArray(spec) && typeof spec[0] === 'string') {
             if (!spec.includes(value)) throw new TenancyError(`${key} must be one of ${spec.join(', ')}`);
             out[key] = value;
@@ -594,7 +627,7 @@ function toConsent(row) {
     return {
         id: row.id, tenantId: row.tenant_id, userId: row.user_id, email: row.user_email, fullName: row.full_name,
         acceptedAt: row.accepted_at, ip: row.ip, userAgent: row.user_agent,
-        version: row.text_version, textHash: row.text_hash,
+        version: row.text_version, textHash: row.text_hash, kind: row.kind ?? 'custom_safety', channelId: row.channel_id ?? null,
     };
 }
 

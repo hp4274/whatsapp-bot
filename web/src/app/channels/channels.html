@@ -98,32 +98,10 @@
       </div>
     </div>
 
-    <fieldset class="providers">
-      <legend>How it connects</legend>
-      <div class="options">
-        @for (t of transportOptions(); track t.value) {
-          <label class="option" [class.on]="draft().transport === t.value">
-            <input
-              type="radio"
-              name="transport"
-              [value]="t.value"
-              [checked]="draft().transport === t.value"
-              (change)="setDraft('transport', t.value)"
-            />
-            <i class="ti ti-{{ t.icon }}" aria-hidden="true"></i>
-            <span class="opt-text">
-              <strong>{{ t.label }}</strong>
-              @if (t.hint) {
-                <small>{{ t.hint }}</small>
-              }
-            </span>
-          </label>
-        }
-      </div>
-      @if (warnings()[draft().transport]; as warning) {
-        <p class="tos"><i class="ti ti-gavel" aria-hidden="true"></i>{{ warning }}</p>
-      }
-    </fieldset>
+    <!-- QR login is the only way to connect, so there is no transport to pick; its terms note stays. -->
+    @if (warnings()[draft().transport]; as warning) {
+      <p class="tos"><i class="ti ti-gavel" aria-hidden="true"></i>{{ warning }}</p>
+    }
 
     @if (formError()) {
       <p class="s-banner" role="alert">

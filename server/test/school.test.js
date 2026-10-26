@@ -36,22 +36,25 @@ const upload = async (token, url, csv, fields = {}) => {
 };
 const sentTo = (phone) => db.db.prepare('SELECT message FROM messages WHERE recipient LIKE ?')
     .all(`%${String(phone).replace(/\D/g, '').slice(-10)}%`).map((r) => r.message);
-const inbound = (from, body) => fetch(`${base}/api/webhook`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ entry: [{ changes: [{ value: {
-        contacts: [{ wa_id: from, profile: { name: 'Parent' } }],
-        messages: [{ id: `wamid.${Math.random()}`, from, timestamp: '1790771400', type: 'text', text: { body } }],
-    } }] }] }),
+// A parent's WhatsApp message, arriving the way a transport hands one to the app.
+let transport;
+const inbound = async (from, body) => transport.events.emit('inbound', {
+    messageId: `in.${Math.random()}`, sender: from, senderName: 'Parent', body,
 });
 const wait = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 
 before(async () => {
     db = new Database(path.join(tmp, 's.db'));
-    app = createTestApp({ db, dataDir: tmp, config: { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000, defaultCountryCode: '91' } });
+    app = createTestApp({
+        db, dataDir: tmp,
+        config: { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000, defaultCountryCode: '91' },
+    });
     server = app.listen(0, '127.0.0.1');
     await new Promise((resolve) => server.once('listening', resolve));
     base = `http://127.0.0.1:${server.address().port}`;
+    await fetch(`${base}/api/connection/connect`, { method: 'POST' });
+    const rt = app.locals.runtimeFor(1);
+    transport = rt.runtimeFor(rt.channels.getDefault()).state.transport;
     const tenancy = app.locals.tenancy;
     tenancy.db.prepare('UPDATE tenants SET services = ? WHERE id = 1')
         .run(JSON.stringify([...tenancy.getTenant(1).services, 'school_whatsapp_bot']));

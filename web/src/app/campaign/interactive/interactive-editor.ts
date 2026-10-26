@@ -1,14 +1,16 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   computed,
   inject,
   input,
   model,
   signal,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subscription } from 'rxjs';
 
-import { ArSwitch } from '../../auto-replies/ar-fields';
 import { Api } from '../../core/api';
 import { MediaSrc } from './media-src';
 import {
@@ -41,7 +43,11 @@ const TYPES: { value: Choice; label: string; icon: string }[] = [
 const CARD_IMAGE_TYPES = ['image/jpeg', 'image/png'];
 const CARD_IMAGE_MAX = 16 * 1024 * 1024;
 
+let cardSeq = 0;
+const newCardUid = () => `card${++cardSeq}`;
+
 const blankCard = (kind: 'url' | 'reply', no: number): InteractiveCard => ({
+  uid: newCardUid(),
   mediaId: '',
   mediaUrl: '',
   text: '',
@@ -86,7 +92,7 @@ function uniqueId(base: string, taken: string[]): string {
  */
 @Component({
   selector: 'app-interactive-editor',
-  imports: [ArSwitch, MediaSrc],
+  imports: [MediaSrc],
   templateUrl: './interactive-editor.html',
   styleUrl: './interactive-editor.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -108,9 +114,11 @@ export class InteractiveEditor {
   protected readonly ctaHints = CTA_HINTS;
   protected readonly type = computed<Choice>(() => this.value()?.type ?? 'none');
   protected readonly errors = computed(() => validateInteractive(this.value()));
-  /** Index of the card whose image is uploading, and the last upload error as [card, message]. */
-  protected readonly uploading = signal(-1);
-  protected readonly uploadError = signal<[number, string] | null>(null);
+  /** Uids of the cards whose image is uploading, and the last upload error as [card uid, message]. */
+  protected readonly uploading = signal<ReadonlySet<string>>(new Set());
+  protected readonly uploadError = signal<[string, string] | null>(null);
+  private readonly uploads = new Map<string, Subscription>();
+  private readonly destroyRef = inject(DestroyRef);
   protected readonly rowCount = computed(() =>
     (this.value()?.list?.sections ?? []).reduce((n, s) => n + s.rows.length, 0),
   );
@@ -130,7 +138,7 @@ export class InteractiveEditor {
       this.value.set(null);
       return;
     }
-    const base = { type, header: current?.header, footer: current?.footer, native: current?.native };
+    const base = { type, header: current?.header, footer: current?.footer };
     if (type === 'buttons') {
       this.value.set({
         ...base,
@@ -143,7 +151,6 @@ export class InteractiveEditor {
       // No header/footer on a carousel: the main message is the only text above the cards.
       this.value.set({
         type,
-        native: current?.native,
         carousel: { kind: 'url', cards: [blankCard('url', 1), blankCard('url', 2)] },
       });
     } else if (type === 'cta') {
@@ -324,11 +331,11 @@ export class InteractiveEditor {
   protected setKind(kind: 'url' | 'reply'): void {
     if (kind === this.kind()) return;
     this.setCards(
-      this.cards().map(({ mediaId, mediaUrl, text, buttons, cta }, i) => {
+      this.cards().map(({ uid, mediaId, mediaUrl, text, buttons, cta }, i) => {
         const title = buttons?.[0]?.title || cta?.[0]?.title || 'Learn more';
         return kind === 'url'
-          ? { mediaId, mediaUrl, text, cta: [{ kind: 'url' as const, title, value: '' }] }
-          : { mediaId, mediaUrl, text, buttons: [{ id: this.replyId(title, i, 0, []), title }] };
+          ? { uid, mediaId, mediaUrl, text, cta: [{ kind: 'url' as const, title, value: '' }] }
+          : { uid, mediaId, mediaUrl, text, buttons: [{ id: this.replyId(title, i, 0, []), title }] };
       }),
       kind,
     );
@@ -341,6 +348,7 @@ export class InteractiveEditor {
 
   protected removeCard(i: number): void {
     if (this.cards().length <= LIMITS.cards.min) return;
+    this.cancelUpload(this.cards()[i]?.uid);
     // Reply ids carry the card number, so re-derive them for the cards that shift up.
     this.setCards(
       this.cards()
@@ -405,21 +413,57 @@ export class InteractiveEditor {
     const file = input.files?.[0];
     input.value = '';
     if (!file) return;
+    if (!this.cards()[i]) return;
+    // Saved cards have no uid yet: give this one a stable identity before anything refers to it.
+    let uid = this.cards()[i].uid;
+    if (!uid) {
+      uid = newCardUid();
+      this.patchCard(i, { uid });
+    }
     if (!CARD_IMAGE_TYPES.includes(file.type))
-      return this.uploadError.set([i, 'Use a JPEG or PNG image.']);
-    if (file.size > CARD_IMAGE_MAX) return this.uploadError.set([i, 'The image is over 16 MB.']);
+      return this.uploadError.set([uid, 'Use a JPEG or PNG image.']);
+    if (file.size > CARD_IMAGE_MAX) return this.uploadError.set([uid, 'The image is over 16 MB.']);
     this.uploadError.set(null);
-    this.uploading.set(i);
-    this.api.uploadMedia(file).subscribe({
-      next: (m) => {
-        this.uploading.set(-1);
-        this.patchCard(i, { mediaId: m.mediaId, mediaUrl: m.url });
-      },
-      error: (err: Error) => {
-        this.uploading.set(-1);
-        this.uploadError.set([i, err.message]);
-      },
+    this.cancelUpload(uid);
+    this.uploading.update((set) => new Set(set).add(uid));
+    this.uploads.set(
+      uid,
+      this.api
+        .uploadMedia(file)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (m) => {
+            this.finishUpload(uid);
+            // The card or the carousel may be gone by now: the result then has nowhere to go.
+            const at = this.cards().findIndex((c) => c.uid === uid);
+            if (at >= 0) this.patchCard(at, { mediaId: m.mediaId, mediaUrl: m.url });
+          },
+          error: (err: Error) => {
+            this.finishUpload(uid);
+            this.uploadError.set([uid, err.message]);
+          },
+        }),
+    );
+  }
+
+  /** Abort a card's in-flight upload, e.g. because the card was removed or its image replaced. */
+  private cancelUpload(uid: string | undefined): void {
+    if (!uid) return;
+    this.uploads.get(uid)?.unsubscribe();
+    this.finishUpload(uid);
+  }
+
+  private finishUpload(uid: string): void {
+    this.uploads.delete(uid);
+    this.uploading.update((set) => {
+      const next = new Set(set);
+      next.delete(uid);
+      return next;
     });
+  }
+
+  protected isUploading(card: InteractiveCard): boolean {
+    return !!card.uid && this.uploading().has(card.uid);
   }
 
   protected clearCardImage(i: number): void {

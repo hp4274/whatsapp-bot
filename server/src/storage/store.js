@@ -58,10 +58,15 @@ export function toFile(row) {
     };
 }
 
+const MB = 1024 * 1024;
+
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, '+00:00');
 
 /** sqlite connection -> tenant id -> the backfill promise: once per tenant per process. */
 const backfills = new WeakMap();
+
+/** sqlite connection -> tenant id -> bytes of uploads that passed the quota but are still being written. */
+const pendingBytes = new WeakMap();
 
 export class StorageStore {
     /**
@@ -69,12 +74,48 @@ export class StorageStore {
      * @param {object} deps
      * @param {string} deps.uploadDir
      * @param {import('../mediaStore.js').MediaStore} deps.media  where uploaded media is registered
+     * @param {() => number|null} [deps.limitMb]  the plan's storage quota in MB, null = none
+     * @param {(bytes: number) => void} [deps.onUsage]  told the new total whenever a file is added or dropped
      */
-    constructor(database, { uploadDir, media }) {
+    constructor(database, { uploadDir, media, limitMb = null, onUsage = null }) {
         this.db = database.db;
         this.tenantId = database.tenantId;
         this.uploadDir = uploadDir;
         this.media = media;
+        this.limitMb = limitMb;
+        this.onUsage = onUsage;
+    }
+
+    /** Bytes this tenant has stored, across both kinds. */
+    bytesUsed() {
+        return this.db.prepare('SELECT COALESCE(SUM(size), 0) AS n FROM stored_files WHERE tenant_id = ?').get(this.tenantId).n;
+    }
+
+    /** Throws 413 when `size` more bytes would take the tenant past its storage quota. */
+    ensureRoom(size) {
+        const mb = this.limitMb?.();
+        if (mb === null || mb === undefined) return;
+        const pending = pendingBytes.get(this.db)?.get(this.tenantId) ?? 0;
+        if (this.bytesUsed() + pending + Number(size) > mb * MB) {
+            throw new StorageError(`Your storage is full (${mb} MB on your plan). Delete files you no longer need in Storage.`, 413);
+        }
+    }
+
+    /**
+     * ensureRoom for a write that awaits before add(): the bytes count against
+     * the quota until the returned release() runs, so parallel uploads cannot
+     * all pass on the old total.
+     */
+    reserve(size) {
+        this.ensureRoom(size);
+        if (!pendingBytes.has(this.db)) pendingBytes.set(this.db, new Map());
+        const pending = pendingBytes.get(this.db);
+        pending.set(this.tenantId, (pending.get(this.tenantId) ?? 0) + Number(size));
+        return () => {
+            const left = pending.get(this.tenantId) - Number(size);
+            if (left > 0) pending.set(this.tenantId, left);
+            else pending.delete(this.tenantId);
+        };
     }
 
     get(id) {
@@ -133,6 +174,7 @@ export class StorageStore {
             .run(this.tenantId, kind, sha256, name, mimetype, size, storedName, mediaId, rows, at, at);
         const row = this.db.prepare('SELECT * FROM stored_files WHERE tenant_id = ? AND sha256 = ?')
             .get(this.tenantId, sha256);
+        if (info.changes) this.onUsage?.(this.bytesUsed());
         return { row, created: info.changes > 0 };
     }
 
@@ -143,7 +185,8 @@ export class StorageStore {
     }
 
     forget(id) {
-        this.db.prepare('DELETE FROM stored_files WHERE id = ? AND tenant_id = ?').run(Number(id), this.tenantId);
+        const info = this.db.prepare('DELETE FROM stored_files WHERE id = ? AND tenant_id = ?').run(Number(id), this.tenantId);
+        if (info.changes) this.onUsage?.(this.bytesUsed());
     }
 
     /** Remember an uploaded sheet, or find the copy already stored. */
@@ -151,6 +194,7 @@ export class StorageStore {
         const sha256 = sha256Of(buffer);
         const known = this.find(sha256, 'sheet');
         if (known) return { row: this.touch(known.id), duplicate: true };
+        this.ensureRoom(buffer.length);
         const name = safeName(originalname);
         // The tenant is in the name: two tenants may upload identical bytes, and
         // deleting one tenant's copy must not remove the other's.

@@ -11,8 +11,9 @@
  * tenant. Everything else on this store is scoped to `db.tenantId`, so one
  * tenant's owner cannot list or revoke another's keys.
  *
- * Rate limiting per key is Phase 18. `touch()` records `last_used_at`, which
- * is the data that phase will need; nothing here throttles.
+ * Throttling is not here: app.js applies `v1Limit` (security/signature.js
+ * rateLimit, one bucket per key) and the plan's api_requests quota to every
+ * /api/v1 call. `touch()` only records `last_used_at`.
  */
 
 import crypto from 'node:crypto';
@@ -38,6 +39,9 @@ export const KEY_PREFIX = 'wsk_';
 const PREFIX_LENGTH = KEY_PREFIX.length + 8;
 
 const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
+const DAY_MS = 86_400_000;
+/** A key this close to its expiry is flagged `expiringSoon` in the developer screen. */
+export const EXPIRY_WARNING_DAYS = 14;
 
 export class ApiKeyError extends Error {
     constructor(message, status = 400) {
@@ -48,10 +52,36 @@ export class ApiKeyError extends Error {
 
 export class ApiKeyStore {
     /** @param {import('../db.js').Database} database a tenant- or channel-scoped handle */
-    constructor(database, { now = () => utcNow() } = {}) {
+    /**
+     * @param {object} [opts]
+     * @param {(tenantId?: number) => number} [opts.maxAgeDays] the key's tenant's `security.apiKeyMaxAgeDays`
+     *   (0 = no limit): new keys must expire within it, and a key older than it stops working whatever its
+     *   own expiry says. Called with the key row's tenant, so an unscoped store (the /api/v1 check) works too.
+     */
+    constructor(database, { now = () => utcNow(), maxAgeDays = () => 0 } = {}) {
         this.db = database.db;
         this.tenantId = database.tenantId;
         this.now = now;
+        this.maxAgeDays = (tenantId = this.tenantId) => Math.max(0, Number(maxAgeDays(tenantId)) || 0);
+    }
+
+    /** When a row stops working: its own expiry or created + max age, whichever is first. ms, or null. */
+    #expiryMs(row) {
+        const own = row.expires_at ? Date.parse(row.expires_at) : null;
+        const max = this.maxAgeDays(row.tenant_id);
+        const aged = max ? Date.parse(row.created_at) + max * DAY_MS : null;
+        if (own == null) return aged;
+        return aged == null ? own : Math.min(own, aged);
+    }
+
+    #view(row) {
+        const expiry = this.#expiryMs(row);
+        const left = expiry == null ? null : expiry - Date.parse(this.now());
+        return {
+            ...toKey(row),
+            expiresAt: expiry == null ? null : new Date(expiry).toISOString(),
+            expiringSoon: !row.revoked_at && left != null && left > 0 && left <= EXPIRY_WARNING_DAYS * DAY_MS,
+        };
     }
 
     /**
@@ -61,9 +91,17 @@ export class ApiKeyStore {
     createKey({ name = '', scopes = [], expiresAt = null } = {}) {
         const clean = cleanScopes(scopes);
         if (!clean.length) throw new ApiKeyError(`scopes must include at least one of ${API_SCOPES.join(', ')}`);
-        const expires = expiresAt == null || expiresAt === '' ? null : isoOrThrow(expiresAt);
-        const key = KEY_PREFIX + crypto.randomBytes(24).toString('base64url');
         const now = this.now();
+        let expires = expiresAt == null || expiresAt === '' ? null : isoOrThrow(expiresAt);
+        const max = this.maxAgeDays();
+        if (max) {
+            const latest = new Date(Date.parse(now) + max * DAY_MS).toISOString();
+            if (!expires) expires = latest;
+            else if (Date.parse(expires) > Date.parse(latest)) {
+                throw new ApiKeyError(`expiresAt must be within ${max} days: that is the longest a key may live here`);
+            }
+        }
+        const key = KEY_PREFIX + crypto.randomBytes(24).toString('base64url');
         const info = this.db.prepare(
             `INSERT INTO api_keys (tenant_id, name, key_hash, prefix, scopes, expires_at, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)`)
@@ -82,20 +120,21 @@ export class ApiKeyStore {
         if (!row || row.revoked_at) return null;
         // Parsed, not string-compared: `utcNow()` writes "+00:00" where
         // toISOString() writes "Z", and those two do not sort against each other.
-        if (row.expires_at && Date.parse(row.expires_at) <= Date.parse(this.now())) return null;
+        const expiry = this.#expiryMs(row);
+        if (expiry != null && expiry <= Date.parse(this.now())) return null;
         return { id: row.id, tenantId: row.tenant_id, scopes: parseScopes(row.scopes) };
     }
 
     /** Never includes the key or its hash: there is nothing here to steal. */
     list() {
         return this.db.prepare('SELECT * FROM api_keys WHERE tenant_id = ? ORDER BY id DESC')
-            .all(this.tenantId).map(toKey);
+            .all(this.tenantId).map((row) => this.#view(row));
     }
 
     get(id) {
         const row = this.db.prepare('SELECT * FROM api_keys WHERE id = ? AND tenant_id = ?')
             .get(Number(id), this.tenantId);
-        return row ? toKey(row) : null;
+        return row ? this.#view(row) : null;
     }
 
     /** Irreversible, and takes effect on the next request rather than at expiry. */
@@ -105,6 +144,12 @@ export class ApiKeyStore {
             .run(this.now(), Number(id), this.tenantId);
         if (!info.changes && !this.get(id)) throw new ApiKeyError('api key not found', 404);
         return this.get(id);
+    }
+
+    /** Revoke every live key of this tenant (super admin). Returns how many were revoked. */
+    revokeAll() {
+        return this.db.prepare('UPDATE api_keys SET revoked_at = ? WHERE tenant_id = ? AND revoked_at IS NULL')
+            .run(this.now(), this.tenantId).changes;
     }
 
     /**

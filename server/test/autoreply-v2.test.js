@@ -15,7 +15,7 @@ import { closeApp } from '../src/app.js';
 import { AutoReplyEngine } from '../src/autoreply/engine.js';
 import { fold, matchOne } from '../src/autoreply/match.js';
 import { AutoReplyStore } from '../src/autoreply/store.js';
-import { DEFAULTS, TRANSPORT_CLOUD_API, TRANSPORT_SANDBOX } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { ContactStore } from '../src/contactStore.js';
 import { Database } from '../src/db.js';
 import { ConversationStore } from '../src/inbox/store.js';
@@ -471,12 +471,12 @@ describe('HTTP', () => {
     });
 });
 
-describe('live path: one message per inbound (Cloud API webhook)', () => {
+describe('live path: one message per inbound', () => {
     let app;
     let server;
     let base;
     let db;
-    let posts;
+    let transport;
 
     const call = async (method, url, body) => {
         const res = await fetch(base + url, {
@@ -485,11 +485,12 @@ describe('live path: one message per inbound (Cloud API webhook)', () => {
         return { status: res.status, body: await res.json().catch(() => null) };
     };
     let n = 0;
-    const inbound = (from, body, id = `wamid.live.${(n += 1)}`) => call('POST', '/api/webhook', { entry: [{ changes: [{ value: {
-        contacts: [{ wa_id: from, profile: { name: 'Mira' } }],
-        messages: [{ id, from, timestamp: String(Math.floor(Date.now() / 1000)), type: 'text', text: { body } }],
-    } }] }] });
-    const textsTo = (to) => posts.filter((p) => p.to === to).map((p) => p.text?.body ?? p.interactive?.body?.text);
+    // Played through the transport, as a real one hands a received message to the app.
+    const inbound = async (from, body, id = `wamid.live.${(n += 1)}`) => {
+        transport.events.emit('inbound', { messageId: id, sender: from, senderName: 'Mira', body });
+    };
+    const textsTo = (to) => db.db.prepare("SELECT message FROM messages WHERE recipient = ? AND direction = 'outbound' AND status = 'SANDBOX' ORDER BY rowid")
+        .all(to).map((r) => r.message);
     const settle = async (to, count) => {
         const end = Date.now() + 6000;
         while (Date.now() < end && textsTo(to).length < count) await new Promise((resolve) => setTimeout(resolve, 25));
@@ -498,20 +499,12 @@ describe('live path: one message per inbound (Cloud API webhook)', () => {
     };
 
     before(async () => {
-        posts = [];
-        const fetchImpl = async (url, init) => {
-            if (init?.method === 'POST') {
-                posts.push(JSON.parse(init.body));
-                return new Response(JSON.stringify({ messages: [{ id: `wamid.out.${posts.length}` }] }), { status: 200 });
-            }
-            return new Response(JSON.stringify({ display_phone_number: '15550783881', verified_name: 'Acme', quality_rating: 'GREEN' }), { status: 200 });
-        };
         db = new Database(path.join(tmp, 'live.db'));
         db.db.exec('DELETE FROM auto_replies');
         app = createTestApp({
-            db, dataDir: tmp, deps: { fetchImpl },
+            db, dataDir: tmp,
             config: {
-                ...DEFAULTS, transport: TRANSPORT_CLOUD_API, phoneNumberId: '1', accessToken: 'good', requestTimeout: 5,
+                ...DEFAULTS, transport: TRANSPORT_SANDBOX,
                 safetyEnabled: false, pacingMode: 'fixed', rateLimitPerSecond: 50, rateLimitBurst: 50,
             },
         });
@@ -519,6 +512,8 @@ describe('live path: one message per inbound (Cloud API webhook)', () => {
         await new Promise((resolve) => server.once('listening', resolve));
         base = `http://127.0.0.1:${server.address().port}`;
         assert.equal((await call('POST', '/api/connection/connect')).status, 200);
+        const rt = app.locals.runtimeFor(1);
+        transport = rt.runtimeFor(rt.channels.getDefault()).state.transport;
         await call('PUT', '/api/auto-replies/settings', { welcome: { enabled: true, text: 'Welcome!' } });
         await call('POST', '/api/auto-replies', { matchType: 'EXACT', keywords: ['price'], replyBody: 'From 99' });
     });

@@ -15,6 +15,8 @@ import { WorkflowError, interpolateDeep, matches, resolve } from './definition.j
 import { iso } from './store.js';
 
 const UNITS = Object.freeze({ seconds: 1000, minutes: 60_000, hours: 3_600_000, days: 86_400_000 });
+/** How long a send refused by a tenant control waits before the step is tried again. */
+const BLOCKED_RETRY_MS = 5 * 60_000;
 
 export class WorkflowEngine {
     /**
@@ -126,6 +128,13 @@ export class WorkflowEngine {
                 result = await this.#execute(step, params, run, ctx);
             } catch (err) {
                 this.store.finishStep(logId, { status: 'failed', error: err.message });
+                // The admin switched sending/automations off: wait and retry this
+                // step later instead of failing the run for good.
+                if (err?.reason === 'tenant_blocked') {
+                    return this.store.updateRun(run.runId, {
+                        status: 'waiting', currentStep: stepId, context: ctx, resumeAt: iso(new Date(this.now().getTime() + BLOCKED_RETRY_MS)),
+                    });
+                }
                 if (step.onError) { stepId = step.onError; continue; }
                 return this.#fail(run, stepId, err.message, ctx);
             }

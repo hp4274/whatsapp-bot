@@ -16,7 +16,7 @@ import { Router } from '@angular/router';
 import { Channel, ChannelsApi } from '../core/api';
 import { Store } from '../core/store';
 import { ChannelCard } from './channel-card';
-import { liveState, localZone, timeZones, transportMeta } from './channel-meta';
+import { liveState, localZone, timeZones } from './channel-meta';
 
 /** Only the active number streams live events; the rest are polled this often. */
 const POLL_MS = 30_000;
@@ -24,7 +24,7 @@ const POLL_MS = 30_000;
 const emptyDraft = () => ({
   displayName: '',
   phoneNumber: '',
-  transport: 'cloud_api',
+  transport: 'baileys',
   timezone: localZone(),
 });
 
@@ -58,7 +58,6 @@ export class ChannelsView {
   protected readonly draft = signal(emptyDraft());
   protected readonly activeId = this.store.channelId;
   protected readonly zones = timeZones(localZone());
-  protected readonly meta = transportMeta;
 
   private readonly firstField = viewChild<ElementRef<HTMLInputElement>>('firstField');
 
@@ -78,10 +77,6 @@ export class ChannelsView {
       ).length,
     };
   });
-
-  protected readonly transportOptions = computed(() =>
-    this.transports().map((value) => ({ value, ...transportMeta(value) })),
-  );
 
   constructor() {
     this.refresh();

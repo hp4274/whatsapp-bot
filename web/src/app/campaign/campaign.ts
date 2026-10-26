@@ -150,11 +150,6 @@ export class CampaignView implements OnInit {
         icon: 'clock-pause',
         text: "already got today's maximum of bulk messages",
       },
-      {
-        n: r.skippedTemplateVars ?? 0,
-        icon: 'template-off',
-        text: 'had no value for a slot the template needs',
-      },
     ];
     const explained = rows.reduce((t, x) => t + x.n, 0) + (r.skippedNoOptIn ?? 0);
     const other = (r.skipped ?? 0) - explained;

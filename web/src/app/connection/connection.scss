@@ -121,62 +121,17 @@ h3 {
   }
 }
 
+.questions {
+  padding: var(--space-xl);
+}
+
 .safety {
   display: grid;
   gap: var(--space-md);
   padding-bottom: var(--space-xl);
 
-  > .budget,
-  > .meter,
-  > .empty,
   > app-safety-controls {
     margin: 0 var(--space-xl);
-  }
-
-  .budget {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: var(--space-md);
-
-    div {
-      display: grid;
-      gap: 4px;
-    }
-
-    span {
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-
-    strong {
-      font-size: 20px;
-      font-weight: 500;
-      letter-spacing: -0.5px;
-      font-variant-numeric: tabular-nums;
-      color: var(--text-strong);
-    }
-  }
-
-  .meter {
-    height: 8px;
-    border-radius: 999px;
-    background: var(--surface-sunken);
-    overflow: hidden;
-
-    .bar {
-      height: 100%;
-      border-radius: inherit;
-      background: var(--primary);
-      transition: width var(--base) var(--ease);
-    }
-  }
-
-  .empty {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    margin-block: 0;
-    font-size: 13px;
   }
 }
 
@@ -382,6 +337,17 @@ h3 {
 
   .done-mark {
     color: var(--success);
+  }
+
+  .qr-timer {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-variant-numeric: tabular-nums;
+
+    &.low {
+      color: var(--danger-text);
+    }
   }
 }
 

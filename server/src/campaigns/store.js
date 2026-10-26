@@ -21,29 +21,12 @@ import { dayKey, daysBetween, isDateKey, isEarlyContinue, nextDayAt, spreadPlan,
 import { linkClicksByRecipient } from '../links/store.js';
 import { ErrorCode, FRIENDLY, normalizeError } from '../messaging/errors.js';
 import { InteractiveError, normalizeInteractive, personalizeInteractive } from '../messaging/interactive.js';
-import { metaTemplateFor, prepareTemplateSend } from '../messaging/templateSend.js';
 import { campaignRefusal } from '../policy/campaignOps.js';
 import { Status, contactContext, utcNow } from '../protocol.js';
 
 export const CAMPAIGN_STATUSES = Object.freeze([
     'draft', 'scheduled', 'running', 'paused', 'done', 'cancelled',
 ]);
-
-/**
- * One recipient's Meta template payloads from #metaTemplates' result, the way
- * manager.enqueueContacts builds them: a main template with an empty slot
- * means skip (`missing`), an incomplete fallback is simply dropped.
- */
-function templateSendsFor({ metaTemplate, fallbackTemplate }, context) {
-    const main = metaTemplate ? prepareTemplateSend(metaTemplate.template, context, metaTemplate.params) : null;
-    const fallback = fallbackTemplate
-        ? prepareTemplateSend(fallbackTemplate.template, context, fallbackTemplate.params) : null;
-    return {
-        missing: Boolean(main?.missing.length),
-        template: main?.template ?? null,
-        fallbackTemplate: fallback && !fallback.missing.length ? fallback : null,
-    };
-}
 
 /** Statuses after which nothing more will be sent. */
 const FINAL = Object.freeze(['done', 'cancelled']);
@@ -126,7 +109,7 @@ export class CampaignStore {
             .run(this.tenantId, channelId === undefined ? this.channelId : nullableInt(channelId),
                 clean, wanted, nullableInt(templateId), String(body ?? ''), nullableInt(segmentId),
                 JSON.stringify(audience ?? null), mediaId == null ? null : String(mediaId),
-                scheduledAt ? iso(scheduledAt) : null, JSON.stringify(cleanOptions), now, now);
+                scheduledIso(scheduledAt), JSON.stringify(cleanOptions), now, now);
         return this.get(Number(info.lastInsertRowid));
     }
 
@@ -143,8 +126,7 @@ export class CampaignStore {
             segmentId: patch.segmentId === undefined ? campaign.segmentId : nullableInt(patch.segmentId),
             audience: patch.audience === undefined ? campaign.audience : (patch.audience ?? null),
             mediaId: patch.mediaId === undefined ? campaign.mediaId : (patch.mediaId == null ? null : String(patch.mediaId)),
-            scheduledAt: patch.scheduledAt === undefined ? campaign.scheduledAt
-                : (patch.scheduledAt ? iso(patch.scheduledAt) : null),
+            scheduledAt: patch.scheduledAt === undefined ? campaign.scheduledAt : scheduledIso(patch.scheduledAt),
             status: patch.status === undefined ? campaign.status : pickStatus(patch.status, campaign.status),
             options: patch.options === undefined ? campaign.options : normalizeOptions(patch.options),
         };
@@ -296,6 +278,10 @@ export class CampaignStore {
      */
     start(id, { media = null, onePerNumber = true } = {}) {
         const campaign = this.require(id);
+        // Its own number sends it: another number's manager would send from the wrong phone.
+        if (campaign.channelId != null && this.channelId != null && campaign.channelId !== this.channelId) {
+            throw new CampaignError('that campaign sends from another number; switch to it to start', 409);
+        }
         if (campaign.status === 'running') throw new CampaignError('that campaign is already running', 409);
         if (campaign.status === 'paused') throw new CampaignError('that campaign is paused; resume it', 409);
         if (FINAL.includes(campaign.status)) throw new CampaignError(`that campaign is ${campaign.status}`, 409);
@@ -346,14 +332,10 @@ export class CampaignStore {
         if (!recipients.length) throw new CampaignError('that audience is empty');
         if (!this.manager) throw new CampaignError('no campaign manager is configured', 500);
         const attachment = media ?? this.#media(campaign);
-        const meta = this.#metaTemplates(campaign, options);
-
-        this.manager.resetStats();
-        this.manager.queue.reset({ keepOneOff: true });
-        this.manager.pausedByQuota = false;
         let result;
         try {
             result = this.manager.enqueueContacts(recipients, text, {
+                reset: { keepOneOff: true }, // after its refusals: a refused start leaves the live queue alone
                 campaignId: campaignKey(campaign.id),
                 // The "skip duplicate numbers" box: off sends every row, even a repeated number.
                 onePerNumber: onePerNumber && options.skipDuplicates !== false,
@@ -363,7 +345,6 @@ export class CampaignStore {
                 pacing: options.pacing ?? 'balanced',
                 variants: options.variants ?? null,
                 trackLinks: options.trackLinks === true,
-                ...meta,
             });
         } catch (err) {
             if (err instanceof InteractiveError) throw new CampaignError(err.message, 400);
@@ -374,30 +355,6 @@ export class CampaignStore {
         if (spread) this.#saveSpread(campaign, cursor + batch);
         this.#reason(campaign.id, null);
         return { campaign: this.get(campaign.id), audience: recipients.length, ...result, carried };
-    }
-
-    /**
-     * Meta approved-template mode (Cloud API only, messaging/templateSend.js):
-     * options.templateMode === 'meta' sends `templateId` as the approved
-     * template with options.templateParams (else its stored mapping);
-     * options.fallbackTemplateId is swapped in when a free-form send hits 131047.
-     * `this.channel` is set by the router: () => the live channel row.
-     */
-    #metaTemplates(campaign, options) {
-        if (options.templateMode === 'meta' && campaign.templateId == null) {
-            throw new CampaignError('pick an approved Meta template for this campaign');
-        }
-        const channel = this.channel?.() ?? null;
-        try {
-            return {
-                metaTemplate: options.templateMode === 'meta'
-                    ? metaTemplateFor(this.templates, channel, campaign.templateId, options.templateParams) : null,
-                fallbackTemplate: metaTemplateFor(this.templates, channel,
-                    options.fallbackTemplateId, options.fallbackTemplateParams),
-            };
-        } catch (err) {
-            throw new CampaignError(err.message, err.status ?? 400);
-        }
     }
 
     pause(id) {
@@ -535,7 +492,6 @@ export class CampaignStore {
         const media = this.#media(campaign);
         const options = campaign.options ?? {};
         const key = campaignKey(campaign.id);
-        const meta = this.#metaTemplates(campaign, options);
         this.manager.resetStats();
         this.manager.queue.reset({ keepOneOff: true });
         this.manager.pausedByQuota = false;
@@ -543,11 +499,6 @@ export class CampaignStore {
         let queued = 0;
         for (const row of failed) {
             const contact = this.#contactFor(campaign, row.recipient, row.name);
-            const context = withFallbacks(contactContext(contact), options.fallbacks ?? {});
-            // Same per-recipient resolution as manager.enqueueContacts; the
-            // stored text stays the message (history + free-form fallback).
-            const sends = templateSendsFor(meta, context);
-            if (sends.missing) continue;
             const interactive = options.interactive
                 ? personalizeInteractive(this.#withCardMedia(options.interactive),
                     withFallbacks(contactContext(contact), options.fallbacks ?? {}))
@@ -560,8 +511,6 @@ export class CampaignStore {
                 media,
                 messageType: 'campaign',
                 interactive,
-                template: sends.template,
-                fallbackTemplate: sends.fallbackTemplate,
                 variant: row.variant ?? null,
             });
             if (messageId !== null) queued += 1;
@@ -739,14 +688,17 @@ export class CampaignStore {
     spreadCheck({ count, from, to, timezone = null } = {}) {
         const quota = this.manager?.quota;
         const safe = this.manager?.config?.safetyEnabled !== false;
-        // ponytail: today's tier cap and the plan's daily cap only; a monthly cap is enforced at send time.
-        const limit = Math.min(...[safe ? quota?.limit : 0, this.manager?.bulkPolicy?.()?.dailyCap]
+        // ponytail: today's level cap and the plan's daily cap only; a monthly cap is enforced at send time.
+        // planLimit: a resting QR number plans at level 1's day, not at its 0 ("no cap").
+        const limit = Math.min(...[safe ? quota?.planLimit?.() : 0, this.manager?.bulkPolicy?.()?.dailyCap]
             .map(Number).filter((n) => n > 0), Infinity);
-        const tier = quota?.tier?.() ?? null;
+        const row = quota?.tier?.() ?? null;
+        const levels = safe && quota?.qr;
         return spreadPlan({
             count, from, to, limit: Number.isFinite(limit) ? limit : 0,
             today: dayKey(new Date(), timezone || this.manager?.timezone?.() || null),
-            tier: tier ? { tier: tier.tier, name: tier.name } : null,
+            level: levels ? { level: row.level, name: row.name } : null,
+            newChats: levels ? quota.allowance().newChatsPerDay : 0,
         });
     }
 
@@ -774,7 +726,7 @@ export class CampaignStore {
     }
 
     /**
-     * What may still go out today: the tier / plan quota and the platform's business cap,
+     * What may still go out today: the level / plan quota and the platform's business cap,
      * whichever is tighter (Infinity when neither applies, like `spreadCheck`).
      */
     #budgetLeft() {
@@ -805,16 +757,12 @@ export class CampaignStore {
 
     /**
      * Sweeper hook for a running spread campaign: finish today's batch (the next
-     * day gets booked) and carry on once a daily-cap pause has lifted.
+     * day gets booked). A daily-cap pause lifts itself in the manager.
      */
     tick(id) {
         const campaign = this.get(id);
         if (!campaign?.options?.spread || campaign.status !== 'running') return;
         this.stats(id);
-        const manager = this.manager;
-        if (this.get(id).status === 'running' && this.#isLive(campaign) && manager?.pausedByQuota && !manager.quota.exhausted()) {
-            manager.resume();
-        }
     }
 
     /**
@@ -841,21 +789,15 @@ export class CampaignStore {
 
         const options = campaign.options ?? {};
         const media = this.#media(campaign);
-        const meta = this.#metaTemplates(campaign, options);
         const jobs = [];
         const mark = this.db.prepare('UPDATE messages SET status = ?, error = ?, updated_at = ? WHERE message_id = ? AND tenant_id = ?');
         for (const row of rows) {
             const contact = this.#contactFor(campaign, row.recipient, row.name);
             const context = withFallbacks(contactContext(contact), options.fallbacks ?? {});
-            const sends = templateSendsFor(meta, context);
-            if (sends.missing) {
-                mark.run(Status.FAILED, 'A template variable is missing for this person', this.now(), row.message_id, this.tenantId);
-                continue;
-            }
             if (row.status === Status.SENDING) mark.run(Status.QUEUED, null, this.now(), row.message_id, this.tenantId);
             jobs.push({
                 messageId: row.message_id, attempt: row.attempt, recipient: row.recipient, text: row.message,
-                name: row.name ?? '', media, template: sends.template, fallbackTemplate: sends.fallbackTemplate,
+                name: row.name ?? '', media,
                 interactive: options.interactive ? personalizeInteractive(this.#withCardMedia(options.interactive), context) : null,
                 variant: row.variant ?? null,
             });
@@ -1045,17 +987,17 @@ export function dueCampaigns(database, now = new Date()) {
 /** For the scheduler: running or paused campaigns that still own QUEUED rows (see `recover`). */
 export function openCampaigns(database) {
     return database.db.prepare(
-        `SELECT c.id, c.tenant_id FROM campaigns c WHERE c.status IN ('running', 'paused')
+        `SELECT c.id, c.tenant_id, c.channel_id FROM campaigns c WHERE c.status IN ('running', 'paused')
            AND EXISTS (SELECT 1 FROM messages m WHERE m.tenant_id = c.tenant_id
                        AND m.campaign_id = 'camp-' || c.id AND m.status IN ('QUEUED', 'SENDING'))`)
-        .all().map((row) => ({ id: row.id, tenantId: row.tenant_id }));
+        .all().map((row) => ({ id: row.id, tenantId: row.tenant_id, channelId: row.channel_id }));
 }
 
 /** For the scheduler: running spread campaigns that need their daily nudge (see `tick`). */
 export function runningSpreadCampaigns(database) {
     return database.db.prepare(
-        `SELECT id, tenant_id FROM campaigns WHERE status = 'running' AND options LIKE '%"spread"%'`)
-        .all().map((row) => ({ id: row.id, tenantId: row.tenant_id }));
+        `SELECT id, tenant_id, channel_id FROM campaigns WHERE status = 'running' AND options LIKE '%"spread"%'`)
+        .all().map((row) => ({ id: row.id, tenantId: row.tenant_id, channelId: row.channel_id }));
 }
 
 /** Repeating campaigns whose next run is not booked yet (and whose chain has not stopped). */
@@ -1098,6 +1040,14 @@ export function nextRun(base, every, now = new Date()) {
 /** Same shape as `utcNow()`, so timestamps compare as strings across tables. */
 export const iso = (value) => (typeof value === 'string' ? value
     : new Date(value).toISOString().replace(/\.\d{3}Z$/, '+00:00'));
+
+/** A client's scheduled_at in any offset, stored as UTC so `due` can compare it as text. */
+function scheduledIso(value) {
+    if (!value) return null;
+    const at = new Date(value);
+    if (Number.isNaN(at.getTime())) throw new CampaignError('scheduled_at must be a date and time, like 2026-11-01T09:30:00+05:30');
+    return iso(at);
+}
 
 /**
  * Add `campaigns.options` to a database created before it existed. Checked
@@ -1156,9 +1106,6 @@ export function normalizeOptions(input) {
     }
     if (src.extraNumbers !== undefined) out.extraNumbers = normalizeExtraNumbers(src.extraNumbers);
     if (src.variants !== undefined) out.variants = normalizeVariants(src.variants);
-    if (out.variants && out.templateMode === 'meta') {
-        throw new CampaignError('an approved Meta template has one fixed wording, so it cannot be A/B tested');
-    }
     return out;
 }
 

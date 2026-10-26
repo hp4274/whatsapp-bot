@@ -27,6 +27,27 @@ const als = new AsyncLocalStorage();
 const SECRET_KEY_PATTERN = /token|password|passwd|secret|authorization|cookie|^key$|api[-_]?key|private[-_]?key|encryption[-_]?key/i;
 const REDACTED = '[redacted]';
 const MAX_DEPTH = 8;
+/** Message text never reaches a log line: a field with one of these names is redacted whatever it holds. */
+const BODY_KEY_PATTERN = /^(body|text|caption|content|message[-_]?(body|text))$/i;
+/** Fields that hold a phone number or WhatsApp id: kept to the last 4 digits. */
+const PHONE_KEY_PATTERN = /phone|recipient|sender|msisdn|jid|account|^to$|^from$|^number$/i;
+/**
+ * A phone number anywhere in a string (a message line, an error text): 8 to 15 digits, optionally with a
+ * leading + and single spaces between groups. Not next to a letter, dot, colon or dash, so ids, decimals,
+ * dates and uuids are left alone.
+ */
+const PHONE_IN_TEXT = /(?<![\w.:+-])\+?\d(?: ?\d){7,14}(?![\w-])/g;
+
+/** `…1234`: the last 4 digits, the same shape ops alerts use. */
+export function maskPhone(value) {
+    const digits = String(value ?? '').replace(/\D/g, '');
+    return digits.length >= 5 ? `…${digits.slice(-4)}` : value;
+}
+
+/** Mask every phone-looking run in free text. */
+export function maskText(text) {
+    return String(text).replace(PHONE_IN_TEXT, (match) => maskPhone(match));
+}
 
 let threshold = LEVELS[process.env.LOG_LEVEL] ?? LEVELS.info;
 let sink = (level, line) => (LEVELS[level] >= LEVELS.warn ? process.stderr : process.stdout).write(`${line}\n`);
@@ -41,8 +62,12 @@ export function setLevel(level) {
     threshold = LEVELS[level];
 }
 
-/** Deep-copy `value` with secret-looking keys redacted. Safe on cycles and errors. */
+/**
+ * Deep-copy `value` with secret-looking keys and message bodies redacted, and phone numbers cut to their
+ * last 4 digits. Safe on cycles and errors.
+ */
 export function scrub(value, depth = 0, seen = new WeakSet()) {
+    if (typeof value === 'string') return maskText(value);
     if (value === null || typeof value !== 'object') return value;
     if (value instanceof Error) {
         return scrub({ name: value.name, message: value.message, stack: value.stack, ...value }, depth, seen);
@@ -54,7 +79,10 @@ export function scrub(value, depth = 0, seen = new WeakSet()) {
     if (value instanceof Date) return value.toISOString();
     const out = {};
     for (const [key, item] of Object.entries(value)) {
-        out[key] = SECRET_KEY_PATTERN.test(key) && item != null && item !== '' ? REDACTED : scrub(item, depth + 1, seen);
+        const hidden = (SECRET_KEY_PATTERN.test(key) || BODY_KEY_PATTERN.test(key)) && item != null && item !== '';
+        if (hidden) out[key] = REDACTED;
+        else if (PHONE_KEY_PATTERN.test(key) && (typeof item === 'string' || typeof item === 'number')) out[key] = maskPhone(item);
+        else out[key] = scrub(item, depth + 1, seen);
     }
     return out;
 }
@@ -64,7 +92,7 @@ function write(level, context, message, fields) {
     const line = {
         level,
         time: new Date().toISOString(),
-        message: String(message),
+        message: maskText(message),
         ...als.getStore(),
         ...context,
         ...scrub(fields ?? {}),

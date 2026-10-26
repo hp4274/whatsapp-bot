@@ -2,14 +2,11 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
-  effect,
   inject,
   signal,
-  untracked,
   viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
 
 import { Api, type UploadedMedia } from '../../core/api';
 import { ReusePicker } from '../../storage/reuse-picker';
@@ -19,7 +16,6 @@ import { Template, TemplatesApi } from '../../templates/templates-api';
 import { InteractiveEditor } from '../interactive/interactive-editor';
 import { CampaignDraft } from '../draft';
 import { CampaignPolicy } from '../policy-api';
-import { MetaParams } from './meta-params';
 import { ReplyRulesEditor } from '../interactive/reply-rules-editor';
 import { formatBytes, substitute } from '../wa-format';
 
@@ -48,17 +44,13 @@ const SPIN_SAMPLE = '{Hi|Hello|Hey}';
 
 /**
  * Step 1 (bottom half): the message itself — free-form text with WhatsApp formatting and
- * variables, or (on Cloud API) a Meta-approved template mapped to columns.
- * Optional extras (backup template, buttons) fold away so the main
- * path stays short.
+ * variables. Optional extras (buttons) fold away so the main path stays short.
  */
 @Component({
   selector: 'app-message-step',
   imports: [
     FormsModule,
-    RouterLink,
     InteractiveEditor,
-    MetaParams,
     ReusePicker,
     ReplyRulesEditor,
   ],
@@ -82,10 +74,6 @@ export class MessageStep {
   protected readonly duplicateOf = signal<string | null>(null);
   protected readonly date = shortDate;
 
-  /** Approved Meta templates (Cloud API channels only), loaded once on demand. */
-  protected readonly approved = signal<Template[] | null>(null);
-  protected readonly templatesError = signal('');
-
   /** Saved templates for the picker; null until loaded. */
   protected readonly saved = signal<Template[] | null>(null);
   protected readonly savedError = signal('');
@@ -101,24 +89,6 @@ export class MessageStep {
   constructor() {
     this.policy.load();
     this.loadSaved();
-    effect(() => {
-      if (this.draft.cloudApi() && untracked(this.approved) === null)
-        untracked(() => this.loadTemplates());
-    });
-  }
-
-  /** Also the error banner's Try again. */
-  protected loadTemplates(): void {
-    this.approved.set([]);
-    this.templatesApi.list().subscribe({
-      next: ({ templates }) => {
-        this.approved.set(
-          templates.filter((t) => t.approvalStatus === 'approved' && t.providerTemplateName),
-        );
-        this.templatesError.set('');
-      },
-      error: (err: Error) => this.templatesError.set(`Could not load templates: ${err.message}`),
-    });
   }
 
   /** Also the picker's Try again. */
@@ -126,7 +96,7 @@ export class MessageStep {
     this.savedError.set('');
     this.templatesApi.list().subscribe({
       next: ({ templates }) =>
-        this.saved.set(templates.filter((t) => t.templateType !== 'provider_template' && t.body)),
+        this.saved.set(templates.filter((t) => t.body)),
       error: (err: Error) => {
         this.saved.set([]);
         this.savedError.set(`Could not load saved templates: ${err.message}`);
@@ -173,8 +143,6 @@ export class MessageStep {
             ...[...d.message().matchAll(/\{(\w+)(?:\|[^{}]*)?\}/g)].map((m) => m[1]),
           ]),
         ],
-        providerTemplateName: '',
-        approvalStatus: 'draft',
         category: 'marketing',
         sampleValues: {},
         headerMediaId: d.attachment()?.mediaId ?? null,
@@ -224,14 +192,6 @@ export class MessageStep {
           this.testResult.set({ ok: false, text: `Test not sent: ${err.message}` });
         },
       });
-  }
-
-  protected pick(id: string, which: 'main' | 'fallback'): void {
-    this.draft.pickMetaTemplate(this.approved()?.find((t) => String(t.id) === id) ?? null, which);
-  }
-
-  protected label(t: Template): string {
-    return `${t.name} - ${t.language || 'en_US'} - ${t.category}`;
   }
 
   /** Toolbar buttons: WhatsApp's own markdown markers, not HTML. */

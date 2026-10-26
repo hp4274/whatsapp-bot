@@ -176,42 +176,6 @@ export function hasVariation(text: string): boolean {
   return /\{[^{}]*\|[^{}]*\}/.test(text) || /\{\w+\}/.test(text);
 }
 
-// ---- Meta approved templates (mirror of server/src/messaging/templateSend.js) ----
-const SLOT = /\{\{\s*(\d+)\s*\}\}/g;
-
-/** Highest {{n}} in an approved body: how many body parameters Meta expects. */
-export function slotCount(body: string): number {
-  let max = 0;
-  for (const [, n] of String(body ?? '').matchAll(SLOT)) max = Math.max(max, Number(n));
-  return max;
-}
-
-/** One slot's value: the contact's variable, else the slot fallback (server `fill`). */
-export function fillSlot(
-  slot: { var?: string; fallback?: string } | null | undefined,
-  context: Record<string, string>,
-): string {
-  if (!slot) return '';
-  const key = String(slot.var ?? '').trim();
-  const value = key ? context[key] : undefined;
-  return String(blank(value) ? (slot.fallback ?? '') : value).trim();
-}
-
-/** The approved body with {{n}} filled for one contact (server `renderTemplateText`); empty slots stay `{{n}}`. */
-export function renderTemplateText(
-  body: string,
-  slots: ({ var?: string; fallback?: string } | null | undefined)[],
-  context: Record<string, string>,
-): { text: string; missing: string[] } {
-  const missing: string[] = [];
-  const text = String(body ?? '').replace(SLOT, (match, n: string) => {
-    const value = fillSlot(slots[Number(n) - 1], context);
-    if (!value && !missing.includes(match)) missing.push(match);
-    return value || match;
-  });
-  return { text, missing };
-}
-
 export function formatBytes(bytes: number): string {
   return bytes < 1024 * 1024
     ? `${Math.max(1, Math.round(bytes / 1024))} KB`

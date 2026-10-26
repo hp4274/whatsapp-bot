@@ -2,38 +2,25 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-    TIERS, contentError, dayPlan, inQuiet, quietExtraSeconds, quietLeftSeconds, quietStatus, isDaytimeFor, seeded, shuffle, tierFromWeeks, typingMs, zoneOf,
+    LEVELS, contentError, dayPlan, inQuiet, quietExtraSeconds, quietLeftSeconds, quietStatus, isDaytimeFor, seeded, shuffle, typingMs, zoneOf,
 } from '../src/campaign/humanize.js';
 import { MessageQueue, queueItem } from '../src/campaign/queue.js';
 
-describe('sending tiers', () => {
-    it('starts on tier 1 and climbs only on a full week of volume', () => {
-        assert.equal(tierFromWeeks([]).tier, 1);
-        assert.equal(tierFromWeeks([999]).tier, 1);
-        assert.equal(tierFromWeeks([1000]).tier, 2);
-        assert.equal(tierFromWeeks([1000, 4999]).tier, 2);
-        assert.equal(tierFromWeeks([1000, 5000]).tier, 3);
-        assert.equal(tierFromWeeks([1000, 5000, 0]).tier, 3, 'a quiet week never demotes');
-    });
-
-    it('bigger tier = bigger day and shorter gaps', () => {
-        assert.deepEqual(TIERS.map((t) => t.dailyLimit), [250, 2000, 10000]);
-        assert.ok(TIERS[0].minSeconds > TIERS[1].maxSeconds && TIERS[1].minSeconds > TIERS[2].maxSeconds);
-    });
-});
+// Pace rows with a long, a middle and a short nightly rest.
+const ROWS = [LEVELS[1], LEVELS[6], LEVELS[8]];
 
 describe('day plan', () => {
     it('is stable within a day and differs between days', () => {
-        const a = dayPlan('t:1', TIERS[0], new Date(2026, 5, 1, 10));
-        assert.deepEqual(a, dayPlan('t:1', TIERS[0], new Date(2026, 5, 1, 23)));
+        const a = dayPlan('t:1', ROWS[0], new Date(2026, 5, 1, 10));
+        assert.deepEqual(a, dayPlan('t:1', ROWS[0], new Date(2026, 5, 1, 23)));
         const days = new Set();
-        for (let d = 1; d <= 14; d += 1) days.add(dayPlan('t:1', TIERS[0], new Date(2026, 5, d)).gapFactor.toFixed(4));
+        for (let d = 1; d <= 14; d += 1) days.add(dayPlan('t:1', ROWS[0], new Date(2026, 5, d)).gapFactor.toFixed(4));
         assert.ok(days.size > 10, 'no two days share a rhythm');
     });
 
     it('rests for the tier\'s hours, inside one day', () => {
         for (let d = 1; d <= 30; d += 1) {
-            const plan = dayPlan('t:1', TIERS[0], new Date(2026, 5, d));
+            const plan = dayPlan('t:1', ROWS[0], new Date(2026, 5, d));
             assert.ok(plan.quietMinutes >= 360 && plan.quietMinutes <= 480);
             assert.ok(plan.quietStart + plan.quietMinutes <= 24 * 60);
         }
@@ -44,13 +31,13 @@ describe('day plan', () => {
 
     it('splits the rest into 2-3 separate windows that never touch', () => {
         const counts = new Set();
-        for (const tier of TIERS) {
+        for (const tier of ROWS) {
             const [lo, hi] = tier.quietHours;
             for (let n = 0; n < 400; n += 1) {
                 const day = new Date(2026, 0, 1 + (n % 365));
                 const plan = dayPlan(`seed:${n}`, tier, day, 'UTC');
                 const { windows } = plan;
-                const label = `tier ${tier.tier} seed ${n}`;
+                const label = `level ${tier.level} seed ${n}`;
                 counts.add(windows.length);
                 assert.ok(windows.length >= 2 && windows.length <= 3, label);
                 assert.equal(windows.reduce((sum, w) => sum + w.minutes, 0), plan.quietMinutes, `${label}: total preserved`);
@@ -68,9 +55,9 @@ describe('day plan', () => {
     });
 
     it('draws the same windows for the same seed and day', () => {
-        const a = dayPlan('t:1', TIERS[1], new Date(2026, 5, 1, 9), 'UTC');
-        assert.deepEqual(a, dayPlan('t:1', TIERS[1], new Date(2026, 5, 1, 21), 'UTC'));
-        assert.notDeepEqual(a.windows, dayPlan('t:1', TIERS[1], new Date(2026, 5, 2, 9), 'UTC').windows);
+        const a = dayPlan('t:1', ROWS[1], new Date(2026, 5, 1, 9), 'UTC');
+        assert.deepEqual(a, dayPlan('t:1', ROWS[1], new Date(2026, 5, 1, 21), 'UTC'));
+        assert.notDeepEqual(a.windows, dayPlan('t:1', ROWS[1], new Date(2026, 5, 2, 9), 'UTC').windows);
     });
 
     it('seeded() repeats', () => {
@@ -146,7 +133,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { CampaignManager } from '../src/campaign/manager.js';
-import { DEFAULTS } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { Status } from '../src/protocol.js';
 
@@ -161,7 +148,7 @@ async function run(contacts, { config = {}, rounds = 1, template = 'Hi {name}', 
         async disconnect() {},
     };
     const manager = new CampaignManager(db, transport, {
-        ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', ...config,
+        ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000, pacingMode: 'fixed', ...config,
     });
     let result;
     for (let r = 0; r < rounds; r += 1) {
@@ -179,7 +166,7 @@ async function run(contacts, { config = {}, rounds = 1, template = 'Hi {name}', 
 
 describe('campaign manager', () => {
     // Today's nightly rest is drawn from the number's seed; a test run inside it would just wait.
-    const restingNow = () => inQuiet(dayPlan('1:0', TIERS[0]));
+    const restingNow = () => inQuiet(dayPlan('1:0', ROWS[0]));
     const sheet = Array.from({ length: 12 }, (_, i) => ({ name: `N${i}`, phone: `91985555${String(i).padStart(4, '0')}` }));
 
     it('sends the same sheet again: a number messaged before is not skipped', async () => {
@@ -222,6 +209,32 @@ describe('campaign manager', () => {
         assert.deepEqual(sent.map((s) => s.to), [`${day}9855550002`], 'night number waits for its morning');
     });
 
+    it('holds only campaigns at night off QR numbers: a school reminder goes now', async () => {
+        const night = ['91', '44', '81', '1', '61', '55'].find((cc) => !isDaytimeFor(`${cc}9855550001`));
+        if (!night) return;   // every sample zone is in daylight (the nightly rest holds campaigns only)
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-human-'));
+        const db = new Database(path.join(tmp, 'h.db'));
+        const sent = [];
+        const transport = {
+            name: 'fake', realDelivery: true, supportsReceipts: false, isConnected: () => true,
+            async sendMessage(to) { sent.push(to); return { providerId: `p${sent.length}`, status: Status.SENT }; },
+            getStatus: () => null,
+            async disconnect() {},
+        };
+        const manager = new CampaignManager(db, transport, { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000, pacingMode: 'fixed', humanTiming: true });
+        try {
+            manager.enqueueJob({ recipient: `${night}9855550001`, text: 'Class cancelled today', messageType: 'reminder' });
+            manager.start();
+            const deadline = Date.now() + 3000;
+            while (Date.now() < deadline && !sent.length) await new Promise((x) => setTimeout(x, 20));
+            assert.deepEqual(sent, [`${night}9855550001`]);
+        } finally {
+            await manager.shutdown();
+            db.close();
+            fs.rmSync(tmp, { recursive: true, force: true });
+        }
+    });
+
     it('shows typing for 2s+ on real sends', async () => {
         if (restingNow()) return;
         const { sent } = await run(sheet.slice(0, 1), { config: { humanTiming: true } });
@@ -254,7 +267,7 @@ describe('quietExtraSeconds', () => {
     });
 
     it('agrees with a minute-by-minute walk over several days of real plans', () => {
-        for (const tier of TIERS) {
+        for (const tier of ROWS) {
             const planFor = (date) => dayPlan('walk', tier, date, 'UTC');
             const at = utc('22:00');
             const seconds = 4 * 24 * 3600;
@@ -265,7 +278,7 @@ describe('quietExtraSeconds', () => {
                 else sending += 1;
             }
             // The walk hops 1s past each boundary, so it may differ by a few seconds per window; a missed window is 40+ minutes.
-            assert.ok(Math.abs(quietExtraSeconds(planFor, seconds, at) - quiet * 60) <= 60, `tier ${tier.tier}`);
+            assert.ok(Math.abs(quietExtraSeconds(planFor, seconds, at) - quiet * 60) <= 60, `level ${tier.level}`);
         }
     });
 });

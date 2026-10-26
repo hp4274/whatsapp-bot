@@ -1,13 +1,13 @@
 # WhatsApp Sender
 
-Multi-tenant WhatsApp automation platform. Express 5 backend + Angular 22 dashboard. Supports both the official Meta Cloud API and the unofficial `whatsapp-web.js` browser transport.
+Multi-tenant WhatsApp automation platform. Express 5 backend + Angular 22 dashboard. Sends through QR-linked WhatsApp numbers (Baileys). The Meta Cloud API was removed.
 
 ---
 
 ## Features
 
 - **Multi-tenant** — isolated data, config, and runtime per tenant; channels are first-class resources (multiple numbers per tenant)
-- **Transports** — Meta Cloud API (production), whatsapp-web.js (QR browser session), Sandbox (safe local dev)
+- **Transports** — Baileys (QR-linked number), Sandbox (safe local dev)
 - **Campaign engine** — bulk messaging with adaptive pacing, daily cap, dedup, pause/resume/stop, spintax, per-contact personalization
 - **Contacts** — CSV/XLSX import, tags, custom fields, segments (stored filters), per-contact timeline
 - **Templates** — versioned message templates with variable interpolation, draft/approval flow
@@ -22,7 +22,7 @@ Multi-tenant WhatsApp automation platform. Express 5 backend + Angular 22 dashbo
 - **Automation recipes** — 13 pre-built workflow templates
 - **Public API** — scoped API keys, idempotency, v1 REST endpoints, webhook delivery
 - **Observability** — structured request logging, metrics snapshot, queue depth gauges
-- **Security** — AES-256-GCM credential encryption, webhook signature verification, rate limiting, scrypt password hashes, audit log
+- **Security** — AES-256-GCM credential encryption, rate limiting, scrypt password hashes, audit log
 - **Auto-replies** — keyword rules (exact/contains/regex/fallback), per-sender cooldown, opt-out compliance (STOP/START)
 - **Payment reminders** — flexible sheet import, campaign-pipeline delivery
 - **Realtime** — Server-Sent Events for live status, QR codes, campaign progress
@@ -95,11 +95,9 @@ Other env vars:
 | --- | --- | --- |
 | `PORT` | `3000` | HTTP port |
 | `HOST` | `127.0.0.1` | Bind address |
-| `WHATSAPP_ACCESS_TOKEN` | — | Cloud API access token |
-| `WHATSAPP_PHONE_NUMBER_ID` | — | Cloud API phone number ID |
 | `PUBLIC_BASE_URL` | — | Public origin recipients' phones can reach (e.g. `https://send.example.com`). Needed for campaign link click tracking: links become `<PUBLIC_BASE_URL>/l/<code>`. Unset, links are sent untouched |
 
-All other settings (transport, rate limits, retry policy, safety pacing, webhook, sending windows) are managed through the dashboard or `PUT /api/config`.
+All other settings (transport, rate limits, retry policy, safety pacing, sending windows) are managed through the dashboard or `PUT /api/config`.
 
 ---
 
@@ -130,7 +128,7 @@ server/src/
   messaging/            unified send pipeline (job + service + priority queue)
   campaign/             campaign orchestration; rate limiter; safety pacing
   autoreply/            keyword engine; opt-out compliance
-  transports/           cloud_api | whatsapp_web | sandbox
+  transports/           baileys | sandbox
   templates/            versioned templates; variable interpolation
   workflows/            durable workflow engine; run state machine
   scheduler/            generic job store; lease-based workers
@@ -143,7 +141,7 @@ server/src/
   recipes/              13 pre-built workflow templates
   publicapi/            API keys; idempotency; v1 REST; webhooks
   observability/        structured logging; metrics
-  security/             credential encryption; signature verification; rate limit
+  security/             credential encryption; rate limit
   schema.js             module schema registry (features self-register)
 server/test/            node:test suites
 web/src/app/            Angular 22 standalone components; signal store; SSE
@@ -182,7 +180,6 @@ All routes under `/api`. Authentication: `Authorization: Bearer <token>`.
 | Public API | `/v1/*` (API key auth, idempotency header) |
 | Auto-replies | `GET/POST auto-replies`, `PUT/DELETE auto-replies/:id`, `POST auto-replies/preview` |
 | Opt-outs | `GET/POST optouts`, `DELETE optouts/:phone` |
-| Webhook | `GET/POST webhook/:tenantId` |
 | Realtime | `GET events` (SSE) |
 | Team | `GET/POST users`, `PATCH users/:id` |
 | Platform | `GET/POST admin/tenants`, `PATCH admin/tenants/:id`, `GET admin/audit-logs` |
@@ -195,8 +192,7 @@ All routes under `/api`. Authentication: `Authorization: Bearer <token>`.
 | --- | --- |
 | Runtime | Node.js >= 22.5, ES modules |
 | Backend | Express 5, multer 2, qrcode, xlsx |
-| WhatsApp (unofficial) | whatsapp-web.js ^1.34 + Chrome LocalAuth |
-| WhatsApp (official) | Meta Cloud API Graph v23.0 |
+| WhatsApp | @whiskeysockets/baileys (QR-linked, unofficial) |
 | Storage | SQLite (`node:sqlite`) in `~/.whatsapp_sender_web` |
 | Realtime | Server-Sent Events |
 | Frontend | Angular 22, standalone components, signals, RxJS 7.8, SCSS |
@@ -206,7 +202,7 @@ All routes under `/api`. Authentication: `Authorization: Bearer <token>`.
 
 ## Known Limitations
 
-- WhatsApp Web automation is unofficial; Cloud API is the compliant production path
+- QR-linked sending is unofficial: WhatsApp may restrict or ban a number, and no pacing makes that impossible
 - SQLite only (PostgreSQL deferred; `db.forTenant` is the seam for a driver swap)
 - Login throttle is in-memory (resets on restart; does not survive clustering)
 - The workflow sweeper runs in-process; two app processes on one DB would double-execute jobs

@@ -63,7 +63,6 @@ export interface TenantSubscriptionSummary {
 /** Per-tenant kill switches the platform admin can flip. */
 export interface TenantControls {
   sendingEnabled: boolean;
-  inboundEnabled: boolean;
   campaignsEnabled: boolean;
   automationsEnabled: boolean;
 }

@@ -28,13 +28,6 @@ type Safety = SafetyStatus & {
   withinSendingWindow?: boolean;
 };
 
-/** The plan's sending speed (bulk.maxSpeed), named as in Admin > Plans; the server owns the delays. */
-const PRESETS: { value: PacingPreset; label: string; icon: string; text: string }[] = [
-  { value: 'safe', label: 'Slow', icon: 'shield', text: 'Long gaps between messages.' },
-  { value: 'balanced', label: 'Normal', icon: 'scale', text: 'Steady gaps between messages.' },
-  { value: 'fast', label: 'Fast', icon: 'bolt', text: 'Short gaps between messages.' },
-];
-
 /** Used when the browser cannot list IANA zones (Intl.supportedValuesOf is missing). */
 const FALLBACK_ZONES = [
   'UTC',
@@ -97,9 +90,6 @@ export class ReviewStep {
   /** Plan rules: the plan's sending speed, and whether scheduling is allowed. */
   protected readonly policy = inject(CampaignPolicy);
 
-  protected readonly planSpeed = computed(
-    () => PRESETS.find((p) => p.value === this.policy.maxSpeed()) ?? PRESETS[1],
-  );
   protected readonly zones = zones(this.draft.timezone());
   protected readonly safety = signal<Partial<Record<PacingPreset, Safety>>>({});
   protected readonly loadingSafety = signal(false);
@@ -162,33 +152,24 @@ export class ReviewStep {
     };
   });
 
+  /**
+   * A QR number whose 2 questions are unanswered sends no bulk at all until they are, so
+   * "goes out tomorrow" would be untrue: the page says what to do instead.
+   */
+  protected readonly held = computed(() => {
+    const s = this.current();
+    return !!s?.enabled && s.asked === false;
+  });
+
   protected readonly overQuota = computed(() => {
     // A spread sends one batch a day: today's budget says nothing about the whole list.
-    if (this.draft.spreadActive()) return 0;
+    // Held for the questions, nothing is "over today's limit": the held banner explains it.
+    if (this.draft.spreadActive() || this.held()) return 0;
     const s = this.current();
     return s && s.remaining !== null ? Math.max(0, this.size() - s.remaining) : 0;
   });
 
-  protected readonly quiet = computed(() => {
-    const s = this.current();
-    if (
-      !s ||
-      s.quietHoursStart === undefined ||
-      s.quietHoursEnd === undefined ||
-      s.quietHoursStart === s.quietHoursEnd
-    )
-      return null;
-    const hh = (h: number) => `${String(h).padStart(2, '0')}:00`;
-    return {
-      from: hh(s.quietHoursStart),
-      to: hh(s.quietHoursEnd),
-      open: s.withinWindow ?? s.withinSendingWindow ?? true,
-    };
-  });
-
   protected readonly buttonsLabel = computed(() => {
-    const meta = this.draft.metaMode() ? this.draft.metaTemplate() : null;
-    if (meta) return `Meta template: ${meta.name}`;
     const block = this.draft.interactive();
     if (!block) return 'None';
     const n =

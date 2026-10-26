@@ -100,12 +100,12 @@ describe('channel basics', () => {
         assert.notEqual((await call(tokens.ownerA, 'GET', '/api/config')).body.config.defaultCountryCode, '44');
     });
 
-    it('redacts provider credentials on the way out', async () => {
+    it('never stores or returns a removed Cloud API credential', async () => {
         const { body } = await call(tokens.ownerA, 'GET', '/api/channels');
         const target = body.channels[0];
         await call(tokens.ownerA, 'PUT', '/api/config', { accessToken: 'super-secret-token' });
         const after2 = await call(tokens.ownerA, 'GET', `/api/channels/${target.id}`);
-        assert.equal(after2.body.channel.settings.accessToken, '********');
+        assert.equal(after2.body.channel.settings.accessToken, undefined);
         assert.ok(!JSON.stringify(after2.body).includes('super-secret-token'));
     });
 
@@ -265,6 +265,60 @@ describe('channel controls', () => {
 
         await call(tokens.ownerA, 'PATCH', `/api/channels/${channel.id}`, { status: 'active' });
         await call(tokens.ownerA, 'DELETE', `/api/channels/${channel.id}`);
+    });
+
+    it('ignores anti-ban limits in a business\'s own channel settings', async () => {
+        const made = await call(tokens.ownerA, 'POST', '/api/channels', {
+            displayName: 'Sneaky', settings: { transport: TRANSPORT_SANDBOX, safetyEnabled: false, quietHoursStart: 3 },
+        });
+        assert.equal(made.status, 201);
+        assert.equal(made.body.channel.settings.safetyEnabled, true);
+        assert.equal(made.body.channel.settings.quietHoursStart, DEFAULTS.quietHoursStart);
+        const patched = await call(tokens.ownerA, 'PATCH', `/api/channels/${made.body.channel.id}`, {
+            displayName: 'Sneaky 2', settings: { safetyEnabled: false, defaultCountryCode: '44' },
+        });
+        assert.equal(patched.status, 200);
+        assert.equal(patched.body.channel.settings.safetyEnabled, true, 'only PUT /api/admin/tenants/:id/safety may');
+        assert.equal(patched.body.channel.settings.defaultCountryCode, '44', 'its own settings still save');
+        await call(tokens.ownerA, 'DELETE', `/api/channels/${made.body.channel.id}`);
+    });
+
+    it('keeps the admin-owned keys (requestTimeout, linkedAt) out of a business\'s hands', async () => {
+        const sneaky = { requestTimeout: 1, linkedAt: '2000-01-01T00:00:00Z' };
+        const made = await call(tokens.ownerB, 'POST', '/api/channels', {
+            displayName: 'Sneaky keys', settings: { transport: TRANSPORT_SANDBOX, ...sneaky },
+        });
+        assert.equal(made.status, 201);
+        const id = made.body.channel.id;
+        const patched = await call(tokens.ownerB, 'PATCH', `/api/channels/${id}`, { settings: sneaky });
+        for (const settings of [made.body.channel.settings, patched.body.channel.settings]) {
+            assert.notEqual(settings.requestTimeout, 1);
+            assert.notEqual(settings.linkedAt, sneaky.linkedAt);
+        }
+        await onChannel(tokens.ownerB, id, 'PUT', '/api/config', sneaky);
+        const own = (await onChannel(tokens.ownerB, id, 'GET', '/api/config')).body.config;
+        assert.equal(own.requestTimeout, DEFAULTS.requestTimeout);
+
+        // The platform admin sets them, and running numbers follow.
+        const admin = sessionFor(app, { role: 'super_admin' });
+        const set = await call(admin, 'PUT', `/api/admin/tenants/${tenantB.id}/safety`, { requestTimeout: 12 });
+        assert.equal(set.status, 200);
+        let cfg = (await onChannel(tokens.ownerB, id, 'GET', '/api/config')).body.config;
+        assert.equal(cfg.requestTimeout, 12);
+        await call(admin, 'PUT', `/api/admin/tenants/${tenantB.id}/safety`, { requestTimeout: null });
+        cfg = (await onChannel(tokens.ownerB, id, 'GET', '/api/config')).body.config;
+        assert.equal(cfg.requestTimeout, DEFAULTS.requestTimeout);
+        await call(tokens.ownerB, 'DELETE', `/api/channels/${id}`);
+    });
+
+    it('ignores a humanTiming a business saved before it became admin-owned', async () => {
+        const made = await call(tokens.ownerB, 'POST', '/api/channels', { displayName: 'Legacy', settings: { transport: TRANSPORT_SANDBOX } });
+        const id = made.body.channel.id;
+        const legacy = !DEFAULTS.humanTiming;
+        app.locals.tenancy.db.prepare("UPDATE whatsapp_channels SET settings = json_set(settings, '$.humanTiming', json(?)) WHERE id = ?")
+            .run(String(legacy), id);
+        assert.equal((await onChannel(tokens.ownerB, id, 'GET', '/api/config')).body.config.humanTiming, DEFAULTS.humanTiming);
+        await call(tokens.ownerB, 'DELETE', `/api/channels/${id}`);
     });
 
     it('lets an agent read channels but not reconfigure them', async () => {

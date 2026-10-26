@@ -5,293 +5,234 @@
   <div class="ph">
     <span class="badge"><i class="ti ti-notes" aria-hidden="true"></i></span>
     <div>
-      <h3>{{ d.metaMode() ? 'Pick an approved template' : 'Write the message' }}</h3>
-      <p class="muted">
-        {{
-          d.metaMode()
-            ? 'Meta-approved wording reaches people outside the 24-hour window - map each slot to a column'
-            : 'Click a column to add it - the phone on the right shows what each person gets'
-        }}
-      </p>
+      <h3>Write the message</h3>
+      <p class="muted">Click a column to add it - the phone on the right shows what each person gets</p>
     </div>
   </div>
 
-  @if (d.cloudApi()) {
-    <div class="mode" role="group" aria-label="Message type">
-      <span class="glide" [class.right]="d.metaMode()" aria-hidden="true"></span>
+  <div class="tpl-row">
+    <label class="field" for="saved-tpl">
+      <span class="sr">Use a saved template</span>
+      <select id="saved-tpl" (change)="useSaved($any($event.target))" [disabled]="!saved()?.length">
+        <option value="">
+          {{
+            saved() === null
+              ? 'Loading templates...'
+              : saved()?.length
+                ? 'Use a saved template...'
+                : 'No saved templates yet'
+          }}
+        </option>
+        @for (t of saved() ?? []; track t.id) {
+          <option [value]="t.id">{{ t.name }}</option>
+        }
+      </select>
+    </label>
+    @if (savingName() === null) {
       <button
         type="button"
-        [attr.aria-pressed]="!d.metaMode()"
-        (click)="d.templateMode.set('free')"
+        class="btn"
+        (click)="savingName.set('')"
+        [disabled]="!d.message().trim()"
       >
-        <i class="ti ti-pencil" aria-hidden="true"></i> Free-form
+        <i class="ti ti-device-floppy" aria-hidden="true"></i> Save as template
       </button>
-      <button type="button" [attr.aria-pressed]="d.metaMode()" (click)="d.templateMode.set('meta')">
-        <i class="ti ti-discount-check" aria-hidden="true"></i> Meta approved template
+    } @else {
+      <input
+        type="text"
+        class="tpl-name"
+        aria-label="Template name"
+        placeholder="Template name"
+        [ngModel]="savingName()"
+        (ngModelChange)="savingName.set($event)"
+        (keydown.enter)="saveAsTemplate()"
+      />
+      <button
+        type="button"
+        class="btn primary"
+        (click)="saveAsTemplate()"
+        [disabled]="saving() || !(savingName() ?? '').trim()"
+      >
+        @if (saving()) {
+          <span class="spinner"></span>
+        }
+        Save
+      </button>
+      <button type="button" class="btn" (click)="savingName.set(null)">Cancel</button>
+    }
+  </div>
+  @if (savedNote()) {
+    <p class="banner info" role="status">
+      <i class="ti ti-check" aria-hidden="true"></i><span>{{ savedNote() }}</span>
+    </p>
+  }
+  @if (savedError()) {
+    <div class="error" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i>
+      <span>{{ savedError() }}</span>
+      <button type="button" class="btn small" (click)="loadSaved()">
+        <i class="ti ti-refresh" aria-hidden="true"></i> Try again
       </button>
     </div>
   }
 
-  @if (d.metaMode()) {
-    <div class="meta enter">
-      <label class="field" for="meta-tpl">
-        <span>Approved template</span>
-        <select id="meta-tpl" (change)="pick($any($event.target).value, 'main')">
-          <option value="" [selected]="!d.metaTemplate()">Choose a template...</option>
-          @for (t of approved() ?? []; track t.id) {
-            <option [value]="t.id" [selected]="t.id === d.metaTemplate()?.id">
-              {{ label(t) }}
-            </option>
-          }
-        </select>
-      </label>
-      @if (approved()?.length === 0 && !templatesError()) {
-        <p class="banner info">
-          <i class="ti ti-discount-check" aria-hidden="true"></i>
-          <span
-            >No approved templates with a Meta name yet - add one on the
-            <a routerLink="/templates">Templates page</a>.</span
-          >
-        </p>
-      }
-      @if (templatesError()) {
-        <div class="error" role="alert">
-          <i class="ti ti-alert-circle" aria-hidden="true"></i>
-          <span>{{ templatesError() }}</span>
-          <button type="button" class="btn small" (click)="loadTemplates()">
-            <i class="ti ti-refresh" aria-hidden="true"></i> Try again
-          </button>
-        </div>
-      }
-      @if (d.metaTemplate(); as tpl) {
-        <app-meta-params
-          [template]="tpl"
-          [variables]="d.variables()"
-          [(mapping)]="d.templateParams"
-        />
-      }
-    </div>
-  } @else {
-    <div class="tpl-row">
-      <label class="field" for="saved-tpl">
-        <span class="sr">Use a saved template</span>
-        <select id="saved-tpl" (change)="useSaved($any($event.target))" [disabled]="!saved()?.length">
-          <option value="">
-            {{
-              saved() === null
-                ? 'Loading templates...'
-                : saved()?.length
-                  ? 'Use a saved template...'
-                  : 'No saved templates yet'
-            }}
-          </option>
-          @for (t of saved() ?? []; track t.id) {
-            <option [value]="t.id">{{ t.name }}</option>
-          }
-        </select>
-      </label>
-      @if (savingName() === null) {
+  @if (d.versionKeys().length; as n) {
+    <div class="vtabs" role="group" aria-label="Message version">
+      @for (k of d.versionKeys(); track k) {
         <button
           type="button"
-          class="btn"
-          (click)="savingName.set('')"
-          [disabled]="!d.message().trim()"
+          [attr.aria-pressed]="d.shownVersion() === k"
+          (click)="d.activeVersion.set(k)"
         >
-          <i class="ti ti-device-floppy" aria-hidden="true"></i> Save as template
+          Version {{ k }}
         </button>
-      } @else {
-        <input
-          type="text"
-          class="tpl-name"
-          aria-label="Template name"
-          placeholder="Template name"
-          [ngModel]="savingName()"
-          (ngModelChange)="savingName.set($event)"
-          (keydown.enter)="saveAsTemplate()"
-        />
-        <button
-          type="button"
-          class="btn primary"
-          (click)="saveAsTemplate()"
-          [disabled]="saving() || !(savingName() ?? '').trim()"
-        >
-          @if (saving()) {
-            <span class="spinner"></span>
-          }
-          Save
+      }
+      @if (n < 3) {
+        <button type="button" class="add" (click)="addVersionC()">
+          <i class="ti ti-plus" aria-hidden="true"></i> Add version C
         </button>
-        <button type="button" class="btn" (click)="savingName.set(null)">Cancel</button>
+      } @else if (d.shownVersion() === 'C') {
+        <button type="button" class="add" (click)="removeVersionC()">
+          <i class="ti ti-x" aria-hidden="true"></i> Remove version C
+        </button>
       }
     </div>
-    @if (savedNote()) {
-      <p class="banner info" role="status">
-        <i class="ti ti-check" aria-hidden="true"></i><span>{{ savedNote() }}</span>
-      </p>
-    }
-    @if (savedError()) {
-      <div class="error" role="alert">
-        <i class="ti ti-alert-circle" aria-hidden="true"></i>
-        <span>{{ savedError() }}</span>
-        <button type="button" class="btn small" (click)="loadSaved()">
-          <i class="ti ti-refresh" aria-hidden="true"></i> Try again
-        </button>
-      </div>
-    }
+  }
 
-    @if (d.versionKeys().length; as n) {
-      <div class="vtabs" role="group" aria-label="Message version">
-        @for (k of d.versionKeys(); track k) {
-          <button
-            type="button"
-            [attr.aria-pressed]="d.shownVersion() === k"
-            (click)="d.activeVersion.set(k)"
-          >
-            Version {{ k }}
-          </button>
-        }
-        @if (n < 3) {
-          <button type="button" class="add" (click)="addVersionC()">
-            <i class="ti ti-plus" aria-hidden="true"></i> Add version C
-          </button>
-        } @else if (d.shownVersion() === 'C') {
-          <button type="button" class="add" (click)="removeVersionC()">
-            <i class="ti ti-x" aria-hidden="true"></i> Remove version C
-          </button>
-        }
-      </div>
-    }
-
-    <div class="editor">
-      <div class="toolbar" role="toolbar" aria-label="Formatting">
-        @for (f of formats; track f.marker) {
-          <button
-            type="button"
-            class="tb"
-            (click)="wrap(f.marker)"
-            [attr.aria-label]="f.label"
-            [title]="f.label"
-          >
-            <i class="ti ti-{{ f.icon }}" aria-hidden="true"></i>
-          </button>
-        }
-        <span class="sep" aria-hidden="true"></span>
-        <button type="button" class="tb wide" (click)="insertSpin()" title="Insert a choice of words, like {Hi|Hello}">
-          <i class="ti ti-arrows-shuffle" aria-hidden="true"></i> Word choices
-        </button>
+  <div class="editor">
+    <div class="toolbar" role="toolbar" aria-label="Formatting">
+      @for (f of formats; track f.marker) {
         <button
           type="button"
           class="tb"
-          (click)="spinHelp.set(!spinHelp())"
-          [attr.aria-expanded]="spinHelp()"
-          aria-label="What are word choices?"
+          (click)="wrap(f.marker)"
+          [attr.aria-label]="f.label"
+          [title]="f.label"
         >
-          <i class="ti ti-help-circle" aria-hidden="true"></i>
+          <i class="ti ti-{{ f.icon }}" aria-hidden="true"></i>
         </button>
-        <span class="count" [class.over]="d.activeMessage().length > 1024"
-          >{{ d.activeMessage().length }} / 1024</span
-        >
-      </div>
-
-      <label class="sr" for="msg"
-        >Message{{ d.versionKeys().length ? ', version ' + d.shownVersion() : '' }}</label
+      }
+      <span class="sep" aria-hidden="true"></span>
+      <button type="button" class="tb wide" (click)="insertSpin()" title="Insert a choice of words, like {Hi|Hello}">
+        <i class="ti ti-arrows-shuffle" aria-hidden="true"></i> Word choices
+      </button>
+      <button
+        type="button"
+        class="tb"
+        (click)="spinHelp.set(!spinHelp())"
+        [attr.aria-expanded]="spinHelp()"
+        aria-label="What are word choices?"
       >
-      <textarea
-        #editor
-        id="msg"
-        rows="8"
-        [ngModel]="d.activeMessage()"
-        (ngModelChange)="d.setActiveMessage($event)"
-        (keydown)="onKey($event)"
-        [placeholder]="d.shownVersion() === 'A' ? 'Hi {name}, ...' : 'Another way to say it...'"
-      ></textarea>
-
-      <div class="chips" aria-label="Insert a variable">
-        <span class="muted lbl">Insert:</span>
-        @for (v of d.variables(); track v) {
-          <button
-            type="button"
-            class="vchip"
-            (click)="insertVar(v)"
-            [class.used]="d.usedVariables().includes(v)"
-          >
-            {{ '{' + v + '}' }}
-          </button>
-        }
-      </div>
+        <i class="ti ti-help-circle" aria-hidden="true"></i>
+      </button>
+      <span class="count" [class.over]="d.activeMessage().length > 1024"
+        >{{ d.activeMessage().length }} / 1024</span
+      >
     </div>
 
-    @if (spinHelp()) {
-      <p class="banner info enter">
-        <i class="ti ti-bulb" aria-hidden="true"></i>
-        <span
-          >Write options inside curly brackets, like <code>{{ '{Hi|Hello|Hey}' }}</code>. Each person
-          gets one of them, so the messages are not all identical. Use
-          <code>{{ '{name|there}' }}</code> to say "there" when someone has no name. Press Shuffle on
-          the preview to see other versions.</span
-        >
-      </p>
-    }
+    <label class="sr" for="msg"
+      >Message{{ d.versionKeys().length ? ', version ' + d.shownVersion() : '' }}</label
+    >
+    <textarea
+      #editor
+      id="msg"
+      rows="8"
+      [ngModel]="d.activeMessage()"
+      (ngModelChange)="d.setActiveMessage($event)"
+      (keydown)="onKey($event)"
+      [placeholder]="d.shownVersion() === 'A' ? 'Hi {name}, ...' : 'Another way to say it...'"
+    ></textarea>
 
-    <label class="check">
+    <div class="chips" aria-label="Insert a variable">
+      <span class="muted lbl">Insert:</span>
+      @for (v of d.variables(); track v) {
+        <button
+          type="button"
+          class="vchip"
+          (click)="insertVar(v)"
+          [class.used]="d.usedVariables().includes(v)"
+        >
+          {{ '{' + v + '}' }}
+        </button>
+      }
+    </div>
+  </div>
+
+  @if (spinHelp()) {
+    <p class="banner info enter">
+      <i class="ti ti-bulb" aria-hidden="true"></i>
+      <span
+        >Write options inside curly brackets, like <code>{{ '{Hi|Hello|Hey}' }}</code>. Each person
+        gets one of them, so the messages are not all identical. Use
+        <code>{{ '{name|there}' }}</code> to say "there" when someone has no name. Press Shuffle on
+        the preview to see other versions.</span
+      >
+    </p>
+  }
+
+  <label class="check">
+    <input type="checkbox" [ngModel]="d.optOutLine()" (ngModelChange)="d.optOutLine.set($event)" />
+    Add opt-out line ("Reply STOP to stop messages")
+  </label>
+  @if (d.qrNumber()) {
+    <p class="note">
+      People this number has never chatted with always get it in their first message: an easy way
+      out keeps them from reporting the number. Untick to leave it off for everyone else.
+    </p>
+  }
+
+  <label class="check">
+    <input
+      type="checkbox"
+      [ngModel]="d.variantB() !== null"
+      (ngModelChange)="setAb($event)"
+    />
+    Test two versions (A/B)
+  </label>
+  @if (d.variantB() !== null) {
+    <p class="note">
+      Version A is the message above. Recipients are split evenly between the versions, and the
+      results are compared once it has been sent.
+    </p>
+  }
+
+  @if (d.hasLink() && !d.qrNumber()) {
+    <label class="check" [class.off]="!policy.linkTracking()">
       <input
         type="checkbox"
-        [ngModel]="d.optOutLine()"
-        (ngModelChange)="d.optOutLine.set($event)"
+        [disabled]="!policy.linkTracking()"
+        [ngModel]="d.trackLinks() && policy.linkTracking()"
+        (ngModelChange)="d.trackLinks.set($event)"
       />
-      Add opt-out line ("Reply STOP to stop messages")
+      Track link clicks
     </label>
+    <p class="note">
+      {{
+        policy.linkTracking()
+          ? 'Links are swapped for tracked ones, so you can see who tapped.'
+          : "Link tracking isn't set up on this server"
+      }}
+    </p>
+  }
 
-    <label class="check">
-      <input
-        type="checkbox"
-        [ngModel]="d.variantB() !== null"
-        (ngModelChange)="setAb($event)"
-      />
-      Test two versions (A/B)
-    </label>
-    @if (d.variantB() !== null) {
-      <p class="note">
-        Version A is the message above. Recipients are split evenly between the versions, and the
-        results are compared once it has been sent.
-      </p>
-    }
-
-    @if (d.hasLink()) {
-      <label class="check" [class.off]="!policy.linkTracking()">
-        <input
-          type="checkbox"
-          [disabled]="!policy.linkTracking()"
-          [ngModel]="d.trackLinks() && policy.linkTracking()"
-          (ngModelChange)="d.trackLinks.set($event)"
-        />
-        Track link clicks
-      </label>
-      <p class="note">
-        {{
-          policy.linkTracking()
-            ? 'Links are swapped for tracked ones, so you can see who tapped.'
-            : "Link tracking isn't set up on this server"
-        }}
-      </p>
-    }
-
-    @if (d.estimatedSize() > 50 && !d.hasVariation()) {
-      <p class="banner" role="status">
-        <i class="ti ti-alert-triangle" aria-hidden="true"></i>
-        <span
-          >Identical text to {{ d.estimatedSize() }} people is a spam signal - add {{ '{name}' }} or
-          {{ '{Hi|Hello}' }}.</span
-        >
-      </p>
-    }
-    @if (d.unresolved().length) {
-      <p class="banner danger" role="status">
-        <i class="ti ti-alert-circle" aria-hidden="true"></i>
-        <span
-          >The {{ d.unresolved().join(', ') }} column is empty for this contact.</span
-        >
-      </p>
-    }
+  @if (d.estimatedSize() > d.varyAbove() && !d.hasVariation()) {
+    <p class="banner" [class.danger]="d.qrNumber()" role="status">
+      <i class="ti ti-alert-{{ d.qrNumber() ? 'circle' : 'triangle' }}" aria-hidden="true"></i>
+      <span
+        >Identical text to {{ d.estimatedSize() }} people is a spam signal - add {{ '{name}' }} or
+        {{ '{Hi|Hello}' }}.{{
+          d.qrNumber() ? ' A QR-linked number sends identical text to at most ' + d.varyAbove() + '.' : ''
+        }}</span
+      >
+    </p>
+  }
+  @if (d.unresolved().length) {
+    <p class="banner danger" role="status">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i>
+      <span
+        >The {{ d.unresolved().join(', ') }} column is empty for this contact.</span
+      >
+    </p>
   }
 
   <div class="attach">
@@ -333,11 +274,9 @@
         </button>
       </div>
     } @else {
-      <small class="muted">{{
-        d.metaMode()
-          ? 'Only for templates with an image, video or document header - the file is sent as that header.'
-          : 'Optional - JPG, PNG, PDF or Word up to 16 MB or MP4 up to 64 MB. The message becomes the caption.'
-      }}</small>
+      <small class="muted"
+        >Optional - JPG, PNG, PDF or Word up to 16 MB or MP4 up to 64 MB. The message becomes the caption.</small
+      >
     }
   </div>
 
@@ -365,76 +304,44 @@
     </p>
   }
 
-  @if (!d.metaMode()) {
-    <div class="test">
-      <label class="field" for="test-phone">
-        <span>Send a test to my number</span>
-        <div class="test-row">
-          <input
-            id="test-phone"
-            type="tel"
-            inputmode="tel"
-            placeholder="e.g. 919876543210"
-            [ngModel]="testPhone()"
-            (ngModelChange)="testPhone.set($event)"
-            (keydown.enter)="sendTest()"
-          />
-          <button
-            type="button"
-            class="btn"
-            (click)="sendTest()"
-            [disabled]="testing() || !testPhone().trim() || !d.activeMessage().trim()"
-          >
-            @if (testing()) {
-              <span class="spinner"></span>
-            } @else {
-              <i class="ti ti-send" aria-hidden="true"></i>
-            }
-            Send test
-          </button>
-        </div>
-      </label>
-      @if (testResult(); as r) {
-        <p class="banner" [class.info]="r.ok" [class.danger]="!r.ok" role="status">
-          <i class="ti ti-{{ r.ok ? 'check' : 'alert-circle' }}" aria-hidden="true"></i>
-          <span>{{ r.text }}</span>
-        </p>
-      }
-    </div>
-  }
+  <div class="test">
+    <label class="field" for="test-phone">
+      <span>Send a test to my number</span>
+      <div class="test-row">
+        <input
+          id="test-phone"
+          type="tel"
+          inputmode="tel"
+          placeholder="e.g. 919876543210"
+          [ngModel]="testPhone()"
+          (ngModelChange)="testPhone.set($event)"
+          (keydown.enter)="sendTest()"
+        />
+        <button
+          type="button"
+          class="btn"
+          (click)="sendTest()"
+          [disabled]="testing() || !testPhone().trim() || !d.activeMessage().trim()"
+        >
+          @if (testing()) {
+            <span class="spinner"></span>
+          } @else {
+            <i class="ti ti-send" aria-hidden="true"></i>
+          }
+          Send test
+        </button>
+      </div>
+    </label>
+    @if (testResult(); as r) {
+      <p class="banner" [class.info]="r.ok" [class.danger]="!r.ok" role="status">
+        <i class="ti ti-{{ r.ok ? 'check' : 'alert-circle' }}" aria-hidden="true"></i>
+        <span>{{ r.text }}</span>
+      </p>
+    }
+  </div>
 </section>
 
-@if (d.cloudApi() && !d.metaMode()) {
-  <details class="card panel more-card">
-    <summary>
-      <i class="ti ti-clock-share" aria-hidden="true"></i>
-      <span
-        ><strong>Backup template</strong>
-        <small class="muted">optional - if they have not messaged you in 24h, send this approved template instead</small></span
-      >
-    </summary>
-    <label class="field" for="meta-fb">
-      <span class="sr">Fallback approved template</span>
-      <select id="meta-fb" (change)="pick($any($event.target).value, 'fallback')">
-        <option value="" [selected]="!d.fallbackTemplate()">None - those messages fail</option>
-        @for (t of approved() ?? []; track t.id) {
-          <option [value]="t.id" [selected]="t.id === d.fallbackTemplate()?.id">
-            {{ label(t) }}
-          </option>
-        }
-      </select>
-    </label>
-    @if (d.fallbackTemplate(); as fb) {
-      <app-meta-params
-        [template]="fb"
-        [variables]="d.variables()"
-        [(mapping)]="d.fallbackTemplateParams"
-      />
-    }
-  </details>
-}
-
-@if (!d.metaMode() && !policy.allowInteractive()) {
+@if (!policy.allowInteractive()) {
   <p class="card panel more-card off-plan">
     <i class="ti ti-hand-click" aria-hidden="true"></i>
     <span
@@ -442,7 +349,7 @@
     >
   </p>
 }
-@if (!d.metaMode() && policy.allowInteractive()) {
+@if (policy.allowInteractive()) {
   <details class="card panel more-card" [open]="!!d.interactive()">
     <summary>
       <i class="ti ti-hand-click" aria-hidden="true"></i>

@@ -5,9 +5,11 @@
  */
 
 import { Channels, withinSendingWindow } from './channels.js';
-import { DailyQuota, dayStart } from './campaign/safety.js';
+import { DailyQuota } from './campaign/safety.js';
 import { DEFAULTS } from './config.js';
 import { PolicyStore } from './policy/index.js';
+import { pinFromRow, startFromRow } from './policy/channelOps.js';
+import { applySendingPolicy } from './policy/levels.js';
 import { TENANT_SERVICES } from './tenancy.js';
 
 const DAY_MS = 86_400_000;
@@ -130,7 +132,7 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
             GROUP BY tenant_id, channel_id`).all(hourAgo, hourAgo)
             .map((r) => [`${r.tenant_id}:${r.channel_id}`, r]));
 
-        // Pause reason, quality and last-seen come from policy/channelOps.js (absent until it has run).
+        // Pause reason and last-seen come from policy/channelOps.js (absent until it has run).
         let ops = new Map();
         try {
             ops = new Map(raw.prepare('SELECT * FROM channel_ops').all().map((r) => [r.channel_id, r]));
@@ -142,17 +144,19 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
         const channels = [];
         for (const tenant of tenancy.listTenants()) {
             const scoped = db.forTenant(tenant.id);
-            const offlineMs = (policy.resolve(tenant.id).values['channels.offlineAfterMinutes'] ?? 30) * 60_000;
+            const rules = policy.resolve(tenant.id).values;
+            const offlineMs = (rules['channels.offlineAfterMinutes'] ?? 30) * 60_000;
             for (const ch of new Channels(scoped).list()) {
                 const state = runtimes.get(tenant.id)?.runtimes.get(ch.id)?.state;
                 const s = stats.get(`${tenant.id}:${ch.id}`) ?? {};
                 const config = state?.config ?? { ...DEFAULTS, ...ch.settings, ...tenancy.enforcedSafety(tenant) };
-                const quota = state?.manager?.quota ?? new DailyQuota(scoped.forChannel(ch.id), config);
+                const op = ops.get(ch.id) ?? {};
+                const pin = pinFromRow(op);
+                const start = startFromRow(op);
+                const quota = state?.manager?.quota ?? applySendingPolicy(new DailyQuota(scoped.forChannel(ch.id), config), rules, () => pin, () => start);
                 if (!state?.manager) quota.zone = () => ch.timezone || null;
                 const budget = quota.status(new Date(now));
-                const warmDays = Number(config.warmupDays) || 0;
-                const first = warmDays ? quota.db.firstSentAt?.() : null;
-                const age = first ? Math.max(0, Math.round((dayStart(new Date(now), ch.timezone) - dayStart(new Date(first), ch.timezone)) / DAY_MS)) : 0;
+                const lv = quota.qr ? quota.allowance(new Date(now)).level : null;
                 const info = state?.info ?? null;
                 const waiting = Number(s.waiting ?? 0);
                 const hourTotal = Number(s.hour_total ?? 0);
@@ -181,12 +185,10 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
                 else if (hourFailed && failureRate >= 5) flag('warn', `${failureRate}% failed in the last hour`);
                 if (budget.enabled && budget.limit && budget.remaining === 0) flag('warn', 'Daily cap reached');
                 if (!inWindow && waiting && ch.status === 'active') flag('warn', `Outside sending window, ${waiting} waiting`);
-                const op = ops.get(ch.id) ?? {};
                 const lastSeenAt = live === 'connected' ? stamp(now)
                     : [op.last_seen_at, s.last_sent, lastIn.get(`${tenant.id}:${ch.id}`)]
                         .filter(Boolean).sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
                 const online = Boolean(lastSeenAt) && now - Date.parse(lastSeenAt) < offlineMs;
-                const qualityRating = info?.qualityRating ?? op.quality_rating ?? null;
                 const pausedReason = ch.status !== 'active' ? (op.paused_reason ?? null) : null;
                 if (pausedReason) flag('bad', pausedReason);
                 const severity = live === 'disabled' ? 'off'
@@ -204,8 +206,28 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
                     lastSentAt: s.last_sent ?? null,
                     lastHour: { total: hourTotal, failed: hourFailed, failureRate },
                     quota: { enabled: budget.enabled, limit: budget.limit, used: budget.used, remaining: budget.remaining },
-                    warmup: warmDays ? { days: warmDays, day: age + 1, active: age < warmDays, started: Boolean(first) } : null,
-                    online, lastSeenAt, qualityRating, pausedReason,
+                    // A QR number's sending level; `pinned` is the admin's pin while it holds (null on the sandbox).
+                    // `start`: the number questions as answered (`answers` { age, usage } or { skipped: true }), null if never;
+                    // `asked` false while they must be answered (again, after a ban or a new number), which holds bulk.
+                    level: lv && {
+                        level: lv.level, earned: lv.earned, of: lv.of, pinned: lv.pinned ? pin?.level ?? null : null, cap: lv.cap ?? null,
+                        // As the business sees it: with safety off nothing is held, so nothing is asked.
+                        start, asked: !budget.enabled || quota.allowance(new Date(now)).asked !== false,
+                        // `ready`: what history alone gives (above `earned` while the promotion gate holds it).
+                        // `growth`: today's growth cap (campaign/safety.js growthFrom). `health`: the 7-day health
+                        // the gate and demotion judge; `probation`: after a demotion, else null. `events`: level
+                        // changes of the last 30 days (db.levelEvents; `shadow` true = logged, never applied).
+                        ready: lv.ready, growth: quota.allowance(new Date(now)).growth, health: lv.health, probation: lv.probation,
+                        events: scoped.forChannel(ch.id).levelEvents(stamp(now - 30 * 86_400_000)),
+                    },
+                    // The delivery, stuck and unstable brakes on a QR number: `mode` (sending.brakesMode), the 2-24h
+                    // `delivery` window they judge, and their rows of the last 7 days (kind 'shadow' = logged, never applied).
+                    brakeHealth: lv && {
+                        mode: quota.tables().brakes.brakesMode,
+                        delivery: quota.allowance(new Date(now)).delivery,
+                        events: scoped.forChannel(ch.id).brakeEvents(stamp(now - 7 * 86_400_000)),
+                    },
+                    online, lastSeenAt, pausedReason,
                     pausedBy: pausedReason ? op.paused_by : null, pausedAt: pausedReason ? op.paused_at : null,
                     problems, severity,
                 });

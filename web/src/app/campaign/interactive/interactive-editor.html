@@ -49,16 +49,10 @@
   </div>
   }
 
-  <div class="native">
-    <ar-switch
-      label="Send as real WhatsApp buttons"
-      [checked]="draft.native !== false"
-      (checkedChange)="patch({ native: $event })"
-    />
-    <span class="hint"
-      >If a customer's phone can't show them, turn off to send a numbered menu instead.</span
-    >
-  </div>
+  <p class="qr-hint">
+    <i class="ti ti-list-numbers" aria-hidden="true"></i>QR-linked numbers send this as a numbered
+    text menu, so it shows on every phone, WhatsApp Web and Desktop.
+  </p>
 
   @switch (draft.type) {
     @case ('buttons') {
@@ -208,7 +202,7 @@
         </button>
         <p class="note">
           <i class="ti ti-info-circle" aria-hidden="true"></i> Call and copy buttons are sent as
-          text on browser-linked WhatsApp Web numbers and on Cloud API.
+          text on browser-linked WhatsApp Web numbers.
         </p>
       </div>
     }
@@ -261,18 +255,18 @@
               <button
                 type="button"
                 class="btn ghost"
-                [disabled]="uploading() === i"
+                [disabled]="isUploading(c)"
                 [attr.aria-label]="(c.mediaUrl ? 'Replace' : 'Upload') + ' card ' + (i + 1) + ' image'"
                 (click)="file.click()"
               >
-                @if (uploading() === i) {
+                @if (isUploading(c)) {
                   <i class="ti ti-loader-2 spin" aria-hidden="true"></i> Uploading
                 } @else {
                   <i class="ti ti-photo-plus" aria-hidden="true"></i>
                   {{ c.mediaUrl ? 'Replace' : 'Add image' }}
                 }
               </button>
-              @if (c.mediaUrl && uploading() !== i) {
+              @if (c.mediaUrl && !isUploading(c)) {
                 <button
                   type="button"
                   class="icon"
@@ -283,7 +277,7 @@
                 </button>
               }
               @if (uploadError(); as ue) {
-                @if (ue[0] === i) {
+                @if (ue[0] === c.uid) {
                   <span class="up-err" role="alert">{{ ue[1] }}</span>
                 }
               }

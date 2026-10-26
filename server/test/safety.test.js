@@ -1,5 +1,5 @@
 /**
- * Sending safety: pacing that widens with batch size, and the daily cap that
+ * Sending safety: pacing from the number's level, and the daily cap that
  * pauses a campaign instead of failing it.
  */
 
@@ -11,6 +11,7 @@ import { after, before, describe, it } from 'node:test';
 
 import { closeApp } from '../src/app.js';
 import { createTestApp as createApp } from './helpers.js';
+import { LEVELS } from '../src/campaign/humanize.js';
 import { CampaignManager } from '../src/campaign/manager.js';
 import {
     DailyQuota,
@@ -28,23 +29,23 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-safety-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 const config = (overrides = {}) => {
-    const base = { ...DEFAULTS, tierSystem: false, ...overrides };
+    const base = { ...DEFAULTS, transport: TRANSPORT_SANDBOX, ...overrides };
     delete base.misc;
     return base;
 };
 
 describe('adaptive pacing', () => {
-    it('slows down as the batch grows', () => {
-        const small = paceFor(5, config());
-        const medium = paceFor(120, config());
-        const huge = paceFor(5000, config());
-        assert.ok(small.maxSeconds < medium.maxSeconds, 'a bigger batch waits longer');
-        assert.ok(medium.maxSeconds < huge.maxSeconds);
-        assert.ok(small.minSeconds >= 1, 'even a tiny batch is spaced out');
+    it('takes the gap from the level, not the batch size', () => {
+        const small = paceFor(5, config(), 'balanced', LEVELS[2]);
+        const huge = paceFor(5000, config(), 'balanced', LEVELS[2]);
+        assert.deepEqual([small.minSeconds, small.maxSeconds], [huge.minSeconds, huge.maxSeconds]);
+        assert.deepEqual([small.minSeconds, small.maxSeconds], [LEVELS[2].minSeconds, LEVELS[2].maxSeconds]);
+        assert.ok(paceFor(5, config(), 'balanced', LEVELS[1]).minSeconds > paceFor(5, config(), 'balanced', LEVELS[8]).minSeconds,
+            'a lower level waits longer');
     });
 
     it('varies the gap instead of using a fixed interval', () => {
-        const pace = paceFor(100, config());
+        const pace = paceFor(100, config(), 'balanced', LEVELS[3]);
         const gaps = new Set();
         for (let i = 1; i <= 20; i += 1) {
             const { seconds, resting } = nextDelay(pace, i);
@@ -57,7 +58,7 @@ describe('adaptive pacing', () => {
     });
 
     it('sends the first message immediately, then paces', () => {
-        const pace = paceFor(50, config());
+        const pace = paceFor(50, config(), 'balanced', LEVELS[3]);
         assert.equal(nextDelay(pace, 0).seconds, 0);
         assert.ok(nextDelay(pace, 1).seconds > 0);
     });
@@ -76,7 +77,7 @@ describe('adaptive pacing', () => {
     });
 
     it('estimates how long a batch will take', () => {
-        const pace = paceFor(100, config({ restEvery: 0 }));
+        const pace = { ...paceFor(100, config(), 'balanced', LEVELS[3]), restEvery: 0 };
         const estimate = estimateSeconds(100, pace);
         assert.equal(estimate.min, 99 * pace.minSeconds);
         assert.equal(estimate.max, 99 * pace.maxSeconds);
@@ -125,7 +126,7 @@ describe('daily cap', () => {
     it('treats the limit as off when safety is disabled or the limit is 0', () => {
         assert.equal(new DailyQuota(db, config({ safetyEnabled: false, dailyLimit: 1 })).remaining(),
             Infinity);
-        assert.equal(new DailyQuota(db, config({ dailyLimit: 0, tierSystem: false })).remaining(), Infinity);
+        assert.equal(new DailyQuota(db, config({ dailyLimit: 0 })).remaining(), Infinity);
     });
 });
 
@@ -202,6 +203,35 @@ describe('the engine under the cap', () => {
         }
     });
 
+    it('matches opt-outs on digits, and drops a row opted out after it was queued', async () => {
+        const db = new Database(path.join(tmp, 'optout-late.db'));
+        try {
+            db.addOptOut('919811111111', 'test');
+            const transport = new FakeLive();
+            const manager = new CampaignManager(db, transport, config({
+                rateLimitPerSecond: 1000, pacingMode: 'fixed', minDelaySeconds: 0, maxDelaySeconds: 0,
+            }));
+            const result = manager.enqueueContacts(
+                [{ name: 'A', phone: '+91 98111 11111' }, { name: 'B', phone: '919822222222' }, { name: 'C', phone: '919833333333' }],
+                'Hi {name}');
+            assert.equal(result.skippedOptOut, 1, 'the sheet\'s +91 spacing is the same number');
+
+            db.addOptOut('919822222222', 'user_keyword_stop'); // STOP arrives mid-campaign
+            manager.start();
+            const settled = () => db.history({ limit: 10 }).every((r) => ![Status.QUEUED, Status.SENDING].includes(r.status));
+            const deadline = Date.now() + 5000;
+            while (Date.now() < deadline && !settled()) await new Promise((resolve) => setTimeout(resolve, 25));
+            await manager.shutdown();
+
+            assert.deepEqual(transport.sent.map(([to]) => to), ['919833333333']);
+            const b = db.history({ limit: 10 }).find((r) => r.recipient === '919822222222');
+            assert.equal(b.status, Status.CANCELLED);
+            assert.equal(b.error, 'opted out');
+        } finally {
+            db.close();
+        }
+    });
+
     it('refuses to resume into an exhausted budget', () => {
         const manager = new CampaignManager(db, new FakeLive(), config({ dailyLimit: 1 }));
         manager.pausedByQuota = true;
@@ -219,7 +249,7 @@ describe('safety API', () => {
 
     before(async () => {
         db = new Database(path.join(tmp, 'api.db'));
-        app = createApp({ db, config: config({ transport: TRANSPORT_SANDBOX, dailyLimit: 50, tierSystem: false }) });
+        app = createApp({ db, config: config({ transport: TRANSPORT_SANDBOX, dailyLimit: 50 }) });
         server = app.listen(0, '127.0.0.1');
         await new Promise((resolve) => server.once('listening', resolve));
         base = `http://127.0.0.1:${server.address().port}`;
@@ -236,7 +266,6 @@ describe('safety API', () => {
         const large = await (await fetch(`${base}/api/safety?contacts=800`)).json();
         assert.equal(small.safety.limit, 50);
         assert.equal(small.safety.remaining, 50);
-        assert.ok(large.safety.maxSeconds > small.safety.maxSeconds);
         assert.ok(large.safety.estimateSeconds.typical > small.safety.estimateSeconds.typical);
     });
 

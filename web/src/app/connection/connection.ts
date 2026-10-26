@@ -1,11 +1,11 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 
-import { Api, AppConfig, SafetyStatus } from '../core/api';
+import { Api, AppConfig, ChannelsApi } from '../core/api';
 import { Store } from '../core/store';
+import { NumberQuestions } from './number-questions';
 import { SafetyControls } from './safety-controls';
 import { SendingHealth } from './sending-health';
-import { WarmupSetup } from './warmup-setup';
 
 /** The three things a person does, in order; the card lights the one they are on. */
 const STEPS: readonly { readonly title: string; readonly text: string }[] = [
@@ -23,29 +23,43 @@ const STEPS: readonly { readonly title: string; readonly text: string }[] = [
  */
 @Component({
   selector: 'app-connection',
-  imports: [DatePipe, SafetyControls, SendingHealth, WarmupSetup],
+  imports: [DatePipe, NumberQuestions, SafetyControls, SendingHealth],
   templateUrl: './connection.html',
   styleUrl: './connection.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ConnectionView {
   private readonly api = inject(Api);
+  private readonly channels = inject(ChannelsApi);
   protected readonly store = inject(Store);
+
+  /** The default number, for when no number is picked: requests without one run against it. */
+  private readonly defaultChannelId = signal<number | null>(null);
+  /** The number this page links, which is the one whose start questions are asked here. */
+  protected readonly channelId = computed(() => this.store.channelId() ?? this.defaultChannelId());
 
   protected readonly config = signal<AppConfig | null>(null);
   protected readonly warnings = signal<Record<string, string>>({});
   protected readonly errors = signal<string[]>([]);
-  protected readonly safety = signal<SafetyStatus | null>(null);
   /** The business is running its own anti-ban limits (see SafetyControls). */
   protected readonly customSafety = signal(false);
 
   protected readonly steps = STEPS;
-  /** The warm-up dialog reopened from the connected card, after the first answer. */
-  protected readonly changingWarmup = signal(false);
 
   /** Which step is lit: none before Connect, 1 while connecting, 2 with the code up, all done once linked. */
   protected readonly stepIndex = computed(() =>
     this.store.connection().connected ? 3 : this.store.qr() ? 1 : this.store.connecting() ? 0 : -1,
+  );
+
+  /** Seconds the code on screen still works, ticking off the store clock; null without a code or expiry. */
+  protected readonly qrSecondsLeft = computed(() => {
+    const at = this.store.qr() ? this.store.connection().qrExpiresAt : null;
+    const ends = at ? Date.parse(at) : NaN;
+    return Number.isNaN(ends) ? null : Math.max(0, Math.ceil((ends - this.store.now()) / 1000));
+  });
+  /** Every code went unscanned: the server stopped asking, and Connect starts a fresh round. */
+  protected readonly qrExpired = computed(
+    () => this.store.connection().code === 'QR_EXPIRED' && !this.store.qr() && !this.store.connecting(),
   );
 
   /** WhatsApp's terms note for QR-linked numbers, from the server. */
@@ -64,6 +78,7 @@ export class ConnectionView {
   /** First click of "Reconnect anyway" arms it; the second sends it. */
   protected readonly resumeConfirm = signal(false);
   protected readonly resuming = signal(false);
+  protected readonly disconnecting = signal(false);
 
   /** Pill tone for the header: connecting is in-between, not an error. */
   protected readonly statusTone = computed(() =>
@@ -80,22 +95,10 @@ export class ConnectionView {
 
   constructor() {
     this.loadConfig();
-    this.refreshSafety();
-    // Safety is refreshed live; `config` is the editable form, so only the warm-up answer is
-    // re-read (a newly linked number resets it on the server). store.watch unregisters itself
-    // through the caller's DestroyRef.
-    this.store.watch(['config', 'connection'], () => {
-      this.refreshSafety();
-      this.refreshWarmup();
-    });
-  }
-
-  private refreshWarmup(): void {
-    this.api.getConfig().subscribe({
-      next: ({ config }) =>
-        this.config.update((c) =>
-          c ? { ...c, warmupChoice: config.warmupChoice, tierSystem: config.tierSystem } : c,
-        ),
+    // Only needed to know which number the questions belong to; without it they just do not show.
+    this.channels.list().subscribe({
+      next: ({ channels }) =>
+        this.defaultChannelId.set((channels.find((c) => c.isDefault) ?? channels[0])?.id ?? null),
       error: () => undefined,
     });
   }
@@ -111,19 +114,6 @@ export class ConnectionView {
     });
   }
 
-  protected refreshSafety(): void {
-    this.api.safety().subscribe({
-      next: ({ safety }) => this.safety.set(safety),
-      error: () => this.safety.set(null),
-    });
-  }
-
-  protected warmupAnswered(config: AppConfig): void {
-    this.config.set(config);
-    this.changingWarmup.set(false);
-    // Tier on or off changes the limit and pace now; don't wait for the live event.
-    this.refreshSafety();
-  }
 
   protected connect(): void {
     const current = this.config();
@@ -194,13 +184,18 @@ export class ConnectionView {
   }
 
   protected disconnect(): void {
+    this.disconnecting.set(true);
     this.api.disconnect().subscribe({
       next: (state) => {
+        this.disconnecting.set(false);
         this.store.connection.set(state);
         this.store.qr.set(null);
         this.store.setStatus('Disconnected.');
       },
-      error: (err: Error) => this.errors.set([err.message]),
+      error: (err: Error) => {
+        this.disconnecting.set(false);
+        this.errors.set([err.message]);
+      },
     });
   }
 

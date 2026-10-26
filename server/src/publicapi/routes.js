@@ -17,7 +17,7 @@
 
 import express from 'express';
 
-import { API_SCOPES, ApiKeyError, ApiKeyStore } from './keys.js';
+import { API_SCOPES, ApiKeyError, ApiKeyStore, EXPIRY_WARNING_DAYS } from './keys.js';
 import { WEBHOOK_EVENTS, WebhookError, WebhookStore } from './webhooks.js';
 
 /** Which v1 resource maps to which object type. Adding one is one line. */
@@ -46,7 +46,9 @@ const OBJECT_ROUTES = Object.freeze({
  */
 export function createPublicApiRouter({ db, state }) {
     const router = express.Router();
-    const keys = new ApiKeyStore(db);
+    // The platform's maximum key age (policy/security.js), read live so an admin change applies at once.
+    const maxAgeDays = () => state.platformPolicy?.()?.['security.apiKeyMaxAgeDays'] ?? 0;
+    const keys = new ApiKeyStore(db, { maxAgeDays });
     state.apiKeys = keys;
 
     /**
@@ -129,7 +131,10 @@ export function createPublicApiRouter({ db, state }) {
     };
     const publicEndpoint = ({ secret, ...endpoint }) => ({ ...endpoint, secretHint: `…${String(secret).slice(-4)}` });
 
-    router.get('/api-keys', (req, res) => res.json({ keys: keys.list(), scopes: API_SCOPES }));
+    // maxAgeDays: 0 = no limit; each key carries expiresAt and expiringSoon (EXPIRY_WARNING_DAYS before).
+    router.get('/api-keys', (req, res) => res.json({
+        keys: keys.list(), scopes: API_SCOPES, maxAgeDays: keys.maxAgeDays(), expiryWarningDays: EXPIRY_WARNING_DAYS,
+    }));
     router.post('/api-keys', (req, res) => {
         try {
             return res.status(201).json({ key: keys.createKey(req.body ?? {}) });

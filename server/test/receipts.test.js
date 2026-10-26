@@ -1,6 +1,6 @@
 /**
  * Two ticks must read as two ticks, and a block must be a block: receipts that
- * land mid-send are not lost, the 12-hour "still one tick" clock starts at the
+ * land mid-send are not lost, the 48-hour "still one tick" clock starts at the
  * send (not the queueing), and a wrong block is taken back.
  */
 
@@ -11,13 +11,13 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
 import { CampaignManager } from '../src/campaign/manager.js';
-import { DEFAULTS } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { Status } from '../src/protocol.js';
 import { ackStatus } from '../src/transports/baileys.js';
 
 const hoursAgo = (h) => new Date(Date.now() - h * 3_600_000).toISOString().replace(/\.\d{3}Z$/, '+00:00');
-const config = { ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', tierSystem: false, safetyEnabled: false, humanTiming: false };
+const config = { ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', transport: TRANSPORT_SANDBOX, safetyEnabled: false, humanTiming: false };
 
 describe('block detection', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-receipts-'));
@@ -42,24 +42,26 @@ describe('block detection', () => {
         });
         return messageId;
     };
-    const stuck = () => scoped.stuckSent(hoursAgo(24 * 7), hoursAgo(24)).map((m) => m.messageId);
+    const due = () => new Map(scoped.stuckSent().map((m) => [m.messageId, m]));
 
-    it('counts the 24 hours from the send, not from when the campaign queued the row', () => {
-        const queuedLongAgo = sent({ phone: '919800000001', createdH: 30, updatedH: 1 });   // went out an hour ago
-        const reallyStuck = sent({ phone: '919800000002', createdH: 30, updatedH: 25 });
-        const found = stuck();
-        assert.equal(found.includes(queuedLongAgo), false);
-        assert.equal(found.includes(reallyStuck), true);
+    it('counts the 48 hours from the send, not from when the campaign queued the row', () => {
+        const queuedLongAgo = sent({ phone: '919800000001', createdH: 60, updatedH: 1 });   // went out an hour ago
+        const reallyStuck = sent({ phone: '919800000002', createdH: 60, updatedH: 49 });
+        const found = due();
+        assert.equal(found.has(queuedLongAgo), false);
+        assert.equal(found.has(reallyStuck), true);
     });
 
-    it('does not flag a number that got a later message delivered, or wrote back', () => {
-        const older = sent({ phone: '919800000003', createdH: 40, updatedH: 39 });
+    it('marks a recipient that got a later message delivered, or wrote back, in hours 24-48 as not quiet', () => {
+        const older = sent({ phone: '919800000003', createdH: 50, updatedH: 49 });
         sent({ phone: '919800000003', createdH: 20, updatedH: 19, status: Status.DELIVERED });
-        const quiet = sent({ phone: '919800000004', createdH: 40, updatedH: 39 });
+        const answered = sent({ phone: '919800000004', createdH: 50, updatedH: 49 });
         scoped.insertInbound({ sender: '919800000004', body: 'ok', receivedAt: hoursAgo(5) });
-        const found = stuck();
-        assert.equal(found.includes(older), false);
-        assert.equal(found.includes(quiet), false);
+        const found = due();
+        assert.equal(found.get(older).quiet, false);
+        assert.equal(found.get(answered).quiet, false);
+        const silent = sent({ phone: '919800000007', createdH: 50, updatedH: 49 });
+        assert.equal(due().get(silent).quiet, true);
     });
 
     it('takes a block back when the ticks arrive late', () => {

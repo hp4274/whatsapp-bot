@@ -21,6 +21,7 @@ import {
   PolicyValues,
   TenantPolicy,
 } from './policy-api';
+import { PolicyTable, sameTable } from './policy-table';
 
 /** One field as it reads at the scope being edited. */
 interface PolicyRow {
@@ -60,6 +61,7 @@ const same = (a: PolicyValue | undefined, b: PolicyValue | undefined) =>
  */
 @Component({
   selector: 'app-policy-editor',
+  imports: [PolicyTable],
   templateUrl: './policy-editor.html',
   styleUrl: './policy-editor.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -189,6 +191,17 @@ export class PolicyEditor {
     this.set(row, Number(raw));
   }
 
+  /**
+   * A box left empty means "no value here": drop the override and show what
+   * applies instead, so the box never hides a typed number that Save would store.
+   * On `change`, not `input`, so clearing the box to retype is not overwritten.
+   */
+  protected clearNumber(row: PolicyRow, el: HTMLInputElement) {
+    if (el.value.trim() !== '') return;
+    this.reset(row);
+    el.value = row.inherited == null ? '' : String(row.inherited);
+  }
+
   protected setList(row: PolicyRow, raw: string) {
     this.set(
       row,
@@ -248,6 +261,10 @@ export class PolicyEditor {
 
   /** Short human form of a value, for the "otherwise" note under an override. */
   protected format(field: PolicyField, value: PolicyValue): string {
+    if (value === null) return field.nullLabel ?? 'not set';
+    if (field.type === 'table') {
+      return sameTable(value, field.default, field.columns ?? []) ? 'the built-in table' : 'an edited table';
+    }
     if (field.type === 'bool') return value ? 'On' : 'Off';
     if (field.type === 'int' && value === field.unlimitedAt) return 'No limit';
     if (field.type === 'enum') return field.options?.find((o) => o.value === value)?.label ?? String(value);

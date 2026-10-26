@@ -4,7 +4,7 @@
  * Claims under test: column mapping + per-variable fallbacks produce the right
  * text through the REAL CampaignManager; interactive blocks are validated and
  * personalised per recipient; speed presets never undercut the policy floor;
- * PER_USER_CAP (Meta 131049) is never retried; campaign options persist;
+ * campaign options persist;
  * retry-failed re-queues only the failed recipients; analytics/export read the
  * latest row per recipient; retargeting resolves the right people; and a
  * scheduled campaign waits for a connected transport.
@@ -18,16 +18,16 @@ import { after, before, describe, it } from 'node:test';
 
 import { closeApp } from '../src/app.js';
 import { CampaignManager } from '../src/campaign/manager.js';
+import { LEVELS } from '../src/campaign/humanize.js';
 import { PACING_PRESETS, paceFor } from '../src/campaign/safety.js';
 import { CampaignStore, campaignKey } from '../src/campaigns/store.js';
-import { DEFAULTS, TRANSPORT_CLOUD_API, TRANSPORT_SANDBOX } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { ContactStore } from '../src/contactStore.js';
 import { Database } from '../src/db.js';
 import { ErrorCode, FRIENDLY } from '../src/messaging/errors.js';
 import { InteractiveError } from '../src/messaging/interactive.js';
 import { Status } from '../src/protocol.js';
 import { TemplateStore } from '../src/templates/store.js';
-import { TransportSendError } from '../src/transports/base.js';
 import { createTestApp } from './helpers.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-campv2-'));
@@ -55,7 +55,7 @@ function fakeTransport(send) {
 }
 
 const engineConfig = (extra = {}) => ({
-    ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', retryDelay: 0.01, tierSystem: false, ...extra,
+    ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', retryDelay: 0.01, transport: TRANSPORT_SANDBOX, ...extra,
 });
 
 describe('the engine', () => {
@@ -107,45 +107,24 @@ describe('the engine', () => {
         assert.equal(manager.queue.pending, 0);
     });
 
-    it('never retries a per-user marketing cap (131049)', async () => {
-        let attempts = 0;
-        const transport = fakeTransport(async () => {
-            attempts += 1;
-            throw new TransportSendError('(#131049) healthy ecosystem engagement', { retryable: true, code: 131049 });
-        });
-        const manager = new CampaignManager(db, transport, engineConfig({ maxRetries: 3 }));
-        manager.enqueueContacts([{ name: 'Cap', phone: '919800000010' }], 'Hello {name}', { campaignId: 'camp-v2-cap' });
-        manager.start();
-        assert.ok(await waitFor(() => manager.stats.processed === 1));
-        await manager.shutdown();
-        assert.equal(attempts, 1);
-        const row = db.history({ campaignId: 'camp-v2-cap' })[0];
-        assert.equal(row.status, Status.FAILED);
-        assert.match(row.error, /try again after 24h/);
-    });
 });
 
 describe('speed presets', () => {
-    it('keeps balanced as it was, makes safe slower and fast faster but never under the floor', () => {
+    it('balanced is the level\'s gaps, safe stretches them, fast never goes under the level or the policy floor', () => {
         assert.deepEqual(PACING_PRESETS, ['safe', 'balanced', 'fast']);
-        const balanced = paceFor(120, DEFAULTS);
-        assert.deepEqual({ ...paceFor(120, DEFAULTS, 'balanced'), preset: undefined }, { ...balanced, preset: undefined });
-        assert.equal(balanced.minSeconds, 15);
-        assert.equal(balanced.maxSeconds, 40);
+        const row = LEVELS[3];
+        const balanced = paceFor(120, DEFAULTS, 'balanced', row);
+        assert.deepEqual([balanced.minSeconds, balanced.maxSeconds], [row.minSeconds, row.maxSeconds]);
+        assert.deepEqual({ ...paceFor(5000, DEFAULTS, 'balanced', row), batchSize: 120 }, balanced, 'batch size changes nothing');
 
-        const safe = paceFor(120, DEFAULTS, 'safe');
-        assert.ok(safe.minSeconds > balanced.minSeconds && safe.maxSeconds > balanced.maxSeconds);
+        const safe = paceFor(120, DEFAULTS, 'safe', row);
+        assert.deepEqual([safe.minSeconds, safe.maxSeconds], [row.minSeconds * 1.5, row.maxSeconds * 1.5]);
+        assert.deepEqual({ ...paceFor(120, DEFAULTS, 'fast', row), preset: 'balanced' }, balanced, 'on a level fast runs as balanced');
 
-        const fast = paceFor(120, DEFAULTS, 'fast');
-        assert.equal(fast.minSeconds, 7.5);
-        assert.ok(fast.maxSeconds >= fast.minSeconds);
-
-        const floored = paceFor(120, { ...DEFAULTS, minDelaySeconds: 12 }, 'fast');
-        assert.equal(floored.minSeconds, 12, 'the policy floor wins');
-        assert.ok(floored.maxSeconds >= 12);
-        for (const size of [1, 10, 50, 200, 1000, 5000]) {
-            assert.ok(paceFor(size, { ...DEFAULTS, minDelaySeconds: 9 }, 'fast').minSeconds >= 9);
-        }
+        // Without a level (the sandbox, which never waits) only a policy gap applies, and fast never goes under it.
+        assert.deepEqual([paceFor(120, DEFAULTS).minSeconds, paceFor(120, DEFAULTS).maxSeconds], [0, 0]);
+        const floored = paceFor(120, { ...DEFAULTS, minDelaySeconds: 12, maxDelaySeconds: 30 }, 'fast');
+        assert.deepEqual([floored.minSeconds, floored.maxSeconds], [12, 15], 'the policy floor wins');
     });
 
     it('changes a live manager\'s pace', () => {
@@ -414,7 +393,7 @@ describe('campaigns over HTTP', () => {
 
     before(async () => {
         db = new Database(path.join(tmp, 'http.db'));
-        const config = { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000, retryDelay: 0.01, maxRetries: 1, tierSystem: false };
+        const config = { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000, retryDelay: 0.01, maxRetries: 1 };
         delete config.misc;
         app = createTestApp({ db, config });
         server = app.listen(0, '127.0.0.1');
@@ -477,6 +456,23 @@ describe('campaigns over HTTP', () => {
         assert.match(csv.body, /^timestamp,phone,name,status,error,button_clicked/);
     });
 
+    it('the sweep sends a scheduled campaign from the number it was made for, not the default', async () => {
+        const made = await api('POST', '/api/channels', { displayName: 'Number B', settings: { transport: TRANSPORT_SANDBOX } });
+        const onB = { 'x-channel-id': String(made.body.channel.id), 'content-type': 'application/json' };
+        assert.equal((await fetch(`${base}/api/connection/connect`, { method: 'POST', headers: onB })).status, 200);
+        const created = await fetch(`${base}/api/campaigns`, {
+            method: 'POST', headers: onB,
+            body: JSON.stringify({ name: 'From B', body: 'Hi {name}', status: 'scheduled', scheduledAt: '2020-01-01T00:00:00+00:00',
+                audience: [{ name: 'Uma', phone: '919855500009' }] }),
+        }).then((res) => res.json());
+        const key = campaignKey(created.campaign.id);
+
+        await app.locals.sweep();
+        assert.ok(await waitFor(() => db.history({ campaignId: key }).some((r) => r.status === Status.SANDBOX)));
+        const sentOn = db.db.prepare('SELECT DISTINCT channel_id FROM messages WHERE campaign_id = ?').all(key).map((r) => r.channel_id);
+        assert.deepEqual(sentOn, [made.body.channel.id]);
+    });
+
     it('pauses, resumes, re-paces and cancels; lists without the audience', async () => {
         const created = await api('POST', '/api/campaigns', {
             name: 'Controls', body: 'Hi {name}',
@@ -510,7 +506,7 @@ describe('campaigns over HTTP', () => {
         assert.equal((await api('POST', '/api/campaign/speed', { pacing: 'nope' })).status, 400);
         const safety = await api('GET', '/api/safety?contacts=120&pacing=safe');
         assert.equal(safety.body.safety.pacing, 'safe');
-        assert.equal(safety.body.safety.minSeconds, 22.5);
+        assert.equal(safety.body.safety.minSeconds, 0, 'the sandbox has no level, so no gap to stretch');
         await api('POST', '/api/campaign/speed', { pacing: 'balanced' });
     });
 
@@ -541,43 +537,3 @@ describe('campaigns over HTTP', () => {
     });
 });
 
-describe('retrying a Meta template campaign', () => {
-    it('re-sends the approved template to a Meta-mode campaign, plain text to a plain one', () => {
-        const db = new Database(path.join(tmp, 'retry-meta.db'));
-        try {
-            const scoped = db.forTenant(1).forChannel(1);
-            const templates = new TemplateStore(scoped);
-            const t = templates.create({
-                name: 'Order', templateType: 'provider_template', body: 'Hi {{1}}', approvalStatus: 'approved',
-                providerTemplateName: 'order_update', language: 'en', paramMapping: { body: [{ var: 'name' }] },
-            });
-            const manager = fakeManager();
-            const store = new CampaignStore(scoped, {
-                contacts: new ContactStore(scoped, '91'), templates, manager, canSend: () => true,
-            });
-            store.channel = () => ({ id: 1, provider: TRANSPORT_CLOUD_API });
-            const retryJob = (fields) => {
-                const c = store.create({ name: 'R', audience: [{ name: 'Dev', phone: '919844400001' }], ...fields });
-                store.start(c.id);
-                scoped.insert({
-                    messageId: `m-${Math.random().toString(36).slice(2)}`, recipient: '919844400001',
-                    message: 'Hi Dev (stored)', status: 'FAILED', name: 'Dev', error: 'boom', campaignId: campaignKey(c.id),
-                });
-                const before = manager.jobs.length;
-                store.retryFailed(c.id);
-                return manager.jobs.slice(before)[0];
-            };
-
-            const meta = retryJob({ templateId: t.id, options: { templateMode: 'meta', templateParams: { body: [{ var: 'name' }] } } });
-            assert.equal(meta.text, 'Hi Dev (stored)');
-            assert.equal(meta.template.name, 'order_update');
-            assert.deepEqual(meta.template.components, [{ type: 'body', parameters: [{ type: 'text', text: 'Dev' }] }]);
-
-            const plain = retryJob({ body: 'Hi {name}' });
-            assert.equal(plain.text, 'Hi Dev (stored)');
-            assert.equal(plain.template, null);
-        } finally {
-            db.close();
-        }
-    });
-});

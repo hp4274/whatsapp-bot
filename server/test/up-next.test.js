@@ -7,10 +7,10 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
 import { CampaignManager } from '../src/campaign/manager.js';
-import { DEFAULTS } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
 
-const config = { ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', tierSystem: false, safetyEnabled: false, humanTiming: false };
+const config = { ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', transport: TRANSPORT_SANDBOX, safetyEnabled: false, humanTiming: false };
 
 describe('upNext', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-upnext-'));

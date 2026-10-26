@@ -1,6 +1,6 @@
 /**
  * Interactive message types, mirroring server/src/messaging/interactive.js.
- * Keep renderFallbackText byte-for-byte in step with the server version.
+ * Keep renderFallbackText and carouselCaptions byte-for-byte in step with the server version.
  */
 
 export type InteractiveType = 'buttons' | 'cta' | 'list' | 'carousel';
@@ -31,6 +31,8 @@ export interface InteractiveSection {
 
 /** One slide of a carousel; `mediaUrl` is the uploaded image's URL (thumbnail and preview). */
 export interface InteractiveCard {
+  /** Editor-only identity so an upload finds its card after others move; the server keeps only the fields it knows. */
+  uid?: string;
   mediaId: string;
   mediaUrl: string;
   text: string;
@@ -42,8 +44,6 @@ export interface InteractiveDraft {
   type: InteractiveType;
   header?: string;
   footer?: string;
-  /** Send as real WhatsApp buttons on QR (Baileys) numbers; false sends the numbered text menu. Default true. */
-  native?: boolean;
   buttons?: InteractiveButton[];
   cta?: InteractiveCta[];
   list?: { button: string; sections: InteractiveSection[] };
@@ -80,7 +80,7 @@ export const LIMITS = {
   rowTitle: 24,
   rowDescription: 72,
   rows: 10,
-  cards: { min: 2, max: 10 },
+  cards: { min: 2, max: 5 },
   cardText: 160,
   cardButtons: 2,
 } as const;
@@ -112,30 +112,20 @@ export function interactiveOptions(
   return [];
 }
 
-/** Plain-text rendering for transports without native buttons (port of the server function). */
+/**
+ * Plain-text rendering for transports without native buttons (port of the server function):
+ * what a QR number sends. A carousel is its text then every card caption, with no header or footer.
+ */
 export function renderFallbackText(
   text: string,
   draft: InteractiveDraft | null | undefined,
 ): string {
+  if (draft?.type === 'carousel')
+    return [String(text ?? '').trim(), ...carouselCaptions(draft)].filter(Boolean).join('\n\n');
   const parts: string[] = [];
   if (draft?.header) parts.push(`*${draft.header}*`);
   parts.push(String(text ?? '').trim());
-  if (draft?.type === 'carousel' && draft.carousel) {
-    // One block per card; quick-reply numbers continue across cards so a typed "3" is unambiguous.
-    let n = 0;
-    // Same text as the server's carouselCaptions(): card text, a blank line, then its replies or links.
-    for (const card of draft.carousel.cards) {
-      let lines = '';
-      if (draft.carousel.kind === 'reply' && card.buttons?.length) {
-        const nums = card.buttons.map(() => String(++n));
-        const ask = nums.length > 1 ? `${nums.slice(0, -1).join(', ')} or ${nums.at(-1)}` : nums[0];
-        lines = [`Reply ${ask}:`, ...card.buttons.map((b, i) => `${nums[i]}. ${b.title}`)].join('\n');
-      } else if (draft.carousel.kind === 'url' && card.cta?.length) {
-        lines = card.cta.map((c) => `${CTA_ICON.url} ${c.title}: ${c.value}`).join('\n');
-      }
-      parts.push([String(card.text ?? '').trim(), lines].filter(Boolean).join('\n\n'));
-    }
-  } else if (draft?.type === 'buttons') {
+  if (draft?.type === 'buttons') {
     const buttons = draft.buttons ?? [];
     const nums = buttons.map((_, i) => NUMBERS[i]);
     const ask = nums.length > 1 ? `${nums.slice(0, -1).join(', ')} or ${nums.at(-1)}` : nums[0];
@@ -161,6 +151,28 @@ export function renderFallbackText(
   }
   if (draft?.footer) parts.push(`_${draft.footer}_`);
   return parts.filter(Boolean).join('\n\n');
+}
+
+/**
+ * One caption per carousel card (port of the server function): its text, then "Reply 3 or 4:"
+ * with its buttons or a "🔗 Title: url" line. Reply numbers run across all cards, so a typed "3"
+ * is the third button overall. The server keeps only the fields of the carousel's kind; so does this.
+ */
+export function carouselCaptions(draft: InteractiveDraft | null | undefined): string[] {
+  if (draft?.type !== 'carousel' || !draft.carousel) return [];
+  const { kind, cards } = draft.carousel;
+  let n = 0;
+  return cards.map((card) => {
+    let lines = '';
+    if (kind === 'reply' && card.buttons?.length) {
+      const nums = card.buttons.map(() => String(++n));
+      const ask = nums.length > 1 ? `${nums.slice(0, -1).join(', ')} or ${nums.at(-1)}` : nums[0];
+      lines = [`Reply ${ask}:`, ...card.buttons.map((b, i) => `${nums[i]}. ${b.title}`)].join('\n');
+    } else if (kind === 'url' && card.cta?.length) {
+      lines = card.cta.map((c) => `${CTA_ICON.url} ${c.title}: ${c.value}`).join('\n');
+    }
+    return [String(card.text ?? '').trim(), lines].filter(Boolean).join('\n\n');
+  });
 }
 
 /** Human-readable problems with a draft; empty when it would pass the server's checks. */

@@ -31,6 +31,9 @@ import { serviceMeta } from './service-meta';
 /** Which tab of the drawer is showing. */
 export type SettingsTab = 'general' | 'plan' | 'limits' | 'safety' | 'rules' | 'accounts';
 
+/** The Security card's two irreversible actions. */
+type AccessAction = 'sessions' | 'keys';
+
 /** Working copy of one tenant's settings; nothing is sent until Save. */
 type SettingsDraft = {
   tenant: Tenant;
@@ -49,21 +52,18 @@ type LimitField = {
 /** New tenants start with everything on; the platform admin narrows from there. */
 const DEFAULT_CONTROLS: TenantControls = {
   sendingEnabled: true,
-  inboundEnabled: true,
   campaignsEnabled: true,
   automationsEnabled: true,
 };
 
 const CONTROL_KEYS: readonly (keyof TenantControls)[] = [
   'sendingEnabled',
-  'inboundEnabled',
   'campaignsEnabled',
   'automationsEnabled',
 ];
 
 const CONTROL_LABELS: Record<keyof TenantControls, string> = {
   sendingEnabled: 'Outbound sending',
-  inboundEnabled: 'Inbound webhooks',
   campaignsEnabled: 'Campaign sending',
   automationsEnabled: 'Automations',
 };
@@ -75,7 +75,6 @@ const DEFAULT_LIMITS: TenantLimits = {
   maxTemplates: 0,
   maxContactsPerCampaign: 0,
   maxMediaMb: 0,
-  allowCloudApi: true,
   allowWhatsappWeb: true,
   blockedWords: '',
   allowCustomSafety: false,
@@ -96,6 +95,29 @@ const TABS: readonly { id: SettingsTab; label: string; icon: string }[] = [
   { id: 'safety', label: 'Anti-ban', icon: 'shield' },
   { id: 'rules', label: 'Rules', icon: 'list-check' },
   { id: 'accounts', label: 'Accounts', icon: 'users' },
+];
+
+const ACCESS_ACTIONS: readonly {
+  id: AccessAction;
+  label: string;
+  hint: string;
+  confirm: string;
+  icon: string;
+}[] = [
+  {
+    id: 'sessions',
+    label: 'Sign everyone out',
+    hint: 'Ends every session of this business. People sign in again.',
+    confirm: 'Sign out all',
+    icon: 'logout',
+  },
+  {
+    id: 'keys',
+    label: 'Revoke all API keys',
+    hint: 'Every integration using a key stops until the business makes a new one.',
+    confirm: 'Revoke keys',
+    icon: 'key-off',
+  },
 ];
 
 /**
@@ -135,8 +157,13 @@ export class TenantSettings {
   protected readonly error = signal('');
   /** Revoking takes two clicks instead of a window.confirm. */
   protected readonly revokeConfirm = signal(false);
+  /** Security card: the action waiting on its confirm step, one in flight, and the last result. */
+  protected readonly accessAsk = signal<AccessAction | null>(null);
+  protected readonly accessBusy = signal<AccessAction | null>(null);
+  protected readonly accessNotice = signal<{ readonly tone: 'ok' | 'bad'; readonly text: string } | null>(null);
 
   protected readonly tabs = TABS;
+  protected readonly accessActions = ACCESS_ACTIONS;
   protected readonly controlKeys = CONTROL_KEYS;
   protected readonly limitFields = LIMIT_FIELDS;
   protected readonly safetyGroups = SAFETY_GROUPS;
@@ -171,6 +198,8 @@ export class TenantSettings {
 
   private load(tenant: Tenant) {
     this.revokeConfirm.set(false);
+    this.accessAsk.set(null);
+    this.accessNotice.set(null);
     this.error.set('');
     this.settings.set({
       tenant,
@@ -219,6 +248,35 @@ export class TenantSettings {
       error: (err: Error) => {
         this.saving.set(false);
         this.error.set(err.message);
+      },
+    });
+  }
+
+  /**
+   * Sign everyone out, or revoke every API key. Both take effect at once and
+   * cannot be undone, so they run only from the confirm step, never the first click.
+   */
+  protected revokeAccess(action: AccessAction) {
+    const cur = this.settings();
+    if (!cur || this.accessBusy()) return;
+    this.accessAsk.set(null);
+    this.accessBusy.set(action);
+    this.accessNotice.set(null);
+    const request =
+      action === 'sessions' ? this.api.revokeSessions(cur.tenant.id) : this.api.revokeKeys(cur.tenant.id);
+    // The result shows in the Security card itself: the drawer's top banner is off-screen down here.
+    request.subscribe({
+      next: ({ count }) => {
+        this.accessBusy.set(null);
+        const s = count === 1 ? '' : 's';
+        this.accessNotice.set({
+          tone: 'ok',
+          text: action === 'sessions' ? `Ended ${count} session${s}.` : `Revoked ${count} API key${s}.`,
+        });
+      },
+      error: (err: Error) => {
+        this.accessBusy.set(null);
+        this.accessNotice.set({ tone: 'bad', text: err.message });
       },
     });
   }

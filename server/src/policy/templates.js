@@ -15,7 +15,7 @@ export const TEMPLATE_POLICY = Object.freeze([
           { value: 'baileys', label: 'Review templates used on Baileys numbers' },
           { value: 'all', label: 'Review every template' },
       ],
-      label: 'Approval queue', hint: 'A super admin approves a template before it can be sent. Meta reviews Cloud API templates itself.' },
+      label: 'Approval queue', hint: 'A super admin approves a template before it can be sent.' },
     { key: 'templates.blockedWords', service: S, group: 'Content rules', type: 'list', default: [],
       label: 'Blocked words', hint: 'One per line. A template containing one cannot be saved.' },
     { key: 'templates.blockedDomains', service: S, group: 'Content rules', type: 'list', default: [],

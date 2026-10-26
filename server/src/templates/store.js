@@ -14,17 +14,13 @@
  * went out at version 3 must stay readable at version 3 forever.
  */
 
-import { TRANSPORT_CLOUD_API, QR_TRANSPORTS } from '../config.js';
 import { InteractiveError, normalizeInteractive } from '../messaging/interactive.js';
 import { personalize, utcNow } from '../protocol.js';
 import { spamScore } from './policy.js';
 
 export const TEMPLATE_TYPES = Object.freeze([
-    'text', 'media', 'provider_template', 'interactive', 'notification',
+    'text', 'media', 'interactive', 'notification',
 ]);
-
-/** Only meaningful for `provider_template`: the others need nobody's blessing. */
-export const APPROVAL_STATUSES = Object.freeze(['draft', 'pending', 'approved', 'rejected']);
 
 /**
  * Meta's template categories. New templates default to 'marketing': it is
@@ -54,20 +50,14 @@ export class TemplateStore {
     // ------------------------------------------------------------- writes --
     create({
         name, templateType = 'text', body = '', variables, channelId = null,
-        providerTemplateName = '', approvalStatus = 'draft',
         category = 'marketing', sampleValues, headerMediaId, interactive,
-        language, paramMapping,
     }) {
         const clean = String(name ?? '').trim();
         if (!clean) throw new TemplateError('a template needs a name');
         if (!TEMPLATE_TYPES.includes(templateType)) {
             throw new TemplateError(`template type must be one of ${TEMPLATE_TYPES.join(', ')}`);
         }
-        if (!APPROVAL_STATUSES.includes(approvalStatus)) {
-            throw new TemplateError(`approval status must be one of ${APPROVAL_STATUSES.join(', ')}`);
-        }
         const extras = cleanExtras({ category, sampleValues, headerMediaId, interactive });
-        const meta = cleanMeta({ language, paramMapping });
         if (this.getByName(clean)) throw new TemplateError(`a template named ${clean} already exists`, 409);
 
         // Nobody wants to list variables by hand when the body already says
@@ -77,19 +67,16 @@ export class TemplateStore {
         const now = utcNow();
         const info = this.db.prepare(
             `INSERT INTO templates (tenant_id, name, template_type, body, variables, channel_id,
-                                    provider_template_name, approval_status, current_version,
-                                    category, sample_values, header_media_id, interactive,
+                                    current_version, category, sample_values, header_media_id, interactive,
                                     created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`)
+             VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`)
             .run(
                 this.tenantId, clean, templateType, String(body ?? ''), JSON.stringify(declared),
                 channelId == null ? null : Number(channelId),
-                String(providerTemplateName ?? '').trim(), approvalStatus,
                 extras.category, extras.sampleValues, extras.headerMediaId, extras.interactive, now, now,
             );
         const id = Number(info.lastInsertRowid);
         this.#writeVersion(id, 1, String(body ?? ''), declared, now);
-        this.#writeMeta(id, meta);
         return this.get(id);
     }
 
@@ -103,11 +90,6 @@ export class TemplateStore {
         if (patch.templateType !== undefined && !TEMPLATE_TYPES.includes(patch.templateType)) {
             throw new TemplateError(`template type must be one of ${TEMPLATE_TYPES.join(', ')}`);
         }
-        if (patch.approvalStatus !== undefined && !APPROVAL_STATUSES.includes(patch.approvalStatus)) {
-            throw new TemplateError(`approval status must be one of ${APPROVAL_STATUSES.join(', ')}`);
-        }
-
-        const meta = cleanMeta(patch);
         const extras = cleanExtras({
             category: patch.category ?? template.category,
             sampleValues: patch.sampleValues === undefined ? template.sampleValues : patch.sampleValues,
@@ -138,8 +120,7 @@ export class TemplateStore {
 
         this.db.prepare(
             `UPDATE templates SET name = ?, template_type = ?, body = ?, variables = ?,
-                                  channel_id = ?, provider_template_name = ?, approval_status = ?,
-                                  current_version = ?, category = ?, sample_values = ?,
+                                  channel_id = ?, current_version = ?, category = ?, sample_values = ?,
                                   header_media_id = ?, interactive = ?, updated_at = ?
              WHERE id = ? AND tenant_id = ?`)
             .run(
@@ -149,15 +130,10 @@ export class TemplateStore {
                 patch.channelId === undefined
                     ? template.channelId
                     : (patch.channelId == null ? null : Number(patch.channelId)),
-                patch.providerTemplateName === undefined
-                    ? template.providerTemplateName
-                    : String(patch.providerTemplateName).trim(),
-                patch.approvalStatus ?? template.approvalStatus,
                 version, extras.category, extras.sampleValues, extras.headerMediaId, extras.interactive,
                 now, template.id, this.tenantId,
             );
         if (reworded) this.#writeVersion(template.id, version, body, variables, now);
-        this.#writeMeta(template.id, meta);
         return this.get(template.id);
     }
 
@@ -170,7 +146,7 @@ export class TemplateStore {
         return this.update(template.id, { body: old.body, variables: old.variables });
     }
 
-    /** Platform review verdict (see templates/policy.js). Never touches Meta's approval_status. */
+    /** Platform review verdict (see templates/policy.js). */
     setReview(id, status, note = '') {
         const template = this.#require(id);
         this.db.prepare('UPDATE templates SET review_status = ?, review_note = ?, reviewed_at = ? WHERE id = ? AND tenant_id = ?')
@@ -306,18 +282,6 @@ export class TemplateStore {
         return template;
     }
 
-    /** Meta send settings (see cleanMeta). They never change wording, so no version. */
-    #writeMeta(id, { language, paramMapping }) {
-        if (language !== undefined) {
-            this.db.prepare('UPDATE templates SET language = ? WHERE id = ? AND tenant_id = ?')
-                .run(language, id, this.tenantId);
-        }
-        if (paramMapping !== undefined) {
-            this.db.prepare('UPDATE templates SET param_mapping = ? WHERE id = ? AND tenant_id = ?')
-                .run(paramMapping, id, this.tenantId);
-        }
-    }
-
     #writeVersion(templateId, version, body, variables, now) {
         this.db.prepare(
             `INSERT INTO template_versions (template_id, version, body, variables, created_at)
@@ -355,38 +319,16 @@ export function validate({ body = '', variables } = {}) {
 }
 
 /**
- * Can this template go out on this channel? The rules are the providers', not
- * ours: Meta's own template machinery only exists on the Cloud API and only
- * accepts a template Meta has approved, and interactive messages are a Cloud
- * API payload shape that a browser session cannot produce.
+ * Can this template go out on this channel? Only a channel pin can say no:
+ * a QR number sends an interactive block as its fallback text.
  */
 export function compatibility(template, channel) {
     const problems = [];
     if (!template) return ['template not found'];
     if (!channel) return ['channel not found'];
 
-    const transport = channel.provider ?? channel.settings?.transport;
-
     if (template.channelId != null && Number(template.channelId) !== Number(channel.id)) {
         problems.push(`template is pinned to channel ${template.channelId}`);
-    }
-
-    if (template.templateType === 'provider_template') {
-        if (QR_TRANSPORTS.includes(transport)) {
-            problems.push('a WhatsApp Web channel cannot send provider templates');
-        } else if (transport !== TRANSPORT_CLOUD_API) {
-            problems.push('provider templates need a Cloud API channel');
-        }
-        if (template.approvalStatus !== 'approved') {
-            problems.push(`provider template is ${template.approvalStatus}, not approved`);
-        }
-        if (!template.providerTemplateName) {
-            problems.push('provider template has no provider template name');
-        }
-    }
-
-    if (template.templateType === 'interactive' && transport !== TRANSPORT_CLOUD_API) {
-        problems.push('interactive messages need a Cloud API channel');
     }
 
     return problems;
@@ -401,7 +343,7 @@ const cleanList = (list) => (Array.isArray(list)
     ? [...new Set(list.map((v) => String(v).trim()).filter(Boolean))]
     : []);
 
-/** Validates the Meta-facing extras and returns them as column values. */
+/** Validates the category, samples, header and buttons; returns them as column values. */
 function cleanExtras({ category, sampleValues, headerMediaId, interactive }) {
     if (!TEMPLATE_CATEGORIES.includes(category)) {
         throw new TemplateError(`category must be one of ${TEMPLATE_CATEGORIES.join(', ')}`);
@@ -428,30 +370,6 @@ function cleanExtras({ category, sampleValues, headerMediaId, interactive }) {
     };
 }
 
-/**
- * Meta send settings: language code and the {{n}} -> variable mapping
- * (messaging/templateSend.js). Absent fields stay undefined (= unchanged).
- */
-function cleanMeta({ language, paramMapping } = {}) {
-    const meta = {};
-    if (language !== undefined) {
-        meta.language = String(language ?? '').trim();
-        if (meta.language && !/^[a-z]{2,3}(_[A-Za-z]{2,4})?$/.test(meta.language)) {
-            throw new TemplateError('language must be a Meta language code such as en, en_US or hi');
-        }
-    }
-    if (paramMapping !== undefined) {
-        const mapping = paramMapping ?? {};
-        if (typeof mapping !== 'object' || Array.isArray(mapping)
-            || (mapping.body !== undefined && !Array.isArray(mapping.body))
-            || (mapping.buttons !== undefined && !Array.isArray(mapping.buttons))) {
-            throw new TemplateError('paramMapping must be { body: [...], header?, buttons?: [...] }');
-        }
-        meta.paramMapping = JSON.stringify(mapping);
-    }
-    return meta;
-}
-
 const sameList = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
 function toTemplate(row) {
@@ -463,8 +381,6 @@ function toTemplate(row) {
         body: row.body ?? '',
         variables: parse(row.variables, []),
         channelId: row.channel_id ?? null,
-        providerTemplateName: row.provider_template_name ?? '',
-        approvalStatus: row.approval_status,
         currentVersion: row.current_version,
         useCount: row.use_count ?? 0,
         lastUsedAt: row.last_used_at ?? null,
@@ -472,8 +388,6 @@ function toTemplate(row) {
         sampleValues: parse(row.sample_values, {}),
         headerMediaId: row.header_media_id ?? null,
         interactive: parse(row.interactive, null),
-        language: row.language ?? '',
-        paramMapping: parse(row.param_mapping, {}),
         reviewStatus: row.review_status ?? '',
         reviewNote: row.review_note ?? '',
         reviewedAt: row.reviewed_at ?? null,

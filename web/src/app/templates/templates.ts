@@ -16,10 +16,8 @@ import { scrollToTop } from '../core/scroll';
 import { Store } from '../core/store';
 import { Tilt } from '../school/tilt';
 import { ButtonsEditor } from './buttons-editor';
-import { MetaMappingEditor } from './meta-mapping';
 import { HeaderMedia, TemplatePreview } from './template-preview';
 import {
-  APPROVAL_STATUSES,
   ApiError,
   ReviewStatus,
   SpamScore,
@@ -53,12 +51,11 @@ const REVIEW_META: Record<Exclude<ReviewStatus, ''>, { label: string; tone: stri
 const TYPE_META: Record<TemplateType, { label: string; icon: string; tone: string }> = {
   text: { label: 'Text', icon: 'notes', tone: 'tone-ok' },
   media: { label: 'Media', icon: 'photo', tone: 'tone-info' },
-  provider_template: { label: 'Meta template', icon: 'discount-check', tone: 'tone-warn' },
   interactive: { label: 'Interactive', icon: 'hand-finger', tone: 'tone-info' },
   notification: { label: 'Notification', icon: 'bell', tone: 'tone-mute' },
 };
 
-/** Meta's own wording, shortened: picking the wrong one gets a template re-filed or rejected. */
+/** What each category is for, so templates are filed the same way across the team. */
 const CATEGORY_META: Record<
   TemplateCategory,
   { label: string; icon: string; tone: string; guide: string }
@@ -68,14 +65,14 @@ const CATEGORY_META: Record<
     icon: 'speakerphone',
     tone: 'tone-warn',
     guide:
-      'Offers, launches, newsletters, re-engagement - anything promotional. Billed at the marketing rate; recipients can mute or block.',
+      'Offers, launches, newsletters, re-engagement - anything promotional. Recipients can mute or block.',
   },
   utility: {
     label: 'Utility',
     icon: 'receipt',
     tone: 'tone-info',
     guide:
-      'Updates on something the customer already started: orders, bookings, payments, account alerts. Any promotion and Meta re-files it as marketing.',
+      'Updates on something the customer already started: orders, bookings, payments, account alerts. Anything promotional belongs in marketing.',
   },
   authentication: {
     label: 'Authentication',
@@ -92,8 +89,6 @@ const blank = (): TemplateDraft => ({
   templateType: 'text',
   body: '',
   variables: [],
-  providerTemplateName: '',
-  approvalStatus: 'draft',
   category: 'marketing',
   sampleValues: {},
   headerMediaId: null,
@@ -113,7 +108,7 @@ const kindOf = (mime: string): HeaderMedia['kind'] =>
  */
 @Component({
   selector: 'app-templates',
-  imports: [FormsModule, Tilt, TemplatePreview, ButtonsEditor, MetaMappingEditor],
+  imports: [FormsModule, Tilt, TemplatePreview, ButtonsEditor],
   templateUrl: './templates.html',
   styleUrl: './templates.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -127,7 +122,6 @@ export class TemplatesView {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly types = TEMPLATE_TYPES;
-  protected readonly statuses = APPROVAL_STATUSES;
   protected readonly categories = TEMPLATE_CATEGORIES;
   protected readonly meta = TYPE_META;
   protected readonly cat = CATEGORY_META;
@@ -262,14 +256,10 @@ export class TemplatesView {
       templateType: t.templateType,
       body: t.body,
       variables: t.variables,
-      providerTemplateName: t.providerTemplateName,
-      approvalStatus: t.approvalStatus,
       category: t.category ?? 'marketing',
       sampleValues: { ...(t.sampleValues ?? {}) },
       headerMediaId: t.headerMediaId ?? null,
       interactive: t.interactive ?? null,
-      language: t.language ?? '',
-      paramMapping: t.paramMapping ?? {},
     });
     this.resetMedia();
     if (t.headerMediaId) this.loadMedia(t.headerMediaId);

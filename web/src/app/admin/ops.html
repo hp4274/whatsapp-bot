@@ -117,7 +117,6 @@
             <div>
               <dt>Transports</dt>
               <dd>
-                <span [class.no]="!p.limits.allowCloudApi">Cloud API</span>,
                 <span [class.no]="!p.limits.allowWhatsappWeb">WhatsApp QR</span>
               </dd>
             </div>
@@ -146,10 +145,6 @@
             <div>
               <dt>Pacing</dt>
               <dd>{{ p.safety['pacingMode'] }}</dd>
-            </div>
-            <div>
-              <dt>Warm-up</dt>
-              <dd>{{ +p.safety['warmupDays'] ? p.safety['warmupDays'] + ' days' : 'Off' }}</dd>
             </div>
             <div>
               <dt>Per recipient a day</dt>
@@ -368,6 +363,19 @@
           Problems only</label
         >
       </div>
+      <p class="backup-line" [class.bad]="!backup()?.ok">
+        @if (backup(); as b) {
+          <i class="ti ti-{{ b.ok ? 'database' : 'database-x' }}" aria-hidden="true"></i>
+          @if (b.ok) {
+            Last backup {{ ago(b.at) }} ({{ b.day }}) · {{ size(b.bytes) }} · {{ b.loginFiles ?? 0 }} login files
+          } @else {
+            Last backup failed {{ ago(b.at) }}: {{ b.error || 'unknown error' }}
+          }
+        } @else {
+          <i class="ti ti-database-x" aria-hidden="true"></i>
+          No backup has run yet
+        }
+      </p>
     } @else {
       @let hc = healthCounts();
       <div class="stats">
@@ -380,10 +388,7 @@
         <div class="stat bad" style="--i: 2">
           <small>Need attention</small><b>{{ hc.bad + hc.warn }}</b>
         </div>
-        <div class="stat warn" style="--i: 3">
-          <small>In warm-up</small><b>{{ hc.warming }}</b>
-        </div>
-        <div class="stat" style="--i: 4">
+        <div class="stat" style="--i: 3">
           <small>Disabled</small><b>{{ hc.off }}</b>
         </div>
       </div>
@@ -461,13 +466,8 @@
               </span>
               <span
                 ><b>{{ c.quota.used }}</b> /
-                {{ c.quota.enabled && c.quota.limit ? c.quota.limit : 'no cap' }}</span
+                {{ c.quota.enabled && c.quota.limit ? c.quota.limit : zeroCap(c) }}</span
               >
-              @if (c.warmup; as wu) {
-                <span class="pill" [class.warming]="wu.active">{{
-                  wu.active ? 'Warm-up day ' + wu.day + ' of ' + wu.days : 'Warmed up'
-                }}</span>
-              }
             </div>
           }
           @if (c.problems.length) {

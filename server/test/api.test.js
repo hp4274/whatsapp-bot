@@ -12,11 +12,10 @@ import { after, before, describe, it } from 'node:test';
 
 import { closeApp } from '../src/app.js';
 import { createTestApp as createApp } from './helpers.js';
-import { DEFAULTS, TRANSPORT_CLOUD_API, TRANSPORT_SANDBOX } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { rowsToPaymentReminders } from '../src/paymentReminders.js';
 import { Status } from '../src/protocol.js';
-import { CloudApiTransport, parseStatusPayload } from '../src/transports/cloudApi.js';
 import { SandboxTransport } from '../src/transports/sandbox.js';
 import { TransportConnectionError, TransportSendError } from '../src/transports/base.js';
 
@@ -66,24 +65,19 @@ const waitFor = async (predicate, timeoutMs = 6000) => {
 };
 
 describe('config API', () => {
-    it('never hands the access token to the browser', async () => {
-        await api('PUT', '/api/config', { accessToken: 'SECRET', transport: TRANSPORT_SANDBOX });
-        const { body } = await api('GET', '/api/config');
-        assert.equal(body.config.accessToken, '__set__');
-        assert.notEqual(body.config.accessToken, 'SECRET');
-    });
-
-    it('keeps the stored token when the client echoes the placeholder', async () => {
-        await api('PUT', '/api/config', { accessToken: '__set__', defaultCountryCode: '91' });
+    it('drops the removed Cloud API settings and keeps the rest', async () => {
+        await api('PUT', '/api/config', { accessToken: 'SECRET', defaultCountryCode: '91', transport: TRANSPORT_SANDBOX });
         const { body } = await api('GET', '/api/config');
         assert.equal(body.config.defaultCountryCode, '91');
-        assert.equal(body.config.accessToken, '__set__');
+        assert.equal(body.config.accessToken, undefined);
+        assert.deepEqual(body.transports.includes('cloud_api'), false);
     });
 
     it('rejects settings that cannot work', async () => {
-        const { status, body } = await api('PUT', '/api/config', { requestTimeout: 0 });
+        // requestTimeout is the platform admin's now (ADMIN_CHANNEL_KEYS), so a bad transport stands in.
+        const { status, body } = await api('PUT', '/api/config', { transport: 'carrier_pigeon' });
         assert.equal(status, 400);
-        assert.match(body.errors[0], /Request timeout/);
+        assert.match(body.errors[0], /Unknown transport/);
     });
 });
 
@@ -228,7 +222,11 @@ describe('sending', () => {
         });
         assert.equal(status, 200);
         assert.equal(body.queued, 2);
-        assert.ok(await waitFor(() => db.history({ campaignId: body.campaignId }).length === 2));
+        // Settled, not just written: the history test next compares two reads and a row still QUEUED would change between them.
+        assert.ok(await waitFor(() => {
+            const rows = db.history({ campaignId: body.campaignId });
+            return rows.length === 2 && rows.every((r) => r.status === Status.SANDBOX);
+        }));
         const records = db.history({ campaignId: body.campaignId });
         assert.ok(records.some((record) => record.message === 'Hello Dev, please pay 3100.'));
         assert.ok(records.some((record) => /Isha/.test(record.message) && /2500/.test(record.message)));
@@ -271,161 +269,30 @@ describe('server-sent events', () => {
     });
 });
 
-describe('inbound webhook auto-replies', () => {
-    const inboundPayload = (body = 'hi') => ({
-        entry: [{ changes: [{ value: {
-            contacts: [{ wa_id: '15551234567', profile: { name: 'Mira' } }],
-            messages: [{ id: `wamid.in.${Date.now()}`, from: '15551234567',
-                timestamp: '1790771400', type: 'text', text: { body } }],
-        } }] }],
-    });
-
-    const startCloudApp = async ({ dbName, fetchImpl }) => {
-        const cloudDb = new Database(path.join(tmp, dbName));
-        const cloudApp = createApp({
-            db: cloudDb,
-            config: {
-                ...DEFAULTS,
-                transport: TRANSPORT_CLOUD_API,
-                phoneNumberId: '1',
-                accessToken: 'good',
-                requestTimeout: 5,
-            },
-            deps: { fetchImpl },
+describe('auto-reply on an inbound message', () => {
+    // Played through the sandbox transport, as a real one hands a received message to the app.
+    const inbound = (sender, body) => {
+        const rt = app.locals.runtimeFor(1);
+        rt.runtimeFor(rt.channels.getDefault()).state.transport.events.emit('inbound', {
+            messageId: `wamid.api.${sender}`, sender, senderName: 'Mira', body,
         });
-        const cloudServer = cloudApp.listen(0, '127.0.0.1');
-        await new Promise((resolve) => cloudServer.once('listening', resolve));
-        const cloudBase = `http://127.0.0.1:${cloudServer.address().port}`;
-        return { cloudDb, cloudApp, cloudServer, cloudBase };
     };
-
-    it('sends the default hi reply through the Cloud API transport send path', async () => {
-        const sends = [];
-        const fetchImpl = async (url, init) => {
-            if (init?.method === 'POST') {
-                sends.push(JSON.parse(init.body));
-                return new Response(JSON.stringify({ messages: [{ id: 'wamid.reply.1' }] }), { status: 200 });
-            }
-            return new Response(JSON.stringify({
-                display_phone_number: '15550783881',
-                verified_name: 'Acme',
-                quality_rating: 'GREEN',
-            }), { status: 200 });
-        };
-        const { cloudDb, cloudApp, cloudServer, cloudBase } = await startCloudApp({
-            dbName: 'webhook-hi.db',
-            fetchImpl,
-        });
-        try {
-            const res = await fetch(`${cloudBase}/api/webhook`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(inboundPayload('hi')),
-            });
-            assert.equal(res.status, 200);
-            assert.ok(await waitFor(() => sends.length === 1), 'default hi rule should send one reply');
-            assert.equal(sends[0].to, '15551234567');
-            assert.equal(sends[0].type, 'text');
-            assert.match(sends[0].text.body, /thank you for contacting us/);
-            assert.equal(cloudDb.getInboundMessages({ sender: '15551234567' })[0].repliedRule, 'hi');
-        } finally {
-            await closeApp(cloudApp);
-            await new Promise((resolve) => cloudServer.close(resolve));
-            cloudDb.close();
-        }
-    });
-
-    it('uses a keyword reply created through the auto-replies API', async () => {
-        const sends = [];
-        const fetchImpl = async (url, init) => {
-            if (init?.method === 'POST') {
-                sends.push(JSON.parse(init.body));
-                return new Response(JSON.stringify({ messages: [{ id: 'wamid.reply.dynamic' }] }), { status: 200 });
-            }
-            return new Response(JSON.stringify({
-                display_phone_number: '15550783881',
-                verified_name: 'Acme',
-                quality_rating: 'GREEN',
-            }), { status: 200 });
-        };
-        const { cloudDb, cloudApp, cloudServer, cloudBase } = await startCloudApp({
-            dbName: 'webhook-dynamic.db',
-            fetchImpl,
-        });
-        try {
-            const createRes = await fetch(`${cloudBase}/api/auto-replies`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                    keyword: 'catalog',
-                    matchType: 'CONTAINS',
-                    replyBody: 'Here is the catalog link, {name}.',
-                    cooldownSec: 0,
-                }),
-            });
-            assert.equal(createRes.status, 201);
-            const created = await createRes.json();
-            assert.equal(created.rule.keyword, 'catalog');
-
-            const webhookRes = await fetch(`${cloudBase}/api/webhook`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(inboundPayload('Can you send catalog?')),
-            });
-            assert.equal(webhookRes.status, 200);
-            assert.ok(await waitFor(() => sends.length === 1), 'created keyword rule should send one reply');
-            assert.equal(sends[0].to, '15551234567');
-            assert.equal(sends[0].text.body, 'Here is the catalog link, Mira.');
-            assert.equal(cloudDb.getInboundMessages({ sender: '15551234567' })[0].repliedRule, 'catalog');
-        } finally {
-            await closeApp(cloudApp);
-            await new Promise((resolve) => cloudServer.close(resolve));
-            cloudDb.close();
-        }
-    });
+    const repliesTo = (to) => db.db.prepare("SELECT message FROM messages WHERE recipient = ? AND direction = 'outbound'").all(to);
 
     it('does not send when the matching default rule is inactive', async () => {
-        const sends = [];
-        const fetchImpl = async (url, init) => {
-            if (init?.method === 'POST') {
-                sends.push(JSON.parse(init.body));
-                return new Response(JSON.stringify({ messages: [{ id: 'wamid.reply.2' }] }), { status: 200 });
-            }
-            return new Response(JSON.stringify({
-                display_phone_number: '15550783881',
-                verified_name: 'Acme',
-                quality_rating: 'GREEN',
-            }), { status: 200 });
-        };
-        const { cloudDb, cloudApp, cloudServer, cloudBase } = await startCloudApp({
-            dbName: 'webhook-inactive.db',
-            fetchImpl,
+        await api('POST', '/api/connection/connect');
+        inbound('919822211111', 'hi');
+        assert.ok(await waitFor(() => repliesTo('919822211111').length === 1), 'the active hi rule replies');
+
+        const hi = db.getAutoReplies().find((rule) => rule.keyword === 'hi');
+        db.saveAutoReply({
+            id: hi.id, keyword: hi.keyword, matchType: hi.matchType, replyBody: hi.replyBody, isActive: false, cooldownSec: 0,
         });
-        try {
-            const hi = cloudDb.getAutoReplies().find((rule) => rule.keyword === 'hi');
-            cloudDb.saveAutoReply({
-                id: hi.id,
-                keyword: hi.keyword,
-                matchType: hi.matchType,
-                replyBody: hi.replyBody,
-                isActive: false,
-                cooldownSec: 0,
-            });
-            const res = await fetch(`${cloudBase}/api/webhook`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(inboundPayload('hi')),
-            });
-            assert.equal(res.status, 200);
-            assert.ok(await waitFor(() => cloudDb.getInboundMessages({ sender: '15551234567' }).length === 1));
-            await new Promise((resolve) => setTimeout(resolve, 50));
-            assert.equal(sends.length, 0);
-            assert.equal(cloudDb.getInboundMessages({ sender: '15551234567' })[0].repliedRule, null);
-        } finally {
-            await closeApp(cloudApp);
-            await new Promise((resolve) => cloudServer.close(resolve));
-            cloudDb.close();
-        }
+        inbound('919822222222', 'hi');
+        assert.ok(await waitFor(() => db.getInboundMessages({ sender: '919822222222' }).length === 1));
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        assert.equal(repliesTo('919822222222').length, 0);
+        assert.equal(db.getInboundMessages({ sender: '919822222222' })[0].repliedRule, null);
     });
 });
 
@@ -444,78 +311,5 @@ describe('transports', () => {
         await transport.connect();
         transport.failPrefix = '9199';
         await assert.rejects(() => transport.sendMessage('919900000000', 'hi'), TransportSendError);
-    });
-
-    it('cloud API maps auth errors to a permanent connection failure', async () => {
-        const transport = new CloudApiTransport(
-            { ...DEFAULTS, phoneNumberId: '1', accessToken: 'bad', requestTimeout: 5 },
-            { fetchImpl: async () => new Response(
-                JSON.stringify({ error: { code: 190, message: 'Invalid OAuth token' } }),
-                { status: 401 }) });
-        await assert.rejects(() => transport.connect(), (err) => {
-            assert.equal(err.retryable, false, 'a bad token is not worth retrying');
-            return true;
-        });
-    });
-
-    it('cloud API reports accepted sends as SENT', async () => {
-        const transport = new CloudApiTransport(
-            { ...DEFAULTS, phoneNumberId: '1', accessToken: 'good', requestTimeout: 5 },
-            { fetchImpl: async (url, init) => (init?.method === 'POST'
-                ? new Response(JSON.stringify({ messages: [{ id: 'wamid.X' }] }), { status: 200 })
-                : new Response(JSON.stringify({ display_phone_number: '15550783881',
-                    verified_name: 'Acme', quality_rating: 'GREEN' }), { status: 200 })) });
-        const info = await transport.connect();
-        assert.equal(info.realDelivery, true);
-        const result = await transport.sendMessage('919876543210', 'hi');
-        assert.deepEqual([result.providerId, result.status], ['wamid.X', Status.SENT]);
-    });
-
-    it('cloud API uploads media then sends a document payload', async () => {
-        const bodies = [];
-        const transport = new CloudApiTransport(
-            { ...DEFAULTS, phoneNumberId: '1', accessToken: 'good', requestTimeout: 5 },
-            { fetchImpl: async (url, init) => {
-                if (String(url).endsWith('/media')) {
-                    bodies.push({ url: String(url), body: init.body });
-                    return new Response(JSON.stringify({ id: 'media.1' }), { status: 200 });
-                }
-                if (init?.method === 'POST') {
-                    bodies.push({ url: String(url), body: JSON.parse(init.body) });
-                    return new Response(JSON.stringify({ messages: [{ id: 'wamid.MEDIA' }] }), { status: 200 });
-                }
-                return new Response(JSON.stringify({ display_phone_number: '15550783881',
-                    verified_name: 'Acme', quality_rating: 'GREEN' }), { status: 200 });
-            } });
-        await transport.connect();
-        const result = await transport.sendMessage('919876543210', 'caption', {
-            media: {
-                filename: 'Brochure.pdf',
-                mimetype: 'application/pdf',
-                size: 12,
-                buffer: Buffer.from('%PDF-1.4'),
-            },
-        });
-        assert.equal(result.providerId, 'wamid.MEDIA');
-        assert.equal(bodies[1].body.type, 'document');
-        assert.deepEqual(bodies[1].body.document, {
-            id: 'media.1',
-            caption: 'caption',
-            filename: 'Brochure.pdf',
-        });
-    });
-
-    it('reads DELIVERED and READ out of a Meta webhook body', () => {
-        const receipts = parseStatusPayload({
-            entry: [{ changes: [{ value: { statuses: [
-                { id: 'wamid.A', status: 'delivered' },
-                { id: 'wamid.B', status: 'read' },
-                { id: 'wamid.C', status: 'failed', errors: [{ title: 'undeliverable' }] },
-                { id: 'wamid.D', status: 'something-new' },
-            ] } }] }],
-        });
-        assert.equal(receipts.length, 3, 'an unknown status is dropped, never guessed');
-        assert.deepEqual(receipts[0], { providerId: 'wamid.A', status: Status.DELIVERED, error: null });
-        assert.equal(receipts[2].error, 'undeliverable');
     });
 });

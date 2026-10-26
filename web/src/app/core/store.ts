@@ -6,7 +6,7 @@
  * signals the components read directly.
  */
 
-import { DestroyRef, Injectable, NgZone, computed, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, NgZone, computed, effect, inject, signal, untracked } from '@angular/core';
 
 import { Api, CampaignStats, ConnectionState, MessageStatus, SafetyStatus } from './api';
 import { Auth } from './auth';
@@ -39,6 +39,18 @@ const EMPTY_STATS: CampaignStats = {
   state: 'RUNNING',
 };
 
+/** The connection card before the server has said anything. */
+const EMPTY_CONNECTION: ConnectionState = {
+  connected: false,
+  transport: 'baileys',
+  name: null,
+  account: '',
+  detail: '',
+  realDelivery: false,
+  supportsReceipts: false,
+  qr: null,
+};
+
 /** Live app state; see the file header for how events reach it. */
 @Injectable({ providedIn: 'root' })
 export class Store {
@@ -47,16 +59,12 @@ export class Store {
   private readonly auth = inject(Auth);
 
   /** Mirror of the active number's transport state. */
-  readonly connection = signal<ConnectionState>({
-    connected: false,
-    transport: 'cloud_api',
-    name: null,
-    account: '',
-    detail: '',
-    realDelivery: false,
-    supportsReceipts: false,
-    qr: null,
-  });
+  readonly connection = signal<ConnectionState>(EMPTY_CONNECTION);
+  /**
+   * The active number is QR-linked (server QR_TRANSPORTS): it runs on sending levels, and buttons
+   * go out as a numbered text menu.
+   */
+  readonly qrNumber = computed(() => this.connection().transport === 'baileys');
   readonly stats = signal<CampaignStats>(EMPTY_STATS);
   readonly qr = signal<string | null>(null);
   readonly safety = signal<SafetyStatus | null>(null);
@@ -114,6 +122,10 @@ export class Store {
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
       if (this.theme() === 'auto') this.applyTheme('auto');
     });
+    // A 401 clears the token without going through sign-out: close the stream it was using.
+    effect(() => {
+      if (!this.auth.token()) untracked(() => this.stop());
+    });
   }
 
   /**
@@ -152,10 +164,22 @@ export class Store {
     if (live) this.start();
   }
 
-  /** Close the stream on sign-out, or when switching tenant. */
+  /**
+   * Close the stream on sign-out, or when switching tenant or number. The live state goes with
+   * it: the next session must not paint the last one's QR, stats or connection while it loads
+   * (`start()` fetches them again).
+   */
   stop() {
     this.dispose();
     this.streamOnline.set(false);
+    this.qr.set(null);
+    this.connecting.set(false);
+    this.stats.set(EMPTY_STATS);
+    this.safety.set(null);
+    this.pacing.set(null);
+    this.quietUntil.set(0);
+    this.clockSkew.set(0);
+    this.connection.set(EMPTY_CONNECTION);
     this.setStatus('Ready.');
   }
 
@@ -227,7 +251,9 @@ export class Store {
       // A dropped connection is retried by the browser. A non-200 answer (a 502 from the proxy
       // while the API restarts, a 401) is not: the source is CLOSED for good and every later
       // receipt, stat and status would be missed until a page reload, so reopen it ourselves.
+      // Without a token (the 401 interceptor signed us out) a reopen would only fail again.
       if (source.readyState !== EventSource.CLOSED || this.source !== source) return;
+      if (!this.auth.token()) return;
       this.reopen ??= setTimeout(() => {
         this.reopen = null;
         this.listen();
@@ -327,6 +353,8 @@ export class Store {
           this.setStatus(String(paused?.reason ?? event['error'] ?? 'WhatsApp banned this number.'), 'danger');
         } else if (event['error']) {
           this.connecting.set(false);
+          // The last code ran out: leaving it on screen would invite a scan that can no longer work.
+          if (event['code'] === 'QR_EXPIRED') this.qr.set(null);
           this.setStatus(`Connection failed: ${event['error']}`, 'danger');
         } else if (event['qr']) {
           this.qr.set(event['qr'] as string);
@@ -343,6 +371,13 @@ export class Store {
         break;
       case 'qr':
         this.qr.set((event['image'] as string) ?? null);
+        // Each code carries its own expiry; a fresh code also ends an earlier "QR expired".
+        this.connection.update((current) => ({
+          ...current,
+          qrExpiresAt: (event['expiresAt'] as string | null) ?? null,
+          code: current.code === 'QR_EXPIRED' ? null : current.code,
+          error: current.code === 'QR_EXPIRED' ? null : current.error,
+        }));
         this.setStatus('Scan the QR code to link WhatsApp.', 'primary');
         break;
       case 'transportState':

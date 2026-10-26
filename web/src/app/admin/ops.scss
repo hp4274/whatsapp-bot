@@ -96,7 +96,7 @@
   background: color-mix(in srgb, var(--tone, var(--text-muted)) 12%, transparent);
   color: var(--tone, var(--text-muted));
   &.active, &.connected { --tone: var(--success); }
-  &.suspended, &.qr, &.connecting, &.disconnected, &.warming { --tone: var(--warning); }
+  &.suspended, &.qr, &.connecting, &.disconnected { --tone: var(--warning); }
   &.archived, &.error, &.auth_failure { --tone: var(--danger-text); }
   &.custom { --tone: var(--accent); }
   &.st { text-transform: none; }
@@ -255,6 +255,16 @@
   > div { flex: 1; min-width: 200px; }
   strong { font-weight: 500; font-size: 17px; color: var(--text-strong); }
   p { margin: 2px 0 0; color: var(--text-muted); }
+}
+.backup-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: calc(var(--space-lg) * -1) 0 var(--space-xl);
+  font-size: 13px;
+  color: var(--text-muted);
+  .ti { font-size: 16px; color: var(--success); }
+  &.bad .ti { color: var(--danger-text); }
 }
 .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; cursor: pointer; input { width: 16px; height: 16px; } }
 .pick { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 var(--space-lg); font-size: 13px; select { width: auto; padding-block: 6px; padding-inline-start: 10px; } }

@@ -117,6 +117,13 @@
 .archived {
   h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 14px; font-weight: 500; color: var(--text-muted); }
 }
+
+.quotas {
+  display: grid;
+  gap: var(--space-md);
+  h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 17px; font-weight: 500; color: var(--text-strong); }
+  > .muted { margin: -6px 0 0; font-size: 13.5px; }
+}
 .archived-list { display: flex; flex-wrap: wrap; gap: 10px; }
 .archived-item {
   display: inline-flex;

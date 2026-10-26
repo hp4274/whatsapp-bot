@@ -85,9 +85,16 @@ export interface ChannelDetail {
   lastSentAt: string | null;
   lastHour: { total: number; failed: number; failureRate: number };
   quota: { enabled: boolean; limit: number; used: number; remaining: number | null };
-  warmup: { days: number; day: number; active: boolean; started: boolean } | null;
   problems: { level: 'bad' | 'warn'; text: string }[];
   severity: Severity;
+}
+
+/**
+ * What the ops tables print in place of a daily cap of 0. On a QR number with safety on, 0 is
+ * the rest after a link or a ban (sending levels: 0 means none today), not "no cap".
+ */
+export function zeroCapLabel(c: Pick<ChannelDetail, 'provider' | 'quota'>): string {
+  return c.provider === 'baileys' && c.quota.enabled ? 'Resting' : 'no cap';
 }
 
 export type AuditVerb = 'create' | 'change' | 'remove' | 'other';
@@ -140,6 +147,22 @@ const filterParams = (filter: AuditFilter, extra: Record<string, string | number
   return params;
 };
 
+/** The last daily encrypted backup (server: backup.js lastBackup); null until the first run. */
+export interface BackupStatus {
+  readonly at: string;
+  readonly day: string;
+  readonly ok: boolean;
+  readonly bytes?: number;
+  readonly loginFiles?: number;
+  readonly error?: string | null;
+}
+
+export interface HealthDetail {
+  readonly generatedAt: string;
+  readonly channels: ChannelDetail[];
+  readonly backup?: BackupStatus | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class OpsApi {
   private readonly http = inject(HttpClient);
@@ -156,9 +179,9 @@ export class OpsApi {
       .pipe(catchError(toMessage));
   }
 
-  health(): Observable<{ generatedAt: string; channels: ChannelDetail[] }> {
+  health(): Observable<HealthDetail> {
     return this.http
-      .get<{ generatedAt: string; channels: ChannelDetail[] }>('/api/admin/health-detail')
+      .get<HealthDetail>('/api/admin/health-detail')
       .pipe(catchError(toMessage));
   }
 
