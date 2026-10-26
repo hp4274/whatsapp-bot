@@ -139,8 +139,8 @@
           <span class="meta">{{ time }}</span>
         </div>
 
-        @if (textMenu()) {
-          <!-- A QR number sends each card as its own image message, caption underneath. -->
+        @if (textMenu() && !nativeCarousel()) {
+          <!-- One image message per card, caption underneath (the admin's "separate images" choice). -->
           @for (m of cardMessages(); track $index) {
             <div class="bubble next">
               @if (m.mediaUrl) {

@@ -73,8 +73,14 @@ export class PhonePreview {
   readonly seed = input(1);
   /** True when there is no audience yet and the preview uses a made-up contact. */
   readonly sample = input(false);
-  /** QR number: buttons go as a numbered text menu, a carousel as captioned images. */
+  /** QR number: buttons go as a numbered text menu. */
   readonly textMenu = input(false);
+  /** A carousel goes as one captioned image per card instead of WhatsApp's swipe carousel. */
+  readonly carouselImages = input(false);
+  /** Text-menu mode, but the carousel still goes as the native swipe slider. */
+  protected readonly nativeCarousel = computed(
+    () => this.interactive()?.type === 'carousel' && !this.carouselImages(),
+  );
 
   /** A/B test versions on offer (`['A', 'B']`); empty hides the switch. */
   readonly versions = input<readonly VariantKey[]>([]);
@@ -112,7 +118,7 @@ export class PhonePreview {
   /** Text-menu mode, a carousel: one image message per card, captioned as the server does. */
   protected readonly cardMessages = computed(() => {
     const block = this.filledBlock();
-    if (!this.textMenu() || block?.type !== 'carousel') return [];
+    if (!this.textMenu() || block?.type !== 'carousel' || !this.carouselImages()) return [];
     const captions = carouselCaptions(block);
     return (block.carousel?.cards ?? []).map((c, i) => ({
       mediaUrl: c.mediaUrl,

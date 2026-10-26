@@ -28,6 +28,9 @@ class FakeSock {
         if (this.sendResult) return this.sendResult(jid, content, this.sends.length);
         return { key: { id: `BAE5${this.sends.length}`, remoteJid: jid, fromMe: true } };
     }
+    relays = [];
+    async relayMessage(jid, message, opts) { this.relays.push({ jid, message, opts }); return opts.messageId; }
+    async waUploadToServer() { return { mediaUrl: 'https://mmg.test/x', directPath: '/v/x' }; }
     async onWhatsApp(...jids) {
         return this.onWhatsAppFn ? this.onWhatsAppFn(...jids) : jids.map((jid) => ({ jid, exists: true }));
     }
@@ -181,12 +184,37 @@ it('a carousel sends the main text, then one captioned image per card, and count
     assert.equal(result.parts, 3);
 });
 
+it('a native carousel is one interactive message: each card an uploaded image, its text and its buttons', async () => {
+    const { transport, sock } = makeTransport();
+    await transport.connect();
+    const media = png();
+    const interactive = { type: 'carousel', carousel: { kind: 'reply', cards: [
+        { mediaId: 'a', text: 'One', media, buttons: [{ id: 'BUY_1', title: 'Buy' }] },
+        { mediaId: 'b', text: 'Two', media, buttons: [{ id: 'BUY_2', title: 'Buy' }] },
+    ] } };
+    const result = await transport.sendMessage('919800000006', 'Our picks', { interactive, nativeCarousel: true });
+    assert.equal(sock().sends.length, 0, 'nothing goes as separate messages');
+    assert.equal(sock().relays.length, 1);
+    const msg = sock().relays[0].message.viewOnceMessage.message.interactiveMessage;
+    assert.equal(msg.body.text, 'Our picks');
+    const cards = msg.carouselMessage.cards;
+    assert.equal(cards.length, 2);
+    assert.equal(cards[1].body.text, 'Two');
+    assert.ok(cards[0].header.imageMessage, 'each card carries its uploaded image');
+    assert.deepEqual(JSON.parse(cards[1].nativeFlowMessage.buttons[0].buttonParamsJson), { display_text: 'Buy', id: 'BUY_2' });
+    assert.equal(result.parts, 1);
+    assert.equal(result.providerId, sock().relays[0].opts.messageId);
+});
+
 it('a carousel campaign on a QR number counts each part against the day', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-baileys-carousel-'));
     const db = new Database(path.join(tmp, 'm.db'));
     const { transport, sock } = makeTransport();
     await transport.connect();
     const manager = new CampaignManager(db, transport, { ...DEFAULTS, transport: 'baileys', safetyEnabled: false, rateLimitPerSecond: 1000, pacingMode: 'fixed' });
+    // The admin's sending.carouselImages: one image per card instead of the swipe carousel.
+    const tables = manager.quota.tables();
+    manager.quota.tables = () => ({ ...tables, carouselImages: true });
     const card = (n) => {
         const filePath = path.join(tmp, `c${n}.png`);
         fs.writeFileSync(filePath, png().buffer);

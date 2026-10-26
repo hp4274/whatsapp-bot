@@ -1088,7 +1088,9 @@ export class CampaignManager extends EventEmitter {
                 // Someone this QR number already talks to is on WhatsApp: the transport need not look them up.
                 const registered = this.#registered(item.recipient) === true || (levels && item.cold === false);
                 const result = await this.transport.sendMessage(item.recipient, item.message,
-                    { media: item.media, interactive: item.interactive, ...(typing ? { typingMs: typing } : {}), ...(registered ? { registered } : {}) });
+                    { media: item.media, interactive: item.interactive, ...(typing ? { typingMs: typing } : {}), ...(registered ? { registered } : {}),
+                        // A carousel goes as WhatsApp's swipe carousel unless the admin chose one image per card.
+                        ...(item.interactive?.type === 'carousel' ? { nativeCarousel: this.quota.tables?.().carouselImages !== true } : {}) });
                 this.lastActionAt = Date.now();
                 // A carousel goes out as several WhatsApp messages (`parts`); the rests and the budgets count each.
                 if (this.transport?.realDelivery) this.sentInRun += result.parts ?? 1;

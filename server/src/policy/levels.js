@@ -83,6 +83,9 @@ export const LEVELS_POLICY = Object.freeze([
     { key: 'sending.skipQuietTime', service: S, group: 'Admin overrides', type: 'bool', default: false,
       label: 'Skip quiet time',
       hint: 'Bulk keeps sending through the number\'s daily rest windows and the business\'s quiet hours. The recipient\'s daytime and the plan\'s sending window still apply.' },
+    { key: 'sending.carouselImages', service: S, group: 'Admin overrides', type: 'bool', default: false,
+      label: 'Send carousels as separate images',
+      hint: 'Off: a carousel goes as WhatsApp\'s swipe carousel, which some phones may not display from a QR number. On: one captioned image per card, which every phone shows.' },
     { key: 'sending.skipLinkWait', service: S, group: 'Admin overrides', type: 'bool', default: false,
       label: 'Skip new-link wait',
       hint: 'A newly linked number starts bulk at once instead of waiting first. The rest after a WhatsApp ban still applies. Raises ban risk for fresh numbers.' },
@@ -148,6 +151,7 @@ export function sendingTables(values = {}) {
         qrVaryAbove: v('qrVaryAbove', DEFAULT_SENDING.qrVaryAbove),
         skipQuiet: values['sending.skipQuietTime'] === true,
         skipLinkWait: values['sending.skipLinkWait'] === true,
+        carouselImages: values['sending.carouselImages'] === true,
     };
 }
 

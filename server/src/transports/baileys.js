@@ -632,7 +632,7 @@ export class BaileysTransport extends Transport {
         fs.rmSync(this.authDir, { recursive: true, force: true });
     }
 
-    async sendMessage(recipient, message, { media = null, interactive = null, typingMs = 0, registered = false } = {}) {
+    async sendMessage(recipient, message, { media = null, interactive = null, typingMs = 0, registered = false, nativeCarousel = false } = {}) {
         if (!this.connected || !this.sock) {
             throw new TransportConnectionError('Transport is reconnecting', { retryable: true });
         }
@@ -655,7 +655,7 @@ export class BaileysTransport extends Transport {
             await new Promise((resolve) => setTimeout(resolve, typingMs));
         }
         try {
-            return await this.#deliver(jid, message, attachment, interactive, typingMs);
+            return await this.#deliver(jid, message, attachment, interactive, typingMs, nativeCarousel);
         } finally {
             // Not awaited: the caller only learns the provider id when we return, and a
             // delivery receipt that lands during this round trip finds no row to update.
@@ -712,9 +712,14 @@ export class BaileysTransport extends Transport {
         }
     }
 
-    async #deliver(jid, message, attachment, interactive, typingMs) {
+    async #deliver(jid, message, attachment, interactive, typingMs, nativeCarousel = false) {
         // No native buttons: they render on some devices only, and Baileys' retry resend drops the node they need.
-        if (interactive?.type === 'carousel') return this.#deliverCarouselText(jid, message, attachment, interactive, typingMs);
+        // A carousel is the one exception, by the user's choice: native unless the admin picked separate images.
+        if (interactive?.type === 'carousel') {
+            return nativeCarousel
+                ? this.#deliverCarouselNative(jid, message, interactive)
+                : this.#deliverCarouselText(jid, message, attachment, interactive, typingMs);
+        }
         const text = interactive ? renderFallbackText(message, interactive) : message;
         const sent = await this.#send(jid, attachment ? { ...attachment, caption: text } : { text });
         return this.#accepted(sent?.key?.id);
@@ -738,10 +743,41 @@ export class BaileysTransport extends Transport {
         return { ...this.#accepted(first?.key?.id), parts: 1 + cards.length };
     }
 
-    async #send(jid, content) {
+    /**
+     * WhatsApp's swipe carousel: one interactive message, each card an uploaded image, its text and its buttons
+     * (quick replies or one link). A tap comes back as interactiveResponseMessage, which the inbound parser reads.
+     * shortcut: some phones may not display it from a QR number; sending.carouselImages switches back to images.
+     */
+    async #deliverCarouselNative(jid, message, interactive) {
+        const { generateWAMessageFromContent, prepareWAMessageMedia } = await import('@whiskeysockets/baileys');
+        const { kind, cards } = interactive.carousel;
+        const built = [];
+        for (const card of cards) {
+            const media = mediaContent(card.media);
+            if (!media.image) throw new TransportSendError('A carousel card needs an image.', { retryable: false });
+            const { imageMessage } = await prepareWAMessageMedia({ image: media.image }, { upload: this.sock.waUploadToServer });
+            const buttons = kind === 'url'
+                ? (card.cta ?? []).map((b) => ({ name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: b.title, url: b.value, merchant_url: b.value }) }))
+                : (card.buttons ?? []).map((b) => ({ name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: b.title, id: b.id }) }));
+            built.push({ header: { hasMediaAttachment: true, imageMessage }, body: { text: card.text ?? '' }, nativeFlowMessage: { buttons } });
+        }
+        const content = {
+            viewOnceMessage: {
+                message: {
+                    messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+                    interactiveMessage: { body: { text: String(message ?? '') }, carouselMessage: { cards: built, messageVersion: 1 } },
+                },
+            },
+        };
+        const msg = generateWAMessageFromContent(jid, content, { userJid: this.sock.user?.id });
+        const sent = await this.#send(jid, null, () => this.sock.relayMessage(jid, msg.message, { messageId: msg.key.id }).then(() => msg));
+        return { ...this.#accepted(sent?.key?.id), parts: 1 };
+    }
+
+    async #send(jid, content, deliver = () => this.sock.sendMessage(jid, content)) {
         let sent;
         try {
-            sent = await this.sock.sendMessage(jid, content);
+            sent = await deliver();
         } catch (err) {
             const text = String(err?.message ?? err);
             // WhatsApp's rate limit: Baileys raises data 429, "rate-overlimit". The manager backs off 90s or more.
