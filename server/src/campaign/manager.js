@@ -143,6 +143,11 @@ export class CampaignManager extends EventEmitter {
         return tier ? this.#planFor(new Date(), tier) : null;
     }
 
+    /** A super admin let this tenant send through quiet time (policy sending.skipQuietTime). */
+    #skipQuiet() {
+        return this.quota.tables?.().skipQuiet === true;
+    }
+
     #planFor(at, tier = this.quota.tier()) {
         return dayPlan(this.seed, tier, at, this.timezone?.() || null);
     }
@@ -250,7 +255,7 @@ export class CampaignManager extends EventEmitter {
         const pace = this.#paceFor(batchSize, pickPreset(preset));
         const plan = this.#dayPlan();
         return {
-            quiet: plan ? quietStatus(plan) : null,
+            quiet: plan && !this.#skipQuiet() ? quietStatus(plan) : null,
             ...this.quota.status(),
             pacingMode: this.config.pacingMode,
             pacing: pace.preset,
@@ -283,7 +288,7 @@ export class CampaignManager extends EventEmitter {
             finishesOn: days ? dayKey(new Date(Date.now() + (days - 1) * 86_400_000), this.timezone?.() || null) : null,
         };
         const tier = this.quota.tier();
-        if (!tier || !this.transport?.realDelivery || !this.config.safetyEnabled || this.config.humanTiming === false || est.typical <= 0) {
+        if (!tier || !this.transport?.realDelivery || !this.config.safetyEnabled || this.config.humanTiming === false || this.#skipQuiet() || est.typical <= 0) {
             return { ...est, quietSeconds: 0, ...finish };
         }
         const quietSeconds = quietExtraSeconds((at) => this.#planFor(at, tier), est.typical);
@@ -697,7 +702,7 @@ export class CampaignManager extends EventEmitter {
 
     /** Our own rest window for today (bulk only; replies are never held). */
     #resting() {
-        if (!this.config.safetyEnabled || this.config.humanTiming === false) return false;
+        if (!this.config.safetyEnabled || this.config.humanTiming === false || this.#skipQuiet()) return false;
         const plan = this.#dayPlan();
         return Boolean(plan && inQuiet(plan));
     }

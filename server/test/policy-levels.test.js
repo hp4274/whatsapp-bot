@@ -395,6 +395,26 @@ describe('admin level pin route', () => {
         assert.equal(audits('channel.admin.level_unpin').length, 0);
     });
 
+    it('ends a QR number\'s wait after linking, super admin only, audited', async () => {
+        const channels = new Channels(db.forTenant(tenant.id));
+        const waitId = channels.create({ displayName: 'Fresh', settings: { transport: TRANSPORT_BAILEYS, autoConnect: false, linkedAt: new Date().toISOString() } }).id;
+        const endWait = (token, id) => call(token, 'POST', `/api/admin/numbers/${id}/end-link-wait`);
+        const owner = sessionFor(app, { tenantId: tenant.id, role: 'owner' });
+        assert.equal((await endWait(owner, waitId)).status, 403);
+        assert.match((await endWait(sup, plainId)).body.errors[0], /QR-login numbers only/);
+
+        const waitOf = async () => (await call(sup, 'GET', '/api/admin/health-detail')).body.channels
+            .find((c) => c.id === waitId).level.linkWaitUntil;
+        assert.ok(await waitOf(), 'the admin row shows the wait, so the End wait button appears');
+
+        const res = await endWait(sup, waitId);
+        assert.equal(res.status, 200, JSON.stringify(res.body));
+        assert.equal(res.body.resting, false);
+        assert.equal(await waitOf(), null);
+        assert.equal(channels.get(waitId).settings.linkedAt, '');
+        assert.equal(audits('channel.admin.end_link_wait').length, 1);
+    });
+
     it('pins above the earned level, audits it and shows it in health', async () => {
         const res = await pin(qrId, 7);
         assert.equal(res.status, 200, JSON.stringify(res.body));

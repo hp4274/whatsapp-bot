@@ -359,7 +359,9 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     };
     manager.opsAlert = opsAlert;
     // Bulk waits out the sending window / quiet hours instead of failing.
-    manager.bulkWindowOpen = () => bulkWindowOpen(state.channel, state.config);
+    // A super admin's skipQuietTime drops the quiet hours; the channel's own sending window stays.
+    manager.bulkWindowOpen = () => bulkWindowOpen(state.channel,
+        manager.quota.tables?.().skipQuiet ? { ...state.config, quietHoursStart: 0, quietHoursEnd: 0 } : state.config);
     manager.timezone = () => state.channel?.timezone;
     // Tracked links need an address the recipient's phone can reach; without one, text goes as written.
     if (deps.publicBaseUrl) manager.links = new LinkStore(db, deps.publicBaseUrl);

@@ -595,3 +595,42 @@ describe('scope and API', () => {
         }
     });
 });
+
+describe('super admin: skip new-link wait', () => {
+    it('a tenant with sending.skipLinkWait sends right after linking; a ban still rests the number', async () => {
+        const { sendingTables } = await import('../src/policy/levels.js');
+        assert.equal(sendingTables({}).skipLinkWait, false);
+        assert.equal(sendingTables({ 'sending.skipLinkWait': true }).skipLinkWait, true);
+
+        const db = freshDb();
+        const quota = new DailyQuota(db, qr({ linkedAt: ago(HOUR) }));
+        assert.equal(quota.allowance().level.resting.active, true, 'by default a fresh link waits');
+        const tables = quota.tables();
+        quota.tables = () => ({ ...tables, skipLinkWait: true });
+        quota.invalidate();
+        assert.equal(quota.allowance().level.resting.active, false);
+        db.close();
+    });
+});
+
+describe('super admin: skip quiet time', () => {
+    it('a tenant with sending.skipQuietTime has no rest windows and no quiet time in estimates', async () => {
+        const { sendingTables } = await import('../src/policy/levels.js');
+        assert.equal(sendingTables({}).skipQuiet, false);
+        assert.equal(sendingTables({ 'sending.skipQuietTime': true }).skipQuiet, true);
+
+        const db = freshDb();
+        const manager = new CampaignManager(db, new FakeLive(), qr({ humanTiming: true }));
+        try {
+            assert.ok(manager.safetyStatus().quiet, 'by default the number keeps its daily rest windows');
+            const tables = manager.quota.tables();
+            manager.quota.tables = () => ({ ...tables, skipQuiet: true });
+            const status = manager.safetyStatus(200);
+            assert.equal(status.quiet, null);
+            assert.equal(status.estimateSeconds.quietSeconds, 0);
+        } finally {
+            await manager.shutdown();
+            db.close();
+        }
+    });
+});

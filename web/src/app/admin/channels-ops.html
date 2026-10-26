@@ -122,6 +122,18 @@
                       <span class="sub">Business capped at L{{ lv.cap }}</span>
                     }
                     <span class="sub start">{{ startText(lv) }}</span>
+                    @if (lv.linkWaitUntil) {
+                      <span class="s-pill tone-warn">New-link wait until {{ when(lv.linkWaitUntil) }}</span>
+                      <button
+                        type="button"
+                        class="btn sm ghost"
+                        [attr.aria-label]="'End the new-link wait for ' + label(row)"
+                        [disabled]="busy() === row.id"
+                        (click)="endLinkWait(row)"
+                      >
+                        <i class="ti ti-hourglass-off" aria-hidden="true"></i>End wait
+                      </button>
+                    }
                   } @else {
                     <span class="sub">—</span>
                   }
@@ -284,6 +296,10 @@
             <i class="ti ti-pinned-off" aria-hidden="true"></i>Clear pin (back to L{{ lv.earned }})
           </button>
         }
+        <!-- The wait after a fresh link; a ban's rest is not lifted by this. Audited. -->
+        <button type="button" class="btn sm clear-pin" (click)="endLinkWait(p.row)">
+          <i class="ti ti-hourglass-off" aria-hidden="true"></i>End new-link wait
+        </button>
       } @else {
         <span class="badge tone-info"><i class="ti ti-arrows-exchange" aria-hidden="true"></i></span>
         <h3 id="dlg-title">Move {{ label(p.row) }}</h3>
