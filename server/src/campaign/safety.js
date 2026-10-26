@@ -49,6 +49,8 @@ export const DEFAULT_SENDING = Object.freeze({
     skipQuiet: false,
     /** Super admin only (sending.skipLinkWait): no wait after a fresh link; a ban still rests the number. */
     skipLinkWait: false,
+    /** Super admin (sending.carouselImages): send a carousel as one image per card instead of the swipe carousel. */
+    carouselImages: false,
 });
 
 /** A safety rule refused the request. `status` is what the HTTP layer answers. */
