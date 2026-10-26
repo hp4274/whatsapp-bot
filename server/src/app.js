@@ -25,15 +25,16 @@ import {
     APP_DIR,
     SESSION_DIR,
     TRANSPORTS,
-    TRANSPORT_CLOUD_API,
     TRANSPORT_SANDBOX,
     TRANSPORT_BAILEYS,
+    QR_TRANSPORTS,
     DEFAULTS,
     loadConfig,
     mergeConfig,
     publicConfig,
     saveConfig,
     validateConfig,
+    ADMIN_CHANNEL_KEYS,
     POLICY_KEYS,
     POLICY_SPEC,
 } from './config.js';
@@ -46,7 +47,7 @@ import {
 import {
     PREVIEW_ROWS, contactsToCsv, csvCell, importContacts, mappedRowsToContacts, parseTable, resolveMapping, suggestMapping,
 } from './contacts.js';
-import { PhoneError, contactContext, normalizePhone, personalize } from './protocol.js';
+import { PhoneError, contactContext, normalizePhone, personalize, utcNow } from './protocol.js';
 import {
     CAPABILITIES,
     ChannelError,
@@ -70,7 +71,6 @@ import { TemplateError, TemplateStore, validate as validateTemplate } from './te
 import { needsReview, reviewBlock, spamScore, stricterCap, templateRuleProblem } from './templates/policy.js';
 import { getLibraryEntry, listLibrary } from './templates/library.js';
 import { registerTemplateAdmin } from './templates/admin.js';
-import { metaTemplateFor } from './messaging/templateSend.js';
 import { WorkflowEngine } from './workflows/engine.js';
 import { WorkflowError } from './workflows/definition.js';
 import { WorkflowStore, dueRuns } from './workflows/store.js';
@@ -81,16 +81,17 @@ import { InteractiveError, normalizeInteractive, personalizeInteractive } from '
 import { InteractiveStore, createInteractiveRouter, handleInteractiveReply, normalizeReplyRules } from './messaging/replies.js';
 import { MediaStore, mediaMetadata } from './mediaStore.js';
 import { createStorageRouter } from './storage/routes.js';
-import { safeName, sha256Of, uploadInfo } from './storage/store.js';
+import { StorageError, safeName, sha256Of, uploadInfo } from './storage/store.js';
 import { createBillingRouter } from './billing/routes.js';
 import { createCampaignRouter } from './campaigns/routes.js';
 import { dueCampaigns, openCampaigns, recurringTenants, runningSpreadCampaigns } from './campaigns/store.js';
 import { LinkStore, followLink } from './links/store.js';
 import { DEFAULT_PLANS } from './billing/plans.js';
 import { BillingError, BillingStore } from './billing/store.js';
-import { POLICY_FIELDS, PolicyError, PolicyStore } from './policy/index.js';
+import { POLICY_FIELDS, PolicyError, PolicyStore, fillTables } from './policy/index.js';
 import { attachCampaignPolicy, bulkKillReason, createCampaignOpsRouter, retentionSweep } from './policy/campaignOps.js';
 import { bindContext, logger, requestContext } from './observability/logger.js';
+import { createOpsAlerts } from './observability/alerts.js';
 import { registerQueue, snapshot, unregisterQueue } from './observability/metrics.js';
 import { ApiKeyStore } from './publicapi/keys.js';
 import { createPublicApiRouter } from './publicapi/routes.js';
@@ -101,17 +102,21 @@ import { SCHOOL_TEMPLATES, STUDENT_CSV_COLUMNS } from './school/templates.js';
 import { handleSchoolCommand } from './school/commands.js';
 import { helpText, isHelp } from './help.js';
 import { createSchoolRouter, schoolSweep } from './school/routes.js';
-import { rateLimit, safeEqual, webhookSignatureGuard } from './security/signature.js';
+import { ipAllowed } from './security/ip.js';
+import { rateLimit } from './security/signature.js';
 import { checkImport, fileTypeError } from './security/filetype.js';
 import { securityHeaders } from './security/headers.js';
 import {
-    CONSENT_TEXT, CONSENT_VERSION, ROLES, TENANT_SERVICES, Tenancy, TenancyError, blockedWordIn, roleRank,
+    CONSENT_TEXT, CONSENT_VERSION, NUMBER_SKIP_TEXT, NUMBER_SKIP_VERSION, ROLES, TENANT_SERVICES, Tenancy, TenancyError,
+    blockedWordIn, roleRank,
 } from './tenancy.js';
+import { sendingTables, skipStartLevel, startLevelFor } from './policy/levels.js';
 import { PACING_PRESETS, bulkWindowOpen } from './campaign/safety.js';
 import { auditCsv, createAdminOps } from './adminOps.js';
+import { lastBackup, runBackupIfDue } from './backup.js';
+import { encryptionStatus } from './security/keyGate.js';
 import { capMessage, createChannelOps, newNumberSafety, numberCap, overCap, providerBlocked, quotaLeft } from './policy/channelOps.js';
 import { TransportError } from './transports/base.js';
-import { CloudApiTransport, parseInboundPayload, parseStatusPayload } from './transports/cloudApi.js';
 import { SandboxTransport } from './transports/sandbox.js';
 import { BAN_TEXT, BaileysTransport, TOS_WARNING } from './transports/baileys.js';
 
@@ -148,8 +153,6 @@ export function createTransport(config, deps = {}) {
     switch (config.transport) {
         case TRANSPORT_SANDBOX:
             return new SandboxTransport(config);
-        case TRANSPORT_CLOUD_API:
-            return new CloudApiTransport(config, deps);
         case TRANSPORT_BAILEYS:
             return new BaileysTransport(config, deps);
         default:
@@ -226,8 +229,12 @@ const SERVICE_ROUTE_PREFIXES = Object.freeze([
     ['/analytics', 'analytics'],
 ]);
 
+/** Express matches routes case-insensitively and ignores a trailing slash; the gates must too. */
+const routeKey = (path) => path.toLowerCase().replace(/\/+$/, '') || '/';
+
 /** The capability a write needs, by path. Null when the route does not send. */
 function capabilityForPath(path) {
+    path = routeKey(path);
     if (SEND_ROUTES[path]) return SEND_ROUTES[path];
     for (const [pattern, capability] of SEND_ROUTE_PATTERNS) {
         if (pattern.test(path)) return capability;
@@ -236,22 +243,28 @@ function capabilityForPath(path) {
 }
 
 function serviceForPath(path) {
+    path = routeKey(path);
     if (path === '/messages') return 'bulk_messages';
-    path = path.toLowerCase(); // Express matches routes case-insensitively; the gate must too.
     return SERVICE_ROUTE_PREFIXES.find(([prefix]) => path === prefix || path.startsWith(`${prefix}/`))?.[1] ?? null;
 }
 
 function tenantAccessError(tenant, req) {
-    const service = serviceForPath(req.path);
+    const p = routeKey(req.path);
+    const service = serviceForPath(p);
     if (service && !tenant.services.includes(service)) return `${service.replaceAll('_', ' ')} is disabled for this tenant`;
     const controls = tenant.controls ?? {};
-    const sendCapability = capabilityForPath(req.path);
+    const sendCapability = capabilityForPath(p);
     if (sendCapability && controls.sendingEnabled === false) return 'sending is disabled for this tenant';
     if (sendCapability === 'campaigns' && controls.campaignsEnabled === false) {
         return 'campaign sending is disabled for this tenant';
     }
-    if (['/auto-replies', '/workflows'].some((prefix) => req.path === prefix || req.path.startsWith(`${prefix}/`))
+    if (['/auto-replies', '/workflows'].some((prefix) => p === prefix || p.startsWith(`${prefix}/`))
         && controls.automationsEnabled === false) {
+        return 'automations are disabled for this tenant';
+    }
+    // Object creates/updates and /events dispatch workflows, as /api/v1 gates them.
+    const write = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
+    if (write && (p === '/events' || p.startsWith('/objects/')) && controls.automationsEnabled === false) {
         return 'automations are disabled for this tenant';
     }
     return null;
@@ -267,7 +280,7 @@ function tenantAccessError(tenant, req) {
  */
 function createChannelRuntime({ db, channel, config, save, linked = () => channel, sessionDir, deps }) {
     const app = express.Router();
-    deps = { ...deps, sessionDir };
+    deps = { ...deps, sessionDir, messageStore: db }; // messageStore: Baileys answers retry requests from sent_protos
 
     const state = {
         db,
@@ -282,7 +295,6 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         clients: new Set(), // SSE subscribers
         media: new MediaStore(UPLOAD_DIR, db.tenantId ?? null),
         imports: new Map(), // importId -> { sheet, createdAt } for the campaign import wizard
-        webhookConnect: null,
         tenancy: deps.tenancy ?? null,
     };
     // Feature routers push to the browser through this rather than importing
@@ -338,6 +350,14 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     });
 
     const manager = new CampaignManager(db, new NullTransport(), config);
+    // Ops alerts (observability/alerts.js), tagged with this number. Never throws into the caller.
+    const opsAlert = (alert) => {
+        void Promise.resolve(deps.opsAlert?.({
+            tenantId: state.channel?.tenantId ?? db.tenantId ?? null, channelId: state.channel?.id ?? null,
+            number: state.channel?.providerAccountId || state.info?.account || null, ...alert,
+        })).catch((err) => logger.warn('ops alert failed', { error: err.message }));
+    };
+    manager.opsAlert = opsAlert;
     // Bulk waits out the sending window / quiet hours instead of failing.
     manager.bulkWindowOpen = () => bulkWindowOpen(state.channel, state.config);
     manager.timezone = () => state.channel?.timezone;
@@ -349,6 +369,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     // takes effect on the next job rather than the next restart.
     const messages = new MessageService(db, manager, () => state.channel, {
         isBotPaused: (phone, channelId) => conversations.isBotPaused(phone, channelId),
+        // The admin's tenant controls and the plan's message quota refuse every new send (attachCampaignPolicy sets both).
+        guard: (job) => manager.sendBlock?.(job.messageType) ?? manager.capBlock?.() ?? null,
     });
     // Contacts belong to the tenant, not to one number, but the store needs the
     // channel's country code to normalise what people type.
@@ -357,7 +379,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     const conversations = new ConversationStore(db);
     const tickets = new TicketStore(db);
     const knowledge = new KnowledgeStore(db);
-    const billing = new BillingStore(db);
+    const billing = new BillingStore(db, { overrides: () => deps.platformPolicy?.() ?? {} });
     const workflows = new WorkflowStore(db);
     const jobs = new JobStore(db);
     // The engine takes its collaborators injected, which is what keeps it
@@ -435,19 +457,30 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         });
     });
 
-    app.put('/config', (req, res) => {
+    app.put('/config', async (req, res) => {
         // Anti-ban limits belong to the platform admin (PUT /api/admin/tenants/:id/safety).
         const body = { ...req.body };
-        for (const key of POLICY_KEYS) delete body[key];
+        // Nor the server-set keys (ADMIN_CHANNEL_KEYS): linkedAt, humanTiming, requestTimeout.
+        for (const key of [...POLICY_KEYS, ...ADMIN_CHANNEL_KEYS]) delete body[key];
         const merged = mergeConfig(state.config, body);
-        // Remember which number the warm-up answer is for; linking another one asks again.
-        if (body.warmupChoice !== undefined) {
-            merged.warmupFor = String(state.info?.account || state.channel?.providerAccountId || '').replace(/\D/g, '');
-        }
         const problems = validateConfig(merged);
         if (problems.length) return res.status(400).json({ errors: problems });
         const blocked = transportBlocked(merged);
         if (blocked) return res.status(403).json({ errors: [blocked] });
+        if (merged.transport !== state.config.transport && state.transport) {
+            // The sending rules follow config.transport: a live socket must not outlive a transport change.
+            try {
+                await state.transport.disconnect();
+            } catch {
+                // a failed teardown must not block the save
+            }
+            state.transport = null;
+            state.info = null;
+            state.qr = null;
+            manager.setTransport(new NullTransport());
+            autoReply.setTransport(new NullTransport());
+            broadcast(state, { type: 'connection', connected: false });
+        }
         state.config = state.save(merged);
         manager.applyConfig(state.config);
         contacts.defaultCountryCode = state.config.defaultCountryCode;
@@ -509,26 +542,43 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         // The WhatsApp Web transport talks back while it connects: QR codes,
         // loading progress, and the ACKs that become DELIVERED / READ.
         transport.events?.on('qr', async (qr) => {
+            state.scanned = true; // the next 'ready' is a fresh link: the number rests before bulk
             state.qr = await toQrDataUrl(qr);
-            broadcast(state, { type: 'qr', qr, image: state.qr });
+            // expiresAt: when this code stops working (the countdown); after QR_MAX_CODES unscanned, 'qr_expired'.
+            broadcast(state, { type: 'qr', qr, image: state.qr, expiresAt: transport.qrExpiresAt ?? null });
         });
         transport.events?.on('state', (payload) => {
-            if (['disconnected', 'error', 'reconnecting', 'reconnect_failed', 'auth_failure', 'banned'].includes(payload.state)) {
+            if (['disconnected', 'error', 'reconnecting', 'reconnect_failed', 'auth_failure', 'banned', 'qr_expired'].includes(payload.state)) {
                 state.info = {
                     connected: false,
                     account: state.info?.account ?? '',
                     detail: payload.detail ?? '',
                     error: payload.state === 'banned' ? banText(payload.detail)
-                        : ['error', 'reconnect_failed', 'auth_failure'].includes(payload.state)
+                        : ['error', 'reconnect_failed', 'auth_failure', 'qr_expired'].includes(payload.state)
                             ? payload.detail ?? ''
                             : null,
                     code: payload.state === 'auth_failure' ? 'WHATSAPP_WEB_AUTH_FAILURE'
-                        : (payload.state === 'banned' ? 'WHATSAPP_BANNED' : null),
+                        : (payload.state === 'banned' ? 'WHATSAPP_BANNED' : (payload.state === 'qr_expired' ? 'QR_EXPIRED' : null)),
                     realDelivery: Boolean(transport.realDelivery),
                 };
                 state.connecting = payload.state === 'reconnecting';
                 state.qr = null;
+                if (payload.state === 'banned') {
+                    // A ban restarts the number's sending level (campaign/humanize.js levelFor). Keyed by the day:
+                    // the 403 a restart or reconnect repeats is the same ban.
+                    db.addSafetyEvent({
+                        kind: 'ban', phone: digitsOf(state.channel?.providerAccountId || state.info.account) || `channel-${state.channel?.id}`,
+                        messageId: utcNow().slice(0, 10), detail: payload.detail ?? '',
+                    });
+                    manager.quota.invalidate();
+                    opsAlert({ kind: 'ban', text: 'WhatsApp banned this number.', detail: payload.detail ?? '' });
+                }
                 if (payload.state === 'auth_failure' || payload.state === 'banned') {
+                    // Hold the rest QUEUED instead of failing each row on the NullTransport; relinking resumes it.
+                    if (!manager.queue.isPaused && !manager.queue.isStopped) {
+                        manager.pause();
+                        manager.heldForLink = true;
+                    }
                     manager.setTransport(new NullTransport());
                     autoReply.setTransport(new NullTransport());
                 }
@@ -537,19 +587,16 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             broadcast(state, { type: 'transportState', ...payload });
         });
         transport.events?.on('ready', (info) => {
-            // Remember which number scanned in, so linking a different one resets warm-up and inbox.
+            // Remember which number scanned in, so linking a different one resets the sending level and inbox.
             if (info?.account) {
                 const before = state.channel?.numberSince;
                 state.channel = linked(info.account);
-                let settings = state.channel.settings;
-                const stale = warmupStale(settings, info.account, state.channel.numberSince);
-                if (stale) settings = state.save({ warmupChoice: '', warmupFor: '', tierSystem: true });
-                if (stale || state.channel.numberSince !== before) {
-                    // A new number: its own warm-up question and tier, counted from its first send.
-                    const { warmupChoice, warmupFor, tierSystem } = settings;
-                    state.config = { ...state.config, warmupChoice, warmupFor, tierSystem };
+                if (state.scanned || state.channel.numberSince !== before) {
+                    // A fresh QR link: bulk rests first (unless the number's history says it is an old one).
+                    state.scanned = false;
+                    const { linkedAt } = state.save({ linkedAt: utcNow() });
+                    state.config = { ...state.config, linkedAt };
                     manager.applyConfig(state.config);
-                    manager.quota.tierCache = null;
                     broadcast(state, { type: 'changed', topic: 'config' });
                 }
             }
@@ -559,6 +606,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             manager.setTransport(transport);
             autoReply.setTransport(transport);
             manager.start();
+            resumeHeld();
             broadcast(state, { type: 'connection', ...connectionState(state) });
         });
         transport.events?.on('disconnected', (detail) => {
@@ -572,6 +620,26 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         });
         transport.events?.on('receipt', ({ providerId, status, error }) => {
             manager.handleReceipt(providerId, status, error);
+        });
+        // WhatsApp capped messages to strangers (463 / 475, or a reach-out timelock): new chats and lookups
+        // wait until `until` (the restricted brake). The end is the event's message_id.
+        transport.events?.on('restricted', ({ code, until } = {}) => {
+            const end = new Date(until);
+            db.addSafetyEvent({
+                kind: 'restrict', phone: digitsOf(state.channel?.providerAccountId || state.info?.account) || `channel-${state.channel?.id}`,
+                messageId: (Number.isNaN(end.getTime()) ? new Date(Date.now() + 86_400_000) : end).toISOString(), detail: String(code ?? ''),
+            });
+            manager.quota.invalidate();
+            broadcast(state, { type: 'safetyEvent', kind: 'restrict' });
+        });
+        // Over 8 socket drops in an hour (this process): the 8h `unstable` pause (shadow-logged until enforced;
+        // recordBrake raises the ops alert).
+        transport.events?.on('unstable', ({ reconnects } = {}) => {
+            manager.recordBrake('unstable', `The connection dropped ${reconnects} times in the last hour. Bulk and new chats wait 8 hours.`);
+        });
+        // The device was unlinked from the phone or WhatsApp ended the session, not a logout from here.
+        transport.events?.on('logged_out', ({ detail } = {}) => {
+            opsAlert({ kind: 'logout', text: 'The number was logged out unexpectedly.', detail: detail ?? '' });
         });
         transport.events?.on('inbound', (message) => {
             void handleInbound(state, message);
@@ -609,6 +677,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             manager.setTransport(transport);
             autoReply.setTransport(transport);
             manager.start();
+            resumeHeld();
         } else if (state.info?.qr) {
             state.qr = await toQrDataUrl(state.info.qr);
         }
@@ -617,6 +686,10 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         return { status: 200, body: connectionState(state) };
     };
     state.connect = connectChannel;
+    // Only the hold a ban / logged-out session put on; an operator's pause since then (it clears the flag) stays.
+    const resumeHeld = () => {
+        if (manager.heldForLink) manager.resume();
+    };
 
     app.post('/connection/connect', async (req, res) => {
         const result = await connectChannel();
@@ -672,7 +745,24 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         if (!state.transport?.isConnected?.()) {
             return res.status(409).json({ errors: ['Connect a transport first.'] });
         }
-        if (state.config.safetyEnabled && state.transport?.realDelivery
+        const levels = manager.quota.qr && state.config.safetyEnabled && state.transport?.realDelivery;
+        if (levels) {
+            // A QR number: only a message to someone it never talked to waits on a budget (new chats);
+            // the queue would hold it anyway, so say so now. Its lookup is the queue's too (budgeted there).
+            const { newChats } = manager.quota.allowance().budgets;
+            if (newChats.left <= 0 && db.isCold(normalized)) {
+                const when = new Intl.DateTimeFormat('en-GB', {
+                    ...(state.channel?.timezone ? { timeZone: state.channel.timezone } : {}), dateStyle: 'medium', timeStyle: 'short',
+                }).format(new Date(newChats.opensAt));
+                return res.status(429).json({
+                    errors: [`This number has no new chats left today, and ${normalized} has never chatted with it. `
+                        + `Messages to new people open again on ${when}. People who wrote to you still get your messages.`],
+                    reason: 'new_chats',
+                    opensAt: newChats.opensAt,
+                    safety: manager.safetyStatus(),
+                });
+            }
+        } else if (state.config.safetyEnabled && state.transport?.realDelivery
             && manager.quota.exhausted()) {
             return res.status(429).json({
                 errors: [`Daily limit of ${manager.quota.limit} messages reached.`
@@ -690,8 +780,10 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             if (err instanceof InteractiveError) return res.status(400).json({ errors: [err.message] });
             throw err;
         }
-        // Said up front, not as a failed row later; an unknown answer sends as before.
-        if ((await manager.checkRegistered([normalized])).get(normalized) === false) {
+        // Said up front, not as a failed row later; an unknown answer sends as before. A QR number answers
+        // only from an earlier lookup: a fresh one here would skip the gap and the new-chat budget (manager #notOnWhatsapp).
+        const registered = levels ? manager.knownRegistered(normalized) : (await manager.checkRegistered([normalized])).get(normalized);
+        if (registered === false) {
             return res.status(422).json({ errors: [NOT_ON_WHATSAPP_TEXT], reason: 'not_on_whatsapp' });
         }
 
@@ -817,7 +909,14 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         }
         // After validation, so a rejected file is never stored. A repeat is parsed
         // again: the wizard needs a fresh importId, not a second copy on disk.
-        const { row, duplicate } = state.storage.saveSheet(req.file, sheet.total);
+        let saved;
+        try {
+            saved = state.storage.saveSheet(req.file, sheet.total);
+        } catch (err) {
+            if (err instanceof StorageError) return res.status(err.status).json({ errors: [err.message] });
+            throw err;
+        }
+        const { row, duplicate } = saved;
         return res.json({
             ...sheetPreview(sheet, req.file.originalname),
             ...uploadInfo(row, duplicate),
@@ -907,7 +1006,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
 
     // ------------------------------------------------- WhatsApp groups --
     // The members of the groups and communities the linked QR number is in.
-    // Only Baileys can read them; Cloud API and the sandbox have no groups.
+    // Only Baileys can read them; the sandbox has no groups.
     const GROUPS_TTL_MS = 60_000;
     /** The groups, fetched at most once a minute per connection: listing then exporting is one call to WhatsApp. */
     const whatsappGroups = async () => {
@@ -1424,10 +1523,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         if (errors.length) return res.status(400).json({ errors });
         if (!contacts.length) return res.status(400).json({ errors: ['no valid payment reminders'] });
 
-        manager.resetStats();
-        manager.queue.reset();
-        manager.pausedByQuota = false;
-        const result = manager.enqueueContacts(contacts, '{final_message}', { onePerNumber: true });
+        const result = manager.enqueueContacts(contacts, '{final_message}', { onePerNumber: true, reset: {} });
         manager.start();
         return res.json(result);
     });
@@ -1437,7 +1533,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         if (!req.file) return res.status(400).json({ errors: ['no file uploaded'] });
         const badContent = mediaContentError(req.file);
         if (badContent) return res.status(400).json({ errors: [badContent] });
-        const maxMb = limits().maxMediaMb;
+        // Policy templates.maxMediaMb vs legacy limits.maxMediaMb: the lower wins.
+        const maxMb = stricterCap(state.platformPolicy()['templates.maxMediaMb'], limits().maxMediaMb);
         if (maxMb && req.file.size > maxMb * 1024 * 1024) {
             return res.status(413).json({ errors: [`Files can be up to ${maxMb} MB on your plan.`] });
         }
@@ -1454,20 +1551,30 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         if (reused) {
             return res.status(200).json({ ...mediaMetadata(reused.media), ...uploadInfo(reused.row, true) });
         }
+        let release;
+        try {
+            release = state.storage.reserve(req.file.size); // the plan's storage quota, held until the row is in
+        } catch (err) {
+            if (err instanceof StorageError) return res.status(err.status).json({ errors: [err.message] });
+            throw err;
+        }
         const mediaId = `med_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
         const filename = safeName(req.file.originalname);
         const storedName = `${mediaId}_${filename}`;
         const filePath = path.join(UPLOAD_DIR, storedName);
+        let stored;
         try {
             await fs.promises.mkdir(UPLOAD_DIR, { recursive: true });
             await fs.promises.writeFile(filePath, req.file.buffer);
             state.media.claim(mediaId);
+            stored = state.storage.add({
+                kind: 'media', sha256, name: filename, mimetype: req.file.mimetype, size: req.file.size, storedName, mediaId,
+            });
         } catch (err) {
             return res.status(500).json({ errors: [`Media upload failed: ${err.message}`] });
+        } finally {
+            release();
         }
-        const stored = state.storage.add({
-            kind: 'media', sha256, name: filename, mimetype: req.file.mimetype, size: req.file.size, storedName, mediaId,
-        });
         // An identical upload finished while this one was writing: keep theirs, drop ours.
         const winner = !stored.created && stored.row.kind === 'media' ? state.storage.reuseMedia(sha256) : null;
         if (winner) {
@@ -1502,7 +1609,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             onePerNumber = true, mediaId = null,
         } = req.body ?? {};
         const ownText = (c) => String(c?.extra?.message ?? c?.extra?.custom_message ?? '').trim();
-        if (!template && !req.body?.templateId
+        if (!template
             && !(Array.isArray(audience) && audience.length && audience.every(ownText))) {
             return res.status(400).json({ errors: ['message is required'] });
         }
@@ -1540,24 +1647,11 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         if (!state.transport?.isConnected?.()) {
             return res.status(409).json({ errors: ['Connect a transport first.'] });
         }
-        // --- Meta approved template mode (Cloud API only; messaging/templateSend.js) ---
-        let metaTemplate;
-        let fallbackTemplate;
-        try {
-            metaTemplate = metaTemplateFor(templates, state.channel, req.body?.templateId, req.body?.templateParams);
-            fallbackTemplate = metaTemplateFor(templates, state.channel,
-                req.body?.fallbackTemplateId, req.body?.fallbackTemplateParams);
-        } catch (err) {
-            return templateFail(res, err);
-        }
-        // --- end Meta approved template mode ---
-        manager.resetStats();
-        manager.queue.reset();
-        manager.pausedByQuota = false;
         const media = mediaId ? state.media.get(mediaId) : null;
         if (mediaId && !media) return res.status(404).json({ errors: ['media not found'] });
+        // `reset` lands after enqueueContacts' own refusals: a refused start keeps whatever is queued.
         const result = manager.enqueueContacts(list, template, {
-            onePerNumber, media, interactive, metaTemplate, fallbackTemplate,
+            reset: {}, onePerNumber, media, interactive,
             // Bulk Campaigns v2: per-variable fallback text and the speed preset.
             fallbacks: req.body?.fallbacks ?? null, pacing: req.body?.pacing ?? 'balanced',
         });
@@ -1609,7 +1703,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         return res.json({ stats: manager.statsSnapshot() });
     });
 
-    /** Sending tier, today's rest window, and the block / report rate with who and when. */
+    /** Today's limit and rest window, and the block / report rate with who and when. */
     app.get('/safety/health', (req, res) => {
         const health = manager.healthStatus();
         const safety = manager.safetyStatus();
@@ -1627,6 +1721,22 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         const failPct = sent24 ? Math.round((q.failed24 / sent24) * 100) : 0;
         const optOutPct = q.sent7 ? Math.round((q.optOuts7 / q.sent7) * 1000) / 10 : 0;
         const optIn = Boolean(manager.bulkPolicy?.().requireOptIn);
+        // A QR number's level also watches messages to strangers and the reply rate (campaign/humanize.js levelFor).
+        const levels = [];
+        if (safety.budgets) {
+            const { newChats } = safety.budgets;
+            const { reached, replied } = manager.quota.allowance().replies;
+            const replyPct = reached ? Math.round((replied / reached) * 1000) / 10 : 0;
+            levels.push(
+                { key: 'newchats', label: 'New chats today', level: level(newChats.used, newChats.limit),
+                  value: `${newChats.used} of ${newChats.limit}`,
+                  hint: 'People who never chatted with this number. WhatsApp watches messages to strangers most closely.' },
+                { key: 'replies', label: 'Replies (48h)',
+                  level: reached < 40 ? 'ok' : replyPct < 15 ? 'bad' : replyPct < 30 ? 'warn' : 'ok',
+                  value: `${replied} of ${reached} people replied (${replyPct}%)`,
+                  hint: 'Below 15% once 40 or more people were reached halves bulk sending. Replies show WhatsApp the messages are wanted.' },
+            );
+        }
         return [
             { key: 'reports', label: 'Spam reports', level: level(health.reports, reportLimit),
               value: reportLimit ? `${health.reports} of ${reportLimit} this week` : `${health.reports} this week`,
@@ -1643,9 +1753,10 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
               hint: 'Many failures to numbers that are not on WhatsApp look like guessing numbers.' },
             { key: 'volume', label: 'Sent today', level: level(safety.used, safety.limit),
               value: safety.limit ? `${safety.used} of ${safety.limit}` : `${safety.used}`,
-              hint: 'Sending more than the daily tier limit is a common reason for a ban.' },
+              hint: 'Sending more than the daily limit is a common reason for a ban.' },
             { key: 'optin', label: 'Opt-in required', level: optIn ? 'ok' : 'warn', value: optIn ? 'On' : 'Off',
               hint: 'Messaging only people who agreed to hear from you is the best protection.' },
+            ...levels,
         ];
     };
 
@@ -1736,33 +1847,6 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         });
     });
 
-    // ------------------------------------------- Cloud API webhook (receipts) --
-    app.get('/webhook', (req, res) => {
-        // Meta's verification handshake.
-        if (req.query['hub.mode'] === 'subscribe'
-            && safeEqual(req.query['hub.verify_token'], state.config.webhookVerifyToken)) {
-            return res.status(200).send(String(req.query['hub.challenge'] ?? ''));
-        }
-        return res.status(403).send('verification failed');
-    });
-
-    // Verified against the channel's app secret when one is configured; see
-    // `webhookSignatureGuard` for why "none configured" lets the request in.
-    const webhookSecret = () => state.channel?.settings?.appSecret || state.config.appSecret;
-    app.post('/webhook', webhookSignatureGuard(webhookSecret), (req, res) => {
-        for (const receipt of parseStatusPayload(req.body)) {
-            if (state.transport instanceof CloudApiTransport) {
-                state.transport.recordReceipt(receipt.providerId, receipt.status);
-            }
-            manager.handleReceipt(receipt.providerId, receipt.status, receipt.error);
-        }
-        const inbounds = parseInboundPayload(req.body);
-        if (inbounds.length) {
-            void handleWebhookInbounds(state, deps, inbounds);
-        }
-        res.sendStatus(200);
-    });
-
     // ---------------------------------------------------------------- SSE --
     app.get('/events', (req, res) => {
         // No idle timeout and TCP keep-alive: the stream is meant to sit quiet for minutes.
@@ -1805,6 +1889,24 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
 }
 
 /**
+ * Move the tenant's root login folder (`root`, shared by the default number before each number had its
+ * own) into the default number's folder, once. Returns the folder to use: `own`, or `root` when the move
+ * failed, so the number keeps its login rather than asking for a new QR scan.
+ */
+export function adoptRootSession(root, own) {
+    if (!root || root === own || fs.existsSync(own) || !fs.existsSync(root)) return own;
+    try {
+        fs.mkdirSync(path.dirname(own), { recursive: true });
+        fs.renameSync(root, own);
+        logger.info('moved the default number login into its own folder', { to: own });
+        return own;
+    } catch (err) {
+        logger.warn('could not move the default number login folder; using the shared one', { error: err.message });
+        return root;
+    }
+}
+
+/**
  * One tenant's channels, and the dispatcher in front of them.
  *
  * This mirrors `createApp`'s tenant dispatch one level down: resolve the
@@ -1818,22 +1920,27 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
     const runtimes = new Map();
 
     // First run for this tenant: its config file becomes channel #1, so an
-    // existing single-number install comes up already configured.
-    channels.seed(config);
+    // existing single-number install comes up already configured. A QR number
+    // gets the platform's starting values, as POST /channels gives one. The file's dailyLimit is the
+    // config default, not a day the tenant asked for, so it does not hold the number under its plan.
+    channels.seed(config, undefined, mergeConfig(DEFAULTS, config).transport === TRANSPORT_BAILEYS
+        ? newNumberSafety(deps.platformPolicy?.() ?? {}, { ...config, dailyLimit: 0 }) : {});
 
     const runtimeFor = (channel) => {
         let runtime = runtimes.get(channel.id);
         if (!runtime) {
+            // One login folder per number. The default number used to share the tenant's root folder: it is
+            // moved into the number's own folder once (adoptRootSession). A number that already has its own
+            // keeps it when it becomes the default (a deleted default, the Cloud migration).
+            const own = path.join(tenantDir, 'channels', String(channel.id), 'wwebjs_auth');
             runtime = createChannelRuntime({
                 db: db.forChannel(channel.id),
                 channel,
-                config: channel.settings,
+                // humanTiming is the deployment's switch (config.js): one a tenant saved before it was stripped is ignored.
+                config: { ...channel.settings, humanTiming: DEFAULTS.humanTiming },
                 save: (settings) => channels.update(channel.id, { settings }).settings,
                 linked: (account) => channels.update(channel.id, { providerAccountId: account }),
-                // Each number needs its own browser profile, or they fight over the lock.
-                sessionDir: channel.isDefault
-                    ? sessionDir
-                    : path.join(tenantDir, 'channels', String(channel.id), 'wwebjs_auth'),
+                sessionDir: channel.isDefault ? adoptRootSession(sessionDir, own) : own,
                 deps,
             });
             runtimes.set(channel.id, runtime);
@@ -1846,13 +1953,20 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
 
     /** The platform's anti-ban limits win over whatever a channel's own settings say. */
     // `reset`: values to put back for keys the policy no longer names (custom limits removed).
+    // A reset key goes back to the number's own stored value (its newNumberSafety start), as a restart would.
     const enforcePolicy = ({ state }, reset = {}) => {
-        const wanted = { ...reset, ...policy() };
+        const stored = Object.keys(reset).length ? channels.get(state.channel.id)?.settings ?? {} : {};
+        const back = Object.fromEntries(Object.entries(reset).map(([key, value]) => [key, stored[key] ?? value]));
+        const wanted = { ...back, ...policy() };
         if (!POLICY_KEYS.some((key) => key in wanted && state.config[key] !== wanted[key])) return;
         Object.assign(state.config, wanted);
         state.manager.applyConfig(state.config);
     };
     const applyPolicy = (reset) => runtimes.forEach((runtime) => enforcePolicy(runtime, reset));
+    // A business's channel settings never carry anti-ban keys; enforcePolicy only overrides the ones the admin set.
+    // Nor the server-set ADMIN_CHANNEL_KEYS (linkedAt, humanTiming, ...): see config.js.
+    const ownSettings = (settings) => settings && Object.fromEntries(
+        Object.entries(settings).filter(([key]) => !POLICY_KEYS.includes(key) && !ADMIN_CHANNEL_KEYS.includes(key)));
 
     const fail = (res, err) => {
         if (err instanceof ChannelError) return res.status(err.status).json({ errors: [err.message] });
@@ -1868,7 +1982,7 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
     };
 
     // --------------------------------------------------------- channels --
-    /** Live state plus today's budget, warm-up and delivery quality. */
+    /** Live state plus today's budget and delivery quality. */
     const fullHealth = (channel) => {
         const runtime = runtimes.get(channel.id);
         const enforced = policy();
@@ -1876,7 +1990,12 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         const config = { ...(runtime?.state.config ?? channel.settings), ...enforced };
         return {
             ...channelHealth(channel, runtime),
-            ...channelUsage(channel, { db: db.forChannel(channel.id), config, policy: enforced }),
+            ...channelUsage(channel, {
+                db: db.forChannel(channel.id), config,
+                sending: deps.platformPolicy?.() ?? {}, pin: () => deps.channelPin?.(channel.id),
+                start: deps.channelStart && (() => deps.channelStart(channel.id)),
+                paused: deps.channelPaused?.(channel.id)?.reason ?? null,
+            }),
         };
     };
 
@@ -1900,7 +2019,10 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         try {
             const problems = channelInputProblems(body);
             if (problems.length) return res.status(400).json({ errors: problems });
-            const channel = channels.create({ ...body, safety: newNumberSafety(platform, body.settings ?? {}) });
+            // newNumberSafety bounds what was asked for, so a tighter dailyLimit etc. still lands.
+            const channel = channels.create({
+                ...body, settings: ownSettings(body.settings), safety: newNumberSafety(platform, body.settings ?? {}),
+            });
             audit?.(req, 'channel.create', channel.id, channel.displayName);
             return res.status(201).json({ channel: publicChannel(channel) });
         } catch (err) {
@@ -1925,7 +2047,11 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
             const blocked = swapped && providerBlocked(mergeConfig(DEFAULTS, { transport: swapped }).transport, deps.limits?.() ?? {}, deps.platformPolicy?.() ?? {});
             if (blocked) return res.status(403).json({ errors: [blocked] });
             const before = channels.get(req.params.id);
-            const channel = channels.update(req.params.id, req.body ?? {});
+            // A scanned QR number is the one WhatsApp reported (linked()): a typed number must not restart its history
+            // (number_since), which would drop its bans and reports and ask its questions again.
+            const { phoneNumber, providerAccountId, ...kept } = req.body ?? {};
+            const body = before && QR_TRANSPORTS.includes(before.provider) && before.providerAccountId ? kept : req.body;
+            const channel = channels.update(req.params.id, { ...body, settings: ownSettings(req.body?.settings) });
             // A disabled channel must stop sending now, not at the next restart.
             // Swapping provider rebuilds the transport for the same reason.
             if (channel.status !== 'active' || before?.provider !== channel.provider) await release(channel.id);
@@ -1944,6 +2070,54 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         } catch (err) {
             return fail(res, err);
         }
+    });
+
+    // ------------------------------------------------ number questions --
+    // A QR number's 2 questions (policy/levels.js startLevelFor) set the day it starts at; bulk waits until they are
+    // answered, and again after a ban or a different number (campaign/safety.js allowance). `asked` false = ask them.
+    const startView = (channel) => {
+        const { usage } = fullHealth(channel);
+        return { asked: usage.asked !== false, todayLimit: usage.todayLimit, planLimit: usage.planLimit };
+    };
+
+    app.get('/channels/:id/start', (req, res) => {
+        const channel = channels.get(req.params.id);
+        if (!channel) return res.status(404).json({ errors: ['channel not found'] });
+        return res.json({ ...startView(channel), skipWarning: { version: NUMBER_SKIP_VERSION, text: NUMBER_SKIP_TEXT } });
+    });
+
+    /** `{ age, usage }` (0-3 each), or `{ skip: true, accept: true }` to start at the plan's day, recorded as a consent. */
+    app.post('/channels/:id/start', (req, res) => {
+        const channel = channels.get(req.params.id);
+        if (!channel) return res.status(404).json({ errors: ['channel not found'] });
+        const asked = fullHealth(channel).usage.asked;
+        if (asked === undefined || !deps.setChannelStart) return res.status(400).json({ errors: ['Only QR-login numbers with sending safety on are asked these questions.'] });
+        if (asked) return res.status(409).json({ errors: ["This number's questions are already answered."] });
+        const body = req.body ?? {};
+        const skip = body.skip === true;
+        let level;
+        let answers;
+        if (skip) {
+            if (body.accept !== true) return res.status(400).json({ errors: ['Tick "I understand and accept" to skip the questions.'] });
+            const tables = sendingTables(deps.platformPolicy?.() ?? {});
+            level = skipStartLevel(tables.levels, tables.planDaily);
+            answers = { skipped: true };
+            // Before the start is saved: no skipped start without its consent row.
+            deps.tenancy.recordConsent({
+                tenantId: db.tenantId ?? req.tenantId, user: req.user, fullName: req.user?.name ?? '', ip: req.ip,
+                userAgent: req.get('user-agent') ?? '', kind: 'number_skip_questions', channelId: channel.id,
+            });
+        } else {
+            level = startLevelFor({ age: body.age, usage: body.usage });
+            if (level == null) return res.status(400).json({ errors: ['Answer both questions: age and usage, each 0 to 3.'] });
+            answers = { age: body.age, usage: body.usage };
+        }
+        deps.setChannelStart(channel.id, level, answers);
+        runtimes.get(channel.id)?.state.manager?.quota.invalidate(); // a held run picks up within its 30s recheck
+        audit?.(req, skip ? 'channel.start_skip' : 'channel.start', channel.id,
+            skip ? `skipped the questions (version ${NUMBER_SKIP_VERSION}), start level ${level}` : `age ${body.age}, usage ${body.usage}, start level ${level}`);
+        const { todayLimit, planLimit } = startView(channel);
+        return res.json({ todayLimit, planLimit });
     });
 
     app.delete('/channels/:id', async (req, res) => {
@@ -1972,11 +2146,11 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         const named = req.get('x-channel-id') ?? req.query.channel;
         try {
             // Sender rule (channels.routing) for an unnamed send; reads and other writes keep the default.
-            const sending = req.method === 'POST' && SEND_ROUTES[req.path];
+            const sending = req.method === 'POST' && SEND_ROUTES[routeKey(req.path)];
             const channel = named == null || named === ''
                 ? channels.route(sending ? {
                     rule: deps.platformPolicy?.()['channels.routing'],
-                    remaining: (ch) => quotaLeft(db, ch, runtimes.get(ch.id), policy()),
+                    remaining: (ch) => quotaLeft(db, ch, runtimes.get(ch.id), policy(), deps.platformPolicy?.() ?? {}, () => deps.channelPin?.(ch.id), deps.channelStart && (() => deps.channelStart(ch.id))),
                 } : { any: pausedPages(req) })
                 : channels.route({ channelId: Number(named), any: pausedPages(req) });
             req.channel = channel;
@@ -2038,25 +2212,46 @@ export function createApp({
     scheduler = false, sweepMs = 5000,
     // Where this server is reachable from the internet (PUBLIC_BASE_URL); tracked links need it.
     publicBaseUrl = null,
+    // Overrides for createOpsAlerts (url, secret, fetch, now): tests point the webhook at a stub.
+    opsAlertOptions = {},
 } = {}) {
     const app = express();
     app.disable('x-powered-by');
+    // Behind a reverse proxy, req.ip (the /v1 IP allow-list, per-address throttles) is the proxy's
+    // address unless this names it: a hop count, "true", or proxy addresses as Express takes them.
+    const trustProxy = process.env.TRUST_PROXY;
+    if (trustProxy) app.set('trust proxy', trustProxy === 'true' ? true : /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
     publicBaseUrl = cleanBaseUrl(publicBaseUrl);
     // Before the body parser, so a malformed body is still logged with an id.
     app.use(requestContext());
     app.use(securityHeaders());
-    app.use(express.json({
-        limit: '1mb',
-        // The webhook signature is over the raw bytes, which the parser
-        // consumes; keep them for that route only.
-        verify: (req, res, buf) => {
-            if (req.url.startsWith('/api/webhook')) req.rawBody = buf;
-        },
-    }));
+    app.use(express.json({ limit: '1mb' }));
 
     const tenancy = new Tenancy(db);
+    // One platform-wide ops alert channel (OPS_ALERT_WEBHOOK); its limits span every tenant and number.
+    const opsAlerts = createOpsAlerts({ audit: (entry) => tenancy.audit(entry), ...opsAlertOptions });
+    const opsAlert = deps.opsAlert ?? opsAlerts.raise;
     // Super-admin rules per plan; every tenant runtime reads its effective values through deps.platformPolicy.
     const policyStore = new PolicyStore(db);
+    // Each tenant's security.* values (policy/security.js), read on every request by the rate
+    // limits and the session check, so cached for 5s. An admin policy save clears it.
+    const securityCache = new Map();
+    const securityFor = (tenantId) => {
+        const hit = securityCache.get(tenantId);
+        if (hit && Date.now() - hit.at < 5000) return hit.values;
+        const { values } = policyStore.resolve(tenantId);
+        securityCache.set(tenantId, { at: Date.now(), values });
+        return values;
+    };
+    tenancy.idleMsFor = (tenantId) => securityFor(tenantId)['security.sessionIdleMinutes'] * 60000;
+    // The public API's budget is per key, not per tenant: one runaway integration cannot starve another.
+    const v1Limit = rateLimit({
+        keyFor: (req) => `v1:${req.apiKey.id}`,
+        limitsFor: (req) => {
+            const sec = securityFor(req.apiKey.tenantId);
+            return { ratePerSecond: sec['security.publicApiRatePerSecond'], burst: sec['security.publicApiBurst'] };
+        },
+    });
     const runtimes = new Map();
     const logins = new Map(); // email -> { fails, until }  ponytail: in-memory, per process
 
@@ -2076,11 +2271,16 @@ export function createApp({
                 deps: {
                     ...deps,
                     tenancy,
+                    opsAlert,
                     limits: () => tenancy.getTenant(tenantId)?.limits ?? {},
                     platformPolicy: () => policyStore.resolve(tenantId).values,
-                    bulkKill: () => bulkKillReason(policyStore, tenantId),
+                    bulkKill: () => bulkKillReason(policyStore, tenantId, tenancy.getTenant(tenantId)?.controls),
+                    controls: () => tenancy.getTenant(tenantId)?.controls ?? {},
                     channelPaused: (channelId) => app.locals.channelOps?.pausedOf(channelId),
                     channelResume: (channelId) => app.locals.channelOps?.resumeBanGuard(channelId),
+                    channelPin: (channelId) => app.locals.channelOps?.pinOf(channelId) ?? null,
+                    channelStart: (channelId) => app.locals.channelOps?.startOf(channelId) ?? null,
+                    setChannelStart: (channelId, level, answers) => app.locals.channelOps?.setStart(channelId, level, answers),
                     publicBaseUrl,
                 },
                 audit,
@@ -2177,16 +2377,6 @@ export function createApp({
         return res.redirect(302, url);
     });
 
-    // Meta cannot send a bearer token, so the webhook is public and per tenant.
-    app.all(['/api/webhook', '/api/webhook/:tenantId'], (req, res, next) => {
-        const id = req.params.tenantId === undefined ? DEFAULT_TENANT_ID : Number(req.params.tenantId);
-        const tenant = tenancy.getTenant(id);
-        if (tenant?.status !== 'active' || tenant.controls?.inboundEnabled === false) return res.sendStatus(404);
-        const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
-        req.url = `/webhook${query}`;
-        return runtimeFor(id).router(req, res, next);
-    });
-
     app.post('/api/auth/login', async (req, res) => {
         const { email = '', password = '' } = req.body ?? {};
         const key = String(email).trim().toLowerCase();
@@ -2216,17 +2406,50 @@ export function createApp({
     /**
      * The public API authenticates with an API key, so it must sit above the
      * session middleware below - that one 401s anything without a bearer
-     * *session*. The key selects the tenant, exactly as the webhook path does.
+     * *session*. The key selects the tenant.
      */
     app.all('/api/v1/*splat', (req, res, next) => {
         const header = req.get('authorization') ?? '';
         const presented = header.startsWith('Bearer ') ? header.slice(7) : req.get('x-api-key');
-        const key = new ApiKeyStore(db).verify(presented);
+        const key = new ApiKeyStore(db, {
+            maxAgeDays: (tenantId) => securityFor(tenantId)['security.apiKeyMaxAgeDays'] ?? 0,
+        }).verify(presented);
         if (!key) return res.status(401).json({ error: 'invalid_api_key' });
-        if (tenancy.getTenant(key.tenantId)?.status !== 'active') return res.sendStatus(404);
-        bindContext({ tenantId: key.tenantId });
-        req.url = req.url.slice('/api'.length);
-        return runtimeFor(key.tenantId).router(req, res, next);
+        const tenant = tenancy.getTenant(key.tenantId);
+        if (tenant?.status !== 'active') return res.sendStatus(404);
+        if (!ipAllowed(securityFor(key.tenantId)['security.ipAllowList'], req.ip)) {
+            return res.status(403).json({ error: 'ip_not_allowed', message: 'This address may not use the API for this account.' });
+        }
+        // The admin's tenant controls, as tenantAccessError applies them to the session API.
+        const p = routeKey(req.path);
+        const write = req.method !== 'GET' && req.method !== 'HEAD';
+        const under = (prefix) => p === prefix || p.startsWith(`${prefix}/`);
+        // Events and object writes start workflows. v1 never sends directly; a
+        // workflow send while sending is off waits in the engine instead.
+        const startsWorkflow = ['/api/v1/events', '/api/v1/appointments', '/api/v1/orders', '/api/v1/payments'].some(under);
+        if (write && startsWorkflow && tenant.controls.automationsEnabled === false) {
+            return res.status(403).json({ error: 'tenant_blocked', message: 'Automations are disabled for this account.' });
+        }
+        const billing = new BillingStore(db.forTenant(key.tenantId), { overrides: () => policyStore.resolve(key.tenantId).values });
+        if (billing.subscription()?.state === 'expired') {
+            return res.status(402).json({ error: 'subscription_expired', message: 'The subscription has ended. Contact your provider to renew.' });
+        }
+        // The plan's api_requests quota (or the admin's billing.apiRequestsPerMonth); a refused call
+        // is not counted, and neither is one the per-key rate limit turns away.
+        const quota = billing.check('api_requests');
+        if (!quota.allowed) {
+            const message = quota.limit === 0
+                ? "This account's plan does not include API access."
+                : `This account has used its ${quota.limit} API requests for this month.`;
+            return res.status(429).json({ error: 'quota_exceeded', message });
+        }
+        req.apiKey = key;
+        return v1Limit(req, res, () => {
+            billing.record('api_requests');
+            bindContext({ tenantId: key.tenantId });
+            req.url = req.url.slice('/api'.length);
+            return runtimeFor(key.tenantId).router(req, res, next);
+        });
     });
 
     // ----------------------------------------------------------- auth --
@@ -2244,7 +2467,15 @@ export function createApp({
 
     // After auth so a bucket is per user/tenant rather than per IP, and after
     // login, which has its own throttle.
-    app.use('/api', rateLimit({ ratePerSecond: 20, burst: 40 }));
+    // A business's own limits (security.apiRatePerSecond/apiBurst); super admins keep the defaults.
+    app.use('/api', rateLimit({
+        ratePerSecond: 20, burst: 40,
+        limitsFor: (req) => {
+            if (req.user.tenantId == null) return null;
+            const sec = securityFor(req.user.tenantId);
+            return { ratePerSecond: sec['security.apiRatePerSecond'], burst: sec['security.apiBurst'] };
+        },
+    }));
 
     const requireRole = (min) => (req, res, next) => (roleRank(req.user.role) >= roleRank(min)
         ? next() : res.status(403).json({ errors: ['You do not have permission to do that.'] }));
@@ -2287,7 +2518,7 @@ export function createApp({
     });
     app.use('/api/admin', admin);
     admin.use(createCampaignOpsRouter({ db, runtimes, runtimeFor, tenancy, policyStore, audit }));
-    registerTemplateAdmin(admin, { db, tenancy, policy: policyStore, audit }); // review queue, starter library, Meta status
+    registerTemplateAdmin(admin, { db, tenancy, policy: policyStore, audit }); // review queue, starter library
 
     admin.get('/tenants', (req, res) => res.json({
         tenants: tenancy.listTenants().map(tenantOverview),
@@ -2313,17 +2544,27 @@ export function createApp({
      * Put a business on a plan now: subscription first, then the plan's
      * services and tenant limits, so what the business can do follows what it
      * is on.  `setLimits` merges, so the operator's blockedWords and custom
-     * safety switch survive a plan change.
+     * safety switch survive a plan change. On a change, a limit moves only
+     * while it still equals the old plan's value: an admin override stays.
      */
     const applyPlan = (tenantId, plan, trialDays, services = plan.services) => {
         const days = Math.max(0, Math.min(365, Math.floor(Number(trialDays) || 0)));
-        const subscription = new BillingStore(db.forTenant(tenantId)).subscribe(tenantId, plan.key, {
+        const store = new BillingStore(db.forTenant(tenantId));
+        const old = store.subscription()?.plan.tenantLimits ?? null;
+        const subscription = store.subscribe(tenantId, plan.key, {
             trialEndsAt: days ? new Date(Date.now() + days * 24 * 3600 * 1000) : null,
         });
         tenancy.updateTenant(tenantId, { services });
-        tenancy.setLimits(tenantId, plan.tenantLimits);
-        runtimes.get(tenantId)?.applyPolicy();
+        followPlanLimits(tenantId, old, plan.tenantLimits);
         return subscription;
+    };
+    const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    /** Move a business's limits from `from` to `to`, keeping any an admin changed (no longer equal to `from`). */
+    const followPlanLimits = (tenantId, from, to) => {
+        const current = tenancy.getTenant(tenantId)?.limits ?? {};
+        tenancy.setLimits(tenantId, Object.fromEntries(Object.entries(to ?? {})
+            .filter(([key]) => !from || sameJson(current[key], from[key]))));
+        runtimes.get(tenantId)?.applyPolicy();
     };
 
     admin.get('/billing/plans', (req, res) => {
@@ -2340,6 +2581,12 @@ export function createApp({
             // does not reset everything else to defaults.
             const before = catalogue().getPlan(req.params.key) ?? {};
             const plan = catalogue().savePlan({ ...before, ...(req.body ?? {}), key: req.params.key });
+            // Subscribers follow edited limits, so applyPlan's "still the old plan's value" test reads the live plan.
+            if (before.key && !sameJson(before.tenantLimits ?? {}, plan.tenantLimits ?? {})) {
+                db.db.prepare(`SELECT s.tenant_id AS id FROM subscriptions s JOIN tenants t ON t.id = s.tenant_id
+                               WHERE s.plan_key = ? AND t.status != 'archived'`).all(plan.key)
+                    .forEach(({ id }) => followPlanLimits(id, before.tenantLimits ?? {}, plan.tenantLimits));
+            }
             audit(req, 'plan.save', plan.key, plan.name);
             return res.json({ plan });
         } catch (err) {
@@ -2502,6 +2749,12 @@ export function createApp({
         runtimes.get(before.id)?.applyPolicy(Object.fromEntries(Object.keys(before.customSafety)
             .map((key) => [key, platform[key]])));
     };
+    /** Keys a safety PUT reset to null, with the value running channels go back to (after the save). */
+    const resetValues = (tenant, body) => {
+        const platform = tenancy.platformSafety(tenant);
+        return Object.fromEntries(Object.keys(POLICY_SPEC).filter((key) => body?.[key] === null)
+            .map((key) => [key, platform[key]]));
+    };
 
     // Accounts: a super admin sees a business's sign-ins and can reset a password.
     admin.get('/tenants/:id/users', (req, res) => (tenancy.getTenant(req.params.id)
@@ -2526,7 +2779,7 @@ export function createApp({
     admin.put('/tenants/:id/safety', (req, res) => {
         try {
             const tenant = tenancy.setSafety(req.params.id, req.body ?? {});
-            runtimes.get(tenant.id)?.applyPolicy();
+            runtimes.get(tenant.id)?.applyPolicy(resetValues(tenant, req.body)); // null: back to the default
             audit(req, 'tenant.safety', tenant.id, tenant.safety);
             return res.json(safetyView(tenant));
         } catch (err) {
@@ -2560,6 +2813,23 @@ export function createApp({
         }
     });
 
+    // Security buttons: end every session of the business, or revoke all its API keys.
+    admin.post('/tenants/:id/sessions/revoke', (req, res) => {
+        const tenant = tenancy.getTenant(req.params.id);
+        if (!tenant) return res.status(404).json({ errors: ['tenant not found'] });
+        const count = tenancy.revokeTenantSessions(tenant.id);
+        audit(req, 'tenant.sessions.revoke', tenant.id, { count });
+        return res.json({ count });
+    });
+
+    admin.post('/tenants/:id/api-keys/revoke', (req, res) => {
+        const tenant = tenancy.getTenant(req.params.id);
+        if (!tenant) return res.status(404).json({ errors: ['tenant not found'] });
+        const count = new ApiKeyStore(db.forTenant(tenant.id)).revokeAll();
+        audit(req, 'tenant.api_keys.revoke', tenant.id, { count });
+        return res.json({ count });
+    });
+
     admin.delete('/tenants/:id', async (req, res) => {
         try {
             const tenant = tenancy.archiveTenant(req.params.id);
@@ -2579,17 +2849,24 @@ export function createApp({
     };
     admin.get('/policy', (req, res) => res.json({
         fields: POLICY_FIELDS,
-        global: policyStore.values('global'),
-        plans: policyStore.planValues(),
+        global: fillTables(policyStore.values('global')),
+        plans: Object.fromEntries(Object.entries(policyStore.planValues()).map(([plan, values]) => [plan, fillTables(values)])),
         planList: new BillingStore(db.forTenant(DEFAULT_TENANT_ID)).plans().map((p) => ({ key: p.key, name: p.name, tier: p.tier })),
+        // Tables saved with an old row count: sending holds numbers at their old top until the admin saves them again.
+        stale: policyStore.staleTables(),
     }));
-    admin.get('/policy/tenant/:id', (req, res) => res.json({
-        overrides: policyStore.values(`tenant:${Number(req.params.id)}`),
-        ...policyStore.resolve(Number(req.params.id)),
-    }));
+    admin.get('/policy/tenant/:id', (req, res) => {
+        const resolved = policyStore.resolve(Number(req.params.id));
+        return res.json({
+            overrides: fillTables(policyStore.values(`tenant:${Number(req.params.id)}`)),
+            ...resolved,
+            values: fillTables(resolved.values),
+        });
+    });
     admin.put('/policy/:scope', (req, res) => {
         try {
             const values = policyStore.set(req.params.scope, req.body?.values ?? {});
+            securityCache.clear();
             audit(req, 'policy.change', req.params.scope, Object.keys(req.body?.values ?? {}).join(', '));
             return res.json({ values });
         } catch (err) {
@@ -2600,11 +2877,15 @@ export function createApp({
     // Ops pages (read only): plans vs usage, message volume, live channel health, audit search.
     const ops = createAdminOps({ db, tenancy, runtimes });
     const channelOps = createChannelOps({ db, tenancy, runtimes, policy: policyStore });
-    channelOps.register(admin, audit); // /api/admin/numbers/:channelId/{pause,resume,disconnect,move}
+    channelOps.register(admin, audit); // /api/admin/numbers/:channelId/{pause,resume,disconnect,move,level}
     app.locals.channelOps = channelOps;
     admin.get('/plans', (req, res) => res.json(ops.plans()));
     admin.get('/usage-summary', (req, res) => res.json(ops.usage({ days: req.query.days })));
-    admin.get('/health-detail', (req, res) => res.json(ops.health()));
+    // `backup`: the last daily backup attempt (backup.js lastBackup), null before the first.
+    // `encryption`: key ids and the last re-encryption (security/keyGate.js encryptionStatus), never a key.
+    admin.get('/health-detail', (req, res) => res.json({
+        ...ops.health(), backup: lastBackup(dataDir), encryption: encryptionStatus(dataDir),
+    }));
     admin.get('/audit-logs', (req, res) => (req.query.format === 'csv'
         ? res.type('text/csv').attachment('audit-logs.csv').send(auditCsv(ops.audit(req.query, { maxLimit: 10000 }).logs))
         : res.json(ops.audit(req.query))));
@@ -2709,8 +2990,11 @@ export function createApp({
             return res.status(403).json({ errors: ['Accept the sending-risk terms before changing limits.'] });
         }
         try {
-            const next = tenancy.setCustomSafety(tenant.id, req.body ?? {});
-            runtimes.get(tenant.id)?.applyPolicy();
+            // requestTimeout stays the platform admin's even with custom limits on.
+            const body = { ...req.body };
+            for (const key of ADMIN_CHANNEL_KEYS) delete body[key];
+            const next = tenancy.setCustomSafety(tenant.id, body);
+            runtimes.get(tenant.id)?.applyPolicy(resetValues(next, body));
             audit(req, 'safety.custom', tenant.id, next.customSafety);
             return res.json(tenantSafetyView(next));
         } catch (err) {
@@ -2730,9 +3014,12 @@ export function createApp({
     // ------------------------------------------------- tenant routes --
     // What the platform allows this business, so its own screens can show limits before refusing.
     // `linkTracking`: whether the composer can offer "Track link clicks" (PUBLIC_BASE_URL is set).
-    app.get('/api/policy', withTenant, (req, res) => res.json({
-        ...policyStore.resolve(req.tenantId), linkTracking: Boolean(publicBaseUrl),
-    }));
+    // security.* is the admin's business only: an allow-list or rate limit is not shown to the account it binds.
+    app.get('/api/policy', withTenant, (req, res) => {
+        const { planKey, values, sources } = policyStore.resolve(req.tenantId);
+        const visible = (map) => Object.fromEntries(Object.entries(map).filter(([key]) => !key.startsWith('security.')));
+        return res.json({ planKey, values: visible(values), sources: visible(sources), linkTracking: Boolean(publicBaseUrl) });
+    });
 
     app.use('/api', withTenant, (req, res, next) => {
         const tenant = tenancy.getTenant(req.tenantId);
@@ -2745,8 +3032,8 @@ export function createApp({
             return res.status(402).json({ errors: ['Your subscription has ended. Contact your provider to renew.'] });
         }
         const write = req.method !== 'GET' && req.method !== 'HEAD';
-        const agentMayWrite = AGENT_WRITES.has(req.path)
-            || AGENT_WRITE_PREFIXES.some((prefix) => req.path.startsWith(prefix));
+        const p = routeKey(req.path);
+        const agentMayWrite = AGENT_WRITES.has(p) || AGENT_WRITE_PREFIXES.some((prefix) => p.startsWith(prefix));
         if (write && roleRank(req.user.role) < roleRank('admin') && !agentMayWrite) {
             return res.status(403).json({ errors: ['You do not have permission to do that.'] });
         }
@@ -2782,14 +3069,21 @@ export function createApp({
             console.error('[workflows] sweep failed:', err.message);
             return;
         }
+        // A campaign runs on the number it was made for; the default only when it names none (or that one is gone).
+        const campaignsOn = (tenantId, channelId) => {
+            const tenant = runtimeFor(tenantId);
+            const channel = (channelId != null && tenant.channels.get(channelId)) || tenant.channels.getDefault();
+            return channel ? tenant.runtimeFor(channel).state.campaigns : null;
+        };
         // A campaign with `scheduled_at` holds no timer either, for the same
         // reason: the row is the state and must survive a restart.
         try {
-            for (const { id, tenantId } of dueCampaigns(db, new Date())) {
+            for (const { id, tenantId, channelId } of dueCampaigns(db, new Date())) {
                 try {
-                    const tenant = runtimeFor(tenantId);
-                    const channel = tenant.channels.getDefault();
-                    if (channel) tenant.runtimeFor(channel).state.campaigns?.start(id);
+                    const store = campaignsOn(tenantId, channelId);
+                    // Starting resets the queue: wait while this number is still sending another run.
+                    if (store?.manager?.queue.pending || store?.manager?.inFlight) continue;
+                    store?.start(id);
                 } catch (err) {
                     // An empty audience, a deleted template or a disconnected
                     // number must not stop the sweep for every other tenant. The
@@ -2804,10 +3098,9 @@ export function createApp({
             }
             // After a restart the in-memory queue is empty but the campaigns still read running/paused:
             // queue their unsent rows again once the number is back online.
-            for (const { id, tenantId } of openCampaigns(db)) {
+            for (const { id, tenantId, channelId } of openCampaigns(db)) {
                 try {
-                    const channel = runtimeFor(tenantId).channels.getDefault();
-                    if (channel) runtimeFor(tenantId).runtimeFor(channel).state.campaigns?.recover(id);
+                    campaignsOn(tenantId, channelId)?.recover(id);
                 } catch (err) {
                     const key = `recover:${tenantId}:${id}`;
                     if (!sweepWarned.has(key)) {
@@ -2817,10 +3110,9 @@ export function createApp({
                 }
             }
             // Spread campaigns: close out today's batch (books tomorrow) and lift a daily-cap pause.
-            for (const { id, tenantId } of runningSpreadCampaigns(db)) {
+            for (const { id, tenantId, channelId } of runningSpreadCampaigns(db)) {
                 try {
-                    const channel = runtimeFor(tenantId).channels.getDefault();
-                    if (channel) runtimeFor(tenantId).runtimeFor(channel).state.campaigns?.tick(id);
+                    campaignsOn(tenantId, channelId)?.tick(id);
                 } catch (err) {
                     console.error(`[campaigns] spread tick ${id} failed:`, err.message);
                 }
@@ -2884,6 +3176,7 @@ export function createApp({
      * until someone opens the Connection page.
      */
     const reconnectAll = async () => {
+        void opsAlerts.tick(); // the hourly "N alerts held back" summary
         for (const tenant of tenancy.listTenants()) {
             if (tenant.status !== 'active') continue;
             try {
@@ -2892,8 +3185,29 @@ export function createApp({
                     if (channel.status !== 'active' || !channel.settings.autoConnect) continue;
                     const { state } = runtime.runtimeFor(channel);
                     const t = state.transport;
+                    // Block, delivery and stuck checks every 10 minutes per connected number, sending or not.
+                    if (t?.isConnected?.()) {
+                        try {
+                            state.manager.scanHealthIfDue();
+                        } catch (err) {
+                            logger.warn('health scan failed', { tenantId: tenant.id, channelId: channel.id, error: err.message });
+                        }
+                    }
+                    // Dead-man: messages waiting in sending hours, nothing sent for 6h.
+                    try {
+                        const idleMs = state.manager.deadManIdleMs();
+                        if (idleMs) {
+                            state.manager.opsAlert?.({
+                                kind: 'dead_man',
+                                text: `Messages are waiting but nothing was sent for ${Math.floor(idleMs / 3_600_000)} hours.`,
+                            });
+                        }
+                    } catch (err) {
+                        logger.warn('dead-man check failed', { tenantId: tenant.id, channelId: channel.id, error: err.message });
+                    }
                     // A transport mid-reconnect has its own backoff: do not fight it.
-                    if (state.connecting || t?.isConnected?.() || t?.reconnectTimer || t?.connecting || t?.replaced || t?.banned) continue;
+                    // An unscanned QR that expired waits for the user to press Connect, or it would show codes forever.
+                    if (state.connecting || t?.isConnected?.() || t?.reconnectTimer || t?.connecting || t?.replaced || t?.banned || t?.qrExpired) continue;
                     const result = await state.connect();
                     if (result.status >= 400) {
                         logger.warn('auto-reconnect failed', { tenantId: tenant.id, channelId: channel.id, error: result.body?.errors?.[0] });
@@ -2913,6 +3227,12 @@ export function createApp({
         const watchdog = setInterval(() => { void reconnectAll(); }, 30_000);
         boot.unref();
         watchdog.unref();
+        // The daily encrypted backup (backup.js): checked hourly, runs once per UTC day.
+        const backupCheck = () => { void runBackupIfDue({ db: db.db, dataDir, alert: opsAlert }); };
+        const backupBoot = setTimeout(backupCheck, 60_000);
+        const backupTimer = setInterval(backupCheck, 3_600_000);
+        backupBoot.unref();
+        backupTimer.unref();
 
         // Outbound webhooks are durable jobs, not a second retry loop.
         const jobs = new JobStore(db);
@@ -2925,6 +3245,8 @@ export function createApp({
             clearInterval(timer);
             clearInterval(watchdog);
             clearTimeout(boot);
+            clearInterval(backupTimer);
+            clearTimeout(backupBoot);
             await worker.shutdown();
         };
     }
@@ -2932,6 +3254,10 @@ export function createApp({
 
     app.locals.runtimes = runtimes;
     app.locals.tenancy = tenancy;
+    // Section 4's backup and re-encryption jobs report failures here: opsAlert({ kind: 'backup_failed' |
+    // 'reencrypt_failed', text, detail }).
+    app.locals.opsAlert = opsAlert;
+    app.locals.opsAlerts = opsAlerts;
     app.locals.policy = policyStore;
     app.locals.runtimeFor = runtimeFor;
 
@@ -2985,6 +3311,9 @@ async function handleInbound(state, message) {
         // Opt-out is always honoured; auto-replies are a capability the
         // channel can be switched out of without going dark on STOP.
         if (!state.channel.capabilities.includes('auto_replies')) return saved;
+        // The admin switched automations/sending off, or the message quota is used up: keep
+        // the message, send nothing (the message service would refuse every reply, one inbound_error each).
+        if (state.manager.sendBlock?.('auto_reply') ?? state.manager.capBlock?.()) return saved;
         // A human has the conversation: the bot does not talk over them. The
         // message service enforces this too, but returning early also skips the
         // typing delay and the FAQ lookup.
@@ -3065,48 +3394,6 @@ async function handleInbound(state, message) {
     return saved;
 }
 
-async function handleWebhookInbounds(state, deps, inbounds) {
-    try {
-        await ensureWebhookTransport(state, deps);
-    } catch (err) {
-        broadcast(state, {
-            type: 'inbound_error',
-            sender: null,
-            error: `Webhook transport unavailable: ${err.message ?? String(err)}`,
-        });
-    }
-    for (const inbound of inbounds) {
-        await handleInbound(state, inbound);
-    }
-}
-
-async function ensureWebhookTransport(state, deps) {
-    if (state.transport?.isConnected?.()) return state.transport;
-    if (state.config.transport !== TRANSPORT_CLOUD_API) return null;
-
-    if (!state.webhookConnect) {
-        state.webhookConnect = (async () => {
-            const problems = validateConfig(state.config);
-            if (problems.length) throw new Error(problems.join(' '));
-
-            const transport = createTransport(state.config, deps);
-            const info = await transport.connect();
-            state.transport = transport;
-            state.info = info;
-            state.qr = null;
-            state.connecting = false;
-            state.manager.setTransport(transport);
-            state.autoReply.setTransport(transport);
-            state.manager.start();
-            broadcast(state, { type: 'connection', ...connectionState(state) });
-            return transport;
-        })().finally(() => {
-            state.webhookConnect = null;
-        });
-    }
-    return state.webhookConnect;
-}
-
 /**
  * Stop the engine and the transport this app owns.  The worker loop outlives a
  * closed HTTP server otherwise, and then writes to a closed database.
@@ -3153,26 +3440,12 @@ function connectionState(state) {
         realDelivery: Boolean(state.info?.realDelivery),
         supportsReceipts: Boolean(transport?.supportsReceipts),
         qr: state.qr,
+        qrExpiresAt: state.qr ? transport?.qrExpiresAt ?? null : null,
         paused: state.paused?.() ?? null,
     };
 }
 
-/** Same phone number, allowing one side to be written without its country code. */
-function sameNumber(a, b) {
-    const x = String(a ?? '').replace(/\D/g, '');
-    const y = String(b ?? '').replace(/\D/g, '');
-    return Boolean(x && y) && (x.endsWith(y) || y.endsWith(x));
-}
-
-/**
- * Whether a channel's warm-up answer belongs to another number than `account`.
- * One saved before `warmupFor` was recorded is the old number's once the
- * channel has changed number (`numberSince` set).
- */
-export function warmupStale(settings, account, numberSince) {
-    if (!settings?.warmupChoice) return false;
-    return settings.warmupFor ? !sameNumber(settings.warmupFor, account) : Boolean(numberSince);
-}
+const digitsOf = (phone) => String(phone ?? '').replace(/\D/g, '');
 
 function broadcast(state, event) {
     const payload = `data: ${JSON.stringify(event)}\n\n`;

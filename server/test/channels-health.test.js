@@ -1,5 +1,5 @@
 /**
- * The channel card's numbers: today's budget, warm-up, delivery quality, and
+ * The channel card's numbers: today's budget, delivery quality, and
  * the input checks that keep a bad timezone from breaking the listing.
  */
 
@@ -11,8 +11,8 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
 import { closeApp } from '../src/app.js';
+import { Channels } from '../src/channels.js';
 import { channelInputProblems } from '../src/channelUsage.js';
-import { TIERS } from '../src/campaign/humanize.js';
 import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { createTestApp, sessionFor } from './helpers.js';
@@ -66,7 +66,9 @@ before(async () => {
     await new Promise((resolve) => server.once('listening', resolve));
     base = `http://127.0.0.1:${server.address().port}`;
     const tenancy = app.locals.tenancy;
-    tenantB = tenancy.createTenant('Warmup Co', 'chealth-b');
+    tenantB = tenancy.createTenant('Policy Co', 'chealth-b');
+    // A new tenant's first number is a QR one (sending levels); this one runs on the sandbox's plain limit.
+    new Channels(db.forTenant(tenantB.id)).create({ displayName: 'Primary number', settings: { transport: TRANSPORT_SANDBOX } });
     tenantC = tenancy.createTenant('Quality Co', 'chealth-c');
     tokens.a = sessionFor(app, { tenantId: 1, role: 'owner' });
     tokens.b = sessionFor(app, { tenantId: tenantB.id, role: 'owner' });
@@ -86,10 +88,9 @@ describe('channel usage', () => {
         const { health } = channel;
         assert.equal(health.transport, TRANSPORT_SANDBOX);
         assert.equal(health.usage.sentToday, 0);
-        assert.equal(health.usage.dailyLimit, TIERS[0].dailyLimit, 'a new number starts on tier 1');
-        assert.equal(health.usage.remaining, TIERS[0].dailyLimit);
-        assert.ok(Date.parse(health.usage.resetsAt) > Date.now(), 'resets in the future');
-        assert.equal(health.warmup, null, 'no warm-up block when warmupDays is 0');
+        assert.deepEqual(health.usage, { todayLimit: DEFAULTS.dailyLimit, sentToday: 0, planLimit: DEFAULTS.dailyLimit, growing: false },
+            'the sandbox runs on the plain daily limit');
+        assert.equal('warmup' in health, false);
         assert.equal(health.quality.level, 'ok');
         assert.deepEqual(health.quality.hints, []);
     });
@@ -103,7 +104,7 @@ describe('channel usage', () => {
 
         const [after2] = await listFor(tokens.a);
         assert.equal(after2.health.usage.sentToday, 5, 'failed, sandbox and old sends do not count');
-        assert.equal(after2.health.usage.remaining, TIERS[0].dailyLimit - 5);
+        assert.equal(after2.health.usage.todayLimit, DEFAULTS.dailyLimit);
         assert.equal(after2.health.quality.sent24h, 5);
         assert.equal(after2.health.quality.failed24h, 1);
     });
@@ -133,42 +134,29 @@ describe('channel usage', () => {
         const id = made.body.channel.id;
         for (let i = 0; i < 3; i += 1) record(1, id, 'SENT');
         const channel = (await listFor(tokens.a)).find((c) => c.id === id);
-        assert.equal(channel.health.usage.remaining, 0);
+        assert.equal(channel.health.usage.sentToday, channel.health.usage.todayLimit);
         assert.ok(channel.health.quality.hints.some((h) => h.code === 'cap_reached'));
         assert.equal(channel.health.quality.level, 'warn');
     });
+
+    it('reports no cap as null, never as 0', async () => {
+        const made = await call(tokens.a, 'POST', '/api/channels', { displayName: 'No cap', settings: { transport: TRANSPORT_SANDBOX } });
+        const id = made.body.channel.id;
+        const channels = new Channels(db.forTenant(1));
+        const usage = async () => (await listFor(tokens.a)).find((c) => c.id === id).health.usage;
+        channels.update(id, { settings: { dailyLimit: 0 } });
+        assert.deepEqual(await usage(), { todayLimit: null, sentToday: 0, planLimit: null, growing: false }, 'a sandbox day of 0 is no limit');
+        channels.update(id, { settings: { dailyLimit: 50, safetyEnabled: false } });
+        assert.deepEqual(await usage(), { todayLimit: null, sentToday: 0, planLimit: null, growing: false }, 'safety off');
+    });
 });
 
-describe('platform policy and warm-up', () => {
-    it('applies the platform limit over the channel setting and shows warm-up day 1', async () => {
-        app.locals.tenancy.setSafety(tenantB.id, { dailyLimit: 40, warmupDays: 5 });
+describe('platform policy', () => {
+    it('applies the platform limit over the channel setting', async () => {
+        app.locals.tenancy.setSafety(tenantB.id, { dailyLimit: 40 });
         const [channel] = await listFor(tokens.b);
-        const { usage, warmup } = channel.health;
-        assert.equal(usage.setByPlatform, true);
-        assert.equal(usage.baseLimit, 40, 'the platform value, not the channel default of 250');
-        assert.equal(usage.dailyLimit, 30, 'warm-up starts at 30');
-        assert.deepEqual(
-            { active: warmup.active, day: warmup.day, totalDays: warmup.totalDays, todayCap: warmup.todayCap },
-            { active: true, day: 1, totalDays: 5, todayCap: 30 },
-        );
-    });
-
-    it('ramps with the age of the first real send, capped by the base limit', async () => {
-        const [channel] = await listFor(tokens.b);
-        record(tenantB.id, channel.id, 'SENT', { at: hoursAgo(48) });
-        const [after2] = await listFor(tokens.b);
-        assert.equal(after2.health.warmup.day, 3);
-        assert.equal(after2.health.warmup.todayCap, 40, '30 * 2^2 = 120, held to the 40 base');
-        assert.equal(after2.health.usage.dailyLimit, 40);
-    });
-
-    it('marks warm-up finished once the number is old enough', async () => {
-        const [channel] = await listFor(tokens.b);
-        record(tenantB.id, channel.id, 'SENT', { at: hoursAgo(24 * 10) });
-        const [after2] = await listFor(tokens.b);
-        assert.equal(after2.health.warmup.active, false);
-        assert.equal(after2.health.warmup.day, 5);
-        assert.equal(after2.health.usage.dailyLimit, 40);
+        const { usage } = channel.health;
+        assert.equal(usage.todayLimit, 40, 'the platform value, not the channel default of 250');
     });
 
     it('reports the same budget once the channel runtime is running', async () => {
@@ -177,8 +165,7 @@ describe('platform policy and warm-up', () => {
         await call(tokens.b, 'GET', '/api/config');
         const [after2] = await listFor(tokens.b);
         assert.equal(after2.health.running, true);
-        assert.equal(after2.health.usage.baseLimit, channel.health.usage.baseLimit);
-        assert.equal(after2.health.usage.dailyLimit, channel.health.usage.dailyLimit);
+        assert.deepEqual(after2.health.usage, channel.health.usage);
     });
 });
 

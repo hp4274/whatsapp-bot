@@ -21,7 +21,6 @@ import {
     normalizePhone,
     personalize,
 } from '../src/protocol.js';
-import { parseInboundPayload } from '../src/transports/cloudApi.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-test-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
@@ -132,26 +131,6 @@ describe('database', () => {
 });
 
 describe('inbound parsing and automation', () => {
-    it('extracts incoming Cloud API messages', () => {
-        const messages = parseInboundPayload({
-            entry: [{ changes: [{ value: {
-                contacts: [{ wa_id: '15551234567', profile: { name: 'Mira' } }],
-                messages: [{ id: 'wamid.in.1', from: '15551234567', timestamp: '1790771400',
-                    type: 'text', text: { body: 'Hi' } }],
-            } }] }],
-        });
-        assert.equal(messages.length, 1);
-        assert.deepEqual(messages[0], {
-            messageId: 'wamid.in.1',
-            sender: '15551234567',
-            senderName: 'Mira',
-            body: 'Hi',
-            mediaUrl: null,
-            mediaType: null,
-            timestamp: '2026-09-30T12:30:00.000Z',
-        });
-    });
-
     it('matches exact, contains, regex, and trims punctuation', async () => {
         const sent = [];
         const transport = {

@@ -5,7 +5,13 @@
  * is why attachments are far more reliable here than through whatsapp-web.js.
  *
  * Same interface and events as the other transports (see base.js), so app.js
- * wiring is unchanged: 'qr' | 'state' | 'ready' | 'disconnected' | 'receipt' | 'inbound'.
+ * wiring is unchanged: 'qr' | 'state' | 'ready' | 'disconnected' | 'receipt' | 'inbound',
+ * plus 'restricted' { code, until } when WhatsApp caps messages to new people (463 / 475).
+ *
+ * Visible on every device: buttons, lists and carousels go out as the numbered
+ * text menu plus captioned images (native buttons render on some phones only),
+ * and every sent message is kept (`messageStore`) so a device that asks for a
+ * retry later still gets it instead of "Waiting for this message".
  *
  * Status mapping (proto.WebMessageInfo.Status):
  *   send accepted -> SENT, SERVER_ACK(2) -> SENT, DELIVERY_ACK(3) -> DELIVERED,
@@ -17,12 +23,18 @@
 
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+
+import NodeCache from '@cacheable/node-cache';
 
 import { SESSION_DIR } from '../config.js';
 import { carouselCaptions, renderFallbackText } from '../messaging/interactive.js';
+import { maskPhone, maskText } from '../observability/logger.js';
+import { fileKeyId } from '../security/crypto.js';
 import { STATUS_RANK, Status } from '../protocol.js';
 import { NOT_ON_WHATSAPP_CODE, Transport, TransportConnectionError, TransportSendError } from './base.js';
+import { useEncryptedAuthState } from './encryptedAuth.js';
 
 export const TOS_WARNING =
     'Baileys automates a WhatsApp account over the multi-device protocol. It is not an '
@@ -45,7 +57,29 @@ export function ackStatus(status) {
 const LOGGED_OUT = 401;
 const CONNECTION_REPLACED = 440;
 const FORBIDDEN = 403; // WhatsApp banned the number (CB:failure)
+const BAD_SESSION = 500;
+const MULTIDEVICE_MISMATCH = 411;
+const RESTART_REQUIRED = 515; // after a QR scan, and now and then: reconnect at once, not a drop
+/** Logins Baileys can never use again: cleared, and the number asks for a new QR instead of looping. */
+const RESCAN = new Map([
+    [BAD_SESSION, 'The saved WhatsApp login is damaged'],
+    [MULTIDEVICE_MISMATCH, 'WhatsApp needs this number linked again (multi-device mismatch)'],
+]);
 export const BAN_TEXT = 'WhatsApp banned this number.';
+/** More than this many unexpected socket drops in an hour, in this process, turns on the `unstable` brake. */
+export const UNSTABLE_RECONNECTS = 8;
+/**
+ * Bad sessions (500) in a row, with no open between, before the login is cleared. Baileys also reports 500
+ * for network and stream errors it cannot place, so one alone is only a drop.
+ */
+const BAD_SESSIONS_TO_RESCAN = 3;
+/** Rate limits (429) in an hour before the `restricted` brake. */
+const RATE_LIMITS_TO_RESTRICT = 3;
+/**
+ * Unexpected socket drops per login folder, in memory: a clean process start begins at 0, and a process
+ * restart is never one of them. Per folder, not per transport object, so a reconnect that builds a new one keeps counting.
+ */
+const drops = new Map();
 const CONNECT_TIMEOUT_MS = 60000;
 const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 60000;
@@ -53,6 +87,28 @@ const RECONNECT_JITTER = 0.25;
 /** Numbers per `onWhatsApp` lookup, and how long one may take before its numbers count as unknown. */
 const REGISTRY_BATCH = 50;
 const REGISTRY_TIMEOUT_MS = 15000;
+/** Ack errors that mean WhatsApp is capping messages to new people (463 reach-out timelock, 475 message capping). */
+const RESTRICTED_CODES = new Set(['463', '475']);
+const RESTRICTED_MIN_MS = 24 * 3_600_000;
+const RETRY_MISS = 'recv retry request, but message not available';
+/**
+ * QR codes shown per Connect. The `qrTimeout` setting (seconds) is the whole window, split evenly between
+ * them; once the last one goes unscanned the transport stops instead of showing codes forever.
+ */
+export const QR_MAX_CODES = 3;
+export const QR_EXPIRED_TEXT = 'QR expired, try again.';
+/** In each login folder: the pid that is using it, so a second process cannot open the same login. */
+export const LOCK_FILE = '.lock';
+
+/** Signal 0 checks a pid exists; EPERM means it does, under another user. */
+export function pidAlive(pid) {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (err) {
+        return err.code === 'EPERM';
+    }
+}
 
 const withTimeout = (promise, ms) => {
     let timer;
@@ -74,9 +130,11 @@ export class BaileysTransport extends Transport {
      * @param {object} deps `createSocket` is injectable so the tests can drive
      *   this without a network. It must return a Baileys-shaped socket:
      *   { ev, user, sendMessage, onWhatsApp?, logout, end }.
+     *   `messageStore` ({ saveSentProto, sentProto }, the channel's db) keeps what was sent for retries.
      */
     constructor(config, {
         createSocket = defaultSocketFactory,
+        messageStore = null,
         sessionDir = SESSION_DIR,
         setTimeoutFn = setTimeout,
         clearTimeoutFn = clearTimeout,
@@ -87,6 +145,11 @@ export class BaileysTransport extends Transport {
         super();
         this.config = config;
         this.createSocket = createSocket;
+        this.messageStore = messageStore;
+        // One per transport, not per socket: a reconnect must not reset the retry counts Baileys keeps per message.
+        this.retryCache = new NodeCache({ stdTTL: 3600, useClones: false });
+        this.restrictedUntil = 0;
+        this.rateLimits = []; // when each 429 of the last hour came (#rateLimited)
         this.sessionDir = sessionDir;
         this.authDir = path.join(sessionDir, 'baileys');
         this.setTimeoutFn = setTimeoutFn;
@@ -104,8 +167,15 @@ export class BaileysTransport extends Transport {
         this.banned = false; // 403: WhatsApp banned this number; reconnecting only deepens it
         this.reconnectTimer = null;
         this.reconnectAttempt = 0;
+        this.badSessions = 0; // 500s in a row with no open between (#rescan)
         this.receipts = new Map();
         this.events = new EventEmitter();
+        this.qrWindowMs = Math.max(30, Number(config?.qrTimeout) || 180) * 1000;
+        this.qrCount = 0; // codes shown since this Connect
+        this.qrExpiresAt = null; // ISO time the current code stops working, for the countdown
+        this.qrExpired = false; // QR_MAX_CODES went unscanned: stopped until the next Connect
+        this.qrTimer = null;
+        this.lockFile = null;
     }
 
     isConnected() {
@@ -116,10 +186,16 @@ export class BaileysTransport extends Transport {
         this.closed = false;
         this.replaced = false;
         this.banned = false;
+        this.loggingOut = false;
         this.#clearReconnectTimer();
         if (this.connecting) {
             throw new TransportConnectionError('Baileys connection already in progress');
         }
+        if (this.qrExpired) {
+            this.qrExpired = false;
+            this.qrCount = 0;
+        }
+        this.#lock();
         this.connecting = true;
         try {
             return await this.#connectOnce();
@@ -132,7 +208,13 @@ export class BaileysTransport extends Transport {
         if (this.sock) await this.#endSocket(this.sock);
         let sock;
         try {
-            sock = await this.createSocket({ authDir: this.authDir, sessionDir: this.sessionDir });
+            sock = await this.createSocket({
+                authDir: this.authDir,
+                sessionDir: this.sessionDir,
+                qrTimeoutMs: Math.round(this.qrWindowMs / QR_MAX_CODES),
+                getMessage: (key) => this.#getMessage(key),
+                msgRetryCounterCache: this.retryCache,
+            });
         } catch (err) {
             throw new TransportConnectionError(`Failed to start Baileys: ${err.message ?? err}`);
         }
@@ -145,6 +227,9 @@ export class BaileysTransport extends Transport {
         });
         sock.ev.on('messages.update', (updates) => {
             for (const { key, update } of updates ?? []) {
+                // A failed ack carries WhatsApp's error code (messages-recv.js handleBadAck).
+                const code = String(update?.messageStubParameters?.[0] ?? '');
+                if (RESTRICTED_CODES.has(code)) this.#restricted(code, Date.now() + RESTRICTED_MIN_MS);
                 if (update?.status == null) continue;
                 this.#emitReceipt(key?.id, ackStatus(update.status));
             }
@@ -174,6 +259,7 @@ export class BaileysTransport extends Transport {
                         detail: `Scan the QR code to link WhatsApp. ${TOS_WARNING}`,
                         realDelivery: true,
                         qr,
+                        qrExpiresAt: this.qrExpiresAt,
                     });
                 } else if (connection === 'open') {
                     finish(resolve, this.#readyInfo(sock));
@@ -183,6 +269,12 @@ export class BaileysTransport extends Transport {
                     this.#dropSession();
                     finish(reject, new TransportConnectionError(
                         `Baileys authentication failed: ${reasonText(lastDisconnect)}. The saved login was rejected and has been cleared: connect again and scan the QR code.`, { retryable: false }));
+                } else if (connection === 'close' && this.#rescan(statusCode(lastDisconnect))) {
+                    this.#dropSession();
+                    finish(reject, new TransportConnectionError(
+                        `${RESCAN.get(statusCode(lastDisconnect))}. It has been cleared: connect again and scan the QR code.`, { retryable: false }));
+                } else if (connection === 'close' && statusCode(lastDisconnect) === BAD_SESSION) {
+                    finish(reject, new TransportConnectionError(`Baileys connection closed: ${reasonText(lastDisconnect)}`));
                 }
                 // Any other close: #handleConnectionUpdate already scheduled a
                 // reconnect (Baileys needs one right after a QR scan, code 515).
@@ -197,7 +289,11 @@ export class BaileysTransport extends Transport {
     #readyInfo(sock) {
         this.connected = true;
         this.qr = null;
+        this.qrCount = 0;
+        this.qrExpiresAt = null;
+        this.#clearQrTimer();
         this.reconnectAttempt = 0;
+        this.badSessions = 0;
         this.account = accountOf(sock);
         return {
             connected: true,
@@ -207,10 +303,27 @@ export class BaileysTransport extends Transport {
         };
     }
 
-    #handleConnectionUpdate(sock, { connection, lastDisconnect, qr }) {
+    #handleConnectionUpdate(sock, { connection, lastDisconnect, qr, reachoutTimeLock }) {
         if (sock !== this.sock) return;
+        if (reachoutTimeLock?.isActive) {
+            const ends = new Date(reachoutTimeLock.timeEnforcementEnds ?? 0).getTime() || 0;
+            this.#restricted('463', Math.max(ends, Date.now() + RESTRICTED_MIN_MS));
+        }
         if (qr) {
+            if (this.qrCount >= QR_MAX_CODES) {
+                this.#expireQr();
+                return;
+            }
+            this.qrCount += 1;
             this.qr = qr;
+            const lifeMs = Math.round(this.qrWindowMs / QR_MAX_CODES);
+            this.qrExpiresAt = new Date(Date.now() + lifeMs).toISOString();
+            if (this.qrCount === QR_MAX_CODES) {
+                // The last code: when it runs out unscanned, stop (Baileys would otherwise close and reconnect).
+                this.#clearQrTimer();
+                this.qrTimer = setTimeout(() => { if (!this.connected) this.#expireQr(); }, lifeMs);
+                this.qrTimer.unref?.();
+            }
             this.events.emit('qr', qr);
             this.events.emit('state', { state: 'qr', detail: 'scan the QR code to link' });
         }
@@ -221,14 +334,31 @@ export class BaileysTransport extends Transport {
             this.events.emit('state', { state: 'ready', detail: 'session cached, no access token' });
             this.events.emit('ready', info);
         } else if (connection === 'close') {
+            const wasOpen = this.connected;
             this.connected = false;
             const code = statusCode(lastDisconnect);
             const detail = reasonText(lastDisconnect);
+            if (code === BAD_SESSION) this.badSessions += 1;
             if (code === LOGGED_OUT) {
                 this.#dropSession();
                 this.#stopAutoReconnect();
                 this.qr = null;
+                // Not our own logout(): the device was removed from the phone, or WhatsApp ended the session.
+                if (!this.loggingOut) this.events.emit('logged_out', { detail });
                 this.events.emit('state', { state: 'auth_failure', detail: `Baileys session logged out: ${detail}` });
+                return;
+            }
+            if (this.#rescan(code)) {
+                // Reconnecting with this login fails the same way forever: clear it and ask for a new QR scan.
+                this.#dropSession();
+                this.#stopAutoReconnect();
+                this.qr = null;
+                this.events.emit('state', { state: 'auth_failure', detail: `${RESCAN.get(code)}: scan a new QR code to link it again.` });
+                return;
+            }
+            if (code === RESTART_REQUIRED) {
+                // Expected (always right after a QR scan): reconnect at once, and it is not a drop.
+                this.#scheduleReconnect(detail, { now: true });
                 return;
             }
             if (code === CONNECTION_REPLACED) {
@@ -248,8 +378,28 @@ export class BaileysTransport extends Transport {
                 return;
             }
             this.events.emit('state', { state: 'disconnected', detail });
+            // Only a socket that was open drops: failed reconnects (a host network outage) are not the number's health.
+            if (wasOpen) this.#countDrop();
             this.#scheduleReconnect(detail);
         }
+    }
+
+    /** A 411 at once; a 500 only on the BAD_SESSIONS_TO_RESCAN-th in a row. */
+    #rescan(code) {
+        return code === BAD_SESSION ? this.badSessions >= BAD_SESSIONS_TO_RESCAN : RESCAN.has(code);
+    }
+
+    /** One unexpected drop; past UNSTABLE_RECONNECTS in the last hour, 'unstable' (app.js starts the 8h brake). */
+    #countDrop(now = Date.now()) {
+        const recent = (drops.get(this.authDir) ?? []).filter((at) => now - at < 3_600_000);
+        recent.push(now);
+        drops.set(this.authDir, recent);
+        if (recent.length > UNSTABLE_RECONNECTS) this.events.emit('unstable', { reconnects: recent.length });
+    }
+
+    /** Unexpected socket drops of this login in the last hour, this process. */
+    get reconnectsLastHour() {
+        return (drops.get(this.authDir) ?? []).filter((at) => Date.now() - at < 3_600_000).length;
     }
 
     #emitReceipt(providerId, status) {
@@ -264,6 +414,46 @@ export class BaileysTransport extends Transport {
             status,
             error: status === Status.FAILED ? 'Baileys reported a send failure' : null,
         });
+    }
+
+    #restricted(code, untilMs) {
+        // A campaign's failed acks arrive in a burst: one event per minute of extension is enough.
+        if (untilMs - this.restrictedUntil < 60_000) return;
+        this.restrictedUntil = untilMs;
+        this.events.emit('restricted', { code, until: new Date(untilMs).toISOString() });
+    }
+
+    /** One 429; RATE_LIMITS_TO_RESTRICT in an hour turn on the `restricted` brake. */
+    #rateLimited(now = Date.now()) {
+        this.rateLimits = this.rateLimits.filter((at) => now - at < 3_600_000);
+        this.rateLimits.push(now);
+        if (this.rateLimits.length >= RATE_LIMITS_TO_RESTRICT) this.#restricted('429', now + RESTRICTED_MIN_MS);
+    }
+
+    /**
+     * Baileys asks for a sent message when a recipient device requests a retry. By id only, so a
+     * receipt keyed by the LID still hits. Undefined on a miss: an empty message would be resent as blank.
+     */
+    async #getMessage(key) {
+        try {
+            const bytes = key?.id ? this.messageStore?.sentProto(key.id) : null;
+            if (!bytes) return undefined;
+            const { proto } = await import('@whiskeysockets/baileys');
+            return proto.Message.decode(bytes);
+        } catch (err) {
+            console.warn(`[baileys] could not read message ${key?.id} for a retry: ${err?.message ?? err}`);
+            return undefined;
+        }
+    }
+
+    async #remember(sent) {
+        if (!this.messageStore || !sent?.key?.id || !sent.message) return;
+        try {
+            const { proto } = await import('@whiskeysockets/baileys');
+            this.messageStore.saveSentProto(sent.key.id, proto.Message.encode(sent.message).finish());
+        } catch (err) {
+            console.warn(`[baileys] could not keep message ${sent.key.id} for retries: ${err?.message ?? err}`);
+        }
     }
 
     async #handleInbound(sock, msg) {
@@ -283,10 +473,11 @@ export class BaileysTransport extends Transport {
         timer.unref?.();
     }
 
-    #scheduleReconnect(reason) {
+    /** `now`: reconnect at once without counting an attempt (a 515 restart is not a failure). */
+    #scheduleReconnect(reason, { now = false } = {}) {
         if (this.closed || this.reconnectTimer || this.connecting) return;
-        this.reconnectAttempt += 1;
-        const delay = this.#nextReconnectDelay();
+        if (!now) this.reconnectAttempt += 1;
+        const delay = now ? 0 : this.#nextReconnectDelay();
         this.events.emit('state', {
             state: 'reconnecting',
             detail: `Reconnecting after disconnect (${reason}). Attempt ${this.reconnectAttempt} in ${Math.round(delay / 1000)}s`,
@@ -344,6 +535,67 @@ export class BaileysTransport extends Transport {
         this.#clearReconnectTimer();
     }
 
+    #clearQrTimer() {
+        if (this.qrTimer) clearTimeout(this.qrTimer);
+        this.qrTimer = null;
+    }
+
+    /** QR_MAX_CODES codes went unscanned: close the socket and wait for the user to press Connect again. */
+    #expireQr() {
+        if (this.qrExpired) return;
+        this.qrExpired = true;
+        this.qr = null;
+        this.qrExpiresAt = null;
+        this.#clearQrTimer();
+        this.#stopAutoReconnect();
+        const sock = this.sock;
+        if (sock) void this.#endSocket(sock);
+        this.#unlock();
+        this.events.emit('state', { state: 'qr_expired', detail: QR_EXPIRED_TEXT });
+    }
+
+    /**
+     * Claim the login folder for this process. A lock left by a process that has exited, or by one from before
+     * the last reboot (its pid may now be someone else's), is taken over; a live one refuses.
+     */
+    #lock() {
+        const file = path.join(this.sessionDir, LOCK_FILE);
+        const boot = Math.round(Date.now() / 1000 - os.uptime());
+        fs.mkdirSync(this.sessionDir, { recursive: true });
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+                fs.writeFileSync(file, JSON.stringify({ pid: process.pid, boot }), { flag: 'wx' });
+                this.lockFile = file;
+                return;
+            } catch (err) {
+                if (err.code !== 'EEXIST') throw err;
+            }
+            let held = {};
+            try {
+                held = JSON.parse(fs.readFileSync(file, 'utf8'));
+            } catch {
+                // unreadable: treat as stale
+            }
+            if (held.pid && held.pid !== process.pid && Math.abs((held.boot ?? 0) - boot) < 120 && pidAlive(held.pid)) {
+                throw new TransportConnectionError(
+                    `This number's login folder is in use by another server process (pid ${held.pid}). Stop that process, then connect again.`,
+                    { retryable: false, code: 'WHATSAPP_WEB_PROFILE_LOCKED' });
+            }
+            fs.rmSync(file, { force: true });
+        }
+        throw new TransportConnectionError("Could not lock this number's login folder", { retryable: false, code: 'WHATSAPP_WEB_PROFILE_LOCKED' });
+    }
+
+    #unlock() {
+        if (!this.lockFile) return;
+        try {
+            if (JSON.parse(fs.readFileSync(this.lockFile, 'utf8')).pid === process.pid) fs.rmSync(this.lockFile, { force: true });
+        } catch {
+            // already gone
+        }
+        this.lockFile = null;
+    }
+
     async #endSocket(sock) {
         if (this.sock === sock) this.sock = null;
         try {
@@ -356,16 +608,20 @@ export class BaileysTransport extends Transport {
 
     async disconnect() {
         this.#stopAutoReconnect();
+        this.#clearQrTimer();
         this.connected = false;
         this.qr = null;
+        this.qrExpiresAt = null;
         const sock = this.sock;
         this.sock = null;
         if (sock) await this.#endSocket(sock);
+        this.#unlock();
     }
 
     /** Unlink the device and drop the cached session so the next connect asks for a new QR. */
     async logout() {
         if (this.sock) {
+            this.loggingOut = true; // the 401 this causes is ours, not an unexpected logout
             try {
                 await this.sock.logout();
             } catch {
@@ -399,7 +655,7 @@ export class BaileysTransport extends Transport {
             await new Promise((resolve) => setTimeout(resolve, typingMs));
         }
         try {
-            return await this.#deliver(jid, message, attachment, interactive);
+            return await this.#deliver(jid, message, attachment, interactive, typingMs);
         } finally {
             // Not awaited: the caller only learns the provider id when we return, and a
             // delivery receipt that lands during this round trip finds no row to update.
@@ -456,22 +712,9 @@ export class BaileysTransport extends Transport {
         }
     }
 
-    async #deliver(jid, message, attachment, interactive) {
-        // Native buttons first. Media goes out as its own message before the
-        // interactive one rather than in the interactive header: a plain media
-        // send is the path we know works, and a header-media failure would
-        // otherwise lose the attachment and the buttons together.
-        if (interactive && interactive.native !== false) {
-            if (attachment) await this.#send(jid, attachment);
-            try {
-                return this.#accepted(await this.#relayNative(jid, message, interactive));
-            } catch (err) {
-                console.warn(`[baileys] native buttons failed, sending the text menu instead: ${err?.message ?? err}`);
-                attachment = null; // already delivered above
-            }
-        }
-
-        if (interactive?.type === 'carousel') return this.#deliverCarouselText(jid, message, attachment, interactive);
+    async #deliver(jid, message, attachment, interactive, typingMs) {
+        // No native buttons: they render on some devices only, and Baileys' retry resend drops the node they need.
+        if (interactive?.type === 'carousel') return this.#deliverCarouselText(jid, message, attachment, interactive, typingMs);
         const text = interactive ? renderFallbackText(message, interactive) : message;
         const sent = await this.#send(jid, attachment ? { ...attachment, caption: text } : { text });
         return this.#accepted(sent?.key?.id);
@@ -479,40 +722,35 @@ export class BaileysTransport extends Transport {
 
     // shortcut: N+1 messages in one paced job (main text, then one image per card); the job's receipt is the
     // first message's, and a failure midway leaves the earlier ones sent. Per-card jobs would need queue changes.
-    async #deliverCarouselText(jid, message, attachment, interactive) {
+    async #deliverCarouselText(jid, message, attachment, interactive, typingMs) {
         const text = String(message ?? '');
         const first = await this.#send(jid, attachment ? { ...attachment, caption: text } : { text });
         const captions = carouselCaptions(interactive);
-        for (const [i, card] of interactive.carousel.cards.entries()) {
+        const { cards } = interactive.carousel;
+        for (const [i, card] of cards.entries()) {
+            if (typingMs > 0) {
+                await this.#presence('composing', jid);
+                await new Promise((resolve) => setTimeout(resolve, typingMs));
+            }
             await this.#send(jid, mediaContent(card.media, captions[i]));
         }
-        return this.#accepted(first?.key?.id);
+        // `parts`: the budgets and the rests count each WhatsApp message, not the one job.
+        return { ...this.#accepted(first?.key?.id), parts: 1 + cards.length };
     }
 
     async #send(jid, content) {
+        let sent;
         try {
-            return await this.sock.sendMessage(jid, content);
+            sent = await this.sock.sendMessage(jid, content);
         } catch (err) {
-            throw new TransportSendError(String(err?.message ?? err), { retryable: true });
+            const text = String(err?.message ?? err);
+            // WhatsApp's rate limit: Baileys raises data 429, "rate-overlimit". The manager backs off 90s or more.
+            const limited = err?.data === 429 || err?.output?.statusCode === 429 || /rate-overlimit/i.test(text);
+            if (limited) this.#rateLimited();
+            throw new TransportSendError(text, { retryable: true, code: limited ? 'RATE_LIMITED' : null });
         }
-    }
-
-    /**
-     * viewOnceMessage > interactiveMessage > nativeFlowMessage, relayed with the
-     * `biz` node: without that node WhatsApp clients drop or blank the buttons
-     * (sock.sendMessage cannot attach it, hence relayMessage). Throws on any
-     * failure so the caller falls back to the text menu.
-     */
-    async #relayNative(jid, text, interactive) {
-        const { generateWAMessageFromContent, prepareWAMessageMedia } = await import('@whiskeysockets/baileys');
-        // Each card's image is uploaded first; the card header carries the uploaded imageMessage.
-        const images = interactive.type === 'carousel'
-            ? await Promise.all(interactive.carousel.cards.map(async (card) =>
-                (await prepareWAMessageMedia({ image: mediaContent(card.media).image }, { upload: this.sock.waUploadToServer })).imageMessage))
-            : null;
-        const msg = generateWAMessageFromContent(jid, nativeInteractiveContent(text, interactive, images), { userJid: this.sock.user?.id });
-        await this.sock.relayMessage(jid, msg.message, { messageId: msg.key.id, additionalNodes: [NATIVE_FLOW_NODE] });
-        return msg.key.id;
+        await this.#remember(sent);
+        return sent;
     }
 
     #accepted(id) {
@@ -544,7 +782,7 @@ export class BaileysTransport extends Transport {
             try {
                 results = await withTimeout(this.sock.onWhatsApp(...batch.map(toJid)), REGISTRY_TIMEOUT_MS);
             } catch (err) {
-                console.warn(`[baileys] registration check failed: ${err?.message ?? err}`);
+                console.warn(maskText(`[baileys] registration check failed: ${err?.message ?? err}`));
                 continue;
             }
             if (!Array.isArray(results)) continue;
@@ -608,85 +846,9 @@ export function mediaContent(media, caption) {
     const fileName = media.filename || path.basename(String(media.filePath ?? 'attachment'));
     const kind = mimetype.split('/')[0];
     if (kind === 'image') return { image: data, caption, mimetype };
-    if (kind === 'video') return { video: data, caption, mimetype };
+    // Only mp4 plays everywhere; 3gp, mov or webm shows a broken player on some devices, a document opens.
+    if (mimetype === 'video/mp4') return { video: data, caption, mimetype };
     return { document: data, caption, mimetype, fileName };
-}
-
-/**
- * The extra stanza node Baileys forks attach to native-flow messages so the
- * recipient's app renders the buttons ("mixed" covers quick_reply, cta_* and
- * single_select in one message).
- */
-export const NATIVE_FLOW_NODE = Object.freeze({
-    tag: 'biz',
-    attrs: {},
-    content: [{ tag: 'interactive', attrs: { type: 'native_flow', v: '1' }, content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }] }],
-});
-
-/** nativeFlowMessage buttons for one normalised interactive block. */
-export function nativeFlowButtons(interactive) {
-    const button = (name, params) => ({ name, buttonParamsJson: JSON.stringify(params) });
-    if (interactive.type === 'buttons') {
-        return interactive.buttons.map((b) => button('quick_reply', { display_text: b.title, id: b.id }));
-    }
-    if (interactive.type === 'cta') {
-        return interactive.cta.map((c) => {
-            if (c.kind === 'call') return button('cta_call', { display_text: c.title, phone_number: c.value });
-            if (c.kind === 'copy') return button('cta_copy', { display_text: c.title, copy_code: c.value });
-            return button('cta_url', { display_text: c.title, url: c.value, merchant_url: c.value });
-        });
-    }
-    if (interactive.type === 'list') {
-        return [button('single_select', {
-            title: interactive.list.button,
-            sections: interactive.list.sections.map((s) => ({
-                title: s.title,
-                rows: s.rows.map((r) => ({ id: r.id, title: r.title, description: r.description ?? '' })),
-            })),
-        })];
-    }
-    throw new Error(`no native buttons for interactive type "${interactive.type}"`);
-}
-
-/** The Message content (pre-proto) for a native-flow interactive message. A carousel also needs `images`: one uploaded imageMessage per card. */
-export function nativeInteractiveContent(text, interactive, images = null) {
-    if (interactive.type === 'carousel') {
-        const { kind, cards } = interactive.carousel;
-        return {
-            viewOnceMessage: {
-                message: {
-                    messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
-                    interactiveMessage: {
-                        body: { text: String(text ?? '') },
-                        carouselMessage: {
-                            messageVersion: 1,
-                            cards: cards.map((card, i) => ({
-                                header: { imageMessage: images[i], hasMediaAttachment: true },
-                                body: { text: card.text },
-                                nativeFlowMessage: {
-                                    buttons: nativeFlowButtons(kind === 'reply' ? { type: 'buttons', buttons: card.buttons } : { type: 'cta', cta: card.cta }),
-                                    messageParamsJson: '',
-                                },
-                            })),
-                        },
-                    },
-                },
-            },
-        };
-    }
-    return {
-        viewOnceMessage: {
-            message: {
-                messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
-                interactiveMessage: {
-                    header: { title: interactive.header ?? '', hasMediaAttachment: false },
-                    body: { text: String(text ?? '') },
-                    ...(interactive.footer ? { footer: { text: interactive.footer } } : {}),
-                    nativeFlowMessage: { buttons: nativeFlowButtons(interactive), messageParamsJson: '' },
-                },
-            },
-        },
-    };
 }
 
 const MEDIA_TYPES = {
@@ -780,11 +942,20 @@ async function participantPhone(sock, p) {
     return jid.split('@')[0].split(':')[0] || null;
 }
 
-async function defaultSocketFactory({ authDir }) {
+async function defaultSocketFactory({ authDir, qrTimeoutMs, getMessage, msgRetryCounterCache }) {
     const baileys = await import('@whiskeysockets/baileys');
     const { makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, Browsers, fetchLatestBaileysVersion } = baileys;
     fs.mkdirSync(authDir, { recursive: true });
-    const { state, saveCreds } = await useMultiFileAuthState(authDir);
+    // WHATSAPP_ENCRYPT_AUTH=1 seals every login file (encryptedAuth.js). With the flag off, Baileys' own reader
+    // would take a sealed creds.json for a missing one and start a fresh login: refuse instead (keyGate.js
+    // stops this at startup; this covers a sealed file copied in later).
+    const encrypt = process.env.WHATSAPP_ENCRYPT_AUTH === '1';
+    const creds = path.join(authDir, 'creds.json');
+    if (!encrypt && fs.existsSync(creds) && fileKeyId(creds).encrypted) {
+        throw new TransportConnectionError('This login is encrypted but WHATSAPP_ENCRYPT_AUTH is off; see docs/OPS.md',
+            { retryable: false, code: 'WHATSAPP_AUTH_ENCRYPTED' });
+    }
+    const { state, saveCreds } = encrypt ? await useEncryptedAuthState(authDir) : await useMultiFileAuthState(authDir);
     // Baileys' default pino logger prints every protocol event at 'info';
     // keep warnings and errors on the server log, drop the rest.
     const logger = quietLogger();
@@ -805,18 +976,25 @@ async function defaultSocketFactory({ authDir }) {
         syncFullHistory: false,
         markOnlineOnConnect: false,
         generateHighQualityLinkPreview: false,
+        getMessage,
+        msgRetryCounterCache,
+        ...(qrTimeoutMs ? { qrTimeout: qrTimeoutMs } : {}),
     });
     sock.ev.on('creds.update', saveCreds);
     return sock;
 }
 
-/** pino-shaped logger: warn/error to the console, everything below dropped. */
-function quietLogger() {
+/**
+ * pino-shaped logger: warn/error to the console, everything below dropped, except a retry that
+ * found no stored message: that recipient device shows "Waiting for this message".
+ */
+export function quietLogger() {
     const noop = () => {};
-    const out = (level) => (obj, msg) => console[level](`[baileys] ${msg ?? ''}`, typeof obj === 'string' ? obj : obj?.err?.message ?? obj?.error?.message ?? '');
+    const out = (level) => (obj, msg) => console[level](maskText(`[baileys] ${msg ?? ''}`), maskText(typeof obj === 'string' ? obj : obj?.err?.message ?? obj?.error?.message ?? ''));
     const logger = {
         level: 'warn',
-        trace: noop, debug: noop, info: noop,
+        trace: noop, info: noop,
+        debug: (obj, msg) => { if (msg === RETRY_MISS) console.warn(`[baileys] ${msg}`, maskPhone(obj?.jid ?? ''), obj?.id ?? ''); },
         warn: out('warn'), error: out('error'), fatal: out('error'),
         child: () => logger,
     };

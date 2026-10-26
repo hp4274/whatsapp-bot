@@ -33,7 +33,7 @@
           @if (r.media; as m) {
             <div class="media enter">
               @if (isImage(m) && m.url) {
-                <img [src]="m.url" [alt]="m.filename || 'Attached image'" />
+                <img [mediaSrc]="m.url" [alt]="m.filename || 'Attached image'" />
               } @else {
                 <div class="doc">
                   <i class="ti ti-{{ icon(m) }}" aria-hidden="true"></i
@@ -48,7 +48,7 @@
               [text]="r.text"
               [interactive]="r.interactive"
               [showToggle]="false"
-              [fallback]="fallback()"
+              [fallback]="fallback() || textMenu()"
             />
           }
         }
@@ -61,7 +61,7 @@
   </div>
 </div>
 
-@if (showToggle()) {
+@if (showToggle() && !textMenu()) {
   <label class="webview">
     <input
       type="checkbox"

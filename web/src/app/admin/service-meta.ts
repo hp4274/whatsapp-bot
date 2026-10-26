@@ -21,6 +21,8 @@ export const SERVICE_META: Record<string, { label: string; icon: string; sends?:
   analytics: { label: 'Analytics', icon: 'chart-bar' },
   integrations: { label: 'Integrations', icon: 'puzzle' },
   ai: { label: 'AI', icon: 'sparkles' },
+  /** Policy only (quotas and security), not a service a business turns on. */
+  account: { label: 'Security & quotas', icon: 'shield-lock' },
 };
 
 export const serviceMeta = (key: string) =>

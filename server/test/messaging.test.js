@@ -138,9 +138,6 @@ describe('the queue', () => {
 describe('provider errors', () => {
     it('speaks one vocabulary whatever the transport threw', () => {
         assert.equal(normalizeError(new TransportConnectionError('session closed', { retryable: true })).code, ErrorCode.DISCONNECTED);
-        assert.equal(normalizeError(Object.assign(new Error('slow down'), { code: 131048 })).code, ErrorCode.RATE_LIMITED);
-        assert.equal(normalizeError(Object.assign(new Error('bad token'), { code: 190 })).code, ErrorCode.AUTH);
-        assert.equal(normalizeError(Object.assign(new Error('nope'), { code: 131026 })).code, ErrorCode.INVALID_RECIPIENT);
         assert.equal(normalizeError(new Error('Rate limit exceeded')).code, ErrorCode.RATE_LIMITED);
         assert.equal(normalizeError(new Error('socket hang up')).code, ErrorCode.PROVIDER_UNAVAILABLE);
         assert.equal(normalizeError(new Error('outside the 24 hour window')).code, ErrorCode.TEMPLATE_REQUIRED);
@@ -150,8 +147,6 @@ describe('provider errors', () => {
     });
 
     it('says which failures are worth retrying', () => {
-        assert.equal(normalizeError(Object.assign(new Error('x'), { code: 131048 })).retryable, true);
-        assert.equal(normalizeError(Object.assign(new Error('x'), { code: 190 })).retryable, false);
         assert.equal(normalizeError(new Error('socket hang up')).retryable, true);
         assert.equal(normalizeError(new Error('not a valid whatsapp number')).retryable, false);
         // An unrecognised TransportError keeps the transport's own verdict.

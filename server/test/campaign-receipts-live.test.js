@@ -78,7 +78,7 @@ describe('receipts reach a finished campaign\'s funnel', () => {
         db = new Database(path.join(tmp, 'live.db'));
         const config = {
             ...DEFAULTS, transport: TRANSPORT_BAILEYS, rateLimitPerSecond: 1000, pacingMode: 'fixed',
-            tierSystem: false, safetyEnabled: false, humanTiming: false, defaultCountryCode: '91',
+            safetyEnabled: false, humanTiming: false, defaultCountryCode: '91',
         };
         delete config.misc;
         app = createTestApp({

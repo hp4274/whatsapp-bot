@@ -6,7 +6,7 @@ import { Api, type Campaign, CampaignsApi, ContactsApi } from '../core/api';
 import { Auth } from '../core/auth';
 import { Store } from '../core/store';
 import { StorageApi } from '../storage/storage-api';
-import { type Template, TemplatesApi } from '../templates/templates-api';
+import { TemplatesApi } from '../templates/templates-api';
 import { CampaignDraft, OPT_OUT_TEXT, parseExtraNumbers, withOptOut, withoutOptOut } from './draft';
 
 const KEY = 'wsender.campaignDraft.3.5';
@@ -33,7 +33,7 @@ function campaign(over: Partial<Campaign> = {}): Campaign {
   };
 }
 
-/** A fresh draft service over stub APIs; `transport` decides whether Meta mode can apply. */
+/** A fresh draft service over stub APIs; `transport` decides whether QR-number rules apply. */
 function setup(transport = 'baileys') {
   const campaignsApi = {
     create: vi.fn((body) => of({ campaign: { ...campaign(), id: 11, name: body.name } })),
@@ -50,7 +50,14 @@ function setup(transport = 'baileys') {
       { provide: TemplatesApi, useValue: { get: () => of({ template: { id: 1, body: 'x' } }) } },
       { provide: StorageApi, useValue: { use: () => of({}) } },
       { provide: Auth, useValue: { user: signal({ id: 5 }), tenantId: signal(3) } },
-      { provide: Store, useValue: { connection: signal({ transport }) } },
+      {
+        provide: Store,
+        useValue: {
+          connection: signal({ transport }),
+          qrNumber: signal(transport === 'baileys'),
+          safety: signal(null),
+        },
+      },
     ],
   });
   return { draft: TestBed.inject(CampaignDraft), campaignsApi };
@@ -72,22 +79,12 @@ describe('opt-out line', () => {
 describe('CampaignDraft.buildCreate', () => {
   afterEach(() => TestBed.resetTestingModule());
 
-  it('appends the opt-out line to a free-form body only', () => {
-    const { draft } = setup('cloud_api');
+  it('appends the opt-out line to the body and the preview', () => {
+    const { draft } = setup();
     draft.message.set('Hi {name}');
     draft.optOutLine.set(true);
     expect(draft.buildCreate().body).toBe(`Hi {name}\n\n${OPT_OUT_TEXT}`);
     expect(draft.previewText()).toBe(`Hi {name}\n\n${OPT_OUT_TEXT}`);
-
-    draft.templateMode.set('meta');
-    draft.pickMetaTemplate({
-      id: 4,
-      body: 'Approved {{1}}',
-      paramMapping: {},
-    } as unknown as Template);
-    const meta = draft.buildCreate();
-    expect(meta.body).toBe('Approved {{1}}');
-    expect(meta.options?.optOutLine).toBe(false);
   });
 
   it('sends a contacts filter inline, or the segment when one is picked', () => {
@@ -126,21 +123,9 @@ describe('CampaignDraft.buildCreate (link tracking, A/B, repeat, hand-picked)', 
     expect(variants?.[0].body).toBe(`Hi {name}\n\n${OPT_OUT_TEXT}`);
     expect(variants?.[1].body).toBe(`Hello {name}\n\n${OPT_OUT_TEXT}`);
 
-    // C without B is dropped; Meta mode never sends versions.
+    // C without B is dropped.
     draft.variantB.set(null);
     expect(draft.buildCreate().options?.variants).toBeNull();
-  });
-
-  it('drops versions and link tracking in Meta mode', () => {
-    const { draft } = setup('cloud_api');
-    draft.variantB.set('Hello');
-    draft.trackLinks.set(true);
-    expect(draft.buildCreate().options?.trackLinks).toBe(true);
-    draft.templateMode.set('meta');
-    draft.pickMetaTemplate({ id: 4, body: 'x', paramMapping: {} } as unknown as Template);
-    const meta = draft.buildCreate().options;
-    expect(meta?.variants).toBeNull();
-    expect(meta?.trackLinks).toBe(false);
   });
 
   it('offers link tracking only when a version has a URL', () => {
@@ -264,7 +249,8 @@ describe('CampaignDraft.applyCampaign', () => {
   });
 
   it('round-trips link tracking, versions and the repeat', () => {
-    const { draft } = setup();
+    // A QR number never tracks links, so this runs on the sandbox.
+    const { draft } = setup('sandbox');
     draft.applyCampaign(
       campaign({
         status: 'scheduled',

@@ -56,14 +56,12 @@ const DEFAULT_SERVICES: readonly string[] = [
 /** New tenants start with everything on; the platform admin narrows from there. */
 const DEFAULT_CONTROLS: TenantControls = {
   sendingEnabled: true,
-  inboundEnabled: true,
   campaignsEnabled: true,
   automationsEnabled: true,
 };
 
 const CONTROL_LABELS: Record<keyof TenantControls, string> = {
   sendingEnabled: 'Outbound sending',
-  inboundEnabled: 'Inbound webhooks',
   campaignsEnabled: 'Campaign sending',
   automationsEnabled: 'Automations',
 };
@@ -155,7 +153,6 @@ export class TenantsView {
   });
   protected readonly controlKeys: readonly (keyof TenantControls)[] = [
     'sendingEnabled',
-    'inboundEnabled',
     'campaignsEnabled',
     'automationsEnabled',
   ];
@@ -410,7 +407,11 @@ export class TenantsView {
     this.error.set('');
     this.api.deleteTenant(tenant.id).subscribe({
       next: () => {
-        if (this.actingId() === tenant.id) this.auth.actAs(null);
+        if (this.actingId() === tenant.id) {
+          // The stream was opened for this tenant: close it before the id is dropped.
+          this.store.stop();
+          this.auth.actAs(null);
+        }
         this.savingId.set(null);
         const drawer = this.serviceDrawer();
         if (drawer?.mode === 'tenant' && drawer.tenant.id === tenant.id) {
@@ -441,6 +442,8 @@ export class TenantsView {
 
   /** Enter a tenant's workspace: every later request carries its id. */
   protected open(tenant: Tenant) {
+    // start() is a no-op while a stream is open, so a previous tenant's would keep running.
+    this.store.stop();
     this.auth.actAs(tenant.id);
     this.store.start();
     this.router.navigate(['/home']);

@@ -32,12 +32,17 @@ export function equalSplit(count, days) {
 
 /**
  * Can `count` messages go out between `from` and `to` without any day passing
- * the cap? `limit` is the tightest daily ceiling (tier / plan), 0 = none.
- * A start in the past counts from `today`.
+ * the cap? `limit` is the tightest daily ceiling (level / plan), 0 = none.
+ * A start in the past counts from `today`. On a QR number `newChats` is its
+ * new-chat budget a day: `worstDays` is how long the list takes if nobody on
+ * it ever chatted with the number (null when there is no such budget).
  */
-export function spreadPlan({ count, from, to, today, limit = 0, tier = null }) {
+export function spreadPlan({ count, from, to, today, limit = 0, level = null, newChats = 0 }) {
     const n = Math.max(0, Math.floor(Number(count) || 0));
-    const base = { dailyLimit: limit, tier, minDays: limit > 0 ? Math.max(1, Math.ceil(n / limit)) : 1 };
+    const base = {
+        dailyLimit: limit, level, minDays: limit > 0 ? Math.max(1, Math.ceil(n / limit)) : 1,
+        newChatsPerDay: newChats > 0 ? newChats : null, worstDays: newChats > 0 ? Math.ceil(n / newChats) : null,
+    };
     if (!isDateKey(from) || !isDateKey(to)) {
         return { ...base, days: 0, perDay: 0, sizes: [], feasible: false, reason: 'Pick a start and an end date.', startsOn: from ?? null, endsOn: to ?? null };
     }

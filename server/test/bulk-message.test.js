@@ -7,7 +7,7 @@ import path from 'node:path';
 import { it } from 'node:test';
 
 import { CampaignManager } from '../src/campaign/manager.js';
-import { DEFAULTS } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { Status } from '../src/protocol.js';
 
@@ -22,7 +22,7 @@ it('sends a number its own message, and everyone else the shared one', async () 
         getStatus: () => null,
         async disconnect() {},
     };
-    const manager = new CampaignManager(db, transport, { ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed' });
+    const manager = new CampaignManager(db, transport, { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000, pacingMode: 'fixed' });
     manager.enqueueContacts(
         [{ name: 'A', phone: '919855550001', extra: { message: 'Special offer for {name}' } },
          { name: 'B', phone: '919855550002' }],

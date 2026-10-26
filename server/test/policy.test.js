@@ -46,15 +46,33 @@ describe('PolicyStore', () => {
         store.set('plan:business', { 'bulk.maxSpeed': 'fast' });
         new PolicyStore(db);
         assert.equal(store.values('plan:business')['bulk.maxSpeed'], 'fast');
+        // The plan's per-number day, the same way.
+        assert.deepEqual(['starter', 'business', 'enterprise'].map((p) => store.values(`plan:${p}`)['channels.dailyCap']), [250, 500, 1000]);
+        store.set('plan:enterprise', { 'channels.dailyCap': 800 });
+        new PolicyStore(db);
+        assert.equal(store.values('plan:enterprise')['channels.dailyCap'], 800);
     });
 
     it('null removes an override; bad values and keys are refused', () => {
         store.set('tenant:1', { 'channels.dailyCap': null });
-        assert.equal(store.resolve(1).values['channels.dailyCap'], 100);
+        assert.equal(store.resolve(1).values['channels.dailyCap'], 250, 'the starter plan’s seeded day shows through');
+        assert.equal(store.resolve(2).values['channels.dailyCap'], 100, 'no plan: the global layer');
         assert.throws(() => store.set('global', { 'channels.dailyCap': 0 }), /between/);
         assert.throws(() => store.set('global', { nope: 1 }), /unknown policy field/);
         assert.throws(() => store.set('weird', {}), /unknown policy scope/);
         assert.deepEqual(store.set('global', { 'templates.blockedDomains': 'bit.ly\n bit.ly, x.io' })['templates.blockedDomains'], ['bit.ly', 'x.io']);
+    });
+
+    it('a field with a null default resolves to null until set, and null resets it', () => {
+        const field = POLICY_FIELDS.find((f) => f.key === 'sending.maxLevel');
+        assert.equal(field.default, null);
+        assert.ok(field.nullLabel);
+        assert.equal(store.resolve(1).values['sending.maxLevel'], null);
+        store.set('tenant:1', { 'sending.maxLevel': 3 });
+        assert.equal(store.resolve(1).values['sending.maxLevel'], 3);
+        store.set('tenant:1', { 'sending.maxLevel': null });
+        assert.equal(store.resolve(1).values['sending.maxLevel'], null);
+        assert.equal(store.resolve(1).sources['sending.maxLevel'], 'default');
     });
 });
 

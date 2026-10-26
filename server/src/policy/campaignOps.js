@@ -19,6 +19,7 @@ import { PACING_PRESETS, dayEnd, dayStart } from '../campaign/safety.js';
 /** Same as campaigns/store.js campaignKey; local so the two modules do not import each other. */
 const campaignKey = (id) => `camp-${Number(id)}`;
 import { SUCCESS_STATUSES } from '../protocol.js';
+import { applySendingPolicy } from './levels.js';
 
 /** Real sends by one business since `sinceIso`, across all its numbers. */
 export function tenantSentSince(db, tenantId, sinceIso) {
@@ -28,7 +29,8 @@ export function tenantSentSince(db, tenantId, sinceIso) {
     ).get(tenantId, ...SUCCESS_STATUSES, sinceIso).n;
 }
 
-const monthStart = (at) => new Date(at.getFullYear(), at.getMonth(), 1);
+/** The UTC month, so the monthly cap resets with the billing period (billing/store.js periodOf). */
+const monthStart = (at) => new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
 
 /** The tightest daily / monthly allowance left, or null when neither cap is set. */
 export function capRemaining(db, tenantId, rules, now = new Date(), zone = null) {
@@ -37,7 +39,7 @@ export function capRemaining(db, tenantId, rules, now = new Date(), zone = null)
         left.push({ cap: rules.dailyCap, period: 'daily',
             left: rules.dailyCap - tenantSentSince(db, tenantId, dayStart(now, zone).toISOString()) });
     }
-    if (rules.monthlyCap) {
+    if (rules.monthlyCap || rules.quotaBlocked) {
         left.push({ cap: rules.monthlyCap, period: 'monthly',
             left: rules.monthlyCap - tenantSentSince(db, tenantId, monthStart(now).toISOString()) });
     }
@@ -55,24 +57,21 @@ export function notOptedIn(db, tenantId) {
         .all(tenantId).map((r) => String(r.phone).replace(/\D/g, '')));
 }
 
-/** A preset no faster than the ceiling. */
-export function clampPreset(preset, ceiling) {
-    const max = PACING_PRESETS.indexOf(ceiling);
-    const want = PACING_PRESETS.indexOf(preset);
-    if (max < 0 || want <= max) return preset;
-    return ceiling;
-}
-
 /**
  * One tenant's bulk/campaign rules, normalised. Where a legacy per-tenant
- * limit overlaps (maxContactsPerCampaign), the stricter of the two wins.
+ * limit overlaps (maxContactsPerCampaign), the stricter of the two wins; so
+ * does the plan's message quota (`billingCap`, null = none) over bulk.monthlyCap.
+ * bulk.monthlyCap 0 means no cap; a plan quota of 0 means none allowed (`quotaBlocked`).
  */
-export function bulkRules(values = {}, limits = {}) {
+export function bulkRules(values = {}, limits = {}, billingCap = null) {
     const int = (v) => Math.max(0, Number(v) || 0);
     const caps = [int(values['bulk.maxRecipients']), int(limits.maxContactsPerCampaign)].filter(Boolean);
+    const quota = billingCap == null ? null : int(billingCap);
+    const monthly = [int(values['bulk.monthlyCap']), quota ?? 0].filter(Boolean);
     return {
         dailyCap: int(values['bulk.dailyCap']),
-        monthlyCap: int(values['bulk.monthlyCap']),
+        monthlyCap: quota !== 0 && monthly.length ? Math.min(...monthly) : 0,
+        quotaBlocked: quota === 0,
         maxRecipients: caps.length ? Math.min(...caps) : 0,
         requireOptIn: values['bulk.requireOptIn'] !== false,
         maxSpeed: PACING_PRESETS.includes(values['bulk.maxSpeed']) ? values['bulk.maxSpeed'] : 'fast',
@@ -84,13 +83,32 @@ export function bulkRules(values = {}, limits = {}) {
     };
 }
 
-/** Kill switch: on at the platform default beats any override; else the tenant's own value. */
-export function bulkKillReason(policyStore, tenantId) {
+/**
+ * Kill switch: on at the platform default beats any override; else the tenant's own value.
+ * The admin's tenant controls (sendingEnabled, campaignsEnabled) stop bulk the same way.
+ */
+export function bulkKillReason(policyStore, tenantId, controls = {}) {
     if (policyStore.values('global')['bulk.killSwitch'] === true) {
         return 'Stopped: the platform has paused all bulk sending.';
     }
     if (policyStore.get(tenantId, 'bulk.killSwitch') === true) {
         return 'Stopped: bulk sending is switched off for your business.';
+    }
+    const off = sendBlockReason(controls, 'campaign');
+    return off ? `Stopped: ${off.charAt(0).toLowerCase()}${off.slice(1)}` : null;
+}
+
+/** Traffic the automations control covers. */
+const AUTOMATED_TYPES = new Set(['auto_reply', 'workflow']);
+
+/** Why a tenant control (tenants.controls) refuses a send of `messageType` now, or null. */
+export function sendBlockReason(controls = {}, messageType) {
+    if (controls?.sendingEnabled === false) return 'Sending is switched off for your business.';
+    if (messageType === 'campaign' && controls.campaignsEnabled === false) {
+        return 'Campaign sending is switched off for your business.';
+    }
+    if (AUTOMATED_TYPES.has(messageType) && controls.automationsEnabled === false) {
+        return 'Automations are switched off for your business.';
     }
     return null;
 }
@@ -111,7 +129,7 @@ function cached(fn, ms = 1000) {
 /** Wire one channel's manager to its tenant's rules. Called once per channel runtime. */
 export function attachCampaignPolicy(state, deps) {
     const { manager, db } = state;
-    const rules = () => bulkRules(deps.platformPolicy?.() ?? {}, state.limits?.() ?? {});
+    const rules = () => bulkRules(deps.platformPolicy?.() ?? {}, state.limits?.() ?? {}, state.billing?.limitFor('messages') ?? null);
     manager.bulkPolicy = () => {
         const r = rules();
         return {
@@ -121,6 +139,23 @@ export function attachCampaignPolicy(state, deps) {
         };
     };
     manager.killSwitch = cached(() => deps.bulkKill?.() ?? null);
+    // The plan's message quota refuses every new send; bulk.monthlyCap stays campaign-only (#capBlocked).
+    const quotaLeft = () => {
+        const limit = state.billing?.limitFor('messages');
+        return limit == null ? null : capRemaining(db.db, db.tenantId, { monthlyCap: limit, quotaBlocked: limit === 0 });
+    };
+    const monthly = cached(quotaLeft);
+    // `fresh`: the worker re-checks each row as it goes out, so a fan-out accepted under a stale count stops at the quota.
+    manager.capBlock = (fresh = false) => {
+        const cap = fresh ? quotaLeft() : monthly();
+        return cap && cap.left <= 0 ? capReachedText(cap) : null;
+    };
+    // Queued replies, workflow steps and reminders wait while their control is off (campaigns stop above).
+    const controls = cached(() => deps.controls?.() ?? {});
+    manager.sendBlock = (messageType) => sendBlockReason(controls(), messageType);
+    // The anti-ban tables (sending levels, brakes), this number's admin level pin and its answered questions.
+    applySendingPolicy(manager.quota, () => deps.platformPolicy?.(), () => deps.channelPin?.(state.channel?.id),
+        deps.channelStart && (() => deps.channelStart(state.channel?.id)));
     manager.policyWindowOpen = (at = new Date()) => {
         const r = rules();
         if (!r.windowEnabled) return true;

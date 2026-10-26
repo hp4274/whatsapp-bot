@@ -170,7 +170,7 @@ describe('the sweep', () => {
 
     before(async () => {
         db = new Database(path.join(tmp, 'http.db'));
-        const config = { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000, retryDelay: 0.01, maxRetries: 1, tierSystem: false };
+        const config = { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000, retryDelay: 0.01, maxRetries: 1 };
         delete config.misc;
         app = createTestApp({ db, config });
         server = app.listen(0, '127.0.0.1');

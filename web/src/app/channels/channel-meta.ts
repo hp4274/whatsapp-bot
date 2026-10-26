@@ -5,13 +5,6 @@ const TRANSPORT_LABELS: Record<
   string,
   { label: string; short: string; icon: string; hint: string; qr: boolean }
 > = {
-  cloud_api: {
-    label: 'WhatsApp Cloud API',
-    short: 'Cloud API',
-    icon: 'cloud',
-    hint: 'Official Meta API - needs an access token',
-    qr: false,
-  },
   baileys: {
     label: 'WhatsApp QR (Baileys)',
     short: 'WhatsApp QR',

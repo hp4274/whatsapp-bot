@@ -5,15 +5,13 @@
  * data it is; the channel says which number it goes out on and under which
  * rules.  Nothing is sent without both resolved - see `docs/ARCHITECTURE.md`.
  *
- * Provider credentials and pacing live in `settings`, which is the same object
+ * Transport and pacing live in `settings`, which is the same object
  * shape the app has always called "config".  That is deliberate: the channel
  * did not invent a second configuration language, it just gave the existing one
  * an owner.
  *
- * Storing a channel does not validate its settings.  A number can exist before
- * its credentials do - the app has always booted with an unconfigured Cloud API
- * transport.  `PUT /config` and `POST /connection/connect` are the gates that
- * refuse an incomplete configuration, and they still do.
+ * Storing a channel does not validate its settings.  `PUT /config` and
+ * `POST /connection/connect` are the gates that refuse a bad configuration.
  */
 
 import { DEFAULTS, TRANSPORTS, currentTransport, mergeConfig } from './config.js';
@@ -122,9 +120,9 @@ export class Channels {
              (tenant_id, provider, phone_number, provider_account_id, provider_phone_number_id,
               status, display_name, settings, capabilities, timezone, business_hours,
               is_default, created_at, updated_at)
-             VALUES (?, ?, ?, '', ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)`)
+             VALUES (?, ?, ?, '', '', 'active', ?, ?, ?, ?, ?, ?, ?, ?)`)
             .run(
-                this.tenantId, merged.transport, String(phoneNumber).trim(), merged.phoneNumberId,
+                this.tenantId, merged.transport, String(phoneNumber).trim(),
                 name, JSON.stringify(sealSettings(merged)), JSON.stringify(cleanCapabilities(capabilities)),
                 String(timezone), businessHours ? JSON.stringify(businessHours) : null,
                 first || isDefault ? 1 : 0, now, now,
@@ -139,7 +137,7 @@ export class Channels {
         const channel = this.get(id);
         if (!channel) throw new ChannelError('channel not found', 404);
 
-        let settings = patch.settings === undefined
+        const settings = patch.settings === undefined
             ? channel.settings
             : mergeConfig(channel.settings, patch.settings);
         if (patch.status !== undefined && !CHANNEL_STATUSES.includes(patch.status)) {
@@ -148,25 +146,22 @@ export class Channels {
 
         const phoneNumber = patch.phoneNumber === undefined ? channel.phoneNumber : String(patch.phoneNumber).trim();
         const accountId = patch.providerAccountId === undefined ? channel.providerAccountId : String(patch.providerAccountId);
-        // A different number on the same channel starts fresh: new warm-up, new inbox.
+        // A different number on the same channel starts fresh: new sending level, new inbox.
         const was = digits(channel.providerAccountId) || digits(channel.phoneNumber);
         const now = digits(patch.providerAccountId) || digits(patch.phoneNumber);
         // endsWith: a number typed without its country code is still the same number.
         const changed = was && now && !was.endsWith(now) && !now.endsWith(was);
         const numberSince = changed ? utcNow() : channel.numberSince;
-        // The warm-up answer was about the old SIM: ask again, tiers on until answered.
-        if (changed) settings = { ...settings, warmupChoice: '', warmupFor: '', tierSystem: true };
 
         this.db.prepare(
             `UPDATE whatsapp_channels SET
-               provider = ?, phone_number = ?, provider_phone_number_id = ?, provider_account_id = ?,
+               provider = ?, phone_number = ?, provider_account_id = ?,
                status = ?, display_name = ?, settings = ?, capabilities = ?,
                timezone = ?, business_hours = ?, number_since = ?, updated_at = ?
              WHERE id = ? AND tenant_id = ?`)
             .run(
                 settings.transport,
                 phoneNumber,
-                settings.phoneNumberId,
                 accountId,
                 patch.status ?? channel.status,
                 patch.displayName === undefined ? channel.displayName : String(patch.displayName).trim(),
@@ -206,9 +201,9 @@ export class Channels {
     }
 
     /** First run for a tenant: turn its config file into channel #1. */
-    seed(config, displayName = 'Primary number') {
+    seed(config, displayName = 'Primary number', safety = {}) {
         if (this.list().length) return this.getDefault();
-        return this.create({ displayName, settings: config, isDefault: true });
+        return this.create({ displayName, settings: config, isDefault: true, safety });
     }
 }
 

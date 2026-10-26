@@ -1,0 +1,132 @@
+<!-- Built-in warning, then a horizontally scrollable grid: one row per level, the id column sticky on the left. -->
+@if (differsFromBuiltIn()) {
+  <p class="s-banner tone-warn" role="note">
+    <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+    <span class="msg">
+      Differs from the built-in table. Faster sending gets numbers banned;
+      @if (changedCells()) {
+        check every marked cell.
+      } @else {
+        the differences are set at {{ inheritedFrom() || 'the layer below' }}, not here.
+      }
+    </span>
+  </p>
+}
+
+<div
+  class="scroll"
+  role="region"
+  tabindex="0"
+  [attr.aria-labelledby]="labelledBy() || null"
+  [attr.aria-describedby]="describedBy() || null"
+>
+  <table>
+    <thead>
+      <tr>
+        @for (col of columns(); track col.key) {
+          <th scope="col" [class.fixed]="$first && col.fixed">{{ col.label }}</th>
+        }
+      </tr>
+    </thead>
+    <tbody>
+      @for (row of grid(); track $index; let i = $index) {
+        <tr>
+          @for (cell of row.cells; track cell.col.key; let first = $first) {
+            @if (first && cell.col.fixed) {
+              <th scope="row" class="fixed">{{ show(cell.value) }}</th>
+            } @else {
+              <td [class.differs]="cell.differs" [class.ro]="cell.readOnly" [class]="'t-' + cell.col.type">
+                @if (cell.readOnly) {
+                  <span class="ro-val">{{ show(cell.value) }}</span>
+                } @else {
+                  @switch (cell.col.type) {
+                    @case ('bool') {
+                      <input
+                        type="checkbox"
+                        [checked]="!!cell.value"
+                        [attr.aria-label]="row.label + ', ' + cell.col.label"
+                        (change)="setCell(i, cell.col.key, $any($event.target).checked)"
+                      />
+                    }
+                    @case ('text') {
+                      <input
+                        type="text"
+                        maxlength="60"
+                        [value]="cell.value"
+                        [attr.aria-label]="row.label + ', ' + cell.col.label"
+                        (change)="setText(i, cell.col, $any($event.target))"
+                      />
+                    }
+                    @case ('range') {
+                      <span class="group">
+                        <input
+                          type="number"
+                          [step]="step(cell.col)"
+                          [min]="cell.col.min ?? 0"
+                          [max]="cell.col.max ?? null"
+                          [value]="range(cell.value)[0]"
+                          [attr.aria-label]="row.label + ', ' + cell.col.label + ' from'"
+                          (change)="setRange(i, cell.col, 0, $any($event.target))"
+                        />
+                        <span class="sep" aria-hidden="true">–</span>
+                        <input
+                          type="number"
+                          [step]="step(cell.col)"
+                          [min]="cell.col.min ?? 0"
+                          [max]="cell.col.max ?? null"
+                          [value]="range(cell.value)[1]"
+                          [attr.aria-label]="row.label + ', ' + cell.col.label + ' to'"
+                          (change)="setRange(i, cell.col, 1, $any($event.target))"
+                        />
+                      </span>
+                    }
+                    @case ('need') {
+                      <span class="group">
+                        @for (part of needParts; track part; let last = $last) {
+                          <input
+                            type="number"
+                            step="1"
+                            [min]="cell.col.min ?? 0"
+                            [max]="cell.col.max ?? null"
+                            [value]="need(cell.value, part)"
+                            [attr.aria-label]="row.label + ', needs ' + part"
+                            (change)="setNeed(i, cell.col, part, $any($event.target))"
+                          />
+                          @if (!last) {
+                            <span class="sep" aria-hidden="true">/</span>
+                          }
+                        }
+                      </span>
+                    }
+                    @default {
+                      <input
+                        type="number"
+                        [step]="step(cell.col)"
+                        [min]="cell.col.min ?? 0"
+                        [max]="cell.col.max ?? null"
+                        [value]="cell.value"
+                        [attr.aria-label]="row.label + ', ' + cell.col.label"
+                        (change)="setNumber(i, cell.col, $any($event.target))"
+                      />
+                    }
+                  }
+                }
+                @if (cell.differs) {
+                  <span class="sr-only">(changed)</span>
+                }
+              </td>
+            }
+          }
+        </tr>
+      }
+    </tbody>
+  </table>
+</div>
+
+<p class="legend">
+  @if (changedCells()) {
+    <span class="mark" aria-hidden="true"></span>
+    {{ changedCells() }} cell{{ changedCells() === 1 ? '' : 's' }} differ from {{ inheritedFrom() || 'what applies otherwise' }}.
+  }
+  <span class="muted">Scroll sideways for more columns. Grey cells are fixed.</span>
+</p>

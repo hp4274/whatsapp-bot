@@ -64,18 +64,9 @@
           <section>
             <h4>Connection types</h4>
             <p class="muted compact">
-              Which ways this business may connect a WhatsApp number. Turn off WhatsApp QR to allow
-              only the official Meta Cloud API.
+              Whether this business may link a WhatsApp number by scanning a QR code.
             </p>
             <div class="switches">
-              <label class="switch drawer-check">
-                <input
-                  type="checkbox"
-                  [checked]="s.limits.allowCloudApi"
-                  (change)="setLimit('allowCloudApi', checked($event))"
-                />
-                <span>Meta Cloud API (official)</span>
-              </label>
               <label class="switch drawer-check">
                 <input
                   type="checkbox"
@@ -393,6 +384,56 @@
             } @else {
               <p class="muted">Loading limits...</p>
             }
+          </section>
+
+          <section aria-labelledby="sec-title">
+            <h4 id="sec-title">Security</h4>
+            <p class="muted compact">
+              Both take effect at once and cannot be undone. Rate limits, idle sign-out and the API
+              allow-list are under Rules, Security &amp; quotas.
+            </p>
+            @if (accessNotice(); as n) {
+              @if (n.tone === 'ok') {
+                <p class="s-banner tone-ok" role="status">
+                  <i class="ti ti-circle-check" aria-hidden="true"></i>
+                  <span class="msg">{{ n.text }}</span>
+                </p>
+              } @else {
+                <p class="s-banner" role="alert">
+                  <i class="ti ti-alert-circle" aria-hidden="true"></i>
+                  <span class="msg">{{ n.text }}</span>
+                </p>
+              }
+            }
+            <div class="access">
+              @for (a of accessActions; track a.id) {
+                <div class="access-row">
+                  <i class="ti ti-{{ a.icon }}" aria-hidden="true"></i>
+                  <div>
+                    <strong>{{ a.label }}</strong>
+                    <span class="muted">{{ a.hint }}</span>
+                  </div>
+                  <!-- One button that turns into the confirm step, so keyboard focus stays on it. -->
+                  <span class="access-acts">
+                    @if (accessAsk() === a.id) {
+                      <button class="btn sm access-confirm" type="button" (click)="accessAsk.set(null); main.focus()">
+                        Cancel
+                      </button>
+                    }
+                    <button
+                      #main
+                      class="btn sm"
+                      type="button"
+                      [class.danger]="accessAsk() === a.id"
+                      [disabled]="accessBusy() !== null"
+                      (click)="accessAsk() === a.id ? revokeAccess(a.id) : accessAsk.set(a.id)"
+                    >
+                      {{ accessBusy() === a.id ? 'Working...' : accessAsk() === a.id ? a.confirm : a.label }}
+                    </button>
+                  </span>
+                </div>
+              }
+            </div>
           </section>
         }
 

@@ -359,16 +359,12 @@ describe('tenant isolation', () => {
 describe('the HTTP surface', () => {
     let server;
     let base;
-    const events = [];
 
     before(async () => {
         at('2027-09-02T10:00:00Z');
         const app = express();
         app.use(express.json());
-        app.use('/api', createBillingRouter({
-            db: db.forTenant(3).forChannel(1),
-            state: { channel: { id: 1 }, broadcast: (event) => events.push(event) },
-        }));
+        app.use('/api', createBillingRouter({ db: db.forTenant(3).forChannel(1) }));
         server = http.createServer(app);
         await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
         base = `http://127.0.0.1:${server.address().port}/api`;
@@ -382,39 +378,28 @@ describe('the HTTP surface', () => {
             headers: body ? { 'content-type': 'application/json' } : {},
             body: body ? JSON.stringify(body) : undefined,
         });
-        return { status: res.status, body: res.status === 204 ? null : await res.json() };
+        const json = (res.headers.get('content-type') ?? '').includes('json');
+        return { status: res.status, body: json ? await res.json() : null };
     };
 
-    it('lists plans and takes an operator override', async () => {
+    it('lists plans and refuses every catalogue write', async () => {
         assert.equal((await call('GET', '/billing/plans')).body.plans.length, 3);
-        const made = await call('POST', '/billing/plans', {
-            key: 'trial', name: 'Trial', tier: 0, limits: { messagesPerMonth: 10 }, features: { faq: true },
-        });
-        assert.equal(made.status, 201);
-        assert.equal(made.body.plan.limits.messagesPerMonth, 10);
-        assert.equal((await call('GET', '/billing/plans')).body.plans.length, 4);
-        assert.equal((await call('POST', '/billing/plans', { key: 'X X', name: 'x' })).status, 400);
-        assert.equal((await call('DELETE', '/billing/plans/trial')).status, 200);
-        assert.equal((await call('DELETE', '/billing/plans/trial')).status, 404);
+        // The catalogue is the operator's: /api/admin/billing/plans (plans-admin.test.js).
+        assert.equal((await call('POST', '/billing/plans', { key: 'trial', name: 'Trial', tier: 0 })).status, 404);
+        assert.equal((await call('DELETE', '/billing/plans/starter')).status, 404);
+        assert.equal((await call('GET', '/billing/plans')).body.plans.length, 3);
     });
 
-    it('subscribes, changes plan and cancels', async () => {
+    it('shows the subscription but a business cannot change it', async () => {
+        assert.equal((await call('GET', '/billing/subscription')).body.subscription, null);
+        // An unpaid trial must not be able to make itself active.
+        assert.equal((await call('POST', '/billing/subscription', { planKey: 'enterprise' })).status, 404);
+        assert.equal((await call('DELETE', '/billing/subscription?immediate=true')).status, 404);
         assert.equal((await call('GET', '/billing/subscription')).body.subscription, null);
 
-        const created = await call('POST', '/billing/subscription', { planKey: 'starter' });
-        assert.equal(created.status, 201);
-        assert.equal(created.body.subscription.planKey, 'starter');
-        assert.equal(events.at(-1).type, 'subscription');
-
-        const upgraded = await call('POST', '/billing/subscription', { planKey: 'enterprise' });
-        assert.equal(upgraded.status, 200);
-        assert.equal(upgraded.body.subscription.planKey, 'enterprise');
-        assert.equal((await call('POST', '/billing/subscription', { planKey: 'ghost' })).status, 404);
-
-        const cancelled = await call('DELETE', '/billing/subscription');
-        assert.equal(cancelled.body.subscription.cancelAtPeriodEnd, true);
-        const immediate = await call('DELETE', '/billing/subscription?immediate=true');
-        assert.equal(immediate.body.subscription.status, 'cancelled');
+        // The super admin's change (admin.put /tenants/:id/subscription) is what a business sees.
+        new BillingStore(db.forTenant(3)).subscribe(3, 'starter');
+        assert.equal((await call('GET', '/billing/subscription')).body.subscription.planKey, 'starter');
     });
 
     it('reports usage, history and a recount', async () => {

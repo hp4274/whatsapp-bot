@@ -8,7 +8,6 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import type { InteractiveDraft } from '../campaign/interactive/interactive.model';
-import type { MetaMapping } from './meta-mapping';
 import { linkify } from '../campaign/wa-format';
 
 export type { InteractiveDraft };
@@ -16,16 +15,13 @@ export type { InteractiveDraft };
 export const TEMPLATE_TYPES = [
   'text',
   'media',
-  'provider_template',
   'interactive',
   'notification',
 ] as const;
-export const APPROVAL_STATUSES = ['draft', 'pending', 'approved', 'rejected'] as const;
-/** Meta's template categories; the server defaults new templates to 'marketing'. */
+/** Template categories; the server defaults new templates to 'marketing'. */
 export const TEMPLATE_CATEGORIES = ['marketing', 'utility', 'authentication'] as const;
 export type TemplateCategory = (typeof TEMPLATE_CATEGORIES)[number];
 export type TemplateType = (typeof TEMPLATE_TYPES)[number];
-export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 
 export interface Template {
   id: number;
@@ -34,8 +30,6 @@ export interface Template {
   body: string;
   variables: string[];
   channelId: number | null;
-  providerTemplateName: string;
-  approvalStatus: ApprovalStatus;
   currentVersion: number;
   useCount: number;
   lastUsedAt: string | null;
@@ -43,10 +37,7 @@ export interface Template {
   sampleValues: Record<string, string>;
   headerMediaId: string | null;
   interactive: InteractiveDraft | null;
-  /** Meta send settings (meta-mapping.ts): language code + {{n}} mapping. */
-  language?: string;
-  paramMapping?: MetaMapping;
-  /** Platform review (server templates/policy.js), separate from Meta's approvalStatus. '' = never reviewed. */
+  /** Platform review (server templates/policy.js). '' = never reviewed. */
   reviewStatus: ReviewStatus;
   reviewNote: string;
   spam: SpamScore;
@@ -85,14 +76,10 @@ export interface TemplateDraft {
   templateType: TemplateType;
   body: string;
   variables: string[];
-  providerTemplateName: string;
-  approvalStatus: ApprovalStatus;
   category: TemplateCategory;
   sampleValues: Record<string, string>;
   headerMediaId: string | null;
   interactive: InteractiveDraft | null;
-  language?: string;
-  paramMapping?: MetaMapping;
 }
 
 export interface UploadedMedia {

@@ -9,7 +9,15 @@ import {
 } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 
-import { Api, SafetyCause, SafetyEvent, SafetyHealth, SafetyStatus } from '../core/api';
+import {
+  Api,
+  type Budget,
+  SafetyCause,
+  SafetyEvent,
+  SafetyHealth,
+  SafetyStatus,
+  type SendingBrake,
+} from '../core/api';
 import { QuietTip, type TipAnchor, anchorBelow, isHovered, tipLayout } from '../core/quiet-tip';
 import {
   type QuietSlot,
@@ -18,18 +26,16 @@ import {
   quietSlots,
   windowSpeech,
 } from '../core/quiet-time';
+import { BRAKE_LABELS } from '../core/safety-fields';
 import { Store } from '../core/store';
 
-/**
- * The staircase drawn on screen. The numbers mirror TIERS in the server's
- * campaign/humanize.js; the live tier and its progress always come from the
- * server, so a stale label here can never change what is enforced.
- */
-const TIER_STEPS: readonly { readonly n: number; readonly perDay: string }[] = [
-  { n: 1, perDay: '250' },
-  { n: 2, perDay: '2,000' },
-  { n: 3, perDay: '10,000' },
-];
+/** The summary line at the top of the card. `held` means bulk is not going out yet. */
+interface Allowance {
+  readonly held: boolean;
+  readonly icon: string;
+  readonly lead: string;
+  readonly rest: string;
+}
 
 /** Icon per cause key from the server; an unknown key falls back to a shield. */
 const CAUSE_ICONS: Readonly<Record<string, string>> = {
@@ -39,12 +45,43 @@ const CAUSE_ICONS: Readonly<Record<string, string>> = {
   failed: 'ti-alert-triangle',
   volume: 'ti-send',
   optin: 'ti-user-check',
+  newchats: 'ti-user-plus',
+  replies: 'ti-messages',
+};
+
+/** Icon per brake code; an unknown code falls back to a hand. */
+const BRAKE_ICONS: Readonly<Record<string, string>> = {
+  reply_rate: 'ti-message-off',
+  reports: 'ti-flag',
+  blocks: 'ti-ban',
+  failures: 'ti-alert-triangle',
+  restricted: 'ti-lock-access',
+  idle: 'ti-zzz',
+  ban: 'ti-ban',
+  delivery: 'ti-truck-delivery',
+  stuck: 'ti-clock-pause',
+  unstable: 'ti-wifi-off',
 };
 
 /**
- * How healthy the sending number is: which tier it is on and how far from the
- * next, today's budget and quiet-time windows, and the block / report rate with who
- * and when.
+ * The server explains the idle brake in terms of internal levels, which tenants never see;
+ * this says the same thing in plain words.
+ */
+const IDLE_TEXT = "Nothing was delivered in the 3 days before today, so today's limit is lower.";
+
+/** The ban brake holds 30 days from the ban (server humanize.js levelFor), so its `until` dates the ban. */
+const BAN_BRAKE_MS = 30 * 86_400_000;
+
+/** Below this internal level a number still looks new to WhatsApp, so the panel says how to look trusted. */
+const TRUSTED_LEVEL = 4;
+
+/**
+ * How healthy the sending number is: one line for today's daily allowance and
+ * how far it can grow, today's budgets and quiet-time windows, what is braking
+ * it, and the block / report rate with who and when.
+ *
+ * The server grows a QR number's daily limit as people reply; how it does that
+ * is deliberately not shown, only the number today and the most it reaches.
  *
  * Blocks are inferred (a message stuck at one tick for 24 hours), because
  * WhatsApp never tells a sender they were blocked. The copy says "may have".
@@ -67,8 +104,55 @@ export class SendingHealth {
   protected readonly safety = signal<SafetyStatus | null>(null);
   protected readonly causes = signal<SafetyCause[]>([]);
 
-  protected readonly steps = TIER_STEPS;
-  protected readonly tier = computed(() => this.safety()?.tier ?? null);
+  protected readonly budgets = computed(() => this.safety()?.budgets ?? null);
+  protected readonly brakes = computed(() => this.safety()?.brakes ?? []);
+  /**
+   * The one-line daily allowance: held for the questions, waiting after a new link,
+   * no cap, or today's number and (while it can still grow) the most it reaches.
+   */
+  protected readonly allowance = computed<Allowance | null>(() => {
+    const s = this.safety();
+    if (!s) return null;
+    // Safety off holds nothing and asks nothing (server channelUsage.js), whatever `asked` says.
+    if (!s.enabled)
+      return { held: false, icon: 'ti-infinity', lead: 'No daily limit', rest: '' };
+    if (s.asked === false)
+      return { held: true, icon: 'ti-help-circle', lead: 'Answer 2 questions to start sending', rest: '' };
+    const wait = s.level?.resting;
+    // A ban rests the number too; the wording matches the channel card's (channelUsage.js).
+    if (wait?.active && s.brakes?.some((b) => b.code === 'ban'))
+      return {
+        held: true,
+        icon: 'ti-ban',
+        lead: 'WhatsApp banned this number.',
+        rest: ' Bulk sending waits while it recovers.',
+      };
+    if (wait?.active)
+      return {
+        held: true,
+        icon: 'ti-hourglass',
+        lead: 'A newly linked number waits before bulk sending.',
+        rest: wait.endsAt ? ` It starts ${this.when(wait.endsAt)}.` : '',
+      };
+    if (!s.limit && s.remaining === null)
+      return { held: false, icon: 'ti-infinity', lead: 'No daily limit', rest: '' };
+    return {
+      held: false,
+      icon: 'ti-send',
+      lead: `${s.limit} messages a day`,
+      rest: s.ceiling && s.ceiling > s.limit ? ` · rises gradually to ${s.ceiling} a day` : '',
+    };
+  });
+  /** Trust tips show until the history alone earns TRUSTED_LEVEL; an idle day does not bring them back. */
+  protected readonly looksNew = computed(() => {
+    const lv = this.safety()?.level;
+    return !!lv && lv.earned < TRUSTED_LEVEL;
+  });
+  /** The chat link customers tap to write first; a chat they open is never a new chat for us. */
+  protected readonly chatLink = computed(() => {
+    const account = this.store.connection().account.replace(/\D/g, '');
+    return account ? `https://wa.me/${account}` : '';
+  });
   protected readonly quiet = computed(() => this.safety()?.quiet ?? null);
   /** Today's windows in local time, judged against the server's clock so they tick on their own. */
   protected readonly slots = computed(() => {
@@ -93,12 +177,6 @@ export class SendingHealth {
   protected readonly tipTop = this.layout.top;
   protected readonly speech = windowSpeech;
 
-  /** Share of the way to the next tier, 0-100. */
-  protected readonly climb = computed(() => {
-    const tier = this.tier();
-    return tier?.nextTierAt ? Math.min(100, (tier.weekSent / tier.nextTierAt) * 100) : 100;
-  });
-
   protected readonly usedPercent = computed(() => {
     const s = this.safety();
     return s?.limit ? Math.min(100, (s.used / s.limit) * 100) : 0;
@@ -118,8 +196,13 @@ export class SendingHealth {
 
   constructor() {
     this.load();
-    // The numbers move with sends, the connection and settings (warm-up on or off); reload on any.
+    // The numbers move with sends, the connection and settings; reload on any.
     this.store.watch(['config', 'connection', 'history', 'stats'], () => this.load(false));
+  }
+
+  /** Reload in place, for a parent whose change the live events may not carry (safety overrides). */
+  refresh(): void {
+    this.load(false);
   }
 
   protected load(showSkeleton = true): void {
@@ -180,6 +263,43 @@ export class SendingHealth {
 
   protected causeIcon(key: string): string {
     return CAUSE_ICONS[key] ?? 'ti-shield';
+  }
+
+  protected brakeIcon(code: string): string {
+    return BRAKE_ICONS[code] ?? 'ti-hand-stop';
+  }
+
+  protected brakeLabel(code: string): string {
+    return BRAKE_LABELS[code] ?? code;
+  }
+
+  protected brakeText(b: SendingBrake): string {
+    if (b.code === 'idle') return IDLE_TEXT;
+    // The server's ban text talks about rests; the brake lasts 30 days from the ban.
+    if (b.code === 'ban' && b.until) {
+      const on = new Date(Date.parse(b.until) - BAN_BRAKE_MS).toLocaleDateString(undefined, {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
+      return `WhatsApp banned this number on ${on}. Its sending history restarted from then, and each further ban makes the wait before bulk sending longer.`;
+    }
+    return b.text;
+  }
+
+  private when(iso: string): string {
+    return new Date(iso).toLocaleString(undefined, {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }
+
+  /** Share of a budget used, 0-100; a budget of 0 (none today) reads as empty, not full. */
+  protected share(b: Budget): number {
+    return b.limit ? Math.min(100, (b.used / b.limit) * 100) : 0;
   }
 
   protected label(event: SafetyEvent): string {

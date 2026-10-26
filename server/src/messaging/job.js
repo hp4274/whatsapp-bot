@@ -63,7 +63,6 @@ export function messageJob({
     scheduledAt = null,
     idempotencyKey = null,
     interactive = null,
-    template = null,   // resolved Meta template, see templateSend.js
 }) {
     if (!Number.isInteger(Number(tenantId))) throw new MessageJobError('a job needs a tenantId');
     if (!Number.isInteger(Number(channelId))) throw new MessageJobError('a job needs a channelId');
@@ -89,7 +88,6 @@ export function messageJob({
         metadata,
         scheduledAt,
         interactive,
-        template,
         priority: priorityOf(messageType),
         idempotencyKey: idempotencyKey || autoKey({ channelId, messageType, recipient, text, media, campaignId }),
     };

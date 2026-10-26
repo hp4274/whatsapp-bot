@@ -1,5 +1,5 @@
 /* Template moderation: sunken tab strip, 24px hairline cards in an auto grid,
- * a WhatsApp-style bubble for each body, Meta counts in a kit table. */
+ * a WhatsApp-style bubble for each body. */
 @use '../school/school-shared' as s;
 
 @include s.keyframes;
@@ -8,7 +8,6 @@
 @include s.card;
 @include s.pill;
 @include s.seg;
-@include s.table;
 @include s.field;
 @include s.empty;
 @include s.skeleton;
@@ -213,15 +212,6 @@
   gap: var(--space-lg);
 
   .full { grid-column: 1 / -1; }
-}
-
-.s-table {
-  .name { font-weight: 500; color: var(--text-strong); }
-  .total { font-weight: 500; color: var(--text-strong); }
-  .ok { color: var(--success); font-weight: 500; }
-  .warn { color: var(--warning); font-weight: 500; }
-  .bad { color: var(--danger-text); font-weight: 500; }
-  tr.idle td { color: var(--hint); }
 }
 
 .flash {

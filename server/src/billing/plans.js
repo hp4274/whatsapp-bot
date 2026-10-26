@@ -63,7 +63,7 @@ const STARTER_SERVICES = Object.freeze([
  * per-business safety calls, and a plan change must not quietly reset them.
  */
 export const PLAN_TENANT_LIMIT_KEYS = Object.freeze([
-    'maxChannels', 'maxUsers', 'maxTemplates', 'maxContactsPerCampaign', 'maxMediaMb', 'allowCloudApi', 'allowWhatsappWeb',
+    'maxChannels', 'maxUsers', 'maxTemplates', 'maxContactsPerCampaign', 'maxMediaMb', 'allowWhatsappWeb',
 ]);
 
 export const PLAN_INTERVALS = Object.freeze(['month', 'year']);
@@ -81,7 +81,7 @@ export const DEFAULT_PLANS = Object.freeze({
         services: STARTER_SERVICES,
         tenantLimits: {
             maxChannels: 1, maxUsers: 2, maxTemplates: 50, maxContactsPerCampaign: 1000, maxMediaMb: 16,
-            allowCloudApi: true, allowWhatsappWeb: true,
+            allowWhatsappWeb: true,
         },
         limits: {
             channels: 1,
@@ -116,7 +116,7 @@ export const DEFAULT_PLANS = Object.freeze({
         ],
         tenantLimits: {
             maxChannels: 5, maxUsers: 15, maxTemplates: 500, maxContactsPerCampaign: 25000, maxMediaMb: 64,
-            allowCloudApi: true, allowWhatsappWeb: true,
+            allowWhatsappWeb: true,
         },
         limits: {
             channels: 5,
@@ -149,7 +149,7 @@ export const DEFAULT_PLANS = Object.freeze({
         services: [...TENANT_SERVICES],
         tenantLimits: {
             maxChannels: 0, maxUsers: 0, maxTemplates: 0, maxContactsPerCampaign: 0, maxMediaMb: 0,
-            allowCloudApi: true, allowWhatsappWeb: true,
+            allowWhatsappWeb: true,
         },
         // Unlimited across the board; the contract is the limit, not the code.
         limits: {

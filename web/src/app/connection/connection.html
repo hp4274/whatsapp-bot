@@ -58,6 +58,15 @@
         WhatsApp does not say why. The figures above are this app's own records.
         <a href="#recover-title">See how to ask for a review <i class="ti ti-arrow-down" aria-hidden="true"></i></a>
       </p>
+      <div class="link-actions">
+        <button type="button" class="btn" (click)="disconnect()" [disabled]="disconnecting()">
+          @if (disconnecting()) {
+            <span class="spinner"></span>Disconnecting…
+          } @else {
+            <i class="ti ti-plug-connected-x" aria-hidden="true"></i>Disconnect and link another number
+          }
+        </button>
+      </div>
     } @else if (kind === 'ban_guard') {
       <div class="link-actions">
         <button type="button" class="btn danger" (click)="resume()" [disabled]="resuming()">
@@ -87,12 +96,7 @@
         {{ connection.account ? '+' + connection.account + ' · ' : '' }}Session is live. It reconnects by itself
         after a restart.
       </p>
-      <p class="fine muted">
-        Sending mode: {{ config()?.warmupChoice === 'warmup' ? 'warm-up tiers' : 'your plan\'s limits' }}.
-        <button type="button" class="btn sm" (click)="changingWarmup.set(true)">
-          <i class="ti ti-flame" aria-hidden="true"></i>{{ config()?.warmupChoice === 'warmup' ? 'Change warm-up' : 'Turn on warm-up' }}
-        </button>
-      </p>
+
       <div class="link-actions">
         <button type="button" class="btn danger" (click)="disconnect()">
           <i class="ti ti-plug-connected-x" aria-hidden="true"></i>Disconnect
@@ -123,11 +127,11 @@
           <button type="button" class="btn" (click)="disconnect()">Cancel</button>
         } @else if (!stop()) {
           <button type="button" class="btn primary big" (click)="connect()">
-            <i class="ti ti-qrcode" aria-hidden="true"></i>Connect WhatsApp
+            <i class="ti ti-qrcode" aria-hidden="true"></i>{{ qrExpired() ? 'Try again' : 'Connect WhatsApp' }}
           </button>
         }
       </div>
-      <p class="fine muted">No token or Meta account needed. Keep the phone connected to the internet.</p>
+      <p class="fine muted">No token or business account needed. Keep the phone connected to the internet.</p>
     }
   </div>
 
@@ -138,6 +142,20 @@
         <span>Linked</span>
       } @else if (qr) {
         <img [src]="qr" alt="QR code to link WhatsApp" width="220" height="220" />
+        @if (qrSecondsLeft(); as left) {
+          <!-- The section is a live region, so the ticking text is hidden from it and read only at 15s and 5s. -->
+          <span class="qr-timer" [class.low]="left <= 15" aria-hidden="true">
+            <i class="ti ti-clock-hour-4"></i>Code expires in {{ left }}s
+          </span>
+          @if (left === 15 || left === 5) {
+            <span class="sr-only">Code expires in {{ left }} seconds</span>
+          }
+        } @else if (qrSecondsLeft() === 0) {
+          <span class="qr-timer low">Getting a new code…</span>
+        }
+      } @else if (qrExpired()) {
+        <i class="ti ti-qrcode-off idle-mark" aria-hidden="true"></i>
+        <span role="alert">QR expired, try again</span>
       } @else if (busy) {
         <span class="spinner"></span>
         <span>Preparing code…</span>
@@ -149,12 +167,10 @@
   </div>
 </section>
 
-@if (live && config(); as cfg) {
-  @if (!cfg.warmupChoice) {
-    <app-warmup-setup animate.leave="ui-leave" (answered)="warmupAnswered($event)" />
-  } @else if (changingWarmup()) {
-    <app-warmup-setup animate.leave="ui-leave" [isLater]="true" [warmingUp]="cfg.warmupChoice === 'warmup'" (answered)="warmupAnswered($event)" (dismissed)="changingWarmup.set(false)" />
-  }
+
+<!-- Mounted once the link succeeds, so the popup asks right away; nothing shows when already answered. -->
+@if (live && channelId(); as id) {
+  <app-number-questions popup [channelId]="id" (done)="health.refresh()" />
 }
 
 <section class="card safety enter" aria-labelledby="safety-title">
@@ -169,42 +185,9 @@
     }}</span>
   </header>
 
-  @if (safety(); as safety) {
-    <div class="budget">
-      <div>
-        <span>Sent today</span>
-        <strong>{{ safety.used }}{{ safety.limit ? ' / ' + safety.limit : '' }}</strong>
-      </div>
-      <div>
-        <span>Remaining</span>
-        <strong [class.status-FAILED]="safety.remaining === 0">
-          {{ safety.remaining === null ? 'no limit' : safety.remaining }}
-        </strong>
-      </div>
-      <!-- Gap between messages hidden for now (speed is not user-facing):
-      <div>
-        <span>Gap between messages</span>
-        <strong>{{ safety.minSeconds }}-{{ safety.maxSeconds }}s</strong>
-      </div>
-      -->
-      <div>
-        <span>Resets at</span>
-        <strong>{{ safety.resetsAt | date: 'shortTime' }}</strong>
-      </div>
-    </div>
-    <div class="meter" aria-hidden="true">
-      <div class="bar" [style.width.%]="safety.limit ? (safety.used / safety.limit) * 100 : 0"></div>
-    </div>
-  } @else {
-    <p class="empty muted">
-      <i class="ti ti-chart-histogram" aria-hidden="true"></i>Today's sending numbers show once a number is
-      connected.
-    </p>
-  }
+  <app-sending-health #health />
 
-  <app-sending-health />
-
-  <app-safety-controls (changed)="refreshSafety()" (active)="customSafety.set($event)" />
+  <app-safety-controls (changed)="health.refresh()" (active)="customSafety.set($event)" />
 
   @if (warning()) {
     <p class="fine muted tos">{{ warning() }}</p>
@@ -269,8 +252,8 @@
       <span>
         <strong>Once it's back</strong>
         <small class="muted"
-          >Restart with warm-up on and lower daily limits, send only to people who opted in, and
-          use varied messages. For volume sending, move to the WhatsApp Cloud API (official).</small
+          >Relink it and answer its 2 questions again; daily sending starts low and rises as
+          people reply. Send only to people who opted in, and vary your messages.</small
         >
       </span>
     </li>

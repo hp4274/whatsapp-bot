@@ -2,7 +2,7 @@
 
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, throwError } from 'rxjs';
+import { Observable, of, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
 import type { ReplyRule } from '../campaign/interactive/interactive.model';
@@ -21,14 +21,7 @@ export type MessageStatus =
   | 'NOT_ON_WHATSAPP';
 
 export interface AppConfig {
-  transport: 'cloud_api' | 'baileys';
-  graphVersion: string;
-  phoneNumberId: string;
-  accessToken: string;
-  useTemplate: boolean;
-  templateName: string;
-  templateLanguage: string;
-  previewUrl: boolean;
+  transport: 'baileys';
   rateLimitPerSecond: number;
   rateLimitBurst: number;
   maxRetries: number;
@@ -37,8 +30,6 @@ export interface AppConfig {
   retryMaxDelay: number;
   retryJitter: number;
   requestTimeout: number;
-  webhookEnabled: boolean;
-  webhookVerifyToken: string;
   chromePath: string;
   qrTimeout: number;
   defaultCountryCode: string;
@@ -51,9 +42,6 @@ export interface AppConfig {
   restEvery: number;
   restMinMinutes: number;
   restMaxMinutes: number;
-  tierSystem: boolean;
-  /** Answer to the fresh-number question after the first scan; '' until asked. */
-  warmupChoice: '' | 'warmup' | 'plan';
 }
 
 /** `POST /api/media/upload`; the optional fields come from Storage (see `ImportPreview`). */
@@ -82,6 +70,8 @@ export interface ConnectionState {
   realDelivery: boolean;
   supportsReceipts: boolean;
   qr: string | null;
+  /** When the current QR code stops working (server clock); null without a code. */
+  qrExpiresAt?: string | null;
 }
 
 export interface Contact {
@@ -125,25 +115,96 @@ export interface SafetyStatus {
   restEvery: number;
   restMinMinutes: number;
   restMaxMinutes: number;
-  /** `quietSeconds` is the nightly rest already included in min/max/typical. */
-  estimateSeconds: { min: number; max: number; typical: number; quietSeconds?: number };
+  /**
+   * `quietSeconds` is the nightly rest already included in min/max/typical. `days` / `finishesOn`
+   * (the channel's local YYYY-MM-DD) assume today's level for every day; null with no daily cap.
+   */
+  estimateSeconds: {
+    min: number;
+    max: number;
+    typical: number;
+    quietSeconds?: number;
+    days?: number | null;
+    finishesOn?: string | null;
+  };
   waitingSeconds: number;
   pausedByQuota: boolean;
-  /** Sending tier; null when the tier system is off. */
-  tier?: TierStatus | null;
-  /** Today's quiet-time windows; null when the tier system is off. */
+  /** Today's quiet-time windows; null when quiet time is off. */
   quiet?: QuietWindow | null;
+  /** QR numbers only: the sending level, today's budgets, the brakes on and the content rules. */
+  level?: SendingLevel;
+  budgets?: SendingBudgets;
+  brakes?: readonly SendingBrake[];
+  content?: ContentRules;
+  /** QR numbers only: the most the daily limit grows to. */
+  ceiling?: number;
+  /** QR numbers only: false while the number's 2 questions are unanswered (bulk is held); null when nothing is asked. */
+  asked?: boolean | null;
 }
 
-export interface TierStatus {
-  tier: number;
-  name: string;
-  dailyLimit: number;
-  /** Messages sent in the current 7-day block. */
-  weekSent: number;
-  /** Week target for the next tier; null on the top tier. */
-  nextTierAt: number | null;
-  next: { tier: number; name: string; dailyLimit: number } | null;
+/** What a level asks for: active days, delivered messages, delivered bulk, all since the anchor. */
+export interface LevelNeed {
+  readonly days: number;
+  readonly delivered: number;
+  readonly bulk: number;
+}
+
+/** A QR number's sending level (server campaign/humanize.js LEVELS); the web keeps no copy of the table. */
+export interface SendingLevel {
+  /** Today's level, after the rest and the idle brake. */
+  readonly level: number;
+  readonly name: string;
+  /** The top level. */
+  readonly of: number;
+  /** What the history alone gives. */
+  readonly earned: number;
+  readonly steps: readonly {
+    readonly level: number;
+    readonly name: string;
+    readonly perDay: number;
+    readonly newChats: number;
+    readonly need: LevelNeed | null;
+  }[];
+  /** The rest after linking or a ban: bulk waits until `endsAt`, replies still go. */
+  readonly resting: { readonly active: boolean; readonly endsAt: string | null };
+  readonly have: { readonly activeDays: number; readonly delivered: number; readonly bulk: number };
+  /** The next level up from `earned`; null at the top. */
+  readonly next: { readonly level: number; readonly name: string; readonly need: LevelNeed } | null;
+}
+
+/** Today's budgets on a QR number. A limit of 0 means none, not "no cap". */
+export interface SendingBudgets {
+  readonly bulk: Budget & { readonly resetsAt: string };
+  /** People who never chatted with this number; `opensAt` is null while some are left. */
+  readonly newChats: NewChatsBudget;
+  /** Bulk in any 60 minutes. */
+  readonly hour: Budget;
+}
+
+export interface Budget {
+  readonly limit: number;
+  readonly used: number;
+  readonly left: number;
+}
+
+export interface NewChatsBudget extends Budget {
+  readonly opensAt: string | null;
+}
+
+
+/** Something slowing a QR number down; `text` is the server's own explanation, `until` null for a rate. */
+export interface SendingBrake {
+  readonly code: string;
+  readonly until: string | null;
+  readonly text: string;
+}
+
+/** A QR number's bulk-text rules. */
+export interface ContentRules {
+  /** Identical text above this many recipients is refused. */
+  readonly varyAbove: number;
+  /** Appended to every message without a STOP. */
+  readonly optOutLine: string;
 }
 
 export interface QuietWindow {
@@ -559,7 +620,6 @@ export interface SafetyPolicy {
   retryMaxDelay: number;
   retryJitter: number;
   failureStopPercent: number;
-  warmupDays: number;
   recipientDailyCap: number;
   requireVariationAbove: number;
   quietHoursStart: number;
@@ -573,7 +633,6 @@ export interface TenantLimits {
   maxTemplates: number;
   maxContactsPerCampaign: number;
   maxMediaMb: number;
-  allowCloudApi: boolean;
   allowWhatsappWeb: boolean;
   blockedWords: string;
   /** The business may change its own sending limits after accepting the risk. */
@@ -684,6 +743,20 @@ export class TenancyApi {
       .delete<{ safety: SafetyPolicy; custom: CustomSafetyState }>(
         `/api/admin/tenants/${id}/custom-safety`,
       )
+      .pipe(catchError(toMessage));
+  }
+
+  /** End every session of a tenant's users. Returns how many ended. */
+  revokeSessions(id: number): Observable<{ count: number }> {
+    return this.http
+      .post<{ count: number }>(`/api/admin/tenants/${id}/sessions/revoke`, {})
+      .pipe(catchError(toMessage));
+  }
+
+  /** Revoke every public API key of a tenant. Returns how many were revoked. */
+  revokeKeys(id: number): Observable<{ count: number }> {
+    return this.http
+      .post<{ count: number }>(`/api/admin/tenants/${id}/api-keys/revoke`, {})
       .pipe(catchError(toMessage));
   }
 
@@ -798,31 +871,43 @@ export interface ChannelHealth {
   detail: string;
   error: string | null;
   withinSendingWindow: boolean;
-  /** The channel's provider, e.g. 'cloud_api'. */
+  /** The channel's provider, e.g. 'baileys'. */
   transport?: string;
   usage?: ChannelUsage;
-  warmup?: ChannelWarmup | null;
   quality?: ChannelQuality;
 }
 
-/** Today's sending budget for one number (dailyLimit 0 = no cap). */
+/** Today's sending allowance for one number (server channelUsage.js). */
 export interface ChannelUsage {
+  /** null = no daily cap; 0 = no bulk today (QR numbers only). */
+  todayLimit: number | null;
   sentToday: number;
-  dailyLimit: number;
-  baseLimit: number;
-  remaining: number | null;
-  resetsAt: string;
-  safetyEnabled: boolean;
-  /** The platform admin's policy sets the cap, not the channel. */
-  setByPlatform: boolean;
+  /** QR numbers: the most the daily limit grows to. null when there is no cap. */
+  planLimit: number | null;
+  /** The daily limit is still below `planLimit` and rises as people reply. */
+  growing: boolean;
+  /** QR numbers with safety on only: false while the 2 questions are unanswered (bulk is held). */
+  asked?: boolean;
+  /** Plain-text reason bulk is paused, when it is. */
+  blocked?: string;
 }
 
-export interface ChannelWarmup {
-  active: boolean;
-  day: number;
-  totalDays: number;
-  todayCap: number;
-  startedAt: string | null;
+/** `GET /api/channels/:id/start`: the 2 questions a newly linked QR number answers. */
+export interface NumberStart {
+  asked: boolean;
+  todayLimit: number | null;
+  planLimit: number | null;
+  skipWarning: { version: string; text: string[] };
+}
+
+/** `POST /api/channels/:id/start`: answers (each 0-3) or an accepted skip. */
+export type NumberStartBody = { age: number; usage: number } | { skip: true; accept: true };
+
+/** The limits after a start; `already` when the questions were answered elsewhere first (409). */
+export interface NumberStartResult {
+  todayLimit: number | null;
+  planLimit: number | null;
+  already?: boolean;
 }
 
 export type QualityLevel = 'ok' | 'info' | 'warn' | 'bad';
@@ -903,6 +988,22 @@ export class ChannelsApi {
 
   remove(id: number): Observable<{ deleted: number }> {
     return this.http.delete<{ deleted: number }>(`/api/channels/${id}`).pipe(catchError(toMessage));
+  }
+
+  /** A QR number's 2 start questions: whether they are answered, and the skip warning. */
+  startInfo(id: number): Observable<NumberStart> {
+    return this.http.get<NumberStart>(`/api/channels/${id}/start`).pipe(catchError(toMessage));
+  }
+
+  /** Answers or an accepted skip. A 409 (answered already) comes back as `{ already: true }`. */
+  start(id: number, body: NumberStartBody): Observable<NumberStartResult> {
+    return this.http.post<NumberStartResult>(`/api/channels/${id}/start`, body).pipe(
+      catchError((err: HttpErrorResponse) =>
+        err.status === 409
+          ? of<NumberStartResult>({ todayLimit: null, planLimit: null, already: true })
+          : toMessage(err),
+      ),
+    );
   }
 }
 
@@ -1292,11 +1393,6 @@ export interface CampaignOptions {
   skipDuplicates?: boolean;
   variables?: string[];
   mediaMeta?: { filename: string; mimetype: string; size: number } | null;
-  /** Cloud API only: send `templateId` as a Meta-approved template (server messaging/templateSend.js). */
-  templateMode?: 'free' | 'meta';
-  templateParams?: unknown;
-  fallbackTemplateId?: number | null;
-  fallbackTemplateParams?: unknown;
   /**
    * Spread the (shuffled) file audience into equal daily batches from `from` to
    * `to`, each starting at `startTime` in `timezone`. The server adds the
@@ -1308,13 +1404,13 @@ export interface CampaignOptions {
    * edit shows the toggle on instead of the line inside the editable text.
    */
   optOutLine?: boolean;
-  /** Rewrite links so taps are counted; the server ignores it without a public base URL or in Meta template mode. */
+  /** Rewrite links so taps are counted; the server ignores it without a public base URL */
   trackLinks?: boolean;
   /** Run again every day, week or month once a run finishes; not combinable with `spread`. */
   recurrence?: CampaignRecurrence | null;
   /** Typed numbers added on top of a contacts or past-campaign audience at send time. */
   extraNumbers?: { phone: string; name: string }[] | null;
-  /** 2-3 versions of the message, split evenly between recipients; not for Meta templates. */
+  /** 2-3 versions of the message, split evenly between recipients. */
   variants?: CampaignVariant[] | null;
   /** Server-set on a finished recurring run: the next run's campaign id. */
   readonly nextId?: number;
@@ -1353,9 +1449,12 @@ export interface SpreadPlan {
   readonly perDay: number;
   /** Per-day batch sizes (at most 62 entries, differing by at most one). */
   readonly sizes: readonly number[];
-  /** Daily send limit of the channel's tier; 0 = no limit. */
+  /** The number's daily send limit; 0 = no limit. */
   readonly dailyLimit: number;
-  readonly tier: { readonly tier: number; readonly name: string } | null;
+  /** People who never chatted with this number go at most this many a day. */
+  readonly newChatsPerDay: number | null;
+  /** Days the list takes if everyone on it is new to this number. */
+  readonly worstDays: number | null;
   /** Fewest days that keeps every batch under `dailyLimit`. */
   readonly minDays: number;
   readonly feasible: boolean;
@@ -1424,8 +1523,6 @@ export interface CampaignStartResult {
   skippedFrequency?: number;
   /** The plan requires opt-in and these contacts have not given it. */
   skippedNoOptIn?: number;
-  /** Meta template mode: a template slot came out empty for them. */
-  skippedTemplateVars?: number;
   /** The plan's speed ceiling lowered the chosen preset. */
   pacingClamped?: { requested: PacingPreset; applied: PacingPreset } | null;
   /** Plain-language notes on plan rules applied at send time. */

@@ -10,12 +10,12 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
 import { DailyQuota, dayEnd, dayStart } from '../src/campaign/safety.js';
-import { DEFAULTS } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { Status } from '../src/protocol.js';
 
 const IST = 'Asia/Kolkata';
-const config = { ...DEFAULTS, safetyEnabled: true, tierSystem: false, dailyLimit: 250, warmupDays: 0 };
+const config = { ...DEFAULTS, safetyEnabled: true, transport: TRANSPORT_SANDBOX, dailyLimit: 250 };
 
 describe('the day boundary', () => {
     it('is midnight in the sender zone, not the server zone', () => {
@@ -87,7 +87,8 @@ describe('an older database', () => {
         try {
             const first = new Database(file);
             const raw = first.forTenant(1).forChannel(1).db;
-            raw.exec('ALTER TABLE messages DROP COLUMN sent_at');
+            // An old file had neither the column nor the index over it.
+            raw.exec('DROP INDEX idx_messages_channel_sent; ALTER TABLE messages DROP COLUMN sent_at');
             const add = raw.prepare(`INSERT INTO messages (tenant_id, channel_id, message_id, recipient, message, status, created_at, updated_at)
                                      VALUES (1, 1, ?, '919800000001', 'hi', ?, ?, ?)`);
             add.run('old-sent', 'SENT', '2026-10-16T09:00:00+00:00', '2026-10-17T02:00:00+00:00');

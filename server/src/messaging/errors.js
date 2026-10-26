@@ -2,7 +2,7 @@
  * One vocabulary for "why did that send fail".
  *
  * Each transport throws its own thing: a `TransportError` with a provider
- * payload, a Cloud API error code, a Puppeteer stack.  Callers upstream should
+ * payload, a socket error, a plain message.  Callers upstream should
  * never branch on which.  `normalizeError` turns all of it into a small fixed
  * set, so retry policy, the UI and (Phase 18) alerting all read one field.
  */
@@ -22,12 +22,6 @@ export const ErrorCode = Object.freeze({
     TEMPLATE_REQUIRED: 'TEMPLATE_REQUIRED',
     /** Provider is down or timed out. */
     PROVIDER_UNAVAILABLE: 'PROVIDER_UNAVAILABLE',
-    /** Meta 131049: this person already got their marketing allowance; retrying now is pointless. */
-    PER_USER_CAP: 'PER_USER_CAP',
-    /** Meta 132000/132005/132012: parameters don't fit the approved template. */
-    TEMPLATE_PARAMS: 'TEMPLATE_PARAMS',
-    /** Meta 132001/132015/132016: template missing in that language, paused or disabled. */
-    TEMPLATE_UNAVAILABLE: 'TEMPLATE_UNAVAILABLE',
     /** We stopped it: operator pause, quota, shutdown. */
     CANCELLED: 'CANCELLED',
     /** Anything we have not taught this function yet. */
@@ -39,31 +33,6 @@ const RETRYABLE = new Set([
     ErrorCode.DISCONNECTED,
     ErrorCode.RATE_LIMITED,
     ErrorCode.PROVIDER_UNAVAILABLE,
-]);
-
-// Meta Cloud API error codes worth recognising by number.
-// https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes
-const CLOUD_API_CODES = new Map([
-    [4, ErrorCode.RATE_LIMITED],
-    [80007, ErrorCode.RATE_LIMITED],
-    [130429, ErrorCode.RATE_LIMITED],
-    [131048, ErrorCode.RATE_LIMITED],
-    [131056, ErrorCode.RATE_LIMITED],
-    [131049, ErrorCode.PER_USER_CAP],
-    [190, ErrorCode.AUTH],
-    [401, ErrorCode.AUTH],
-    [131026, ErrorCode.INVALID_RECIPIENT],
-    [131051, ErrorCode.INVALID_RECIPIENT],
-    [131047, ErrorCode.TEMPLATE_REQUIRED],
-    [132000, ErrorCode.TEMPLATE_PARAMS],
-    [132005, ErrorCode.TEMPLATE_PARAMS],
-    [132012, ErrorCode.TEMPLATE_PARAMS],
-    [132001, ErrorCode.TEMPLATE_UNAVAILABLE],
-    [132015, ErrorCode.TEMPLATE_UNAVAILABLE],
-    [132016, ErrorCode.TEMPLATE_UNAVAILABLE],
-    [131000, ErrorCode.PROVIDER_UNAVAILABLE],
-    [500, ErrorCode.PROVIDER_UNAVAILABLE],
-    [503, ErrorCode.PROVIDER_UNAVAILABLE],
 ]);
 
 /**
@@ -79,13 +48,9 @@ export function normalizeError(err) {
         return finish(ErrorCode.DISCONNECTED, detail, providerCode, err.retryable);
     }
 
-    if (providerCode !== null && CLOUD_API_CODES.has(providerCode)) {
-        return finish(CLOUD_API_CODES.get(providerCode), detail, providerCode);
-    }
-
     // The transports already classify retryability; keep their answer when the
     // code is one we do not recognise, rather than overriding it with a guess.
-    const guess = fromText(detail);
+    const guess = err.code === ErrorCode.RATE_LIMITED ? ErrorCode.RATE_LIMITED : fromText(detail);
     if (err instanceof TransportError) {
         return finish(guess, detail, providerCode, guess === ErrorCode.UNKNOWN ? err.retryable : undefined);
     }
@@ -114,10 +79,10 @@ function pickProviderCode(err) {
 /** Last resort: the message text is all some transports give us. */
 function fromText(detail) {
     const text = detail.toLowerCase();
-    if (/rate.?limit|too many requests|throttl/.test(text)) return ErrorCode.RATE_LIMITED;
+    // Baileys says "rate-overlimit" (429).
+    if (/rate.?(over)?.?limit|too many requests|throttl/.test(text)) return ErrorCode.RATE_LIMITED;
     if (/unauthori|invalid.*(token|credential)|expired.*token|forbidden/.test(text)) return ErrorCode.AUTH;
     if (/not.*(on whatsapp|a valid whatsapp)|invalid.*(recipient|phone|number)/.test(text)) return ErrorCode.INVALID_RECIPIENT;
-    if (/131049|marketing messages? (limit|to this person)|healthy ecosystem/.test(text)) return ErrorCode.PER_USER_CAP;
     if (/template|24.?hour window|outside.*window/.test(text)) return ErrorCode.TEMPLATE_REQUIRED;
     if (/timeout|timed out|econnreset|enotfound|socket hang up|unavailable|bad gateway/.test(text)) {
         return ErrorCode.PROVIDER_UNAVAILABLE;
@@ -134,9 +99,6 @@ export const FRIENDLY = Object.freeze({
     [ErrorCode.INVALID_RECIPIENT]: 'This number is not on WhatsApp. Check the number and its country code.',
     [ErrorCode.TEMPLATE_REQUIRED]: 'This person has not messaged you in the last 24 hours, so WhatsApp only allows an approved template.',
     [ErrorCode.PROVIDER_UNAVAILABLE]: 'WhatsApp did not respond in time. The message will be retried.',
-    [ErrorCode.TEMPLATE_PARAMS]: "The template variables don't match the approved template. Check the variable mapping on the Templates page.",
-    [ErrorCode.TEMPLATE_UNAVAILABLE]: 'That template is not approved for this number in this language (or Meta paused it). Check the Meta template name and language.',
-    [ErrorCode.PER_USER_CAP]: 'WhatsApp limited marketing messages to this person; try again after 24h.',
     [ErrorCode.CANCELLED]: 'Stopped before it was sent.',
     chat: 'WhatsApp could not find this chat. Check the number is on WhatsApp, then retry.',
     type: 'WhatsApp does not support this kind of message for this number.',
@@ -161,7 +123,7 @@ export function friendlyError(errOrText) {
     if (/evaluation failed|protocol error|target closed|execution context was destroyed|session closed|page crashed/.test(lower)) {
         return FRIENDLY[ErrorCode.DISCONNECTED];
     }
-    if (/131051|unsupported message type/.test(lower)) return FRIENDLY.type;
+    if (/unsupported message type/.test(lower)) return FRIENDLY.type;
     if (/media|file.*(too large|size)/.test(lower) && /fail|error|large/.test(lower)) {
         return FRIENDLY.media;
     }

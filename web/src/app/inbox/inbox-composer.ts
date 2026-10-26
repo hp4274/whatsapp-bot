@@ -5,10 +5,12 @@ import {
   DestroyRef,
   ElementRef,
   computed,
+  effect,
   inject,
   input,
   output,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { Subscription } from 'rxjs';
@@ -104,6 +106,24 @@ export class InboxComposer {
   constructor() {
     // Abort any upload and free the preview's object URL when the thread changes.
     this.destroyRef.onDestroy(() => this.removeAttachment());
+    // The page keeps this view across conversations: a half-typed reply or attachment must not
+    // follow the agent into someone else's thread. A refreshed copy of the same thread keeps its id.
+    let shown: number | null = null;
+    effect(() => {
+      const id = this.conversation().id;
+      if (shown !== null && id !== shown) {
+        untracked(() => {
+          this.draft.set('');
+          this.removeAttachment();
+          this.error.set('');
+          this.quickOpen.set(false);
+          this.slashFilter.set(false);
+          this.quickQuery.set('');
+          this.quickIndex.set(0);
+        });
+      }
+      shown = id;
+    });
   }
 
   focus() {

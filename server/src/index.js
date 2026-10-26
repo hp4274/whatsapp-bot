@@ -18,7 +18,11 @@ import express from 'express';
 import { closeApp, createApp } from './app.js';
 import { APP_DIR, ensureAppDir, loadConfig } from './config.js';
 import { Database } from './db.js';
+import { createOpsAlerts } from './observability/alerts.js';
+import { logger } from './observability/logger.js';
+import { trackRestarts } from './observability/metrics.js';
 import { migrateChannelSettings } from './security/crypto.js';
+import { startupKeyGate } from './security/keyGate.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -39,15 +43,28 @@ for (const envPath of envPaths) {
     }
 }
 
-import { hashPassword, verifyPassword } from './tenancy.js';
+import { Tenancy, hashPassword, verifyPassword } from './tenancy.js';
 import { trackIndexHashes } from './security/headers.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 
 ensureAppDir();
+// Crash restarts (pm2, ecosystem.config.cjs) show as the process_restarts metric.
+const restarts = trackRestarts(APP_DIR);
 const config = loadConfig();
 const db = new Database();
+// The encryption key gate (security/keyGate.js), before anything writes encrypted data or links a number: a
+// wrong or missing key stops here with an alert, and nothing is cleared. A changed key is re-encrypted here.
+try {
+    const gateAlerts = createOpsAlerts({ audit: (entry) => new Tenancy(db).audit(entry) });
+    await startupKeyGate({ dataDir: APP_DIR, sqlite: db.db, alert: gateAlerts.raise });
+} catch (err) {
+    logger.error('startup refused by the encryption key gate', { error: err.message });
+    console.error(`[whatsapp-sender] startup refused: ${err.message}`);
+    db.close();
+    process.exit(1);
+}
 // Seal any credentials written before encryption existed. A no-op without a
 // key, and idempotent, so it is safe on every boot.
 migrateChannelSettings(db.db);
@@ -99,23 +116,33 @@ const server = app.listen(PORT, HOST, () => {
     }
 });
 
-async function shutdown(signal) {
+let shuttingDown = false;
+async function shutdown(signal, code = 0) {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log(`[whatsapp-sender] ${signal}, shutting down`);
+    // A crash gets 3s to flush session files and close the db, then exits whatever is still pending.
+    setTimeout(() => process.exit(code), code ? 3000 : 5000).unref();
     try {
         await closeApp(app);
     } catch (err) {
         console.error('[whatsapp-sender] shutdown error:', err.message);
     }
-    db.close();
-    server.close(() => process.exit(0));
-    setTimeout(() => process.exit(0), 5000).unref();
+    try {
+        db.close();
+    } catch { /* already closed */ }
+    if (!code) restarts.stopped();
+    server.close(() => process.exit(code));
 }
 
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
+// The process state is unknown after an uncaught exception: log it, close the sessions and db
+// (bounded, so Baileys does not die mid-write of creds.json), exit 1, and pm2 starts a clean one.
 process.on('uncaughtException', (err) => {
-    console.error('[whatsapp-sender] Uncaught exception:', err);
+    logger.error('uncaught exception, exiting for a restart', { error: err?.message ?? String(err), stack: err?.stack });
+    shutdown('uncaughtException', 1);
 });
 
 process.on('unhandledRejection', (reason) => {

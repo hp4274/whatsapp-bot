@@ -220,6 +220,13 @@
   }
 
   p { margin: 0; padding: 2px 6px; overflow-wrap: anywhere; }
+
+  // A follow-up message from the same sender: no tail, all corners round.
+  &.next {
+    border-radius: 10px;
+
+    &::after { content: none; }
+  }
 }
 
 @keyframes pop {
@@ -257,6 +264,15 @@
   div { display: grid; min-width: 0; }
   strong { font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   small { font-size: 11px; color: var(--wa-meta); }
+}
+
+.no-pic {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  background: var(--wa-paper);
+  color: var(--wa-meta);
+  font-size: 28px;
 }
 
 .hdr { font-weight: 700; font-size: 14px; }

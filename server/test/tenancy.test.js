@@ -35,7 +35,7 @@ const call = async (token, method, url, body, headers = {}) => {
         body: body ? JSON.stringify(body) : undefined,
     });
     const text = await res.text();
-    // Most routes answer JSON, but the webhook verify handshake replies in plain text.
+    // Most routes answer JSON; anything else comes back as text.
     const json = res.headers.get('content-type')?.includes('json');
     return { status: res.status, body: text && json ? JSON.parse(text) : (text || null) };
 };
@@ -222,13 +222,13 @@ describe('tenant lifecycle', () => {
         const made = await call(tokens.superAdmin, 'POST', '/api/admin/tenants', {
             name: 'Clinic C', slug: 'clinic-c',
             services: ['contacts', 'campaigns', 'payment_reminders'],
-            controls: { sendingEnabled: true, inboundEnabled: false },
+            controls: { sendingEnabled: true, campaignsEnabled: false },
             owner: { email: 'owner@clinic-c.dev', password: 'long-enough-1' },
         });
         assert.equal(made.status, 201);
         assert.equal(made.body.owner.role, 'owner');
         assert.deepEqual(made.body.tenant.services, ['contacts', 'campaigns', 'payment_reminders']);
-        assert.equal(made.body.tenant.controls.inboundEnabled, false);
+        assert.equal(made.body.tenant.controls.campaignsEnabled, false);
         const logs = await call(tokens.superAdmin, 'GET', '/api/admin/audit-logs');
         assert.ok(logs.body.logs.some((l) => l.action === 'tenant.create'));
         const dup = await call(tokens.superAdmin, 'POST', '/api/admin/tenants', {
@@ -266,7 +266,7 @@ describe('tenant lifecycle', () => {
         const made = await call(tokens.superAdmin, 'POST', '/api/admin/tenants', {
             name: 'Limited Tenant', slug: 'limited-tenant',
             services: ['contacts'],
-            controls: { sendingEnabled: false, inboundEnabled: false },
+            controls: { sendingEnabled: false },
             owner: { email: 'owner@limited-tenant.dev', password: 'long-enough-1' },
         });
         assert.equal(made.status, 201);
@@ -287,7 +287,21 @@ describe('tenant lifecycle', () => {
         const blockedSend = await call(token, 'POST', '/api/messages', { recipient: '+919876543210', message: 'x' });
         assert.equal(blockedSend.status, 403);
         assert.match(blockedSend.body.errors[0], /sending is disabled/);
-        assert.equal((await call(null, 'GET', `/api/webhook/${tenantId}`)).status, 404);
+    });
+
+    it('refuses a send whatever the case or trailing slash, as Express still routes it', async () => {
+        const quiet = tenancy.createTenant('Quiet Sender', 'quiet-sender', { controls: { sendingEnabled: false } });
+        const token = sessionFor(app, { tenantId: quiet.id, role: 'owner' });
+        for (const [url, body] of [
+            ['/api/campaign/start/', {}],
+            ['/api/Campaign/Start', {}],
+            ['/api/Messages', { recipient: '+919876543210', message: 'x' }],
+            ['/api/messages/', { recipient: '+919876543210', message: 'x' }],
+        ]) {
+            const res = await call(token, 'POST', url, body);
+            assert.equal(res.status, 403, url);
+            assert.match(res.body.errors[0], /sending is disabled/, url);
+        }
     });
 
     it('gates object types by their singular router path, case-insensitively', async () => {
@@ -300,17 +314,14 @@ describe('tenant lifecycle', () => {
         assert.match((await call(token, 'GET', '/api/objects/lead')).body.errors[0], /leads is disabled/);
     });
 
-    it('locks a suspended tenant out immediately, and its webhook goes dark', async () => {
+    it('locks a suspended tenant out immediately', async () => {
         const victim = tenancy.createTenant('Suspend Me', 'suspend-me');
         const token = sessionFor(app, { tenantId: victim.id, role: 'owner' });
         assert.equal((await call(token, 'GET', '/api/history')).status, 200);
-        assert.equal((await call(null, 'GET', `/api/webhook/${victim.id}`)).status, 403,
-            'live tenant: verification runs (and fails without the token)');
 
         const res = await call(tokens.superAdmin, 'PATCH', `/api/admin/tenants/${victim.id}`, { status: 'suspended' });
         assert.equal(res.body.tenant.status, 'suspended');
         assert.equal((await call(token, 'GET', '/api/history')).status, 401);
-        assert.equal((await call(null, 'GET', `/api/webhook/${victim.id}`)).status, 404);
     });
 
     it('archives a deleted tenant, hides it from admin lists, and kills sessions', async () => {
@@ -348,6 +359,30 @@ describe('tenant lifecycle', () => {
         const cfg = await call(owner, 'GET', '/api/config');
         assert.equal(cfg.body.config.dailyLimit, 5);
         assert.equal(cfg.body.config.minDelaySeconds, 20);
+    });
+
+    it('resets one anti-ban key to its default with null, on the record and on running numbers', async () => {
+        const made = tenancy.createTenant('Reset', 'reset-safety');
+        const owner = sessionFor(app, { tenantId: made.id, role: 'owner' });
+        const url = `/api/admin/tenants/${made.id}/safety`;
+        await call(tokens.superAdmin, 'PUT', url, { dailyLimit: 7, restEvery: 12 });
+        assert.equal((await call(owner, 'GET', '/api/config')).body.config.dailyLimit, 7);
+
+        const reset = await call(tokens.superAdmin, 'PUT', url, { dailyLimit: null });
+        assert.equal(reset.status, 200);
+        assert.equal(reset.body.safety.dailyLimit, DEFAULTS.dailyLimit);
+        assert.equal(reset.body.safety.restEvery, 12, 'other keys stay');
+        assert.ok(!('dailyLimit' in tenancy.getTenant(made.id).safety), 'the override is gone, not stored as null');
+        // Back to the number's own start: a new QR number holds no day of its own (the plan's day applies live).
+        assert.equal((await call(owner, 'GET', '/api/config')).body.config.dailyLimit, 0);
+
+        // A reset puts back the number's own starting value (newNumberSafety), not the bare default.
+        tenancy.db.prepare("UPDATE whatsapp_channels SET settings = json_set(settings, '$.maxRetries', 2) WHERE tenant_id = ?")
+            .run(made.id);
+        await call(tokens.superAdmin, 'PUT', url, { maxRetries: 7 });
+        assert.equal((await call(owner, 'GET', '/api/config')).body.config.maxRetries, 7);
+        await call(tokens.superAdmin, 'PUT', url, { maxRetries: null });
+        assert.equal((await call(owner, 'GET', '/api/config')).body.config.maxRetries, 2, 'live matches a restart');
     });
 
     it('audits tenant-side changes with the acting user', async () => {
@@ -430,5 +465,38 @@ describe('super admin password reset', () => {
         assert.ok(await tenancy.authenticate('reset@test.dev', 'new-password'));
         server.close();
         await close(app);
+    });
+});
+
+describe('public API (/api/v1) guards', () => {
+    it('applies the admin tenant controls and the expired-plan gate to an API key', async () => {
+        const { ApiKeyStore } = await import('../src/publicapi/keys.js');
+        const made = tenancy.createTenant('Api Co', 'api-co');
+        const { key } = new ApiKeyStore(db.forTenant(made.id)).createKey({ name: 't', scopes: ['events:write', 'objects:write', 'contacts:read'] });
+        const v1 = (method, url, body) => call(null, method, url, body, { 'x-api-key': key });
+        const controls = (patch) => call(tokens.superAdmin, 'PATCH', `/api/admin/tenants/${made.id}`, { controls: patch });
+
+        // Open: an empty event reaches the route (400).
+        assert.equal((await v1('POST', '/api/v1/events', {})).status, 400);
+
+        assert.equal((await controls({ automationsEnabled: false })).status, 200);
+        const events = await v1('POST', '/api/v1/events', {});
+        assert.equal(events.status, 403);
+        assert.equal(events.body.error, 'tenant_blocked');
+        // Object writes start workflows too; reads stay open.
+        assert.equal((await v1('POST', '/api/v1/orders', { reference: 'G-1' })).status, 403);
+        assert.notEqual((await v1('GET', '/api/v1/contacts/919800000001')).status, 403);
+        assert.equal((await controls({ automationsEnabled: true, sendingEnabled: false })).status, 200);
+        assert.equal((await v1('POST', '/api/v1/events', {})).status, 400, 'events need automations, not sending');
+        await controls({ sendingEnabled: true });
+
+        // An ended subscription: 402, as on the session API.
+        assert.equal((await call(tokens.superAdmin, 'PUT', `/api/admin/tenants/${made.id}/subscription`, { planKey: 'starter', trialDays: 0 })).status, 200);
+        await call(tokens.superAdmin, 'DELETE', `/api/admin/tenants/${made.id}/subscription?immediate=true`);
+        db.db.prepare('UPDATE subscriptions SET cancelled_at = ? WHERE tenant_id = ?')
+            .run(new Date(Date.now() - 30 * 86_400_000).toISOString(), made.id);
+        const expired = await v1('GET', '/api/v1/contacts/919800000001');
+        assert.equal(expired.status, 402);
+        assert.equal(expired.body.error, 'subscription_expired');
     });
 });

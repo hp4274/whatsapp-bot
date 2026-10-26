@@ -313,6 +313,29 @@ describe('the engine', () => {
         assert.deepEqual(failing.sent.map((j) => j.text), ['first', 'second'], 'step a was not sent again');
     });
 
+    it('waits, not fails, while a tenant control refuses the send, and resumes once it is back on', async () => {
+        A.store.create({ name: 'held', status: 'active', trigger: { type: 'held' }, steps: [send('a', 'held hi')] });
+        const blocked = fakeMessages();
+        const origSend = blocked.send;
+        let off = true;
+        blocked.send = (job) => {
+            if (off) throw Object.assign(new Error('Automations are switched off for your business.'), { reason: 'tenant_blocked' });
+            return origSend(job);
+        };
+        const engine = new WorkflowEngine({ store: A.store, messages: blocked, contacts: A.contacts, channels: A.channels, now });
+        const [run] = await engine.dispatch(event({ type: 'held', data: {} }));
+        assert.equal(run.status, 'waiting');
+        assert.equal(run.currentStep, 'a', 'the refused step is tried again');
+        assert.equal(run.resumeAt, new Date(now().getTime() + 5 * 60_000).toISOString().replace(/\.\d{3}Z$/, '+00:00'));
+        assert.equal(run.finishedAt ?? null, null);
+        off = false;
+        tick(5 * 60_000);
+        assert.ok(engine.due().some((r) => r.runId === run.runId));
+        const resumed = await engine.resume(run.runId);
+        assert.equal(resumed.status, 'completed');
+        assert.deepEqual(blocked.sent.map((j) => j.text), ['held hi']);
+    });
+
     it('takes the onError path when a step declares one', async () => {
         A.store.create({
             name: 'hooked', status: 'active', trigger: { type: 'hook' },

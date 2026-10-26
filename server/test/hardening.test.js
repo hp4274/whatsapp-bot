@@ -14,12 +14,11 @@ import { after, before, describe, it } from 'node:test';
 import { closeApp } from '../src/app.js';
 import { processOptOut } from '../src/autoreply/optout.js';
 import { CampaignManager } from '../src/campaign/manager.js';
-import { DailyQuota, SafetyError, bulkWindowOpen, variationError } from '../src/campaign/safety.js';
+import { SafetyError, bulkWindowOpen, variationError } from '../src/campaign/safety.js';
 import { DEFAULTS, POLICY_KEYS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { fileTypeError } from '../src/security/filetype.js';
 import { inlineScriptHashes } from '../src/security/headers.js';
-import { safeEqual } from '../src/security/signature.js';
 import { SESSION_IDLE_MS } from '../src/tenancy.js';
 import { createTestApp, sessionFor } from './helpers.js';
 
@@ -104,13 +103,6 @@ describe('security headers', () => {
         } finally {
             app.locals.cspScriptHashes = undefined;
         }
-    });
-
-    it('compares shared secrets in constant time and still gets the answer right', () => {
-        assert.equal(safeEqual('verify-me', 'verify-me'), true);
-        assert.equal(safeEqual('verify-me', 'verify-mf'), false);
-        assert.equal(safeEqual('', undefined), true);
-        assert.equal(safeEqual('a', 'ab'), false);
     });
 });
 
@@ -233,36 +225,18 @@ describe('admin audit trail', () => {
 
 describe('number protection policy', () => {
     it('exposes the new keys to the platform admin with range checks', async () => {
-        for (const key of ['warmupDays', 'recipientDailyCap', 'requireVariationAbove', 'quietHoursStart', 'quietHoursEnd']) {
+        for (const key of ['recipientDailyCap', 'requireVariationAbove', 'quietHoursStart', 'quietHoursEnd']) {
             assert.ok(POLICY_KEYS.includes(key), key);
             assert.equal(DEFAULTS[key], 0, `${key} is off by default`);
         }
         const view = await call(tokens.superAdmin, 'GET', `/api/admin/tenants/${tenantB.id}/safety`);
-        assert.equal(view.body.safety.warmupDays, 0);
+        assert.equal(view.body.safety.recipientDailyCap, 0);
         assert.equal((await call(tokens.superAdmin, 'PUT', `/api/admin/tenants/${tenantB.id}/safety`, { quietHoursStart: 24 })).status, 400);
-        const ok = await call(tokens.superAdmin, 'PUT', `/api/admin/tenants/${tenantB.id}/safety`, { warmupDays: 7, recipientDailyCap: 2 });
-        assert.equal(ok.body.safety.warmupDays, 7);
+        const ok = await call(tokens.superAdmin, 'PUT', `/api/admin/tenants/${tenantB.id}/safety`, { recipientDailyCap: 2 });
+        assert.equal(ok.body.safety.recipientDailyCap, 2);
         // Tenants cannot set platform policy through their own config.
-        await call(tokens.ownerB, 'PUT', '/api/config', { warmupDays: 0 });
-        assert.equal((await call(tokens.ownerB, 'GET', '/api/config')).body.config.warmupDays, 7);
-    });
-
-    it('warms a new number up: 30, 60, 120... capped by the daily limit, then the full limit', () => {
-        const now = new Date(2026, 0, 10, 12);
-        const quotaFor = (daysAgo, config) => new DailyQuota({
-            firstSentAt: () => (daysAgo === null ? null : new Date(2026, 0, 10 - daysAgo, 8).toISOString()),
-            countSentBetween: () => 0,
-        }, { safetyEnabled: true, dailyLimit: 250, warmupDays: 5, ...config });
-        assert.equal(quotaFor(null).limitOn(now), 30, 'never sent: day one');
-        assert.equal(quotaFor(0).limitOn(now), 30);
-        assert.equal(quotaFor(1).limitOn(now), 60);
-        assert.equal(quotaFor(2).limitOn(now), 120);
-        assert.equal(quotaFor(3).limitOn(now), 240);
-        assert.equal(quotaFor(4).limitOn(now), 250, 'never above the daily limit');
-        assert.equal(quotaFor(5).limitOn(now), 250, 'warm-up over');
-        assert.equal(quotaFor(0, { warmupDays: 0 }).limitOn(now), 250, 'off');
-        assert.equal(quotaFor(1, { dailyLimit: 0 }).limitOn(now), 60, 'ramps even with no daily limit');
-        assert.equal(quotaFor(0).status(now).limit, 30);
+        await call(tokens.ownerB, 'PUT', '/api/config', { recipientDailyCap: 0 });
+        assert.equal((await call(tokens.ownerB, 'GET', '/api/config')).body.config.recipientDailyCap, 2);
     });
 
     it('caps bulk messages per recipient per 24h, and counts only bulk', () => {
@@ -274,10 +248,10 @@ describe('number protection policy', () => {
             at('SENT', 'campaign');
             at('QUEUED', 'campaign');
             at('FAILED', 'campaign');
+            at('CANCELLED', 'campaign'); // a stopped run: never sent, so restarting it is not a second message
             at('SENT', 'auto_reply');
             at('SENT', 'transactional');
             assert.equal(store.bulkCountsSince('2000-01-01T00:00:00+00:00').get('911'), 2);
-            assert.ok(store.firstSentAt());
 
             const manager = new CampaignManager(store, { realDelivery: false }, { ...DEFAULTS, recipientDailyCap: 2 });
             const result = manager.enqueueContacts([{ name: 'A', phone: '911' }, { name: 'B', phone: '912' }], 'Hi {name}');
@@ -297,6 +271,9 @@ describe('number protection policy', () => {
         assert.equal(variationError('{Hi|Hello} there', people(3), config), null);
         assert.equal(variationError('Hi {name}', people(3), config), null);
         assert.equal(variationError('', people(3).map((p, i) => ({ ...p, extra: { message: `own ${i}` } })), config), null);
+        assert.match(variationError('Hi {name}', people(3).map((p) => ({ ...p, extra: { message: 'same' } })), config), /spintax/,
+            'one text on every row is identical bulk');
+        assert.equal(variationError('', people(3).map((p) => ({ ...p, extra: { message: 'Hi {name}' } })), config), null);
         assert.equal(variationError('Same text', people(300), {}), null, 'off by default');
 
         const manager = new CampaignManager({ sentRecipients: () => new Set() }, null, { ...DEFAULTS, ...config });

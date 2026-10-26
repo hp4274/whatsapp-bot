@@ -10,6 +10,7 @@ import {
   viewChild,
 } from '@angular/core';
 
+import { MediaSrc } from '../campaign/interactive/media-src';
 import { ArToasts, AutoRepliesApi, Media, VARIABLES } from './auto-replies.api';
 
 /** Per-instance id counter, so a label can point at a control it does not own. */
@@ -229,11 +230,12 @@ export class ArChips {
 /** Media attach: uploads first, then shows a file chip holding the stored media id. */
 @Component({
   selector: 'ar-media',
+  imports: [MediaSrc],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: ` @if (value(); as m) {
       <div class="file">
         @if (isImage(m) && m.url) {
-          <img [src]="m.url" alt="" />
+          <img [mediaSrc]="m.url" alt="" />
         } @else {
           <i class="ti ti-{{ icon(m) }} icon" aria-hidden="true"></i>
         }

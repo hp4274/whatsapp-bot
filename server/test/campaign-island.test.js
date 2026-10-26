@@ -26,7 +26,7 @@ describe('engine-wide pause / resume / stop on a saved campaign', () => {
     before(async () => {
         db = new Database(path.join(tmp, 'island.db'));
         // One send every 5s: the run is still going when the card acts on it.
-        const config = { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 0.2, rateLimitBurst: 1, tierSystem: false };
+        const config = { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 0.2, rateLimitBurst: 1 };
         delete config.misc;
         app = createTestApp({ db, config });
         server = app.listen(0, '127.0.0.1');

@@ -22,7 +22,7 @@
 <section class="panel" role="tabpanel" [id]="uid + '-panel'" [attr.aria-labelledby]="uid + '-tab-' + tab()">
   @switch (tab()) {
     @case ('queue') {
-      <p class="lede">Baileys templates have no Meta review, so they wait here before tenants can send them.</p>
+      <p class="lede">Templates wait here for review before tenants can send them.</p>
       @if (queue.error()) {
         <p class="s-banner" role="alert">
           <i class="ti ti-alert-circle" aria-hidden="true"></i>
@@ -243,62 +243,6 @@
             </div>
           }
         </div>
-      }
-    }
-
-    @case ('meta') {
-      <p class="lede">Meta reviews Cloud API templates itself; these are the statuses stored per tenant.</p>
-      @if (meta.error()) {
-        <p class="s-banner" role="alert">
-          <i class="ti ti-alert-circle" aria-hidden="true"></i>
-          <span class="msg">{{ meta.error() }}</span>
-          <button type="button" class="btn sm" (click)="reload('meta')">Try again</button>
-        </p>
-      } @else if (meta.loading()) {
-        <div class="s-card" aria-busy="true" aria-label="Loading Meta statuses">
-          <div class="s-skel"></div>
-          <div class="s-skel" style="width: 80%"></div>
-          <div class="s-skel" style="width: 65%"></div>
-        </div>
-      } @else {
-        @if (meta.data()?.length) {
-          <div class="s-card">
-            <div class="s-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th scope="col">Tenant</th>
-                    <th scope="col" class="num">Approved</th>
-                    <th scope="col" class="num">Pending</th>
-                    <th scope="col" class="num">Rejected</th>
-                    <th scope="col" class="num">Draft</th>
-                    <th scope="col" class="num">Total</th>
-                    <th scope="col">Last synced</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (m of meta.data(); track m.tenantId; let i = $index) {
-                    <tr [style.--i]="i" [class.idle]="!m.total">
-                      <td class="name">{{ m.tenantName }}</td>
-                      <td class="num" [class.ok]="m.approved">{{ m.approved }}</td>
-                      <td class="num" [class.warn]="m.pending">{{ m.pending }}</td>
-                      <td class="num" [class.bad]="m.rejected">{{ m.rejected }}</td>
-                      <td class="num">{{ m.draft }}</td>
-                      <td class="num total">{{ m.total }}</td>
-                      <td>{{ m.lastSynced ? (m.lastSynced | date: 'd MMM y, HH:mm') : 'Never' }}</td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
-          </div>
-        } @else {
-          <div class="s-empty">
-            <i class="ti ti-cloud" aria-hidden="true"></i>
-            <strong>No tenants yet</strong>
-            <p>Statuses appear once a tenant has Cloud API templates.</p>
-          </div>
-        }
       }
     }
   }

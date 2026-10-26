@@ -1,13 +1,14 @@
 <!--
-  Three bands in one card: the tier staircase with progress to the next step,
-  today (budget + quiet-time windows), then blocks and reports with who and when.
+  Bands in one card: the daily allowance in one line, today (budgets +
+  quiet-time windows), what is braking the number, trust tips for a new QR
+  number, the ban causes, then blocks and reports with who and when.
 -->
 <section #card class="card sh" aria-labelledby="sh-title" (keydown.escape)="close()">
   <header class="card-head">
     <div>
       <h3 id="sh-title">Number health</h3>
       <p class="muted">
-        New numbers start slow and earn bigger days. Blocks and reports pause a campaign for you.
+        Daily sending grows as people reply. Blocks and reports pause a campaign for you.
       </p>
     </div>
     <button class="btn" type="button" (click)="load()" [disabled]="loading()">
@@ -28,57 +29,60 @@
       <div class="s-skel" style="width: 80%"></div>
     </div>
   } @else {
-    <!-- Tier staircase -->
-    @if (tier(); as t) {
-      <div class="band">
-        <ol class="stairs" aria-label="Sending tiers">
-          @for (step of steps; track step.n) {
-            <li
-              [class.done]="step.n < t.tier"
-              [class.now]="step.n === t.tier"
-              [style.--rise.px]="28 + step.n * 22"
-            >
-              <span class="rung">
-                <i
-                  class="ti {{ step.n < t.tier ? 'ti-check' : step.n === t.tier ? 'ti-rocket' : 'ti-lock' }}"
-                  aria-hidden="true"
-                ></i>
-              </span>
-              <strong>Tier {{ step.n }}</strong>
-              <span class="per">{{ step.perDay }}<small> / day</small></span>
-            </li>
-          }
-        </ol>
-
-        <div class="climb">
-          <div class="climb-head">
-            <strong>{{ t.name }} · tier {{ t.tier }}</strong>
-            @if (t.next && t.nextTierAt) {
-              <span class="muted"
-                >{{ t.weekSent }} of {{ t.nextTierAt }} messages this week to reach
-                {{ t.next.name }}</span
-              >
-            } @else {
-              <span class="muted">Top tier. Nothing left to earn.</span>
-            }
-          </div>
-          <div class="meter" role="progressbar" [attr.aria-valuenow]="climb()" aria-valuemin="0" aria-valuemax="100">
-            <div class="bar" [style.width.%]="climb()"></div>
-          </div>
-        </div>
-      </div>
+    @if (allowance(); as al) {
+      <p class="allowance" [class.held]="al.held" role="status">
+        <i class="ti {{ al.icon }}" aria-hidden="true"></i>
+        <span><strong>{{ al.lead }}</strong>{{ al.rest }}</span>
+      </p>
     }
 
     <!-- Today -->
     @if (safety(); as s) {
       <div class="band today">
-        <div class="stat">
-          <span>Sent today</span>
-          <strong>{{ s.used }}{{ s.limit ? ' / ' + s.limit : '' }}</strong>
-          <div class="meter slim" aria-hidden="true">
-            <div class="bar" [style.width.%]="usedPercent()"></div>
+        @if (budgets(); as b) {
+          <div class="stat">
+            <span>Bulk today</span>
+            <strong>{{ b.bulk.used }}{{ b.bulk.limit ? ' / ' + b.bulk.limit : '' }}</strong>
+            <div class="meter slim" aria-hidden="true">
+              <div class="bar" [style.width.%]="share(b.bulk)"></div>
+            </div>
+            <small class="muted">{{
+              b.bulk.limit ? 'Resets ' + (b.bulk.resetsAt | date: 'h:mm a') : 'None today'
+            }}</small>
           </div>
-        </div>
+          <div class="stat">
+            <span>New chats today</span>
+            <strong>{{ b.newChats.used }}{{ b.newChats.limit ? ' / ' + b.newChats.limit : '' }}</strong>
+            <div class="meter slim" aria-hidden="true">
+              <div class="bar" [style.width.%]="share(b.newChats)"></div>
+            </div>
+            <small class="muted">
+              @if (b.newChats.left) {
+                {{ b.newChats.left }} left, for people new to this number
+              } @else if (b.newChats.opensAt) {
+                Open again {{ b.newChats.opensAt | date: 'EEE h:mm a' }}
+              } @else {
+                None left today
+              }
+            </small>
+          </div>
+          <div class="stat">
+            <span>This hour</span>
+            <strong>{{ b.hour.used }}{{ b.hour.limit ? ' / ' + b.hour.limit : '' }}</strong>
+            <div class="meter slim" aria-hidden="true">
+              <div class="bar" [style.width.%]="share(b.hour)"></div>
+            </div>
+            <small class="muted">Bulk in the last 60 minutes</small>
+          </div>
+        } @else {
+          <div class="stat">
+            <span>Sent today</span>
+            <strong>{{ s.used }}{{ s.limit ? ' / ' + s.limit : '' }}</strong>
+            <div class="meter slim" aria-hidden="true">
+              <div class="bar" [style.width.%]="usedPercent()"></div>
+            </div>
+          </div>
+        }
         <!-- Gap between messages hidden for now (speed is not user-facing):
         <div class="stat">
           <span>Gap between messages</span>
@@ -93,7 +97,7 @@
             >
             <strong>{{ duration(q.minutesToday) }}</strong>
             @if (resting(); as r) {
-              <small class="muted">Resting now, back in {{ duration(r.minutesLeft) }}</small>
+              <small class="muted">Quiet now, back in {{ duration(r.minutesLeft) }}</small>
             }
             <small class="muted">
               @for (w of slots(); track w.key; let last = $last) {
@@ -119,6 +123,78 @@
             </small>
           </div>
         }
+      </div>
+    }
+
+    <!-- Brakes (QR numbers): the server's own words, and when each lifts -->
+    @if (brakes().length) {
+      <div class="band">
+        <strong class="cause-title">Slowing this number down</strong>
+        <ul class="causes">
+          @for (b of brakes(); track b.code) {
+            <li class="{{ b.code === 'ban' || b.code === 'restricted' ? 'tone-bad' : 'tone-warn' }}">
+              <i class="ti {{ brakeIcon(b.code) }}" aria-hidden="true"></i>
+              <span class="cause-label">{{ brakeLabel(b.code) }}</span>
+              <span class="s-pill tone-mute">{{
+                b.until ? 'Until ' + (b.until | date: 'd MMM, h:mm a') : 'Until it improves'
+              }}</span>
+              <small class="muted">{{ brakeText(b) }}</small>
+            </li>
+          }
+        </ul>
+      </div>
+    }
+
+    <!-- A new QR number: what makes it look like a real business to WhatsApp -->
+    @if (looksNew()) {
+      <div class="band">
+        <strong class="cause-title">Make a new number look trusted</strong>
+        <ul class="tips">
+          <li>
+            <i class="ti ti-user-circle" aria-hidden="true"></i>
+            <span
+              ><strong>Profile photo, name and About</strong>
+              <small class="muted"
+                >Fill in all three on the phone. A blank profile looks like a throwaway number.</small
+              ></span
+            >
+          </li>
+          <li>
+            <i class="ti ti-shield-lock" aria-hidden="true"></i>
+            <span
+              ><strong>Two-step verification</strong>
+              <small class="muted"
+                >Settings &gt; Account &gt; Two-step verification. It also stops a SIM swap taking
+                the number.</small
+              ></span
+            >
+          </li>
+          <li>
+            <i class="ti ti-messages" aria-hidden="true"></i>
+            <span
+              ><strong>Chat normally</strong>
+              <small class="muted"
+                >A few real conversations a day, some from the phone itself, look like a person,
+                not a bot.</small
+              ></span
+            >
+          </li>
+          <li>
+            <i class="ti ti-brand-whatsapp" aria-hidden="true"></i>
+            <span
+              ><strong>Ask customers to message you first</strong>
+              <small class="muted"
+                >People who wrote to you never use up new chats.
+                @if (chatLink(); as link) {
+                  Share <a [href]="link" target="_blank" rel="noopener">{{ link }}</a> on your
+                  site, receipts and posts.
+                } @else {
+                  Share your wa.me link on your site, receipts and posts.
+                }</small
+              ></span
+            >
+          </li>
+        </ul>
       </div>
     }
 

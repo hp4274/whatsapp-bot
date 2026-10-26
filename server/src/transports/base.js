@@ -1,7 +1,7 @@
 /**
  * Transport interface.  The API layer and the campaign engine talk to this
- * only - they never know whether the bytes go to Meta's Graph API, to a
- * WhatsApp Web session, or to a local file.
+ * only - they never know whether the bytes go to a QR-linked WhatsApp
+ * session (Baileys) or to a local file.
  */
 
 export class TransportError extends Error {

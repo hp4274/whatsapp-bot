@@ -58,7 +58,7 @@
       @for (row of group.rows; track row.field.key) {
         <div
           class="row"
-          [class.wide]="row.field.type === 'list'"
+          [class.wide]="row.field.type === 'list' || row.field.type === 'table'"
           [class.stack]="row.field.type === 'enum' || row.field.type === 'text'"
           [class.dirty]="row.dirty"
         >
@@ -117,14 +117,29 @@
                   [min]="row.field.min ?? 0"
                   [max]="row.field.max ?? null"
                   [value]="row.value"
-                  [attr.aria-describedby]="desc(row, isUnlimited(row) ? row.id + '-u' : '')"
+                  [placeholder]="row.field.nullLabel ?? ''"
+                  [attr.aria-describedby]="desc(row, isUnlimited(row) || row.value == null ? row.id + '-u' : '')"
                   (input)="setNumber(row, $any($event.target).value)"
+                  (change)="clearNumber(row, $any($event.target))"
                 />
                 @if (isUnlimited(row)) {
                   <span class="unlimited" [id]="row.id + '-u'">
                     <i class="ti ti-infinity" aria-hidden="true"></i>No limit
                   </span>
+                } @else if (row.value == null) {
+                  <span class="unlimited" [id]="row.id + '-u'">{{ row.field.nullLabel ?? 'Not set' }}</span>
                 }
+              }
+              @case ('table') {
+                <app-policy-table
+                  [field]="row.field"
+                  [value]="row.value"
+                  [inherited]="row.inherited"
+                  [inheritedFrom]="row.inheritedFrom"
+                  [labelledBy]="row.id + '-l'"
+                  [describedBy]="desc(row)"
+                  (changed)="set(row, $event)"
+                />
               }
               @case ('enum') {
                 @if (isSeg(row.field)) {

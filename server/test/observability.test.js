@@ -129,13 +129,13 @@ describe('metrics', () => {
     it('counts, times and reads gauges live in snapshot()', () => {
         metrics.inc('sends', { channelId: 1 });
         metrics.inc('sends', { channelId: 1 });
-        metrics.observe('provider_latency_ms', 100, { provider: 'cloud_api' });
-        metrics.observe('provider_latency_ms', 300, { provider: 'cloud_api' });
+        metrics.observe('provider_latency_ms', 100, { provider: 'baileys' });
+        metrics.observe('provider_latency_ms', 300, { provider: 'baileys' });
         let depth = 3;
         metrics.registerQueue(1, () => depth);
         const snap = metrics.snapshot();
         assert.equal(snap.counters['sends{channelId=1}'], 2);
-        assert.deepEqual(snap.timers['provider_latency_ms{provider=cloud_api}'], { count: 2, totalMs: 400, maxMs: 300, avgMs: 200 });
+        assert.deepEqual(snap.timers['provider_latency_ms{provider=baileys}'], { count: 2, totalMs: 400, maxMs: 300, avgMs: 200 });
         assert.equal(snap.gauges['queue_depth{channelId=1}'], 3);
         depth = 0;
         assert.equal(metrics.snapshot().gauges['queue_depth{channelId=1}'], 0, 'gauges are read at snapshot time');
@@ -145,8 +145,8 @@ describe('metrics', () => {
     });
 
     it('folds unknown error codes into UNKNOWN and reports a rate and a recent window', () => {
-        metrics.recordProviderLatency(50, { provider: 'cloud_api' });
-        metrics.recordProviderLatency(50, { provider: 'cloud_api' });
+        metrics.recordProviderLatency(50, { provider: 'baileys' });
+        metrics.recordProviderLatency(50, { provider: 'baileys' });
         metrics.recordError(ErrorCode.RATE_LIMITED);
         metrics.recordError('SOMETHING_NEW');
         metrics.recordWorkflowRun('completed');

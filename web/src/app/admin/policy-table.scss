@@ -1,0 +1,113 @@
+/* Table field editor: a sunken-header grid in its own horizontal scroller, compact
+ * inputs, the id column pinned left, and an orange edge on cells that differ. */
+@use '../school/school-shared' as s;
+
+@include s.keyframes;
+@include s.banner;
+
+:host { display: grid; gap: var(--space-sm); min-width: 0; }
+
+.msg { flex: 1; min-width: 0; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overscroll-behavior-x: contain;
+}
+
+table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12.5px;
+}
+
+th,
+td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-color);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+tbody tr:last-child > * { border-bottom: 0; }
+
+thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-sunken);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--hint);
+}
+
+// The level number stays in view while the rest scrolls.
+.fixed {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 52px;
+  background: var(--surface-card);
+  border-right: 1px solid var(--border-color);
+  font-weight: 500;
+  color: var(--text-strong);
+  text-align: center;
+}
+thead .fixed { z-index: 2; background: var(--surface-sunken); }
+
+input:not([type='checkbox']) {
+  width: 72px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  text-align: right;
+}
+.t-text input { width: 112px; text-align: left; }
+.group input { width: 60px; }
+.t-need .group input { width: 68px; }
+input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--primary); }
+
+.group { display: inline-flex; align-items: center; gap: 4px; }
+.sep { color: var(--hint); }
+
+.ro { background: var(--surface-sunken); }
+.ro-val { color: var(--text-muted); }
+
+td.differs {
+  background: var(--warning-soft);
+  box-shadow: inset 3px 0 0 var(--warning);
+
+  input:not([type='checkbox']) { border-color: var(--warning); }
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+
+  .mark {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    background: var(--warning-soft);
+    box-shadow: inset 3px 0 0 var(--warning);
+  }
+  .muted { color: var(--hint); }
+}

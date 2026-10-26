@@ -12,7 +12,7 @@ import { after, before, describe, it } from 'node:test';
 
 import { CampaignManager } from '../src/campaign/manager.js';
 import { CampaignStore, campaignKey, openCampaigns } from '../src/campaigns/store.js';
-import { DEFAULTS } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { ContactStore } from '../src/contactStore.js';
 import { Database } from '../src/db.js';
 import { Status } from '../src/protocol.js';
@@ -27,7 +27,7 @@ const waitFor = async (predicate, timeoutMs = 6000) => {
     return false;
 };
 
-const config = { ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', tierSystem: false, safetyEnabled: false, humanTiming: false };
+const config = { ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', transport: TRANSPORT_SANDBOX, safetyEnabled: false, humanTiming: false };
 const phones = Array.from({ length: 5 }, (_, i) => `9198111${String(i).padStart(5, '0')}`);
 
 describe('a campaign across a restart', () => {

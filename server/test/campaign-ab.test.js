@@ -2,7 +2,7 @@
  * A/B campaign versions.
  *
  * Claims under test: `options.variants` is validated (2-3 versions keyed A, B,
- * C; never with a Meta template); the engine splits a batch evenly, sends each
+ * C); the engine splits a batch evenly, sends each
  * person their version's text and stores which one; the safety checks run on
  * every version; a retry keeps a person's version; analytics count per version.
  */
@@ -16,7 +16,7 @@ import { after, before, describe, it } from 'node:test';
 import { CampaignManager } from '../src/campaign/manager.js';
 import { SafetyError } from '../src/campaign/safety.js';
 import { CampaignStore, campaignKey, normalizeOptions } from '../src/campaigns/store.js';
-import { DEFAULTS } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { ContactStore } from '../src/contactStore.js';
 import { Database } from '../src/db.js';
 import { Status } from '../src/protocol.js';
@@ -35,7 +35,7 @@ const waitFor = async (predicate, timeoutMs = 6000) => {
     return false;
 };
 
-const engineConfig = { ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', retryDelay: 0.01, maxRetries: 0, tierSystem: false };
+const engineConfig = { ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', retryDelay: 0.01, maxRetries: 0, transport: TRANSPORT_SANDBOX };
 const people = (n, prefix) => Array.from({ length: n }, (_, i) => ({ name: `P${i}`, phone: `${prefix}${String(i).padStart(3, '0')}` }));
 
 describe('variant options', () => {
@@ -46,9 +46,6 @@ describe('variant options', () => {
         assert.throws(() => normalizeOptions({ variants: [{ key: 'A', body: 'x' }] }), /2 to 3/);
         assert.throws(() => normalizeOptions({ variants: [{ key: 'B', body: 'x' }, { key: 'A', body: 'y' }] }), /in order/);
         assert.throws(() => normalizeOptions({ variants: [{ key: 'A', body: 'x' }, { key: 'B', body: ' ' }] }), /version B needs/);
-        assert.throws(() => normalizeOptions({
-            templateMode: 'meta', variants: [{ key: 'A', body: 'x' }, { key: 'B', body: 'y' }],
-        }), /Meta template/);
     });
 });
 

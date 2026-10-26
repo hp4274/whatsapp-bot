@@ -17,7 +17,13 @@ import { GONE, KINDS, StorageError, StorageStore, toFile, uploadInfo } from './s
 
 export function createStorageRouter({ db, state }) {
     const router = express.Router();
-    const storage = new StorageStore(db, { uploadDir: state.media.uploadDir, media: state.media });
+    const storage = new StorageStore(db, {
+        uploadDir: state.media.uploadDir,
+        media: state.media,
+        // The plan's storage_mb quota, metered as a stock in whole MB.
+        limitMb: () => state.billing?.limitFor('storage_mb') ?? null,
+        onUsage: (bytes) => state.billing?.set('storage_mb', Math.ceil(bytes / (1024 * 1024))),
+    });
     state.storage = storage;
 
     const fail = (res, err) => {

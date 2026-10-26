@@ -35,6 +35,16 @@
     <section class="s-card" aria-labelledby="dev-keys">
       <h3 id="dev-keys"><i class="ti ti-key" aria-hidden="true"></i> API keys</h3>
 
+      @if (expiringKeys().length; as n) {
+        <div class="s-banner tone-warn" role="status">
+          <i class="ti ti-hourglass" aria-hidden="true"></i>
+          <span class="msg">
+            {{ n }} key{{ n === 1 ? '' : 's' }} expire{{ n === 1 ? 's' : '' }} within {{ warningDays() }} days.
+            Create a replacement and switch your integration over before then.
+          </span>
+        </div>
+      }
+
       <form class="form" (ngSubmit)="createKey()">
         <label class="s-field">
           <span class="label">Name</span>
@@ -45,6 +55,25 @@
             placeholder="e.g. ERP integration"
             maxlength="80"
           />
+        </label>
+        <label class="s-field">
+          <span class="label">Expires on</span>
+          <input
+            type="date"
+            name="keyExpires"
+            [ngModel]="keyExpires()"
+            (ngModelChange)="keyExpires.set($event ?? '')"
+            [min]="minExpiry()"
+            [attr.max]="maxExpiry()"
+            aria-describedby="key-expiry-hint"
+          />
+          <span class="hint" id="key-expiry-hint">
+            @if (maxAgeDays()) {
+              Keys last at most {{ maxAgeDays() }} days. Leave empty for the longest allowed.
+            } @else {
+              Optional. Leave empty for a key that does not expire.
+            }
+          </span>
         </label>
         <fieldset class="checks">
           <legend>Scopes</legend>
@@ -100,6 +129,8 @@
                   <code>{{ k.prefix }}…</code>
                   @if (k.revokedAt) {
                     <span class="s-pill tone-bad">Revoked</span>
+                  } @else if (k.expiringSoon) {
+                    <span class="s-pill tone-warn">Expires soon</span>
                   }
                 </div>
                 <div class="chips">
@@ -116,6 +147,8 @@
                   }
                   @if (k.revokedAt) {
                     · Revoked {{ fmt(k.revokedAt) }}
+                  } @else if (k.expiresAt) {
+                    · Expires {{ fmt(k.expiresAt) }}
                   }
                 </div>
               </div>

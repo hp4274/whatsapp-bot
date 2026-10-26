@@ -15,7 +15,16 @@ import { map } from 'rxjs';
 import { type Color, NgxChartsModule, ScaleType } from '@swimlane/ngx-charts';
 
 import { OpsAudit } from './ops-audit';
-import { ChannelDetail, LiveState, OpsApi, PlanRow, UsageBucket, UsageSummary } from './ops-api';
+import {
+  type BackupStatus,
+  ChannelDetail,
+  LiveState,
+  OpsApi,
+  PlanRow,
+  UsageBucket,
+  UsageSummary,
+  zeroCapLabel,
+} from './ops-api';
 import { serviceMeta } from './service-meta';
 
 /** Which ops page the route renders; one component serves all five. */
@@ -62,7 +71,7 @@ const STATE_COPY: Record<LiveState, { label: string; icon: string }> = {
 };
 
 /** Transport ids from the server mapped to what an operator would call them. */
-const PROVIDERS: Record<string, string> = { cloud_api: 'Cloud API', baileys: 'WhatsApp QR' };
+const PROVIDERS: Record<string, string> = { baileys: 'WhatsApp QR' };
 
 /**
  * Read-only platform pages for the super admin: plans, usage, health,
@@ -101,6 +110,8 @@ export class AdminOpsView {
   protected readonly problemsOnly = signal(false);
   protected readonly provider = signal('');
   protected readonly updatedAt = signal('');
+  /** Last daily backup, shown on the health page; null until one has run. */
+  protected readonly backup = signal<BackupStatus | null>(null);
 
   // ---- plans ----
   protected readonly shownPlans = computed(() =>
@@ -180,7 +191,6 @@ export class AdminOpsView {
       ok: of('ok'),
       off: of('off'),
       connected: c.filter((x) => x.state === 'connected').length,
-      warming: c.filter((x) => x.warmup?.active).length,
       waiting: c.reduce((n, x) => n + x.waiting, 0),
     };
   });
@@ -256,6 +266,7 @@ export class AdminOpsView {
       this.api.health().subscribe({
         next: (h) => {
           this.channels.set(h.channels);
+          this.backup.set(h.backup ?? null);
           done(h.generatedAt);
         },
         error: fail,
@@ -325,8 +336,16 @@ export class AdminOpsView {
     return (n / this.maxWindow()) * 100;
   }
 
+  protected readonly zeroCap = zeroCapLabel;
+
   protected quotaPct(c: ChannelDetail): number {
     return c.quota.limit ? Math.min(100, Math.round((c.quota.used / c.quota.limit) * 100)) : 0;
+  }
+
+  /** "12.4 MB": backup size on the health page. */
+  protected size(bytes: number | undefined): string {
+    if (!bytes) return '0 KB';
+    return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
   }
 
   /** "5 min ago" for recent times, a date after a day. */

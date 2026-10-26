@@ -27,7 +27,7 @@ describe('history and quick send over HTTP', () => {
 
     before(async () => {
         db = new Database(path.join(tmp, 'history.db'));
-        const config = { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 50, rateLimitBurst: 50, tierSystem: false };
+        const config = { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 50, rateLimitBurst: 50 };
         delete config.misc;
         app = createTestApp({ db, config });
         server = app.listen(0, '127.0.0.1');

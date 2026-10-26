@@ -121,21 +121,40 @@
               }
             }
           }
-          @if (block?.header) {
-            <p class="hdr">{{ fill(block?.header ?? '').text }}</p>
-          }
-          @if (r.text) {
-            <p class="body" [innerHTML]="bodyHtml()"></p>
+          @if (menuHtml(); as menu) {
+            <p class="body" [innerHTML]="menu"></p>
           } @else {
-            <p class="body empty">Your message appears here</p>
-          }
-          @if (block?.footer) {
-            <p class="ftr">{{ fill(block?.footer ?? '').text }}</p>
+            @if (block?.header && !textMenu()) {
+              <p class="hdr">{{ fill(block?.header ?? '').text }}</p>
+            }
+            @if (r.text) {
+              <p class="body" [innerHTML]="bodyHtml()"></p>
+            } @else {
+              <p class="body empty">Your message appears here</p>
+            }
+            @if (block?.footer && !textMenu()) {
+              <p class="ftr">{{ fill(block?.footer ?? '').text }}</p>
+            }
           }
           <span class="meta">{{ time }}</span>
         </div>
 
-        @if (block) {
+        @if (textMenu()) {
+          <!-- A QR number sends each card as its own image message, caption underneath. -->
+          @for (m of cardMessages(); track $index) {
+            <div class="bubble next">
+              @if (m.mediaUrl) {
+                <img class="media" [mediaSrc]="m.mediaUrl" alt="" />
+              } @else {
+                <span class="media no-pic" aria-hidden="true"
+                  ><i class="ti ti-photo" aria-hidden="true"></i
+                ></span>
+              }
+              <p class="body" [innerHTML]="m.html"></p>
+              <span class="meta">{{ time }}</span>
+            </div>
+          }
+        } @else if (block) {
           @switch (block.type) {
             @case ('buttons') {
               <div class="actions">

@@ -9,10 +9,10 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { DatePipe } from '@angular/common';
 import { Observable } from 'rxjs';
 
 import { Channel, ChannelPatch, ChannelsApi } from '../core/api';
+import { NumberQuestions } from '../connection/number-questions';
 import { ChannelSettings } from './channel-settings';
 import { LIVE_LABEL, describeDays, liveState, transportMeta } from './channel-meta';
 
@@ -22,10 +22,14 @@ type Editing = 'name' | 'phone' | null;
 const REDUCED =
   typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/** One WhatsApp number: live state, today's budget, quality, and its controls. */
+/**
+ * One WhatsApp number: live state, today's sends, quality, and its controls.
+ * The daily allowance is one plain line; a newly linked QR number that has not
+ * answered its 2 questions can answer them right on the card.
+ */
 @Component({
   selector: 'app-channel-card',
-  imports: [DatePipe, ChannelSettings],
+  imports: [ChannelSettings, NumberQuestions],
   templateUrl: './channel-card.html',
   styleUrl: './channel-card.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -69,30 +73,22 @@ export class ChannelCard {
   protected readonly needsConnect = computed(() => this.state() === 'disconnected');
 
   protected readonly usage = computed(() => this.channel().health?.usage ?? null);
-  protected readonly warmup = computed(() => this.channel().health?.warmup ?? null);
+  /** The inline questions form, opened from the "Answer" button. */
+  protected readonly asking = signal(false);
   protected readonly quality = computed(() => this.channel().health?.quality ?? null);
   protected readonly hints = computed(() => this.quality()?.hints ?? []);
 
   /** 0..1 share of today's cap, or null when there is no cap. */
   protected readonly usedShare = computed(() => {
     const u = this.usage();
-    if (!u || !u.dailyLimit) return null;
-    return Math.min(1, u.sentToday / u.dailyLimit);
+    if (!u || !u.todayLimit) return null;
+    return Math.min(1, u.sentToday / u.todayLimit);
   });
 
   /** Bar colour shifts before the cap is hit, so a busy number is noticed early. */
   protected readonly meterTone = computed(() => {
     const share = this.usedShare() ?? 0;
     return share >= 0.9 ? 'hot' : share >= 0.7 ? 'warm' : 'cool';
-  });
-
-  protected readonly warmupSteps = computed(() => {
-    const w = this.warmup();
-    if (!w) return [];
-    // Too many segments become noise; cap the strip at 14 and scale.
-    const steps = Math.min(w.totalDays, 14);
-    const done = Math.round((w.day / w.totalDays) * steps);
-    return Array.from({ length: steps }, (_, i) => i < done);
   });
 
   protected readonly windowText = computed(() => {

@@ -1,13 +1,16 @@
 /**
- * The numbers an operator wants on a channel card: how much of today's budget
- * is used, where warm-up stands, and whether delivery looks unhealthy.
+ * What a business sees about a number's sending on its card: how many it may
+ * send today, how many went, the plan's day it grows to, and whether delivery
+ * looks unhealthy. Levels, brakes and rests stay with the platform admin
+ * (adminOps.js health); a business sees only the resulting numbers.
  *
  * Everything is read from the database, so it works the same whether or not
  * the channel's runtime has been started. The daily cap reuses DailyQuota, so
  * this card and the sender can never disagree about the limit.
  */
 
-import { DailyQuota, WARMUP_START, dayStart } from './campaign/safety.js';
+import { DailyQuota } from './campaign/safety.js';
+import { applySendingPolicy } from './policy/levels.js';
 
 const DAY_MS = 24 * 3600 * 1000;
 const LEVEL_RANK = { ok: 0, info: 1, warn: 2, bad: 3 };
@@ -17,49 +20,49 @@ const MIN_24H = 10;
 const MIN_7D = 20;
 
 /**
+ * `usage`: `{ todayLimit, sentToday, planLimit, growing, asked?, blocked? }`. `todayLimit` null = no cap (safety off,
+ * or a sandbox number without a limit; `planLimit` is then null too), 0 = no bulk today (held, resting or capped at 0). On a QR number
+ * `planLimit` is the most a day grows to and `asked` false while its 2 questions wait (bulk is held till then).
+ * `blocked` is a plain reason, only for a pause, a WhatsApp ban, a WhatsApp restriction or the wait after a new link
+ * (then `todayLimit` is the day the number runs at once it starts).
  * @param {object} channel  the channel row
  * @param {object} opts
  * @param {object} opts.db       channel-scoped db handle (`db.forChannel(id)`)
  * @param {object} opts.config   the channel's settings as they run (policy applied)
- * @param {object} [opts.policy] platform-enforced keys, to say where a limit came from
+ * @param {object} [opts.sending] resolved platform policy values (the sending tables, policy/levels.js)
+ * @param {Function} [opts.pin]  () => the number's admin level pin, or null
+ * @param {Function} [opts.start] () => the number's answered questions, or null (policy/levels.js applySendingPolicy)
+ * @param {string} [opts.paused] why the platform paused the number, if it did
  * @param {Date}   [opts.now]
  */
-export function channelUsage(channel, { db, config, policy = {}, now = new Date() }) {
-    // One firstSentAt query, shared by the quota and the warm-up block.
-    let first;
-    const scoped = Object.create(db);
-    scoped.firstSentAt = () => (first === undefined ? (first = db.firstSentAt() ?? null) : first);
-
-    const quota = new DailyQuota(scoped, config);
+export function channelUsage(channel, { db, config, sending = {}, pin = null, start = null, paused = null, now = new Date() }) {
+    const quota = applySendingPolicy(new DailyQuota(db, config), sending, pin, start);
     quota.zone = () => channel.timezone || null;
     const status = quota.status(now);
-    const base = Math.max(0, Number(config.dailyLimit) || 0);
-    const usage = {
-        sentToday: status.used,
-        dailyLimit: status.enabled ? status.limit : 0,
-        baseLimit: base,
-        remaining: status.remaining,
-        resetsAt: status.resetsAt,
-        safetyEnabled: status.enabled,
-        setByPlatform: 'dailyLimit' in policy || 'warmupDays' in policy,
-    };
-
-    const days = Number(config.warmupDays) || 0;
-    let warmup = null;
-    if (days > 0) {
-        const firstAt = scoped.firstSentAt();
-        const age = firstAt ? Math.max(0, Math.round((dayStart(now, channel.timezone) - dayStart(new Date(firstAt), channel.timezone)) / DAY_MS)) : 0;
-        const ramp = (Number(config.warmupStart) || WARMUP_START) * 2 ** Math.min(age, 30);
-        warmup = {
-            active: age < days,
-            day: Math.min(age + 1, days),
-            totalDays: days,
-            todayCap: age < days ? (base ? Math.min(base, ramp) : ramp) : base,
-            startedAt: firstAt,
-        };
+    // A QR number's 0 is a real "none today"; the sandbox's 0 is "no limit".
+    let todayLimit = status.enabled && (quota.qr || status.limit > 0) ? status.limit : null;
+    const has = (code) => quota.qr && status.brakes.some((b) => b.code === code);
+    // A newly linked number waits before bulk: show the day it then runs at, and when it starts.
+    const waits = quota.qr && status.enabled && status.level.resting.active && !has('ban') ? status.level.resting.endsAt : null;
+    if (waits) todayLimit = quota.status(new Date(Date.parse(waits) + 1000)).limit;
+    const usage = { todayLimit, sentToday: status.used, planLimit: todayLimit, growing: false };
+    const blocked = paused
+        || (has('ban') && status.level.resting.active ? 'WhatsApp banned this number. Bulk sending waits while it recovers.' : null)
+        || (has('restricted') ? 'WhatsApp is limiting messages from this number to people new to it.' : null)
+        || (waits ? `A newly linked number waits before bulk sending. It starts ${startsAt(waits, channel.timezone)}.` : null);
+    if (quota.qr && status.enabled) {
+        Object.assign(usage, { planLimit: status.ceiling, growing: todayLimit < status.ceiling });
+        if (status.asked !== null) usage.asked = status.asked;
     }
+    if (blocked) usage.blocked = blocked;
+    // While it waits the day is 0 now, not a used-up cap.
+    return { usage, quality: quality(db, { dailyLimit: waits ? 0 : todayLimit ?? 0, remaining: status.remaining }, now) };
+}
 
-    return { usage, warmup, quality: quality(db, usage, now) };
+/** "Tue 14:05" on the number's clock (UTC when it has no zone). */
+function startsAt(iso, zone) {
+    return new Intl.DateTimeFormat('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: zone || 'UTC' })
+        .format(new Date(iso));
 }
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -139,7 +142,8 @@ function quality(db, usage, now) {
         });
     }
 
-    if (usage.remaining === 0) {
+    // A resting QR number has a day of 0, not a used-up cap.
+    if (usage.remaining === 0 && usage.dailyLimit > 0) {
         hints.push({ level: 'warn', code: 'cap_reached', message: "Today's daily cap is used up - sending resumes after reset" });
     } else if (usage.remaining != null && usage.dailyLimit > 0 && usage.remaining <= usage.dailyLimit * 0.1) {
         hints.push({ level: 'info', code: 'cap_near', message: `Only ${usage.remaining} sends left today` });

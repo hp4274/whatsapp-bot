@@ -16,4 +16,3 @@ server/.wwebjs_cache/
 .claude/
 .impeccable/
 .env
-package-lock.json

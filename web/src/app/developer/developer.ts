@@ -40,6 +40,18 @@ export class DeveloperView {
   protected readonly scopes = signal<string[]>([]);
   protected readonly keyName = signal('');
   protected readonly keyScopes = signal<string[]>([]);
+  /** Picked expiry day (`YYYY-MM-DD`); empty = the longest the platform allows (or never, with no limit). */
+  protected readonly keyExpires = signal('');
+  /** Platform cap on a key's life in days; 0 = no cap. */
+  protected readonly maxAgeDays = signal(0);
+  protected readonly warningDays = signal(14);
+  /** Today and the last day a new key may run to, as date-input bounds. */
+  protected readonly minExpiry = computed(() => day(Date.now() + 86_400_000));
+  protected readonly maxExpiry = computed(() =>
+    this.maxAgeDays() ? day(Date.now() + this.maxAgeDays() * 86_400_000) : null,
+  );
+  /** Live keys inside the warning window: they need replacing before integrations break. */
+  protected readonly expiringKeys = computed(() => this.keys().filter((k) => !k.revokedAt && k.expiringSoon));
   protected readonly creatingKey = signal(false);
   protected readonly newKey = signal<CreatedApiKey | null>(null);
   protected readonly confirmRevoke = signal<number | null>(null);
@@ -99,6 +111,8 @@ export class DeveloperView {
       ]);
       this.keys.set(k.keys);
       this.scopes.set(k.scopes);
+      this.maxAgeDays.set(k.maxAgeDays ?? 0);
+      this.warningDays.set(k.expiryWarningDays ?? 14);
       this.endpoints.set(e.endpoints);
       this.events.set(e.events);
     } catch (err) {
@@ -121,7 +135,12 @@ export class DeveloperView {
     this.error.set('');
     try {
       const { key } = await firstValueFrom(
-        this.api.createKey({ name: this.keyName().trim(), scopes: this.keyScopes() }),
+        this.api.createKey({
+          name: this.keyName().trim(),
+          scopes: this.keyScopes(),
+          // Start of the picked local day, so the last allowed day never lands past the server's maximum.
+          expiresAt: this.keyExpires() ? new Date(`${this.keyExpires()}T00:00:00`).toISOString() : null,
+        }),
       );
       this.newKey.set(key);
       const { key: secret, ...rest } = key;
@@ -129,6 +148,7 @@ export class DeveloperView {
       this.keys.update((l) => [rest, ...l]);
       this.keyName.set('');
       this.keyScopes.set([]);
+      this.keyExpires.set('');
     } catch (err) {
       this.error.set(msg(err));
     } finally {
@@ -261,3 +281,9 @@ export class DeveloperView {
 }
 
 const msg = (err: unknown) => (err instanceof Error ? err.message : 'Something went wrong');
+
+/** Local `YYYY-MM-DD` for a date input's min / max. */
+const day = (ms: number) => {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};

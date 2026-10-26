@@ -9,10 +9,9 @@ import {
   Starter,
   StarterCategory,
   TemplateReviewApi,
-  TenantMetaStatus,
 } from './template-review-api';
 
-type Tab = 'queue' | 'library' | 'meta';
+type Tab = 'queue' | 'library';
 type Decision = 'approve' | 'reject';
 type Id = string | number;
 
@@ -26,10 +25,9 @@ class Slot<T> {
 export const TABS: readonly { readonly key: Tab; readonly label: string; readonly icon: string }[] = [
   { key: 'queue', label: 'Review queue', icon: 'ti-inbox' },
   { key: 'library', label: 'Starter library', icon: 'ti-books' },
-  { key: 'meta', label: 'Meta sync', icon: 'ti-cloud' },
 ];
 
-/** The categories Meta accepts; starters use the same set so a copy can be submitted as-is. */
+/** The template categories; starters use the same set so a copy keeps its category. */
 export const STARTER_CATEGORIES: readonly StarterCategory[] = ['marketing', 'utility', 'authentication'];
 
 /** Spam score bands: below the first reads as clean, at or above the second as likely spam. */
@@ -42,12 +40,11 @@ let nextId = 0;
 /**
  * Super-admin moderation for message templates.
  *
- * Meta reviews Cloud API templates itself, but Baileys numbers have no such
- * gate, so their templates queue here with a heuristic spam score to guide
- * the call. The starter library is the platform's curated set tenants copy
- * from, and Meta sync is a read-only view of the statuses stored per tenant.
+ * QR numbers have no outside review, so templates queue here with a heuristic
+ * spam score to guide the call. The starter library is the platform's curated
+ * set tenants copy from.
  *
- * Each tab loads on first open and keeps its own error, so a failing Meta
+ * Each tab loads on first open and keeps its own error, so a failing library
  * endpoint never blanks the queue. A rejection always carries a note because
  * it is what the tenant reads to fix the template.
  */
@@ -73,7 +70,6 @@ export class TemplateReview {
 
   protected readonly queue = new Slot<readonly QueuedTemplate[]>();
   protected readonly library = new Slot<readonly Starter[]>();
-  protected readonly meta = new Slot<readonly TenantMetaStatus[]>();
 
   /** The card whose approve/reject note is open, keyed by `tenantId:id`. */
   protected readonly deciding = signal<{ readonly key: string; readonly action: Decision } | null>(null);
@@ -115,8 +111,7 @@ export class TemplateReview {
 
   protected reload(tab: Tab) {
     if (tab === 'queue') this.loadQueue();
-    else if (tab === 'library') this.fetch(this.library, this.api.starters());
-    else this.fetch(this.meta, this.api.meta());
+    else this.fetch(this.library, this.api.starters());
   }
 
   protected key(t: QueuedTemplate): string {
@@ -254,7 +249,7 @@ export class TemplateReview {
   }
 
   private slotFor(tab: Tab): Slot<unknown> {
-    return tab === 'queue' ? this.queue : tab === 'library' ? this.library : this.meta;
+    return tab === 'queue' ? this.queue : this.library;
   }
 
   private fetch<T>(slot: Slot<T>, source: Observable<T>) {

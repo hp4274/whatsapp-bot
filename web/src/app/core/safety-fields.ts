@@ -8,7 +8,11 @@ export const SAFETY_GROUPS: { title: string; fields: SafetyField[] }[] = [
   {
     title: 'Daily cap',
     fields: [
-      { key: 'dailyLimit', label: 'Messages per day', help: 'Hard ceiling per number (0 = off)' },
+      {
+        key: 'dailyLimit',
+        label: 'Messages per day',
+        help: 'Ceiling per number (0 = off). A QR number grows its daily limit as people reply; this only lowers it',
+      },
     ],
   },
   {
@@ -47,19 +51,14 @@ export const SAFETY_GROUPS: { title: string; fields: SafetyField[] }[] = [
         help: 'Checked after 20 sends. 0 = never pause',
       },
       {
-        key: 'warmupDays',
-        label: 'New-number warm-up (days)',
-        help: 'Cap starts at 30/day and doubles daily. 0 = off',
-      },
-      {
         key: 'recipientDailyCap',
         label: 'Bulk per recipient per 24h',
-        help: 'Replies never count. 0 = off',
+        help: 'Replies never count. 0 = off. QR numbers: always 1',
       },
       {
         key: 'requireVariationAbove',
         label: 'Require spintax/{name} above N recipients',
-        help: '0 = off',
+        help: '0 = off. QR numbers: never above 15',
       },
     ],
   },
@@ -71,6 +70,23 @@ export const SAFETY_GROUPS: { title: string; fields: SafetyField[] }[] = [
     ],
   },
 ];
+
+/**
+ * Short names for the brakes a QR number can be under (server campaign/humanize.js levelFor), for
+ * chips and pills; the server's `text` says the rest. An unknown code shows as itself.
+ */
+export const BRAKE_LABELS: Readonly<Record<string, string>> = {
+  reply_rate: 'Few replies',
+  reports: 'Spam reports',
+  blocks: 'Blocks',
+  failures: 'Failed sends',
+  restricted: 'Limited by WhatsApp',
+  idle: 'Quiet for 3 days',
+  ban: 'Recent ban',
+  delivery: 'Low delivery',
+  stuck: 'Messages stuck on one tick',
+  unstable: 'Unstable connection',
+};
 
 /** Why a value is risky for a number, or '' when it is not. Advisory only: the server enforces ranges. */
 export function safetyRisk(

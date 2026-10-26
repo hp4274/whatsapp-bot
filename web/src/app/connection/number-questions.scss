@@ -1,0 +1,178 @@
+@use '../school/school-shared' as s;
+
+@include s.banner;
+@include s.buttons;
+@include s.skeleton;
+
+:host {
+  display: block;
+}
+
+// Only the pieces of the kit this uses: the banner's pop-in and three badge tones.
+@keyframes s-pop {
+  from { opacity: 0; translate: 0 4px; }
+  to { opacity: 1; translate: none; }
+}
+.tone-ok { --tone: var(--success); }
+.tone-info { --tone: var(--info); }
+.tone-bad { --tone: var(--danger-text); }
+
+p {
+  margin: 0;
+}
+
+.nq {
+  display: grid;
+  gap: var(--space-md);
+
+  .s-skel { margin: 0; }
+  .w60 { width: 60%; }
+  .w40 { width: 40%; }
+}
+
+.badge {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  font-size: 20px;
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
+  color: var(--tone);
+}
+
+.nq-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+
+  h4 { margin: 0 0 2px; font-size: 15px; font-weight: 500; color: var(--text-strong); }
+  p { font-size: 13px; line-height: 1.5; }
+}
+
+.group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+
+  legend { padding: 0; margin-bottom: 8px; font-size: 13px; font-weight: 500; color: var(--text-strong); }
+}
+
+// Each answer is a selectable card: the radio stays real (keyboard, screen readers),
+// the label draws the frame and lights up when its radio is checked.
+.opts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  font-size: 13px;
+  color: var(--text-color);
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+
+  input { margin: 0; accent-color: var(--primary); }
+
+  &:hover { border-color: var(--border-hover); }
+  &:has(input:checked) {
+    border-color: var(--primary);
+    background: var(--primary-tint);
+    color: var(--text-strong);
+    font-weight: 500;
+  }
+  &:has(input:focus-visible) { box-shadow: 0 0 0 3px var(--input-focus); }
+}
+
+.acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+
+  .skip { color: var(--text-muted); }
+}
+
+.result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+
+  p { font-size: 13.5px; line-height: 1.55; }
+  strong { font-weight: 600; color: var(--text-strong); }
+}
+
+.dlg {
+  width: min(480px, calc(100vw - 32px));
+  padding: var(--space-xl);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-lift);
+
+  &[open] { animation: nq-dlg-in 360ms var(--ease) both; }
+  &::backdrop { background: color-mix(in srgb, var(--text-strong) 45%, transparent); backdrop-filter: blur(4px); }
+
+  form { display: grid; gap: 12px; }
+  h3 { margin: 0; font-size: 17px; font-weight: 500; color: var(--text-strong); }
+}
+
+// The questions popup: wider for the answer cards, scrolls on short screens.
+.ask {
+  width: min(600px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+
+  .dlg-acts { margin-top: var(--space-md); }
+}
+
+// The ban risk is the point of the dialog: full text colour, not muted.
+.risk {
+  display: grid;
+  gap: 12px;
+
+  p { font-size: 13.5px; line-height: 1.6; color: var(--text-color); }
+}
+
+.accept {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-strong);
+  cursor: pointer;
+
+  input { margin: 0; accent-color: var(--danger); }
+  &:has(input:focus-visible) { box-shadow: 0 0 0 3px var(--input-focus); }
+}
+
+.dlg-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+
+@keyframes nq-dlg-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dlg[open] { animation: none; }
+  .opt { transition: none; }
+}

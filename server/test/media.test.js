@@ -7,12 +7,11 @@ import path from 'node:path';
 import { it } from 'node:test';
 
 import { CampaignManager } from '../src/campaign/manager.js';
-import { DEFAULTS } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { MediaStore } from '../src/mediaStore.js';
 import { Status } from '../src/protocol.js';
 import { fileTypeError } from '../src/security/filetype.js';
-import { CloudApiTransport } from '../src/transports/cloudApi.js';
 
 it('hands the same media to the transport for every recipient', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-media-'));
@@ -25,7 +24,7 @@ it('hands the same media to the transport for every recipient', async () => {
         getStatus: () => null,
         async disconnect() {},
     };
-    const manager = new CampaignManager(db, transport, { ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed' });
+    const manager = new CampaignManager(db, transport, { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000, pacingMode: 'fixed' });
     const media = { mediaId: 'med_aaaaaaaaaaaa', filename: 'a.png', mimetype: 'image/png', size: 3, filePath: 'x', buffer: Buffer.from('abc') };
     manager.enqueueContacts(
         [{ name: 'A', phone: '919855550101' }, { name: 'B', phone: '919855550102' }], 'Hi {name}', { media });
@@ -66,13 +65,3 @@ it('sniffs mp4/3gp video by the ftyp box and maps their extensions', () => {
     fs.rmSync(dir, { recursive: true, force: true });
 });
 
-it('cloud API sends video/* as a video message with caption', () => {
-    const transport = new CloudApiTransport({ ...DEFAULTS, phoneNumberId: '1', accessToken: 't' });
-    const body = transport.payload('919800000001', 'Watch this', {
-        uploadedMedia: { id: 'media.9', filename: 'clip.mp4', mimetype: 'video/mp4' },
-    });
-    assert.equal(body.type, 'video');
-    assert.deepEqual(body.video, { id: 'media.9', caption: 'Watch this' });
-    const image = transport.payload('919800000001', 'Pic', { uploadedMedia: { id: 'm', filename: 'a.png', mimetype: 'image/png' } });
-    assert.equal(image.type, 'image');
-});

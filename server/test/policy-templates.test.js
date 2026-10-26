@@ -7,7 +7,7 @@ import path from 'node:path';
 import { after, before, beforeEach, describe, it } from 'node:test';
 
 import { closeApp } from '../src/app.js';
-import { DEFAULTS, TRANSPORT_BAILEYS, TRANSPORT_CLOUD_API, TRANSPORT_SANDBOX } from '../src/config.js';
+import { DEFAULTS, TRANSPORT_BAILEYS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { reviewBlock, spamScore, stricterCap } from '../src/templates/policy.js';
 import { createTestApp, sessionFor } from './helpers.js';
@@ -78,13 +78,12 @@ describe('helpers', () => {
         assert.ok(spam.reasons.some((r) => r.reason === 'shortened link'));
     });
 
-    it('baileys mode gates only Baileys numbers; provider templates are left to Meta', () => {
+    it('baileys mode gates only Baileys numbers', () => {
         const t = { name: 'x', templateType: 'text', reviewStatus: 'pending' };
         const p = { 'templates.requireApproval': 'baileys' };
         assert.match(reviewBlock(t, p, { provider: TRANSPORT_BAILEYS }), /waiting for platform admin approval/);
-        assert.equal(reviewBlock(t, p, { provider: TRANSPORT_CLOUD_API }), null);
-        assert.ok(reviewBlock(t, { 'templates.requireApproval': 'all' }, { provider: TRANSPORT_CLOUD_API }));
-        assert.equal(reviewBlock({ ...t, templateType: 'provider_template' }, { 'templates.requireApproval': 'all' }, {}), null);
+        assert.equal(reviewBlock(t, p, { provider: TRANSPORT_SANDBOX }), null);
+        assert.ok(reviewBlock(t, { 'templates.requireApproval': 'all' }, { provider: TRANSPORT_SANDBOX }));
         assert.equal(reviewBlock({ ...t, reviewStatus: 'approved' }, p, { provider: TRANSPORT_BAILEYS }), null);
         assert.equal(reviewBlock(t, { 'templates.requireApproval': 'off' }, { provider: TRANSPORT_BAILEYS }), null);
     });
@@ -155,6 +154,12 @@ describe('save rules', () => {
         assert.equal(refused.body.rule, 'mediaTypes');
         policy().set('tenant:1', { 'templates.mediaTypes': null, 'templates.maxMediaMb': 1 });
         assert.equal((await create({ templateType: 'media', headerMediaId: upload.mediaId })).body.rule, 'maxMediaMb');
+        // The same limit refuses the upload itself.
+        const again = new FormData();
+        again.append('file', new Blob(['%PDF-1.4 ', Buffer.alloc(1.3 * 1024 * 1024)], { type: 'application/pdf' }), 'doc2.pdf');
+        const big = await fetch(`${base}/api/media/upload`, { method: 'POST', body: again });
+        assert.equal(big.status, 413);
+        assert.match((await big.json()).errors[0], /up to 1 MB/);
         policy().set('tenant:1', { 'templates.maxMediaMb': null });
         assert.equal((await create({ templateType: 'media', headerMediaId: upload.mediaId })).status, 201);
     });
@@ -226,15 +231,5 @@ describe('starter library', () => {
         assert.equal((await asAdmin('DELETE', `/template-library/${sid}`)).status, 200);
         assert.equal((await call('POST', `/api/templates/library/${sid}/copy`, {})).status, 404);
         assert.equal((await call('POST', '/api/admin/template-library', { name: 'x', body: 'y' })).status, 403);
-    });
-});
-
-describe('meta sync status', () => {
-    it('counts Cloud API templates per tenant by Meta status', async () => {
-        await create({ templateType: 'provider_template', providerTemplateName: 'order_update', approvalStatus: 'approved' });
-        await create({ templateType: 'provider_template', providerTemplateName: 'promo', approvalStatus: 'pending' });
-        const row = (await asAdmin('GET', '/template-meta')).body.tenants.find((t) => t.tenantId === 1);
-        assert.ok(row.approved >= 1 && row.pending >= 1);
-        assert.ok(row.lastSynced);
     });
 });

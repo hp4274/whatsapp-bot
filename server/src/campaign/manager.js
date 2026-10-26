@@ -10,7 +10,6 @@
 import { ErrorCode, FRIENDLY, friendlyError, normalizeError } from '../messaging/errors.js';
 import { normalizeInteractive, personalizeInteractive } from '../messaging/interactive.js';
 import { renderMessage, withFallbacks } from './importer.js';
-import { prepareTemplateSend } from '../messaging/templateSend.js';
 import { EventEmitter } from 'node:events';
 
 import {
@@ -24,18 +23,31 @@ import { NOT_ON_WHATSAPP_CODE, TransportConnectionError, TransportError } from '
 import { RateLimiter, RetryPolicy, interruptibleSleep } from './limits.js';
 import { MessageQueue, QueueState, queueItem } from './queue.js';
 import {
-    DailyQuota, SafetyError, estimateSeconds, nextDelay, paceFor, pickPreset, variationError,
+    DailyQuota, OPT_OUT_TEXT, SafetyError, estimateSeconds, nextDelay, paceFor, pickPreset,
+    qrVaryAbove, variationError,
 } from './safety.js';
 import { capReachedText } from '../policy/campaignOps.js';
+import { logger } from '../observability/logger.js';
 import {
-    BLOCK_PAUSE_MIN_SENT, BLOCK_PAUSE_PERCENT, BLOCK_SUSPECT_AFTER_SECONDS, MEDIA_GAP_FACTOR,
-    contentError, dayPlan, inQuiet, isDaytimeFor, quietExtraSeconds, quietStatus, shuffle, typingMs,
+    BLOCK_SUSPECT_AFTER_SECONDS, HALTING_BRAKES, HALT_HOURS, HELD_TYPES, MEDIA_GAP_FACTOR,
+    contentError, dayPlan, deliveryBrakes, inQuiet, isDaytimeFor, quietExtraSeconds, quietStatus, shuffle, typingMs,
 } from './humanize.js';
+import { dayKey } from './spread.js';
 
 const isoAgo = (ms) => new Date(Date.now() - ms).toISOString().replace(/\.\d{3}Z$/, '+00:00');
 const between = (min, max) => min + Math.random() * (max - min);
+/** opt_outs, bulk_mutes and recipients hold bare digits; a sheet's phone may carry '+' or spaces. */
+const digits = (phone) => String(phone ?? '').replace(/\D/g, '');
 /** Someone is waiting on these: the daily cap counts them but never pauses the queue for them. */
 const QUOTA_EXEMPT = new Set(['auto_reply', 'transactional']);
+/** Bulk: waits for the recipient's daytime, and on a QR number for the hourly and new-chat budgets. */
+const HELD = new Set(HELD_TYPES);
+/** How often a daily-cap pause looks whether the budget has room again (it lifts itself). */
+const QUOTA_RECHECK_MS = 30_000;
+/** HH:MM on the channel's clock, for "sending continues at ...". */
+const clockAt = (iso, zone) => new Intl.DateTimeFormat('en-GB', {
+    ...(zone ? { timeZone: zone } : {}), hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+}).format(new Date(iso));
 /**
  * Registration answers are kept a day (accounts come and go slowly); an
  * unknown one (the check failed) only 10 minutes, so a hiccup is retried soon
@@ -45,6 +57,14 @@ const REGISTERED_TTL_MS = 24 * 3600_000;
 const UNKNOWN_TTL_MS = 10 * 60_000;
 /** Numbers asked about in one go: this message's and the next unchecked ones in the queue. */
 const CHECK_AHEAD = 50;
+/** How often a connected number's block, delivery and stuck checks run (scanHealthIfDue). */
+const HEALTH_SCAN_MS = 600_000;
+/** The dead-man ops alert: messages waiting in sending hours and nothing sent for this long. */
+export const DEAD_MAN_MS = 6 * 3_600_000;
+/** A message stuck at 48h counts as a block only while the number delivered at least this share then. */
+const BLOCK_MIN_DELIVERED = 0.95;
+/** WhatsApp said rate-overlimit (429): the next try waits at least this long (seconds). */
+const RATE_LIMIT_WAIT = [90, 120];
 export const NOT_ON_WHATSAPP_TEXT = FRIENDLY[ErrorCode.INVALID_RECIPIENT];
 
 export class CampaignManager extends EventEmitter {
@@ -78,6 +98,9 @@ export class CampaignManager extends EventEmitter {
         this.seed = `${db.tenantId ?? 1}:${db.channelId ?? 0}`;
         this.waitingUntil = null;   // when the next message may go (ms epoch)
         this.pausedByQuota = false;
+        this.quotaCheckedAt = 0;    // last time a daily-cap pause looked for room (#pastQuotaPause)
+        // Last send attempt or lookup (ms epoch). A QR number's gap counts from it, or the db's last send.
+        this.lastActionAt = 0;
         // Set by the channel runtime: () => true while bulk may go out now
         // (sending window + quiet hours). Bulk outside it waits, it does not fail.
         this.bulkWindowOpen = null;
@@ -87,6 +110,7 @@ export class CampaignManager extends EventEmitter {
         // Platform policy hooks, set by policy/campaignOps.js attachCampaignPolicy.
         this.bulkPolicy = null;        // () => rules (caps, opt-in, speed ceiling, ...)
         this.killSwitch = null;        // () => reason text while bulk must stop, else null
+        this.sendBlock = null;         // (messageType) => reason while a tenant control holds that traffic, else null
         this.policyWindowOpen = null;  // () => false outside the platform's sending hours
         this.stopReason = 'Stopped by operator';
         this.resumeRefusal = null;     // why a policy hold cannot be resumed yet
@@ -100,7 +124,13 @@ export class CampaignManager extends EventEmitter {
         this.rateLimiter.setRate(config.rateLimitPerSecond, config.rateLimitBurst);
         this.retryPolicy = RetryPolicy.fromConfig(config);
         this.quota.config = config;
+        this.quota.invalidate();
         this.pace = this.#paceFor(this.pace.batchSize, this.pacePreset);
+    }
+
+    /** A QR number with safety on and a real transport: sending levels govern every send. */
+    #onLevels() {
+        return this.quota.qr && this.config.safetyEnabled && Boolean(this.transport?.realDelivery);
     }
 
     #paceFor(batchSize, preset) {
@@ -129,6 +159,7 @@ export class CampaignManager extends EventEmitter {
     setTransport(transport) {
         this.transport = transport;
         this.registry.clear();   // unknowns from the old transport must not stick
+        this.quota.invalidate();
     }
 
     /**
@@ -154,7 +185,7 @@ export class CampaignManager extends EventEmitter {
         try {
             found = await this.transport.checkRegistered(ask) ?? new Map();
         } catch (err) {
-            console.warn(`[send] registration check failed, sending as usual: ${err?.message ?? err}`);
+            logger.warn('registration check failed, sending as usual', { error: String(err?.message ?? err) });
         }
         const at = Date.now();
         for (const phone of ask) {
@@ -163,6 +194,11 @@ export class CampaignManager extends EventEmitter {
             answers.set(phone, registered);
         }
         return answers;
+    }
+
+    /** The remembered answer for a number, without asking WhatsApp: true | false | null, or undefined. */
+    knownRegistered(phone) {
+        return this.#registered(phone);
     }
 
     /** The remembered answer for a number, or undefined when it has to be asked. */
@@ -232,15 +268,26 @@ export class CampaignManager extends EventEmitter {
         };
     }
 
-    /** Send estimate with the nightly rest it would run into added in; `quietSeconds` says how much. */
+    /**
+     * Send estimate with the nightly rest it would run into added in; `quietSeconds` says how much.
+     * `days` / `finishesOn` (local YYYY-MM-DD): today's budget, then the daily limit at today's level
+     * (never a level-up). Null when there is no daily cap.
+     */
     #estimate(batchSize, pace) {
         const est = estimateSeconds(batchSize, pace);
+        const left = this.quota.remaining();
+        const perDay = this.quota.planLimit();
+        const days = !batchSize ? 0 : (Number.isFinite(left) && perDay > 0 ? 1 + Math.ceil(Math.max(0, batchSize - left) / perDay) : null);
+        const finish = {
+            days,
+            finishesOn: days ? dayKey(new Date(Date.now() + (days - 1) * 86_400_000), this.timezone?.() || null) : null,
+        };
         const tier = this.quota.tier();
         if (!tier || !this.transport?.realDelivery || !this.config.safetyEnabled || this.config.humanTiming === false || est.typical <= 0) {
-            return { ...est, quietSeconds: 0 };
+            return { ...est, quietSeconds: 0, ...finish };
         }
         const quietSeconds = quietExtraSeconds((at) => this.#planFor(at, tier), est.typical);
-        return { min: est.min + quietSeconds, max: est.max + quietSeconds, typical: est.typical + quietSeconds, quietSeconds };
+        return { min: est.min + quietSeconds, max: est.max + quietSeconds, typical: est.typical + quietSeconds, quietSeconds, ...finish };
     }
 
     #emitStats() {
@@ -259,16 +306,15 @@ export class CampaignManager extends EventEmitter {
      */
     enqueueContacts(contacts, template, {
         campaignId = null, onePerNumber = false, media = null, interactive = null,
-        // Meta approved template mode / 131047 fallback: { template: stored, params }.
-        metaTemplate = null, fallbackTemplate = null,
         // Bulk Campaigns v2: per-variable fallback text and the speed preset.
         fallbacks = null, pacing = 'balanced',
         // A/B bodies [{key, body}] split evenly over the batch; tracked links (see links/store.js).
         variants = null, trackLinks = false,
+        // A fresh run: queue.reset() options. Applied only after every refusal below, so a refused send keeps the live queue.
+        reset = null,
     } = {}) {
-        // An approved Meta template has one fixed wording: no versions, no rewritten links.
-        const versions = !metaTemplate && Array.isArray(variants) && variants.length ? variants : null;
-        const tracking = Boolean(trackLinks && !metaTemplate && this.links);
+        const versions = Array.isArray(variants) && variants.length ? variants : null;
+        const tracking = Boolean(trackLinks && this.links);
         // Throws InteractiveError (status 400) before anything is queued.
         const block = normalizeInteractive(interactive, { carousel: true, keepMedia: true });
         // Platform policy (policy/campaignOps.js): refusals before anything is queued.
@@ -283,7 +329,7 @@ export class CampaignManager extends EventEmitter {
             }
             if (rules.notOptedIn) {
                 const no = rules.notOptedIn();
-                const kept = contacts.filter((c) => !no.has(String(c?.phone ?? '').replace(/\D/g, '')));
+                const kept = contacts.filter((c) => !no.has(digits(c?.phone)));
                 skippedNoOptIn = contacts.length - kept.length;
                 contacts = kept;
             }
@@ -295,23 +341,34 @@ export class CampaignManager extends EventEmitter {
             // The plan's speed, whatever was asked for.
             pacing = rules.maxSpeed;
         }
-        // Meta fixes an approved template's wording; variation is not ours to add.
         const bodies = versions ? versions.map((v) => v.body) : [template];
-        const unvaried = this.config.safetyEnabled === false || metaTemplate ? null
-            : bodies.map((body) => variationError(body, contacts, this.config)).find(Boolean);
+        // A QR number's level sets how much a campaign must vary.
+        const levels = this.quota.qr && this.config.safetyEnabled !== false;
+        const tables = this.quota.tables();
+        const vary = levels ? { ...this.config, requireVariationAbove: qrVaryAbove(this.config, tables.qrVaryAbove) } : this.config;
+        const unvaried = this.config.safetyEnabled === false ? null
+            : bodies.map((body) => variationError(body, contacts, vary)).find(Boolean);
         if (unvaried) throw new SafetyError(unvaried);
-        if (this.config.safetyEnabled !== false && !metaTemplate) {
+        if (this.config.safetyEnabled !== false) {
             const own = (c) => String(c?.extra?.message ?? c?.extra?.custom_message ?? '');
-            const shouting = [...bodies, ...(Array.isArray(contacts) ? contacts.map(own) : [])]
-                .map(contentError).find(Boolean);
-            if (shouting) throw new SafetyError(shouting);
+            const texts = [...bodies, ...(Array.isArray(contacts) ? contacts.map(own) : [])];
+            const refused = texts.map(contentError).find(Boolean);
+            if (refused) throw new SafetyError(refused);
+        }
+        if (reset) {
+            this.resetStats();
+            this.queue.reset(reset);
+            this.pausedByQuota = false;
         }
         this.campaignId = campaignId ?? crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-        // Per-recipient frequency cap: bulk only, rolling 24h, counted from the db.
-        const perRecipient = this.config.safetyEnabled === false ? 0 : Number(this.config.recipientDailyCap) || 0;
-        const recent = perRecipient && this.db.bulkCountsSince
-            ? this.db.bulkCountsSince(new Date(Date.now() - 24 * 3600 * 1000).toISOString().replace(/\.\d{3}Z$/, '+00:00'))
-            : new Map();
+        // Per-recipient frequency cap: bulk only, rolling 24h, counted from the db. One a day from a QR number.
+        const perRecipient = this.config.safetyEnabled === false ? 0 : (levels ? 1 : Number(this.config.recipientDailyCap) || 0);
+        const recent = new Map();
+        if (perRecipient && this.db.bulkCountsSince) {
+            for (const [recipient, n] of this.db.bulkCountsSince(isoAgo(24 * 3600 * 1000))) {
+                recent.set(digits(recipient), (recent.get(digits(recipient)) ?? 0) + n);
+            }
+        }
         let skippedFrequency = 0;
         const batch = Array.isArray(contacts) ? contacts.length : 0;
         this.pacePreset = pickPreset(pacing);
@@ -322,11 +379,10 @@ export class CampaignManager extends EventEmitter {
         let skipped = 0;
         let skippedOptOut = 0;
         let skippedMuted = 0;
-        let skippedTemplateVars = 0;
         let split = 0; // recipients given a version so far: the next one gets versions[split % n]
-        const optedOut = new Set(this.db.getAllOptOuts?.() ?? []);
+        const optedOut = new Set((this.db.getAllOptOuts?.() ?? []).map(digits));
         // Contacts a reply rule muted ("not now, ask me in 30 days").
-        const muted = this.db.bulkMutedPhones?.() ?? new Set();
+        const muted = new Set([...(this.db.bulkMutedPhones?.() ?? [])].map(digits));
 
         // The flag only governs this batch: a later single send to one of these
         // numbers is a deliberate act, not a duplicate.
@@ -337,17 +393,18 @@ export class CampaignManager extends EventEmitter {
         this.queue.dedupe = onePerNumber;
         try {
             for (const contact of shuffle([...contacts])) {
-                if (optedOut.has(contact.phone)) {
+                const phone = digits(contact.phone);
+                if (optedOut.has(phone)) {
                     skipped += 1;
                     skippedOptOut += 1;
                     continue;
                 }
-                if (muted.has(contact.phone)) {
+                if (muted.has(phone)) {
                     skipped += 1;
                     skippedMuted += 1;
                     continue;
                 }
-                if (perRecipient && (recent.get(contact.phone) ?? 0) >= perRecipient) {
+                if (perRecipient && (recent.get(phone) ?? 0) >= perRecipient) {
                     skipped += 1;
                     skippedFrequency += 1;
                     continue;
@@ -355,30 +412,20 @@ export class CampaignManager extends EventEmitter {
                 // A `message` column in the sheet gives that number its own text;
                 // everyone else gets the shared template.
                 const own = String(contact.extra?.message ?? contact.extra?.custom_message ?? '').trim();
-                // --- Meta approved template (messaging/templateSend.js) ---
-                // Meta rejects an empty parameter, so a contact missing a
-                // mapped variable (and its fallback) is skipped, not sent.
-                const meta = metaTemplate
-                    ? prepareTemplateSend(metaTemplate.template, withFallbacks(contactContext(contact), fallbacks ?? {}), metaTemplate.params) : null;
-                if (meta?.missing.length) {
-                    skipped += 1;
-                    skippedTemplateVars += 1;
-                    continue;
-                }
-                const fallback = fallbackTemplate
-                    ? prepareTemplateSend(fallbackTemplate.template, withFallbacks(contactContext(contact), fallbacks ?? {}), fallbackTemplate.params) : null;
-                // --- end Meta approved template ---
                 // Round-robin over the (already shuffled) batch: an even split. A sheet's own text is no version.
                 const version = versions && !own ? versions[split % versions.length] : null;
-                let message = meta ? meta.text : renderMessage(own || (version?.body ?? template), contact, fallbacks ?? {});
+                let message = renderMessage(own || (version?.body ?? template), contact, fallbacks ?? {});
                 // Rewritten here, before the row is written: a retry or a restart resends the stored text, same codes.
                 const tracked = tracking ? this.links.rewrite(message) : null;
                 if (tracked) message = tracked.text;
+                // A way out in the first message to someone this QR number never chatted with (the STOP reply itself
+                // is autoreply/optout.js); anyone else gets it when the campaign's own text has it (the web's tick box).
+                if (levels && !/\bstop\b/i.test(message) && this.#cold({ recipient: contact.phone })) {
+                    message = `${message.trimEnd()}\n\n${OPT_OUT_TEXT}`;
+                }
                 const item = queueItem({
                     recipient: contact.phone,
                     message,
-                    template: meta?.template ?? null,
-                    fallbackTemplate: fallback && !fallback.missing.length ? fallback : null,
                     name: contact.name ?? '',
                     campaignId: this.campaignId,
                     media,
@@ -391,7 +438,7 @@ export class CampaignManager extends EventEmitter {
                     if (tracked?.links.length) {
                         this.links.save(tracked.links, { campaignId: this.campaignId, messageId: item.messageId, recipient: item.recipient });
                     }
-                    if (perRecipient) recent.set(contact.phone, (recent.get(contact.phone) ?? 0) + 1);
+                    if (perRecipient) recent.set(phone, (recent.get(phone) ?? 0) + 1);
                 } else skipped += 1;
             }
         } finally {
@@ -415,25 +462,10 @@ export class CampaignManager extends EventEmitter {
             skippedOptOut,
             skippedFrequency,
             skippedMuted,
-            skippedTemplateVars,
             campaignId: this.campaignId,
             safety: this.safetyStatus(queued),
             overQuota: Number.isFinite(remaining) ? Math.max(0, queued - remaining) : 0,
         };
-    }
-
-    enqueueSingle(recipient, message, name = '', { media = null } = {}) {
-        const item = queueItem({
-            recipient,
-            message,
-            name,
-            campaignId: this.campaignId || 'single',
-            media,
-        });
-        if (!this.#enqueueItem(item)) return null;
-        this.stats.total += 1;
-        this.#emitStats();
-        return item.messageId;
     }
 
     /**
@@ -454,8 +486,6 @@ export class CampaignManager extends EventEmitter {
             priority: job.priority,
             idempotencyKey: job.idempotencyKey,
             interactive: job.interactive ?? null,
-            fallbackTemplate: job.fallbackTemplate ?? null,
-            template: job.template ?? null,
             variant: job.variant ?? null,
         });
         if (!this.#enqueueItem(item)) return null;
@@ -487,7 +517,6 @@ export class CampaignManager extends EventEmitter {
             const item = queueItem({
                 recipient: job.recipient, message: job.text, name: job.name, campaignId,
                 media: job.media, interactive: job.interactive ?? null,
-                template: job.template ?? null, fallbackTemplate: job.fallbackTemplate ?? null,
                 variant: job.variant ?? null,
             });
             item.messageId = job.messageId;
@@ -540,11 +569,14 @@ export class CampaignManager extends EventEmitter {
     }
 
     pause() {
+        this.heldForLink = false; // set by the channel runtime after a ban; an operator's pause owns it from here
+        this.pausedByQuota = false; // nor does a daily-cap pause lift itself any more
         this.queue.pause();
         this.#emitStats();
     }
 
     resume() {
+        this.heldForLink = false;
         if (this.resumeRefusal) {
             const cap = this.bulkPolicy?.()?.capRemaining?.();
             if (cap && cap.left <= 0) {
@@ -555,11 +587,7 @@ export class CampaignManager extends EventEmitter {
         }
         if (this.pausedByQuota && this.quota.exhausted()) {
             // Resuming into an exhausted budget would just re-pause.
-            this.emit('event', {
-                type: 'quotaReached',
-                ...this.quota.status(),
-                message: `Daily limit of ${this.quota.limit} still reached - try after midnight.`,
-            });
+            this.emit('event', { type: 'quotaReached', ...this.quota.status(), message: this.#quotaText() });
             this.#emitStats();
             return false;
         }
@@ -616,9 +644,15 @@ export class CampaignManager extends EventEmitter {
     /**
      * A quota pause holds bulk only: a reply that arrives after it still goes
      * out (and counts toward the day). An operator's pause holds everything.
+     * It lifts itself once the budget has room again (the next day, or the end
+     * of a new number's rest); an operator's pause (which clears the flag) does not.
      */
     #pastQuotaPause() {
         if (!this.pausedByQuota || !this.queue.isPaused) return null;
+        if (!this.heldForLink && this.transport?.isConnected?.() && Date.now() - (this.quotaCheckedAt ?? 0) > QUOTA_RECHECK_MS) {
+            this.quotaCheckedAt = Date.now();
+            if (!this.quota.exhausted() && this.resume()) return null;
+        }
         // ponytail: the queue has no "take while paused"; reopen it for one synchronous pick.
         this.queue.resume();
         const item = this.queue.get((candidate) => QUOTA_EXEMPT.has(candidate.messageType) && this.#ready(candidate));
@@ -629,13 +663,36 @@ export class CampaignManager extends EventEmitter {
     /**
      * Can this item go now? A retry waits out its 5-10s timer, and bulk to a
      * number whose local time is outside 9:00-21:00 waits for their morning:
-     * it stays queued while everyone else goes first.
+     * it stays queued while everyone else goes first. On a QR number bulk also
+     * waits for the hourly budget, and a message to someone this number never
+     * talked to (bulk or transactional) for the new-chat budget; replies and
+     * people who know the number keep flowing. The budgets refill by themselves: no pause, no resume.
+     * A tenant control switched off (sendBlock) holds queued non-campaign items
+     * until it is back on; a campaign stops instead (killSwitch).
      */
     #ready(item) {
         if ((item.notBefore ?? 0) > Date.now()) return false;
-        const bulk = item.messageType === 'campaign' && this.transport?.realDelivery
-            && this.config.safetyEnabled && this.config.humanTiming !== false;
-        return !bulk || isDaytimeFor(item.recipient);
+        if (item.messageType !== 'campaign' && this.sendBlock?.(item.messageType)) return false;
+        const held = HELD.has(item.messageType);
+        // Every held type on a QR number; elsewhere campaigns only, so a school's early notice is not held till 9.
+        const daytime = item.messageType === 'campaign' || (held && this.#onLevels());
+        if (daytime && this.transport?.realDelivery && this.config.safetyEnabled && this.config.humanTiming !== false) {
+            const { daytimeFrom: from, daytimeTo: to } = this.quota.tables().brakes;
+            if (!isDaytimeFor(item.recipient, new Date(), { from, to })) return false;
+        }
+        if (!this.#onLevels() || !(held || item.messageType === 'transactional')) return true;
+        const { budgets } = this.quota.allowance();
+        // Bulk with nothing left today goes on to #quotaBlocked, which pauses the run and says until when.
+        if (held && budgets.bulk.left <= 0) return true;
+        if (held && budgets.hour.left <= 0) return false;
+        // Lazily, here: restored, recovered and retried items are covered too.
+        // shortcut: `cold` is read once; someone who writes in after that still waits for a new chat. Re-read it if that matters.
+        return budgets.newChats.left > 0 || !(item.cold ??= this.#cold(item));
+    }
+
+    /** Nobody here: never sent to, never wrote in. A group (jid) is not a stranger. */
+    #cold(item) {
+        return !String(item.recipient).includes('@') && Boolean(this.db.isCold?.(digits(item.recipient)));
     }
 
     /** Our own rest window for today (bulk only; replies are never held). */
@@ -691,21 +748,34 @@ export class CampaignManager extends EventEmitter {
      * The gap before this send. Drawn at random from the tier's range, scaled
      * by today's multiplier (so no two days have the same rhythm), stretched
      * for media, and every so often a long rest at a jittered interval.
+     * On a QR number it counts from the number's last real send or lookup, not
+     * from the run: a new run, a restore or a restart does not fire at once,
+     * and one send after a quiet spell still goes straight away.
      */
     #nextGap(item) {
-        if (this.sentInRun <= 0) return { seconds: 0, resting: false };
+        const levels = this.#onLevels();
+        if (this.sentInRun <= 0 && !levels) return { seconds: 0, resting: false };
+        // A level moves mid-run (a brake, a level-up): its pace follows on every send.
+        if (levels) this.pace = this.#paceFor(this.pace.batchSize, this.pacePreset);
         const pace = this.pace;
-        if (pace.restEvery > 0) {
+        let gap = null;
+        if (pace.restEvery > 0 && this.sentInRun > 0) {
             this.nextRestAt ??= this.sentInRun + Math.max(1, Math.round(pace.restEvery * between(0.7, 1.3)));
             if (this.sentInRun >= this.nextRestAt) {
                 this.nextRestAt = this.sentInRun + Math.max(1, Math.round(pace.restEvery * between(0.7, 1.3)));
-                return { seconds: between(pace.restMinSeconds, pace.restMaxSeconds), resting: true };
+                gap = { seconds: between(pace.restMinSeconds, pace.restMaxSeconds), resting: true };
             }
         }
-        let { seconds } = nextDelay({ ...pace, restEvery: 0 }, this.sentInRun);
-        seconds *= this.#dayPlan()?.gapFactor ?? 1;
-        if (item.media) seconds *= MEDIA_GAP_FACTOR;
-        return { seconds, resting: false };
+        if (!gap) {
+            let { seconds } = nextDelay({ ...pace, restEvery: 0 }, Math.max(1, this.sentInRun));
+            seconds *= this.#dayPlan()?.gapFactor ?? 1;
+            // A carousel goes out as several captioned images: as heavy as media.
+            if (item.media || item.interactive?.type === 'carousel') seconds *= MEDIA_GAP_FACTOR;
+            gap = { seconds, resting: false };
+        }
+        if (!levels) return gap;
+        const last = Math.max(Date.parse(this.quota.allowance().lastSentAt ?? '') || 0, this.lastActionAt ?? 0);
+        return { ...gap, seconds: Math.max(0, gap.seconds - (Date.now() - last) / 1000) };
     }
 
     /** After a drop the first send waits 20-90s, so the pool eases back in. */
@@ -726,27 +796,86 @@ export class CampaignManager extends EventEmitter {
 
     // ------------------------------------------------------ block / report --
     /**
-     * Messages the server accepted but that never reached the phone are how a
-     * block looks from our side. Record them, then pause the run if blocks and
-     * reports together are too large a share of the week's sends.
+     * A campaign message still on one tick is judged once, at 48h (db.stuckSent): a block only when the
+     * recipient was silent in hours 24-48 and the number delivered at least 95% of its own sends then.
+     * Below that the stuck brake owns it, so one incident trips one brake. Then the delivery and stuck brakes
+     * (2-24h window), and a campaign pause if blocks and reports are too large a share of the week.
+     * Runs every 10 minutes per connected number (app watchdog, scanHealthIfDue) and while sending.
      */
     scanHealth() {
         this.lastHealthScan = Date.now();
         if (!this.db.stuckSent) return;
         // Take back blocks that the phone has since disproved, before counting new ones.
         this.db.healBlocks?.();
-        const stuck = this.db.stuckSent(isoAgo(7 * 86_400_000), isoAgo(BLOCK_SUSPECT_AFTER_SECONDS * 1000));
-        for (const m of stuck) {
+        const judged = [];
+        for (const m of this.db.stuckSent(new Date())) {
             // The transport may hold a receipt the database never got (it arrived mid-send).
             const known = m.providerId ? this.transport?.getStatus?.(m.providerId) : null;
             if (known && (STATUS_RANK[known] ?? 0) > STATUS_RANK.SENT && this.handleReceipt(m.providerId, known)) continue;
+            judged.push(m.messageId);
+            if (!m.quiet || !m.winSent || m.winDelivered / m.winSent < BLOCK_MIN_DELIVERED) continue;
             const fresh = this.db.addSafetyEvent({
                 kind: 'block', phone: m.phone, messageId: m.messageId, campaignId: m.campaignId,
-                detail: 'Still one tick 24 hours after sending: this person may have blocked the number.',
+                detail: `Still one tick ${BLOCK_SUSPECT_AFTER_SECONDS / 3600} hours after sending while the number delivered to others: this person may have blocked the number.`,
             });
             if (fresh) this.emit('event', { type: 'safetyEvent', kind: 'block', phone: m.phone });
         }
+        this.db.markBlockChecked?.(judged);
+        if (this.quota.qr && this.db.deliveryWindow) {
+            for (const b of deliveryBrakes(this.db.deliveryWindow(new Date()), this.quota.tables().brakes)) this.recordBrake(b.code, b.text);
+        }
         this.checkBlockRate();
+    }
+
+    /** scanHealth when the last one is 10 minutes old: the app watchdog calls this for every connected number. */
+    scanHealthIfDue() {
+        if (Date.now() - this.lastHealthScan >= HEALTH_SCAN_MS) this.scanHealth();
+    }
+
+    /**
+     * Start a halting brake (delivery, stuck, unstable) for HALT_HOURS, unless one is already running. With
+     * `sending.brakesMode` 'shadow' (the default) it is only logged, as a safety_events row of kind 'shadow',
+     * and sending never slows; with 'enforce' it is a kind 'brake' row that the ledger applies.
+     * The code is the row's phone and its end the message_id. Returns true when a new row was written.
+     */
+    recordBrake(code, text) {
+        if (!this.db.addSafetyEvent) return false;
+        const kind = this.quota.tables().brakes?.brakesMode === 'enforce' ? 'brake' : 'shadow';
+        if (this.db.activeBrake?.(kind, code)) return false;
+        const until = new Date(Date.now() + HALT_HOURS[code] * 3_600_000).toISOString();
+        if (!this.db.addSafetyEvent({ kind, phone: code, messageId: until, detail: text })) return false;
+        this.opsAlert?.({ kind: code, shadow: kind === 'shadow', text: kind === 'shadow' ? `Shadow (not applied): ${text}` : text, detail: until });
+        // A shadow row is for the admin view only: the business's page and budgets see nothing.
+        if (kind === 'brake') {
+            this.quota.invalidate();
+            this.emit('event', { type: 'safetyEvent', kind, code, until });
+        }
+        return true;
+    }
+
+    /**
+     * The dead-man check (ops alert): how long messages have waited in sending hours with nothing sent, once
+     * that reaches DEAD_MAN_MS, else 0. Only an item that could go now counts: the queue paused (an operator
+     * or the daily cap), bulk held (#bulkHeld: sending windows, a rest) or every item on a deliberate hold
+     * (#ready: budgets, recipients' night, a restriction, a tenant control) restarts the wait, so a quiet
+     * night or a reached cap never counts. The app's watchdog calls this every 30s; one stall reports at most
+     * once an hour.
+     */
+    deadManIdleMs(now = Date.now()) {
+        const bulkHeld = this.#bulkHeld();
+        const waiting = !this.queue.isPaused && !this.queue.isStopped
+            && this.queue.items.some((item) => !(item.messageType === 'campaign' && bulkHeld) && this.#ready(item));
+        if (!waiting) {
+            this.waitingSince = 0;
+            this.deadManAlertedAt = 0;
+            return 0;
+        }
+        this.waitingSince ||= now;
+        const lastSent = Date.parse(this.quota.allowance?.().lastSentAt ?? '') || 0;
+        const idle = now - Math.max(this.waitingSince, lastSent, this.lastActionAt ?? 0);
+        if (idle < DEAD_MAN_MS || now - (this.deadManAlertedAt || 0) < 3_600_000) return 0;
+        this.deadManAlertedAt = now;
+        return idle;
     }
 
     /** Blocks + reports (people) over real sends in 7 days. */
@@ -757,18 +886,19 @@ export class CampaignManager extends EventEmitter {
         const pct = (n) => (sent ? Math.round((n / sent) * 1000) / 10 : 0);
         const blocks = counts.block ?? 0;
         const reports = counts.report ?? 0;
-        return { sent7d: sent, blocks, reports, blockRatePercent: pct(blocks), reportRatePercent: pct(reports), pauseAtPercent: BLOCK_PAUSE_PERCENT };
+        const pauseAtPercent = this.quota.tables().blockPausePercent;
+        return { sent7d: sent, blocks, reports, blockRatePercent: pct(blocks), reportRatePercent: pct(reports), pauseAtPercent };
     }
 
     /** Pauses a running campaign when blocks + reports pass the limit. Returns true when it paused. */
     checkBlockRate() {
         const rates = this.healthRates();
-        const over = rates.blockRatePercent + rates.reportRatePercent >= BLOCK_PAUSE_PERCENT;
-        if (!over || rates.sent7d < BLOCK_PAUSE_MIN_SENT || this.queue.isPaused || this.queue.isStopped) return false;
+        const over = rates.blockRatePercent + rates.reportRatePercent >= rates.pauseAtPercent;
+        if (!over || rates.sent7d < this.quota.tables().blockPauseMinSent || this.queue.isPaused || this.queue.isStopped) return false;
         this.queue.pause();
         this.emit('event', {
             type: 'failureStop', failed: rates.blocks + rates.reports, processed: rates.sent7d,
-            message: `Paused: ${rates.blocks} blocks and ${rates.reports} reports from ${rates.sent7d} messages this week (limit ${BLOCK_PAUSE_PERCENT}%).`,
+            message: `Paused: ${rates.blocks} blocks and ${rates.reports} reports from ${rates.sent7d} messages this week (limit ${rates.pauseAtPercent}%).`,
         });
         this.#emitStats();
         return true;
@@ -793,13 +923,24 @@ export class CampaignManager extends EventEmitter {
         this.queue.putFront(item);
         this.queue.pause();
         this.pausedByQuota = true;
-        this.emit('event', {
-            type: 'quotaReached',
-            ...this.quota.status(),
-            message: `Daily limit of ${this.quota.limit} reached - campaign paused.`,
-        });
+        this.emit('event', { type: 'quotaReached', ...this.quota.status(), message: this.#quotaText() });
         this.#emitStats();
         return true;
+    }
+
+    /** Why bulk is held for the day, and when it carries on by itself (#pastQuotaPause). */
+    #quotaText() {
+        const status = this.quota.status();
+        const zone = this.timezone?.() || null;
+        if (status.asked === false) {
+            return 'Answer 2 questions about this number on the Connection page to start sending. Sending continues by itself once they are answered.';
+        }
+        if (status.level?.resting.active) {
+            return `This number is resting after being linked. Bulk sending starts automatically at ${clockAt(status.level.resting.endsAt, zone)}.`;
+        }
+        const halt = status.brakes?.find((b) => HALTING_BRAKES.includes(b.code));
+        if (halt) return `${halt.text} Sending continues automatically at ${clockAt(halt.until, zone)}.`;
+        return `Today's allowance of ${status.limit} is used. Sending continues automatically at ${clockAt(status.resetsAt, zone)}.`;
     }
 
     /**
@@ -819,7 +960,7 @@ export class CampaignManager extends EventEmitter {
     }
 
     async #process(item) {
-        if (this.transport?.realDelivery && Date.now() - this.lastHealthScan > 600_000) this.scanHealth();
+        if (this.transport?.realDelivery) this.scanHealthIfDue();
         this.inFlight += 1;
         this.current = item;
         try {
@@ -830,16 +971,20 @@ export class CampaignManager extends EventEmitter {
         }
     }
 
+    /** Bulk is held now: outside the sending window, the platform's sending hours or a rest. */
+    #bulkHeld() {
+        // The platform's sending hours apply whatever the tenant's own safety switch says.
+        return Boolean(this.transport?.realDelivery) && ((this.config.safetyEnabled && this.bulkWindowOpen?.() === false)
+            || this.policyWindowOpen?.() === false || this.#resting());
+    }
+
     /**
      * Bulk outside the sending window / quiet hours goes back in the queue (by
      * priority, so replies still overtake it) and the worker naps briefly.
      * Returns true when the item was held.
      */
     async #heldOutsideWindow(item) {
-        const bulk = item.messageType === 'campaign' && this.transport?.realDelivery;
-        // The platform's sending hours apply whatever the tenant's own safety switch says.
-        const held = bulk && ((this.config.safetyEnabled && this.bulkWindowOpen?.() === false)
-            || this.policyWindowOpen?.() === false || this.#resting());
+        const held = item.messageType === 'campaign' && this.#bulkHeld();
         if (held !== this.holding) {
             this.holding = Boolean(held);
             if (held) this.emit('event', { type: 'pacing', seconds: 0, resting: true, reason: 'quiet hours - bulk sending resumes when the window opens' });
@@ -855,12 +1000,22 @@ export class CampaignManager extends EventEmitter {
      * A number with no WhatsApp account is marked NOT_ON_WHATSAPP and never
      * sent: no attempt, no daily-cap use, no retry. Replies are not checked
      * (whoever wrote in has an account), nor jids (groups, @lid).
+     * On a QR number mass lookups look like scraping: one number at a time,
+     * after the gap, strangers only, none while WhatsApp restricts the number;
+     * a NOT_ON_WHATSAPP spends a new chat (the ledger counts it).
      * Returns true when the item was settled that way.
      */
     async #notOnWhatsapp(item) {
         const checkable = (i) => i.messageType !== 'auto_reply' && !String(i.recipient).includes('@');
         if (!this.transport?.supportsRegistrationCheck || !checkable(item)) return false;
-        if (this.#registered(item.recipient) === undefined) {
+        if (this.#onLevels()) {
+            item.cold ??= this.#cold(item);
+            if (!item.cold || !this.quota.allowance().lookups) return false;
+            if (this.#registered(item.recipient) === undefined) {
+                await this.checkRegistered([item.recipient]);
+                this.lastActionAt = Date.now();
+            }
+        } else if (this.#registered(item.recipient) === undefined) {
             const ahead = this.queue.snapshot()
                 .filter((i) => checkable(i) && this.#registered(i.recipient) === undefined)
                 .map((i) => i.recipient);
@@ -878,17 +1033,35 @@ export class CampaignManager extends EventEmitter {
                 return;
             }
             if (await this.#heldOutsideWindow(item)) return;
-            // Before the cap and the gap: a number with no account costs neither.
-            if (await this.#notOnWhatsapp(item)) return;
+            // Before the cap and the gap: a number with no account costs neither. A QR number looks up after the gap.
+            const levels = this.#onLevels();
+            if (!levels && await this.#notOnWhatsapp(item)) return;
             if (this.#quotaBlocked(item)) return;
             if (this.#capBlocked(item)) return;
             if (!await this.#paceBeforeSend(item)) {
                 this.queue.putFront(item);   // stopped while pacing: keep the row queued
                 return;
             }
+            if (levels && await this.#notOnWhatsapp(item)) return;
             // Rate limit sits between the queue and the transport.
             if (!await this.rateLimiter.acquire(() => this.#stopped())) {
                 this.#finish(item, Status.CANCELLED, { error: this.stopReason });
+                return;
+            }
+            // Enqueue checked opt-outs, but a STOP can land while this row waited its turn.
+            if (this.db.isOptedOut?.(digits(item.recipient))) {
+                this.#finish(item, Status.CANCELLED, { error: 'opted out' });
+                return;
+            }
+            // A control switched off while this row paced: hold it (#ready skips it until it is back on).
+            if (item.messageType !== 'campaign' && this.sendBlock?.(item.messageType)) {
+                this.queue.putFront(item);
+                return;
+            }
+            // The plan's message quota ran out after this row was accepted (a fan-out, or a backlog): it does not go.
+            const overQuota = item.messageType !== 'campaign' && this.transport?.realDelivery && this.capBlock?.(true);
+            if (overQuota) {
+                this.#finish(item, Status.CANCELLED, { error: overQuota });
                 return;
             }
 
@@ -900,20 +1073,25 @@ export class CampaignManager extends EventEmitter {
             });
 
             let retryable = false;
+            let limited = false;
             let errorText = '';
             let dropped = false;
             try {
                 // A person types before sending: the transport shows "typing..." for this long.
                 const typing = this.transport?.realDelivery && this.config.safetyEnabled && this.config.humanTiming !== false
                     ? typingMs(item.message, { media: Boolean(item.media) }) : 0;
-                const registered = this.#registered(item.recipient) === true;
+                // Someone this QR number already talks to is on WhatsApp: the transport need not look them up.
+                const registered = this.#registered(item.recipient) === true || (levels && item.cold === false);
                 const result = await this.transport.sendMessage(item.recipient, item.message,
-                    { media: item.media, interactive: item.interactive, template: item.template, ...(typing ? { typingMs: typing } : {}), ...(registered ? { registered } : {}) });
-                if (this.transport?.realDelivery) this.sentInRun += 1;
+                    { media: item.media, interactive: item.interactive, ...(typing ? { typingMs: typing } : {}), ...(registered ? { registered } : {}) });
+                this.lastActionAt = Date.now();
+                // A carousel goes out as several WhatsApp messages (`parts`); the rests and the budgets count each.
+                if (this.transport?.realDelivery) this.sentInRun += result.parts ?? 1;
                 this.db.updateStatus(item.messageId, result.status, {
                     attempt: item.attempt,
                     providerId: result.providerId,
                     error: SUCCESS_STATUSES.includes(result.status) ? null : result.detail,
+                    parts: result.parts,
                 });
                 this.#finish(item, result.status, { providerId: result.providerId, counted: true });
                 // A receipt that landed before provider_id was written found no row and is gone;
@@ -922,6 +1100,7 @@ export class CampaignManager extends EventEmitter {
                 if (late && late !== result.status) this.handleReceipt(result.providerId, late);
                 return;
             } catch (err) {
+                this.lastActionAt = Date.now();   // a refused send still talked to WhatsApp: the next gap counts from here
                 // The transport's own last-moment lookup said no account (the batch check could not tell).
                 if (err?.code === NOT_ON_WHATSAPP_CODE) {
                     this.registry.set(item.recipient, { registered: false, at: Date.now() });
@@ -940,20 +1119,12 @@ export class CampaignManager extends EventEmitter {
                     retryable = false;
                     errorText = `Unexpected error: ${err.message ?? err}`;
                 }
-                // Meta 131049: this person's marketing allowance is used up; retrying now only burns attempts.
-                if (normalizeError(err).code === ErrorCode.PER_USER_CAP) retryable = false;
                 // The raw provider text goes to the server log; history and the
                 // UI get a sentence the customer can act on.
-                console.warn(`[send] ${item.messageId} to ${item.recipient}: ${errorText}`);
+                limited = normalizeError(err).code === ErrorCode.RATE_LIMITED;
+                // The logger keeps the recipient to its last 4 digits and never logs the message text.
+                logger.warn('send failed', { messageId: item.messageId, recipient: item.recipient, error: errorText });
                 errorText = friendlyError(err);
-                // Outside the 24h window (131047): swap in the campaign's
-                // fallback approved template once and go again.
-                if (err?.code === 131047 && item.fallbackTemplate && !item.template) {
-                    item.template = item.fallbackTemplate.template;
-                    item.message = item.fallbackTemplate.text;
-                    item.interactive = null;
-                    continue;
-                }
             }
 
             // The line dropped: keep this message where it is, wait for the
@@ -971,7 +1142,30 @@ export class CampaignManager extends EventEmitter {
                 item.attempt += 1;   // never came back: treat as an ordinary failure
             }
 
+            // WhatsApp said rate-overlimit: the whole number backs off (this worker sends nothing) for 90s or more,
+            // whether or not this message tries again.
+            const rateLimited = limited && this.transport?.realDelivery;
+            const backOff = (wait) => {
+                this.emit('event', { type: 'pacing', seconds: wait, resting: true, reason: 'WhatsApp is rate limiting this number - backing off' });
+                return interruptibleSleep(wait, () => this.#stopped());
+            };
             if (this.retryPolicy.shouldRetry(item.attempt, retryable)) {
+                if (rateLimited) {
+                    const wait = between(...RATE_LIMIT_WAIT);
+                    this.db.updateStatus(item.messageId, Status.QUEUED,
+                        { attempt: item.attempt, error: `${errorText} (retry in about ${Math.round(wait)}s)` });
+                    this.emit('event', {
+                        type: 'status', messageId: item.messageId, status: Status.QUEUED,
+                        attempt: item.attempt, error: errorText,
+                    });
+                    if (!await backOff(wait)) {
+                        // A restart mid-backoff keeps the row queued (restoreRun picks it up); a stop cancels it.
+                        if (this.shuttingDown) this.queue.putFront(item);
+                        else this.#finish(item, Status.CANCELLED, { error: this.stopReason });
+                        return;
+                    }
+                    continue;
+                }
                 // Real sends: everyone else goes first, then this one tries again 5-10s later.
                 if (this.transport?.realDelivery) {
                     const wait = between(5, 10);
@@ -1004,6 +1198,7 @@ export class CampaignManager extends EventEmitter {
             this.db.updateStatus(item.messageId, Status.FAILED,
                 { attempt: item.attempt, error: errorText });
             this.#finish(item, Status.FAILED, { error: errorText, counted: true });
+            if (rateLimited) await backOff(between(...RATE_LIMIT_WAIT));   // the next message still waits
             return;
         }
     }
@@ -1018,13 +1213,15 @@ export class CampaignManager extends EventEmitter {
             return;
         }
         this.stats.processed += 1;
+        // The level's budgets count this send (or this NOT_ON_WHATSAPP lookup) from the next read on.
+        if (this.quota.qr) this.quota.invalidate();
         if (SUCCESS_STATUSES.includes(status) || status === Status.SANDBOX) {
             this.stats.successful += 1;
             // Set by the channel runtime (records interactive sends for reply matching).
             try {
                 this.onSent?.(item, { status, providerId });
             } catch (err) {
-                console.warn(`[send] onSent hook failed for ${item.messageId}: ${err.message}`);
+                logger.warn('onSent hook failed', { messageId: item.messageId, error: err.message });
             }
         } else if (status === Status.NOT_ON_WHATSAPP) {
             this.stats.notOnWhatsapp += 1;   // a bad number, not a failed send: never trips the failure stop

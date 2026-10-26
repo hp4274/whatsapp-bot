@@ -1,0 +1,172 @@
+<!-- Error / skeleton / then either the result card, the two questions, or nothing once answered.
+     The skip warning is a native dialog so focus and Escape behave. -->
+<ng-template #body>
+  @if (error()) {
+    <div class="s-banner" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i>
+      <span class="msg">{{ error() }}</span>
+      <button type="button" class="btn sm" (click)="load()">
+        <i class="ti ti-refresh" aria-hidden="true"></i>Try again
+      </button>
+    </div>
+  } @else if (loading()) {
+    <div class="nq" aria-busy="true" aria-label="Loading the number's questions">
+      <span class="s-skel w60"></span>
+      <span class="s-skel"></span>
+      <span class="s-skel w40"></span>
+    </div>
+  } @else if (result(); as r) {
+    <!-- Focused when it appears, so keyboard and screen-reader users land on the outcome. -->
+    <div #resultCard class="nq result" role="status" tabindex="-1">
+      <span class="badge tone-ok"><i class="ti ti-circle-check" aria-hidden="true"></i></span>
+      <p>
+        @if (r.already) {
+          These questions were already answered.
+        }
+        <!-- No "now": a new number may still wait after linking; the health line says until when. -->
+        @if (r.todayLimit !== null) {
+          This number runs at <strong>{{ r.todayLimit }}</strong> messages a day.
+          @if (grows()) {
+            It will increase gradually up to <strong>{{ r.planLimit }}</strong> a day as people reply.
+          }
+        } @else if (!r.already) {
+          This number has no daily limit.
+        }
+      </p>
+    </div>
+  } @else if (info(); as i) {
+    @if (!i.asked) {
+      <form class="nq" (submit)="submit($event)" aria-labelledby="nq-title">
+        <header class="nq-head">
+          <span class="badge tone-info"><i class="ti ti-help-circle" aria-hidden="true"></i></span>
+          <div>
+            <h4 id="nq-title">Answer 2 questions to start sending</h4>
+            <p class="muted">
+              An older, busier number can safely send more from day one. Bulk sending waits until these
+              are answered.
+            </p>
+          </div>
+        </header>
+
+        <fieldset class="group">
+          <legend>How old is this number on WhatsApp?</legend>
+          <div class="opts">
+            @for (label of ageChoices; track label; let n = $index) {
+              <label class="opt">
+                <input
+                  type="radio"
+                  name="nq-age"
+                  [value]="n"
+                  [checked]="age() === n"
+                  (change)="age.set(n)"
+                />
+                <span>{{ label }}</span>
+              </label>
+            }
+          </div>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>How has it been used?</legend>
+          <div class="opts">
+            @for (label of usageChoices; track label; let n = $index) {
+              <label class="opt">
+                <input
+                  type="radio"
+                  name="nq-usage"
+                  [value]="n"
+                  [checked]="usage() === n"
+                  (change)="usage.set(n)"
+                />
+                <span>{{ label }}</span>
+              </label>
+            }
+          </div>
+        </fieldset>
+
+        @if (saveError()) {
+          <p class="s-banner" role="alert">
+            <i class="ti ti-alert-circle" aria-hidden="true"></i><span class="msg">{{ saveError() }}</span>
+          </p>
+        }
+
+        <div class="acts">
+          <button type="submit" class="btn primary" [disabled]="!canSubmit()">
+            @if (saving() && !skipOpen()) {
+              <span class="spinner"></span>
+            }
+            Start sending
+          </button>
+          <button type="button" class="btn ghost sm skip" (click)="openSkip()" [disabled]="saving()">
+            <i class="ti ti-player-skip-forward" aria-hidden="true"></i>Skip the questions
+          </button>
+        </div>
+      </form>
+    }
+
+    <!-- While the skip is saving, Escape is ignored so a failure still shows inside the dialog. -->
+    <dialog
+      #dialog
+      class="dlg"
+      aria-labelledby="nq-skip-title"
+      aria-describedby="nq-skip-desc"
+      (cancel)="saving() && $event.preventDefault()"
+      (close)="closeSkip()"
+    >
+      @if (skipOpen()) {
+        <form method="dialog" (submit)="confirmSkip($event)">
+          <span class="badge tone-bad"><i class="ti ti-alert-triangle" aria-hidden="true"></i></span>
+          <h3 id="nq-skip-title">Skip the questions?</h3>
+          <div id="nq-skip-desc" class="risk">
+            @for (para of i.skipWarning.text; track $index) {
+              <p>{{ para }}</p>
+            }
+          </div>
+          <label class="accept">
+            <input type="checkbox" [checked]="accepted()" (change)="accepted.set($any($event.target).checked)" />
+            <span>I understand and accept the risk</span>
+          </label>
+          @if (skipError()) {
+            <p class="s-banner" role="alert">
+              <i class="ti ti-alert-circle" aria-hidden="true"></i><span class="msg">{{ skipError() }}</span>
+            </p>
+          }
+          <div class="dlg-acts">
+            <button type="button" class="btn" (click)="closeSkip()" [disabled]="saving()">Cancel</button>
+            <button type="submit" class="btn danger" [disabled]="!accepted() || saving()">
+              @if (saving()) {
+                <span class="spinner"></span>
+              }
+              Skip and start sending
+            </button>
+          </div>
+        </form>
+      }
+    </dialog>
+  }
+</ng-template>
+
+@if (popup()) {
+  <!-- Opens by itself once the number is linked and still unanswered; Escape or Later closes it,
+       and the channel card keeps asking. -->
+  <dialog
+    #ask
+    class="dlg ask"
+    aria-labelledby="nq-title"
+    (cancel)="saving() && $event.preventDefault()"
+    (close)="dismissed.set(true)"
+  >
+    <ng-container [ngTemplateOutlet]="body" />
+    <div class="dlg-acts">
+      @if (result()) {
+        <button type="button" class="btn primary" (click)="dismissed.set(true)">Done</button>
+      } @else {
+        <button type="button" class="btn ghost sm" (click)="dismissed.set(true)" [disabled]="saving()">
+          Later
+        </button>
+      }
+    </div>
+  </dialog>
+} @else {
+  <ng-container [ngTemplateOutlet]="body" />
+}

@@ -70,7 +70,7 @@
     }
   </div>
 } @else if (templates().length) {
-  <div class="cats" role="group" aria-label="Filter by Meta category">
+  <div class="cats" role="group" aria-label="Filter by category">
     <button
       class="cat"
       type="button"
@@ -161,19 +161,6 @@
             <span class="s-pill" [class]="review[t.reviewStatus].tone" [attr.title]="t.reviewNote || null"
               ><i class="ti ti-{{ review[t.reviewStatus].icon }}" aria-hidden="true"></i>
               {{ review[t.reviewStatus].label }}</span
-            >
-          }
-          @if (t.templateType === 'provider_template') {
-            <span
-              class="s-pill"
-              [class]="
-                t.approvalStatus === 'approved'
-                  ? 'tone-ok'
-                  : t.approvalStatus === 'rejected'
-                    ? 'tone-bad'
-                    : 'tone-warn'
-              "
-              >{{ t.approvalStatus }}</span
             >
           }
           @if (t.headerMediaId) {
@@ -397,8 +384,8 @@
           </div>
 
           <fieldset class="catpick">
-            <legend>Meta category</legend>
-            <div class="opts" role="radiogroup" aria-label="Meta category">
+            <legend>Category</legend>
+            <div class="opts" role="radiogroup" aria-label="Category">
               @for (c of categories; track c) {
                 <button
                   type="button"
@@ -416,41 +403,6 @@
               <i class="ti ti-info-circle" aria-hidden="true"></i>{{ cat[draft().category].guide }}
             </p>
           </fieldset>
-
-          @if (draft().templateType === 'provider_template') {
-            <div class="row">
-              <div class="field">
-                <label for="tp-pname">Meta template name</label>
-                <input
-                  id="tp-pname"
-                  name="pname"
-                  [ngModel]="draft().providerTemplateName"
-                  (ngModelChange)="patch({ providerTemplateName: $event })"
-                />
-              </div>
-              <div class="field">
-                <label for="tp-appr">Approval</label>
-                <select
-                  id="tp-appr"
-                  name="appr"
-                  [ngModel]="draft().approvalStatus"
-                  (ngModelChange)="patch({ approvalStatus: $event })"
-                >
-                  @for (s of statuses; track s) {
-                    <option [value]="s">{{ s }}</option>
-                  }
-                </select>
-              </div>
-            </div>
-            <app-meta-mapping
-              [body]="draft().body"
-              [vars]="vars()"
-              [language]="draft().language ?? ''"
-              (languageChange)="patch({ language: $event })"
-              [mapping]="draft().paramMapping ?? {}"
-              (mappingChange)="patch({ paramMapping: $event })"
-            />
-          }
 
           <section class="block" aria-labelledby="tp-media-h">
             <h4 id="tp-media-h">
@@ -589,7 +541,7 @@
           @if (vars().length) {
             <fieldset class="samples">
               <legend>
-                Sample values <small>shown in the preview, sent to Meta as examples</small>
+                Sample values <small>shown in the preview</small>
               </legend>
               @for (v of vars(); track v) {
                 <div class="field">

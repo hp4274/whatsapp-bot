@@ -25,19 +25,6 @@
   .snippet { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 
-.eta { margin: 0; font-size: 13px; }
-
-// The plan's speed: read-only, one line.
-.plan-speed {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-
-  .ti { font-size: 17px; color: var(--text-muted); }
-}
-
 // When choices: the Kardlyz segmented track, big enough for a label
 // and a hint, the active item lifted onto the card surface.
 .seg {
@@ -87,17 +74,6 @@
   strong { font-size: 22px; font-weight: 500; letter-spacing: -0.8px; color: var(--text-strong); font-variant-numeric: tabular-nums; }
   strong.bad { color: var(--warning); }
   span.muted { font-size: 12px; }
-}
-
-.meter {
-  display: block;
-  height: 6px;
-  margin-top: 6px;
-  border-radius: 99px;
-  background: var(--surface-sunken);
-  overflow: hidden;
-
-  span { display: block; height: 100%; max-width: 100%; background: var(--primary); border-radius: inherit; }
 }
 
 .when {

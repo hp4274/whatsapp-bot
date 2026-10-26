@@ -15,7 +15,10 @@ export interface ApiKey {
   prefix: string;
   scopes: string[];
   lastUsedAt: string | null;
+  /** Effective expiry: the earlier of the key's own date and the platform's maximum age. */
   expiresAt: string | null;
+  /** Within the warning window (14 days) of expiresAt. */
+  expiringSoon?: boolean;
   revokedAt: string | null;
   createdAt: string;
 }
@@ -59,9 +62,13 @@ export class DeveloperApi {
   }
 
   keys() {
-    return this.req<{ keys: ApiKey[]; scopes: string[] }>('GET', '/api/api-keys');
+    // maxAgeDays: 0 = keys never expire on their own.
+    return this.req<{ keys: ApiKey[]; scopes: string[]; maxAgeDays?: number; expiryWarningDays?: number }>(
+      'GET',
+      '/api/api-keys',
+    );
   }
-  createKey(body: { name: string; scopes: string[] }) {
+  createKey(body: { name: string; scopes: string[]; expiresAt?: string | null }) {
     return this.req<{ key: CreatedApiKey }>('POST', '/api/api-keys', body);
   }
   revokeKey(id: number) {

@@ -7,6 +7,7 @@
  * be read as a real WhatsApp delivery.
  */
 
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -33,6 +34,8 @@ export class SandboxTransport extends Transport {
         this.notOnWhatsappPrefix = null;
         /** Set to true to make the registration check itself fail. */
         this.checkFails = false;
+        /** A test emits 'inbound' here to play a received message, as a real transport would. */
+        this.events = new EventEmitter();
     }
 
     async connect() {

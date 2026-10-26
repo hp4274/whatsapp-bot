@@ -58,14 +58,11 @@ const ADDED_COLUMNS = [
     ['sample_values', "TEXT NOT NULL DEFAULT '{}'"],
     ['header_media_id', 'TEXT'],
     ['interactive', 'TEXT'],
-    // Meta approved-template send: language code (en_US...) and the ordered
-    // {{n}} -> contact-variable mapping (see messaging/templateSend.js).
-    // The Meta template name itself is provider_template_name.
+    // Unused since the Meta template send was removed (no column drops).
     ['language', "TEXT NOT NULL DEFAULT ''"],
     ['param_mapping', "TEXT NOT NULL DEFAULT '{}'"],
     // Platform review (policy templates.requireApproval): '' never reviewed,
-    // pending | approved | rejected. Separate from approval_status, which is
-    // Meta's verdict on a Cloud API template.
+    // pending | approved | rejected. (approval_status is the removed Cloud API's, unused.)
     ['review_status', "TEXT NOT NULL DEFAULT ''"],
     ['review_note', "TEXT NOT NULL DEFAULT ''"],
     ['reviewed_at', 'TEXT'],
@@ -78,4 +75,6 @@ export function migrateTemplates(db) {
     for (const [name, type] of ADDED_COLUMNS) {
         if (!cols.includes(name)) db.exec(`ALTER TABLE templates ADD COLUMN ${name} ${type}`);
     }
+    // The Meta Cloud API's template type is gone: such a template is plain text now, or editing it would 400.
+    db.exec("UPDATE templates SET template_type = 'text' WHERE template_type = 'provider_template'");
 }

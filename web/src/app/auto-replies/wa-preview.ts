@@ -1,6 +1,8 @@
-import { ChangeDetectionStrategy, Component, input, model } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, input, model } from '@angular/core';
 
 import { InteractivePreview } from '../campaign/interactive/interactive-preview';
+import { MediaSrc } from '../campaign/interactive/media-src';
+import { Store } from '../core/store';
 import { Interactive, Media } from './auto-replies.api';
 
 export interface PreviewTurn {
@@ -19,21 +21,27 @@ export interface PreviewReply {
  * WhatsApp chat mock: optional phone frame (with a pointer-driven 3D tilt),
  * customer bubble, bot replies. The chat deliberately uses WhatsApp's own
  * colours, not the app tokens, so what you preview is what the customer sees.
+ * A QR-linked number only ever sends the numbered text menu, so there the
+ * preview always shows it and the toggle is gone.
  */
 @Component({
   selector: 'ar-wa-preview',
-  imports: [InteractivePreview],
+  imports: [InteractivePreview, MediaSrc],
   templateUrl: './wa-preview.html',
   styleUrl: './wa-preview.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WaPreview {
+  private readonly store = inject(Store);
+
   readonly turns = input<PreviewTurn[]>([]);
   readonly showToggle = input(true);
   readonly framed = input(true);
   readonly title = input('Your business');
   /** Render interactive replies as WhatsApp Web's numbered-text fallback. */
   readonly fallback = model(false);
+  /** The active number is QR-linked: buttons and lists go as the numbered text menu. */
+  protected readonly textMenu = this.store.qrNumber;
 
   protected isImage(m: Media): boolean {
     return (m.mimetype ?? '').startsWith('image/');

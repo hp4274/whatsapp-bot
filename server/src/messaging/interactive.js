@@ -1,21 +1,19 @@
 /**
  * Interactive messages (reply buttons, call-to-action buttons, list menus): one
- * shape for every transport. The Cloud API sends them natively; Baileys sends a
- * native-flow interactive message unless `native` is false or the send throws;
- * whatsapp-web.js and the fallback paths render `renderFallbackText` - a menu
- * the recipient answers by typing the number or the button title - and
- * `matchReply` turns that typed answer (or a native tap id) back into the option.
+ * shape for every transport. Baileys (QR numbers) and the fallback paths render `renderFallbackText` - a menu the
+ * recipient answers by typing the number or the button title, which shows on
+ * every device - and `matchReply` turns that typed answer (or a native tap id)
+ * back into the option.
  *
  * Shape (all strings may contain {placeholders}, personalised per recipient
  * before the message is queued):
  *   {
  *     type: 'buttons' | 'cta' | 'list' | 'carousel',
  *     header?: string, footer?: string,                // not used by carousels
- *     native?: boolean,                               // default true; false = always send the text menu
  *     buttons?: [{ id, title, payload? }]            // type 'buttons': 1-3, title <= 20 chars
  *     cta?: [{ kind: 'url'|'call'|'copy', title, value }]  // type 'cta': 1-2 url/call, or 1 copy
  *     list?: { button: string, sections: [{ title, rows: [{ id, title, description?, payload? }] }] }  // <= 10 rows total
- *     carousel?: { kind: 'url'|'reply', cards: [{      // type 'carousel' (campaigns only): 2-10 cards, all of one kind
+ *     carousel?: { kind: 'url'|'reply', cards: [{      // type 'carousel' (campaigns only): 2-5 cards, all of one kind
  *       mediaId, mediaUrl?, text,                      // image required, text <= 160 chars
  *       buttons?: [{ id, title, payload? }]            // kind 'reply': 1-2 per card, title <= 20; default id = SLUG_<card no>
  *       cta?: [{ kind: 'url', title, value }]          // kind 'url': exactly 1 per card
@@ -45,7 +43,7 @@ const slug = (value, i) => clip(value, 40).toUpperCase().replace(/[^A-Z0-9]+/g, 
 export function normalizeInteractive(input, { carousel = false, keepMedia = false } = {}) {
     if (!input || typeof input !== 'object' || !input.type || input.type === 'none') return null;
     const type = String(input.type);
-    const base = { type, native: input.native !== false, header: clip(input.header, 60) || undefined, footer: clip(input.footer, 60) || undefined };
+    const base = { type, header: clip(input.header, 60) || undefined, footer: clip(input.footer, 60) || undefined };
     if (type === 'buttons') {
         const buttons = (Array.isArray(input.buttons) ? input.buttons : [])
             .map((b, i) => ({ id: clip(b?.id, 40) || slug(b?.title, i), title: clip(b?.title, 20), payload: clip(b?.payload, 200) || undefined }))
@@ -78,7 +76,7 @@ export function normalizeInteractive(input, { carousel = false, keepMedia = fals
         const kind = input.carousel?.kind;
         if (kind !== 'url' && kind !== 'reply') throw new InteractiveError('A carousel needs link buttons or quick reply buttons.');
         const raw = Array.isArray(input.carousel.cards) ? input.carousel.cards : [];
-        if (raw.length < 2 || raw.length > 10) throw new InteractiveError('A carousel needs 2 to 10 cards.');
+        if (raw.length < 2 || raw.length > 5) throw new InteractiveError('A carousel needs 2 to 5 cards.');
         const cards = raw.map((c, i) => {
             const card = { mediaId: clip(c?.mediaId, 100), mediaUrl: clip(c?.mediaUrl, 500) || undefined, text: clip(c?.text, 160) };
             if (!card.mediaId) throw new InteractiveError(`Card ${i + 1} needs an image.`);
