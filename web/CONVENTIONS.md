@@ -1,7 +1,7 @@
 # Angular conventions
 
 The default way Angular code is written in this app. It follows the Kardlyz
-codebase (`D:\Work\kardlyz`), which is the reference for both code style and
+codebase (`D:\Work\Kardlyz-Frontend`), which is the reference for both code style and
 the visual language. Read this before adding or changing a component.
 
 ## Components
@@ -52,6 +52,12 @@ export class TicketsView {
   `@else if`. No `*ngIf` / `*ngFor`.
 - Existing classes keep their `…View` names; new ones may drop the suffix
   (Kardlyz names a class after the thing: `Usage`, `ConfirmDialog`).
+
+## Compiler
+
+`tsconfig.json` matches Kardlyz: `strict` and `strictTemplates` are on. A type
+says what the server really sends (`number | null`, not `number` and a `??`
+in the template); the build has no warnings.
 
 ## Services and types
 

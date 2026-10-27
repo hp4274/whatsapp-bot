@@ -298,6 +298,19 @@
             </p>
 
             @if (s.custom; as custom) {
+              @if (custom.exited; as off) {
+                <div class="custom-safety on" role="status">
+                  <i class="ti ti-shield-off" aria-hidden="true"></i>
+                  <div>
+                    <strong>The business left sending safety</strong>
+                    <span class="muted"
+                      >By {{ off.fullName }} ({{ off.by }}) on {{ off.at.slice(0, 10) }}. Levels,
+                      brakes, pacing and quiet hours are off for every number until they
+                      rejoin.</span
+                    >
+                  </div>
+                </div>
+              }
               <div class="custom-safety" [class.on]="custom.active" role="status">
                 <i
                   class="ti ti-{{ custom.active ? 'shield-exclamation' : 'shield-check' }}"

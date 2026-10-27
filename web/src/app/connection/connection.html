@@ -180,14 +180,18 @@
       <h3 id="safety-title">Sending safety</h3>
       <p class="muted">Sending too fast is what gets a number banned. These limits keep it safe.</p>
     </div>
-    <span class="s-pill {{ customSafety() ? 'tone-warn' : 'tone-mute' }}">{{
-      customSafety() ? 'Custom limits' : 'Managed by platform'
+    <span class="s-pill {{ safetyOff() ? 'tone-bad' : customSafety() ? 'tone-warn' : 'tone-mute' }}">{{
+      safetyOff() ? 'Safety off' : customSafety() ? 'Custom limits' : 'Managed by platform'
     }}</span>
   </header>
 
   <app-sending-health #health />
 
-  <app-safety-controls (changed)="health.refresh()" (active)="customSafety.set($event)" />
+  <app-safety-controls
+    (changed)="health.refresh()"
+    (active)="customSafety.set($event)"
+    (exited)="safetyOff.set($event)"
+  />
 
   @if (warning()) {
     <p class="fine muted tos">{{ warning() }}</p>

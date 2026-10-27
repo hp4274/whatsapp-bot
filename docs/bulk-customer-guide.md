@@ -147,7 +147,7 @@ Because the number is new. Speed comes from the number's history, not from setti
 Usually not. A campaign pauses when the day's amount is used up, outside the recipient's daytime, or while a brake is on. It continues by itself, and the number's page tells you which one it is.
 
 **Can I switch the safety rules off?**
-Not from your account. They are what keep your number alive. Only the platform team can change them for a number, for a limited time, and that raises the ban risk.
+Yes, but think hard first. An account admin can choose **Leave sending safety** on the number page. That turns off the levels, brakes, pacing and quiet hours for every number of your business. You read a warning and confirm with your name each time you leave. **Rejoin sending safety** turns everything back on with one click. Without safety, a ban is likely.
 
 **Does my phone need to stay on?**
 It should be online most of the time. The system works as a linked device, and WhatsApp unlinks devices whose phone stays offline for about two weeks.

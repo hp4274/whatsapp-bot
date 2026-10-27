@@ -307,6 +307,7 @@ Everything below is a **platform-policy** setting. It can be set for the whole p
 - **Pin level:** set a number to any level 0-11. It skips the wait and idle decay; brakes and caps still apply. Choosing a level above the earned one shows a ban-risk warning. A ban or a new phone clears the pin.
 - **End wait:** shown as an orange "New-link wait" pill in the number's row; ends that number's wait after linking now.
 - **Brakes off** (shield button): turns the number's brakes off for 1 hour to 30 days (`PUT /api/admin/numbers/:id/brakes { hours }`, `null` turns them back on). Ignored while off: reply, report, block, failure, ban, delivery, stuck and unstable brakes, and the campaign pause on blocks. Still applies: WhatsApp's own restriction, the level, the plan day, the growth cap and the pace. A ban after it was set turns the brakes back on.
+- **Business left sending safety**: an account admin can leave safety from the number page (`POST /api/safety/custom/exit`, the same consent fields as custom limits, kind `safety_exit`, asked again on every exit; `DELETE` rejoins). It forces `safetyEnabled: false` over every other layer for all the business's numbers. It is not gated by `allowCustomSafety`. The tenant panel shows who left and when.
 - **Pause, resume, force disconnect, move to another business.** Moving clears the pin, the brakes-off and the answers.
 - **History:** level changes, brake events, shadow triggers and the delivery window, for each number.
 
@@ -337,7 +338,7 @@ The campaign review page keeps only the banners that explain a wait: unanswered 
 There is at most 1 alert per kind per number per hour and 30 an hour across the platform, plus an hourly summary of any held back.
 
 **Audit log entries:**
-- every admin policy change (`policy.change`), pin (`channel.admin.level_pin` / `level_unpin`), brakes off / on (`channel.admin.brakes_off` / `brakes_on`) and ended wait (`channel.admin.end_link_wait`);
+- every admin policy change (`policy.change`), pin (`channel.admin.level_pin` / `level_unpin`), brakes off / on (`channel.admin.brakes_off` / `brakes_on`), a business leaving or rejoining safety (`safety.exit` / `safety.rejoin`) and ended wait (`channel.admin.end_link_wait`);
 - number answers and skips (`channel.start`, `channel.start_skip`);
 - every computed level change (`safety_events` kind `level` or `shadow`, with a reason such as promote, demote_delivery, demote_stuck, demote_replies, hold_probation or idle).
 

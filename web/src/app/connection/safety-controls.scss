@@ -41,6 +41,38 @@ p { margin: 0; }
   .muted { flex: 1 1 240px; }
 }
 
+/* Left sending safety: a danger band with the way back on it. */
+.sc-off {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  align-items: center;
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  font-size: 13px;
+
+  > .ti { color: var(--danger); font-size: 22px; }
+  > div { display: grid; gap: 2px; flex: 1 1 240px; }
+  strong { font-weight: 500; color: var(--danger-text); }
+  span { color: var(--text-muted); }
+}
+
+/* The way out stays quiet: below the limits, after a hairline. */
+.sc-leave {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-color);
+  font-size: 13px;
+
+  .muted { flex: 1 1 240px; }
+}
+
 /* Drawer --------------------------------------------------------------- */
 .sc-backdrop {
   position: fixed;

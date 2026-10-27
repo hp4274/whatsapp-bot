@@ -1,5 +1,26 @@
 @if (view(); as v) {
-  @if (v.active && v.consent; as consent) {
+  @if (v.exited; as off) {
+    <!-- Left sending safety: say so loudly, and make coming back one click. -->
+    <div class="sc-off" role="status">
+      <i class="ti ti-shield-off" aria-hidden="true"></i>
+      <div>
+        <strong>Sending safety is off</strong>
+        <span
+          >Left by {{ off.fullName || off.by }} on {{ off.at | date: 'd MMM, h:mm a' }}. No daily
+          levels, brakes, pacing or quiet hours, so WhatsApp can ban any of your numbers.</span
+        >
+      </div>
+      <button class="btn primary" type="button" (click)="rejoin()" [disabled]="busy()">
+        <i class="ti ti-shield-check" aria-hidden="true"></i
+        >{{ busy() ? 'Rejoining...' : 'Rejoin sending safety' }}
+      </button>
+    </div>
+    @if (error() && !open()) {
+      <p class="sc-error" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}
+      </p>
+    }
+  } @else if (v.active && v.consent; as consent) {
     <div class="sc-banner" role="status">
       <i class="ti ti-shield-exclamation" aria-hidden="true"></i>
       <div>
@@ -38,6 +59,15 @@
       safe.
     </p>
   }
+
+  @if (!v.exited) {
+    <div class="sc-leave">
+      <p class="muted">Send with no limits at all. You can rejoin any time.</p>
+      <button class="btn danger" type="button" (click)="openExit()">
+        <i class="ti ti-shield-off" aria-hidden="true"></i>Leave sending safety
+      </button>
+    </div>
+  }
 } @else {
   <p class="muted">
     Pacing, daily cap, rate and retry limits are set by the platform admin to keep your number safe.
@@ -56,11 +86,17 @@
     <header>
       <div>
         <h3 id="sc-title" tabindex="-1">
-          {{ needsConsent() ? 'Before you change sending limits' : 'Your sending limits' }}
+          {{
+            leaving()
+              ? 'Before you leave sending safety'
+              : needsConsent()
+                ? 'Before you change sending limits'
+                : 'Your sending limits'
+          }}
         </h3>
         <p class="muted">
           {{
-            needsConsent()
+            consenting()
               ? 'Read this carefully. It is recorded with your name and the time.'
               : 'Values differ from the platform where marked. Risky values are flagged in red.'
           }}
@@ -84,7 +120,7 @@
         </p>
       }
 
-      @if (needsConsent()) {
+      @if (consenting()) {
         <div class="sc-warning">
           <div class="sc-shield" aria-hidden="true">
             <i class="ti ti-alert-triangle" aria-hidden="true"></i>
@@ -92,19 +128,26 @@
           <div>
             <strong>Your WhatsApp number can be restricted or permanently banned.</strong>
             <p>
-              WhatsApp watches for fast, high-volume and unsolicited messaging. The platform's
-              limits exist to keep you under that radar. Loosening them is entirely your decision
-              and your risk.
+              @if (leaving()) {
+                Without sending safety, every number sends as fast and as much as your campaigns
+                ask. That is the pattern WhatsApp bans for. You are asked this every time you
+                leave.
+              } @else {
+                WhatsApp watches for fast, high-volume and unsolicited messaging. The platform's
+                limits exist to keep you under that radar. Loosening them is entirely your
+                decision and your risk.
+              }
             </p>
           </div>
         </div>
 
         <ol class="sc-terms">
-          @for (line of v.consentText; track $index) {
+          @for (line of leaving() ? v.exitText : v.consentText; track $index) {
             <li>{{ line }}</li>
           }
         </ol>
 
+        @if (!leaving()) {
         <div class="sc-recommended">
           <strong>Recommended (current platform values)</strong>
           <span
@@ -113,6 +156,7 @@
             {{ v.platform.restEvery || '-' }} messages.</span
           >
         </div>
+        }
 
         <label class="sc-check">
           <input
@@ -147,7 +191,9 @@
             (input)="confirmation.set($any($event.target).value)"
             aria-describedby="sc-confirm-hint"
           />
-          <span class="hint" id="sc-confirm-hint">Terms version {{ v.consentVersion }}</span>
+          <span class="hint" id="sc-confirm-hint"
+            >Terms version {{ leaving() ? v.exitVersion : v.consentVersion }}</span
+          >
         </div>
       } @else if (draft(); as d) {
         @if (riskCount()) {
@@ -237,7 +283,18 @@
     </div>
 
     <footer>
-      @if (needsConsent()) {
+      @if (leaving()) {
+        <button class="btn" type="button" (click)="close()" [disabled]="busy()">Stay protected</button>
+        <button
+          class="btn danger"
+          type="button"
+          (click)="leave()"
+          [disabled]="busy() || !consentReady()"
+        >
+          <i class="ti ti-shield-off" aria-hidden="true"></i
+          >{{ busy() ? 'Leaving...' : 'Leave sending safety' }}
+        </button>
+      } @else if (needsConsent()) {
         <button class="btn" type="button" (click)="close()" [disabled]="busy()">Cancel</button>
         <button
           class="btn danger"

@@ -96,10 +96,21 @@ export const NUMBER_SKIP_TEXT = [
     'A number that suddenly sends that much is likely to be restricted, or banned by WhatsApp temporarily or permanently. No QR-login number is safe from that.',
     'I accept full responsibility for any restriction or ban of this number, and for any lost messages, contacts or business that follow. The platform cannot restore a banned number.',
 ];
+/**
+ * What a business accepts to leave sending safety: levels, brakes, pacing and quiet time all off
+ * (POST /api/safety/custom/exit). Asked again on every exit, as kind `safety_exit`.
+ */
+export const SAFETY_EXIT_VERSION = '2026-10-1';
+export const SAFETY_EXIT_TEXT = [
+    'Leaving sending safety removes the daily levels, the brakes, the pacing between messages and the quiet hours from every number of our business.',
+    'Numbers will send as fast and as much as campaigns ask. WhatsApp is likely to restrict or ban a number that does that, temporarily or permanently.',
+    'I accept full responsibility for any restriction or ban of our number(s), and for any lost messages, contacts or business that follow. The platform cannot restore a banned number.',
+];
 /** Consent kinds: the text version and hash each one records. */
 const CONSENT_KINDS = Object.freeze({
     custom_safety: [CONSENT_VERSION, CONSENT_HASH],
     number_skip_questions: [NUMBER_SKIP_VERSION, sha256(NUMBER_SKIP_TEXT.join('\n'))],
+    safety_exit: [SAFETY_EXIT_VERSION, sha256(SAFETY_EXIT_TEXT.join('\n'))],
 });
 
 export class TenancyError extends Error {
@@ -294,7 +305,7 @@ export class Tenancy {
 
     /** What actually runs: platform policy < the tenant's own overrides, when active. */
     effectiveSafety(tenant) {
-        return { ...this.platformSafety(tenant), ...(this.customSafetyActive(tenant) ? tenant.customSafety : {}) };
+        return { ...this.platformSafety(tenant), ...(this.customSafetyActive(tenant) ? tenant.customSafety : {}), ...exitOf(tenant) };
     }
 
     /**
@@ -309,7 +320,14 @@ export class Tenancy {
         // every number under its plan's day (channels.dailyCap).
         const touched = Object.fromEntries(Object.keys(tenant.customSafety).map((key) => [key,
             key === 'dailyLimit' && tenant.safety.dailyLimit == null ? 0 : platform[key]]));
-        return { ...touched, ...tenant.safety, ...(this.customSafetyActive(tenant) ? tenant.customSafety : {}) };
+        return { ...touched, ...tenant.safety, ...(this.customSafetyActive(tenant) ? tenant.customSafety : {}), ...exitOf(tenant) };
+    }
+
+    /** `exit`: { at, by, fullName } when the business left sending safety, null to rejoin. */
+    setSafetyExit(id, exit) {
+        const info = this.db.prepare('UPDATE tenants SET safety_exit = ? WHERE id = ?').run(exit ? JSON.stringify(exit) : null, Number(id));
+        if (!info.changes) throw new TenancyError('tenant not found', 404);
+        return this.getTenant(id);
     }
 
     /** Merge a tenant's own overrides. Callers check allowance + consent first. */
@@ -608,6 +626,9 @@ function parseJson(value, fallback) {
     }
 }
 
+/** A business that left sending safety runs with it off, over every other layer. */
+const exitOf = (tenant) => (tenant?.safetyExit ? { safetyEnabled: false } : {});
+
 function toTenant(row) {
     return {
         id: row.id,
@@ -619,6 +640,7 @@ function toTenant(row) {
         safety: parseJson(row.safety, {}),
         limits: normalizeLimits(parseJson(row.limits, {})),
         customSafety: parseJson(row.custom_safety, {}),
+        safetyExit: parseJson(row.safety_exit, null),
         createdAt: row.created_at,
     };
 }

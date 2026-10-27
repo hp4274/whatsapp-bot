@@ -125,7 +125,7 @@
             <p class="body" [innerHTML]="menu"></p>
           } @else {
             @if (block?.header && !textMenu()) {
-              <p class="hdr">{{ fill(block?.header ?? '').text }}</p>
+              <p class="hdr">{{ fill(block?.header).text }}</p>
             }
             @if (r.text) {
               <p class="body" [innerHTML]="bodyHtml()"></p>
@@ -133,7 +133,7 @@
               <p class="body empty">Your message appears here</p>
             }
             @if (block?.footer && !textMenu()) {
-              <p class="ftr">{{ fill(block?.footer ?? '').text }}</p>
+              <p class="ftr">{{ fill(block?.footer).text }}</p>
             }
           }
           <span class="meta">{{ time }}</span>
