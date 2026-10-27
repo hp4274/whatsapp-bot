@@ -21,7 +21,17 @@ const START_AGE: readonly string[] = ['under 1 month', '1–6 months', '6–24 m
 const START_USAGE: readonly string[] = ['new number', 'light use', 'regular chats', 'busy business'];
 
 /** The row action waiting on a dialog: disconnect needs a confirm, move needs a target, level a pick. */
-type Pending = { readonly kind: 'disconnect' | 'move' | 'level' | 'history'; readonly row: NumberHealth };
+type Pending = { readonly kind: 'disconnect' | 'move' | 'level' | 'history' | 'brakes'; readonly row: NumberHealth };
+
+/** How long the brakes-off dialog offers, in hours (the server takes 1-720). */
+const BRAKES_OFF_CHOICES: readonly { readonly hours: number; readonly label: string }[] = [
+  { hours: 1, label: '1 hour' },
+  { hours: 6, label: '6 hours' },
+  { hours: 24, label: '24 hours' },
+  { hours: 72, label: '3 days' },
+  { hours: 168, label: '7 days' },
+  { hours: 720, label: '30 days' },
+];
 
 /** Plain names for the brake codes the server writes (CampaignManager.recordBrake). */
 const BRAKE_NAMES: Readonly<Record<string, string>> = {
@@ -95,6 +105,10 @@ export class ChannelsOps {
     return picked == null || picked === this.pending()?.row.level?.pinned;
   });
 
+  protected readonly brakesChoices = BRAKES_OFF_CHOICES;
+  /** Hours picked in the brakes dialog. No default: turning safety off is never a reflex. */
+  protected readonly pickedHours = signal<number | null>(null);
+
   protected readonly visible = computed(() =>
     this.rows().filter(
       (r) => (!this.offlineOnly() || !r.online) && (!this.pausedOnly() || r.status !== 'active'),
@@ -165,6 +179,41 @@ export class ChannelsOps {
     // No default pick: confirming the earned level by reflex would freeze the number there.
     this.pickedLevel.set(row.level?.pinned ?? null);
     this.pending.set({ kind: 'level', row });
+  }
+
+  protected askBrakes(row: NumberHealth): void {
+    this.pickedHours.set(null);
+    this.pending.set({ kind: 'brakes', row });
+  }
+
+  protected pickHours(value: string): void {
+    this.pickedHours.set(value === '' ? null : Number(value));
+  }
+
+  /** `null` turns the brakes back on. */
+  protected setBrakes(row: NumberHealth, hours: number | null): void {
+    this.pending.set(null);
+    this.busy.set(row.id);
+    this.notice.set(null);
+    this.api
+      .setBrakesOff(row.id, hours)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.busy.set(null);
+          this.notice.set({
+            tone: 'ok',
+            text: r.brakesOff
+              ? `${this.label(row)}: brakes off until ${this.when(r.brakesOff.until)}.`
+              : `${this.label(row)}: brakes back on.`,
+          });
+          this.load();
+        },
+        error: (err: Error) => {
+          this.busy.set(null);
+          this.notice.set({ tone: 'bad', text: err.message });
+        },
+      });
   }
 
   protected askHistory(row: NumberHealth): void {
@@ -269,6 +318,11 @@ export class ChannelsOps {
     if (pending.kind === 'level') {
       const level = this.pickedLevel();
       if (level != null) this.setLevel(row, level);
+      return;
+    }
+    if (pending.kind === 'brakes') {
+      const hours = this.pickedHours();
+      if (hours != null) this.setBrakes(row, hours);
       return;
     }
     if (pending.kind === 'disconnect') {

@@ -140,19 +140,51 @@
         </div>
 
         @if (textMenu() && !nativeCarousel()) {
-          <!-- One image message per card, caption underneath (the admin's "separate images" choice). -->
-          @for (m of cardMessages(); track $index) {
-            <div class="bubble next">
-              @if (m.mediaUrl) {
-                <img class="media" [mediaSrc]="m.mediaUrl" alt="" />
-              } @else {
-                <span class="media no-pic" aria-hidden="true"
-                  ><i class="ti ti-photo" aria-hidden="true"></i
-                ></span>
+          @if (cardMessages().length > 1) {
+            <!-- 2+ cards go as a WhatsApp album: a grid in the chat that opens into a swipe viewer. -->
+            <div class="bubble next album" [attr.aria-label]="cardMessages().length + ' photos'">
+              @for (m of cardMessages().slice(0, 4); track $index; let i = $index) {
+                <span class="tile">
+                  @if (m.mediaUrl) {
+                    <img [mediaSrc]="m.mediaUrl" alt="" />
+                  } @else {
+                    <i class="ti ti-photo" aria-hidden="true"></i>
+                  }
+                  @if (i === 3 && cardMessages().length > 4) {
+                    <b class="more">+{{ cardMessages().length - 4 }}</b>
+                  }
+                </span>
               }
-              <p class="body" [innerHTML]="m.html"></p>
               <span class="meta">{{ time }}</span>
             </div>
+            <span class="viewer-hint"><i class="ti ti-hand-finger" aria-hidden="true"></i>Tapped, it opens as a swipe viewer</span>
+            <div class="cards" role="list" aria-label="Swipe viewer">
+              @for (m of cardMessages(); track $index) {
+                <div class="card" role="listitem">
+                  @if (m.mediaUrl) {
+                    <img class="pic" [mediaSrc]="m.mediaUrl" alt="" />
+                  } @else {
+                    <span class="pic empty"><i class="ti ti-photo" aria-hidden="true"></i></span>
+                  }
+                  <p class="body" [innerHTML]="m.html"></p>
+                </div>
+              }
+            </div>
+          } @else {
+            <!-- One card: a single image message, caption underneath. -->
+            @for (m of cardMessages(); track $index) {
+              <div class="bubble next">
+                @if (m.mediaUrl) {
+                  <img class="media" [mediaSrc]="m.mediaUrl" alt="" />
+                } @else {
+                  <span class="media no-pic" aria-hidden="true"
+                    ><i class="ti ti-photo" aria-hidden="true"></i
+                  ></span>
+                }
+                <p class="body" [innerHTML]="m.html"></p>
+                <span class="meta">{{ time }}</span>
+              </div>
+            }
           }
         } @else if (block) {
           @switch (block.type) {

@@ -83,12 +83,16 @@ export const LEVELS_POLICY = Object.freeze([
     { key: 'sending.skipQuietTime', service: S, group: 'Admin overrides', type: 'bool', default: false,
       label: 'Skip quiet time',
       hint: 'Bulk keeps sending through the number\'s daily rest windows and the business\'s quiet hours. The recipient\'s daytime and the plan\'s sending window still apply.' },
-    { key: 'sending.carouselImages', service: S, group: 'Admin overrides', type: 'bool', default: false,
+    // On by default: phones drop a native carousel sent from a QR number; only Web showed it.
+    { key: 'sending.carouselImages', service: S, group: 'Admin overrides', type: 'bool', default: true,
       label: 'Send carousels as separate images',
-      hint: 'Off: a carousel goes as WhatsApp\'s swipe carousel, which some phones may not display from a QR number. On: one captioned image per card, which every phone shows.' },
+      hint: 'On: one captioned image per card, which every phone, tablet, Mac and WhatsApp Web shows. Off: WhatsApp\'s swipe carousel, which Android and iPhone do not display from a QR number.' },
     { key: 'sending.skipLinkWait', service: S, group: 'Admin overrides', type: 'bool', default: false,
       label: 'Skip new-link wait',
       hint: 'A newly linked number starts bulk at once instead of waiting first. The rest after a WhatsApp ban still applies. Raises ban risk for fresh numbers.' },
+    { key: 'sending.skipGrowthCap', service: S, group: 'Admin overrides', type: 'bool', default: false,
+      label: 'Skip growth cap',
+      hint: 'A number may send its full level day at once, instead of growing 35% a day over its best recent day. Raises ban risk.' },
     brake('deliveryMinSent', 'Delivery brake: minimum sent (2-24 hours)', BRAKES.deliveryMinSent, 100000),
     brake('deliveryMinPercent', 'Delivery brake: minimum delivered (%)', BRAKES.deliveryMinPercent, 100, 'Below this, bulk and new chats wait 12 hours.'),
     brake('stuckMaxPercent', 'Stuck brake: maximum still one tick (%)', BRAKES.stuckMaxPercent, 100, 'Of messages sent 2-24 hours ago. Above this, bulk and new chats wait 12 hours.'),
@@ -151,7 +155,8 @@ export function sendingTables(values = {}) {
         qrVaryAbove: v('qrVaryAbove', DEFAULT_SENDING.qrVaryAbove),
         skipQuiet: values['sending.skipQuietTime'] === true,
         skipLinkWait: values['sending.skipLinkWait'] === true,
-        carouselImages: values['sending.carouselImages'] === true,
+        skipGrowth: values['sending.skipGrowthCap'] === true,
+        carouselImages: values['sending.carouselImages'] !== false,
     };
 }
 

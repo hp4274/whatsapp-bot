@@ -725,22 +725,40 @@ export class BaileysTransport extends Transport {
         return this.#accepted(sent?.key?.id);
     }
 
-    // shortcut: N+1 messages in one paced job (main text, then one image per card); the job's receipt is the
-    // first message's, and a failure midway leaves the earlier ones sent. Per-card jobs would need queue changes.
+    /**
+     * The carousel every device shows: the main text, then the cards as a WhatsApp album (2+ cards), which phones,
+     * tablets, Mac and Web show as a grid that opens into a swipe viewer, each card's text and options its caption.
+     * An app too old for albums still shows each image on its own. One card goes as a plain image.
+     * shortcut: N+2 messages in one paced job; the job's receipt is the first message's, and a failure midway leaves
+     * the earlier ones sent. Per-card jobs would need queue changes.
+     */
     async #deliverCarouselText(jid, message, attachment, interactive, typingMs) {
         const text = String(message ?? '');
         const first = await this.#send(jid, attachment ? { ...attachment, caption: text } : { text });
         const captions = carouselCaptions(interactive);
-        const { cards } = interactive.carousel;
-        for (const [i, card] of cards.entries()) {
+        const media = interactive.carousel.cards.map((card, i) => mediaContent(card.media, captions[i]));
+        let album = null;
+        // A document cannot sit in an album: such a carousel goes card by card.
+        if (media.length > 1 && media.every((m) => m.image || m.video)) {
             if (typingMs > 0) {
                 await this.#presence('composing', jid);
                 await new Promise((resolve) => setTimeout(resolve, typingMs));
             }
-            await this.#send(jid, mediaContent(card.media, captions[i]));
+            album = await this.#send(jid, { album: {
+                expectedImageCount: media.filter((m) => m.image).length,
+                expectedVideoCount: media.filter((m) => m.video).length,
+            } });
+        }
+        // An album goes as one burst, the way a person shares photos; a lone card still gets its typing pause.
+        for (const content of media) {
+            if (!album && typingMs > 0) {
+                await this.#presence('composing', jid);
+                await new Promise((resolve) => setTimeout(resolve, typingMs));
+            }
+            await this.#send(jid, album ? { ...content, albumParentKey: album.key } : content);
         }
         // `parts`: the budgets and the rests count each WhatsApp message, not the one job.
-        return { ...this.#accepted(first?.key?.id), parts: 1 + cards.length };
+        return { ...this.#accepted(first?.key?.id), parts: 1 + (album ? 1 : 0) + media.length };
     }
 
     /**
@@ -759,18 +777,24 @@ export class BaileysTransport extends Transport {
             const buttons = kind === 'url'
                 ? (card.cta ?? []).map((b) => ({ name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: b.title, url: b.value, merchant_url: b.value }) }))
                 : (card.buttons ?? []).map((b) => ({ name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: b.title, id: b.id }) }));
-            built.push({ header: { hasMediaAttachment: true, imageMessage }, body: { text: card.text ?? '' }, nativeFlowMessage: { buttons } });
+            // Phones drop a native-flow message carrying an empty text field, so an empty body is left out.
+            built.push({ header: { hasMediaAttachment: true, imageMessage }, ...(card.text ? { body: { text: card.text } } : {}), nativeFlowMessage: { buttons } });
         }
         const content = {
             viewOnceMessage: {
                 message: {
                     messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
-                    interactiveMessage: { body: { text: String(message ?? '') }, carouselMessage: { cards: built, messageVersion: 1 } },
+                    interactiveMessage: { ...(message ? { body: { text: String(message) } } : {}), carouselMessage: { cards: built, messageVersion: 1 } },
                 },
             },
         };
         const msg = generateWAMessageFromContent(jid, content, { userJid: this.sock.user?.id });
-        const sent = await this.#send(jid, null, () => this.sock.relayMessage(jid, msg.message, { messageId: msg.key.id }).then(() => msg));
+        // Phones drop a native-flow message whose stanza lacks this biz node; Web renders it either way.
+        // shortcut: Baileys' retry resend leaves the node out, so a phone that asks for a retry still sees nothing.
+        const bizNode = { tag: 'biz', attrs: {}, content: [{ tag: 'interactive', attrs: { type: 'native_flow', v: '1' }, content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }] }] };
+        // shortcut: the bot node is a 1:1 trick seen in Baileys helpers, unverified; drop it if phones still show nothing.
+        const additionalNodes = jid.endsWith('@g.us') ? [bizNode] : [bizNode, { tag: 'bot', attrs: { biz_bot: '1' } }];
+        const sent = await this.#send(jid, null, () => this.sock.relayMessage(jid, msg.message, { messageId: msg.key.id, additionalNodes }).then(() => msg));
         return { ...this.#accepted(sent?.key?.id), parts: 1 };
     }
 
@@ -1014,10 +1038,26 @@ async function defaultSocketFactory({ authDir, qrTimeoutMs, getMessage, msgRetry
         generateHighQualityLinkPreview: false,
         getMessage,
         msgRetryCounterCache,
+        patchMessageBeforeSending: ownDeviceCopy,
         ...(qrTimeoutMs ? { qrTimeout: qrTimeoutMs } : {}),
     });
     sock.ev.on('creds.update', saveCreds);
     return sock;
+}
+
+/**
+ * The copy of a sent message for this number's own phone and Web (a deviceSentMessage). Those devices
+ * hide a carousel wrapped in viewOnceMessage, so they get the interactive message unwrapped; recipients
+ * keep the wrapped one, which they show.
+ */
+export function ownDeviceCopy(msg) {
+    const inner = msg?.deviceSentMessage?.message?.viewOnceMessage?.message;
+    if (!inner?.interactiveMessage) return msg;
+    return {
+        ...msg,
+        deviceSentMessage: { ...msg.deviceSentMessage, message: inner },
+        messageContextInfo: inner.messageContextInfo ?? msg.messageContextInfo,
+    };
 }
 
 /**

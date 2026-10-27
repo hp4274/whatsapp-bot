@@ -103,6 +103,16 @@
                       <button
                         type="button"
                         class="btn sm icon ghost"
+                        [attr.aria-label]="'Brakes for ' + label(row)"
+                        title="Brakes"
+                        [disabled]="busy() === row.id"
+                        (click)="askBrakes(row)"
+                      >
+                        <i class="ti" [class.ti-shield-off]="lv.brakesOff" [class.ti-shield-check]="!lv.brakesOff" aria-hidden="true"></i>
+                      </button>
+                      <button
+                        type="button"
+                        class="btn sm icon ghost"
                         [attr.aria-label]="'Level and brake history for ' + label(row)"
                         title="Level and brake history"
                         (click)="askHistory(row)"
@@ -110,8 +120,12 @@
                         <i class="ti ti-history" aria-hidden="true"></i>
                       </button>
                     </span>
-                    @for (b of activeBrakes(row); track b.at) {
-                      <span class="s-pill tone-bad">{{ brakeName(b.code) }} brake</span>
+                    @if (lv.brakesOff; as off) {
+                      <span class="s-pill tone-bad">Brakes off until {{ when(off.until) }}</span>
+                    } @else {
+                      @for (b of activeBrakes(row); track b.at) {
+                        <span class="s-pill tone-bad">{{ brakeName(b.code) }} brake</span>
+                      }
                     }
                     @if (lv.pinned != null) {
                       <span class="s-pill" [class.tone-warn]="lv.pinned > lv.earned" [class.tone-info]="lv.pinned <= lv.earned">
@@ -300,6 +314,38 @@
         <button type="button" class="btn sm clear-pin" (click)="endLinkWait(p.row)">
           <i class="ti ti-hourglass-off" aria-hidden="true"></i>End new-link wait
         </button>
+      } @else if (p.kind === 'brakes' && p.row.level; as lv) {
+        <span class="badge tone-bad"><i class="ti ti-shield-off" aria-hidden="true"></i></span>
+        <h3 id="dlg-title">Brakes for {{ label(p.row) }}</h3>
+        <p>
+          Turning the brakes off ignores the reply, block, report, failure, ban and delivery brakes, and the campaign
+          pause on blocks. The level, its daily amount and the pace still apply. WhatsApp's own restriction always
+          applies, and a ban while they are off turns them back on.
+        </p>
+        @if (lv.brakesOff; as off) {
+          <p class="sub">Off until {{ when(off.until) }}@if (off.by) { · by {{ off.by }} }</p>
+        }
+        <label class="field">
+          <span>{{ lv.brakesOff ? 'Keep them off for' : 'Turn them off for' }}</span>
+          <select required (change)="pickHours($any($event.target).value)">
+            <option value="" [selected]="pickedHours() == null">Choose how long…</option>
+            @for (c of brakesChoices; track c.hours) {
+              <option [value]="c.hours" [selected]="pickedHours() === c.hours">{{ c.label }}</option>
+            }
+          </select>
+        </label>
+        <p class="s-banner" role="alert">
+          <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+          <span class="msg">
+            The brakes are what slow a number down when people block, report or ignore it. Without them it keeps
+            sending into those signals, which is how numbers get banned. This is audited.
+          </span>
+        </p>
+        @if (lv.brakesOff) {
+          <button type="button" class="btn sm clear-pin" (click)="setBrakes(p.row, null)">
+            <i class="ti ti-shield-check" aria-hidden="true"></i>Turn brakes back on
+          </button>
+        }
       } @else {
         <span class="badge tone-info"><i class="ti ti-arrows-exchange" aria-hidden="true"></i></span>
         <h3 id="dlg-title">Move {{ label(p.row) }}</h3>
@@ -325,13 +371,14 @@
           <button
             type="submit"
             class="btn"
-            [class.danger]="p.kind === 'disconnect' || (p.kind === 'level' && aboveEarned())"
+            [class.danger]="p.kind === 'disconnect' || p.kind === 'brakes' || (p.kind === 'level' && aboveEarned())"
             [class.primary]="p.kind === 'move' || (p.kind === 'level' && !aboveEarned())"
-            [disabled]="(p.kind === 'move' && target() == null) || (p.kind === 'level' && levelUnchanged())"
+            [disabled]="(p.kind === 'move' && target() == null) || (p.kind === 'level' && levelUnchanged()) || (p.kind === 'brakes' && pickedHours() == null)"
           >
             @switch (p.kind) {
               @case ('disconnect') { Disconnect }
               @case ('level') { {{ aboveEarned() ? 'Pin above earned' : 'Pin level' }} }
+              @case ('brakes') { Turn brakes off }
               @default { Move number }
             }
           </button>

@@ -34,8 +34,9 @@ function campaign(over: Partial<Campaign> = {}): Campaign {
 }
 
 /** A fresh draft service over stub APIs; `transport` decides whether QR-number rules apply. */
-function setup(transport = 'baileys') {
+function setup(transport = 'baileys', existing: Campaign[] = []) {
   const campaignsApi = {
+    list: vi.fn(() => of({ campaigns: existing })),
     create: vi.fn((body) => of({ campaign: { ...campaign(), id: 11, name: body.name } })),
     update: vi.fn((id: number, body) => of({ campaign: { ...campaign(), id, name: body.name } })),
     get: vi.fn((id: number) => of({ campaign: campaign({ id }) })),
@@ -78,6 +79,23 @@ describe('opt-out line', () => {
 
 describe('CampaignDraft.buildCreate', () => {
   afterEach(() => TestBed.resetTestingModule());
+
+  it('ticks the opt-out box for the first campaign only, and an untick leaves it out', () => {
+    const first = setup().draft;
+    first.init();
+    expect(first.optOutLine()).toBe(true);
+    TestBed.resetTestingModule();
+    localStorage.clear();
+
+    const later = setup('baileys', [campaign()]).draft;
+    later.init();
+    expect(later.optOutLine()).toBe(false);
+    later.reset();
+    // A fresh draft keeps the later default.
+    expect(later.optOutLine()).toBe(false);
+    later.message.set('Hi {name}');
+    expect(later.buildCreate().body).toBe('Hi {name}');
+  });
 
   it('appends the opt-out line to the body and the preview', () => {
     const { draft } = setup();

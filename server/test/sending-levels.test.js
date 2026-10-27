@@ -456,14 +456,14 @@ describe('content rules', () => {
         db.close();
     });
 
-    it('refuses identical text to more than 15, whatever the policy says, and adds the STOP line for new people', () => {
+    it('refuses identical text to more than 15, whatever the policy says, and sends the text as written', () => {
         const db = freshDb();
         const many = (n) => Array.from({ length: n }, (_, i) => ({ name: `P${i}`, phone: `9198200${String(i).padStart(5, '0')}` }));
         const manager = new CampaignManager(db, new FakeLive(), qr({ requireVariationAbove: 50 }));
         assert.throws(() => manager.enqueueContacts(many(16), 'Hello there'), /more than 15 people must vary/);
         assert.equal(manager.enqueueContacts(many(15), 'Hello there', { campaignId: 'fifteen' }).queued, 15);
-        assert.ok(db.history({ campaignId: 'fifteen' }).every((r) => r.message === `Hello there\n\n${OPT_OUT_TEXT}`));
-        // Someone who already chats with the number gets the text as written: the campaign's tick box decides.
+        // No STOP line is added for new people: the campaign's "Add opt-out line" box decides.
+        assert.ok(db.history({ campaignId: 'fifteen' }).every((r) => r.message === 'Hello there'));
         db.insertInbound({ sender: '919830000009', body: 'hi' });
         manager.enqueueContacts([{ name: 'W', phone: '919830000009' }], 'Hi {name}', { campaignId: 'warm' });
         assert.equal(db.history({ campaignId: 'warm' })[0].message, 'Hi W');

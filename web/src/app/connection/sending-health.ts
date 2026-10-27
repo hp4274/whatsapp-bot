@@ -105,6 +105,8 @@ export class SendingHealth {
   protected readonly causes = signal<SafetyCause[]>([]);
 
   protected readonly budgets = computed(() => this.safety()?.budgets ?? null);
+  /** Skipped the questions: the number runs at the plan's day, so only that day is shown. */
+  protected readonly skipped = computed(() => this.safety()?.level?.start?.answers?.skipped === true);
   protected readonly brakes = computed(() => this.safety()?.brakes ?? []);
   /**
    * The one-line daily allowance: held for the questions, waiting after a new link,

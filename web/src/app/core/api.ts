@@ -170,6 +170,8 @@ export interface SendingLevel {
   readonly have: { readonly activeDays: number; readonly delivered: number; readonly bulk: number };
   /** The next level up from `earned`; null at the top. */
   readonly next: { readonly level: number; readonly name: string; readonly need: LevelNeed } | null;
+  /** How the number started: its answers, or `{ skipped: true }`; null until answered. */
+  readonly start?: { readonly level: number; readonly answers: { readonly skipped?: boolean } | null } | null;
 }
 
 /** Today's budgets on a QR number. A limit of 0 means none, not "no cap". */

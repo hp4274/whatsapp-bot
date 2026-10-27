@@ -37,18 +37,22 @@ const TABLE = `CREATE TABLE IF NOT EXISTS channel_ops (
     last_level      INTEGER,
     demoted_at      TEXT,
     clean_checks    INTEGER,
-    clean_check_at  TEXT
+    clean_check_at  TEXT,
+    brakes_off_until TEXT,
+    brakes_off_by    TEXT,
+    brakes_off_at    TEXT
 )`;
 
 /**
- * The level pin, the number questions and the level state (db.levelState: the level the promotion gate holds,
- * the last demotion, and the probation's passing health checks) came after channel_ops shipped.
+ * The level pin, the number questions, the level state (db.levelState: the level the promotion gate holds,
+ * the last demotion, and the probation's passing health checks) and the admin's brakes-off came after channel_ops shipped.
  */
 function migrate(raw, at) {
     const cols = raw.prepare('PRAGMA table_info(channel_ops)').all().map((c) => c.name);
     for (const [col, type] of [['level_pin', 'INTEGER'], ['level_pinned_by', 'TEXT'], ['level_pinned_at', 'TEXT'],
         ['start_level', 'INTEGER'], ['start_answers', 'TEXT'], ['started_at', 'TEXT'],
-        ['last_level', 'INTEGER'], ['demoted_at', 'TEXT'], ['clean_checks', 'INTEGER'], ['clean_check_at', 'TEXT']]) {
+        ['last_level', 'INTEGER'], ['demoted_at', 'TEXT'], ['clean_checks', 'INTEGER'], ['clean_check_at', 'TEXT'],
+        ['brakes_off_until', 'TEXT'], ['brakes_off_by', 'TEXT'], ['brakes_off_at', 'TEXT']]) {
         if (!cols.includes(col)) raw.exec(`ALTER TABLE channel_ops ADD COLUMN ${col} ${type}`);
     }
     // Once, as the questions arrive: a QR number that already delivered is not held for them. Its level-1 start
@@ -64,8 +68,15 @@ function migrate(raw, at) {
     }
 }
 
-/** A channel_ops row's admin level pin as DailyQuota.levelPin wants it, or null. */
-export const pinFromRow = (r) => (r?.level_pin == null ? null : { level: r.level_pin, at: r.level_pinned_at, by: r.level_pinned_by });
+/**
+ * A channel_ops row's admin overrides as DailyQuota.levelPin wants them, or null: the level pin (`level` null when
+ * none) and `brakesOff` `{ until, by, at }` while the admin has the number's brakes off.
+ */
+export function pinFromRow(r) {
+    const brakesOff = r?.brakes_off_until ? { until: r.brakes_off_until, by: r.brakes_off_by, at: r.brakes_off_at } : null;
+    if (r?.level_pin == null && !brakesOff) return null;
+    return { level: r.level_pin ?? null, at: r.level_pinned_at, by: r.level_pinned_by, brakesOff };
+}
 
 /**
  * A channel_ops row's answered number questions as DailyQuota.levelStart wants them, or null.
@@ -191,9 +202,9 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
         return r?.paused_by ? { reason: r.paused_reason, by: r.paused_by, at: r.paused_at } : null;
     };
 
-    /** The admin's level pin on a number, `{ level, at, by }`, or null. */
-    const pinOf = (channelId) => pinFromRow(raw.prepare('SELECT level_pin, level_pinned_by, level_pinned_at FROM channel_ops WHERE channel_id = ?')
-        .get(Number(channelId)));
+    /** The admin's overrides on a number, `{ level, at, by, brakesOff }` (pinFromRow), or null. */
+    const pinOf = (channelId) => pinFromRow(raw.prepare(`SELECT level_pin, level_pinned_by, level_pinned_at, brakes_off_until,
+        brakes_off_by, brakes_off_at FROM channel_ops WHERE channel_id = ?`).get(Number(channelId)));
 
     /** The number's answered questions, `{ level, answers, at }`, or null (asked again once voided: safety.js allowance). */
     const startOf = (channelId) => startFromRow(raw.prepare('SELECT start_level, start_answers, started_at FROM channel_ops WHERE channel_id = ?')
@@ -345,6 +356,33 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
         });
 
         /**
+         * Turn a QR number's brakes off for `{ hours }` (1..720), or back on (`{ hours: null }`). While off, the
+         * reply, report, block, failure, ban and delivery brakes are ignored; WhatsApp's own restriction still
+         * applies, and a ban after this voids it (campaign/safety.js allowance).
+         */
+        admin.put('/numbers/:channelId/brakes', (req, res) => {
+            const row = req.channelRow;
+            if (!req.body || typeof req.body !== 'object' || !('hours' in req.body)) {
+                return res.status(400).json({ errors: ['Send { hours }: how long the brakes stay off, or null to turn them back on.'] });
+            }
+            const { hours } = req.body;
+            if (hours !== null && !(Number.isInteger(hours) && hours >= 1 && hours <= 720)) {
+                return res.status(400).json({ errors: ['Hours must be a whole number from 1 to 720, or null to turn the brakes back on.'] });
+            }
+            const quota = quotaOf(row);
+            if (!quota.qr) return res.status(400).json({ errors: ['Brakes apply to QR-login numbers only.'] });
+            const t = now();
+            upsert(row.id, hours === null
+                ? { brakes_off_until: null, brakes_off_by: null, brakes_off_at: null }
+                : { brakes_off_until: stamp(t + hours * 3_600_000), brakes_off_by: req.user?.email ?? 'admin', brakes_off_at: stamp(t) });
+            quota.invalidate();
+            const brakesOff = quota.allowance().level.brakesOff;
+            audit(req, hours === null ? 'channel.admin.brakes_on' : 'channel.admin.brakes_off', row.id,
+                hours === null ? 'brakes back on' : `brakes off for ${hours} h`);
+            return res.json({ brakesOff });
+        });
+
+        /**
          * End a QR number's wait after linking, so bulk can start now. Only the
          * link wait: a ban still rests the number (humanize levelFor rests from
          * the later of linkedAt and the last ban), and every other rule applies.
@@ -394,7 +432,8 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
             await close(row.tenant_id, row.id);
             // The pin and the answers (or a skip consented to) were the old business's: the number goes back to its
             // earned level, and the new business answers the questions or skips them with its own consent.
-            upsert(row.id, { level_pin: null, level_pinned_by: null, level_pinned_at: null, start_level: null, start_answers: null, started_at: null });
+            upsert(row.id, { level_pin: null, level_pinned_by: null, level_pinned_at: null, start_level: null, start_answers: null, started_at: null,
+                brakes_off_until: null, brakes_off_by: null, brakes_off_at: null });
             raw.prepare('UPDATE whatsapp_channels SET tenant_id = ?, is_default = ?, updated_at = ? WHERE id = ?')
                 .run(target.id, count ? 0 : 1, stamp(now()), row.id);
             if (row.is_default) {
