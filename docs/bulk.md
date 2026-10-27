@@ -191,7 +191,7 @@ A file from the media library is uploaded to WhatsApp **once per hour**, not onc
 
 ## 9. Recipient rules
 
-- **One a day.** On a QR number, a person gets at most **one** bulk message per 24 hours.
+- **One a day.** On a QR number, a person gets at most **one** bulk message per 24 hours. The limit is lifted once the number reaches level 5, or when the business skipped the start questions (`recipientCap` in `campaign/manager.js`).
 - **New chats.** People who never chatted with the number use its **new-chat budget** (the level's "new chats / day"). People who wrote in before are not limited by it. A list made only of strangers can take several days, and the campaign says so.
 - **Opt-outs.** Anyone who replied STOP (or stopall, unsubscribe, unsub, cancel, quit, optout, end, remove me, do not message, the Hindi and Hinglish band karo, mat bhejo, nahi chahiye, message mat karo, बंद करो, मत भेजो, नहीं चाहिए, and any admin-added words) is never sent bulk again. START, subscribe or opt in reverses it.
 - **Warm first.** A campaign queues people who wrote to the number before ahead of strangers (each group shuffled). Their replies come early, and strangers left at the end of the day wait for the next day's new-chat budget.

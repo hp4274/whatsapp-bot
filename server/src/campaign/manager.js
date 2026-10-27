@@ -68,6 +68,18 @@ const BLOCK_MIN_DELIVERED = 0.95;
 /** WhatsApp said rate-overlimit (429): the next try waits at least this long (seconds). */
 const RATE_LIMIT_WAIT = [90, 120];
 export const NOT_ON_WHATSAPP_TEXT = FRIENDLY[ErrorCode.INVALID_RECIPIENT];
+/** From this level a QR number has no one-a-day limit per recipient; nor does one whose questions were skipped. */
+export const FREE_RECIPIENT_LEVEL = 5;
+
+/**
+ * Bulk messages one recipient may get in a rolling 24h (0 = no limit). `level`: allowance().level on a
+ * QR number with sending safety on, else null (the business's recipientDailyCap applies).
+ */
+export const recipientCap = (config, level) => {
+    if (config.safetyEnabled === false) return 0;
+    if (!level) return Number(config.recipientDailyCap) || 0;
+    return level.level >= FREE_RECIPIENT_LEVEL || level.start?.answers?.skipped ? 0 : 1;
+};
 
 export class CampaignManager extends EventEmitter {
     constructor(db, transport, config) {
@@ -368,8 +380,8 @@ export class CampaignManager extends EventEmitter {
             this.pausedByQuota = false;
         }
         this.campaignId = campaignId ?? crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-        // Per-recipient frequency cap: bulk only, rolling 24h, counted from the db. One a day from a QR number.
-        const perRecipient = this.config.safetyEnabled === false ? 0 : (levels ? 1 : Number(this.config.recipientDailyCap) || 0);
+        // Per-recipient frequency cap: bulk only, rolling 24h, counted from the db (recipientCap).
+        const perRecipient = recipientCap(this.config, levels ? this.quota.allowance?.().level ?? { level: 0 } : null);
         const recent = new Map();
         if (perRecipient && this.db.bulkCountsSince) {
             for (const [recipient, n] of this.db.bulkCountsSince(isoAgo(24 * 3600 * 1000))) {
