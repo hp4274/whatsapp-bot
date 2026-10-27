@@ -1,10 +1,10 @@
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, catchError, throwError } from 'rxjs';
+import { Observable } from 'rxjs';
+import { catchError } from 'rxjs/operators';
+import { toMessage } from './utils';
+import { NumberDetails } from './number-details';
 
-import type { ChannelDetail, PlanRow } from './ops-api';
-
-/** One number in the platform health view, with the channels-policy fields (server: adminOps.health). */
 export interface NumberHealth extends ChannelDetail {
   readonly online: boolean;
   readonly lastSeenAt: string | null;
@@ -17,7 +17,6 @@ export interface NumberHealth extends ChannelDetail {
   readonly brakeHealth: BrakeHealth | null;
 }
 
-/** Server: adminOps.health brakeHealth. In 'shadow' mode the brakes are logged but never applied. */
 export interface BrakeHealth {
   readonly mode: 'shadow' | 'enforce';
   /** Messages sent 2-24h ago and how they ended. */
@@ -37,7 +36,6 @@ export interface BrakeHealth {
   }[];
 }
 
-/** One level change (db.levelEvents); `shadow` true = computed in shadow mode and never applied. */
 export interface LevelEvent {
   readonly shadow: boolean;
   readonly reason: string;
@@ -92,14 +90,6 @@ export interface LevelPinResult {
   readonly aboveEarned: boolean;
 }
 
-const toMessage = (error: HttpErrorResponse) => {
-  const errors = error.error?.errors;
-  return throwError(
-    () => new Error(Array.isArray(errors) && errors.length ? errors.join('\n') : error.message || 'Request failed'),
-  );
-};
-
-/** Super admin actions on a single WhatsApp number (server: policy/channelOps.js). */
 @Injectable({ providedIn: 'root' })
 export class ChannelsOpsApi {
   private readonly http = inject(HttpClient);
@@ -151,6 +141,12 @@ export class ChannelsOpsApi {
   move(id: number, tenantId: number): Observable<{ ok: true; tenantId: number }> {
     return this.http
       .post<{ ok: true; tenantId: number }>(`/api/admin/numbers/${id}/move`, { tenantId })
+      .pipe(catchError(toMessage));
+  }
+
+  fetchNumberDetails(id: number): Observable<NumberDetails> {
+    return this.http
+      .get<NumberDetails>(`/api/admin/numbers/${id}/details`)
       .pipe(catchError(toMessage));
   }
 }
