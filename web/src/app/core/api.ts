@@ -507,6 +507,22 @@ export class Api {
     return this.http.put<CustomSafetyView>('/api/safety/custom', patch).pipe(catchError(toMessage));
   }
 
+  /** Leave sending safety for every number; the warning is accepted again each time. */
+  exitSafety(body: {
+    accept: boolean;
+    version: string;
+    fullName: string;
+    confirmation: string;
+  }): Observable<CustomSafetyView> {
+    return this.http
+      .post<CustomSafetyView>('/api/safety/custom/exit', body)
+      .pipe(catchError(toMessage));
+  }
+
+  rejoinSafety(): Observable<CustomSafetyView> {
+    return this.http.delete<CustomSafetyView>('/api/safety/custom/exit').pipe(catchError(toMessage));
+  }
+
   resetCustomSafety(): Observable<CustomSafetyView> {
     return this.http.delete<CustomSafetyView>('/api/safety/custom').pipe(catchError(toMessage));
   }
@@ -660,10 +676,14 @@ export interface CustomSafetyState {
   overrides: Partial<SafetyPolicy>;
   consent: SafetyConsent | null;
   consentVersion: string;
+  /** Set while the business has left sending safety. */
+  exited: { at: string; by: string; fullName: string } | null;
 }
 
 export interface CustomSafetyView extends CustomSafetyState {
   consentText: string[];
+  exitText: string[];
+  exitVersion: string;
   policy: SafetyPolicy;
   platform: SafetyPolicy;
   ranges: Record<string, [number, number] | string[] | 'bool'>;
@@ -1475,7 +1495,7 @@ export interface Campaign {
   body: string;
   segmentId: number | null;
   audience: unknown;
-  audienceSize: number;
+  audienceSize: number | null;
   mediaId: string | null;
   options: CampaignOptions;
   scheduledAt: string | null;

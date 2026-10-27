@@ -32,6 +32,8 @@ export class SafetyControls {
   readonly changed = output<void>();
   /** Whether custom limits are applied right now (drives the card's badge). */
   readonly active = output<boolean>();
+  /** Whether the business left sending safety (drives the card's badge). */
+  readonly exited = output<boolean>();
 
   protected readonly view = signal<CustomSafetyView | null>(null);
   protected readonly open = signal(false);
@@ -64,7 +66,11 @@ export class SafetyControls {
     );
   });
   protected readonly riskCount = computed(() => Object.keys(this.risks()).length);
+  /** The drawer is the leave-safety warning, not the limits editor. */
+  protected readonly leaving = signal(false);
   protected readonly needsConsent = computed(() => !this.view()?.consent);
+  /** A consent form shows: first custom limits, or every time someone leaves safety. */
+  protected readonly consenting = computed(() => this.leaving() || this.needsConsent());
   protected readonly hasOverrides = computed(
     () => Object.keys(this.view()?.overrides ?? {}).length > 0,
   );
@@ -83,11 +89,17 @@ export class SafetyControls {
   private show(view: CustomSafetyView): void {
     this.view.set(view);
     this.active.emit(view.active);
+    this.exited.emit(!!view.exited);
   }
 
-  protected openEditor(): void {
+  protected openExit(): void {
+    this.openEditor(true);
+  }
+
+  protected openEditor(leaving = false): void {
     const view = this.view();
     if (!view) return;
+    this.leaving.set(leaving);
     this.error.set('');
     this.resetConfirm.set(false);
     this.understood.set(false);
@@ -126,6 +138,48 @@ export class SafetyControls {
           this.error.set(err.message);
         },
       });
+  }
+
+  protected leave(): void {
+    const view = this.view();
+    if (!view || !this.consentReady()) return;
+    this.busy.set(true);
+    this.error.set('');
+    this.api
+      .exitSafety({
+        accept: true,
+        version: view.exitVersion,
+        fullName: this.fullName().trim(),
+        confirmation: this.confirmation().trim(),
+      })
+      .subscribe({
+        next: (next) => {
+          this.busy.set(false);
+          this.show(next);
+          this.open.set(false);
+          this.changed.emit();
+        },
+        error: (err: Error) => {
+          this.busy.set(false);
+          this.error.set(err.message);
+        },
+      });
+  }
+
+  protected rejoin(): void {
+    this.busy.set(true);
+    this.error.set('');
+    this.api.rejoinSafety().subscribe({
+      next: (next) => {
+        this.busy.set(false);
+        this.show(next);
+        this.changed.emit();
+      },
+      error: (err: Error) => {
+        this.busy.set(false);
+        this.error.set(err.message);
+      },
+    });
   }
 
   protected setValue<K extends keyof SafetyPolicy>(key: K, value: SafetyPolicy[K]): void {

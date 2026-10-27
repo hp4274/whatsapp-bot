@@ -107,7 +107,7 @@ import { rateLimit } from './security/signature.js';
 import { checkImport, fileTypeError } from './security/filetype.js';
 import { securityHeaders } from './security/headers.js';
 import {
-    CONSENT_TEXT, CONSENT_VERSION, NUMBER_SKIP_TEXT, NUMBER_SKIP_VERSION, ROLES, TENANT_SERVICES, Tenancy, TenancyError,
+    CONSENT_TEXT, CONSENT_VERSION, NUMBER_SKIP_TEXT, NUMBER_SKIP_VERSION, SAFETY_EXIT_TEXT, SAFETY_EXIT_VERSION, ROLES, TENANT_SERVICES, Tenancy, TenancyError,
     blockedWordIn, roleRank,
 } from './tenancy.js';
 import { sendingTables, skipStartLevel, startLevelFor } from './policy/levels.js';
@@ -2740,6 +2740,7 @@ export function createApp({
         overrides: tenant.customSafety,
         consent: tenancy.currentConsent(tenant.id),
         consentVersion: CONSENT_VERSION,
+        exited: tenant.safetyExit,
     });
     const safetyView = (tenant) => ({
         safety: tenancy.platformSafety(tenant),
@@ -2944,6 +2945,8 @@ export function createApp({
     const tenantSafetyView = (tenant) => ({
         ...customSafetyView(tenant),
         consentText: CONSENT_TEXT,
+        exitText: SAFETY_EXIT_TEXT,
+        exitVersion: SAFETY_EXIT_VERSION,
         policy: tenancy.effectiveSafety(tenant),
         platform: tenancy.platformSafety(tenant),
         ranges: POLICY_SPEC,
@@ -3002,6 +3005,38 @@ export function createApp({
         } catch (err) {
             return fail(res, err);
         }
+    });
+
+    // Leaving sending safety is the business's own call, not gated by allowCustomSafety; the warning is
+    // accepted again on every exit. Rejoining needs no consent.
+    custom.post('/exit', (req, res) => {
+        const tenant = tenantOr404(req, res);
+        if (!tenant) return undefined;
+        const { accept, version, fullName, confirmation } = req.body ?? {};
+        if (accept !== true) return res.status(400).json({ errors: ['Tick the box to accept the risk.'] });
+        if (version !== SAFETY_EXIT_VERSION) {
+            return res.status(409).json({ errors: ['The terms changed. Reload and read them again.'] });
+        }
+        if (!String(fullName ?? '').trim()) return res.status(400).json({ errors: ['Type your full name.'] });
+        if (String(confirmation ?? '').trim().toLowerCase() !== 'i accept') {
+            return res.status(400).json({ errors: ['Type I ACCEPT to confirm.'] });
+        }
+        const consent = tenancy.recordConsent({
+            tenantId: tenant.id, user: req.user, fullName, ip: req.ip, userAgent: req.get('user-agent') ?? '', kind: 'safety_exit',
+        });
+        const next = tenancy.setSafetyExit(tenant.id, { at: consent.acceptedAt, by: consent.email, fullName: consent.fullName });
+        runtimes.get(tenant.id)?.applyPolicy();
+        audit(req, 'safety.exit', consent.id, { version: consent.version, fullName: consent.fullName });
+        return res.status(201).json(tenantSafetyView(next));
+    });
+
+    custom.delete('/exit', (req, res) => {
+        const before = tenantOr404(req, res);
+        if (!before) return undefined;
+        const tenant = tenancy.setSafetyExit(before.id, null);
+        runtimes.get(tenant.id)?.applyPolicy({ safetyEnabled: tenancy.platformSafety(tenant).safetyEnabled });
+        audit(req, 'safety.rejoin', tenant.id, before.safetyExit);
+        return res.json(tenantSafetyView(tenant));
     });
 
     custom.delete('/', (req, res) => {

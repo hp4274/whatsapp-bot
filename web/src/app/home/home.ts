@@ -92,7 +92,7 @@ export class Home {
         name: c.name,
         status: c.status,
         sent: sentOf(c),
-        total: c.stats?.total ?? c.audienceSize,
+        total: c.stats?.total ?? c.audienceSize ?? 0,
         when: c.startedAt ?? c.scheduledAt ?? c.createdAt,
       })),
   );

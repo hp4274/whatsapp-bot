@@ -100,7 +100,7 @@
     }
     @if (ch.health?.account) {
       <p class="account">
-        <i class="ti ti-shield-check" aria-hidden="true"></i>{{ ch.health?.account }}
+        <i class="ti ti-shield-check" aria-hidden="true"></i>{{ ch.health.account }}
       </p>
     }
   </div>
@@ -186,7 +186,7 @@
 }
 
 @if (ch.health?.error && state() !== 'connected') {
-  <p class="alert"><i class="ti ti-link-off" aria-hidden="true"></i>{{ ch.health?.error }}</p>
+  <p class="alert"><i class="ti ti-link-off" aria-hidden="true"></i>{{ ch.health.error }}</p>
 }
 @if (error()) {
   <p class="alert" role="alert">

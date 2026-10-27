@@ -12,7 +12,7 @@ import { after, before, describe, it } from 'node:test';
 import { closeApp } from '../src/app.js';
 import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
-import { CONSENT_VERSION } from '../src/tenancy.js';
+import { CONSENT_VERSION, SAFETY_EXIT_VERSION } from '../src/tenancy.js';
 import { createTestApp, sessionFor } from './helpers.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-custom-safety-'));
@@ -169,5 +169,32 @@ describe('tenant-owned sending limits', () => {
         assert.equal(revoked.status, 200);
         assert.equal(revoked.body.custom.allowed, false);
         assert.equal((await liveConfig()).dailyLimit, 200);
+    });
+});
+
+describe('leaving sending safety', () => {
+    const exit = (token, extra = {}) => call(token, 'POST', '/api/safety/custom/exit', {
+        accept: true, version: SAFETY_EXIT_VERSION, fullName: 'Asha Owner', confirmation: 'I ACCEPT', ...extra,
+    });
+
+    it('asks for the warning on every exit, turns safety off, and rejoins', async () => {
+        assert.equal((await call(tokens.owner, 'GET', '/api/safety/custom')).body.allowed, false); // no custom-limits permission needed
+        assert.equal((await exit(tokens.owner, { confirmation: 'ok' })).status, 400);
+        assert.equal((await exit(tokens.agent)).status, 403);
+
+        const left = await exit(tokens.owner);
+        assert.equal(left.status, 201);
+        assert.equal(left.body.exited.fullName, 'Asha Owner');
+        assert.equal(left.body.policy.safetyEnabled, false);
+        assert.equal((await liveConfig()).safetyEnabled, false);
+
+        const back = await call(tokens.owner, 'DELETE', '/api/safety/custom/exit');
+        assert.equal(back.body.exited, null);
+        assert.equal((await liveConfig()).safetyEnabled, true);
+
+        assert.equal((await exit(tokens.owner, { accept: false })).status, 400); // a second exit needs the warning again
+        assert.equal((await exit(tokens.owner)).status, 201);
+        assert.equal(tenancy.listConsents(tenant.id).filter((c) => c.kind === 'safety_exit').length, 2);
+        await call(tokens.owner, 'DELETE', '/api/safety/custom/exit');
     });
 });

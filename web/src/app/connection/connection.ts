@@ -43,6 +43,7 @@ export class ConnectionView {
   protected readonly errors = signal<string[]>([]);
   /** The business is running its own anti-ban limits (see SafetyControls). */
   protected readonly customSafety = signal(false);
+  protected readonly safetyOff = signal(false);
 
   protected readonly steps = STEPS;
 

@@ -66,7 +66,7 @@
                 />
                 @if (n?.interactive) {
                   <ar-menu-editor
-                    [interactive]="n?.interactive ?? null"
+                    [interactive]="n?.interactive"
                     [depth]="depth() + 1"
                     [variables]="variables()"
                     [value]="n?.menu ?? {}"
