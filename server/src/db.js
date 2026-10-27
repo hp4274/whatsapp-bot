@@ -931,6 +931,26 @@ export class Database {
         ).get(this.tenantId, ...(this.channelId != null ? [this.channelId] : []), kind, code, now.toISOString()).until ?? null;
     }
 
+    /**
+     * The end of the business's ban hold, or null: a 2nd ban within 30 days across all its numbers stops every
+     * number levelling up for 14 days from that ban (DailyQuota.allowance). It counts every number, not this one.
+     */
+    tenantBanHold(now = new Date()) {
+        const t = now.getTime();
+        const bans = this.db.prepare("SELECT at FROM safety_events WHERE tenant_id = ? AND kind = 'ban' AND at >= ? ORDER BY at")
+            .all(this.tenantId, new Date(t - 44 * 86_400_000).toISOString()).map((r) => Date.parse(r.at));
+        const second = bans.findLast((b, i) => i > 0 && b - bans[i - 1] <= 30 * 86_400_000);
+        const until = second == null ? null : second + 14 * 86_400_000;
+        return until > t ? new Date(until).toISOString() : null;
+    }
+
+    /** Everyone who ever wrote to this number (as isCold scopes it): warm contacts, never a new chat. */
+    inboundSenders() {
+        const scope = this.channelId != null ? ' AND channel_id = ? AND received_at >= ?' : '';
+        return new Set(this.db.prepare(`SELECT DISTINCT sender FROM inbound_messages WHERE tenant_id = ?${scope}`)
+            .all(this.tenantId, ...(this.channelId != null ? [this.channelId, numberSince(this)] : [])).map((r) => r.sender));
+    }
+
     /** True when this number never sent to `phone` and never heard from them: a new chat (bare digits). */
     isCold(phone) {
         const since = numberSince(this);
@@ -962,6 +982,16 @@ export class Database {
         return Boolean(this.db.prepare(
             `SELECT 1 FROM messages WHERE tenant_id = ? AND recipient = ? AND status IN (${placeholders}) LIMIT 1`
         ).get(this.tenantId, phone, ...SUCCESS_STATUSES));
+    }
+
+    /** People a campaign reached, and how many of them opted out after their message. */
+    campaignStopRate(campaignId) {
+        return this.db.prepare(
+            `SELECT COUNT(DISTINCT m.recipient) AS delivered,
+                    COUNT(DISTINCT CASE WHEN o.opted_out_at >= m.sent_at THEN m.recipient END) AS stopped
+             FROM messages m LEFT JOIN opt_outs o ON o.tenant_id = m.tenant_id AND o.phone = m.recipient
+             WHERE m.tenant_id = ? AND m.campaign_id = ? AND m.status IN ('DELIVERED', 'READ')`,
+        ).get(this.tenantId, campaignId);
     }
 
     /** Record a suspected block / report once per (kind, number, message). Returns true when new. */

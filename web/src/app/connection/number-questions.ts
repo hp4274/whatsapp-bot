@@ -129,6 +129,11 @@ export class NumberQuestions {
       .subscribe({
         next: (info) => {
           this.info.set(info);
+          // Pre-select from the chat history, never over a choice already made; the business still confirms.
+          if (info.suggested && this.age() === null && this.usage() === null) {
+            this.age.set(info.suggested.age);
+            this.usage.set(info.suggested.usage);
+          }
           this.loading.set(false);
         },
         error: (err: Error) => {

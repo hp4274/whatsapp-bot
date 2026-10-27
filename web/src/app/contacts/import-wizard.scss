@@ -146,6 +146,26 @@
   tbody tr:first-child td { border-top: 0; }
 }
 
+/* The list check under the sample: a warning tone while something is flagged, quiet when clean. */
+.check {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  font-size: 13px;
+
+  ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+  li { display: flex; gap: 8px; align-items: flex-start; }
+  li .ti { margin-top: 2px; color: var(--warning); }
+  b { font-weight: 500; color: var(--text-strong); }
+  small { display: block; margin-top: 2px; color: var(--hint); font-size: 12px; }
+  p { display: flex; gap: 8px; align-items: center; margin: 0; color: var(--text-color); }
+  p .ti { color: var(--success); }
+  .muted { color: var(--text-muted); }
+}
+
 .hint-bad { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 500; color: var(--warning); }
 
 /* Tags ------------------------------------------------------------------ */

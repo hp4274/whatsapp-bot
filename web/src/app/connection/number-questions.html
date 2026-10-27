@@ -48,6 +48,16 @@
           </div>
         </header>
 
+        @if (info()?.suggested; as s) {
+          <p class="suggested" role="status">
+            <i class="ti ti-history" aria-hidden="true"></i>
+            <span
+              >Picked from the {{ s.chats }} chats already on this number. Change them if they
+              are wrong.</span
+            >
+          </p>
+        }
+
         <fieldset class="group">
           <legend>How old is this number on WhatsApp?</legend>
           <div class="opts">

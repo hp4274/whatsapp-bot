@@ -172,6 +172,23 @@ export function startLevelFor({ age, usage } = {}) {
 }
 
 /**
+ * Answers to pre-select from the one-to-one chats a number already has (its link-time history sync), or null
+ * under CHAT_SUGGESTIONS' lowest line. Only a suggestion: the business still confirms or changes them.
+ */
+export function suggestStart(chats) {
+    const row = CHAT_SUGGESTIONS.find((r) => Number(chats) >= r.chats);
+    return row ? { age: row.age, usage: row.usage } : null;
+}
+
+/** Chats -> answers, most first. 200+ chats is an established number: age 3 + usage 2 starts it at level 6. */
+const CHAT_SUGGESTIONS = Object.freeze([
+    { chats: 500, age: 3, usage: 3 },
+    { chats: 200, age: 3, usage: 2 },
+    { chats: 80, age: 2, usage: 2 },
+    { chats: 25, age: 1, usage: 1 },
+]);
+
+/**
  * Skipping the questions starts at the plan's day: the lowest level whose day reaches `planDaily` (the same
  * level the plan caps the number at, campaign/safety.js ceilingLevel), or the top level with no plan limit.
  */

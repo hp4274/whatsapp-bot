@@ -107,6 +107,9 @@ export const HEALTH = Object.freeze({
     probationHours: 48, cleanChecks: 2, checkGapHours: 6,
 });
 
+/** The engagement reward (shadow only, levelFor note 'engaged'): at these 7-day rates (%), volume needs scale by needShare. */
+const ENGAGED = Object.freeze({ delivered: 97, replied: 30, needShare: 0.75 });
+
 /**
  * A number's health (`ledger.health`: `{ sent, attempted, delivered, failed, stuck, reached, replied }`) against HEALTH:
  * `{ judged, passes, drop, reason, ... rates }`. `judged`: enough was sent to rate it. `passes`: a promotion may
@@ -211,6 +214,16 @@ export function levelFor(ledger, {
             note(enforce ? 'level' : 'shadow', `hold_${hold}`, next.level, enforce ? next.level : earned, hold === 'health'
                 ? `Level ${ready} is earned, but the move up waits for better health (${healthText(health)}).`
                 : `Level ${ready} is earned, but the move up waits: probation after a demotion (48 hours, then ${HEALTH.cleanChecks} passing health checks ${HEALTH.checkGapHours} hours apart).`, true);
+        }
+        // Shadow only, never applied: a well-engaged number (≥97% delivered, ≥30% replied over 7 days) would need 25%
+        // less delivered volume; the active-days need stays. Logged daily to see what it would change before turning it on.
+        const engaged = health.judged && health.reached >= b.replyMinReached
+            && health.rates.delivered >= ENGAGED.delivered && health.rates.replied >= ENGAGED.replied;
+        const boosted = engaged && !hold ? (levels.findLast((row) => row.need && have.activeDays >= row.need.days
+            && have.delivered >= row.need.delivered * ENGAGED.needShare && have.bulk >= row.need.bulk * ENGAGED.needShare) ?? levels[1]).level : 0;
+        if (boosted > Math.max(earned, next.level)) {
+            note('shadow', 'engaged', Math.max(earned, next.level), boosted,
+                `Strong engagement (${healthText(health)}) would lower the volume needs by 25%, reaching level ${boosted}.`, true);
         }
         if (earned > next.level) {
             note('level', 'promote', next.level, earned, `Moved up to level ${earned} (${healthText(health)}).`);

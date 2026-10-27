@@ -367,7 +367,10 @@ export class DailyQuota {
                 || Date.parse(ledger.anchor ?? ledger.lastBanAt ?? '') > (Date.parse(answered.at ?? '') || 0);
             const held = Boolean(this.levelStart) && startVoid;
             // The day ceiling caps the level (and so a pin), not only the count: see ceilingLevel.
-            const caps = [tables.maxLevel, ceilingLevel(levels, dayCeiling(this.config, tables.planDaily))].filter((c) => c != null);
+            // The business's 2nd ban in 30 days (db.tenantBanHold): each number stays at the level it had reached.
+            const banHold = this.qr ? this.db.tenantBanHold?.(now) ?? null : null;
+            const caps = [tables.maxLevel, ceilingLevel(levels, dayCeiling(this.config, tables.planDaily)), banHold ? state?.level : null]
+                .filter((c) => c != null);
             const lv = levelFor(ledger, {
                 // A super admin can skip the wait after a fresh link (sending.skipLinkWait); a ban still rests it.
                 linkedAt: tables.skipLinkWait ? '' : this.config.linkedAt, now, dayStart: start,
@@ -393,7 +396,7 @@ export class DailyQuota {
                     row: lv.row,
                     level: {
                         level: lv.level, name: lv.row.name, of: levels.length - 1, earned: lv.earned,
-                        pinned: lv.pinned, capped: lv.capped, cap: tables.maxLevel, brakesOff,
+                        pinned: lv.pinned, capped: lv.capped, cap: tables.maxLevel, brakesOff, banHold,
                         steps: levels.map((r) => ({ level: r.level, name: r.name, perDay: r.dailyLimit, newChats: r.newChats, need: r.need })),
                         resting: lv.resting, have: lv.have, next: lv.next,
                         start: startVoid ? null : { level: answered.level, answers: answered.answers ?? null, at: answered.at },

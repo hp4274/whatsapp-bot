@@ -920,6 +920,8 @@ export interface NumberStart {
   todayLimit: number | null;
   planLimit: number | null;
   skipWarning: { version: string; text: string[] };
+  /** Answers pre-selected from the one-to-one chats the number already has; null when too few or not synced. */
+  suggested: { age: number; usage: number; chats: number } | null;
 }
 
 /** `POST /api/channels/:id/start`: answers (each 0-3) or an accepted skip. */
@@ -1100,6 +1102,17 @@ export interface ImportPreview {
   rowCount: number;
   mapping: ImportTarget[];
   fieldKeys: string[];
+  /** A phone check per column (server contacts.js phoneQuality); null for columns that don't hold phones. */
+  quality?: (PhoneQuality | null)[];
+}
+
+export interface PhoneQuality {
+  readonly checked: number;
+  readonly invalid: number;
+  readonly duplicates: number;
+  readonly landline: number;
+  readonly foreign: number;
+  readonly examples: Readonly<Record<'invalid' | 'duplicates' | 'landline' | 'foreign', readonly string[]>>;
 }
 
 export interface ImportResult {

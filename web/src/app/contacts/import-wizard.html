@@ -163,6 +163,31 @@
               </table>
             </div>
           }
+          @if (listCheck(); as q) {
+            <div class="check" role="status" aria-label="List check">
+              @if (q.lines.length) {
+                <ul>
+                  @for (l of q.lines; track l.kind) {
+                    <li>
+                      <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+                      <span
+                        ><b>{{ l.n }}</b> {{ l.text }}<small>For example {{ l.examples }}</small></span
+                      >
+                    </li>
+                  }
+                </ul>
+                <small class="muted"
+                  >Messages to wrong numbers fail, and failures slow your number down. Fix them in the
+                  file, or go ahead.</small
+                >
+              } @else {
+                <p>
+                  <i class="ti ti-circle-check" aria-hidden="true"></i>All {{ q.checked }} numbers
+                  look right.
+                </p>
+              }
+            </div>
+          }
           @if (mappingError()) {
             <p class="hint-bad" role="alert">
               <i class="ti ti-info-circle" aria-hidden="true"></i> {{ mappingError() }}

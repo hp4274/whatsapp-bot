@@ -225,6 +225,13 @@ export class BaileysTransport extends Transport {
             if (type !== 'notify') return; // 'append' is history sync
             for (const msg of messages ?? []) void this.#handleInbound(sock, msg);
         });
+        // The history WhatsApp syncs on link lists the number's chats: its one-to-one count suggests the
+        // answers to the 2 questions (policy/levels.js suggestStart). Batches add up; a group never counts.
+        const chats = new Set();
+        sock.ev.on('messaging-history.set', ({ chats: batch }) => {
+            for (const chat of batch ?? []) if (String(chat?.id ?? '').endsWith('@s.whatsapp.net')) chats.add(chat.id);
+            this.events.emit('history', { chats: chats.size });
+        });
         sock.ev.on('messages.update', (updates) => {
             for (const { key, update } of updates ?? []) {
                 // A failed ack carries WhatsApp's error code (messages-recv.js handleBadAck).
@@ -773,7 +780,7 @@ export class BaileysTransport extends Transport {
         for (const card of cards) {
             const media = mediaContent(card.media);
             if (!media.image) throw new TransportSendError('A carousel card needs an image.', { retryable: false });
-            const { imageMessage } = await prepareWAMessageMedia({ image: media.image }, { upload: this.sock.waUploadToServer });
+            const { imageMessage } = await prepareWAMessageMedia({ image: media.image }, { upload: this.sock.waUploadToServer, mediaCache });
             const buttons = kind === 'url'
                 ? (card.cta ?? []).map((b) => ({ name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: b.title, url: b.value, merchant_url: b.value }) }))
                 : (card.buttons ?? []).map((b) => ({ name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: b.title, id: b.id }) }));
@@ -900,8 +907,31 @@ export function toJid(recipient) {
 }
 
 /** The Baileys content object for one attachment, keyed by MIME family. */
+/**
+ * Uploaded media, keyed by kind and file path: a campaign sends the same image to every recipient, and Baileys only
+ * looks a file up here when it is given as `{ url }`. An hour stays well inside how long WhatsApp keeps an upload.
+ * shortcut: keyed by path, so a file must not be rewritten in place; media-library files are write-once.
+ */
+export const mediaCache = {
+    ttlMs: 3_600_000,
+    max: 200,
+    entries: new Map(),
+    get(key) {
+        const hit = this.entries.get(key);
+        if (hit && hit.until > Date.now()) return hit.value;
+        this.entries.delete(key);
+        return undefined;
+    },
+    set(key, value) {
+        if (this.entries.size >= this.max) this.entries.delete(this.entries.keys().next().value);
+        this.entries.set(key, { value, until: Date.now() + this.ttlMs });
+    },
+};
+
 export function mediaContent(media, caption) {
-    const data = Buffer.isBuffer(media.buffer) ? media.buffer : fs.readFileSync(media.filePath);
+    // A file on disk goes as a path so mediaCache can skip re-uploading it; a buffer has no stable key.
+    if (!Buffer.isBuffer(media.buffer)) fs.accessSync(media.filePath); // a missing file fails here, not mid-upload
+    const data = Buffer.isBuffer(media.buffer) ? media.buffer : { url: media.filePath };
     const mimetype = media.mimetype || 'application/octet-stream';
     const fileName = media.filename || path.basename(String(media.filePath ?? 'attachment'));
     const kind = mimetype.split('/')[0];
@@ -1039,6 +1069,7 @@ async function defaultSocketFactory({ authDir, qrTimeoutMs, getMessage, msgRetry
         getMessage,
         msgRetryCounterCache,
         patchMessageBeforeSending: ownDeviceCopy,
+        mediaCache,
         ...(qrTimeoutMs ? { qrTimeout: qrTimeoutMs } : {}),
     });
     sock.ev.on('creds.update', saveCreds);

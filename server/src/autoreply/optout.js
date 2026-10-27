@@ -5,12 +5,15 @@ import { normalizeInboundText } from './engine.js';
 export const OPTOUT_KEYWORDS = new Set([
     'stop', 'stopall', 'stop all', 'unsubscribe', 'unsub', 'cancel', 'quit', 'optout', 'opt out', 'end',
     'stop messages', 'remove me', 'do not message', 'dont message',
+    // Hindi and Hinglish, the main market: a missed STOP turns into a spam report.
+    'band karo', 'bandh karo', 'band kar do', 'mat bhejo', 'mat bhejna', 'nahi chahiye', 'nahin chahiye', 'message mat karo',
+    'msg mat karo', 'message mat bhejo', 'बंद करो', 'बंद कर दो', 'मत भेजो', 'नहीं चाहिए', 'मैसेज मत करो', 'मैसेज मत भेजो',
 ]);
 export const OPTIN_KEYWORDS = new Set(['start', 'unstop', 'subscribe', 'optin', 'opt in', 'resubscribe']);
 
 /** `platformWords`: policy `autoReplies.optOutWords`, always honoured on top of the built-in list. */
 export async function processOptOut(db, transport, msg, platformWords = []) {
-    const text = normalizeInboundText(msg.body).replace(/['’]/g, '').replace(/[-_\s]+/g, ' ').trim();
+    const text = normalizeInboundText(msg.body).replace(/[।]+$/, '').replace(/['’]/g, '').replace(/[-_\s]+/g, ' ').trim();
 
     if (OPTOUT_KEYWORDS.has(text) || platformWords.some((w) => w.toLowerCase().replace(/['’]/g, '').replace(/[-_\s]+/g, ' ').trim() === text)) {
         db.addOptOut(msg.sender, 'user_keyword_stop');

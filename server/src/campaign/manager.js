@@ -57,6 +57,8 @@ const REGISTERED_TTL_MS = 24 * 3600_000;
 const UNKNOWN_TTL_MS = 10 * 60_000;
 /** Numbers asked about in one go: this message's and the next unchecked ones in the queue. */
 const CHECK_AHEAD = 50;
+/** A campaign pauses itself past this STOP rate, judged from this many people reached (checkStopRate). */
+const STOP_PAUSE = Object.freeze({ percent: 3, minDelivered: 50 });
 /** How often a connected number's block, delivery and stuck checks run (scanHealthIfDue). */
 const HEALTH_SCAN_MS = 600_000;
 /** The dead-man ops alert: messages waiting in sending hours and nothing sent for this long. */
@@ -307,7 +309,7 @@ export class CampaignManager extends EventEmitter {
      * this batch are dropped whatever name they carry. A number messaged in an
      * earlier run is NOT skipped, so the same sheet can be sent again.
      *
-     * The batch is shuffled: nobody is messaged in the order of the sheet.
+     * The batch is shuffled: nobody is messaged in the order of the sheet. People who wrote in before go first.
      */
     enqueueContacts(contacts, template, {
         campaignId = null, onePerNumber = false, media = null, interactive = null,
@@ -397,7 +399,12 @@ export class CampaignManager extends EventEmitter {
         // Duplicates allowed means a repeated number with the same text is queued again too.
         this.queue.dedupe = onePerNumber;
         try {
-            for (const contact of shuffle([...contacts])) {
+            // People who wrote in before go first: their early replies keep the reply-rate brake away and they
+            // use no new-chat budget, so strangers left at the end of the day wait for tomorrow's. Shuffled within each.
+            const warm = this.config.safetyEnabled !== false ? this.db.inboundSenders?.() ?? new Set() : new Set();
+            const order = shuffle([...contacts]);
+            const warmFirst = [...order.filter((c) => warm.has(digits(c.phone))), ...order.filter((c) => !warm.has(digits(c.phone)))];
+            for (const contact of warmFirst) {
                 const phone = digits(contact.phone);
                 if (optedOut.has(phone)) {
                     skipped += 1;
@@ -903,6 +910,24 @@ export class CampaignManager extends EventEmitter {
         this.emit('event', {
             type: 'failureStop', failed: rates.blocks + rates.reports, processed: rates.sent7d,
             message: `Paused: ${rates.blocks} blocks and ${rates.reports} reports from ${rates.sent7d} messages this week (limit ${rates.pauseAtPercent}%).`,
+        });
+        this.#emitStats();
+        return true;
+    }
+
+    /**
+     * Pauses the running campaign when over STOP_PAUSE.percent of the people it reached replied STOP, from
+     * STOP_PAUSE.minDelivered: the message is unwelcome. The block-rate pause sees this a week late; this, within hours.
+     */
+    checkStopRate() {
+        if (!this.campaignId || !this.config.safetyEnabled || this.queue.isPaused || this.queue.isStopped || !this.db.campaignStopRate) return false;
+        if (this.quota.qr && this.quota.allowance().level.brakesOff) return false;
+        const { delivered, stopped } = this.db.campaignStopRate(this.campaignId);
+        if (delivered < STOP_PAUSE.minDelivered || stopped * 100 <= delivered * STOP_PAUSE.percent) return false;
+        this.queue.pause();
+        this.emit('event', {
+            type: 'failureStop', failed: stopped, processed: delivered,
+            message: `Paused: ${stopped} of the ${delivered} people this campaign reached replied STOP (limit ${STOP_PAUSE.percent}%). People don't want this message; change it or the list before resuming.`,
         });
         this.#emitStats();
         return true;

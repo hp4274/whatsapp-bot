@@ -237,6 +237,54 @@ describe('DailyQuota hooks', () => {
         assert.equal(banned.allowance().level.brakesOff, null);
     });
 
+    it('strong engagement only logs (shadow) the level 25% lower volume needs would reach', () => {
+        const ledger = {
+            activeDays: 17, delivered: 400, bulkDelivered: 160, lastDeliveredBefore: ago(DAY),
+            health: { sent: 100, delivered: 98, reached: 40, replied: 15 },
+        };
+        const lv = levelFor(ledger, { state: { level: 5 } });
+        assert.equal(lv.level, 5, 'nothing applied');
+        const note = lv.changes.find((c) => c.reason === 'engaged');
+        assert.deepEqual([note?.kind, note?.to], ['shadow', 6]);
+        const quiet = levelFor({ ...ledger, health: { ...ledger.health, replied: 8 } }, { state: { level: 5 } });
+        assert.equal(quiet.changes.some((c) => c.reason === 'engaged'), false, '20% replied is not engaged enough');
+    });
+
+    it('a business ban hold keeps each number at the level it had reached', () => {
+        const hold = new Date(Date.now() + DAY).toISOString();
+        const quota = new DailyQuota({
+            sendingLedger: () => ({ bulkToday: 0, lastHour: 0, newChatsToday: 0, ...LEVEL5 }),
+            levelState: () => ({ level: 3 }),
+            tenantBanHold: () => hold,
+        }, qr());
+        assert.deepEqual([quota.allowance().level.level, quota.allowance().level.banHold], [3, hold]);
+        const free = new DailyQuota({
+            sendingLedger: () => ({ bulkToday: 0, lastHour: 0, newChatsToday: 0, ...LEVEL5 }),
+            levelState: () => ({ level: 3 }),
+            tenantBanHold: () => null,
+        }, qr());
+        assert.equal(free.allowance().level.level, 5);
+    });
+
+    it('tenantBanHold: a 2nd ban within 30 days across numbers holds 14 days from it', () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-banhold-'));
+        const db = new Database(path.join(dir, 'b.db'));
+        try {
+            const ban = (channelId, at) => db.db.prepare(
+                "INSERT INTO safety_events (tenant_id, channel_id, kind, phone, message_id, at) VALUES (1, ?, 'ban', ?, ?, ?)",
+            ).run(channelId, `n${channelId}`, at.slice(0, 10), at);
+            ban(1, ago(40 * DAY));
+            ban(2, ago(5 * DAY));
+            assert.equal(db.tenantBanHold(), null, '35 days apart is not a pattern');
+            const second = ago(2 * DAY);
+            ban(3, second);
+            assert.equal(Date.parse(db.tenantBanHold()), Date.parse(second) + 14 * DAY);
+        } finally {
+            db.close();
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
     it('skipGrowth lets the bulk day reach the level day at once', () => {
         const ledger = { ...LEVEL5, hasHistory: true, bestCleanDay7: 10 };
         const quota = quotaFor(ledger);

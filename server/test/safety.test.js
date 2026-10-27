@@ -286,3 +286,51 @@ describe('safety API', () => {
         await fetch(`${base}/api/campaign/stop`, { method: 'POST' });
     });
 });
+
+describe('campaign STOP rate', () => {
+    it('pauses a campaign once over 3% of 50+ people it reached replied STOP', () => {
+        const db = new Database(path.join(tmp, 'stop-rate.db'));
+        try {
+            const at = new Date(Date.now() - 3_600_000).toISOString();
+            const add = db.db.prepare(`INSERT INTO messages (message_id, recipient, message, status, campaign_id, created_at, updated_at, sent_at)
+                                       VALUES (?, ?, 'Hi', 'DELIVERED', 'c1', ?, ?, ?)`);
+            const phone = (i) => `9198000000${String(i).padStart(2, '0')}`;
+            for (let i = 0; i < 40; i += 1) add.run(`m${i}`, phone(i), at, at, at);
+            const manager = new CampaignManager(db, { name: 'fake live', realDelivery: true, isConnected: () => true }, config());
+            manager.campaignId = 'c1';
+            for (let i = 0; i < 3; i += 1) db.addOptOut(phone(i), 'user_keyword_stop');
+            assert.equal(manager.checkStopRate(), false, '3 of 40 is too few people reached to judge');
+
+            for (let i = 40; i < 60; i += 1) add.run(`m${i}`, phone(i), at, at, at);
+            db.db.prepare('DELETE FROM opt_outs').run();
+            db.addOptOut(phone(0), 'user_keyword_stop');
+            assert.equal(manager.checkStopRate(), false, '1 of 60 is under 3%');
+
+            db.addOptOut(phone(1), 'user_keyword_stop');
+            const events = [];
+            manager.on('event', (e) => events.push(e));
+            assert.equal(manager.checkStopRate(), true, '2 of 60 is over 3%');
+            assert.equal(manager.queue.isPaused, true);
+            assert.match(events.find((e) => e.type === 'failureStop').message, /2 of the 60 people/);
+        } finally {
+            db.close();
+        }
+    });
+});
+
+describe('warm contacts first', () => {
+    it('queues people who wrote in before ahead of strangers', () => {
+        const db = new Database(path.join(tmp, 'warm-first.db'));
+        try {
+            const warm = ['919811100001', '919811100002'];
+            for (const sender of warm) db.insertInbound({ sender, body: 'hi', receivedAt: new Date().toISOString() });
+            const manager = new CampaignManager(db, { name: 'fake live', realDelivery: true, isConnected: () => true }, config());
+            const contacts = Array.from({ length: 10 }, (_, i) => ({ name: `P${i}`, phone: `9198222000${String(i).padStart(2, '0')}` }))
+                .concat(warm.map((phone) => ({ name: 'W', phone })));
+            manager.enqueueContacts(contacts, 'Hi {name}');
+            assert.deepEqual(manager.queue.items.slice(0, 2).map((item) => item.recipient).sort(), warm);
+        } finally {
+            db.close();
+        }
+    });
+});

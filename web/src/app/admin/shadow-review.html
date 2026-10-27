@@ -1,0 +1,67 @@
+<!-- One card: a summary line, then error / skeleton / table-or-empty. -->
+<section class="card" aria-labelledby="shadow-title">
+  <header class="head">
+    <div>
+      <h3 id="shadow-title">Shadow review, last 7 days</h3>
+      <p class="lede">
+        What the delivery, stuck and unstable brakes, demotion and the promotion gate would have
+        done. Nothing here was applied. Switch <code>sending.brakesMode</code> to enforce once a
+        week of it looks right.
+      </p>
+    </div>
+    <button type="button" class="btn sm icon" aria-label="Refresh shadow review" [disabled]="loading()" (click)="load()">
+      <i class="ti ti-refresh" aria-hidden="true"></i>
+    </button>
+  </header>
+
+  @if (error()) {
+    <p class="s-banner" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i>
+      <span class="msg">{{ error() }}</span>
+      <button type="button" class="btn sm" (click)="load()">Try again</button>
+    </p>
+  } @else if (loading()) {
+    <div aria-busy="true" aria-label="Loading shadow review">
+      @for (i of [1, 2, 3]; track i) {
+        <div class="s-skel" style="height: 18px"></div>
+      }
+    </div>
+  } @else if (!rows().length) {
+    <div class="s-empty">
+      <i class="ti ti-eye-off" aria-hidden="true"></i>
+      <strong>Nothing logged this week</strong>
+      <p>No number tripped a shadow brake, demotion or held promotion.</p>
+    </div>
+  } @else {
+    <p class="summary" role="status">
+      <strong>{{ totalHours() }} hours</strong> of bulk would have paused across
+      {{ numbers() }} number{{ numbers() === 1 ? '' : 's' }}.
+    </p>
+    <div class="s-table">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Business</th>
+            <th scope="col">Number</th>
+            <th scope="col">Would have</th>
+            <th scope="col" class="num">Times</th>
+            <th scope="col" class="num">Paused</th>
+            <th scope="col">Last</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (r of rows(); track r.channelId + r.kind) {
+            <tr>
+              <td>{{ r.tenantName }}</td>
+              <td>{{ r.number }}</td>
+              <td>{{ label(r.kind) }}</td>
+              <td class="num">{{ r.count }}</td>
+              <td class="num">{{ r.pauseHours ? r.pauseHours + ' h' : '—' }}</td>
+              <td>{{ r.lastAt | date: 'd MMM, h:mm a' }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</section>

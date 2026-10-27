@@ -17,6 +17,17 @@ import { splitTags } from './contact-util';
 
 type Step = 'upload' | 'map' | 'tags' | 'done';
 type Kind = 'phone' | 'name' | 'email' | 'tags' | 'custom' | 'ignore';
+
+/**
+ * What the list check says per problem, worst first. Numbers are only flagged, never looked up on
+ * WhatsApp: checking a whole list there is a spam signal of its own.
+ */
+const LIST_CHECKS: readonly { readonly kind: 'invalid' | 'duplicates' | 'landline' | 'foreign'; readonly text: string }[] = [
+  { kind: 'invalid', text: 'are not phone numbers and will be skipped' },
+  { kind: 'duplicates', text: 'appear more than once; each person is imported once' },
+  { kind: 'landline', text: "don't look like Indian mobile numbers (landlines or typos)" },
+  { kind: 'foreign', text: 'are outside your default country' },
+];
 interface Column {
   kind: Kind;
   key: string;
@@ -101,6 +112,19 @@ export class ImportWizard {
       heads: keep.map((i) => this.targetLabel(this.columns()[i])),
       rows: p.rows.slice(0, 5).map((row) => keep.map((i) => row[i] ?? '')),
     };
+  });
+
+  /** The list check for whichever column is mapped to the phone: one line per problem found. */
+  protected readonly listCheck = computed(() => {
+    const at = this.columns().findIndex((c) => c.kind === 'phone');
+    const q = at >= 0 ? this.preview()?.quality?.[at] : null;
+    if (!q) return null;
+    const lines = LIST_CHECKS.filter((c) => q[c.kind] > 0).map((c) => ({
+      ...c,
+      n: q[c.kind],
+      examples: q.examples[c.kind].join(', '),
+    }));
+    return { checked: q.checked, lines };
   });
 
   protected readonly invalid = computed(() => {

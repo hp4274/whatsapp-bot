@@ -45,7 +45,7 @@ import {
     remindersToContacts,
 } from './paymentReminders.js';
 import {
-    PREVIEW_ROWS, contactsToCsv, csvCell, importContacts, mappedRowsToContacts, parseTable, resolveMapping, suggestMapping,
+    PREVIEW_ROWS, columnQuality, contactsToCsv, csvCell, importContacts, mappedRowsToContacts, parseTable, resolveMapping, suggestMapping,
 } from './contacts.js';
 import { PhoneError, contactContext, normalizePhone, personalize, utcNow } from './protocol.js';
 import {
@@ -110,7 +110,7 @@ import {
     CONSENT_TEXT, CONSENT_VERSION, NUMBER_SKIP_TEXT, NUMBER_SKIP_VERSION, SAFETY_EXIT_TEXT, SAFETY_EXIT_VERSION, ROLES, TENANT_SERVICES, Tenancy, TenancyError,
     blockedWordIn, roleRank,
 } from './tenancy.js';
-import { sendingTables, skipStartLevel, startLevelFor } from './policy/levels.js';
+import { sendingTables, skipStartLevel, startLevelFor, suggestStart } from './policy/levels.js';
 import { PACING_PRESETS, bulkWindowOpen } from './campaign/safety.js';
 import { auditCsv, createAdminOps } from './adminOps.js';
 import { lastBackup, runBackupIfDue } from './backup.js';
@@ -568,10 +568,27 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
                 if (payload.state === 'banned') {
                     // A ban restarts the number's sending level (campaign/humanize.js levelFor). Keyed by the day:
                     // the 403 a restart or reconnect repeats is the same ban.
-                    db.addSafetyEvent({
-                        kind: 'ban', phone: digitsOf(state.channel?.providerAccountId || state.info.account) || `channel-${state.channel?.id}`,
-                        messageId: utcNow().slice(0, 10), detail: payload.detail ?? '',
-                    });
+                    const phone = digitsOf(state.channel?.providerAccountId || state.info.account) || `channel-${state.channel?.id}`;
+                    // What the number looked like just before (the history restarts with the ban), to see later which
+                    // thresholds to tighten. Its own kind, so nothing that reads 'ban' rows changes.
+                    if (manager.quota.qr) {
+                        const al = manager.quota.allowance();
+                        db.addSafetyEvent({
+                            kind: 'ban_snapshot', phone, messageId: utcNow().slice(0, 10),
+                            detail: JSON.stringify({
+                                level: al.level.level, brakes: al.brakes.map((b) => b.code), budgets: al.budgets,
+                                replies48h: al.replies, delivery: al.delivery, health: al.level.health, lastSentAt: al.lastSentAt,
+                            }),
+                        });
+                    }
+                    const fresh = db.addSafetyEvent({ kind: 'ban', phone, messageId: utcNow().slice(0, 10), detail: payload.detail ?? '' });
+                    const hold = fresh ? db.tenantBanHold?.() : null;
+                    if (hold) {
+                        opsAlert({
+                            kind: 'tenant_bans', text: 'A 2nd number of this business was banned within 30 days. Its numbers cannot level up for 14 days.',
+                            detail: hold,
+                        });
+                    }
                     manager.quota.invalidate();
                     opsAlert({ kind: 'ban', text: 'WhatsApp banned this number.', detail: payload.detail ?? '' });
                 }
@@ -625,6 +642,10 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         });
         // WhatsApp capped messages to strangers (463 / 475, or a reach-out timelock): new chats and lookups
         // wait until `until` (the restricted brake). The end is the event's message_id.
+        // shortcut: kept in memory only; the questions are asked right after a link, so a restart before then loses the hint.
+        transport.events?.on('history', ({ chats } = {}) => {
+            state.historyChats = chats;
+        });
         transport.events?.on('restricted', ({ code, until } = {}) => {
             const end = new Date(until);
             db.addSafetyEvent({
@@ -870,6 +891,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             rowCount: table.rows.length,
             mapping: suggestMapping(table.headers),
             fieldKeys: contacts.fieldKeys(),
+            quality: columnQuality(table.headers, table.rows, state.config.defaultCountryCode),
         });
     });
 
@@ -2079,7 +2101,13 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
     // answered, and again after a ban or a different number (campaign/safety.js allowance). `asked` false = ask them.
     const startView = (channel) => {
         const { usage } = fullHealth(channel);
-        return { asked: usage.asked !== false, todayLimit: usage.todayLimit, planLimit: usage.planLimit };
+        // `suggested`: answers pre-selected from the chats the number already has (null when too few or unknown).
+        const chats = runtimes.get(channel.id)?.state.historyChats ?? null;
+        const suggested = chats == null ? null : suggestStart(chats);
+        return {
+            asked: usage.asked !== false, todayLimit: usage.todayLimit, planLimit: usage.planLimit,
+            suggested: suggested && { ...suggested, chats },
+        };
     };
 
     app.get('/channels/:id/start', (req, res) => {
@@ -2889,6 +2917,7 @@ export function createApp({
     admin.get('/health-detail', (req, res) => res.json({
         ...ops.health(), backup: lastBackup(dataDir), encryption: encryptionStatus(dataDir),
     }));
+    admin.get('/shadow-review', (req, res) => res.json(ops.shadowReview({ days: req.query.days })));
     admin.get('/audit-logs', (req, res) => (req.query.format === 'csv'
         ? res.type('text/csv').attachment('audit-logs.csv').send(auditCsv(ops.audit(req.query, { maxLimit: 10000 }).logs))
         : res.json(ops.audit(req.query))));
@@ -3339,6 +3368,7 @@ async function handleInbound(state, message) {
         const optOut = await processOptOut(state.db, state.transport, saved, state.platformPolicy()['autoReplies.optOutWords']);
         if (optOut.handled) {
             broadcast(state, { type: 'optout', sender: saved.sender, action: optOut.action });
+            if (optOut.action === 'opted_out') state.manager.checkStopRate();
             return saved;
         }
         // An answer to a campaign's buttons/list (native tap or typed "1"):
