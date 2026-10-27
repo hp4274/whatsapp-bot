@@ -166,7 +166,7 @@ it('sends lists and CTAs as text, and media with the menu as its caption', async
     assert.equal(media.caption, 'Look\n\nReply 1:\n1. Yes');
 });
 
-it('a carousel sends the main text, then an album of captioned cards, and counts every message as a part', async () => {
+it('a carousel sends the main text, then one captioned image per card, and counts every message as a part', async () => {
     const { transport, sock } = makeTransport();
     await transport.connect();
     const media = { buffer: Buffer.from('png'), mimetype: 'image/png' };
@@ -176,16 +176,17 @@ it('a carousel sends the main text, then an album of captioned cards, and counts
         { mediaId: 'b', text: 'Two', media, buttons: buttons('Buy') },
     ] } };
     const result = await transport.sendMessage('919800000005', 'Hello', { interactive });
-    assert.equal(sock().sends.length, 4);
+    assert.equal(sock().sends.length, 3);
     assert.deepEqual(sock().sends[0].content, { text: 'Hello' });
-    assert.ok(sock().sends[1].content.album);
-    assert.equal(sock().sends[2].content.caption, 'One\n\nReply 1:\n1. Buy');
-    assert.equal(sock().sends[3].content.caption, 'Two\n\nReply 2:\n2. Buy');
+    assert.equal(sock().sends[1].content.caption, 'One\n\nReply 1:\n1. Buy');
+    assert.equal(sock().sends[2].content.caption, 'Two\n\nReply 2:\n2. Buy');
+    // No album message: iPhones never showed photos tied to one.
+    assert.ok(sock().sends.every((s) => !s.content.album && !s.content.albumParentKey));
     assert.equal(result.providerId, 'BAE51', 'the receipt is the first message');
-    assert.equal(result.parts, 4);
+    assert.equal(result.parts, 3);
 });
 
-it('a one-card carousel, or one with a document card, goes card by card without an album', async () => {
+it('a one-card carousel, or one with a document card, goes card by card', async () => {
     const { transport, sock } = makeTransport();
     await transport.connect();
     const image = { buffer: Buffer.from('png'), mimetype: 'image/png' };
@@ -249,15 +250,14 @@ it('a carousel campaign on a QR number counts each part against the day', async 
         manager.enqueueContacts([{ name: 'A', phone: '919855550201' }], 'Hi {name}', { interactive: { type: 'carousel', carousel: { kind: 'url', cards: [card(1), card(2)] } } });
         manager.start();
         const deadline = Date.now() + 5000;
-        while (Date.now() < deadline && manager.quota.usedToday() < 4) await new Promise((r) => setTimeout(r, 25));
-        // Main text, the album, then each card tied to it: a swipe viewer on every device.
-        const [, album, ...cards] = sock().sends.map((s) => s.content);
-        assert.equal(sock().sends.length, 4);
-        assert.deepEqual(album.album, { expectedImageCount: 2, expectedVideoCount: 0 });
-        assert.ok(cards.every((c) => c.image && c.albumParentKey?.id === 'BAE52'), 'each card points at the album (the 2nd send)');
+        while (Date.now() < deadline && manager.quota.usedToday() < 3) await new Promise((r) => setTimeout(r, 25));
+        // Main text, then a plain image per card: every device shows them.
+        const [, ...cards] = sock().sends.map((s) => s.content);
+        assert.equal(sock().sends.length, 3);
+        assert.ok(cards.every((c) => c.image && !c.albumParentKey));
         assert.match(cards[1].caption, /Card 2[\s\S]*https:\/\/x\.test\/2/);
         manager.quota.invalidate();
-        assert.equal(manager.quota.usedToday(), 4);
+        assert.equal(manager.quota.usedToday(), 3);
     } finally {
         await manager.shutdown();
         db.close();

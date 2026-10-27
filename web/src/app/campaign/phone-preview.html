@@ -140,8 +140,8 @@
         </div>
 
         @if (textMenu() && !nativeCarousel()) {
-          @if (cardMessages().length > 1) {
-            <!-- 2+ cards go as a WhatsApp album: a grid in the chat that opens into a swipe viewer. -->
+          @if (cardMessages().length > 3) {
+            <!-- 4+ photos in a row: WhatsApp groups them into a grid that opens into a swipe viewer. -->
             <div class="bubble next album" [attr.aria-label]="cardMessages().length + ' photos'">
               @for (m of cardMessages().slice(0, 4); track $index; let i = $index) {
                 <span class="tile">
@@ -171,7 +171,7 @@
               }
             </div>
           } @else {
-            <!-- One card: a single image message, caption underneath. -->
+            <!-- 1-3 cards: one image message each, caption underneath. -->
             @for (m of cardMessages(); track $index) {
               <div class="bubble next">
                 @if (m.mediaUrl) {

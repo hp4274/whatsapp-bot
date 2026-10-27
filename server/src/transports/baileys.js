@@ -733,10 +733,10 @@ export class BaileysTransport extends Transport {
     }
 
     /**
-     * The carousel every device shows: the main text, then the cards as a WhatsApp album (2+ cards), which phones,
-     * tablets, Mac and Web show as a grid that opens into a swipe viewer, each card's text and options its caption.
-     * An app too old for albums still shows each image on its own. One card goes as a plain image.
-     * shortcut: N+2 messages in one paced job; the job's receipt is the first message's, and a failure midway leaves
+     * The carousel every device shows: the main text, then one plain image (or video, or document) per card, each
+     * card's text and options its caption. WhatsApp itself groups 4+ consecutive photos into a grid, and any photo
+     * opens the swipe viewer. No explicit album message: iPhones never showed the photos tied to a Baileys album.
+     * shortcut: N+1 messages in one paced job; the job's receipt is the first message's, and a failure midway leaves
      * the earlier ones sent. Per-card jobs would need queue changes.
      */
     async #deliverCarouselText(jid, message, attachment, interactive, typingMs) {
@@ -744,28 +744,15 @@ export class BaileysTransport extends Transport {
         const first = await this.#send(jid, attachment ? { ...attachment, caption: text } : { text });
         const captions = carouselCaptions(interactive);
         const media = interactive.carousel.cards.map((card, i) => mediaContent(card.media, captions[i]));
-        let album = null;
-        // A document cannot sit in an album: such a carousel goes card by card.
-        if (media.length > 1 && media.every((m) => m.image || m.video)) {
+        for (const content of media) {
             if (typingMs > 0) {
                 await this.#presence('composing', jid);
                 await new Promise((resolve) => setTimeout(resolve, typingMs));
             }
-            album = await this.#send(jid, { album: {
-                expectedImageCount: media.filter((m) => m.image).length,
-                expectedVideoCount: media.filter((m) => m.video).length,
-            } });
-        }
-        // An album goes as one burst, the way a person shares photos; a lone card still gets its typing pause.
-        for (const content of media) {
-            if (!album && typingMs > 0) {
-                await this.#presence('composing', jid);
-                await new Promise((resolve) => setTimeout(resolve, typingMs));
-            }
-            await this.#send(jid, album ? { ...content, albumParentKey: album.key } : content);
+            await this.#send(jid, content);
         }
         // `parts`: the budgets and the rests count each WhatsApp message, not the one job.
-        return { ...this.#accepted(first?.key?.id), parts: 1 + (album ? 1 : 0) + media.length };
+        return { ...this.#accepted(first?.key?.id), parts: 1 + media.length };
     }
 
     /**
