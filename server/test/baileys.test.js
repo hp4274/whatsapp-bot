@@ -11,7 +11,7 @@ import { CampaignManager } from '../src/campaign/manager.js';
 import { DEFAULTS } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { Status } from '../src/protocol.js';
-import { BaileysTransport, extractContent, ownDeviceCopy, quietLogger, toJid } from '../src/transports/baileys.js';
+import { BaileysTransport, extractContent, mediaCache, ownDeviceCopy, quietLogger, toJid } from '../src/transports/baileys.js';
 
 class FakeSock {
     ev = new EventEmitter();
@@ -102,7 +102,7 @@ it('sends a video from disk as a video message', async () => {
     fs.writeFileSync(filePath, bytes);
     await transport.sendMessage('919800000003', 'Watch', { media: { filePath, filename: 'clip.mp4', mimetype: 'video/mp4' } });
     const { content } = sock().sends[0];
-    assert.ok(content.video.equals(bytes));
+    assert.deepEqual(content.video, { url: filePath }); // by path, so Baileys' mediaCache can reuse the upload
     assert.equal(content.mimetype, 'video/mp4');
     assert.equal(content.caption, 'Watch');
 });
@@ -667,4 +667,23 @@ it('reports an unexpected logout, never our own', async () => {
     own.sock().logout = async function logout() { own.sock().ev.emit('connection.update', closeWith(401, 'logged out')); };
     await own.transport.logout();
     assert.equal(out.length, 1);
+});
+
+it('mediaCache returns an upload until it expires, and drops the oldest when full', () => {
+    const { ttlMs, max } = mediaCache;
+    try {
+        mediaCache.set('image:/a.png', 'A');
+        assert.equal(mediaCache.get('image:/a.png'), 'A');
+        mediaCache.ttlMs = -1;
+        mediaCache.set('image:/b.png', 'B');
+        assert.equal(mediaCache.get('image:/b.png'), undefined);
+        mediaCache.ttlMs = ttlMs;
+        mediaCache.max = 1;
+        mediaCache.set('image:/c.png', 'C');
+        assert.equal(mediaCache.entries.size, 1);
+        assert.equal(mediaCache.get('image:/c.png'), 'C');
+    } finally {
+        Object.assign(mediaCache, { ttlMs, max });
+        mediaCache.entries.clear();
+    }
 });

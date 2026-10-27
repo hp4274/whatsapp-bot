@@ -93,6 +93,17 @@
       >
     </p>
   }
+  @if (finish(); as f) {
+    <p class="banner info">
+      <i class="ti ti-calendar-time" aria-hidden="true"></i>
+      <span
+        >Finishes around <strong>{{ f.label }}</strong> ({{ f.days }} days)@if (f.worst) {
+          , or up to {{ f.worst }} days if most of these people never chatted with this number
+        }. Each number has its own daily limit, so
+        <a routerLink="/channels">adding another number</a> is the safe way to finish sooner.</span
+      >
+    </p>
+  }
 
 </section>
 

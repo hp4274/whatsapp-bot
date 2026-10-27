@@ -1,0 +1,43 @@
+/* A second card under the numbers table, same Kardlyz table and states. */
+@use '../school/school-shared' as s;
+
+@include s.keyframes;
+@include s.table;
+@include s.empty;
+@include s.skeleton;
+@include s.banner;
+@include s.buttons;
+
+:host { display: block; }
+
+.card {
+  display: grid;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+  background: var(--surface-card);
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+
+  @media (max-width: 560px) { padding: 20px; }
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+
+  h3 { margin: 0; font-size: 17px; font-weight: 500; color: var(--text-strong); }
+  .lede { margin: 6px 0 0; max-width: 72ch; font-size: 13.5px; color: var(--text-muted); }
+  code { font-size: 12.5px; }
+}
+
+.summary {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--text-color);
+
+  strong { font-weight: 500; color: var(--text-strong); }
+}
+
+.msg { flex: 1; min-width: 0; }

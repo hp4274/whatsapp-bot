@@ -9,6 +9,7 @@ const INFO: NumberStart = {
   todayLimit: 20,
   planLimit: 250,
   skipWarning: { version: '2026-10-1', text: ['First risk.', 'Second risk.', 'Third risk.'] },
+  suggested: null,
 };
 
 /** The component over a stub API; the test reads the rendered DOM. */
@@ -40,6 +41,17 @@ function setup(info: NumberStart = INFO, popup = false) {
 
 describe('NumberQuestions', () => {
   afterEach(() => TestBed.resetTestingModule());
+
+  it('pre-selects the answers the chat history suggests, and says where they came from', () => {
+    const { el, api, click } = setup({ ...INFO, suggested: { age: 3, usage: 2, chats: 240 } });
+    const checked = (name: string) =>
+      [...el.querySelectorAll<HTMLInputElement>(`input[name="${name}"]`)].findIndex((i) => i.checked);
+    expect([checked('nq-age'), checked('nq-usage')]).toEqual([3, 2]);
+    expect(el.textContent).toContain('Picked from the 240 chats already on this number.');
+
+    click(el.querySelector('button[type="submit"]'));
+    expect(api.start).toHaveBeenCalledWith(4, { age: 3, usage: 2 });
+  });
 
   it('keeps Start disabled until both questions are answered, then posts the answers', () => {
     const { el, api, click } = setup();

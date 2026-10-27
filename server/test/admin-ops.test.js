@@ -81,7 +81,7 @@ after(async () => {
 
 describe('admin ops endpoints', () => {
     it('are super admin only', async () => {
-        for (const url of ['/api/admin/plans', '/api/admin/usage-summary', '/api/admin/health-detail', '/api/admin/audit-logs']) {
+        for (const url of ['/api/admin/plans', '/api/admin/usage-summary', '/api/admin/health-detail', '/api/admin/audit-logs', '/api/admin/shadow-review']) {
             assert.equal((await call(owner, url)).status, 403, url);
             assert.equal((await call(sup, url)).status, 200, url);
         }
@@ -172,5 +172,21 @@ describe('admin ops endpoints', () => {
         assert.match(csv.body, /^id,createdAt,tenantId,userEmail,verb,action,target,detail/);
         assert.match(csv.body, /"'=SUM\(A1\)"/, 'formula cells are defused');
         assert.equal(auditCsv([{ id: 1, detail: 'say "hi"' }]).split('\r\n')[1], '"1","","","","","","","say ""hi"""');
+    });
+
+    it('shadow-review: every number\'s shadow triggers per kind, with the pause they would have caused', async () => {
+        const now = Date.now();
+        const shadow = (channelId, code, at, until) => db.db.prepare(
+            "INSERT INTO safety_events (tenant_id, channel_id, kind, phone, message_id, at) VALUES (?, ?, 'shadow', ?, ?, ?)",
+        ).run(tenantB.id, channelId, code, until, stamp(at));
+        shadow(ch.b1.id, 'delivery', now - 3 * 3_600_000, new Date(now + 5 * 3_600_000).toISOString());
+        shadow(ch.b1.id, 'delivery', now - 30 * 3_600_000, new Date(now - 22 * 3_600_000).toISOString());
+        shadow(ch.b1.id, 'level:demote_delivery', now - 3_600_000, 'key-1');
+        shadow(ch.b1.id, 'stuck', now - 9 * 86_400_000, new Date(now).toISOString()); // older than 7 days
+
+        const { body } = await call(sup, '/api/admin/shadow-review');
+        const rows = body.rows.filter((r) => r.channelId === ch.b1.id);
+        assert.deepEqual(rows.map((r) => [r.kind, r.count, r.pauseHours]), [['delivery', 2, 16], ['level:demote_delivery', 1, 0]]);
+        assert.equal(rows[0].tenantName, 'Beta Shop');
     });
 });

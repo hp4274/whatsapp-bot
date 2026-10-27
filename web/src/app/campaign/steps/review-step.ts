@@ -71,6 +71,29 @@ function zones(current: string): string[] {
 }
 
 /**
+ * When a send-now campaign of `size` finishes, from the server's estimate. `worst`: the days if
+ * everyone is new to the number, when its new-chat budget sets the pace. Null within a day or uncapped.
+ */
+export function finishEstimate(
+  s: Pick<Safety, 'enabled' | 'estimateSeconds' | 'budgets'> | null,
+  size: number,
+): { readonly days: number; readonly label: string; readonly worst: number | null } | null {
+  const days = s?.estimateSeconds.days;
+  const on = s?.estimateSeconds.finishesOn;
+  if (!s?.enabled || !days || days < 2 || !on) return null;
+
+  const chats = s.budgets?.newChats;
+  const worst = chats?.limit ? 1 + Math.ceil(Math.max(0, size - chats.left) / chats.limit) : 0;
+  const [y, m, d] = on.split('-').map(Number);
+  const label = new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+  });
+  return { days, label, worst: worst > days ? worst : null };
+}
+
+/**
  * Step 2: name, pace and timing, then send. Safety previews for all three
  * presets load together so switching pace is instant; blockers keep the send
  * button honest about why it is disabled.
@@ -168,6 +191,15 @@ export class ReviewStep {
     const s = this.current();
     return s && s.remaining !== null ? Math.max(0, this.size() - s.remaining) : 0;
   });
+
+  /**
+   * When a send-now campaign finishes, from the server's estimate (today's budget, then the daily limit at
+   * today's level). `worst`: the days if everyone is new to this number, when the new-chat budget sets the pace.
+   * Null when it all goes today, or nothing is capped.
+   */
+  protected readonly finish = computed(() =>
+    this.draft.spreadActive() || this.held() ? null : finishEstimate(this.current(), this.size()),
+  );
 
   protected readonly buttonsLabel = computed(() => {
     const block = this.draft.interactive();

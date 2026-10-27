@@ -51,6 +51,20 @@ p {
   p { font-size: 13px; line-height: 1.5; }
 }
 
+.suggested {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--info) 10%, transparent);
+  font-size: 13px;
+  color: var(--text-color);
+
+  .ti { color: var(--info); font-size: 17px; }
+}
+
 .group {
   display: grid;
   gap: 8px;

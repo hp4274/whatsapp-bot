@@ -18,7 +18,7 @@ import { Channels } from '../src/channels.js';
 import { DEFAULTS, TRANSPORT_BAILEYS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { createChannelOps } from '../src/policy/channelOps.js';
-import { applySendingPolicy, skipStartLevel, startLevelFor } from '../src/policy/levels.js';
+import { applySendingPolicy, skipStartLevel, startLevelFor, suggestStart } from '../src/policy/levels.js';
 import { NUMBER_SKIP_VERSION } from '../src/tenancy.js';
 import { createTestApp, sessionFor } from './helpers.js';
 
@@ -49,6 +49,13 @@ describe('startLevelFor', () => {
         assert.equal(skipStartLevel(LEVELS, 500), 10);
         assert.equal(skipStartLevel(LEVELS, 1000), 11);
         assert.equal(skipStartLevel(LEVELS, null), 11, 'no plan day: the top');
+    });
+
+    it('suggests answers from the chats a number already has', () => {
+        assert.equal(suggestStart(10), null, 'too few to say');
+        assert.deepEqual(suggestStart(30), { age: 1, usage: 1 });
+        assert.equal(startLevelFor(suggestStart(250)), 6, 'an established business number starts near level 6');
+        assert.equal(startLevelFor(suggestStart(900)), 7);
     });
 });
 
@@ -192,6 +199,7 @@ describe('POST/GET /api/channels/:id/start', () => {
         assert.equal(got.status, 200);
         assert.deepEqual([got.body.asked, got.body.todayLimit, got.body.planLimit], [false, 0, 250]);
         assert.equal(got.body.skipWarning.version, NUMBER_SKIP_VERSION);
+        assert.equal(got.body.suggested, null, 'no history synced yet');
         assert.ok(got.body.skipWarning.text.some((line) => /banned/.test(line)));
         assert.deepEqual((await card(qrId)).usage, { todayLimit: 0, sentToday: 0, planLimit: 250, growing: true, asked: false });
     });

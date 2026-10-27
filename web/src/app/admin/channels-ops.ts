@@ -15,6 +15,7 @@ import { Observable } from 'rxjs';
 import { transportMeta } from '../channels/channel-meta';
 import { type PlanRow, zeroCapLabel } from './ops-api';
 import { ChannelsOpsApi, type NumberHealth, type NumberLevel } from './channels-ops-api';
+import { ShadowReview } from './shadow-review';
 
 /** Short forms of the tenant's 2 start answers (connection/number-questions.ts), by index 0-3. */
 const START_AGE: readonly string[] = ['under 1 month', '1–6 months', '6–24 months', '2+ years'];
@@ -63,7 +64,7 @@ const LEVEL_REASONS: Readonly<Record<string, string>> = {
  */
 @Component({
   selector: 'app-channels-ops',
-  imports: [],
+  imports: [ShadowReview],
   templateUrl: './channels-ops.html',
   styleUrl: './channels-ops.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

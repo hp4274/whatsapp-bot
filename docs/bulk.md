@@ -52,6 +52,8 @@ A reply to someone who wrote in is never held by a daily limit. Auto-replies and
 
 Right after the first successful QR scan, the Connection page opens a popup with two questions. The same questions also appear on the number's card until they are answered.
 
+**Pre-selected from history.** WhatsApp's link-time history sync lists the number's chats. The popup pre-selects answers from the count of one-to-one chats: 25+ → 1-6 months / light use (L3), 80+ → 6-24 months / regular (L5), 200+ → 2+ years / regular (L6), 500+ → 2+ years / busy (L7). It says where they came from, and the business still confirms or changes them. The count is kept in memory only, so a restart before the questions are answered drops the hint.
+
 | Question | Answers (posted as 0-3) |
 |---|---|
 | How old is this number on WhatsApp? | Under 1 month · 1-6 months · 6-24 months · 2+ years |
@@ -183,11 +185,15 @@ Checked when a campaign starts. A failing rule refuses the start with a plain ex
 
 Links and media are **no longer limited by level**. Any number may send links, short links, images, files and carousels.
 
+A file from the media library is uploaded to WhatsApp **once per hour**, not once per recipient (`mediaCache` in `transports/baileys.js`, keyed by kind and file path, 200 files at most). A 5-card carousel to 1,000 people is 5 uploads, not 5,000.
+
 ## 9. Recipient rules
 
 - **One a day.** On a QR number, a person gets at most **one** bulk message per 24 hours.
 - **New chats.** People who never chatted with the number use its **new-chat budget** (the level's "new chats / day"). People who wrote in before are not limited by it. A list made only of strangers can take several days, and the campaign says so.
-- **Opt-outs.** Anyone who replied STOP (or stopall, unsubscribe, unsub, cancel, quit, optout, end, remove me, do not message, and any admin-added words) is never sent bulk again. START, subscribe or opt in reverses it.
+- **Opt-outs.** Anyone who replied STOP (or stopall, unsubscribe, unsub, cancel, quit, optout, end, remove me, do not message, the Hindi and Hinglish band karo, mat bhejo, nahi chahiye, message mat karo, बंद करो, मत भेजो, नहीं चाहिए, and any admin-added words) is never sent bulk again. START, subscribe or opt in reverses it.
+- **Warm first.** A campaign queues people who wrote to the number before ahead of strangers (each group shuffled). Their replies come early, and strangers left at the end of the day wait for the next day's new-chat budget.
+- **List check at import.** The contacts import preview flags, for the mapped phone column, numbers that are not valid, repeats, numbers that don't look like Indian mobiles (+91 then 10 digits from 6-9) and numbers outside the default country. Nothing is looked up on WhatsApp.
 - **Opt-in only.** With `bulk.requireOptIn` on, only contacts who opted in receive bulk.
 - **Not on WhatsApp.** Before a first message to a stranger the number checks the recipient is on WhatsApp. Results are cached 24h. A "not on WhatsApp" result is recorded separately and never counts as a failure.
 - **Maximum list size.** `bulk.maxRecipients` and the tenant's `maxContactsPerCampaign`; the stricter one wins.
@@ -240,7 +246,9 @@ Health is judged over the last 7 days, or since the last demotion if that is lat
 `sending.brakesMode` is **`shadow`** by default. It covers the delivery, stuck and unstable brakes, demotion, probation and the promotion health check.
 
 - **In shadow mode:** they are calculated and logged, and shown to the super admin in each number's history, but they **never slow or stop sending**.
+- **Shadow review:** Admin › Channels has a "Shadow review, last 7 days" table: every number and kind, how often it fired, and the hours a brake would have paused bulk (`GET /api/admin/shadow-review`).
 - **Switching on:** review about 7 days of triggers, then set `sending.brakesMode = enforce`.
+- **Engagement reward (shadow only):** with 97%+ delivered and 30%+ replied over 7 days, the delivered-volume needs of the next levels would drop by 25% (the active-days need stays). It is only logged (`level:engaged`), never applied.
 - **Other brakes:** reply rate, reports, blocks, failures, restricted and ban always apply.
 
 ## 13. Campaign-level stops
@@ -249,6 +257,7 @@ Health is judged over the last 7 days, or since the last demotion if that is lat
 |---|---|
 | Failure auto-pause | A running campaign pauses when failures pass `failureStopPercent` or `campaigns.autoPauseFailurePct` (the stricter one; 0 = off) |
 | Block-rate pause | Campaigns pause when blocks + reports pass `sending.blockPausePercent` (5%) of the week's sends, from 40 sent |
+| STOP-rate pause | A running campaign pauses when over 3% of the people it reached replied STOP, from 50 reached. Not while safety is off or brakes are off |
 | Daily or monthly cap reached | The campaign pauses and resumes by itself when the day or month allows |
 | Kill switch | `bulk.killSwitch` on the platform stops all bulk everywhere; on a tenant, stops that tenant. Running sends stop at once |
 | Tenant controls | Turning off a tenant's `sendingEnabled` or `campaignsEnabled` stops running campaigns; `automationsEnabled` holds workflows and auto-replies |
@@ -330,6 +339,7 @@ The campaign review page keeps only the banners that explain a wait: unanswered 
 
 **Ops alerts** go to `OPS_ALERT_WEBHOOK`. Each is signed with HMAC-SHA256 (`X-Signature: t=…,v1=…`, with a second signature while the secret is being changed), and is also logged and written to the audit log. Alerts are sent for:
 - an unexpected logout or a ban,
+- a business's 2nd ban within 30 days across its numbers (`tenant_bans`): every number of that business stays at its current level for 14 days from that ban,
 - the Unstable brake,
 - the Delivery or Stuck brake (shadow triggers are labelled as shadow),
 - "messages waiting but nothing sent for 6 hours during sending hours",
@@ -340,7 +350,8 @@ There is at most 1 alert per kind per number per hour and 30 an hour across the 
 **Audit log entries:**
 - every admin policy change (`policy.change`), pin (`channel.admin.level_pin` / `level_unpin`), brakes off / on (`channel.admin.brakes_off` / `brakes_on`), a business leaving or rejoining safety (`safety.exit` / `safety.rejoin`) and ended wait (`channel.admin.end_link_wait`);
 - number answers and skips (`channel.start`, `channel.start_skip`);
-- every computed level change (`safety_events` kind `level` or `shadow`, with a reason such as promote, demote_delivery, demote_stuck, demote_replies, hold_probation or idle).
+- every computed level change (`safety_events` kind `level` or `shadow`, with a reason such as promote, demote_delivery, demote_stuck, demote_replies, hold_probation, engaged or idle);
+- a snapshot on every ban (`safety_events` kind `ban_snapshot`, JSON detail): the level, brakes, today's budgets, 48h replies, the delivery window and the 7-day health just before the ban, kept after the history restarts.
 
 ## 20. Where it lives in the code
 

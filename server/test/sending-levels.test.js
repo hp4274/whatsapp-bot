@@ -582,6 +582,11 @@ describe('scope and API', () => {
             state.transport.events.emit('state', { state: 'banned', detail: 'banned' });
             state.transport.events.emit('state', { state: 'banned', detail: 'banned' });
             assert.equal(db.db.prepare("SELECT COUNT(*) AS n FROM safety_events WHERE kind = 'ban'").get().n, 1);
+            // ...with one snapshot of how the number looked just before it.
+            const snaps = db.db.prepare("SELECT detail FROM safety_events WHERE kind = 'ban_snapshot'").all();
+            assert.equal(snaps.length, 1);
+            const snap = JSON.parse(snaps[0].detail);
+            assert.ok(snap.level >= 0 && snap.brakes.includes('restricted') && 'replies48h' in snap && 'bulk' in snap.budgets);
 
             // Switching the transport drops the live QR socket: it must not keep sending under other rules.
             const swap = await api('PUT', '/api/config', { transport: TRANSPORT_SANDBOX });

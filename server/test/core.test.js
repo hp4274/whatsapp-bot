@@ -200,6 +200,18 @@ describe('inbound parsing and automation', () => {
         assert.match(sent[0].message, /unsubscribed/);
         assert.match(sent[1].message, /re-subscribed/);
     });
+
+    it('understands Hindi and Hinglish STOP', async () => {
+        const db = new Database(path.join(tmp, 'optout-hi.db'));
+        try {
+            for (const body of ['Band karo', 'mat bhejo!', 'बंद करो।', 'Message mat karo']) {
+                assert.equal((await processOptOut(db, null, { sender: '15551230002', body })).action, 'opted_out', body);
+            }
+            assert.equal((await processOptOut(db, null, { sender: '15551230003', body: 'band karo kal se' })).handled, false);
+        } finally {
+            db.close();
+        }
+    });
 });
 
 describe('queue', () => {

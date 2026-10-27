@@ -14,7 +14,7 @@ import { closeApp } from '../src/app.js';
 import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { ContactStore, canonicalPhone } from '../src/contactStore.js';
 import {
-    contactsToCsv, csvCell, importContacts, mappedRowsToContacts, resolveMapping, suggestMapping,
+    columnQuality, contactsToCsv, csvCell, importContacts, mappedRowsToContacts, phoneQuality, resolveMapping, suggestMapping,
 } from '../src/contacts.js';
 import { Database } from '../src/db.js';
 import { createTestApp, sessionFor } from './helpers.js';
@@ -232,6 +232,15 @@ describe('import wizard', () => {
         const res = await upload('/api/contacts/import', plain);
         const direct = await importContacts('x.csv', Buffer.from(plain), '91');
         assert.deepEqual(res.body, direct);
+    });
+
+    it('flags invalid, repeated, landline-shaped and foreign numbers before import', () => {
+        const q = phoneQuality(['98620 00001', '+91 98620 00001', '022 2345 6789', 'n/a', '+1 415 555 0100', ''], '91');
+        assert.deepEqual([q.checked, q.invalid, q.duplicates, q.landline, q.foreign], [5, 1, 1, 1, 1]);
+        assert.deepEqual(q.examples.landline, ['022 2345 6789']);
+        const cols = columnQuality(['Name', 'Phone'], [['Asha', '9862000001'], ['Ravi', '9862000002']], '91');
+        assert.equal(cols[0], null, 'a name column is not checked');
+        assert.equal(cols[1].checked, 2);
     });
 
     it('maps by header name too, and suggests sensible targets', () => {

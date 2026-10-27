@@ -286,7 +286,38 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
         return page;
     };
 
-    return { plans, usage, health, audit };
+    /**
+     * What shadow mode (sending.brakesMode 'shadow') logged in the last `days`, every number at once: one row per
+     * number and kind, with how many times it fired and, for a brake, the hours it would have paused (its rows' ends,
+     * message_id, minus their start). Level rows (`level:<reason>`) have no pause. Read before flipping to 'enforce'.
+     */
+    const shadowReview = ({ days = 7, now = Date.now() } = {}) => {
+        const span = Math.min(30, Math.max(1, Number(days) || 7));
+        const rows = raw.prepare(
+            `SELECT e.tenant_id, e.channel_id, e.phone AS code, e.message_id, e.at, t.name AS tenant_name,
+                    c.display_name, c.provider_account_id
+             FROM safety_events e LEFT JOIN tenants t ON t.id = e.tenant_id LEFT JOIN whatsapp_channels c ON c.id = e.channel_id
+             WHERE e.kind = 'shadow' AND e.at >= ? ORDER BY e.at`,
+        ).all(stamp(now - span * DAY_MS));
+        const groups = new Map();
+        for (const r of rows) {
+            const key = `${r.channel_id}|${r.code}`;
+            const g = groups.get(key) ?? {
+                tenantId: r.tenant_id, tenantName: r.tenant_name ?? '', channelId: r.channel_id,
+                number: r.display_name || r.provider_account_id || `#${r.channel_id}`, kind: r.code, count: 0, pauseHours: 0, lastAt: r.at,
+            };
+            const until = r.code.startsWith('level:') ? NaN : Date.parse(r.message_id);
+            g.count += 1;
+            if (until > Date.parse(r.at)) g.pauseHours += (until - Date.parse(r.at)) / 3_600_000;
+            g.lastAt = r.at;
+            groups.set(key, g);
+        }
+        const out = [...groups.values()].map((g) => ({ ...g, pauseHours: Math.round(g.pauseHours) }))
+            .sort((a, b) => b.pauseHours - a.pauseHours || b.count - a.count);
+        return { days: span, generatedAt: stamp(now), rows: out };
+    };
+
+    return { plans, usage, health, audit, shadowReview };
 }
 
 /** RFC 4180 CSV. Cells that a spreadsheet would run as a formula get a leading quote. */

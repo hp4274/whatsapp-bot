@@ -181,6 +181,48 @@ export async function parseTable(filename, buffer) {
 }
 
 /** One target per column: phone | name | email | tags | custom:<key> | ignore. */
+/**
+ * What is wrong with a phone column before it is imported: numbers that are not valid, repeats, Indian
+ * numbers that are not Indian-mobile-shaped (+91 then 10 digits from 6-9: landlines and typos; WhatsApp is on mobiles)
+ * and numbers outside the default country. Up to 3 examples each.
+ * No WhatsApp lookup: checking a whole list against WhatsApp is a spam signal of its own.
+ * shortcut: the landline check knows India (+91) only, the main market; add a rule per country when needed.
+ */
+export function phoneQuality(values, defaultCountryCode = '') {
+    const cc = String(defaultCountryCode ?? '').replace(/\D/g, '');
+    const out = { checked: 0, invalid: 0, duplicates: 0, landline: 0, foreign: 0, examples: { invalid: [], duplicates: [], landline: [], foreign: [] } };
+    const note = (kind, raw) => {
+        out[kind] += 1;
+        if (out.examples[kind].length < 3) out.examples[kind].push(String(raw).trim());
+    };
+    const seen = new Set();
+    for (const raw of values) {
+        if (raw == null || String(raw).trim() === '') continue;
+        out.checked += 1;
+        let phone;
+        try {
+            phone = normalizePhone(raw, cc);
+        } catch {
+            note('invalid', raw);
+            continue;
+        }
+        if (seen.has(phone)) note('duplicates', raw);
+        seen.add(phone);
+        if (cc && !phone.startsWith(cc)) note('foreign', raw);
+        else if (phone.startsWith('91') && !/^91[6-9]\d{9}$/.test(phone)) note('landline', raw);
+    }
+    return out;
+}
+
+/** A phone check per column, for the columns that look like phones (half their sample is valid), else null. */
+export function columnQuality(headers, rows, defaultCountryCode = '') {
+    return headers.map((_, i) => {
+        const sample = rows.slice(0, 20).map((r) => r[i]).filter((v) => String(v ?? '').trim());
+        const valid = sample.filter((v) => { try { normalizePhone(v, defaultCountryCode); return true; } catch { return false; } });
+        return sample.length && valid.length * 2 >= sample.length ? phoneQuality(rows.map((r) => r[i]), defaultCountryCode) : null;
+    });
+}
+
 export function suggestMapping(headers) {
     const used = new Set();
     return headers.map((header) => {
