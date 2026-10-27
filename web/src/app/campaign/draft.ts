@@ -293,10 +293,12 @@ export class CampaignDraft {
   /** What happens when someone taps a button; saved with `PUT /campaigns/:id/reply-rules`. */
   readonly replyRules = signal<ReplyRule[]>([]);
   /**
-   * Append OPT_OUT_TEXT to the body. Ticked to start; a QR number's
-   * server adds it anyway to a first message to someone it never chatted with.
+   * Append OPT_OUT_TEXT to the body; only this box adds it. Ticked for the
+   * business's first campaign, unticked once it has one (`optOutDefault`).
    */
   readonly optOutLine = signal(true);
+  /** What a new draft starts with: false once the business has any campaign (checked in init). */
+  private optOutDefault = true;
   /** Rewrite links so taps are counted; the server ignores it when it cannot. */
   readonly trackLinks = signal(false);
   /**
@@ -702,6 +704,15 @@ export class CampaignDraft {
     const saved = this.read();
     this.saved.set(saved);
     this.armed.set(saved === null);
+    // After the first campaign the box starts unticked. A saved draft or an edit keeps its own choice.
+    this.campaignsApi.list().subscribe({
+      next: ({ campaigns }) => {
+        if (!campaigns.length) return;
+        this.optOutDefault = false;
+        if (!this.saved() && this.editingId() == null) this.optOutLine.set(false);
+      },
+      error: () => undefined,
+    });
     this.api.getConfig().subscribe({
       next: ({ config }) => {
         const cc = String(config.defaultCountryCode ?? '').replace(/\D/g, '');
@@ -1061,7 +1072,7 @@ export class CampaignDraft {
     this.interactive.set(null);
     this.templateId.set(null);
     this.replyRules.set([]);
-    this.optOutLine.set(true);
+    this.optOutLine.set(this.optOutDefault);
     this.trackLinks.set(false);
     this.variantB.set(null);
     this.variantC.set(null);

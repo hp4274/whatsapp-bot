@@ -37,8 +37,8 @@ export class CampaignPolicy {
   readonly allowScheduling = computed(() => this.values()['campaigns.allowScheduling'] !== false);
   readonly allowFollowUps = computed(() => this.values()['campaigns.allowFollowUps'] !== false);
   readonly allowInteractive = computed(() => this.values()['campaigns.allowInteractive'] !== false);
-  /** The admin chose one image per card over WhatsApp's swipe carousel (sending.carouselImages). */
-  readonly carouselImages = computed(() => this.values()['sending.carouselImages'] === true);
+  /** One image per card (sending.carouselImages, on unless the admin turned it off): every device shows it. */
+  readonly carouselImages = computed(() => this.values()['sending.carouselImages'] !== false);
 
   /** Loads once per session; the rules change rarely and the server is the real gate. */
   load(): void {

@@ -50,30 +50,33 @@
               b.bulk.limit ? 'Resets ' + (b.bulk.resetsAt | date: 'h:mm a') : 'None today'
             }}</small>
           </div>
-          <div class="stat">
-            <span>New chats today</span>
-            <strong>{{ b.newChats.used }}{{ b.newChats.limit ? ' / ' + b.newChats.limit : '' }}</strong>
-            <div class="meter slim" aria-hidden="true">
-              <div class="bar" [style.width.%]="share(b.newChats)"></div>
+          <!-- Skipped questions: the number runs at the plan's day, so only that is shown. -->
+          @if (!skipped()) {
+            <div class="stat">
+              <span>New chats today</span>
+              <strong>{{ b.newChats.used }}{{ b.newChats.limit ? ' / ' + b.newChats.limit : '' }}</strong>
+              <div class="meter slim" aria-hidden="true">
+                <div class="bar" [style.width.%]="share(b.newChats)"></div>
+              </div>
+              <small class="muted">
+                @if (b.newChats.left) {
+                  {{ b.newChats.left }} left, for people new to this number
+                } @else if (b.newChats.opensAt) {
+                  Open again {{ b.newChats.opensAt | date: 'EEE h:mm a' }}
+                } @else {
+                  None left today
+                }
+              </small>
             </div>
-            <small class="muted">
-              @if (b.newChats.left) {
-                {{ b.newChats.left }} left, for people new to this number
-              } @else if (b.newChats.opensAt) {
-                Open again {{ b.newChats.opensAt | date: 'EEE h:mm a' }}
-              } @else {
-                None left today
-              }
-            </small>
-          </div>
-          <div class="stat">
-            <span>This hour</span>
-            <strong>{{ b.hour.used }}{{ b.hour.limit ? ' / ' + b.hour.limit : '' }}</strong>
-            <div class="meter slim" aria-hidden="true">
-              <div class="bar" [style.width.%]="share(b.hour)"></div>
+            <div class="stat">
+              <span>This hour</span>
+              <strong>{{ b.hour.used }}{{ b.hour.limit ? ' / ' + b.hour.limit : '' }}</strong>
+              <div class="meter slim" aria-hidden="true">
+                <div class="bar" [style.width.%]="share(b.hour)"></div>
+              </div>
+              <small class="muted">Bulk in the last 60 minutes</small>
             </div>
-            <small class="muted">Bulk in the last 60 minutes</small>
-          </div>
+          }
         } @else {
           <div class="stat">
             <span>Sent today</span>

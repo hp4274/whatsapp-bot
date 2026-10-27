@@ -23,7 +23,7 @@ import { NOT_ON_WHATSAPP_CODE, TransportConnectionError, TransportError } from '
 import { RateLimiter, RetryPolicy, interruptibleSleep } from './limits.js';
 import { MessageQueue, QueueState, queueItem } from './queue.js';
 import {
-    DailyQuota, OPT_OUT_TEXT, SafetyError, estimateSeconds, nextDelay, paceFor, pickPreset,
+    DailyQuota, SafetyError, estimateSeconds, nextDelay, paceFor, pickPreset,
     qrVaryAbove, variationError,
 } from './safety.js';
 import { capReachedText } from '../policy/campaignOps.js';
@@ -423,11 +423,8 @@ export class CampaignManager extends EventEmitter {
                 // Rewritten here, before the row is written: a retry or a restart resends the stored text, same codes.
                 const tracked = tracking ? this.links.rewrite(message) : null;
                 if (tracked) message = tracked.text;
-                // A way out in the first message to someone this QR number never chatted with (the STOP reply itself
-                // is autoreply/optout.js); anyone else gets it when the campaign's own text has it (the web's tick box).
-                if (levels && !/\bstop\b/i.test(message) && this.#cold({ recipient: contact.phone })) {
-                    message = `${message.trimEnd()}\n\n${OPT_OUT_TEXT}`;
-                }
+                // The STOP line is the campaign's own choice (the web's "Add opt-out line" box puts it in the text);
+                // a STOP reply is handled by autoreply/optout.js either way.
                 const item = queueItem({
                     recipient: contact.phone,
                     message,
@@ -900,6 +897,8 @@ export class CampaignManager extends EventEmitter {
         const rates = this.healthRates();
         const over = rates.blockRatePercent + rates.reportRatePercent >= rates.pauseAtPercent;
         if (!over || rates.sent7d < this.quota.tables().blockPauseMinSent || this.queue.isPaused || this.queue.isStopped) return false;
+        // The admin turned this number's brakes off (policy/channelOps.js).
+        if (this.quota.qr && this.quota.allowance().level.brakesOff) return false;
         this.queue.pause();
         this.emit('event', {
             type: 'failureStop', failed: rates.blocks + rates.reports, processed: rates.sent7d,
@@ -1090,7 +1089,7 @@ export class CampaignManager extends EventEmitter {
                 const result = await this.transport.sendMessage(item.recipient, item.message,
                     { media: item.media, interactive: item.interactive, ...(typing ? { typingMs: typing } : {}), ...(registered ? { registered } : {}),
                         // A carousel goes as WhatsApp's swipe carousel unless the admin chose one image per card.
-                        ...(item.interactive?.type === 'carousel' ? { nativeCarousel: this.quota.tables?.().carouselImages !== true } : {}) });
+                        ...(item.interactive?.type === 'carousel' ? { nativeCarousel: this.quota.tables?.().carouselImages === false } : {}) });
                 this.lastActionAt = Date.now();
                 // A carousel goes out as several WhatsApp messages (`parts`); the rests and the budgets count each.
                 if (this.transport?.realDelivery) this.sentInRun += result.parts ?? 1;

@@ -10,6 +10,8 @@
   --wa-meta: #667781;
   --wa-link: #027eb5;
   --wa-card: #ffffff;
+  --wa-scrim: rgba(0, 0, 0, 0.45);
+  --wa-on-scrim: #ffffff;
 }
 
 :host-context([data-theme='dark']) {
@@ -22,6 +24,8 @@
   --wa-meta: #8696a0;
   --wa-link: #53bdeb;
   --wa-card: #1f2c34;
+  --wa-scrim: rgba(0, 0, 0, 0.45);
+  --wa-on-scrim: #ffffff;
 }
 
 .bar {
@@ -327,6 +331,53 @@
   font-weight: 600;
 
   .ti { font-size: 17px; }
+}
+
+// Album: WhatsApp's 2x2 grid of the first four cards, "+N" over the fourth when there are more.
+.album {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  width: 72%;
+  padding: 3px;
+
+  .tile {
+    position: relative;
+    display: grid;
+    place-items: center;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border-radius: 6px;
+    background: var(--wa-paper);
+    color: var(--wa-meta);
+    font-size: 22px;
+
+    img { width: 100%; height: 100%; object-fit: cover; }
+  }
+
+  .more {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: var(--wa-scrim);
+    color: var(--wa-on-scrim);
+    font-size: 22px;
+    font-weight: 600;
+  }
+
+  .meta { grid-column: 1 / -1; }
+}
+
+.viewer-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 0 4px;
+  color: var(--wa-meta);
+  font-size: 11px;
+
+  .ti { font-size: 13px; }
 }
 
 // Carousel: a swipeable row of mini cards under the bubble.

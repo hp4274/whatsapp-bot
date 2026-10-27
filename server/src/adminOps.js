@@ -211,6 +211,8 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
                     // `asked` false while they must be answered (again, after a ban or a new number), which holds bulk.
                     level: lv && {
                         level: lv.level, earned: lv.earned, of: lv.of, pinned: lv.pinned ? pin?.level ?? null : null, cap: lv.cap ?? null,
+                        // The admin's brakes-off `{ until, by, at }` while it holds, else null.
+                        brakesOff: lv.brakesOff ?? null,
                         // As the business sees it: with safety off nothing is held, so nothing is asked.
                         start, asked: !budget.enabled || quota.allowance(new Date(now)).asked !== false,
                         // Waiting after a fresh link (not a ban's rest): the admin can end it (end-link-wait). ISO end, else null.

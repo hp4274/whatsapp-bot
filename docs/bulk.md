@@ -1,6 +1,6 @@
 # Bulk messaging: how it works and every safety rule
 
-This is the complete reference for bulk sending on the platform: what a number may send, how fast, when it slows down or stops, and what the super admin can change. It describes the code as it is today. If you change a rule, change this file.
+This is the complete reference for bulk sending on the platform: what a number may send, how fast, when it slows down or stops, and what the super admin can change. It describes the code as it is today. If you change a rule, change this file. The plain-words version for customers is [bulk-customer-guide.md](bulk-customer-guide.md); keep its numbers in step.
 
 Contents:
 1. [What counts as bulk](#1-what-counts-as-bulk)
@@ -177,7 +177,7 @@ Checked when a campaign starts. A failing rule refuses the start with a plain ex
 |---|---|
 | **Varied text** | On a QR number, identical text may go to at most **15** people (`sending.qrVaryAbove`; a stricter tenant setting wins). Bigger sends need `{name}`-style placeholders or spintax like `{Hi\|Hello}`. Rows with their own text are fine unless the same text repeats too often. |
 | **Spam-shaped text** | Refused: mostly CAPITAL letters (over 60% of 15+ letters), more than 5 emojis, more than 3 "!" or any "!!!". |
-| **Opt-out line** | The first bulk message to someone this number never chatted with gets "Reply STOP to stop messages" added, unless the text already mentions "stop". The campaign's tick box can add it to every message. |
+| **Opt-out line** | Only the campaign's "Add opt-out line" box adds "Reply STOP to stop messages"; nothing is added on the server. The box starts ticked for a business's first campaign and unticked after that. |
 | **Blocked words** | Words the admin lists per tenant (`limits.blockedWords`, `templates.blockedWords`) refuse a template or send. |
 | **Buttons** | QR numbers send buttons, lists and menus as a numbered text menu. A typed "1" or the option's title counts as a tap. Interactive messages can be turned off per plan (`campaigns.allowInteractive`). |
 
@@ -295,17 +295,19 @@ Everything below is a **platform-policy** setting. It can be set for the whole p
 - `sending.daytimeFrom` / `daytimeTo`: the recipient's daytime window.
 - `sending.brakesMode`: `shadow` or `enforce`.
 
-**Admin overrides** (Rules tab, *Admin overrides*; both off by default):
+**Admin overrides** (Rules tab, *Admin overrides*; all off by default):
 
 | Switch | Effect | Still applies |
 |---|---|---|
 | **Skip quiet time** | Bulk keeps sending through the number's daily quiet windows and the tenant's quiet hours | Recipient daytime, plan window, gaps, limits, brakes |
 | **Skip new-link wait** | A newly linked number starts bulk at once | The rest after a ban, levels, limits, brakes |
+| **Skip growth cap** (`sending.skipGrowthCap`) | A day may reach the level's full day at once, without the 35% climb over the best recent day | Levels, plan day, gaps, brakes |
 
 **Per number** (Admin › Services › WhatsApp channels):
 - **Pin level:** set a number to any level 0-11. It skips the wait and idle decay; brakes and caps still apply. Choosing a level above the earned one shows a ban-risk warning. A ban or a new phone clears the pin.
 - **End wait:** shown as an orange "New-link wait" pill in the number's row; ends that number's wait after linking now.
-- **Pause, resume, force disconnect, move to another business.** Moving clears the pin and the answers.
+- **Brakes off** (shield button): turns the number's brakes off for 1 hour to 30 days (`PUT /api/admin/numbers/:id/brakes { hours }`, `null` turns them back on). Ignored while off: reply, report, block, failure, ban, delivery, stuck and unstable brakes, and the campaign pause on blocks. Still applies: WhatsApp's own restriction, the level, the plan day, the growth cap and the pace. A ban after it was set turns the brakes back on.
+- **Pause, resume, force disconnect, move to another business.** Moving clears the pin, the brakes-off and the answers.
 - **History:** level changes, brake events, shadow triggers and the delivery window, for each number.
 
 **Per tenant:**
@@ -335,7 +337,7 @@ The campaign review page keeps only the banners that explain a wait: unanswered 
 There is at most 1 alert per kind per number per hour and 30 an hour across the platform, plus an hourly summary of any held back.
 
 **Audit log entries:**
-- every admin policy change (`policy.change`), pin (`channel.admin.level_pin` / `level_unpin`) and ended wait (`channel.admin.end_link_wait`);
+- every admin policy change (`policy.change`), pin (`channel.admin.level_pin` / `level_unpin`), brakes off / on (`channel.admin.brakes_off` / `brakes_on`) and ended wait (`channel.admin.end_link_wait`);
 - number answers and skips (`channel.start`, `channel.start_skip`);
 - every computed level change (`safety_events` kind `level` or `shadow`, with a reason such as promote, demote_delivery, demote_stuck, demote_replies, hold_probation or idle).
 

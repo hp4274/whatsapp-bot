@@ -49,8 +49,10 @@ export const DEFAULT_SENDING = Object.freeze({
     skipQuiet: false,
     /** Super admin only (sending.skipLinkWait): no wait after a fresh link; a ban still rests the number. */
     skipLinkWait: false,
-    /** Super admin (sending.carouselImages): send a carousel as one image per card instead of the swipe carousel. */
-    carouselImages: false,
+    /** Super admin only (sending.skipGrowthCap): a day may go straight to the level's day, without the 35% climb. */
+    skipGrowth: false,
+    /** Super admin (sending.carouselImages): a carousel goes as one image per card, which every device shows; false = swipe carousel. */
+    carouselImages: true,
 });
 
 /** A safety rule refused the request. `status` is what the HTTP layer answers. */
@@ -258,7 +260,7 @@ export function growthFrom(ledger = {}, { startDaily = LEVELS[1].dailyLimit, flo
  * `held`: the number's questions are unanswered (policy/levels.js startLevelFor), so no bulk yet.
  */
 export function allowanceFrom(lv, ledger, config = {}, {
-    resetsAt = null, levels = LEVELS, planDaily = null, held = false, startDaily = levels[1].dailyLimit,
+    resetsAt = null, levels = LEVELS, planDaily = null, held = false, startDaily = levels[1].dailyLimit, skipGrowth = false,
 } = {}) {
     const has = (code) => lv.brakes.some((b) => b.code === code);
     const half = (n) => (has('reply_rate') && n > 0 ? Math.max(1, Math.floor(n / 2)) : n);
@@ -268,7 +270,7 @@ export function allowanceFrom(lv, ledger, config = {}, {
     const perDay = lv.capped && lv.level === 0 ? 0 : half(Math.min(planRow.dailyLimit, ceiling));
     const closing = lv.brakes.filter((b) => CLOSES_NEW_CHATS.includes(b.code));
     const growth = growthFrom(ledger, { startDaily, floor: levels[1].dailyLimit });
-    const bulkLimit = lv.level && !held && !lv.brakes.some((b) => HALTING_BRAKES.includes(b.code)) ? Math.min(perDay, growth.cap) : 0;
+    const bulkLimit = lv.level && !held && !lv.brakes.some((b) => HALTING_BRAKES.includes(b.code)) ? Math.min(perDay, skipGrowth ? Infinity : growth.cap) : 0;
     const chatLimit = closing.length ? 0 : half(lv.row.newChats);
     const hourLimit = half(lv.row.perHour);
     const chatsLeft = Math.max(0, chatLimit - ledger.newChatsToday);
@@ -372,12 +374,18 @@ export class DailyQuota {
                 levels, brakes: tables.brakes, cap: caps.length ? Math.min(...caps) : null, pin: pinVoid ? null : pin.level,
                 start: startVoid ? null : answered.level, startedAt: startVoid ? '' : answered.at, state,
             });
+            // The admin's brakes-off (policy/channelOps.js): voided like the pin by a ban after it was set.
+            // WhatsApp's own restriction stays: sending through it only collects failures and bans.
+            const off = pin?.brakesOff;
+            const brakesOff = off && Date.parse(off.until) > t
+                && !(Date.parse(ledger.anchor ?? ledger.lastBanAt ?? '') > (Date.parse(off.at ?? '') || 0)) ? off : null;
+            if (brakesOff) lv.brakes = lv.brakes.filter((b) => b.code === 'restricted');
             this.#record(lv, state, start, now);
             const startDaily = levels[startVoid ? 1 : Math.min(answered.level, levels.length - 1)].dailyLimit;
             this.allowanceCache = {
                 at: t,
                 value: {
-                    ...allowanceFrom(lv, ledger, this.config, { resetsAt, levels, planDaily: tables.planDaily, held, startDaily }),
+                    ...allowanceFrom(lv, ledger, this.config, { resetsAt, levels, planDaily: tables.planDaily, held, startDaily, skipGrowth: tables.skipGrowth }),
                     // The most a day can reach: the plan, the number's own limit and the top allowed level.
                     ceiling: Math.min(dayCeiling(this.config, tables.planDaily), levels[Math.min(levels.length - 1, tables.maxLevel ?? Infinity)].dailyLimit),
                     // Unanswered questions hold bulk (null while nothing is asked).
@@ -385,7 +393,7 @@ export class DailyQuota {
                     row: lv.row,
                     level: {
                         level: lv.level, name: lv.row.name, of: levels.length - 1, earned: lv.earned,
-                        pinned: lv.pinned, capped: lv.capped, cap: tables.maxLevel,
+                        pinned: lv.pinned, capped: lv.capped, cap: tables.maxLevel, brakesOff,
                         steps: levels.map((r) => ({ level: r.level, name: r.name, perDay: r.dailyLimit, newChats: r.newChats, need: r.need })),
                         resting: lv.resting, have: lv.have, next: lv.next,
                         start: startVoid ? null : { level: answered.level, answers: answered.answers ?? null, at: answered.at },

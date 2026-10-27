@@ -60,6 +60,8 @@ export interface NumberLevel {
   readonly asked: boolean;
   /** When the wait after a fresh link ends (ISO); null when not waiting. A ban's rest is never this. */
   readonly linkWaitUntil?: string | null;
+  /** While the admin has this number's brakes off: until when, and who (WhatsApp's own restriction still applies). */
+  readonly brakesOff?: BrakesOff | null;
   /** Level changes of the last 30 days, newest first. */
   readonly events?: readonly LevelEvent[];
 }
@@ -73,6 +75,12 @@ export interface NumberLevelStart {
     | { readonly legacy: true }
     | null;
   readonly at: string;
+}
+
+export interface BrakesOff {
+  readonly until: string;
+  readonly by: string | null;
+  readonly at: string | null;
 }
 
 /** What `PUT /numbers/:id/level` returns (server: policy/channelOps.js). */
@@ -123,6 +131,13 @@ export class ChannelsOpsApi {
   pinLevel(id: number, level: number | null): Observable<LevelPinResult> {
     return this.http
       .put<LevelPinResult>(`/api/admin/numbers/${id}/level`, { level })
+      .pipe(catchError(toMessage));
+  }
+
+  /** Turn a QR number's brakes off for `hours` (1-720), or back on with `null`. */
+  setBrakesOff(id: number, hours: number | null): Observable<{ brakesOff: BrakesOff | null }> {
+    return this.http
+      .put<{ brakesOff: BrakesOff | null }>(`/api/admin/numbers/${id}/brakes`, { hours })
       .pipe(catchError(toMessage));
   }
 

@@ -219,6 +219,34 @@ describe('DailyQuota hooks', () => {
         assert.deepEqual([a.level.level, a.level.cap, a.level.pinned], [3, 3, true]);
     });
 
+    it('brakes off drops every brake but WhatsApp\'s restriction, until it ends or a ban voids it', () => {
+        const braked = { ...LEVEL5, ok24: 10, failed24: 10, restrictedUntil: new Date(Date.now() + DAY).toISOString() };
+        const codes = (q) => q.allowance().brakes.map((b) => b.code).sort();
+        const on = quotaFor(braked);
+        assert.deepEqual(codes(on), ['failures', 'restricted']);
+        const off = quotaFor(braked);
+        off.levelPin = () => ({ level: null, brakesOff: { until: new Date(Date.now() + DAY).toISOString(), at: ago(3600_000) } });
+        assert.deepEqual(codes(off), ['restricted']);
+        assert.equal(off.allowance().level.pinned, false, 'brakes off alone pins no level');
+        assert.ok(off.allowance().level.brakesOff);
+        const ended = quotaFor(braked);
+        ended.levelPin = () => ({ level: null, brakesOff: { until: ago(60_000), at: ago(DAY) } });
+        assert.deepEqual([codes(ended), ended.allowance().level.brakesOff], [['failures', 'restricted'], null]);
+        const banned = quotaFor({ ...braked, lastBanAt: ago(60_000) });
+        banned.levelPin = () => ({ level: null, brakesOff: { until: new Date(Date.now() + DAY).toISOString(), at: ago(3600_000) } });
+        assert.equal(banned.allowance().level.brakesOff, null);
+    });
+
+    it('skipGrowth lets the bulk day reach the level day at once', () => {
+        const ledger = { ...LEVEL5, hasHistory: true, bestCleanDay7: 10 };
+        const quota = quotaFor(ledger);
+        assert.equal(quota.allowance().budgets.bulk.limit, 13, '35% over the best day');
+        quota.tables = () => ({ ...DEFAULT_SENDING, skipGrowth: true });
+        quota.invalidate();
+        assert.equal(quota.allowance().budgets.bulk.limit, LEVELS[5].dailyLimit);
+        assert.equal(sendingTables({ 'sending.skipGrowthCap': true }).skipGrowth, true);
+    });
+
 });
 
 describe('the ladder to 1000 a day', () => {
@@ -444,6 +472,26 @@ describe('admin level pin route', () => {
         assert.deepEqual(res.body, { earned: 1, pinned: null, cap: null, effective: 1, aboveEarned: false });
         assert.equal(audits('channel.admin.level_unpin').length, 1);
         assert.equal(app.locals.channelOps.pinOf(qrId), null);
+    });
+
+    it('turns a number\'s brakes off for a while and back on, super admin only, audited', async () => {
+        const brakes = (token, hours) => call(token, 'PUT', `/api/admin/numbers/${qrId}/brakes`, { hours });
+        const owner = sessionFor(app, { tenantId: tenant.id, role: 'owner' });
+        assert.equal((await brakes(owner, 24)).status, 403);
+        for (const hours of [0, 721, 2.5, '24', true]) assert.equal((await brakes(sup, hours)).status, 400, String(hours));
+        assert.equal((await call(sup, 'PUT', `/api/admin/numbers/${qrId}/brakes`, {})).status, 400, 'no key is a mistake, not "on"');
+        assert.match((await call(sup, 'PUT', `/api/admin/numbers/${plainId}/brakes`, { hours: 1 })).body.errors[0], /QR-login numbers only/);
+
+        const res = await brakes(sup, 24);
+        assert.equal(res.status, 200, JSON.stringify(res.body));
+        assert.ok(Date.parse(res.body.brakesOff.until) > Date.now() + 23 * 3_600_000);
+        const shown = async () => (await call(sup, 'GET', '/api/admin/health-detail')).body.channels.find((c) => c.id === qrId).level.brakesOff;
+        assert.ok(await shown());
+        assert.equal(audits('channel.admin.brakes_off').length, 1);
+
+        assert.deepEqual((await brakes(sup, null)).body, { brakesOff: null });
+        assert.equal(await shown(), null);
+        assert.equal(audits('channel.admin.brakes_on').length, 1);
     });
 
     it('moving a number clears its pin and its answers', async () => {
