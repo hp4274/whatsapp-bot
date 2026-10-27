@@ -185,6 +185,8 @@ Checked when a campaign starts. A failing rule refuses the start with a plain ex
 
 Links and media are **no longer limited by level**. Any number may send links, short links, images, files and carousels.
 
+A **carousel** on a QR number goes as the main text, then one plain image per card with the card's text and options as its caption (`sending.carouselImages`, on by default). No album message: iPhones never showed photos tied to a Baileys album. WhatsApp itself groups 4+ photos in a row into a grid. Each message counts as a part.
+
 A file from the media library is uploaded to WhatsApp **once per hour**, not once per recipient (`mediaCache` in `transports/baileys.js`, keyed by kind and file path, 200 files at most). A 5-card carousel to 1,000 people is 5 uploads, not 5,000.
 
 ## 9. Recipient rules
