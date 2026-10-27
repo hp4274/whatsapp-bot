@@ -13,7 +13,7 @@ import { after, before, describe, it } from 'node:test';
 
 import { closeApp } from '../src/app.js';
 import { processOptOut } from '../src/autoreply/optout.js';
-import { CampaignManager } from '../src/campaign/manager.js';
+import { CampaignManager, recipientCap } from '../src/campaign/manager.js';
 import { SafetyError, bulkWindowOpen, variationError } from '../src/campaign/safety.js';
 import { DEFAULTS, POLICY_KEYS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
@@ -261,6 +261,14 @@ describe('number protection policy', () => {
         } finally {
             store.close();
         }
+    });
+
+    it('drops the one-a-day recipient limit from level 5 or after skipped questions', () => {
+        assert.equal(recipientCap({}, { level: 4 }), 1);
+        assert.equal(recipientCap({}, { level: 5 }), 0);
+        assert.equal(recipientCap({}, { level: 2, start: { answers: { skipped: true } } }), 0);
+        assert.equal(recipientCap({ safetyEnabled: false }, { level: 1 }), 0);
+        assert.equal(recipientCap({ recipientDailyCap: 2 }, null), 2);
     });
 
     it('requires variation on big campaigns when the policy says so', () => {

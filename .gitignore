@@ -16,3 +16,4 @@ server/.wwebjs_cache/
 .claude/
 .impeccable/
 .env
+.aider*
