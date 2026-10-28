@@ -27,6 +27,7 @@ import { POLICY_SERVICES } from './policy-api';
 import { PolicyEditor } from './policy-editor';
 import { TenantAccounts } from './tenant-accounts';
 import { serviceMeta } from './service-meta';
+import { NumberDetails, TenancyApi } from '../core/api';
 
 /** Which tab of the drawer is showing. */
 export type SettingsTab = 'general' | 'plan' | 'limits' | 'safety' | 'rules' | 'accounts';
@@ -386,5 +387,17 @@ export class TenantSettings {
 
   protected checked(event: Event): boolean {
     return (event.target as HTMLInputElement).checked;
+  }
+
+  // New method to fetch number details
+  protected fetchNumberDetails(number: string) {
+    this.api.getNumberDetails(number).subscribe({
+      next: (details: NumberDetails) => {
+        console.log('Number Details:', details);
+      },
+      error: (err: Error) => {
+        this.error.set(err.message);
+      },
+    });
   }
 }
