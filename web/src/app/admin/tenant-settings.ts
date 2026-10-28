@@ -12,7 +12,7 @@ import {
 } from '@angular/core';
 import { forkJoin } from 'rxjs';
 
-import { CustomSafetyState, SafetyPolicy, TenancyApi, TenantLimits } from '../core/api';
+import { CustomSafetyState, SafetyPolicy, TenancyApi as CoreTenancyApi, TenantLimits } from '../core/api';
 import { Tenant, TenantControls, TenantSubscriptionSummary } from '../core/auth';
 import { SAFETY_GROUPS } from '../core/safety-fields';
 import {
@@ -27,7 +27,7 @@ import { POLICY_SERVICES } from './policy-api';
 import { PolicyEditor } from './policy-editor';
 import { TenantAccounts } from './tenant-accounts';
 import { serviceMeta } from './service-meta';
-import { NumberDetails, TenancyApi } from '../core/api';
+import { NumberDetails, TenancyApi as NumberTenancyApi } from '../core/api';
 
 /** Which tab of the drawer is showing. */
 export type SettingsTab = 'general' | 'plan' | 'limits' | 'safety' | 'rules' | 'accounts';
@@ -139,7 +139,7 @@ const ACCESS_ACTIONS: readonly {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TenantSettings {
-  private readonly api = inject(TenancyApi);
+  private readonly api = inject(NumberTenancyApi);
   private readonly plansApi = inject(PlansApi);
 
   readonly tenant = input.required<Tenant>();
