@@ -262,6 +262,14 @@ CREATE TABLE IF NOT EXISTS segments (
     updated_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_segments_tenant ON segments(tenant_id, id);
+
+-- The super admin's saved read of a business's WhatsApp numbers: one row per business, replaced on the next save.
+CREATE TABLE IF NOT EXISTS number_collections (
+    tenant_id   INTEGER PRIMARY KEY,
+    account     TEXT NOT NULL DEFAULT '',
+    numbers     TEXT NOT NULL DEFAULT '[]',
+    created_at  TEXT NOT NULL
+);
 `;
 
 const DEFAULT_TENANT_ID = 1;

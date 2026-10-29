@@ -66,6 +66,9 @@ before(async () => {
         dataDir: tmp,
         config: { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000 },
     });
+    // This file makes a few hundred calls back to back: the dashboard limiter would answer 429 long
+    // before the tests are done. Raise it for the test tenant only.
+    app.locals.policy.set('tenant:1', { 'security.apiRatePerSecond': 1000, 'security.apiBurst': 10000 });
     server = app.listen(0, '127.0.0.1');
     await new Promise((resolve) => server.once('listening', resolve));
     base = `http://127.0.0.1:${server.address().port}`;

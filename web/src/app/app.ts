@@ -264,6 +264,7 @@ export class App {
     { path: '/admin/plans', label: 'Plans & billing', icon: ICONS.plans },
     { path: '/admin/usage', label: 'Usage', icon: ICONS.usage },
     { path: '/admin/health', label: 'Health', icon: ICONS.health },
+    { path: '/admin/number-collections', label: 'Number collections', icon: 'address-book' },
     { path: '/admin/audit-logs', label: 'Audit logs', icon: ICONS.audit },
     { path: '/admin/channels', label: 'Channels', icon: ICONS.channels },
   ];

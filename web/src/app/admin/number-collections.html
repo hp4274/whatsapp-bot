@@ -1,0 +1,73 @@
+<!-- Saved number collections: one row per business, readable and copyable by the super admin. -->
+<header class="s-head">
+  <div>
+    <p class="eyebrow"><i class="ti ti-address-book" aria-hidden="true"></i> Platform</p>
+    <h2>Number collections</h2>
+    <p>
+      The WhatsApp numbers each business saved from its linked account. Open a business's Accounts tab and fetch
+      its numbers to save or replace its collection.
+    </p>
+  </div>
+  <button class="btn sm" type="button" (click)="load()" [disabled]="loading()">
+    <i class="ti ti-refresh" aria-hidden="true"></i> Refresh
+  </button>
+</header>
+
+@if (notice()) {
+  <p class="s-banner tone-ok" role="status">
+    <i class="ti ti-circle-check" aria-hidden="true"></i><span>{{ notice() }}</span>
+  </p>
+}
+
+@if (error()) {
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i><span class="msg">{{ error() }}</span>
+    <button type="button" class="btn sm" (click)="load()">Try again</button>
+  </p>
+} @else if (loading()) {
+  <div class="card" aria-busy="true" aria-label="Loading number collections">
+    @for (i of [1, 2, 3]; track i) {
+      <div class="s-skel" style="height: 18px"></div>
+    }
+  </div>
+} @else if (!rows().length) {
+  <div class="card s-empty">
+    <i class="ti ti-address-book" aria-hidden="true"></i>
+    <strong>No numbers saved yet</strong>
+    <p>Open a business, go to Accounts, fetch its numbers and save them as a collection.</p>
+  </div>
+} @else {
+  <div class="card">
+    <div class="s-table">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Business</th>
+            <th scope="col">Account</th>
+            <th scope="col" class="num">Numbers</th>
+            <th scope="col">Saved</th>
+            <th scope="col" class="acts"><span class="sr-only">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of rows(); track row.tenantId) {
+            <tr>
+              <td class="name"><span class="strong">{{ name(row) }}</span></td>
+              <td class="mono">{{ row.account || '—' }}</td>
+              <td class="num"><span class="strong">{{ row.count }}</span></td>
+              <td class="when">{{ when(row.createdAt) }}</td>
+              <td class="acts">
+                <button class="btn sm" type="button" (click)="copy(row)">
+                  <i class="ti ti-copy" aria-hidden="true"></i> Copy
+                </button>
+                <button class="btn sm" type="button" (click)="download(row)">
+                  <i class="ti ti-download" aria-hidden="true"></i> CSV
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+}

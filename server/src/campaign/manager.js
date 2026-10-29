@@ -1125,7 +1125,8 @@ export class CampaignManager extends EventEmitter {
                 const registered = this.#registered(item.recipient) === true || (levels && item.cold === false);
                 const result = await this.transport.sendMessage(item.recipient, item.message,
                     { media: item.media, interactive: item.interactive, ...(typing ? { typingMs: typing } : {}), ...(registered ? { registered } : {}),
-                        // A carousel goes as WhatsApp's swipe carousel unless the admin chose one image per card.
+                        // A carousel goes as one image per card (every device shows it) unless the admin turned
+                        // sending.carouselImages off: the swipe carousel, which phones do not show from a QR number.
                         ...(item.interactive?.type === 'carousel' ? { nativeCarousel: this.quota.tables?.().carouselImages === false } : {}) });
                 this.lastActionAt = Date.now();
                 // A carousel goes out as several WhatsApp messages (`parts`); the rests and the budgets count each.

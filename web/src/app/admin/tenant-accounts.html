@@ -86,4 +86,103 @@
       </li>
     }
   </ul>
+
+  <section class="wa-fetch" aria-labelledby="wa-fetch-title">
+    <div class="wa-head">
+      <div>
+        <strong id="wa-fetch-title">Numbers on this WhatsApp account</strong>
+        <p class="muted">
+          The account's saved contacts plus everyone in the groups and communities it joined. Read from
+          WhatsApp, not from this platform's contact list.
+        </p>
+      </div>
+      <button class="btn sm" type="button" (click)="fetchData()" [disabled]="fetching()">
+        <i class="ti ti-refresh" aria-hidden="true"></i>
+        {{ fetching() ? 'Reading WhatsApp…' : fetched() ? 'Refresh' : 'Fetch numbers' }}
+      </button>
+    </div>
+
+    @if (collectionDone()) {
+      <p class="s-banner tone-ok" role="status">
+        <i class="ti ti-circle-check" aria-hidden="true"></i><span>{{ collectionDone() }}</span>
+      </p>
+    }
+
+    @if (fetchError()) {
+      <p class="s-banner" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ fetchError() }}</span>
+      </p>
+    }
+
+    @if (fetched()) {
+      <p class="wa-summary">
+        <strong>{{ contacts().length }}</strong> numbers
+        <span class="muted">
+          · {{ savedCount() }} saved in the address book · {{ groups().length }} groups and communities
+          @if (hiddenCount()) {
+            · {{ hiddenCount() }} numbers WhatsApp does not show
+          }
+        </span>
+      </p>
+
+      @if (!savedCount() && contacts().length) {
+        <p class="muted wa-note">
+          WhatsApp returned no saved contacts for this number, so these are only the people in its groups and
+          communities.
+        </p>
+      }
+
+      <div class="wa-save">
+        <button class="btn sm" type="button" (click)="saveCollection()" [disabled]="savingCollection() || !contacts().length">
+          <i class="ti ti-device-floppy" aria-hidden="true"></i>
+          {{ savingCollection() ? 'Saving…' : 'Save as bulk collection' }}
+        </button>
+        <span class="muted wa-note">Saving replaces this business's saved collection.</span>
+      </div>
+
+      <h4>Joined groups and communities</h4>
+      @if (!groups().length) {
+        <p class="muted">This number has not joined any group or community.</p>
+      } @else {
+        <ul class="wa-groups">
+          @for (group of groups(); track group.id) {
+            <li [class.child]="!!group.community">
+              <i class="ti ti-{{ group.isCommunity ? 'users-group' : 'users' }}" aria-hidden="true"></i>
+              <strong>{{ group.name || 'Untitled group' }}</strong>
+              @if (group.isCommunity) {
+                <span class="s-pill tone-info">Community</span>
+              }
+              <span class="muted">
+                {{ group.members }} numbers{{ group.hidden ? ' · ' + group.hidden + ' hidden' : '' }}
+              </span>
+            </li>
+          }
+        </ul>
+      }
+
+      <h4>Numbers</h4>
+      @if (!contacts().length) {
+        <p class="muted">WhatsApp returned no readable numbers for this account.</p>
+      } @else {
+        <ul class="wa-numbers">
+          @for (contact of contacts(); track contact.phone) {
+            <li>
+              <span class="wa-who">
+                <strong>{{ contact.name || contact.phone }}</strong>
+                @if (contact.name) {
+                  <span class="muted">{{ contact.phone }}</span>
+                }
+              </span>
+              @if (!contact.saved) {
+                <span class="s-pill tone-mute">Not saved</span>
+              }
+              @if (contact.groups.length) {
+                <span class="wa-tags muted">{{ contact.groups.join(', ') }}</span>
+              }
+            </li>
+          }
+        </ul>
+      }
+    }
+  </section>
 }

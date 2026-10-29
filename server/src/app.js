@@ -2792,6 +2792,156 @@ export function createApp({
         ? res.json({ users: tenancy.listUsers(req.params.id) })
         : res.status(404).json({ errors: ['tenant not found'] })));
 
+    /**
+     * Every number the linked WhatsApp account knows, from WhatsApp itself: the number's address
+     * book plus the members of every group and community it joined. A group member with no saved
+     * name has `name: ''`; numbers WhatsApp only shows as a LID are counted in `hidden`, never
+     * invented. Null when the transport cannot answer right now.
+     */
+    const whatsappAccountNumbers = async (transport) => {
+        if (!transport?.isConnected?.()) return null;
+        // One side failing (a group fetch timing out, say) must not throw away the other.
+        const read = async (work, fallback) => {
+            try {
+                return await work();
+            } catch {
+                return fallback;
+            }
+        };
+        const groups = transport.supportsGroups ? await read(() => transport.listGroups(), null) : [];
+        const book = transport.supportsContacts
+            ? await read(() => transport.listContacts(), null)
+            : { contacts: [], hidden: 0 };
+        if (!groups && !book) return null;
+        const numbers = new Map();
+        for (const c of book?.contacts ?? []) {
+            numbers.set(c.phone, { phone: c.phone, name: c.name ?? '', saved: Boolean(c.saved), groups: [] });
+        }
+        for (const g of groups ?? []) {
+            for (const m of g.members ?? []) {
+                const row = numbers.get(m.phone) ?? { phone: m.phone, name: '', saved: false, groups: [] };
+                if (g.name && !row.groups.includes(g.name)) row.groups.push(g.name);
+                numbers.set(m.phone, row);
+            }
+        }
+        return {
+            contacts: [...numbers.values()].sort((a, b) => a.phone.localeCompare(b.phone)),
+            groups: groups ?? [],
+            saved: (book?.contacts ?? []).length,
+            hidden: (book?.hidden ?? 0) + (groups ?? []).reduce((n, g) => n + (g.hidden ?? 0), 0),
+        };
+    };
+
+    admin.get('/tenants/:id/contacts', async (req, res) => {
+        const tenant = tenancy.getTenant(req.params.id);
+        if (!tenant || tenant.status === 'archived') {
+            return res.status(404).json({ errors: ['tenant not found'] });
+        }
+        const rt = runtimeFor(tenant.id);
+        // Any connected number can answer; the tenant's default one first.
+        const channels = new Map();
+        for (const channel of [rt.channels.getDefault(), ...rt.channels.list()]) {
+            if (channel) channels.set(channel.id, channel);
+        }
+        let transport = null;
+        for (const channel of channels.values()) {
+            const candidate = rt.runtimeFor(channel).state.transport;
+            if (candidate?.isConnected?.()) {
+                transport = candidate;
+                break;
+            }
+        }
+        if (!transport) return res.status(409).json({ errors: ['Connect a WhatsApp QR number first.'] });
+        if (!transport.supportsContacts && !transport.supportsGroups) {
+            return res.status(409).json({ errors: ['This number is not a linked WhatsApp account.'] });
+        }
+        const account = await whatsappAccountNumbers(transport);
+        if (!account) return res.status(503).json({ errors: ['WhatsApp did not answer. Try again in a moment.'] });
+        const communityName = (g) => (g.community ? account.groups.find((c) => c.id === g.community)?.name ?? '' : '');
+        return res.json({
+            source: 'whatsapp_account',
+            account: transport.account ?? '',
+            total: account.contacts.length,
+            saved: account.saved,
+            hidden: account.hidden,
+            numbers: account.contacts.map((c) => c.phone),
+            contacts: account.contacts,
+            groups: account.groups.map((g) => ({
+                id: g.id,
+                name: g.name,
+                size: g.size,
+                isCommunity: g.isCommunity,
+                community: g.community,
+                communityName: communityName(g),
+                members: (g.members ?? []).length,
+                hidden: g.hidden,
+            })),
+        });
+    });
+
+    /** One saved read of a business's WhatsApp numbers; saving again replaces it. */
+    const numberCollection = (tenantId, account, numbers, createdAt) => {
+        const tenant = tenancy.getTenant(tenantId);
+        return { tenantId, tenantName: tenant?.name ?? '', account, count: numbers.length, numbers, createdAt };
+    };
+    const NUMBER_COLLECTION_MAX = 50000;
+
+    admin.post('/tenants/:id/number-collections', (req, res) => {
+        const tenant = tenancy.getTenant(req.params.id);
+        if (!tenant || tenant.status === 'archived') {
+            return res.status(404).json({ errors: ['tenant not found'] });
+        }
+        const numbers = [...new Set((Array.isArray(req.body?.numbers) ? req.body.numbers : [])
+            .map((n) => String(n ?? '').replace(/\D/g, ''))
+            .filter((n) => n.length >= 7 && n.length <= 15))];
+        if (!numbers.length) return res.status(400).json({ errors: ['There are no numbers to save.'] });
+        if (numbers.length > NUMBER_COLLECTION_MAX) {
+            return res.status(400).json({ errors: [`Save at most ${NUMBER_COLLECTION_MAX} numbers at a time.`] });
+        }
+        // Digits only, so a number typed with spaces or a + is stored the same way as the rest.
+        const account = String(req.body?.account ?? '').replace(/\D/g, '').slice(0, 15);
+        const createdAt = new Date().toISOString();
+        db.db.prepare(`
+            INSERT INTO number_collections (tenant_id, account, numbers, created_at) VALUES (?, ?, ?, ?)
+            ON CONFLICT(tenant_id) DO UPDATE SET
+                account = excluded.account, numbers = excluded.numbers, created_at = excluded.created_at`)
+            .run(tenant.id, account, JSON.stringify(numbers), createdAt);
+        audit(req, 'number_collection.save', tenant.id, { count: numbers.length });
+        return res.status(201).json({ collection: numberCollection(tenant.id, account, numbers, createdAt) });
+    });
+
+    admin.get('/number-collections', (req, res) => res.json({
+        collections: db.db.prepare(`
+            SELECT c.tenant_id AS tenantId, c.account, c.numbers, c.created_at AS createdAt, t.name AS tenantName
+            FROM number_collections c LEFT JOIN tenants t ON t.id = c.tenant_id
+            ORDER BY lower(t.name), c.tenant_id`).all().map((row) => {
+            let numbers = [];
+            try {
+                numbers = JSON.parse(row.numbers);
+            } catch {
+                // a damaged row still lists, with no numbers
+            }
+            return { ...row, numbers, count: numbers.length };
+        }),
+    }));
+
+    // Contact segments/groups: a super admin can view a business's audience segments.
+    admin.get('/tenants/:id/segments', (req, res) => {
+        try {
+            const tenant = tenancy.getTenant(req.params.id);
+            if (!tenant || tenant.status === 'archived') {
+                return res.status(404).json({ errors: ['tenant not found'] });
+            }
+            const segments = tenancy.getTenantSegments(req.params.id);
+            res.json({ segments });
+        } catch (err) {
+            if (err instanceof TenancyError || err instanceof BillingError) {
+                return res.status(err.status).json({ errors: [err.message] });
+            }
+            throw err;
+        }
+    });
+
     admin.put('/tenants/:id/users/:userId/password', async (req, res) => {
         try {
             const user = await tenancy.setPassword(req.params.id, req.params.userId, req.body?.password);

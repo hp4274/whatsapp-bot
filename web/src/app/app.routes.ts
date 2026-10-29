@@ -176,6 +176,12 @@ export const routes: Routes = [
     loadComponent: () => import('./admin/ops').then((m) => m.AdminOpsView),
   },
   {
+    path: 'admin/number-collections',
+    title: 'Number collections - WhatsApp Sender',
+    canActivate: [roleGuard('super_admin')],
+    loadComponent: () => import('./admin/number-collections').then((m) => m.NumberCollectionsView),
+  },
+  {
     path: 'admin/services/:service',
     title: 'Service settings - WhatsApp Sender',
     canActivate: [roleGuard('super_admin')],

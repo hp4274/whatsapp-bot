@@ -87,6 +87,13 @@ const RECONNECT_JITTER = 0.25;
 /** Numbers per `onWhatsApp` lookup, and how long one may take before its numbers count as unknown. */
 const REGISTRY_BATCH = 50;
 const REGISTRY_TIMEOUT_MS = 15000;
+/**
+ * The app-state collection WhatsApp keeps the address book in. Its local synced version is current after
+ * the first link, so contacts are never pushed again: reading them later needs a forced snapshot.
+ */
+const CONTACTS_COLLECTION = 'critical_unblock_low';
+/** A forced address-book snapshot costs a round trip, so a number asks for at most one every few minutes. */
+const ADDRESS_BOOK_REFRESH_MS = 5 * 60_000;
 /** Ack errors that mean WhatsApp is capping messages to new people (463 reach-out timelock, 475 message capping). */
 const RESTRICTED_CODES = new Set(['463', '475']);
 const RESTRICTED_MIN_MS = 24 * 3_600_000;
@@ -123,6 +130,7 @@ export class BaileysTransport extends Transport {
     realDelivery = true;
     supportsReceipts = true;
     supportsGroups = true;
+    supportsContacts = true;
     supportsRegistrationCheck = true;
 
     /**
@@ -169,6 +177,20 @@ export class BaileysTransport extends Transport {
         this.reconnectAttempt = 0;
         this.badSessions = 0; // 500s in a row with no open between (#rescan)
         this.receipts = new Map();
+        // The number's address book as WhatsApp syncs it (contacts.upsert / history). Baileys 7 keeps no
+        // store of its own, so this is the only place `listContacts()` can read it from. WhatsApp sends
+        // the address book once, so the last copy is kept in the session folder and read back on restart.
+        this.contacts = new Map();
+        this.contactsFile = path.join(this.authDir, 'contacts.json');
+        try {
+            for (const contact of JSON.parse(fs.readFileSync(this.contactsFile, 'utf8'))) {
+                if (contact?.id) this.contacts.set(String(contact.id), contact);
+            }
+        } catch {
+            // first run, or no readable copy: the next sync fills it
+        }
+        this.contactsRefresh = null; // the in-flight forced snapshot, so concurrent fetches share it
+        this.contactsRefreshedAt = 0; // when the last forced snapshot finished
         this.events = new EventEmitter();
         this.qrWindowMs = Math.max(30, Number(config?.qrTimeout) || 180) * 1000;
         this.qrCount = 0; // codes shown since this Connect
@@ -228,10 +250,14 @@ export class BaileysTransport extends Transport {
         // The history WhatsApp syncs on link lists the number's chats: its one-to-one count suggests the
         // answers to the 2 questions (policy/levels.js suggestStart). Batches add up; a group never counts.
         const chats = new Set();
-        sock.ev.on('messaging-history.set', ({ chats: batch }) => {
+        sock.ev.on('messaging-history.set', ({ chats: batch, contacts: book }) => {
             for (const chat of batch ?? []) if (String(chat?.id ?? '').endsWith('@s.whatsapp.net')) chats.add(chat.id);
+            this.#rememberContacts(book);
             this.events.emit('history', { chats: chats.size });
         });
+        // The address book WhatsApp pushes while the session is open (a save on the phone, a new profile name).
+        sock.ev.on('contacts.upsert', (list) => this.#rememberContacts(list));
+        sock.ev.on('contacts.update', (list) => this.#rememberContacts(list));
         sock.ev.on('messages.update', (updates) => {
             for (const { key, update } of updates ?? []) {
                 // A failed ack carries WhatsApp's error code (messages-recv.js handleBadAck).
@@ -530,11 +556,19 @@ export class BaileysTransport extends Transport {
      * every later connect fail the same way instead of showing a fresh QR.
      */
     #dropSession() {
+        this.#forgetContacts();
         try {
             fs.rmSync(this.authDir, { recursive: true, force: true });
         } catch {
             // best effort: the next logout() tries again
         }
+    }
+
+    /** Forget the address book a previous login left in memory (its file lives in the session folder). */
+    #forgetContacts() {
+        this.contacts.clear();
+        this.contactsRefresh = null;
+        this.contactsRefreshedAt = 0;
     }
 
     #stopAutoReconnect() {
@@ -636,6 +670,7 @@ export class BaileysTransport extends Transport {
             }
         }
         await this.disconnect();
+        this.#forgetContacts();
         fs.rmSync(this.authDir, { recursive: true, force: true });
     }
 
@@ -689,9 +724,14 @@ export class BaileysTransport extends Transport {
             const members = new Map();
             let hidden = 0;
             for (const p of g.participants ?? []) {
-                const phone = await participantPhone(sock, p);
+                const phone = await phoneOf(sock, p);
                 if (!phone) hidden += 1;
-                else if (phone !== this.account && !members.has(phone)) members.set(phone, { phone, admin: p.admin ?? null });
+                else if (phone !== this.account && !members.has(phone)) {
+                    // Group metadata carries a profile name / username when WhatsApp knows one for the member.
+                    const name = String(p.name || p.notify || p.verifiedName || p.username || '').trim();
+                    const username = String(p.username || '').trim();
+                    members.set(phone, { phone, admin: p.admin ?? null, ...(name && { name }), ...(username && { username }) });
+                }
             }
             groups.push({
                 id: g.id,
@@ -704,6 +744,110 @@ export class BaileysTransport extends Transport {
             });
         }
         return groups.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    /**
+     * The numbers in this account's own address book (the contacts saved on the phone), with the
+     * name WhatsApp shows for each: [{ phone, name, saved }]. `saved` is true when the user put the
+     * name in their address book; a profile name alone leaves it false. A contact WhatsApp only
+     * knows by LID, with no number in the LID mapping, is counted in `hidden`.
+     */
+    async listContacts() {
+        if (!this.connected || !this.sock) {
+            throw new TransportConnectionError('WhatsApp is not connected', { retryable: true });
+        }
+        const sock = this.sock;
+        // A number linked before the address book was kept, or a run that only saw profile names from
+        // incoming messages, has no saved contacts yet - and WhatsApp will not push the book again.
+        if (!this.#hasAddressBook()) await this.#refreshAddressBook(sock);
+        const byPhone = new Map();
+        let hidden = 0;
+        for (const contact of this.contacts.values()) {
+            const phone = await phoneOf(sock, contact);
+            if (!phone) {
+                hidden += 1;
+                continue;
+            }
+            if (phone === this.account) continue;
+            const name = String(contact.name || contact.verifiedName || contact.notify || '').trim();
+            const saved = Boolean(contact.name);
+            const row = byPhone.get(phone);
+            if (!row) byPhone.set(phone, { phone, name, saved });
+            // The address-book name wins over a profile name seen for the same number.
+            else if (saved && (!row.saved || !row.name)) Object.assign(row, { name, saved: true });
+            else if (!row.name && name) row.name = name;
+        }
+        return {
+            contacts: [...byPhone.values()].sort((a, b) => a.phone.localeCompare(b.phone)),
+            hidden,
+        };
+    }
+
+    /** True once WhatsApp has sent the address book itself: a saved contact always carries the name the user gave it. */
+    #hasAddressBook() {
+        for (const contact of this.contacts.values()) if (contact.name) return true;
+        return false;
+    }
+
+    /**
+     * WhatsApp sends the address book on the first link, then its synced version says "already seen"
+     * and it is never pushed again. Forgetting that version and asking for the contact collection's
+     * snapshot makes WhatsApp send every saved contact again; the `contacts.upsert` listener fills
+     * the map. One snapshot at a time, at most one every few minutes, and never fatal: a failure just
+     * leaves whatever the map already had.
+     */
+    #refreshAddressBook(sock) {
+        if (this.contactsRefresh) return this.contactsRefresh;
+        if (typeof sock?.resyncAppState !== 'function') return Promise.resolve();
+        if (Date.now() - this.contactsRefreshedAt < ADDRESS_BOOK_REFRESH_MS) return Promise.resolve();
+        this.contactsRefresh = (async () => {
+            try {
+                // `null` deletes the stored version (useMultiFileAuthState), so the sync returns a snapshot.
+                await sock.authState?.keys?.set?.({ 'app-state-sync-version': { [CONTACTS_COLLECTION]: null } });
+                await sock.resyncAppState([CONTACTS_COLLECTION], true);
+                // The re-sync emits through Baileys' event buffer: deliver it now, not on its timer.
+                sock.ev?.flush?.();
+                this.contactsRefreshedAt = Date.now();
+            } catch {
+                // WhatsApp is busy or the snapshot key is missing: try again on a later fetch
+            } finally {
+                this.contactsRefresh = null;
+            }
+        })();
+        return this.contactsRefresh;
+    }
+
+    /** Merge a batch of contacts, then keep the copy a restart reads. */
+    #rememberContacts(list) {
+        let changed = false;
+        for (const contact of list ?? []) changed = this.#rememberContact(contact) || changed;
+        if (changed) this.#saveContacts();
+    }
+
+    /** Merge one contact (a full row from upsert/history, a partial from contacts.update) into the map. */
+    #rememberContact(contact) {
+        const id = String(contact?.id ?? '').trim();
+        // Only people: a group, broadcast list or newsletter is not an address-book contact.
+        if (!/@(s\.whatsapp\.net|lid)$/.test(id)) return false;
+        const before = this.contacts.get(id) ?? { id };
+        const merged = { ...before };
+        for (const [key, value] of Object.entries(contact)) if (value != null) merged[key] = value;
+        merged.id = id;
+        // contacts.update fires for every message carrying a push name, usually the one already kept:
+        // only a real change is worth rewriting the file.
+        if (JSON.stringify(merged) === JSON.stringify(before)) return false;
+        this.contacts.set(id, merged);
+        return true;
+    }
+
+    /** Best effort: a failed write only means the next restart syncs the address book again. */
+    #saveContacts() {
+        try {
+            fs.mkdirSync(this.authDir, { recursive: true });
+            fs.writeFileSync(this.contactsFile, JSON.stringify([...this.contacts.values()]));
+        } catch {
+            // the fetch still answers from memory
+        }
     }
 
     /** Online / offline / typing state. Never throws: presence is cosmetic, the send is not. */
@@ -1005,8 +1149,8 @@ async function toInboundMessage(msg, sock) {
     };
 }
 
-/** A group member's phone digits: the PN jid, the phone number WhatsApp sent with a LID, or the LID mapping. */
-async function participantPhone(sock, p) {
+/** A contact's or group member's phone digits: the PN jid, the phone number WhatsApp sent with a LID, or the LID mapping. */
+async function phoneOf(sock, p) {
     let jid = String(p?.phoneNumber ?? '');
     if (/^\d+$/.test(jid)) jid += '@s.whatsapp.net';
     if (!jid && String(p?.id ?? '').endsWith('@s.whatsapp.net')) jid = String(p.id);
