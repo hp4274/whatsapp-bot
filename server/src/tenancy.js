@@ -132,6 +132,47 @@ export class Tenancy {
     }
 
     /**
+     * Fetch all contacts for a tenant.
+     * @param {number} tenantId - The tenant ID
+     * @param {object} options - Query options
+     * @param {number} options.limit - Maximum number of contacts to return
+     * @param {number} options.offset - Number of contacts to skip
+     * @returns {Array} Array of contact objects
+     */
+    getTenantContacts(tenantId, options = {}) {
+        const { limit = 1000, offset = 0 } = options;
+        const sql = `SELECT id, phone, name, email, status, opt_in_status, custom_fields, tags, source, created_at, updated_at
+                     FROM contacts
+                     WHERE tenant_id = ?
+                     ORDER BY created_at DESC
+                     LIMIT ? OFFSET ?`;
+        return this.db.prepare(sql).all(Number(tenantId), Number(limit), Number(offset));
+    }
+
+    /**
+     * Count total contacts for a tenant.
+     * @param {number} tenantId - The tenant ID
+     * @returns {number} Total contact count
+     */
+    countTenantContacts(tenantId) {
+        const result = this.db.prepare('SELECT COUNT(*) AS n FROM contacts WHERE tenant_id = ?').get(Number(tenantId));
+        return result?.n || 0;
+    }
+
+    /**
+     * Fetch all contact segments/groups for a tenant.
+     * @param {number} tenantId - The tenant ID
+     * @returns {Array} Array of segment objects
+     */
+    getTenantSegments(tenantId) {
+        const sql = `SELECT id, name, filter, created_at, updated_at
+                     FROM segments
+                     WHERE tenant_id = ?
+                     ORDER BY name`;
+        return this.db.prepare(sql).all(Number(tenantId));
+    }
+
+    /**
      * A deleted tenant keeps its rows for history, but its users' emails and its
      * slug are suffixed so they can be registered again; its users are disabled.
      * Idempotent: an already-suffixed value is left alone.

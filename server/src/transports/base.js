@@ -47,6 +47,8 @@ export class Transport {
     supportsReceipts = false;
     /** True when the transport can list the groups the number is in (`listGroups()`). */
     supportsGroups = false;
+    /** True when the transport can list the number's own address book (`listContacts()`). */
+    supportsContacts = false;
     /** True when `checkRegistered()` can actually ask WhatsApp. */
     supportsRegistrationCheck = false;
 
