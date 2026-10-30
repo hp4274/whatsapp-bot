@@ -2,6 +2,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, effect, inject, input, signal } from '@angular/core';
 import { catchError, throwError } from 'rxjs';
 
+import { spacedPhone } from '../contacts/contact-util';
 import type { User } from '../core/auth';
 import type { AccountGroup, AccountNumber, NumberDetails } from './number-details';
 
@@ -35,6 +36,7 @@ export class TenantAccounts {
   readonly tenantId = input.required<number>();
 
   protected readonly minPassword = MIN_PASSWORD;
+  protected readonly spacedPhone = spacedPhone;
   protected readonly users = signal<User[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal('');
@@ -153,7 +155,7 @@ export class TenantAccounts {
     this.http
       .post(`/api/admin/tenants/${id}/number-collections`, {
         account: this.account(),
-        numbers: this.contacts().map((contact) => contact.phone),
+        contacts: this.contacts().map(({ phone, name }) => ({ phone, name })),
       })
       .pipe(catchError(toMessage))
       .subscribe({

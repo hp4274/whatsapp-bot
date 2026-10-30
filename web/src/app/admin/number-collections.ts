@@ -3,12 +3,17 @@ import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { catchError, throwError } from 'rxjs';
 
+import { downloadCsv, toCsv, today } from '../analytics/analytics-util';
+import { spacedPhone } from '../contacts/contact-util';
+
 /** One business's saved number read (server: GET /api/admin/number-collections). */
 interface NumberCollection {
   readonly tenantId: number;
   readonly tenantName: string;
   readonly account: string;
   readonly numbers: readonly string[];
+  /** The address-book name, else the WhatsApp profile name or username; '' when WhatsApp gave none. */
+  readonly contacts: readonly { readonly phone: string; readonly name: string }[];
   readonly count: number;
   readonly createdAt: string;
 }
@@ -72,14 +77,59 @@ export class NumberCollectionsView {
   }
 
   protected download(row: NumberCollection): void {
-    const url = URL.createObjectURL(
-      new Blob([`phone\n${row.numbers.join('\n')}\n`], { type: 'text/csv;charset=utf-8' }),
+    downloadCsv(
+      `${this.fileName(row)}.csv`,
+      toCsv(['phone', 'name'], row.contacts.map((c) => [c.phone, c.name])),
     );
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `numbers-${row.tenantId}-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Print a name-and-number table from a hidden frame; the browser's print dialog
+   * offers "Save as PDF", so no PDF library is needed.
+   */
+  protected pdf(row: NumberCollection): void {
+    const frame = Object.assign(document.createElement('iframe'), { title: 'Print preview' });
+    frame.style.cssText = 'position: fixed; width: 0; height: 0; border: 0';
+    document.body.append(frame);
+    const doc = frame.contentDocument;
+    const win = frame.contentWindow;
+    if (!doc || !win) return frame.remove();
+    // Names come from WhatsApp users, so they go in as text, never as markup.
+    const el = (tag: string, text = '') => Object.assign(doc.createElement(tag), { textContent: text });
+    doc.title = this.fileName(row); // the suggested PDF file name
+    doc.head.append(
+      el(
+        'style',
+        `body { font: 12px system-ui, sans-serif; margin: 24px; }
+        h1 { font-size: 18px; margin: 0 0 4px; } p { margin: 0 0 16px; opacity: .7; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid; }
+        th { font-weight: 600; } td.n { width: 1%; opacity: .6; } td.p { font-family: monospace; white-space: nowrap; }
+        tr { break-inside: avoid; }`,
+      ),
+    );
+    const table = doc.createElement('table');
+    const head = table.createTHead().insertRow();
+    ['#', 'Name', 'Phone'].forEach((label) => head.append(el('th', label)));
+    const body = table.createTBody();
+    row.contacts.forEach((c, i) => {
+      body.insertRow().append(
+        Object.assign(el('td', String(i + 1)), { className: 'n' }),
+        el('td', c.name || '—'),
+        Object.assign(el('td', spacedPhone(c.phone)), { className: 'p' }),
+      );
+    });
+    doc.body.append(
+      el('h1', this.name(row)),
+      el('p', `${row.count} numbers${row.account ? ` · account ${spacedPhone(row.account)}` : ''} · saved ${this.when(row.createdAt)}`),
+      table,
+    );
+    win.addEventListener('afterprint', () => frame.remove());
+    win.print();
+  }
+
+  private fileName(row: NumberCollection): string {
+    return `numbers-${row.tenantId}-${today()}`;
   }
 
   protected name(row: NumberCollection): string {

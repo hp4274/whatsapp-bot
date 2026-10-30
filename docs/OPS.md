@@ -168,6 +168,11 @@ pm2 start ecosystem.config.cjs
 
 ## Server setup
 
+**Fresh VPS in one command** (Ubuntu/Debian, as root; point the domain's DNS A record at the server first):
+`curl -fsSL https://raw.githubusercontent.com/hp4274/whatsapp-bot/main/scripts/setup-vps.sh | sudo bash -s -- bot.example.com admin@example.com`.
+`scripts/setup-vps.sh` does everything below except the SSH lock-down: Node 24, pm2 under its own `whatsapp`
+user, a `.env` with a generated encryption key, Caddy with automatic HTTPS, ufw and NTP.
+
 - **User and memory.** Run the app as its own non-root user (e.g. `adduser --disabled-password whatsapp`), with
   pm2 started by that user. The memory cap is `max_memory_restart: '1G'` in `ecosystem.config.cjs`; pm2 restarts
   the app above it.

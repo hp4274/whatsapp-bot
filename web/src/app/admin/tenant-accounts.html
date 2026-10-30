@@ -168,9 +168,9 @@
           @for (contact of contacts(); track contact.phone) {
             <li>
               <span class="wa-who">
-                <strong>{{ contact.name || contact.phone }}</strong>
+                <strong>{{ contact.name || spacedPhone(contact.phone) }}</strong>
                 @if (contact.name) {
-                  <span class="muted">{{ contact.phone }}</span>
+                  <span class="muted">{{ spacedPhone(contact.phone) }}</span>
                 }
               </span>
               @if (!contact.saved) {
