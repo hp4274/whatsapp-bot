@@ -307,6 +307,7 @@ describe('health-aware routing', () => {
         one.addSafetyEvent({ kind: 'restrict', phone: '1555', messageId: new Date(Date.now() + HOUR).toISOString(), detail: '463' });
         assert.equal(quotaLeft(t, channel(1), null, {}, {}), -1);
         assert.ok(quotaLeft(t, channel(2), null, {}, {}) >= 0);
+        assert.equal(one.safetyEvents().length, 0, 'a restriction is the number\'s own state, not someone complaining');
         db.close();
     });
 });

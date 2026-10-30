@@ -36,262 +36,265 @@
       </p>
     }
 
-    <!-- Today -->
-    @if (safety(); as s) {
-      <div class="band today">
-        @if (budgets(); as b) {
-          <div class="stat">
-            <span>Bulk today</span>
-            <strong>{{ b.bulk.used }}{{ b.bulk.limit ? ' / ' + b.bulk.limit : '' }}</strong>
-            <div class="meter slim" aria-hidden="true">
-              <div class="bar" [style.width.%]="share(b.bulk)"></div>
-            </div>
-            <small class="muted">{{
-              b.bulk.limit ? 'Resets ' + (b.bulk.resetsAt | date: 'h:mm a') : 'None today'
-            }}</small>
-          </div>
-          <!-- Skipped questions: the number runs at the plan's day, so only that is shown. -->
-          @if (!skipped()) {
+    <!-- Left sending safety: only the day's limit above; the controls below offer to rejoin. -->
+    @if (safety()?.enabled !== false) {
+      <!-- Today -->
+      @if (safety(); as s) {
+        <div class="band today">
+          @if (budgets(); as b) {
             <div class="stat">
-              <span>New chats today</span>
-              <strong>{{ b.newChats.used }}{{ b.newChats.limit ? ' / ' + b.newChats.limit : '' }}</strong>
+              <span>Bulk today</span>
+              <strong>{{ b.bulk.used }}{{ b.bulk.limit ? ' / ' + b.bulk.limit : '' }}</strong>
               <div class="meter slim" aria-hidden="true">
-                <div class="bar" [style.width.%]="share(b.newChats)"></div>
+                <div class="bar" [style.width.%]="share(b.bulk)"></div>
               </div>
+              <small class="muted">{{
+                b.bulk.limit ? 'Resets ' + (b.bulk.resetsAt | date: 'h:mm a') : 'None today'
+              }}</small>
+            </div>
+            <!-- Skipped questions: the number runs at the plan's day, so only that is shown. -->
+            @if (!skipped()) {
+              <div class="stat">
+                <span>New chats today</span>
+                <strong>{{ b.newChats.used }}{{ b.newChats.limit ? ' / ' + b.newChats.limit : '' }}</strong>
+                <div class="meter slim" aria-hidden="true">
+                  <div class="bar" [style.width.%]="share(b.newChats)"></div>
+                </div>
+                <small class="muted">
+                  @if (b.newChats.left) {
+                    {{ b.newChats.left }} left, for people new to this number
+                  } @else if (b.newChats.opensAt) {
+                    Open again {{ b.newChats.opensAt | date: 'EEE h:mm a' }}
+                  } @else {
+                    None left today
+                  }
+                </small>
+              </div>
+              <div class="stat">
+                <span>This hour</span>
+                <strong>{{ b.hour.used }}{{ b.hour.limit ? ' / ' + b.hour.limit : '' }}</strong>
+                <div class="meter slim" aria-hidden="true">
+                  <div class="bar" [style.width.%]="share(b.hour)"></div>
+                </div>
+                <small class="muted">Bulk in the last 60 minutes</small>
+              </div>
+            }
+          } @else {
+            <div class="stat">
+              <span>Sent today</span>
+              <strong>{{ s.used }}{{ s.limit ? ' / ' + s.limit : '' }}</strong>
+              <div class="meter slim" aria-hidden="true">
+                <div class="bar" [style.width.%]="usedPercent()"></div>
+              </div>
+            </div>
+          }
+          <!-- Gap between messages hidden for now (speed is not user-facing):
+          <div class="stat">
+            <span>Gap between messages</span>
+            <strong>{{ s.minSeconds | number: '1.0-0' }}–{{ s.maxSeconds | number: '1.0-0' }}s</strong>
+            <small class="muted">changes a little every day</small>
+          </div>
+          -->
+          @if (quiet(); as q) {
+            <div class="stat rest" [class.resting]="resting()">
+              <span title="Times are in your local time"
+                ><i class="ti ti-moon" aria-hidden="true"></i>Quiet time today</span
+              >
+              <strong>{{ duration(q.minutesToday) }}</strong>
+              @if (resting(); as r) {
+                <small class="muted">Quiet now, back in {{ duration(r.minutesLeft) }}</small>
+              }
               <small class="muted">
-                @if (b.newChats.left) {
-                  {{ b.newChats.left }} left, for people new to this number
-                } @else if (b.newChats.opensAt) {
-                  Open again {{ b.newChats.opensAt | date: 'EEE h:mm a' }}
-                } @else {
-                  None left today
+                @for (w of slots(); track w.key; let last = $last) {
+                  <button
+                    type="button"
+                    class="win"
+                    [class.done]="w.state === 'done'"
+                    [class.now]="w.state === 'now'"
+                    [class.hot]="lit() === w.key"
+                    [class.dim]="lit() !== null && lit() !== w.key"
+                    [attr.aria-label]="speech(w)"
+                    [attr.aria-pressed]="pinned() && lit() === w.key"
+                    (pointerenter)="show(w, $event)"
+                    (pointerleave)="hide($event)"
+                    (focus)="show(w, $event)"
+                    (blur)="hide()"
+                    (click)="pin(w, $event)"
+                    >{{ w.label }}@if (w.day) {
+                      <em> {{ w.day }}</em>
+                    }</button
+                  >{{ last ? '' : ' · ' }}
                 }
               </small>
             </div>
-            <div class="stat">
-              <span>This hour</span>
-              <strong>{{ b.hour.used }}{{ b.hour.limit ? ' / ' + b.hour.limit : '' }}</strong>
-              <div class="meter slim" aria-hidden="true">
-                <div class="bar" [style.width.%]="share(b.hour)"></div>
-              </div>
-              <small class="muted">Bulk in the last 60 minutes</small>
-            </div>
           }
-        } @else {
-          <div class="stat">
-            <span>Sent today</span>
-            <strong>{{ s.used }}{{ s.limit ? ' / ' + s.limit : '' }}</strong>
-            <div class="meter slim" aria-hidden="true">
-              <div class="bar" [style.width.%]="usedPercent()"></div>
-            </div>
-          </div>
-        }
-        <!-- Gap between messages hidden for now (speed is not user-facing):
-        <div class="stat">
-          <span>Gap between messages</span>
-          <strong>{{ s.minSeconds | number: '1.0-0' }}–{{ s.maxSeconds | number: '1.0-0' }}s</strong>
-          <small class="muted">changes a little every day</small>
         </div>
-        -->
-        @if (quiet(); as q) {
-          <div class="stat rest" [class.resting]="resting()">
-            <span title="Times are in your local time"
-              ><i class="ti ti-moon" aria-hidden="true"></i>Quiet time today</span
-            >
-            <strong>{{ duration(q.minutesToday) }}</strong>
-            @if (resting(); as r) {
-              <small class="muted">Quiet now, back in {{ duration(r.minutesLeft) }}</small>
+      }
+
+      <!-- Brakes (QR numbers): the server's own words, and when each lifts -->
+      @if (brakes().length) {
+        <div class="band">
+          <strong class="cause-title">Slowing this number down</strong>
+          <ul class="causes">
+            @for (b of brakes(); track b.code) {
+              <li class="{{ b.code === 'ban' || b.code === 'restricted' ? 'tone-bad' : 'tone-warn' }}">
+                <i class="ti {{ brakeIcon(b.code) }}" aria-hidden="true"></i>
+                <span class="cause-label">{{ brakeLabel(b.code) }}</span>
+                <span class="s-pill tone-mute">{{
+                  b.until ? 'Until ' + (b.until | date: 'd MMM, h:mm a') : 'Until it improves'
+                }}</span>
+                <small class="muted">{{ brakeText(b) }}</small>
+              </li>
             }
-            <small class="muted">
-              @for (w of slots(); track w.key; let last = $last) {
-                <button
-                  type="button"
-                  class="win"
-                  [class.done]="w.state === 'done'"
-                  [class.now]="w.state === 'now'"
-                  [class.hot]="lit() === w.key"
-                  [class.dim]="lit() !== null && lit() !== w.key"
-                  [attr.aria-label]="speech(w)"
-                  [attr.aria-pressed]="pinned() && lit() === w.key"
-                  (pointerenter)="show(w, $event)"
-                  (pointerleave)="hide($event)"
-                  (focus)="show(w, $event)"
-                  (blur)="hide()"
-                  (click)="pin(w, $event)"
-                  >{{ w.label }}@if (w.day) {
-                    <em> {{ w.day }}</em>
-                  }</button
-                >{{ last ? '' : ' · ' }}
-              }
-            </small>
-          </div>
-        }
-      </div>
-    }
+          </ul>
+        </div>
+      }
 
-    <!-- Brakes (QR numbers): the server's own words, and when each lifts -->
-    @if (brakes().length) {
-      <div class="band">
-        <strong class="cause-title">Slowing this number down</strong>
-        <ul class="causes">
-          @for (b of brakes(); track b.code) {
-            <li class="{{ b.code === 'ban' || b.code === 'restricted' ? 'tone-bad' : 'tone-warn' }}">
-              <i class="ti {{ brakeIcon(b.code) }}" aria-hidden="true"></i>
-              <span class="cause-label">{{ brakeLabel(b.code) }}</span>
-              <span class="s-pill tone-mute">{{
-                b.until ? 'Until ' + (b.until | date: 'd MMM, h:mm a') : 'Until it improves'
-              }}</span>
-              <small class="muted">{{ brakeText(b) }}</small>
+      <!-- A new QR number: what makes it look like a real business to WhatsApp -->
+      @if (looksNew()) {
+        <div class="band">
+          <strong class="cause-title">Make a new number look trusted</strong>
+          <ul class="tips">
+            <li>
+              <i class="ti ti-user-circle" aria-hidden="true"></i>
+              <span
+                ><strong>Profile photo, name and About</strong>
+                <small class="muted"
+                  >Fill in all three on the phone. A blank profile looks like a throwaway number.</small
+                ></span
+              >
             </li>
-          }
-        </ul>
-      </div>
-    }
-
-    <!-- A new QR number: what makes it look like a real business to WhatsApp -->
-    @if (looksNew()) {
-      <div class="band">
-        <strong class="cause-title">Make a new number look trusted</strong>
-        <ul class="tips">
-          <li>
-            <i class="ti ti-user-circle" aria-hidden="true"></i>
-            <span
-              ><strong>Profile photo, name and About</strong>
-              <small class="muted"
-                >Fill in all three on the phone. A blank profile looks like a throwaway number.</small
-              ></span
-            >
-          </li>
-          <li>
-            <i class="ti ti-shield-lock" aria-hidden="true"></i>
-            <span
-              ><strong>Two-step verification</strong>
-              <small class="muted"
-                >Settings &gt; Account &gt; Two-step verification. It also stops a SIM swap taking
-                the number.</small
-              ></span
-            >
-          </li>
-          <li>
-            <i class="ti ti-messages" aria-hidden="true"></i>
-            <span
-              ><strong>Chat normally</strong>
-              <small class="muted"
-                >A few real conversations a day, some from the phone itself, look like a person,
-                not a bot.</small
-              ></span
-            >
-          </li>
-          <li>
-            <i class="ti ti-brand-whatsapp" aria-hidden="true"></i>
-            <span
-              ><strong>Ask customers to message you first</strong>
-              <small class="muted"
-                >People who wrote to you never use up new chats.
-                @if (chatLink(); as link) {
-                  Share <a [href]="link" target="_blank" rel="noopener">{{ link }}</a> on your
-                  site, receipts and posts.
-                } @else {
-                  Share your wa.me link on your site, receipts and posts.
-                }</small
-              ></span
-            >
-          </li>
-        </ul>
-      </div>
-    }
-
-    <!-- What gets numbers banned -->
-    @if (causes().length) {
-      <div class="band">
-        <strong class="cause-title">What gets numbers banned</strong>
-        <ul class="causes">
-          @for (c of causes(); track c.key) {
-            <li class="{{ 'tone-' + c.level }}">
-              <i class="ti {{ causeIcon(c.key) }}" aria-hidden="true"></i>
-              <span class="cause-label">{{ c.label }}</span>
-              <span class="s-pill {{ 'tone-' + c.level }}">{{ c.value }}</span>
-              <small class="muted">{{ c.hint }}</small>
+            <li>
+              <i class="ti ti-shield-lock" aria-hidden="true"></i>
+              <span
+                ><strong>Two-step verification</strong>
+                <small class="muted"
+                  >Settings &gt; Account &gt; Two-step verification. It also stops a SIM swap taking
+                  the number.</small
+                ></span
+              >
             </li>
-          }
-        </ul>
-      </div>
-    }
-
-    <!-- Blocks and reports -->
-    @if (health(); as h) {
-      <div class="band risk">
-        <div class="risk-head">
-          <div>
-            <strong>Blocks and reports</strong>
-            <span class="muted">last 7 days · {{ h.sent7d }} messages sent</span>
-          </div>
-          <span class="s-pill {{ riskTone() }}">{{
-            h.blockRatePercent + h.reportRatePercent | number: '1.0-1'
-          }}% of {{ h.pauseAtPercent }}% limit</span>
+            <li>
+              <i class="ti ti-messages" aria-hidden="true"></i>
+              <span
+                ><strong>Chat normally</strong>
+                <small class="muted"
+                  >A few real conversations a day, some from the phone itself, look like a person,
+                  not a bot.</small
+                ></span
+              >
+            </li>
+            <li>
+              <i class="ti ti-brand-whatsapp" aria-hidden="true"></i>
+              <span
+                ><strong>Ask customers to message you first</strong>
+                <small class="muted"
+                  >People who wrote to you never use up new chats.
+                  @if (chatLink(); as link) {
+                    Share <a [href]="link" target="_blank" rel="noopener">{{ link }}</a> on your
+                    site, receipts and posts.
+                  } @else {
+                    Share your wa.me link on your site, receipts and posts.
+                  }</small
+                ></span
+              >
+            </li>
+          </ul>
         </div>
+      }
 
-        <div class="meter {{ riskTone() }}" aria-hidden="true">
-          <div class="bar" [style.width.%]="riskPercent()"></div>
+      <!-- What gets numbers banned -->
+      @if (causes().length) {
+        <div class="band">
+          <strong class="cause-title">What gets numbers banned</strong>
+          <ul class="causes">
+            @for (c of causes(); track c.key) {
+              <li class="{{ 'tone-' + c.level }}">
+                <i class="ti {{ causeIcon(c.key) }}" aria-hidden="true"></i>
+                <span class="cause-label">{{ c.label }}</span>
+                <span class="s-pill {{ 'tone-' + c.level }}">{{ c.value }}</span>
+                <small class="muted">{{ c.hint }}</small>
+              </li>
+            }
+          </ul>
         </div>
+      }
 
-        <div class="rates">
-          <div>
-            <i class="ti ti-ban" aria-hidden="true"></i>
-            <strong>{{ h.blocks }}</strong>
-            <span>may have blocked · {{ h.blockRatePercent }}%</span>
+      <!-- Blocks and reports -->
+      @if (health(); as h) {
+        <div class="band risk">
+          <div class="risk-head">
+            <div>
+              <strong>Blocks and reports</strong>
+              <span class="muted">last 7 days · {{ h.sent7d }} messages sent</span>
+            </div>
+            <span class="s-pill {{ riskTone() }}">{{
+              h.blockRatePercent + h.reportRatePercent | number: '1.0-1'
+            }}% of {{ h.pauseAtPercent }}% limit</span>
           </div>
-          <div>
-            <i class="ti ti-flag" aria-hidden="true"></i>
-            <strong>{{ h.reports }}</strong>
-            <span>complained · {{ h.reportRatePercent }}%</span>
-          </div>
-        </div>
 
-        @if (h.events.length) {
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Who</th>
-                  <th scope="col">What</th>
-                  <th scope="col">When</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (e of h.events; track e.id) {
+          <div class="meter {{ riskTone() }}" aria-hidden="true">
+            <div class="bar" [style.width.%]="riskPercent()"></div>
+          </div>
+
+          <div class="rates">
+            <div>
+              <i class="ti ti-ban" aria-hidden="true"></i>
+              <strong>{{ h.blocks }}</strong>
+              <span>may have blocked · {{ h.blockRatePercent }}%</span>
+            </div>
+            <div>
+              <i class="ti ti-flag" aria-hidden="true"></i>
+              <strong>{{ h.reports }}</strong>
+              <span>complained · {{ h.reportRatePercent }}%</span>
+            </div>
+          </div>
+
+          @if (h.events.length) {
+            <div class="table-wrap">
+              <table>
+                <thead>
                   <tr>
-                    <td>
-                      <strong>{{ e.name || e.phone }}</strong>
-                      @if (e.name) {
-                        <small class="muted">{{ e.phone }}</small>
-                      }
-                    </td>
-                    <td>
-                      <span class="s-pill {{ e.kind === 'block' ? 'tone-warn' : 'tone-bad' }}">{{
-                        label(e)
-                      }}</span>
-                      @if (e.kind === 'report' && e.detail) {
-                        <small class="muted quote">“{{ e.detail }}”</small>
-                      }
-                    </td>
-                    <td>{{ e.at | date: 'medium' }}</td>
+                    <th scope="col">Who</th>
+                    <th scope="col">What</th>
+                    <th scope="col">When</th>
                   </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        } @else {
-          <p class="empty muted">
-            <i class="ti ti-heartbeat" aria-hidden="true"></i>No blocks or complaints in the last 7
-            days.
+                </thead>
+                <tbody>
+                  @for (e of h.events; track e.id) {
+                    <tr>
+                      <td>
+                        <strong>{{ e.name || e.phone }}</strong>
+                        @if (e.name) {
+                          <small class="muted">{{ e.phone }}</small>
+                        }
+                      </td>
+                      <td>
+                        <span class="s-pill {{ e.kind === 'block' ? 'tone-warn' : 'tone-bad' }}">{{
+                          label(e)
+                        }}</span>
+                        @if (e.kind === 'report' && e.detail) {
+                          <small class="muted quote">“{{ e.detail }}”</small>
+                        }
+                      </td>
+                      <td>{{ e.at | date: 'medium' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <p class="empty muted">
+              <i class="ti ti-heartbeat" aria-hidden="true"></i>No blocks or complaints in the last 7
+              days.
+            </p>
+          }
+          <p class="fine muted">
+            WhatsApp does not tell senders about blocks. A message still at one tick after 24 hours is
+            counted as a possible block, so a phone that was switched off can show up here.
           </p>
-        }
-        <p class="fine muted">
-          WhatsApp does not tell senders about blocks. A message still at one tick after 24 hours is
-          counted as a possible block, so a phone that was switched off can show up here.
-        </p>
-      </div>
+        </div>
+      }
     }
   }
 
