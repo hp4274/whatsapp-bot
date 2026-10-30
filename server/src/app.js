@@ -1611,8 +1611,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             filename,
             mimetype: req.file.mimetype,
             size: req.file.size,
-            filePath,
-            buffer: req.file.buffer,
+            filePath, // no buffer: the registry outlives the request, and the transport sends from the path
             url: `/api/media/${mediaId}`,
         };
         state.media.set(mediaId, media);
@@ -1864,7 +1863,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         }
         return res.json({
             // Rows written before errors were made readable still hold raw text.
-            records: db.history({ limit: Number(req.query.limit) || 1000, status, recipient })
+            records: db.history({ limit: Math.min(Number(req.query.limit) || 1000, 5000), status, recipient })
                 .map((r) => (r.error ? { ...r, error: friendlyError(r.error) } : r)),
             counts: db.countsByStatus(),
             signature,
@@ -2015,7 +2014,7 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         return {
             ...channelHealth(channel, runtime),
             ...channelUsage(channel, {
-                db: db.forChannel(channel.id), config,
+                db: db.forChannel(channel.id), config, quota: runtime?.state.manager?.quota,
                 sending: deps.platformPolicy?.() ?? {}, pin: () => deps.channelPin?.(channel.id),
                 start: deps.channelStart && (() => deps.channelStart(channel.id)),
                 paused: deps.channelPaused?.(channel.id)?.reason ?? null,
@@ -3450,7 +3449,13 @@ export function createApp({
     app.locals.reconnectAll = reconnectAll;
 
     if (scheduler) {
-        const timer = setInterval(() => { void sweep(); }, sweepMs);
+        // A slow pass (ban pauses, workflow resumes) must not overlap the next one: the sweep assumes it runs alone.
+        let sweeping = false;
+        const timer = setInterval(() => {
+            if (sweeping) return;
+            sweeping = true;
+            void sweep().finally(() => { sweeping = false; });
+        }, sweepMs);
         timer.unref();
         const boot = setTimeout(() => { void reconnectAll(); }, 1500);
         const watchdog = setInterval(() => { void reconnectAll(); }, 30_000);
@@ -3677,11 +3682,19 @@ function connectionState(state) {
 
 const digitsOf = (phone) => String(phone ?? '').replace(/\D/g, '');
 
+const SSE_MAX_BUFFERED = 1024 * 1024;
+
 function broadcast(state, event) {
     const payload = `data: ${JSON.stringify(event)}\n\n`;
     for (const client of state.clients) {
         if (client.writableEnded || client.destroyed) {
             state.clients.delete(client);
+            continue;
+        }
+        // A tab that stopped reading would buffer every event in this process: drop it, its EventSource reconnects.
+        if (client.writableLength > SSE_MAX_BUFFERED) {
+            state.clients.delete(client);
+            client.end();
             continue;
         }
         try {

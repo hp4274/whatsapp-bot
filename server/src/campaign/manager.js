@@ -410,6 +410,11 @@ export class CampaignManager extends EventEmitter {
         this.queue.onePerRecipient = onePerNumber;
         // Duplicates allowed means a repeated number with the same text is queued again too.
         this.queue.dedupe = onePerNumber;
+        // One commit for the whole batch instead of one per recipient. COMMIT even on a throw: the rows already
+        // written match items already in the queue, as they did when each row committed on its own.
+        const sql = this.db.db;
+        const ownTransaction = Boolean(sql?.exec) && !sql.isTransaction;
+        if (ownTransaction) sql.exec('BEGIN');
         try {
             // People who wrote in before go first: their early replies keep the reply-rate brake away and they
             // use no new-chat budget, so strangers left at the end of the day wait for tomorrow's. Shuffled within each.
@@ -463,6 +468,7 @@ export class CampaignManager extends EventEmitter {
                 } else skipped += 1;
             }
         } finally {
+            if (ownTransaction) sql.exec('COMMIT');
             this.queue.onePerRecipient = previousMode;
             this.queue.dedupe = previousDedupe;
         }

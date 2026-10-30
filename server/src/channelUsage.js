@@ -33,11 +33,13 @@ const MIN_7D = 20;
  * @param {Function} [opts.pin]  () => the number's admin level pin, or null
  * @param {Function} [opts.start] () => the number's answered questions, or null (policy/levels.js applySendingPolicy)
  * @param {string} [opts.paused] why the platform paused the number, if it did
+ * @param {object} [opts.quota]  the running engine's quota (its 30s cache), else one is built from the rows
  * @param {Date}   [opts.now]
  */
-export function channelUsage(channel, { db, config, sending = {}, pin = null, start = null, paused = null, now = new Date() }) {
-    const quota = applySendingPolicy(new DailyQuota(db, config), sending, pin, start);
-    quota.zone = () => channel.timezone || null;
+export function channelUsage(channel, { db, config, sending = {}, pin = null, start = null, paused = null, quota: live = null, now = new Date() }) {
+    // A running number's own quota, as policy/channelOps.js quotaLeft does: the page polls this every 30s.
+    const quota = live ?? applySendingPolicy(new DailyQuota(db, config), sending, pin, start);
+    if (!live) quota.zone = () => channel.timezone || null;
     const status = quota.status(now);
     // A QR number's 0 is a real "none today"; the sandbox's 0 is "no limit".
     let todayLimit = status.enabled && (quota.qr || status.limit > 0) ? status.limit : null;
