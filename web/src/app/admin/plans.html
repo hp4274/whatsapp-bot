@@ -89,10 +89,26 @@
                 <span>{{ f.label }}</span>
                 <b>
                   @if (p.tenantLimits[f.key]) {
-                    {{ p.tenantLimits[f.key] }}
+                    {{ p.tenantLimits[f.key].toLocaleString() }}
                   } @else {
                     <i class="ti ti-infinity" aria-hidden="true"></i
                     ><span class="sr-only">No limit</span>
+                  }
+                </b>
+              </li>
+            }
+            <!-- Quotas: null is unlimited, 0 is none (not "no limit" as for the tenant limits above). -->
+            @for (f of quotaFields; track f.key) {
+              <li>
+                <span>{{ f.label }}</span>
+                <b>
+                  @if (p.limits[f.key] === null) {
+                    <i class="ti ti-infinity" aria-hidden="true"></i
+                    ><span class="sr-only">No limit</span>
+                  } @else if (p.limits[f.key] === 0) {
+                    None
+                  } @else {
+                    {{ p.limits[f.key]?.toLocaleString() }}
                   }
                 </b>
               </li>
@@ -245,7 +261,7 @@
                     <span class="muted">{{ formatPrice(s) }}</span>
                   </td>
                   <td>
-                    <span class="s-pill {{ stateTone(s.state) }}">{{ s.state }}</span>
+                    <span class="s-pill {{ stateTone(s.state) }}">{{ sentence(s.state) }}</span>
                   </td>
                   <td>
                     {{ when(s) }}
@@ -258,7 +274,7 @@
                   </td>
                 } @else {
                   <td class="muted">No plan</td>
-                  <td><span class="s-pill tone-mute">none</span></td>
+                  <td><span class="s-pill tone-mute">None</span></td>
                   <td class="muted">Custom setup, never gated</td>
                 }
                 <td>
@@ -499,22 +515,47 @@
           </div>
         }
       </div>
+      <h4>Quotas <span class="muted">empty = unlimited, 0 = none</span></h4>
+      <div class="ed-grid">
+        @for (f of quotaFields; track f.key) {
+          <div class="s-field">
+            <label [for]="'pq-' + f.key">{{ f.label }}</label>
+            <input
+              [id]="'pq-' + f.key"
+              type="number"
+              min="0"
+              step="1"
+              placeholder="Unlimited"
+              [value]="e.plan.limits[f.key] ?? ''"
+              (input)="patchQuota(f.key, $any($event.target).value)"
+            />
+          </div>
+        }
+      </div>
       <div class="switches">
-        <label class="switch">
-          <input
-            type="checkbox"
-            [checked]="e.plan.tenantLimits.allowWhatsappWeb"
-            (change)="patchLimit('allowWhatsappWeb', checked($event))"
-          />
+        <label class="opt">
           <span>WhatsApp QR</span>
+          <button
+            type="button"
+            role="switch"
+            class="switch"
+            [attr.aria-checked]="e.plan.tenantLimits.allowWhatsappWeb"
+            (click)="patchLimit('allowWhatsappWeb', !e.plan.tenantLimits.allowWhatsappWeb)"
+          >
+            <span class="thumb"></span>
+          </button>
         </label>
-        <label class="switch">
-          <input
-            type="checkbox"
-            [checked]="e.plan.active"
-            (change)="patch({ active: checked($event) })"
-          />
+        <label class="opt">
           <span>Active <small class="muted">(off = archived, existing subscribers keep it)</small></span>
+          <button
+            type="button"
+            role="switch"
+            class="switch"
+            [attr.aria-checked]="e.plan.active"
+            (click)="patch({ active: !e.plan.active })"
+          >
+            <span class="thumb"></span>
+          </button>
         </label>
       </div>
     </section>

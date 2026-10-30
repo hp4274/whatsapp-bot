@@ -3,7 +3,7 @@
 
 @include s.all;
 
-:host { display: grid; gap: var(--space-xl); align-content: start; }
+:host { @include s.fit-grid; display: grid; gap: var(--space-xl); align-content: start; }
 
 .s-head { margin-bottom: 0; }
 

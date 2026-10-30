@@ -71,7 +71,7 @@
                 <td>
                   <span class="strong">{{ row.tenantName }}</span>
                   @if (row.tenantStatus !== 'active') {
-                    <span class="s-pill tone-warn">{{ row.tenantStatus }}</span>
+                    <span class="s-pill tone-warn">{{ sentence(row.tenantStatus) }}</span>
                   }
                 </td>
                 <td>
@@ -312,10 +312,12 @@
             <i class="ti ti-pinned-off" aria-hidden="true"></i>Clear pin (back to L{{ lv.earned }})
           </button>
         }
-        <!-- The wait after a fresh link; a ban's rest is not lifted by this. Audited. -->
-        <button type="button" class="btn sm clear-pin" (click)="endLinkWait(p.row)">
-          <i class="ti ti-hourglass-off" aria-hidden="true"></i>End new-link wait
-        </button>
+        <!-- The wait after a fresh link; a ban's rest is not lifted by this. Audited. Only offered while there is one. -->
+        @if (lv.linkWaitUntil) {
+          <button type="button" class="btn sm clear-pin" (click)="endLinkWait(p.row)">
+            <i class="ti ti-hourglass-off" aria-hidden="true"></i>End new-link wait
+          </button>
+        }
       } @else if (p.kind === 'brakes' && p.row.level; as lv) {
         <span class="badge tone-bad"><i class="ti ti-shield-off" aria-hidden="true"></i></span>
         <h3 id="dlg-title">Brakes for {{ label(p.row) }}</h3>

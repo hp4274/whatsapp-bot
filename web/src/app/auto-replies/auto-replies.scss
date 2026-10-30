@@ -10,6 +10,7 @@
 
 .page {
   display: grid;
+  @include s.fit-grid;
   gap: var(--space-xl);
 }
 

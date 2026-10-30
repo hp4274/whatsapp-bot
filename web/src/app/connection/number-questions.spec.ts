@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
 
 import { ChannelsApi, type NumberStart } from '../core/api';
+import { Store } from '../core/store';
 import { NumberQuestions } from './number-questions';
 
 const INFO: NumberStart = {
@@ -26,7 +27,11 @@ function setup(info: NumberStart = INFO, popup = false) {
   proto.close ??= function (this: HTMLDialogElement) {
     this.removeAttribute('open');
   };
-  TestBed.configureTestingModule({ providers: [{ provide: ChannelsApi, useValue: api }] });
+  TestBed.configureTestingModule({ providers: [
+      { provide: ChannelsApi, useValue: api },
+      // Live reloads are not under test here.
+      { provide: Store, useValue: { watch: () => undefined } },
+    ] });
   const fixture = TestBed.createComponent(NumberQuestions);
   fixture.componentRef.setInput('channelId', 4);
   if (popup) fixture.componentRef.setInput('popup', true);

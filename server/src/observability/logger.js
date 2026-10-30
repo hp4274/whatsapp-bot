@@ -15,6 +15,9 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import crypto from 'node:crypto';
+import { format } from 'node:util';
+
+import { remember } from './logBuffer.js';
 
 const LEVELS = Object.freeze({ debug: 10, info: 20, warn: 30, error: 40 });
 const als = new AsyncLocalStorage();
@@ -97,7 +100,42 @@ function write(level, context, message, fields) {
         ...context,
         ...scrub(fields ?? {}),
     };
+    remember(line); // the admin's Backend logs view (logBuffer.js): the same scrubbed line, nothing more
     sink(level, JSON.stringify(line));
+}
+
+/** Free text that names a credential ("token=abc", "password: x") keeps the name and loses the value. */
+const SECRET_IN_TEXT = /\b(token|access_token|password|passwd|secret|authorization|cookie|api[-_]?key)(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;&]+)/gi;
+/** Query parameters that carry a credential (EventSource puts the session token in the URL). */
+const SECRET_PARAM = /([?&](?:token|access_token|api[-_]?key|key|signature|sig|secret|password)=)[^&#]*/gi;
+
+/** A request path fit for a log line: credential-bearing query values redacted. */
+export function safePath(path) {
+    return String(path ?? '').replace(SECRET_PARAM, `$1${REDACTED}`);
+}
+
+let consoleCaptured = false;
+/**
+ * Copy console.warn / console.error into the Backend logs buffer as well (they still print as before). Older code
+ * reports sweep failures that way, and the admin needs to see them. Masked like any line: phone numbers cut to the
+ * last 4 digits, credential-looking values redacted. Idempotent.
+ */
+export function captureConsole() {
+    if (consoleCaptured) return;
+    consoleCaptured = true;
+    for (const [method, level] of [['warn', 'warn'], ['error', 'error']]) {
+        const original = console[method];
+        console[method] = function captured(...args) {
+            original.apply(this, args);
+            try {
+                const text = maskText(format(...args)).replace(SECRET_IN_TEXT, `$1$2${REDACTED}`).slice(0, 4000);
+                const component = /^\[([\w-]+)\]/.exec(text)?.[1];
+                remember({ level, time: new Date().toISOString(), message: text, source: 'console', ...(component ? { component } : {}), ...als.getStore() });
+            } catch {
+                // logging must never throw into the caller
+            }
+        };
+    }
 }
 
 /**
@@ -136,6 +174,14 @@ export function runWithContext(fields, fn) {
 }
 
 /**
+ * Run `fn` in a context of its own, carrying only `fields`: for long-lived work (a number's send loop) that may be
+ * started from inside some request but must not log or audit under that request's id for the rest of its life.
+ */
+export function runDetached(fields, fn) {
+    return als.run({ ...fields }, fn);
+}
+
+/**
  * Express middleware: assign a request id (honouring an inbound X-Request-Id
  * so a proxy's id survives), echo it back, open the log context and write one
  * access line on finish. Mount it before anything that logs.
@@ -149,7 +195,7 @@ export function requestContext() {
         res.on('finish', () => {
             // tenantId / channelId are bound later by the dispatcher, so read
             // them now rather than when the request started.
-            const path = req.originalUrl ?? req.url;
+            const path = safePath(req.originalUrl ?? req.url);
             // A served file (chunk, font, icon) that worked is noise at info: one page load is dozens of them.
             const asset = req.method === 'GET' && res.statusCode < 400 && /\.[a-z0-9]{2,5}(\?|$)/i.test(path);
             logger[asset ? 'debug' : 'info']('request', {
@@ -158,6 +204,9 @@ export function requestContext() {
                 status: res.statusCode,
                 durationMs: Number(process.hrtime.bigint() - started) / 1e6,
                 tenantId: req.tenantId ?? req.user?.tenantId,
+                // Explicit: 'finish' may fire outside this request's async context, and the admin's
+                // "backend logs for this request" link filters on it.
+                requestId,
             });
         });
         als.run({ requestId }, next);

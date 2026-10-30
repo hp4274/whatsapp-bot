@@ -97,5 +97,7 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
 }
 @media (max-width: 600px) {
   .y, .plot { height: 190px; }
+  // Six dates don't fit a phone's plot: keep the ends and every other one, and never the one crowding the end.
+  .xl span:not(:first-child, :last-child):nth-child(even), .xl span:nth-last-child(2) { display: none; }
   .tip { min-width: 128px; padding: 8px 10px; }
 }

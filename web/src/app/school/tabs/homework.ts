@@ -1,4 +1,4 @@
-import { DatePipe } from '@angular/common';
+import { DatePipe, TitleCasePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -23,7 +23,7 @@ import type { ClassInfo, Homework, SchoolArea, SchoolMe } from '../school-api';
  */
 @Component({
   selector: 'school-homework',
-  imports: [FormsModule, DatePipe],
+  imports: [FormsModule, DatePipe, TitleCasePipe],
   templateUrl: './homework.html',
   styleUrl: './homework.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

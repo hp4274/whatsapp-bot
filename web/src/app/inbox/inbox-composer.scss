@@ -1,7 +1,7 @@
 @use './shared' as *;
 
 :host {
-  position: relative; display: grid; gap: 8px; padding: 10px var(--space-lg) 14px;
+  position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px var(--space-lg) 14px;
   background: var(--surface-card); border-top: 1px solid var(--border-color);
 }
 @include base;

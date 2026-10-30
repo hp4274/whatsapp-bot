@@ -13,9 +13,11 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable } from 'rxjs';
 
 import { transportMeta } from '../channels/channel-meta';
+import { AdminFeed } from './admin-feed';
 import { type PlanRow, zeroCapLabel } from './ops-api';
 import { ChannelsOpsApi, type NumberHealth, type NumberLevel } from './channels-ops-api';
 import { ShadowReview } from './shadow-review';
+import { sentenceCase } from './text';
 
 /** Short forms of the tenant's 2 start answers (connection/number-questions.ts), by index 0-3. */
 const START_AGE: readonly string[] = ['under 1 month', '1–6 months', '6–24 months', '2+ years'];
@@ -44,6 +46,7 @@ const BRAKE_NAMES: Readonly<Record<string, string>> = {
 /** Plain names for level-change reasons (db.levelEvents). */
 const LEVEL_REASONS: Readonly<Record<string, string>> = {
   promote: 'Promoted',
+  start: 'Start level',
   demote_delivery: 'Demoted: low delivery',
   demote_stuck: 'Demoted: stuck messages',
   demote_replies: 'Demoted: few replies',
@@ -74,6 +77,8 @@ export class ChannelsOps {
   private readonly destroyRef = inject(DestroyRef);
   private readonly dialogRef = viewChild<ElementRef<HTMLDialogElement>>('dialog');
 
+  /** Pill labels are sentence case: "past_due" reads "Past due". */
+  protected readonly sentence = sentenceCase;
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
   protected readonly rows = signal<readonly NumberHealth[]>([]);
@@ -125,6 +130,8 @@ export class ChannelsOps {
 
   constructor() {
     this.load();
+    // A number connecting, dropping, pausing or changing level anywhere shows here as it happens.
+    inject(AdminFeed).watch(['channels', 'tenants'], () => this.load(true), 600);
     // The native <dialog> gives focus trapping and Escape for free; it just needs opening.
     effect(() => {
       const dialog = this.dialogRef()?.nativeElement;
@@ -134,9 +141,12 @@ export class ChannelsOps {
     });
   }
 
-  load(): void {
-    this.loading.set(true);
-    this.error.set(null);
+  /** `quiet`: a live refresh, which keeps the table on screen instead of flashing the loader. */
+  load(quiet = false): void {
+    if (!quiet) {
+      this.loading.set(true);
+      this.error.set(null);
+    }
     this.api
       .health()
       .pipe(takeUntilDestroyed(this.destroyRef))

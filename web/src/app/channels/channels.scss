@@ -8,6 +8,7 @@
 
 :host {
   display: grid;
+  @include s.fit-grid;
   gap: var(--space-xl);
   align-content: start;
   min-width: 0;
@@ -68,6 +69,7 @@
 /* Add form ----------------------------------------------------------------- */
 .new {
   display: grid;
+  @include s.fit-grid;
   gap: var(--space-lg);
   padding: var(--space-xl);
   animation: s-pop 280ms var(--ease) both;

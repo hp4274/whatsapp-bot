@@ -124,7 +124,7 @@
   .box { width: 16px; height: 16px; border-radius: 4px; flex: none; }
 }
 
-.s-empty .btn { margin-top: var(--space-sm); text-decoration: none; }
+.s-empty .btn { max-width: 100%; margin-top: var(--space-sm); white-space: normal; text-align: center; text-decoration: none; }
 
 .foot {
   align-items: center;

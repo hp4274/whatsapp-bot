@@ -3,7 +3,7 @@
   quiet-time windows), what is braking the number, trust tips for a new QR
   number, the ban causes, then blocks and reports with who and when.
 -->
-<section #card class="card sh" aria-labelledby="sh-title" (keydown.escape)="close()">
+<section #card class="sh" aria-labelledby="sh-title" (keydown.escape)="close()">
   <header class="card-head">
     <div>
       <h3 id="sh-title">Number health</h3>
@@ -290,8 +290,9 @@
             </p>
           }
           <p class="fine muted">
-            WhatsApp does not tell senders about blocks. A message still at one tick after 24 hours is
-            counted as a possible block, so a phone that was switched off can show up here.
+            WhatsApp does not tell senders about blocks. A message still at one tick 48 hours after
+            sending counts as a possible block when the person stayed silent and others got their
+            messages, so a phone switched off for days can still show up here.
           </p>
         </div>
       }

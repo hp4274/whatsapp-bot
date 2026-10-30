@@ -12,7 +12,8 @@
  *
  * Definitions (outbound messages only):
  *   total      every outbound row created in the range, whatever its status
- *   attempted  everything that left the queue: status NOT IN (QUEUED, SENDING)
+ *   attempted  everything that left the queue: status NOT IN (QUEUED, SENDING),
+ *              less NOT_ON_WHATSAPP and CANCELLED, which never went out
  *   sent       attempted and not FAILED: SENT + DELIVERED + READ + SANDBOX
  *   delivered  DELIVERED + READ (a read receipt implies delivery)
  *   read       READ
@@ -91,8 +92,9 @@ function add(counts, status, n) {
         counts.pending += n;
         return;
     }
-    // Never attempted: the number was checked first and has no WhatsApp account.
-    if (status === 'NOT_ON_WHATSAPP') return;
+    // Never attempted: the number was checked first and has no WhatsApp account,
+    // or the row was dropped before it went (a stop, an opt-out, the quota).
+    if (status === 'NOT_ON_WHATSAPP' || status === 'CANCELLED') return;
     counts.attempted += n;
     if (status === 'FAILED') counts.failed += n;
     else counts.sent += n;

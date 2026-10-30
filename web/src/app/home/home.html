@@ -51,6 +51,9 @@
   </section>
 }
 
+<!-- Every plan sees its quota here; /billing/* (Analytics) needs a service the smallest plan lacks. -->
+<app-plan-usage class="s-enter" style="--i: 2" />
+
 @if (showCampaigns()) {
   @if (error(); as message) {
     <p class="s-banner" role="alert">

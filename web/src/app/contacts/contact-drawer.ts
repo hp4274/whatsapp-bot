@@ -12,9 +12,10 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
-import { Contact2, ContactsApi, TimelineEntry } from '../core/api';
+import { Contact2, ContactsApi, OptInProof, TimelineEntry } from '../core/api';
 import { Store } from '../core/store';
 import { absoluteTime, displayPhone, hue, initials, relativeTime, splitTags } from './contact-util';
 
@@ -22,6 +23,15 @@ interface FieldRow {
   key: string;
   value: string;
 }
+
+/** How an opt-in happened, as the proof line words it ("Opted in via import on ..."). */
+const OPT_IN_HOW: Readonly<Record<string, string>> = {
+  manual: 'by your team',
+  import: 'via import',
+  api: 'via the API',
+  merge: 'via a merge',
+  workflow: 'by a workflow',
+};
 
 /**
  * Everything about one person: profile, tags, fields, consent and history.
@@ -31,7 +41,7 @@ interface FieldRow {
  */
 @Component({
   selector: 'app-contact-drawer',
-  imports: [FormsModule],
+  imports: [DatePipe, FormsModule],
   templateUrl: './contact-drawer.html',
   styleUrl: './contact-drawer.scss',
   host: { '(document:keydown.escape)': 'onEscape()' },
@@ -279,6 +289,11 @@ export class ContactDrawer {
     });
   }
 
+  /** A keyword is quoted as they sent it; any other source is named, its wording shown after. */
+  protected optInHow(p: OptInProof) {
+    return p.source === 'keyword' ? `by keyword "${p.text}"` : (OPT_IN_HOW[p.source] ?? `via ${p.source}`);
+  }
+
   // -------------------------------------------------------------- delete --
   protected remove() {
     const c = this.contact();
@@ -306,6 +321,11 @@ export class ContactDrawer {
     if (e.kind === 'button_click') return 'Tapped a button';
     if (e.direction === 'inbound') return e.kind === 'media' ? 'Sent media' : 'Replied';
     return e.kind === 'campaign' ? 'Campaign message' : `${e.kind.replace(/_/g, ' ')} message`;
+  }
+
+  /** Sentence case for a status code ("SANDBOX" → "Sandbox"); pills no longer title-case their text. */
+  protected statusLabel(status: string) {
+    return status.charAt(0) + status.slice(1).toLowerCase();
   }
 
   protected statusTone(status: string | null) {

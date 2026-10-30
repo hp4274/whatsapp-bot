@@ -108,6 +108,8 @@
 
 // A line of explanation under a checkbox, lined up with its label text.
 .note { margin: -8px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
+// A checkbox and its sentence: the sentence wraps beside the box, never under it.
+.check { flex-wrap: nowrap; align-items: flex-start; input { flex: none; margin-top: 2px; } }
 .check.off { color: var(--text-muted); cursor: not-allowed; }
 
 .small { margin: 0; font-size: 12.5px; }

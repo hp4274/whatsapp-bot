@@ -143,17 +143,18 @@
                     <div class="q-top">
                       <h3>{{ item.question }}</h3>
                       @if (canWrite()) {
-                        <label class="switch" [title]="item.isActive ? 'Live' : 'Paused'">
-                          <input
-                            type="checkbox"
-                            role="switch"
-                            [checked]="item.isActive"
-                            [disabled]="busy()"
-                            (change)="toggle(item)"
-                            [attr.aria-label]="'Answer live: ' + item.question"
-                          />
-                          <span></span>
-                        </label>
+                        <button
+                          type="button"
+                          role="switch"
+                          class="switch"
+                          [title]="item.isActive ? 'Live' : 'Paused'"
+                          [attr.aria-checked]="item.isActive"
+                          [disabled]="busy()"
+                          (click)="toggle(item)"
+                          [attr.aria-label]="'Answer live: ' + item.question"
+                        >
+                          <span class="thumb"></span>
+                        </button>
                       } @else {
                         <span
                           class="s-pill"

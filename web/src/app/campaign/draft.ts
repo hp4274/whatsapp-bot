@@ -73,6 +73,7 @@ export interface SendResult extends Pick<
   | 'skippedOptOut'
   | 'skippedMuted'
   | 'skippedFrequency'
+  | 'skippedNotOnWhatsapp'
   | 'skippedNoOptIn'
   | 'pacingClamped'
   | 'policyNotes'

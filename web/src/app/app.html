@@ -193,6 +193,11 @@
 
       <!-- The page. The only element that scrolls. -->
       <main class="page" id="main-content">
+        @if (subscriptionEnded(); as blocked) {
+          <p class="blocked-banner" role="alert">
+            <i class="ti ti-lock" aria-hidden="true"></i>{{ blocked }}
+          </p>
+        }
         <router-outlet />
       </main>
     </div>

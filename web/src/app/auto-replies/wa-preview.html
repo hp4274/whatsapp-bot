@@ -63,13 +63,15 @@
 
 @if (showToggle() && !textMenu()) {
   <label class="webview">
-    <input
-      type="checkbox"
+    <button
+      type="button"
       role="switch"
-      [checked]="fallback()"
-      (change)="fallback.set(!fallback())"
-    />
-    <span class="track" aria-hidden="true"><span class="thumb"></span></span>
-    WhatsApp Web view <small>(numbered text)</small>
+      class="switch"
+      [attr.aria-checked]="fallback()"
+      (click)="fallback.set(!fallback())"
+    >
+      <span class="thumb"></span>
+    </button>
+    <span>WhatsApp Web view <small>(numbered text)</small></span>
   </label>
 }

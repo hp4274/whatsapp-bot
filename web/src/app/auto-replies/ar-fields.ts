@@ -17,28 +17,34 @@ import { ArToasts, AutoRepliesApi, Media, VARIABLES } from './auto-replies.api';
 let seq = 0;
 
 /**
- * Labelled switch. A native checkbox with `role="switch"` underneath keeps
- * keyboard and screen-reader behaviour; the track is Kardlyz's 40x24 toggle,
- * brand orange when on.
+ * Labelled switch: the app's one switch (`s.switch` from the shared kit), so it matches every other on/off
+ * control. A real button with `role="switch"` keeps keyboard and screen-reader behaviour; the wrapping label
+ * makes the text clickable too.
  */
 @Component({
   selector: 'ar-switch',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: ` <label class="sw" [class.compact]="!label()">
-    <input
-      type="checkbox"
+  template: ` <label class="sw">
+    <button
+      type="button"
       role="switch"
-      [checked]="checked()"
+      class="switch"
+      [attr.aria-checked]="checked()"
       [disabled]="disabled()"
       [attr.aria-label]="label() ? null : ariaLabel()"
-      (change)="checked.set(!checked())"
-    />
-    <span class="track" aria-hidden="true"><span class="thumb"></span></span>
+      (click)="checked.set(!checked())"
+    >
+      <span class="thumb"></span>
+    </button>
     @if (label()) {
       <span>{{ label() }}</span>
     }
   </label>`,
   styles: `
+    @use '../school/school-shared' as s;
+
+    @include s.switch;
+
     :host {
       display: inline-flex;
     }
@@ -51,45 +57,6 @@ let seq = 0;
       color: var(--text-strong);
       cursor: pointer;
       user-select: none;
-    }
-    input {
-      position: absolute;
-      opacity: 0;
-      width: 1px;
-      height: 1px;
-    }
-    .track {
-      position: relative;
-      flex: none;
-      width: 40px;
-      height: 24px;
-      border-radius: 999px;
-      background: color-mix(in srgb, var(--text-muted) 35%, transparent);
-      transition: background var(--fast) var(--ease);
-    }
-    .thumb {
-      position: absolute;
-      top: 3px;
-      left: 3px;
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      background: #fff;
-      transition: transform var(--fast) var(--ease);
-    }
-    input:checked + .track {
-      background: var(--primary);
-    }
-    input:checked + .track .thumb {
-      transform: translateX(16px);
-    }
-    input:focus-visible + .track {
-      outline: 2px solid var(--primary);
-      outline-offset: 2px;
-    }
-    input:disabled + .track {
-      opacity: 0.6;
-      cursor: not-allowed;
     }
   `,
 })

@@ -376,6 +376,7 @@ export class DailyQuota {
                 linkedAt: tables.skipLinkWait ? '' : this.config.linkedAt, now, dayStart: start,
                 levels, brakes: tables.brakes, cap: caps.length ? Math.min(...caps) : null, pin: pinVoid ? null : pin.level,
                 start: startVoid ? null : answered.level, startedAt: startVoid ? '' : answered.at, state,
+                startSkipped: !startVoid && answered.answers?.skipped === true,
             });
             // The admin's brakes-off (policy/channelOps.js): voided like the pin by a ban after it was set.
             // WhatsApp's own restriction stays: sending through it only collects failures and bans.

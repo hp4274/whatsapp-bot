@@ -6,6 +6,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { TitleCasePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
 import { TenancyApi } from '../core/api';
@@ -67,7 +68,7 @@ const blankDraft = (): TicketDraft => ({
  */
 @Component({
   selector: 'app-tickets',
-  imports: [FormsModule, Tilt],
+  imports: [FormsModule, TitleCasePipe, Tilt],
   templateUrl: './tickets.html',
   styleUrl: './tickets.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

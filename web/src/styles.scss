@@ -60,7 +60,8 @@
   --text-color: #1a1a20;
   --text-muted: #64646f;
   --text-strong: #0d0d11;
-  --hint: #97979f;
+  // 4.9:1 on a card, 4.6:1 on the page: it labels table headers and metadata, so it must read (was 2.9:1).
+  --hint: #6f6f79;
 
   // ----------------------------------------------------------- lines/inputs
   --border-color: rgba(16, 16, 24, 0.09);
@@ -105,7 +106,7 @@
   --text-color: #dfe5f2;
   --text-muted: #94a0bd;
   --text-strong: #f2f6ff;
-  --hint: #6d7893;
+  --hint: #7d88a4;
 
   --border-color: rgba(148, 178, 235, 0.13);
   --border-hover: rgba(148, 178, 235, 0.28);
@@ -121,6 +122,7 @@
   --warning: #fbbf24;
   --danger: #f87171;
   --danger-text: #f87171;
+  --overlay: rgba(0, 0, 0, 0.6);
 }
 
 // Legacy names -> Kardlyz tokens. Declared on `:root` only: each one is a
@@ -133,9 +135,15 @@
   --border: var(--border-color);
   --text: var(--text-color);
 
-  --primary-hover: #d2680f;
+  // A deeper green for a hovered fill (the orange here was left over from Kardlyz).
+  --primary-hover: color-mix(in srgb, var(--primary) 85%, var(--brand-ink));
   --primary-soft: var(--primary-tint);
-  --on-primary: #ffffff;
+  /// Text and icons on a --primary (green) fill: ink, since white on WhatsApp green is 1.9:1.
+  --on-primary: var(--brand-ink);
+  /// Text on a dark, danger or violet fill, and a switch's knob.
+  --on-fill: #ffffff;
+  /// The backdrop behind a drawer or a modal; deeper in dark mode, where a light veil would glow.
+  --overlay: rgba(16, 16, 24, 0.45);
 
   --accent-fill: var(--brand-violet);
   --accent-soft: color-mix(in srgb, var(--brand-violet) 12%, transparent);
@@ -325,12 +333,13 @@ input[type='radio'] {
 
     &:hover:not(:disabled) {
       background: var(--primary);
-      color: #fff;
+      // Ink, not white: white on WhatsApp green is 1.9:1, ink is about 11:1.
+      color: var(--brand-ink);
     }
   }
 
   &.danger {
-    border-color: rgba(220, 38, 38, 0.35);
+    border-color: color-mix(in srgb, var(--danger) 35%, transparent);
     color: var(--danger-text);
 
     &:hover:not(:disabled) {
@@ -389,8 +398,10 @@ input[type='radio'] {
   50% { opacity: 0.5; }
 }
 
+// `backwards`, not `both`: a held end frame keeps the element a transformed box for good, which traps any
+// position: fixed drawer inside it (the Sending safety card's) and overrides hover transforms.
 .enter {
-  animation: fade-in-up var(--base) var(--ease) both;
+  animation: fade-in-up var(--base) var(--ease) backwards;
 }
 
 .live-dot {

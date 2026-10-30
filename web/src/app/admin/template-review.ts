@@ -10,6 +10,7 @@ import {
   StarterCategory,
   TemplateReviewApi,
 } from './template-review-api';
+import { sentenceCase } from './text';
 
 type Tab = 'queue' | 'library';
 type Decision = 'approve' | 'reject';
@@ -60,6 +61,8 @@ export class TemplateReview {
   private readonly destroyRef = inject(DestroyRef);
   private flashTimer?: ReturnType<typeof setTimeout>;
 
+  /** Pill labels are sentence case: "past_due" reads "Past due". */
+  protected readonly sentence = sentenceCase;
   protected readonly uid = `tr${nextId++}`;
   protected readonly tabs = TABS;
   protected readonly categories = STARTER_CATEGORIES;

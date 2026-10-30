@@ -43,6 +43,7 @@
 }
 
 .mono { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.when { font-size: 13px; white-space: nowrap; }
 .c { text-align: center; }
 
 .err {
@@ -64,6 +65,47 @@
 }
 
 .yes { color: var(--success); font-size: 18px; }
+
+/* A phone: search and status filter take the full width, and each recipient is a stacked card. */
+@media (max-width: 720px) {
+  .head { margin-bottom: var(--space-md); }
+  .filters {
+    width: 100%;
+    select, input { flex: 1 1 100%; width: 100%; min-width: 0; }
+  }
+  .s-table {
+    max-height: none;
+    overflow: visible;
+    margin: 0;
+    padding: 0;
+
+    table, tbody { display: block; min-width: 0; }
+    thead { display: none; }
+    tbody tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px var(--space-md);
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border-color);
+      &:last-child { border-bottom: 0; }
+      &:hover { background: none; }
+    }
+    td { display: block; padding: 0; border: 0; white-space: normal; }
+    td[data-label] {
+      grid-column: 1 / -1;
+      display: flex;
+      justify-content: flex-end;
+      align-items: baseline;
+      gap: 6px;
+      text-align: right;
+      &::before { margin-right: auto; padding-right: var(--space-md); content: attr(data-label); flex: none; color: var(--hint); font-size: 12px; text-align: left; }
+    }
+    .ph { grid-row: 1; grid-column: 1; align-self: center; font-size: 13px; }
+    .st { grid-row: 1; grid-column: 2; }
+    .err { max-width: none; }
+    tr.none { display: block; }
+  }
+}
 
 .more {
   display: flex;

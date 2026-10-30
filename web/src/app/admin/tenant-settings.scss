@@ -5,6 +5,8 @@
 @include s.buttons;
 @include s.tones;
 @include s.pill;
+@include s.switch;
+@include s.drawer-keyframes;
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .muted { color: var(--text-muted); }
@@ -12,33 +14,23 @@
 .compact { margin: 0; font-size: 12.5px; }
 .msg { flex: 1; min-width: 0; }
 
-.backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  background: rgba(16, 16, 24, 0.45);
-  backdrop-filter: blur(4px);
-  animation: s-pop 200ms var(--ease) both;
-}
+.backdrop { @include s.scrim; }
 
+// Same slide as the kit drawer, but its own rows: a fixed header, tabs and footer around a scrolling body.
 .drawer {
+  @include s.fit-grid;
   position: fixed;
   top: 0;
   right: 0;
   bottom: 0;
-  z-index: 41;
+  z-index: 71;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-  width: min(520px, 100vw);
+  width: min(560px, 100vw);
   background: var(--surface-card);
   border-left: 1px solid var(--border-color);
   box-shadow: var(--shadow-lift);
-  animation: drawer-in 320ms var(--ease) both;
-}
-
-@keyframes drawer-in {
-  from { transform: translateX(40px); opacity: 0; }
-  to { transform: none; opacity: 1; }
+  animation: s-drawer-in var(--base) var(--ease) both;
 }
 
 header,
@@ -51,7 +43,7 @@ footer {
   border-bottom: 1px solid var(--border-color);
 }
 footer { justify-content: flex-end; border-top: 1px solid var(--border-color); border-bottom: 0; }
-header { align-items: flex-start; padding-block: 20px; }
+header { align-items: flex-start; padding-block: 20px; > div { min-width: 0; } > .btn { flex: none; } }
 h3 { margin: 4px 0 6px; font-size: 20px; font-weight: 500; line-height: 1.2; letter-spacing: -0.4px; }
 h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); }
 
@@ -61,19 +53,18 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
   align-self: start;
   gap: 2px;
   padding: 3px;
-  // Short labels keep all five on one row; equal widths keep them on a grid.
+  // Six tabs fit one row at the drawer's 560px; on a phone they wrap to a 3 x 2 grid (below), never off the edge.
   margin: var(--space-lg) var(--space-xl) 0;
   border-radius: 12px;
   background: var(--surface-sunken);
 
   button {
     display: inline-flex;
-    flex: 1 1 0;
-    min-width: 0;
+    flex: 1 0 auto;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    padding: 8px 6px;
+    gap: 5px;
+    padding: 8px 8px;
     border: 0;
     border-radius: 9px;
     background: transparent;
@@ -90,6 +81,7 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
 }
 
 .settings-body {
+  @include s.fit-grid;
   display: grid;
   align-content: start;
   gap: var(--space-xl);
@@ -99,41 +91,40 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
   // One rhythm: 12px inside a section, a hairline and 24px between sections,
   // and the description tucked under its heading rather than floating between.
   gap: 0;
-  section { display: grid; gap: var(--space-md); }
+  section { @include s.fit-grid; display: grid; gap: var(--space-md); }
   section + section { margin-top: var(--space-xl); padding-top: var(--space-xl); border-top: 1px solid var(--border-color); }
   section > h4 + .compact { margin-top: -6px; line-height: 1.55; }
 }
 
-// Options read as one list: a single hairline card with rows split by hairlines.
-// The checkbox carries the state, so rows no longer flood orange when on.
+// Options read as one list: a single hairline card, label left and the switch right, rows split by hairlines.
 .switches {
   display: grid;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  > .switch + .switch { border-top: 1px solid var(--border-color); }
+  > .opt + .opt { border-top: 1px solid var(--border-color); }
 }
 
-.switch {
+.opt {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  min-height: 46px;
+  min-height: 48px;
   padding: 11px 14px;
   line-height: 1.4;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-strong);
-  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
-
-  input { width: 16px; height: 16px; flex: 0 0 16px; }
   cursor: pointer;
-  &:hover { background: var(--surface-sunken); }
-}
-// The lone switch in a section head stays a bare control.
-.section-head .switch { min-height: 0; padding: 0; &:hover { background: none; } }
+  transition: background var(--fast) var(--ease);
 
-.section-head { display: flex; align-items: center; justify-content: space-between; h4 { margin: 0; } }
+  &:hover { background: var(--surface-sunken); }
+  // The lone switch in a section head stays a bare control.
+  &.bare { min-height: 0; padding: 0; &:hover { background: none; } }
+}
+
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; h4 { margin: 0; } }
 
 .safety-group {
   display: grid;
@@ -146,7 +137,7 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
   legend { padding: 0 6px; font-size: 12px; font-weight: 500; color: var(--text-muted); }
 }
 
-.safety-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-lg) var(--space-md); }
+.safety-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: var(--space-lg) var(--space-md); }
 
 // Unit sits inside the input, so every input in the grid is the same width
 // whatever its unit word is.
@@ -203,7 +194,17 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
 .access-confirm { animation: s-pop 200ms var(--ease) both; }
 
 @media (max-width: 760px) {
-  .safety-fields { grid-template-columns: 1fr; }
+  .safety-fields { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 560px) {
+  header, footer { padding-inline: var(--space-lg); }
+  .tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-inline: var(--space-lg);
+  }
+  .settings-body { padding: var(--space-lg); }
 }
 
 @media (prefers-reduced-motion: reduce) {

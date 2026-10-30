@@ -12,7 +12,7 @@
 
 import express from 'express';
 
-import { buildContacts, cleanCountryCode } from '../campaign/importer.js';
+import { buildContacts, cleanCountryCode, withFallbacks } from '../campaign/importer.js';
 import { SafetyError } from '../campaign/safety.js';
 import { InteractiveError } from '../messaging/interactive.js';
 import { contactContext, personalize } from '../protocol.js';
@@ -33,13 +33,85 @@ export function createCampaignRouter({ db, state }) {
         replies: () => state.interactions ?? null,
     });
     state.campaigns = campaigns;
+    // The store finished a run (or booked a spread campaign's next day) on its own: open pages and the audit log
+    // hear it now, not when someone next opens the campaign.
+    campaigns.onSettled = (campaign, stats) => {
+        announce('campaignUpdated', campaign);
+        state.broadcast?.({ type: 'changed', topic: 'campaigns' });
+        state.tenancy?.audit({
+            // The engine closed it, not whichever request happened to read the stats: no request id.
+            tenantId: db.tenantId ?? null, userId: null, requestId: null,
+            action: campaign.status === 'done' ? 'campaign.done' : 'campaign.day_done', target: campaign.id,
+            detail: { name: campaign.name, sent: stats.sent ?? 0, failed: stats.failed ?? 0, total: stats.total ?? 0 },
+        });
+    };
+    // The last message of a run left the queue: close the record at once. The sweeper (`finishedCampaigns`) is
+    // the fallback for runs that ended while the process was down.
+    let settleTimer = null;
+    const settleSoon = () => {
+        const key = state.manager?.campaignId;
+        const id = /^camp-(\d+)$/.exec(key ?? '')?.[1];
+        // Not gated on inFlight: the last `status` event fires inside that very send. stats() reads the rows, so it
+        // only closes the run once none is QUEUED or SENDING.
+        if (!id || state.manager.queue.pending || settleTimer) return;
+        settleTimer = setTimeout(() => {
+            settleTimer = null;
+            try {
+                if (campaigns.get(id)?.status === 'running') campaigns.stats(id);
+            } catch (err) {
+                console.error(`[campaigns] ${id} could not be closed:`, err.message);
+            }
+        }, 250);
+        settleTimer.unref?.();
+    };
+    // The list shows each campaign's stored snapshot, so a running one must keep it current: at most once a second,
+    // and the open pages hear about it only when a number actually moved.
+    let refreshTimer = null;
+    const refreshSoon = () => {
+        const id = /^camp-(\d+)$/.exec(state.manager?.campaignId ?? '')?.[1];
+        if (!id || refreshTimer) return;
+        refreshTimer = setTimeout(() => {
+            refreshTimer = null;
+            try {
+                const before = campaigns.get(id);
+                if (!before || before.status === 'draft') return;
+                const { campaign } = campaigns.stats(id);
+                if (JSON.stringify(campaign.stats) !== JSON.stringify(before.stats)) {
+                    state.broadcast?.({ type: 'changed', topic: 'campaigns' });
+                }
+            } catch (err) {
+                console.error(`[campaigns] ${id} progress refresh failed:`, err.message);
+            }
+        }, 1000);
+        refreshTimer.unref?.();
+    };
+    const engineAudit = (action, campaign, detail) => state.tenancy?.audit({
+        tenantId: db.tenantId ?? null, userId: null, requestId: null, action, target: campaign.id, detail: { name: campaign.name, ...detail },
+    });
     // The manager halted a run on a platform rule: the record says so, and why.
     state.manager?.on?.('event', (event) => {
-        const halt = { failureStop: 'paused', policyHold: 'paused', policyStop: 'cancelled' }[event.type];
-        if (!halt || !event.campaignId) return;
+        if (event.type === 'status' || event.type === 'stats') {
+            settleSoon();
+            refreshSoon();
+        }
+        // The block-rate and STOP-rate pauses name no campaign: they pause whichever run the number holds.
+        const key = event.campaignId ?? state.manager.campaignId;
+        if (['quotaReached', 'policyHold', 'holdLifted'].includes(event.type)) {
+            // A daily or monthly limit holds the run and the manager lifts it itself: the record stays running.
+            const reason = event.type === 'holdLifted' ? null : (event.message ?? event.reason ?? null);
+            const campaign = campaigns.hold(key, reason);
+            if (!campaign) return;
+            announce('campaignUpdated', campaign);
+            if (reason) engineAudit('campaign.auto_paused', campaign, { reason, resumesByItself: true });
+            return;
+        }
+        const halt = { failureStop: 'paused', policyStop: 'cancelled' }[event.type];
+        if (!halt) return;
         const reason = event.type === 'failureStop' ? `Auto-paused: ${event.message.replace(/^Paused: /, '')}` : event.reason;
-        const campaign = campaigns.policyHalt(event.campaignId, halt, reason);
-        if (campaign) announce('campaignUpdated', campaign);
+        const campaign = campaigns.policyHalt(key, halt, reason);
+        if (!campaign) return;
+        announce('campaignUpdated', campaign);
+        engineAudit(halt === 'paused' ? 'campaign.auto_paused' : 'campaign.auto_cancelled', campaign, { reason });
     });
 
     const fail = (res, err) => {
@@ -90,6 +162,14 @@ export function createCampaignRouter({ db, state }) {
         return out;
     };
     const announce = (type, campaign) => state.broadcast?.({ type, campaign });
+    /** A named entry for the owner's own action; `req.audited` lets the generic per-request row step aside. */
+    const userAudit = (req, action, campaign, detail = {}) => {
+        state.tenancy?.audit({
+            tenantId: db.tenantId ?? null, userId: req.user?.id ?? null, action, target: campaign.id,
+            detail: { name: campaign.name, ...detail }, ip: req.ip ?? null,
+        });
+        req.audited = true;
+    };
 
     // --------------------------------------------------------- campaigns --
     router.get('/campaigns', (req, res) => res.json({
@@ -106,6 +186,7 @@ export function createCampaignRouter({ db, state }) {
         try {
             const campaign = campaigns.create({ ...resolveBody(req.body ?? {}), channelId: state.channel.id });
             announce('campaignCreated', campaign);
+            userAudit(req, 'campaign.create', campaign, { status: campaign.status });
             return res.status(201).json({ campaign });
         } catch (err) {
             return fail(res, err);
@@ -132,7 +213,12 @@ export function createCampaignRouter({ db, state }) {
 
     router.delete('/campaigns/:id', (req, res) => {
         try {
-            campaigns.remove(req.params.id);
+            const campaign = campaigns.require(req.params.id);
+            campaigns.remove(campaign.id);
+            userAudit(req, 'campaign.delete', campaign, { status: campaign.status });
+            announce('campaignDeleted', { ...campaign, audience: null });
+            // A paused run's waiting rows were cancelled on the way out.
+            if (campaign.status === 'paused') state.broadcast?.({ type: 'historyDirty' });
             return res.json({ deleted: true });
         } catch (err) {
             return fail(res, err);
@@ -163,7 +249,8 @@ export function createCampaignRouter({ db, state }) {
             const recipients = campaigns.resolveAudience(campaign, { limit });
             const text = campaigns.messageText(campaign);
             const previews = recipients.map((contact) => {
-                const context = contactContext(contact);
+                // The send fills blanks from the campaign's fallbacks, so the preview does too.
+                const context = withFallbacks(contactContext(contact), campaign.options?.fallbacks ?? {});
                 // Same source as the send: the campaign's own body (or A/B version A).
                 const rendered = { body: personalize(text, context), missing: missingIn(text, context) };
                 return { phone: contact.phone, name: contact.name, preview: rendered.body, missing: rendered.missing };
@@ -193,6 +280,7 @@ export function createCampaignRouter({ db, state }) {
     router.post('/campaigns/:id/retry-failed', (req, res) => {
         try {
             const result = campaigns.retryFailed(req.params.id);
+            userAudit(req, 'campaign.retry', result.campaign, { queued: result.queued });
             announce('campaignStarted', result.campaign);
             return res.json(result);
         } catch (err) {
@@ -228,14 +316,23 @@ export function createCampaignRouter({ db, state }) {
         }
         try {
             if (action !== 'start') {
-                const campaign = campaigns[action](req.params.id);
-                announce(`campaign${action[0].toUpperCase()}${action.slice(1)}d`, campaign);
+                const before = campaigns.require(req.params.id);
+                const campaign = campaigns[action](before.id);
+                // A cancel of an already finished run changes nothing: no event, no audit row.
+                if (campaign.status !== before.status) {
+                    userAudit(req, `campaign.${action}`, campaign, { from: before.status });
+                    announce({ pause: 'campaignPaused', resume: 'campaignResumed', cancel: 'campaignCancelled' }[action], campaign);
+                    if (action === 'cancel') state.broadcast?.({ type: 'historyDirty' });
+                }
                 return res.json({ campaign, stats: state.manager?.statsSnapshot() ?? null });
             }
             // The store refuses (409) without a transport and (404) when the
             // campaign's media is gone; it resolves the media itself.
             const result = campaigns.start(req.params.id, {
                 onePerNumber: req.body?.onePerNumber !== false,
+            });
+            userAudit(req, 'campaign.start', result.campaign, {
+                audience: result.audience, queued: result.queued ?? 0, skipped: result.skipped ?? 0,
             });
             announce('campaignStarted', result.campaign);
             return res.json(result);
@@ -283,8 +380,11 @@ export function createCampaignRouter({ db, state }) {
     return router;
 }
 
-/** Which `{placeholders}` the context does not fill - `personalize` leaves these literal. */
+/**
+ * Which `{placeholders}` the context leaves blank. Only plain `{key}`: a piped one is either a variable with its own
+ * fallback (`{name|there}`) or a word choice (`{Hi|Hello}`), and neither goes out blank.
+ */
 function missingIn(text, context) {
-    return [...new Set([...String(text).matchAll(/\{(\w+)(?:\|[^{}]*)?\}/g)].map((m) => m[1]))]
+    return [...new Set([...String(text).matchAll(/\{(\w+)\}/g)].map((m) => m[1]))]
         .filter((key) => context[key] === undefined || context[key] === null || context[key] === '');
 }

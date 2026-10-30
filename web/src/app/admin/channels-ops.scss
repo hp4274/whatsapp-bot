@@ -1,5 +1,5 @@
 /* Numbers health panel: section header with filter chips, one hairline card holding the
- * Kardlyz table, and a native dialog that tips in with a little perspective. */
+ * Kardlyz table, and a native dialog that fades in flat. */
 @use '../school/school-shared' as s;
 
 @include s.keyframes;
@@ -14,7 +14,7 @@
 
 :host { display: block; }
 
-.panel { display: grid; gap: var(--space-lg); }
+.panel { @include s.fit-grid; display: grid; gap: var(--space-lg); }
 
 .head {
   display: flex;
@@ -115,7 +115,9 @@
   box-shadow: var(--shadow-lift);
 
   &[open] { animation: dlg-in 360ms var(--ease) both; }
-  &::backdrop { background: rgba(16, 16, 24, 0.45); backdrop-filter: blur(4px); }
+  // showModal() can focus the dialog itself; the card needs no ring, its controls keep theirs.
+  &:focus-visible { outline: none; }
+  &::backdrop { background: var(--overlay); backdrop-filter: blur(4px); }
 
   form { display: grid; gap: 12px; }
   h3 { margin: 0; font-size: 17px; font-weight: 500; color: var(--text-strong); }
@@ -130,7 +132,6 @@
     font-size: 22px;
     background: color-mix(in srgb, var(--tone) 12%, transparent);
     color: var(--tone);
-    transform: perspective(300px) rotateX(12deg) rotateY(-10deg);
   }
 
   // The ban-risk warning keeps its tone over the dialog's muted paragraph colour.
@@ -162,7 +163,7 @@
 .dlg-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 
 @keyframes dlg-in {
-  from { opacity: 0; transform: perspective(900px) translateY(16px) rotateX(-10deg) scale(0.97); }
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
   to { opacity: 1; transform: none; }
 }
 

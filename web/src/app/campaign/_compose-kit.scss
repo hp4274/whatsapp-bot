@@ -1,6 +1,11 @@
 // Pieces the composer steps and the quick single-message card share:
 // the file-attach row with its chip, and the disclosure rows.
 
+// A step heading takes focus from code so a screen reader announces the step; it is not a control, so no ring.
+h3[tabindex='-1']:focus {
+  outline: none;
+}
+
 .sr {
   position: absolute;
   width: 1px;

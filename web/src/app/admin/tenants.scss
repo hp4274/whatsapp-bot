@@ -7,8 +7,11 @@
 @include s.chip;
 @include s.banner;
 @include s.buttons;
+@include s.switch;
+@include s.drawer-keyframes;
 
 :host {
+  @include s.fit-grid;
   display: grid;
   gap: var(--space-xl);
   align-content: start;
@@ -62,9 +65,9 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   .btn { flex: 0 0 auto; }
 }
 
-/* Plan picker: selectable cards, the chosen one lifts with an orange edge. */
+/* Plan picker: selectable cards, the chosen one gets a green edge. */
 .plan-pick { display: grid; gap: var(--space-md); h4 { margin: 0; } }
-.plan-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; perspective: 900px; }
+.plan-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr)); gap: 10px; }
 .plan-option {
   display: grid;
   gap: 4px;
@@ -77,7 +80,7 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   background: var(--surface-card);
   color: var(--text-color);
   transition: transform var(--fast) var(--ease), border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
-  &:hover { transform: translateY(-2px) rotateX(3deg); box-shadow: var(--shadow-sm); }
+  &:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
   &[aria-checked='true'] { border-color: var(--primary); background: var(--primary-tint); box-shadow: 0 0 0 3px var(--input-focus); }
   &.manual { border-style: dashed; }
   strong { font-size: 14px; font-weight: 500; color: var(--text-strong); }
@@ -96,22 +99,20 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   .s-chip:not([aria-pressed='true']):hover { background: var(--surface-card); }
   .trial { max-width: 220px; }
 }
-.plan-badge { margin-top: 6px; border: 0; cursor: pointer; .ti { font-size: 12px; } &::before { display: none; } }
+.plan-badge { border: 0; cursor: pointer; .ti { font-size: 12px; } &::before { display: none; } }
 
-.check,
-.switch {
+.opt {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-height: 28px;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-strong);
-
-  input { width: 16px; height: 16px; flex: 0 0 16px; }
+  cursor: pointer;
 }
 
-.switches { display: grid; gap: 8px; }
+.switches { display: grid; gap: 10px; }
 
 /* Toolbar ----------------------------------------------------------------- */
 .toolbar {
@@ -173,7 +174,7 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
 /* Tenant cards: they lift in place (shadow only), so nothing shifts under a click. */
 .tenants {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
   gap: var(--space-lg);
   align-items: start;
 }
@@ -182,7 +183,7 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   position: relative;
   display: grid;
   gap: var(--space-lg);
-  padding: var(--space-xl);
+  padding: 20px;
   background: var(--surface-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-xl);
@@ -201,8 +202,8 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
 
 .top {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: center;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
   gap: var(--space-md);
 }
 
@@ -222,7 +223,9 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
 .who {
   min-width: 0;
   h3, p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mono { display: block; line-height: 1.4; }
 }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 
 .menu-wrap { position: relative; }
 
@@ -267,15 +270,24 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   }
 }
 
-.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+// One sunken strip split by hairlines (the 1px gap shows the border colour), so each label gets the full cell.
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--border-color);
+}
 
 .stat {
   display: grid;
   justify-items: center;
   align-content: center;
   gap: 2px;
-  padding: 10px 6px;
-  border-radius: var(--radius-md);
+  min-width: 0;
+  padding: 10px 4px;
   background: var(--surface-sunken);
   color: var(--hint);
 
@@ -345,7 +357,7 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
 }
 
 @keyframes seed-in {
-  from { opacity: 0; transform: perspective(600px) rotateX(-12deg) translateY(-4px); }
+  from { opacity: 0; transform: translateY(-4px); }
 }
 
 .actions {
@@ -375,28 +387,21 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
 
 /* Drawers and the delete dialog --------------------------------------------- */
 .drawer-backdrop,
-.dialog-wrap {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  background: rgba(16, 16, 24, 0.45);
-  backdrop-filter: blur(4px);
-  animation: s-pop 200ms var(--ease) both;
-}
+.dialog-wrap { @include s.scrim; }
 
 .service-drawer {
   position: fixed;
   top: 0;
   right: 0;
   bottom: 0;
-  z-index: 41;
+  z-index: 71;
   display: grid;
   grid-template-rows: auto 1fr auto;
   width: min(420px, 100vw);
   background: var(--surface-card);
   border-left: 1px solid var(--border-color);
   box-shadow: var(--shadow-lift);
-  animation: s-drawer-in 320ms var(--ease) both;
+  animation: s-drawer-in var(--base) var(--ease) both;
 
   header, footer {
     display: flex;
@@ -407,29 +412,33 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
     border-bottom: 1px solid var(--border-color);
   }
   footer { justify-content: flex-end; border-top: 1px solid var(--border-color); border-bottom: 0; }
+  header { > div { min-width: 0; } > .btn { flex: none; } }
   h3 { margin: 2px 0 3px; font-size: 20px; font-weight: 500; letter-spacing: -0.3px; }
 }
 
-@keyframes s-drawer-in {
-  from { transform: translateX(40px); opacity: 0; }
-  to { transform: none; opacity: 1; }
-}
+.drawer-checks { display: grid; align-content: start; padding: var(--space-xl); overflow: auto; }
 
-.drawer-checks { display: grid; align-content: start; gap: 10px; padding: var(--space-xl); overflow: auto; }
-
-.drawer-check {
-  min-height: 36px;
-  padding: 8px 12px;
+// One hairline list, name left and switch right, like the tenant settings drawer.
+.opt-list {
+  display: grid;
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--surface-card);
-  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
-  &:hover { border-color: var(--border-hover); }
-  &:has(input:checked) { background: var(--primary-tint); border-color: color-mix(in srgb, var(--primary) 40%, transparent); }
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+
+  .opt {
+    justify-content: space-between;
+    min-height: 46px;
+    padding: 8px 14px;
+    transition: background var(--fast) var(--ease);
+    &:hover { background: var(--surface-sunken); }
+    & + .opt { border-top: 1px solid var(--border-color); }
+    > span { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+    .ti { font-size: 17px; color: var(--text-muted); }
+  }
 }
 
 // Confirm dialog (Kardlyz confirm-dialog): scrim + blur, 24px card, ink primary, outline cancel.
-.dialog-wrap { z-index: 60; display: grid; place-items: center; padding: var(--space-lg); }
+.dialog-wrap { z-index: 72; display: grid; place-items: center; padding: var(--space-lg); }
 .dialog {
   width: min(420px, 100%);
   padding: var(--space-xl);
@@ -442,11 +451,16 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   h3 { margin: 0 0 8px; font-size: 18px; font-weight: 500; }
   p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--text-muted); }
   .dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-sm); margin-top: var(--space-xl); }
-  .btn.danger-fill { border-color: transparent; background: var(--danger); color: #fff; &:hover:not(:disabled) { background: var(--danger-hover); } }
+  .btn.danger-fill { border-color: transparent; background: var(--danger); color: var(--on-fill); &:hover:not(:disabled) { background: var(--danger-hover); } }
 }
 
 @media (max-width: 1100px) {
   .tenants.list .tenant { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+  .service-drawer { header, footer { padding-inline: var(--space-lg); } }
+  .drawer-checks { padding: var(--space-lg); }
 }
 
 @media (max-width: 760px) {

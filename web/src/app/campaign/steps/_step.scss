@@ -4,6 +4,7 @@
 
 :host {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-lg);
   align-content: start;
 }
@@ -11,6 +12,7 @@
 // `.card.panel` — the global .card gives the 24px hairline surface.
 .panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-lg);
   padding: var(--space-xl);
 

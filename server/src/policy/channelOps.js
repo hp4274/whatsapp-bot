@@ -34,6 +34,7 @@ const TABLE = `CREATE TABLE IF NOT EXISTS channel_ops (
     start_level     INTEGER,
     start_answers   TEXT,
     started_at      TEXT,
+    start_by_phone  TEXT,
     last_level      INTEGER,
     demoted_at      TEXT,
     clean_checks    INTEGER,
@@ -50,7 +51,7 @@ const TABLE = `CREATE TABLE IF NOT EXISTS channel_ops (
 function migrate(raw, at) {
     const cols = raw.prepare('PRAGMA table_info(channel_ops)').all().map((c) => c.name);
     for (const [col, type] of [['level_pin', 'INTEGER'], ['level_pinned_by', 'TEXT'], ['level_pinned_at', 'TEXT'],
-        ['start_level', 'INTEGER'], ['start_answers', 'TEXT'], ['started_at', 'TEXT'],
+        ['start_level', 'INTEGER'], ['start_answers', 'TEXT'], ['started_at', 'TEXT'], ['start_by_phone', 'TEXT'],
         ['last_level', 'INTEGER'], ['demoted_at', 'TEXT'], ['clean_checks', 'INTEGER'], ['clean_check_at', 'TEXT'],
         ['brakes_off_until', 'TEXT'], ['brakes_off_by', 'TEXT'], ['brakes_off_at', 'TEXT']]) {
         if (!cols.includes(col)) raw.exec(`ALTER TABLE channel_ops ADD COLUMN ${col} ${type}`);
@@ -216,6 +217,31 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
         return startOf(channelId);
     };
 
+    /**
+     * A different phone took this channel (`from` -> `to`, digits or as WhatsApp reports them). The outgoing phone's
+     * answers are kept under it, and a phone that answered here before gets its own back (fresh, so the new
+     * number_since does not void them) unless the channel saw a ban since. Otherwise the new phone is asked.
+     */
+    const switchPhone = (channelId, from, to) => {
+        const key = (phone) => String(phone ?? '').replace(/D/g, '');
+        const row = raw.prepare('SELECT start_level, start_answers, started_at, start_by_phone FROM channel_ops WHERE channel_id = ?')
+            .get(Number(channelId));
+        let known = {};
+        try { known = JSON.parse(row?.start_by_phone ?? '{}') ?? {}; } catch { /* a bad map only forgets */ }
+        if (key(from) && row?.start_level != null) {
+            let answers = null;
+            try { answers = JSON.parse(row.start_answers ?? 'null'); } catch { /* kept as unknown */ }
+            known[key(from)] = { level: row.start_level, answers, at: row.started_at };
+        }
+        const back = key(to) ? known[key(to)] : null;
+        const banned = back && raw.prepare(`SELECT 1 FROM safety_events WHERE channel_id = ? AND kind = 'ban' AND at > ? LIMIT 1`)
+            .get(Number(channelId), back.at ?? '');
+        const fields = { start_by_phone: JSON.stringify(known) };
+        if (back && !banned) Object.assign(fields, { start_level: back.level, start_answers: JSON.stringify(back.answers), started_at: stamp(now()) });
+        upsert(channelId, fields);
+        return Boolean(back && !banned);
+    };
+
     /** A number's sending quota: the running engine's, or a one-off built the same way (policy/levels.js). */
     const quotaOf = (row) => {
         const live = stateOf(row.tenant_id, row.id)?.manager?.quota;
@@ -310,6 +336,8 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
         admin.post('/numbers/:channelId/resume', (req, res) => {
             resume(req.channelRow);
             audit(req, 'channel.admin.resume', req.channelRow.id);
+            // Back now, not at the watchdog's next pass (up to 30s of "Not connected" on the business's page).
+            void Promise.resolve(req.app.locals.reconnectAll?.()).catch(() => undefined);
             return res.json({ ok: true });
         });
 
@@ -336,6 +364,12 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
             }
             const level = req.body.level;
             const quota = quotaOf(row);
+            // Clearing always works: a pin set while the number was on QR must not stick once it moved to the sandbox.
+            if (!quota.qr && level === null) {
+                upsert(row.id, { level_pin: null, level_pinned_by: null, level_pinned_at: null });
+                audit(req, 'channel.admin.level_unpin', row.id, 'not a QR-login number');
+                return res.json({ earned: null, pinned: null, cap: null, effective: null, aboveEarned: false });
+            }
             if (!quota.qr) return res.status(400).json({ errors: ['Sending levels apply to QR-login numbers only.'] });
             const top = quota.tables().levels.length - 1;
             if (level !== null && !(Number.isInteger(level) && level >= 0 && level <= top)) {
@@ -370,7 +404,8 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
                 return res.status(400).json({ errors: ['Hours must be a whole number from 1 to 720, or null to turn the brakes back on.'] });
             }
             const quota = quotaOf(row);
-            if (!quota.qr) return res.status(400).json({ errors: ['Brakes apply to QR-login numbers only.'] });
+            // Turning brakes back on always works, as clearing a pin does.
+            if (!quota.qr && hours !== null) return res.status(400).json({ errors: ['Brakes apply to QR-login numbers only.'] });
             const t = now();
             upsert(row.id, hours === null
                 ? { brakes_off_until: null, brakes_off_by: null, brakes_off_at: null }
@@ -430,9 +465,12 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
             }
 
             await close(row.tenant_id, row.id);
+            // The new business links it when it chooses: a kept autoConnect would have the watchdog start a session
+            // (a fresh QR on a QR-login number) in a business that has not even seen the number yet.
+            source.update(row.id, { settings: { autoConnect: false } });
             // The pin and the answers (or a skip consented to) were the old business's: the number goes back to its
             // earned level, and the new business answers the questions or skips them with its own consent.
-            upsert(row.id, { level_pin: null, level_pinned_by: null, level_pinned_at: null, start_level: null, start_answers: null, started_at: null,
+            upsert(row.id, { level_pin: null, level_pinned_by: null, level_pinned_at: null, start_level: null, start_answers: null, started_at: null, start_by_phone: null,
                 brakes_off_until: null, brakes_off_by: null, brakes_off_at: null });
             raw.prepare('UPDATE whatsapp_channels SET tenant_id = ?, is_default = ?, updated_at = ? WHERE id = ?')
                 .run(target.id, count ? 0 : 1, stamp(now()), row.id);
@@ -454,5 +492,5 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
         return true;
     };
 
-    return { guard, register, rows, pausedOf, pinOf, startOf, setStart, resumeBanGuard };
+    return { guard, register, rows, pausedOf, pinOf, startOf, setStart, switchPhone, resumeBanGuard };
 }

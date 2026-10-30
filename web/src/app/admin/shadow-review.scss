@@ -11,6 +11,7 @@
 :host { display: block; }
 
 .card {
+  @include s.fit-grid;
   display: grid;
   gap: var(--space-lg);
   padding: var(--space-xl);

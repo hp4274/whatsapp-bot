@@ -13,10 +13,11 @@
 @include s.skeleton;
 @include s.banner;
 @include s.tilt;
+@include s.switch;
 
 :host { display: block; }
 
-.wf { display: grid; gap: var(--space-xl); }
+.wf { display: grid; @include s.fit-grid; gap: var(--space-xl); }
 
 /* Tabs: the kit's segmented track, driven by aria-selected because these are real tabs. */
 .s-seg button {
@@ -125,7 +126,10 @@
 }
 
 /* ---- gallery ---- */
-.industry { margin: var(--space-xl) 0 var(--space-md); font-size: 17px; font-weight: 500; &:first-child { margin-top: 0; } }
+.industry {
+  margin: var(--space-xl) 0 var(--space-md); font-size: 17px; font-weight: 500; &:first-child { margin-top: 0; }
+  &::first-letter { text-transform: uppercase; } // the key arrives lower-case ("clinics, salons, services")
+}
 .grid { display: grid; gap: var(--space-lg); grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 .recipe {
   position: relative; display: flex; flex-direction: column; gap: var(--space-sm); padding: var(--space-xl);
@@ -149,17 +153,7 @@
 .install-btn { margin-top: var(--space-sm); align-self: flex-start; position: relative; z-index: 1; }
 .install { position: relative; z-index: 1; display: grid; gap: var(--space-md); margin-top: var(--space-sm); animation: s-pop var(--base) var(--ease) both; }
 .toggle {
-  display: inline-flex; align-items: center; gap: var(--space-sm); font-size: 13px; font-weight: 500; color: var(--text-strong); cursor: pointer; position: relative;
-  input { position: absolute; opacity: 0; }
-  .track {
-    width: 36px; height: 20px; border-radius: 999px; background: var(--border-hover); position: relative; transition: background var(--fast) var(--ease);
-    &::after {
-      content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff;
-       transition: translate var(--fast) var(--ease);
-    }
-  }
-  input:checked + .track { background: var(--primary); &::after { translate: 16px 0; } }
-  input:focus-visible + .track { outline: 2px solid var(--primary); outline-offset: 2px; }
+  display: inline-flex; align-items: center; gap: var(--space-sm); font-size: 13px; font-weight: 500; color: var(--text-strong);
 }
 .form-actions { display: flex; justify-content: flex-end; gap: var(--space-sm); }
 

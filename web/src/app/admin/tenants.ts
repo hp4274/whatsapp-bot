@@ -1,14 +1,25 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 
-import { AuditLog, TenancyApi } from '../core/api';
+import { TenancyApi } from '../core/api';
 import { Auth, Tenant, TenantControls } from '../core/auth';
 import { Store } from '../core/store';
+import { AdminFeed } from './admin-feed';
+import type { AuditEntry } from './ops-api';
+import { OpsApi } from './ops-api';
 import { Plan, PlansApi, formatPrice, stateTone } from './plans-api';
 import { serviceMeta } from './service-meta';
 import { TenantActivity } from './tenant-activity';
 import { SettingsTab, TenantSettings } from './tenant-settings';
+import { sentenceCase } from './text';
 
 /** The create-tenant form, kept as one signal so it survives the services drawer. */
 type TenantDraft = {
@@ -66,6 +77,9 @@ const CONTROL_LABELS: Record<keyof TenantControls, string> = {
   automationsEnabled: 'Automations',
 };
 
+/** Least time between two live reloads of the tenant list. */
+const LIVE_GAP_MS = 3000;
+
 /** Placeholder cards shown while the first list loads. */
 const SKELETON_CARDS: readonly number[] = [0, 1, 2];
 
@@ -105,9 +119,13 @@ export class TenantsView {
   private readonly store = inject(Store);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly ops = inject(OpsApi);
+  private readonly feed = inject(AdminFeed);
 
+  /** Pill labels are sentence case: "past_due" reads "Past due". */
+  protected readonly sentence = sentenceCase;
   protected readonly tenants = signal<Tenant[]>([]);
-  protected readonly logs = signal<AuditLog[]>([]);
+  protected readonly logs = signal<AuditEntry[]>([]);
   protected readonly skeletonRows = SKELETON_CARDS;
   protected readonly loading = signal(true);
   protected readonly error = signal('');
@@ -179,21 +197,55 @@ export class TenantsView {
         this.openSettings(tenant, (['limits', 'safety', 'rules', 'accounts', 'plan'] as const).find((t) => t === tab) ?? 'general');
       });
     }
+    // Live: another admin's change, a number dropping or a campaign sending updates the cards and the activity.
+    this.feed.watch(['tenants', 'channels', 'usage'], () => this.liveList());
+    this.feed.watch(['audit'], () => this.loadActivity());
+    inject(DestroyRef).onDestroy(() => clearTimeout(this.liveTimer));
+  }
+
+  private liveTimer?: ReturnType<typeof setTimeout>;
+  private lastLive = 0;
+
+  /**
+   * At most one quiet list reload per LIVE_GAP_MS: `usage` arrives up to every 700 ms while a campaign sends, and a
+   * debounce alone would never fire under that.
+   */
+  private liveList() {
+    if (this.liveTimer) return;
+    this.liveTimer = setTimeout(() => {
+      this.liveTimer = undefined;
+      this.lastLive = Date.now();
+      this.loadTenants(true);
+    }, Math.max(0, this.lastLive + LIVE_GAP_MS - Date.now()));
   }
 
   protected refresh() {
+    this.loadTenants(false);
+    this.loadActivity();
+  }
+
+  /** `quiet`: a live reload keeps a shown error until it succeeds and never flashes the skeleton. */
+  private loadTenants(quiet: boolean) {
     this.api.tenants().subscribe({
       next: ({ tenants, services }) => {
         this.services.set(services.length ? services : [...DEFAULT_SERVICES]);
         this.tenants.set(tenants);
         this.loading.set(false);
+        if (quiet) this.error.set('');
       },
       error: (err: Error) => {
         this.loading.set(false);
-        this.error.set(err.message);
+        if (!quiet) this.error.set(err.message);
       },
     });
-    this.api.auditLogs().subscribe({ next: ({ logs }) => this.logs.set(logs.slice(0, 40)) });
+  }
+
+  /** The recent-activity panel: sentences and actors from the audit search (server: auditText.js). */
+  private loadActivity() {
+    this.ops.audit({}, null, 12).subscribe({
+      next: ({ logs }) => this.logs.set(logs),
+      error: () => undefined, // the panel keeps what it showed
+    });
   }
 
   protected create(event: Event) {
@@ -292,10 +344,6 @@ export class TenantsView {
   protected toggleDraftControl(key: keyof TenantControls, checked: boolean) {
     const current = this.draft();
     this.draft.set({ ...current, controls: { ...current.controls, [key]: checked } });
-  }
-
-  protected checked(event: Event): boolean {
-    return (event.target as HTMLInputElement).checked;
   }
 
   protected serviceLabel(service: string): string {

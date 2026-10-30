@@ -4,6 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 
 import { CampaignDraft } from '../campaign/draft';
 import { formatBytes } from '../campaign/wa-format';
+import { TenancyApi } from '../core/api';
 import { Auth } from '../core/auth';
 import { Store } from '../core/store';
 import { Tilt } from '../school/tilt';
@@ -46,6 +47,7 @@ export class StorageView {
   private readonly draft = inject(CampaignDraft);
   private readonly router = inject(Router);
   private readonly store = inject(Store);
+  private readonly tenancy = inject(TenancyApi);
 
   /** Reopening and deleting are admin writes on the server; agents only browse and download. */
   protected readonly canWrite = computed(() => this.auth.atLeast('admin'));
@@ -62,6 +64,8 @@ export class StorageView {
   /** File id whose delete awaits its second click. */
   protected readonly confirming = signal<number | null>(null);
   protected readonly busy = signal<{ id: number; action: RowAction } | null>(null);
+  /** The plan's storage limit in MB (uploads past it are refused with 413); null = unlimited or unknown. */
+  protected readonly limitMb = signal<number | null>(null);
 
   /** Count and bytes per kind: drives the filter chips and the storage-by-type bar. */
   protected readonly split = computed(() => {
@@ -118,10 +122,18 @@ export class StorageView {
 
   constructor() {
     this.load();
+    // Uploads land from the composer and other tabs; a plan change moves the limit.
+    this.store.watch(['storage', 'media', 'contacts', 'tenant', 'config'], () => this.load(true), 1000);
   }
 
-  protected load(): void {
-    this.loading.set(true);
+  /** `quiet` keeps the cards on screen, for refreshes driven by the event stream. */
+  protected load(quiet = false): void {
+    if (!quiet) this.loading.set(true);
+    // Best effort: the limit is a footnote, and the file list must not wait for it or fail with it.
+    this.tenancy.planUsage().subscribe({
+      next: ({ usage }) => this.limitMb.set(usage.metrics.find((m) => m.metric === 'storage_mb')?.limit || null),
+      error: () => this.limitMb.set(null),
+    });
     this.api.list().subscribe({
       next: ({ files, totals }) => {
         this.files.set(files);

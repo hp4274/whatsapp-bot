@@ -56,6 +56,8 @@ describe('personalisation', () => {
     it('substitutes known variables and keeps unknown ones verbatim', () => {
         assert.equal(personalize('Hi {name}', { name: 'Rahul' }), 'Hi Rahul');
         assert.equal(personalize('Hi {name}, order {id}', { name: 'A' }), 'Hi A, order {id}');
+        // WhatsApp-template style double braces never leave their outer pair in the message.
+        assert.equal(personalize('Hi {{name}}, {{ name }}!', { name: 'Kabir' }), 'Hi Kabir, Kabir!');
         assert.equal(personalize('', { name: 'A' }), '');
         assert.equal(personalize('no vars', {}), 'no vars');
         assert.match(personalize('{Hi|Hello} {name}, your balance is {balance}',

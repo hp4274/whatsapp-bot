@@ -25,6 +25,12 @@ export class TeamView {
   private readonly auth = inject(Auth);
 
   protected readonly skeletonRows = SKELETON_ROWS;
+
+  /** "super_admin" → "Super admin": pills and the role picker show sentence case, not the raw key. */
+  protected roleLabel(role: string) {
+    const words = role.replace(/_/g, ' ');
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
   protected readonly users = signal<User[]>([]);
   protected readonly roles = signal<Role[]>([]);
   protected readonly error = signal('');

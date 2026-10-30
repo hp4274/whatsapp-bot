@@ -26,10 +26,11 @@
  * plan that does not sell the feature.  Neither is a fallback for the other;
  * both must say yes.
  *
- * `record()`/`set()` keep counters, and a counter only ever drifts.  That is
- * what `recount()` is for - messages are re-derived from the `messages` table
- * through `db.countSentBetween`, which is the same counter the per-channel
- * daily cap reads (`campaign/safety.js`).  The two ceilings are deliberately
+ * `record()`/`set()` keep counters, and a counter only ever drifts.  So the
+ * meter never reads a messages counter: `used()` counts the `messages` table
+ * with `tenantSentSince`, the query the plan quota enforces
+ * (policy/campaignOps.js), and `recount()` only resyncs the stored counter.
+ * The per-channel daily cap (`campaign/safety.js`) is a separate ceiling.  The two ceilings are deliberately
  * different questions: the daily cap is per channel per calendar day and
  * exists to keep a *number* from being banned; the plan limit is per tenant
  * per billing period and exists to sell a tier.  Whichever bites first wins,
@@ -37,6 +38,7 @@
  */
 
 import { billingLimit } from '../policy/billing.js';
+import { tenantSentSince } from '../policy/campaignOps.js';
 import { utcNow } from '../protocol.js';
 import {
     DEFAULT_PLANS,
@@ -85,7 +87,6 @@ export class BillingStore {
      */
     constructor(database, { now = () => new Date(), overrides = null } = {}) {
         this.db = database.db;
-        this.data = database; // the scoped handle, for countSentBetween
         this.tenantId = database.tenantId;
         this.now = now;
         this.overrides = overrides;
@@ -277,12 +278,44 @@ export class BillingStore {
             period,
             planKey: this.subscription()?.planKey ?? null,
             metrics: METRICS.map((metric) => {
-                const used = metric === 'storage_mb' && period === periodOf(this.now())
-                    ? this.storageMb() : (counters[metric] ?? 0);
+                const used = this.used(metric, period, counters);
                 const limit = this.limitFor(metric);
                 return { metric, used, limit, remaining: limit === null ? null : Math.max(0, limit - used) };
             }),
         };
+    }
+
+    /**
+     * How much of `metric` the tenant used in `period`.  Nothing records
+     * `messages` as it happens, so it is counted from the messages table with
+     * the very query the quota enforces (policy/campaignOps.js tenantSentSince):
+     * the meter and the limit cannot disagree.  A stock is what exists now, so
+     * the current period counts it live; an older period keeps whatever a
+     * counter recorded then.
+     */
+    used(metric, period = periodOf(this.now()), counters = this.counters(period)) {
+        if (metric === 'messages') return this.messagesIn(period);
+        if (period === periodOf(this.now())) {
+            const live = {
+                storage_mb: () => this.storageMb(),
+                channels: () => this.count('SELECT COUNT(*) AS n FROM whatsapp_channels WHERE tenant_id = ?'),
+                contacts: () => this.count('SELECT COUNT(*) AS n FROM contacts WHERE tenant_id = ?'),
+                // A disabled user holds no seat (app.js team routes), so is not counted.
+                agents: () => this.count('SELECT COUNT(*) AS n FROM users WHERE tenant_id = ? AND disabled = 0'),
+            }[metric];
+            if (live) return live();
+        }
+        return counters[metric] ?? 0;
+    }
+
+    /** Real sends in `period`, as the quota counts them (sandbox, failed and queued rows are not sends). */
+    messagesIn(period) {
+        const since = (iso) => tenantSentSince(this.db, this.tenantId, iso);
+        return Math.max(0, since(periodStart(period)) - since(periodEnd(period)));
+    }
+
+    count(sql) {
+        return this.db.prepare(sql).get(this.tenantId).n;
     }
 
     /**
@@ -303,15 +336,21 @@ export class BillingStore {
             periods.push(periodOf(at));
             at.setUTCMonth(at.getUTCMonth() - 1, 1);
         }
-        return periods.map((period) => ({ period, metrics: this.counters(period) }));
+        // Messages as the quota counts them, like usage(); a month with none is 0, not missing.
+        return periods.map((period) => ({ period, metrics: { ...this.counters(period), messages: this.messagesIn(period) } }));
     }
 
     // ------------------------------------------------------------ decisions --
-    /** The cap on `metric` under the effective plan and any admin override; null = unlimited. */
+    /**
+     * The cap on `metric` under the effective plan and any admin override; null = unlimited.
+     * Past grace it is 0 for everything: an ended subscription sends nothing (the
+     * message quota is what the send path reads, policy/campaignOps.js).
+     */
     limitFor(metric) {
         const subscription = this.subscription();
         if (!subscription) return null; // billing not in use for this tenant
         if (!METRIC_LIMITS[String(metric)]) return null;
+        if (subscription.state === 'expired') return 0;
         return billingLimit(String(metric), subscription.plan.limits, this.overrides?.() ?? {});
     }
 
@@ -323,7 +362,7 @@ export class BillingStore {
     check(metric, n = 1) {
         const clean = this.metric(metric);
         const subscription = this.subscription();
-        const used = this.counters(periodOf(this.now()))[clean] ?? 0;
+        const used = this.used(clean);
         if (!subscription) return { allowed: true, limit: null, used, remaining: null, reason: null };
         if (subscription.state === 'expired') {
             return { allowed: false, limit: 0, used, remaining: 0, reason: 'subscription_expired' };
@@ -365,7 +404,8 @@ export class BillingStore {
         const before = this.counters(period);
         const repaired = {};
         for (const metric of RECOUNTABLE_METRICS) {
-            const value = this.data.countSentBetween(periodStart(period), periodEnd(period));
+            // The whole tenant: `this.data` may be one number's handle, and the plan is per tenant.
+            const value = this.messagesIn(period);
             this.write(metric, value, { add: false, period });
             repaired[metric] = { was: before[metric] ?? 0, now: value };
         }

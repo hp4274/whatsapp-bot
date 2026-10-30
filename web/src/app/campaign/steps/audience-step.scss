@@ -6,7 +6,6 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: var(--space-md);
-  perspective: 900px;
 }
 
 .source {
@@ -20,10 +19,9 @@
   background: var(--surface-card);
   color: var(--text-strong);
   text-align: left;
-  transform-style: preserve-3d;
   transition: transform var(--base) var(--ease), border-color var(--fast) var(--ease), box-shadow var(--base) var(--ease);
 
-  &:hover { transform: translateY(-3px) rotateX(4deg); border-color: var(--border-hover); }
+  &:hover { transform: translateY(-2px); border-color: var(--border-hover); }
 
   .ico {
     display: grid;

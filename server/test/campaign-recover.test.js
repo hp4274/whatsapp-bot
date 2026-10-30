@@ -89,4 +89,32 @@ describe('a campaign across a restart', () => {
         assert.deepEqual(openCampaigns(scoped), []);
         await second.manager.shutdown();
     });
+
+    it('keeps a contact\'s own timezone field on the queued item, across a restart too', async () => {
+        const audience = [
+            { name: 'NY', phone: '12125550101', extra: { timezone: 'America/New_York' } },
+            { name: 'Typo', phone: '12125550102', extra: { timezone: 'Mars/Olympus' } },
+            { name: 'None', phone: '12125550103' },
+        ];
+        // Queued, plus the one in flight.
+        const zones = (manager) => Object.fromEntries([...manager.queue.snapshot(), manager.current].filter(Boolean)
+            .map((i) => [i.recipient, i.timezone]));
+        const expected = { 12125550101: 'America/New_York', 12125550102: null, 12125550103: null };
+
+        // Its send never returns, so all three rows stay unsent for the restart.
+        const first = boot({ ...transport, sendMessage: () => new Promise(() => {}) });
+        const campaign = first.store.create({ name: 'Zones', body: 'Hi {name}', status: 'draft', audience });
+        first.store.start(campaign.id);
+        first.store.pause(campaign.id);
+        assert.deepEqual(zones(first.manager), expected);
+        first.manager.shutdown(); // not awaited: a send in flight never returns; the rows stay as they are
+
+        const second = boot(); // the restart: rebuilt from the rows and the campaign's audience, still paused
+        try {
+            assert.equal(second.store.recover(campaign.id), true);
+            assert.deepEqual(zones(second.manager), expected);
+        } finally {
+            await second.manager.shutdown();
+        }
+    });
 });

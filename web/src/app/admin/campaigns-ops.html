@@ -7,7 +7,7 @@
         <h3 id="kill-title">Stop all bulk sending</h3>
         @if (killSwitch() !== null) {
           <span class="s-pill" [class.tone-bad]="killSwitch()" [class.tone-ok]="!killSwitch()">
-            Kill switch {{ killSwitch() ? 'On — all bulk paused' : 'Off' }}
+            Kill switch {{ killSwitch() ? 'on — all bulk paused' : 'off' }}
           </span>
         }
       </div>
@@ -99,7 +99,7 @@
                     <span class="sub" [title]="row.statusReason">{{ row.statusReason }}</span>
                   }
                 </td>
-                <td><span class="s-pill" [class]="statusTone(row.status)">{{ row.status }}</span></td>
+                <td><span class="s-pill" [class]="statusTone(row.status)">{{ sentence(row.status) }}</span></td>
                 <td class="num">
                   <span class="strong">{{ row.sent }}</span>
                   <span class="sub"> / {{ row.failed }} / {{ row.total }}</span>

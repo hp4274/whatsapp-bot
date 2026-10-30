@@ -46,7 +46,7 @@ interface Draft {
 }
 
 /** The consent filter the toolbar offers, mapped onto the server's filter keys. */
-type ConsentFilter = '' | 'messageable' | 'opted_in' | 'unknown' | 'opted_out';
+type ConsentFilter = '' | 'messageable' | 'opted_in' | 'unknown' | 'opted_out' | 'not_on_whatsapp';
 
 /** The consent strip's buttons, in the order an operator narrows an audience. */
 const CONSENT_OPTIONS: readonly { value: ConsentFilter; label: string }[] = [
@@ -55,6 +55,8 @@ const CONSENT_OPTIONS: readonly { value: ConsentFilter; label: string }[] = [
   { value: 'opted_in', label: 'Opted in' },
   { value: 'unknown', label: 'Unknown' },
   { value: 'opted_out', label: 'Opted out' },
+  // Cleaning a list: pick these, then "Select all matching" and Delete in the bulk bar.
+  { value: 'not_on_whatsapp', label: 'Not on WhatsApp' },
 ];
 
 /** The most contacts one campaign can be hand-picked from (the server's cap on an id list). */
@@ -156,6 +158,7 @@ export class ContactsView {
     const consent = this.consent();
     if (consent === 'messageable') base.optedOut = false;
     else if (consent === 'opted_out') base.optedOut = true;
+    else if (consent === 'not_on_whatsapp') base.notOnWhatsapp = true;
     else if (consent) base.optInStatus = consent;
     return base;
   });
@@ -573,7 +576,7 @@ export class ContactsView {
 
   protected consentLabel(c: Contact2) {
     if (c.optedOut) return 'Opted out';
-    if (c.status !== 'active') return c.status;
+    if (c.status !== 'active') return c.status.charAt(0).toUpperCase() + c.status.slice(1);
     return c.optInStatus === 'opted_in' ? 'Opted in' : 'Unknown';
   }
 

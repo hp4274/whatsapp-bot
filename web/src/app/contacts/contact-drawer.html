@@ -117,7 +117,7 @@
             [disabled]="saving()"
             (click)="toggleConsent()"
           >
-            <span class="knob"></span>
+            <span class="thumb"></span>
           </button>
         }
       </div>
@@ -143,22 +143,43 @@
           </div>
         </form>
       } @else if (consentStep() === 'in') {
-        <div class="confirm" role="alertdialog" aria-labelledby="cd-in-q">
-          <p id="cd-in-q">
+        <!-- What they said becomes the opt-in's proof (server opt_ins), so it is asked for here. -->
+        <form
+          class="confirm"
+          (submit)="confirmConsent($event)"
+          role="alertdialog"
+          aria-labelledby="cd-in-q"
+        >
+          <label id="cd-in-q" for="cd-in-reason">
             Opt this number back in? Only do this if they asked to hear from you again.
-          </p>
+          </label>
+          <input
+            id="cd-in-reason"
+            name="reason"
+            maxlength="200"
+            placeholder="How they agreed (e.g. replied YES, asked by phone)"
+            [ngModel]="reason()"
+            (ngModelChange)="reason.set($event)"
+          />
           <div class="row-end">
             <button class="btn sm" type="button" (click)="consentStep.set('')">Cancel</button>
-            <button
-              class="btn primary sm"
-              type="button"
-              [disabled]="saving()"
-              (click)="confirmConsent()"
-            >
-              Opt in
-            </button>
+            <button class="btn primary sm" type="submit" [disabled]="saving()">Opt in</button>
           </div>
-        </div>
+        </form>
+      }
+      @if (c.optIn; as p) {
+        @if (!c.optedOut) {
+          <p class="proof">
+            <i class="ti ti-shield-check" aria-hidden="true"></i>
+            <span>
+              Opted in {{ optInHow(p) }} on
+              <time [attr.datetime]="p.at">{{ p.at | date: 'd MMM y, HH:mm' }}</time>
+              @if (p.source !== 'keyword') {
+                <q>{{ p.text }}</q>
+              }
+            </span>
+          </p>
+        }
       }
     </section>
 
@@ -297,7 +318,7 @@
                   <strong>{{ label(e) }}</strong>
                   @if (e.status) {
                     <span class="s-pill" [class]="statusTone(e.status)">{{
-                      e.status.toLowerCase()
+                      statusLabel(e.status)
                     }}</span>
                   }
                   <time [attr.datetime]="e.at" [title]="absolute(e.at)">{{ ago(e.at) }}</time>

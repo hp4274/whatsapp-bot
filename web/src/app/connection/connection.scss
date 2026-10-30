@@ -9,6 +9,7 @@
 
 :host {
   display: grid;
+  @include s.fit-grid;
   gap: var(--space-lg);
 }
 
@@ -37,9 +38,15 @@ h3 {
 
 .card-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-md);
   padding: var(--space-xl) var(--space-xl) var(--space-lg);
+
+  > div {
+    flex: 1 1 0;
+    min-width: 0;
+  }
 
   p {
     margin: 2px 0 0;
@@ -272,7 +279,7 @@ h3 {
   .on .num {
     border-color: var(--primary);
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
     box-shadow: 0 0 0 5px var(--primary-glow);
   }
 
@@ -371,12 +378,40 @@ h3 {
 
 @media (max-width: 760px) {
   .link {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
+  /* On a phone the mock-up only earns its height while it holds a code to scan. */
   .phone {
+    display: none;
     justify-self: center;
     width: 220px;
+
+    &.has-qr {
+      display: block;
+    }
+  }
+}
+
+/* A narrow header: title and text take the line; the pill drops under them, in line with the title. */
+@media (max-width: 560px) {
+  .card-head {
+    padding: 20px 20px var(--space-lg);
+
+    > div {
+      flex-basis: calc(100% - 38px - var(--space-md));
+    }
+
+    .s-pill {
+      margin-left: calc(38px + var(--space-md));
+    }
+  }
+
+  .safety > app-safety-controls,
+  .safety .tos,
+  .stopped > :is(.reason, .fine, .link-actions),
+  .recover > :is(.recover-steps, .fine) {
+    margin-inline: 20px;
   }
 }
 

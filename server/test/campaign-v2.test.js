@@ -488,7 +488,8 @@ describe('campaigns over HTTP', () => {
         const speed = await api('POST', `/api/campaigns/${id}/speed`, { pacing: 'safe' });
         assert.equal(speed.status, 200);
         assert.equal(speed.body.campaign.options.pacing, 'safe');
-        assert.equal(speed.body.safety.pacing, 'safe');
+        // The run goes at the plan's speed (bulk.maxSpeed, 'fast' by default), and so does what it reports.
+        assert.equal(speed.body.safety.pacing, 'fast');
         assert.equal((await api('POST', `/api/campaigns/${id}/speed`, { pacing: 'warp' })).status, 400);
         assert.equal((await api('POST', `/api/campaigns/${id}/resume`)).body.campaign.status, 'running');
         assert.equal((await api('POST', `/api/campaigns/${id}/cancel`)).body.campaign.status, 'cancelled');
@@ -505,7 +506,7 @@ describe('campaigns over HTTP', () => {
         assert.equal(speed.body.stats.safety.pacing, 'fast');
         assert.equal((await api('POST', '/api/campaign/speed', { pacing: 'nope' })).status, 400);
         const safety = await api('GET', '/api/safety?contacts=120&pacing=safe');
-        assert.equal(safety.body.safety.pacing, 'safe');
+        assert.equal(safety.body.safety.pacing, 'fast', 'the plan\'s speed, as the run would use it');
         assert.equal(safety.body.safety.minSeconds, 0, 'the sandbox has no level, so no gap to stretch');
         await api('POST', '/api/campaign/speed', { pacing: 'balanced' });
     });

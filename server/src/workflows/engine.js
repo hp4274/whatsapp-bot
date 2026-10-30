@@ -324,6 +324,8 @@ export class WorkflowEngine {
         return this.contacts.upsert({
             phone: contact.phone, normalized: true, name: contact.name, email: contact.email, source: contact.source,
             ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)),
+            // `source` above is the contact's own; an opt-in this step makes is the workflow's.
+            consent: { source: 'workflow', text: `Opted in by workflow ${run.workflowId}` },
         });
     }
 

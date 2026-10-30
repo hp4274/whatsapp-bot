@@ -115,6 +115,15 @@ describe('admin ops endpoints', () => {
         assert.deepEqual(b.today, { sent: 0, delivered: 0, read: 0, failed: 0, queued: 1, sandbox: 0, total: 1 });
         assert.equal(body.totals.today.total, 8);
         assert.equal(body.tenants[0].tenantId, 1, 'busiest first');
+
+        // A quick send is stored as campaign_id 'transactional': it is not a campaign.
+        db.forTenant(tenantB.id).forChannel(ch.b2.id).insert({
+            messageId: 'quick-1', recipient: '15550002222', message: 'hi', status: 'SANDBOX', campaignId: 'transactional',
+            createdAt: stamp(Date.now()), updatedAt: stamp(Date.now()),
+        });
+        const again = (await call(sup, '/api/admin/usage-summary?days=14')).body.tenants;
+        assert.equal(again.find((t) => t.tenantId === tenantB.id).campaigns, 0, 'quick sends are not counted as campaigns');
+        assert.equal(again.find((t) => t.tenantId === 1).campaigns, 1);
     });
 
     it('health-detail: every number with its own tenant, problems first', async () => {
@@ -169,9 +178,148 @@ describe('admin ops endpoints', () => {
 
         const csv = await call(sup, '/api/admin/audit-logs?format=csv');
         assert.match(csv.type, /text\/csv/);
-        assert.match(csv.body, /^id,createdAt,tenantId,userEmail,verb,action,target,detail/);
+        assert.match(csv.body, /^id,createdAt,tenantId,tenantName,userEmail,Summary,severity,verb,action,target,ip,requestId,detail/);
         assert.match(csv.body, /"'=SUM\(A1\)"/, 'formula cells are defused');
-        assert.equal(auditCsv([{ id: 1, detail: 'say "hi"' }]).split('\r\n')[1], '"1","","","","","","","say ""hi"""');
+        assert.match(csv.body, /"Deleted business Beta Shop"/, 'the sentence is in the sheet');
+        assert.equal(auditCsv([{ id: 1, detail: 'say "hi"' }]).split('\r\n')[1], '"1","","","","","","","","","","","","say ""hi"""');
+    });
+
+    it('audit-logs: every row reads as a sentence with severity, category and actor', async () => {
+        const { logs } = (await call(sup, '/api/admin/audit-logs')).body;
+        const del = logs.find((l) => l.action === 'tenant.delete');
+        assert.equal(del.summary, 'Deleted business Beta Shop');
+        assert.equal(del.severity, 'danger');
+        assert.equal(del.category, 'business');
+        assert.equal(del.actor, 'System');
+        assert.equal(del.tenantName, 'Beta Shop');
+        const created = logs.find((l) => l.action === 'channel.create');
+        assert.equal(created.summary, 'Added number "=SUM(A1)"', 'the raw detail is used as the number name');
+        assert.equal(logs.find((l) => l.action === 'auth.login').verb, 'other');
+    });
+});
+
+describe('audit records: ip, request id, named rows and tenant scope', () => {
+    const send = async (token, method, url, body) => {
+        const res = await fetch(base + url, {
+            method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-request-id': `req-${method}-${url}` },
+            body: body ? JSON.stringify(body) : undefined,
+        });
+        return { status: res.status, body: await res.json().catch(() => null) };
+    };
+    const rowsFor = (requestId) => app.locals.tenancy.db.prepare('SELECT * FROM audit_logs WHERE request_id = ?').all(requestId);
+
+    it('a named row carries the ip and request id, and replaces the generic "METHOD /path" row', async () => {
+        const res = await send(owner, 'POST', '/api/channels', { displayName: 'Gamma line', settings: { transport: TRANSPORT_SANDBOX } });
+        assert.equal(res.status, 201, JSON.stringify(res.body));
+        const rows = rowsFor('req-POST-/api/channels');
+        assert.deepEqual(rows.map((r) => r.action), ['channel.create'], 'no second "POST /channels" row');
+        assert.match(rows[0].ip, /127\.0\.0\.1/);
+        const { logs } = (await call(sup, '/api/admin/audit-logs?requestId=req-POST-%2Fapi%2Fchannels')).body;
+        assert.equal(logs.length, 1);
+        assert.equal(logs[0].summary, 'Added number "Gamma line"');
+        assert.equal(logs[0].requestId, 'req-POST-/api/channels');
+        assert.equal(typeof logs[0].actor, 'object');
+    });
+
+    it('a write without a named row still gets a readable generic row', async () => {
+        const res = await send(owner, 'POST', '/api/contacts', { phone: '+15550009999', name: 'Zed' });
+        assert.ok(res.status < 400, JSON.stringify(res.body));
+        const [row] = rowsFor('req-POST-/api/contacts');
+        assert.equal(row.action, 'POST /contacts');
+        const { logs } = (await call(sup, '/api/admin/audit-logs?requestId=req-POST-%2Fapi%2Fcontacts')).body;
+        assert.equal(logs[0].summary, 'Created a contact');
+        assert.equal(logs[0].verb, 'create');
+    });
+
+    it('policy.change stores from/to under the tenant it is about; tenant.create lands in the new tenant', async () => {
+        const url = `/api/admin/policy/tenant:${tenantB.id}`;
+        assert.equal((await send(sup, 'PUT', url, { values: { 'bulk.killSwitch': true } })).status, 200);
+        const [on] = rowsFor(`req-PUT-${url}`);
+        assert.equal(on.tenant_id, tenantB.id);
+        assert.deepEqual(JSON.parse(on.detail), { 'bulk.killSwitch': { from: null, to: true } });
+        let { logs } = (await call(sup, `/api/admin/audit-logs?requestId=${encodeURIComponent(`req-PUT-${url}`)}`)).body;
+        assert.match(logs[0].summary, /kill switch ON for Beta Shop/);
+        assert.equal(logs[0].severity, 'danger');
+        app.locals.tenancy.db.prepare('DELETE FROM audit_logs WHERE request_id = ?').run(`req-PUT-${url}`);
+        assert.equal((await send(sup, 'PUT', url, { values: { 'bulk.killSwitch': null } })).status, 200);
+        ({ logs } = (await call(sup, `/api/admin/audit-logs?requestId=${encodeURIComponent(`req-PUT-${url}`)}`)).body);
+        assert.deepEqual(JSON.parse(logs[0].detail), { 'bulk.killSwitch': { from: true, to: null } });
+        assert.match(logs[0].summary, /kill switch off/);
+
+        const made = await send(sup, 'POST', '/api/admin/tenants', {
+            name: 'Delta Co', slug: 'delta-co', owner: { email: 'delta@example.test', name: 'Dee', password: 'Delta-Pass-2026!' },
+        });
+        assert.equal(made.status, 201, JSON.stringify(made.body));
+        const [row] = rowsFor('req-POST-/api/admin/tenants');
+        assert.equal(row.tenant_id, made.body.tenant.id);
+    });
+
+    it('verbs follow the action name: disconnect and cancel are changes, not creates', async () => {
+        const { auditVerb } = await import('../src/observability/auditText.js');
+        assert.equal(auditVerb('POST /connection/disconnect'), 'change');
+        assert.equal(auditVerb('POST /campaigns/2/cancel'), 'change');
+        assert.equal(auditVerb('POST /campaigns'), 'create');
+        assert.equal(auditVerb('DELETE /contacts/4'), 'remove');
+        assert.equal(auditVerb('campaign.done'), 'other');
+        assert.equal(auditVerb('tenant.sessions.revoke'), 'remove');
+        const others = (await call(sup, '/api/admin/audit-logs?verb=other')).body.logs;
+        assert.ok(others.length && others.every((l) => l.verb === 'other'));
+    });
+});
+
+describe('backend logs', () => {
+    it('are super admin only, filter by level and request id, and read as sentences', async () => {
+        assert.equal((await call(owner, '/api/admin/logs')).status, 403);
+        await fetch(`${base}/api/admin/does-not-exist?token=s3cret-value`, { headers: { authorization: `Bearer ${sup}`, 'x-request-id': 'log-probe-1' } });
+        const { lines } = (await call(sup, '/api/admin/logs?requestId=log-probe-1')).body;
+        assert.equal(lines.length, 1);
+        assert.match(lines[0].summary, /^GET \/api\/admin\/does-not-exist\?token=\[redacted\] was refused with 4\d\d in /);
+        assert.ok(!JSON.stringify(lines).includes('s3cret-value'), 'a token in the query never reaches the buffer');
+        console.error('[sweep] tenant 7 failed for +91 98765 43210 token=abc123');
+        const warn = (await call(sup, '/api/admin/logs?level=warn&q=sweep')).body.lines;
+        assert.equal(warn[0].level, 'error');
+        assert.equal(warn[0].severity, 'danger');
+        assert.match(warn[0].summary, /…3210 token=\[redacted\]/);
+        assert.ok((await call(sup, '/api/admin/logs?level=error')).body.lines.every((l) => l.level === 'error'));
+    });
+});
+
+describe('live logs topic', () => {
+    it('publishes `logs` after warn/error lines only, coalesced, and stops when told', async () => {
+        const { publishWarnings } = await import('../src/observability/logBuffer.js');
+        const { createLogger } = await import('../src/observability/logger.js');
+        const published = [];
+        const stop = publishWarnings({ publish: (topic) => published.push(topic) });
+        const log = createLogger({ component: 'test' });
+        log.info('quiet line');
+        await new Promise((r) => setTimeout(r, 50));
+        assert.equal(published.length, 0, 'info lines are not pushed');
+        log.warn('first');
+        log.error('second');
+        await new Promise((r) => setTimeout(r, 50));
+        assert.deepEqual(published, ['logs'], 'two lines, one publish');
+        stop();
+        log.error('after stop');
+        await new Promise((r) => setTimeout(r, 50));
+        assert.equal(published.length, 1);
+    });
+});
+
+describe('audit text', () => {
+    it('names campaigns, numbers and businesses, and falls back for unknown actions', async () => {
+        const { describeAudit } = await import('../src/observability/auditText.js');
+        const names = { tenant: () => 'Acme', channel: () => 'Sales' };
+        assert.equal(describeAudit({ action: 'campaign.done', target: 5, detail: { name: 'Diwali offer', sent: 480, failed: 3, total: 483 } }).summary,
+            'Campaign "Diwali offer" finished: 480 sent, 3 failed');
+        assert.equal(describeAudit({ action: 'channel.admin.pause', target: 7, tenantId: 2, detail: 'spam' }, names).summary,
+            'Super admin paused number "Sales" (Acme): spam');
+        assert.equal(describeAudit({ action: 'auth.login_failed', detail: { email: 'a@b.com', ip: '1.2.3.4' } }).summary,
+            'Login failed for a@b.com from 1.2.3.4');
+        assert.equal(describeAudit({ action: 'POST /campaigns/2/pause' }).summary, 'Paused campaign #2');
+        assert.equal(describeAudit({ action: 'PUT /contacts/9' }).summary, 'Updated contact #9');
+        assert.equal(describeAudit({ action: 'widget.frobnicate' }).summary, 'Widget frobnicate');
+        assert.equal(describeAudit({ action: 'ops.alert', tenantId: 2, target: 'ban:channel-7',
+            detail: { kind: 'ban', channelId: 7, text: 'WhatsApp banned this number.' } }, names).severity, 'danger');
     });
 
     it('shadow-review: every number\'s shadow triggers per kind, with the pause they would have caused', async () => {

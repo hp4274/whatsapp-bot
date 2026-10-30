@@ -6,6 +6,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
@@ -90,6 +91,10 @@ const HEALTH_SCORE: Readonly<Record<string, number>> = { ok: 100, warn: 50, bad:
 
 const HEALTH_REFRESH_MS = 60_000;
 
+/** Reads still work past the grace days (server app.js 402 gate is writes-only), so the banner says what stopped. */
+const SUBSCRIPTION_ENDED_TEXT =
+  'Your subscription has ended. You can still see your data, but nothing is sent and changes are off. Contact your provider to renew.';
+
 /** Web Storage throws outright in some privacy modes, so the read is guarded. */
 function readCollapsed(): boolean {
   try {
@@ -139,7 +144,28 @@ export class App {
   /** Every channel on the platform; null until the first load lands, 'error' if it failed. */
   private readonly fleet = signal<readonly ChannelDetail[] | 'error' | null>(null);
 
+  /**
+   * The subscription-ended banner. `/api/auth/me` says so on load; a 402 says so
+   * when the grace ran out while the page was open (`Auth.blocked`).
+   */
+  protected readonly subscriptionEnded = computed(
+    () =>
+      this.auth.blocked() ??
+      (this.auth.tenant()?.subscription?.state === 'expired' ? SUBSCRIPTION_ENDED_TEXT : null),
+  );
+
   constructor() {
+    // A 402 means /me is stale: re-read it, so a renewal (which re-reads it too) can lift the banner.
+    effect(() => {
+      if (this.auth.blocked()) untracked(() => this.auth.refresh());
+    });
+    // Renewed: /me no longer says expired, so the 402's banner goes. Tracks the tenant only,
+    // or the 402 above would clear itself before /me caught up.
+    effect(() => {
+      const state = this.auth.tenant()?.subscription?.state;
+      if (state && state !== 'expired') untracked(() => this.auth.blocked.set(null));
+    });
+
     // Only the platform view needs the fleet, so nobody else pays for the poll. The
     // computed above flips only on a real view change, which keeps the timer from
     // restarting whenever the user object is refreshed.
@@ -216,8 +242,8 @@ export class App {
     {
       heading: 'Messaging',
       items: [
-        { path: '/campaign', label: 'New Campaign', icon: ICONS.campaign, service: 'bulk_messages' },
-        { path: '/campaigns', label: 'Campaigns', icon: 'speakerphone', service: 'bulk_messages' },
+        { path: '/campaign', label: 'New Campaign', icon: ICONS.campaign, service: 'campaigns' },
+        { path: '/campaigns', label: 'Campaigns', icon: 'speakerphone', service: 'campaigns' },
         { path: '/templates', label: 'Templates', icon: 'file-text', service: 'templates' },
         { path: '/auto-replies', label: 'Auto-Replies', icon: ICONS.replies, service: 'auto_replies' },
         { path: '/inbox', label: 'Inbox', icon: 'inbox', service: 'inbox' },
@@ -249,8 +275,8 @@ export class App {
     {
       heading: 'Settings',
       items: [
-        { path: '/connection', label: 'Connection', icon: ICONS.connection, service: 'whatsapp_channels' },
-        { path: '/channels', label: 'WhatsApp Numbers', icon: ICONS.channels, service: 'whatsapp_channels' },
+        { path: '/connection', label: 'Connection', icon: ICONS.connection, service: 'whatsapp_channels', min: 'admin' },
+        { path: '/channels', label: 'WhatsApp Numbers', icon: ICONS.channels, service: 'whatsapp_channels', min: 'admin' },
         { path: '/team', label: 'Team', icon: ICONS.team, min: 'admin' },
         { path: '/workflows', label: 'Workflows', icon: 'hierarchy-3', service: 'workflows' },
         { path: '/developer', label: 'API & Webhooks', icon: 'api', service: 'api' },

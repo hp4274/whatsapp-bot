@@ -49,13 +49,17 @@
             <h4>Operations</h4>
             <div class="switches">
               @for (control of controlKeys; track control) {
-                <label class="switch drawer-check">
-                  <input
-                    type="checkbox"
-                    [checked]="s.controls[control]"
-                    (change)="setSettingsControl(control, checked($event))"
-                  />
+                <label class="opt">
                   <span>{{ controlLabel(control) }}</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    class="switch"
+                    [attr.aria-checked]="s.controls[control]"
+                    (click)="setSettingsControl(control, !s.controls[control])"
+                  >
+                    <span class="thumb"></span>
+                  </button>
                 </label>
               }
             </div>
@@ -67,13 +71,17 @@
               Whether this business may link a WhatsApp number by scanning a QR code.
             </p>
             <div class="switches">
-              <label class="switch drawer-check">
-                <input
-                  type="checkbox"
-                  [checked]="s.limits.allowWhatsappWeb"
-                  (change)="setLimit('allowWhatsappWeb', checked($event))"
-                />
+              <label class="opt">
                 <span>WhatsApp QR (Baileys)</span>
+                <button
+                    type="button"
+                    role="switch"
+                    class="switch"
+                    [attr.aria-checked]="s.limits.allowWhatsappWeb"
+                    (click)="setLimit('allowWhatsappWeb', !s.limits.allowWhatsappWeb)"
+                  >
+                    <span class="thumb"></span>
+                  </button>
               </label>
             </div>
           </section>
@@ -85,15 +93,19 @@
               change them after accepting, in writing, that a banned number is their responsibility.
             </p>
             <div class="switches">
-              <label class="switch drawer-check">
-                <input
-                  type="checkbox"
-                  [checked]="s.limits.allowCustomSafety"
-                  (change)="setLimit('allowCustomSafety', checked($event))"
-                />
+              <label class="opt">
                 <span
                   >Let this business change its own sending limits (they must accept the risk)</span
                 >
+                <button
+                    type="button"
+                    role="switch"
+                    class="switch"
+                    [attr.aria-checked]="s.limits.allowCustomSafety"
+                    (click)="setLimit('allowCustomSafety', !s.limits.allowCustomSafety)"
+                  >
+                    <span class="thumb"></span>
+                  </button>
               </label>
             </div>
           </section>
@@ -133,7 +145,7 @@
                     <span class="warn-note">Cancels at the end of this period.</span>
                   }
                 </div>
-                <span class="s-pill {{ stateTone(cur.state) }}">{{ cur.state }}</span>
+                <span class="s-pill {{ stateTone(cur.state) }}">{{ sentence(cur.state) }}</span>
               </div>
             } @else {
               <p class="muted compact">
@@ -252,9 +264,11 @@
                       step="1"
                       [value]="safety.dailyLimit"
                       (input)="setSafetyNumber('dailyLimit', $any($event.target).value)"
+                      aria-describedby="l-daily-hint"
                     />
                     <span class="muted">per number</span>
                   </div>
+                  <span class="hint" id="l-daily-hint">0 = no limit of yours; each number keeps its plan's day</span>
                 </div>
               }
             </div>
@@ -283,13 +297,17 @@
             <div class="section-head">
               <h4>Sending safety</h4>
               @if (s.safety; as safety) {
-                <label class="switch">
-                  <input
-                    type="checkbox"
-                    [checked]="safety.safetyEnabled"
-                    (change)="setSafetyValue('safetyEnabled', checked($event))"
-                  />
+                <label class="opt bare">
                   <span>Enforced</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    class="switch"
+                    [attr.aria-checked]="safety.safetyEnabled"
+                    (click)="setSafetyValue('safetyEnabled', !safety.safetyEnabled)"
+                  >
+                    <span class="thumb"></span>
+                  </button>
                 </label>
               }
             </div>
@@ -371,6 +389,7 @@
                   </option>
                   <option value="fixed">Fixed - rate limit only (faster, easier to spot)</option>
                 </select>
+                <span class="hint">QR numbers ignore Fixed: they always keep their level's gaps</span>
               </div>
 
               @for (group of safetyGroups; track group.title) {
@@ -388,7 +407,10 @@
                           [value]="safety[f.key]"
                           (input)="setSafetyNumber(f.key, $any($event.target).value)"
                         />
-                        <span class="hint">{{ f.help }}</span>
+                        <span class="hint"
+                          >{{ f.help
+                          }}{{ f.qrIgnored ? '. Not used on QR numbers: the level sets the rests' : '' }}</span
+                        >
                       </div>
                     }
                   </div>

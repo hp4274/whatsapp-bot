@@ -21,8 +21,7 @@
         <button
           type="button"
           role="switch"
-          class="switch"
-          [class.on]="on"
+          class="row"
           [attr.aria-checked]="on"
           [disabled]="busy()"
           (click)="toggle(capability)"
@@ -33,7 +32,8 @@
               <span class="hint">{{ label(capability).hint }}</span>
             }
           </span>
-          <span class="track" aria-hidden="true"><span class="thumb"></span></span>
+          <!-- The whole row is the switch; the kit's .switch is only its picture. -->
+          <span class="switch" [class.on]="on" aria-hidden="true"><span class="thumb"></span></span>
         </button>
       </li>
     }

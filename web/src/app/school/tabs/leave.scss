@@ -35,8 +35,8 @@
   --tone: var(--warning);
   transition: transform 420ms var(--ease), opacity 420ms var(--ease), box-shadow 360ms var(--ease);
 
-  &.out-ok { --tone: var(--success); transform: translateX(40px) rotateY(-18deg) scale(0.94) !important; opacity: 0; }
-  &.out-bad { --tone: var(--danger-text); transform: translateX(-40px) rotateY(18deg) scale(0.94) !important; opacity: 0; }
+  &.out-ok { --tone: var(--success); transform: translateX(40px) scale(0.96) !important; opacity: 0; }
+  &.out-bad { --tone: var(--danger-text); transform: translateX(-40px) scale(0.96) !important; opacity: 0; }
 }
 
 .top {

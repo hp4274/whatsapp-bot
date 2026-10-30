@@ -1,8 +1,9 @@
 @use '../school/school-shared' as s;
 
 @include s.all;
+@include s.switch;
 
-:host { display: grid; gap: var(--space-xl); align-content: start; }
+:host { @include s.fit-grid; display: grid; gap: var(--space-xl); align-content: start; }
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .muted { color: var(--text-muted); }
@@ -17,10 +18,9 @@
 /* Pricing cards --------------------------------------------------------- */
 .plan-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
   gap: var(--space-lg);
   align-items: stretch;
-  perspective: 1200px;
 }
 
 .plan {
@@ -64,16 +64,19 @@
   }
 
   h3 { margin: 0; font-size: 22px; font-weight: 500; letter-spacing: -0.6px; color: var(--text-strong); }
-  .desc { margin: -6px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--text-muted); min-height: 2.6em; }
+  // Two lines are reserved, so a one-line description does not lift its price above the next card's.
+  .desc { margin: -6px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--text-muted); min-height: 3.2em; }
 }
 
 .skel-card { min-height: 380px; background: var(--surface-sunken); animation: s-pulse 2s ease-in-out infinite; }
 
+// The row is held at a pill's height even when a plan has no pills, so every card's title and price line up.
 .plan-top {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  min-height: 26px;
   .tier { margin-right: auto; color: var(--hint); text-transform: uppercase; letter-spacing: 0.08em; }
   .s-pill .ti { font-size: 13px; }
   .s-pill:has(.ti)::before { display: none; }
@@ -97,8 +100,9 @@
   padding: 0;
   list-style: none;
   font-size: 13px;
-  li { display: flex; justify-content: space-between; gap: 10px; color: var(--text-muted); }
-  b { font-weight: 500; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+  li { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; color: var(--text-muted); }
+  li > span { min-width: 0; }
+  b { flex: none; display: inline-flex; align-items: center; font-weight: 500; color: var(--text-strong); font-variant-numeric: tabular-nums; }
   .ti { color: var(--success); font-size: 16px; }
 }
 
@@ -147,7 +151,7 @@
   grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.6fr);
   gap: var(--space-md);
   .s-stat { transition: transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease), border-color var(--fast) var(--ease); }
-  button.s-stat:hover { transform: translateY(-3px) rotateX(4deg); }
+  button.s-stat:hover { transform: translateY(-3px); }
   .mrr b { font-size: 26px; white-space: normal; }
   .est { display: block; margin-top: 6px; font-size: 11.5px; }
   @media (max-width: 1100px) { grid-template-columns: repeat(2, minmax(0, 1fr)); .mrr { grid-column: 1 / -1; } }
@@ -181,6 +185,8 @@
   justify-content: space-between;
   gap: 12px;
   h3 { margin: 4px 0; font-size: 22px; font-weight: 500; letter-spacing: -0.6px; }
+  > div { min-width: 0; }
+  > .btn { flex: none; }
 }
 .ed-grid {
   display: grid;
@@ -197,15 +203,25 @@
   h4 { display: flex; gap: 8px; align-items: baseline; margin: 0; font-size: 14px; font-weight: 500; }
   h4 .muted { font-size: 12px; font-weight: 400; }
 }
-.switches { display: grid; gap: 8px; }
-.switch {
+.switches {
+  display: grid;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.opt {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  padding: 10px 14px;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-strong);
-  input { width: 16px; height: 16px; }
+  cursor: pointer;
+  & + & { border-top: 1px solid var(--border-color); }
+  small { font-weight: 400; }
 }
 .ed-foot {
   position: sticky;
@@ -220,7 +236,12 @@
   .grow { flex: 1; }
 }
 
+// The kit drawer pads 16px on a phone, so the full-bleed footer pulls back by that much.
+@media (max-width: 520px) {
+  .ed-foot { bottom: calc(var(--space-lg) * -1); margin: 0 calc(var(--space-lg) * -1) calc(var(--space-lg) * -1); padding-inline: var(--space-lg); }
+}
+
 @media (max-width: 560px) {
-  .ed-grid { grid-template-columns: 1fr; }
+  .ed-grid { grid-template-columns: minmax(0, 1fr); }
   .change select { min-width: 140px; }
 }

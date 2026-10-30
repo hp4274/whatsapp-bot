@@ -54,19 +54,19 @@
       <tbody>
         @for (r of shown(); track r.phone; let i = $index) {
           <tr [style.--i]="i">
-            <td class="mono">+{{ r.phone }}</td>
-            <td>{{ r.name || '-' }}</td>
-            <td><app-campaign-status [status]="r.status" /></td>
-            <td class="mono">{{ localTime(r.updatedAt) }}</td>
-            <td class="err" [title]="r.error || ''">{{ reason(r) }}</td>
-            <td>
+            <td class="mono ph">+{{ r.phone }}</td>
+            <td data-label="Name">{{ r.name || '-' }}</td>
+            <td class="st"><app-campaign-status [status]="r.status" /></td>
+            <td class="when" data-label="Updated">{{ localTime(r.updatedAt) }}</td>
+            <td class="err" data-label="Failure reason" [title]="r.error || ''">{{ reason(r) }}</td>
+            <td data-label="Button">
               @if (r.clicked) {
                 <span class="tag">{{ r.clicked }}</span>
               } @else {
                 <span class="muted">-</span>
               }
             </td>
-            <td class="c">
+            <td class="c" data-label="Replied">
               @if (r.replied) {
                 <i
                   class="ti ti-circle-check yes"

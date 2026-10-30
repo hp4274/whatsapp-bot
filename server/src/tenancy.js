@@ -100,9 +100,11 @@ export const NUMBER_SKIP_TEXT = [
  * What a business accepts to leave sending safety: levels, brakes and quiet time off, the plan's day and speed kept
  * (POST /api/safety/custom/exit). Asked again on every exit, as kind `safety_exit`.
  */
-export const SAFETY_EXIT_VERSION = '2026-10-2';
+// v3: the business never sees levels, warm-up or brakes by name (docs/bulk.md §18). Exit is asked on every exit, so a
+// new version asks nobody again.
+export const SAFETY_EXIT_VERSION = '2026-10-3';
 export const SAFETY_EXIT_TEXT = [
-    'Leaving sending safety removes the warm-up levels, the brakes and the quiet hours from every number of our business.',
+    'Leaving sending safety removes the gradual start, the automatic slow-downs and the quiet hours from every number of our business.',
     'Numbers will send at our plan\'s full daily limit and speed from the first day. WhatsApp is likely to restrict or ban a number that does that, temporarily or permanently.',
     'I accept full responsibility for any restriction or ban of our number(s), and for any lost messages, contacts or business that follow. The platform cannot restore a banned number.',
 ];
@@ -297,7 +299,13 @@ export class Tenancy {
     setSafety(id, patch = {}) {
         const before = this.getTenant(id);
         if (!before || before.status === 'archived') throw new TenancyError('tenant not found', 404);
-        const next = mergeSafety(before.safety, patch);
+        // A form saves back every field it showed. A value equal to what the platform already shows, for a key the
+        // admin never set, is no choice: stored, it would be enforced (enforcedSafety) over each number's own start
+        // values (policy/channelOps.js newNumberSafety), such as the plan's minimum gap.
+        const shown = this.platformSafety(before);
+        const chosen = Object.fromEntries(Object.entries(patch ?? {})
+            .filter(([key, value]) => key in before.safety || value === null || String(value) !== String(shown[key])));
+        const next = mergeSafety(before.safety, chosen);
         checkSafety({ ...DEFAULTS, ...next });
         this.db.prepare('UPDATE tenants SET safety = ? WHERE id = ?').run(JSON.stringify(next), Number(id));
         return this.getTenant(id);
@@ -339,9 +347,13 @@ export class Tenancy {
             && this.currentConsent(tenant.id));
     }
 
-    /** Platform policy: defaults < super admin overrides. */
+    /**
+     * Platform policy: defaults < super admin overrides. dailyLimit with no admin value is 0 (no ceiling of the
+     * admin's), not DEFAULTS' 250: shown as 250 and saved back by a form, it held every QR number under 250 a day
+     * whatever its plan's day (channels.dailyCap).
+     */
     platformSafety(tenant) {
-        return Object.fromEntries(POLICY_KEYS.map((key) => [key, tenant.safety[key] ?? DEFAULTS[key]]));
+        return Object.fromEntries(POLICY_KEYS.map((key) => [key, tenant.safety[key] ?? (key === 'dailyLimit' ? 0 : DEFAULTS[key])]));
     }
 
     /** What actually runs: platform policy < the tenant's own overrides, when active. */
@@ -357,10 +369,8 @@ export class Tenancy {
     enforcedSafety(tenant) {
         if (!tenant) return {};
         const platform = this.platformSafety(tenant);
-        // dailyLimit with no admin value falls back to 0 (no own ceiling), not DEFAULTS' 250, which on QR would hold
-        // every number under its plan's day (channels.dailyCap).
-        const touched = Object.fromEntries(Object.keys(tenant.customSafety).map((key) => [key,
-            key === 'dailyLimit' && tenant.safety.dailyLimit == null ? 0 : platform[key]]));
+        // dailyLimit with no admin value falls back to 0 (no own ceiling): see platformSafety.
+        const touched = Object.fromEntries(Object.keys(tenant.customSafety).map((key) => [key, platform[key]]));
         return { ...touched, ...tenant.safety, ...(this.customSafetyActive(tenant) ? tenant.customSafety : {}), ...exitOf(tenant) };
     }
 
@@ -512,6 +522,23 @@ export class Tenancy {
         return toUser(row);
     }
 
+    /**
+     * Whether a token still opens a session, without touching it: an open event stream is re-checked with this, and
+     * a stream sitting quiet must neither keep an idle session alive nor be the thing that expires it.
+     */
+    sessionValid(token, now = Date.now()) {
+        if (!token) return false;
+        const row = this.db.prepare(
+            `SELECT u.disabled, u.tenant_id, s.expires_at, s.created_at AS session_created, s.last_seen_at,
+                    t.status AS tenant_status
+             FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN tenants t ON t.id = u.tenant_id
+             WHERE s.token_hash = ?`).get(sha256(String(token)));
+        if (!row || row.disabled || row.expires_at < new Date(now).toISOString()) return false;
+        if (row.tenant_id !== null && row.tenant_status !== 'active') return false;
+        const idleMs = row.tenant_id === null ? SESSION_IDLE_MS : this.idleMsFor(row.tenant_id);
+        return now - Date.parse(row.last_seen_at ?? row.session_created) <= idleMs;
+    }
+
     /** Sign a user out everywhere (password change, compromise). */
     revokeSessions(userId) {
         return this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(Number(userId)).changes;
@@ -528,10 +555,30 @@ export class Tenancy {
     }
 
     // -------------------------------------------------------------- audit --
-    audit({ tenantId = null, userId = null, action, target = '', detail = '' }) {
+    /**
+     * `ip` and `requestId` tie a change to the request that made it (the admin opens that request's log lines).
+     * A caller without the request at hand gets the ambient request id from `currentRequestId` when one is wired
+     * (adminOps.js wires the logger's context); a sweep has none and stores NULL.
+     */
+    audit({ tenantId = null, userId = null, action, target = '', detail = '', ip = null, requestId = undefined }) {
+        let reqId = requestId;
+        if (reqId === undefined) {
+            try {
+                reqId = this.currentRequestId?.() ?? null;
+            } catch {
+                reqId = null;
+            }
+        }
         this.db.prepare(
-            'INSERT INTO audit_logs (tenant_id, user_id, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-            .run(tenantId, userId, action, String(target), typeof detail === 'string' ? detail : JSON.stringify(detail), utcNow());
+            'INSERT INTO audit_logs (tenant_id, user_id, action, target, detail, created_at, ip, request_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+            .run(tenantId, userId, action, String(target), typeof detail === 'string' ? detail : JSON.stringify(detail), utcNow(),
+                ip == null ? null : String(ip).slice(0, 64), reqId == null ? null : String(reqId).slice(0, 128));
+        // The admin's live feed (observability/adminFeed.js); a failing listener never loses the row.
+        try {
+            this.onAudit?.({ tenantId, action });
+        } catch {
+            // the row is written; a live screen catches up on its next load
+        }
     }
 
     /** tenantId null = every tenant (super admin only, enforced by the caller). */
@@ -542,7 +589,7 @@ export class Tenancy {
                 .all(Number(tenantId), limit);
         return rows.map((r) => ({
             id: r.id, tenantId: r.tenant_id, userId: r.user_id, action: r.action,
-            target: r.target, detail: r.detail, createdAt: r.created_at,
+            target: r.target, detail: r.detail, ip: r.ip ?? null, requestId: r.request_id ?? null, createdAt: r.created_at,
         }));
     }
 }

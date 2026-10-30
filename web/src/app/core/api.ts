@@ -704,6 +704,32 @@ export interface BillingUsage {
   [key: string]: unknown;
 }
 
+/** One limit against its use this month; `limit` null = unlimited, 0 = none allowed. */
+export interface PlanUsageMetric {
+  readonly metric: string;
+  readonly used: number;
+  readonly limit: number | null;
+  readonly remaining: number | null;
+}
+
+/**
+ * The business's own quota (server billing/routes.js `/plan-usage`): the plan's
+ * metrics plus templates and team seats. Open to every plan, unlike /billing/*.
+ */
+export interface PlanUsage {
+  /** The server's UTC month, `YYYY-MM`. */
+  readonly period: string;
+  readonly planKey: string | null;
+  readonly metrics: readonly PlanUsageMetric[];
+}
+
+/** The part of the server's subscription (billing/store.js `subscription()`) the quota panel reads. */
+export interface TenantSubscriptionState {
+  readonly planKey: string;
+  readonly plan: { readonly name: string };
+  readonly state: 'trialing' | 'active' | 'grace' | 'expired';
+}
+
 export interface HealthStatus {
   ok?: boolean;
   status?: string;
@@ -840,6 +866,12 @@ export class TenancyApi {
     const params = period ? new HttpParams().set('period', period) : undefined;
     return this.http
       .get<{ usage: BillingUsage }>('/api/billing/usage', { params })
+      .pipe(catchError(toMessage));
+  }
+
+  planUsage(): Observable<{ usage: PlanUsage; subscription: TenantSubscriptionState | null }> {
+    return this.http
+      .get<{ usage: PlanUsage; subscription: TenantSubscriptionState | null }>('/api/plan-usage')
       .pipe(catchError(toMessage));
   }
 
@@ -1049,8 +1081,17 @@ export interface Contact2 {
   /** Why and when the number opted out, when it has. */
   optOutReason?: string | null;
   optedOutAt?: string | null;
+  /** The latest proof of opt-in (server opt_ins): how, in what words, when. */
+  optIn?: OptInProof | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface OptInProof {
+  /** manual | import | api | keyword | merge | workflow */
+  source: string;
+  text: string;
+  at: string;
 }
 
 export interface TimelineEntry {
@@ -1132,6 +1173,8 @@ export interface ContactFilter {
   status?: string;
   optInStatus?: string;
   optedOut?: boolean;
+  /** The last send to the number found no WhatsApp account (and nothing has been delivered since). */
+  notOnWhatsapp?: boolean;
   source?: string;
   search?: string;
   custom?: Record<string, string>;
@@ -1556,6 +1599,8 @@ export interface CampaignStartResult {
   skippedMuted?: number;
   /** Already got the per-recipient daily maximum of bulk messages. */
   skippedFrequency?: number;
+  /** Message history says the number has no WhatsApp account (last 30 days). */
+  skippedNotOnWhatsapp?: number;
   /** The plan requires opt-in and these contacts have not given it. */
   skippedNoOptIn?: number;
   /** The plan's speed ceiling lowered the chosen preset. */

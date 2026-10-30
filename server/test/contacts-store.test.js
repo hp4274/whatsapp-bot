@@ -213,6 +213,20 @@ describe('filters and segments', () => {
         db.forTenant(1).removeOptOut('919820000002');
     });
 
+    it('finds the numbers whose last send found no WhatsApp account, to clean a list', () => {
+        const contacts = store();
+        const scoped = db.forTenant(1);
+        const row = (id, recipient, status, at) => scoped.db.prepare(
+            `INSERT INTO messages (message_id, tenant_id, recipient, message, status, created_at, updated_at)
+             VALUES (?, 1, ?, 'hi', ?, ?, ?)`).run(id, recipient, status, at, at);
+        row('now-1', '919820000001', 'NOT_ON_WHATSAPP', '2026-10-01T10:00:00+00:00');
+        row('now-3', '+919820000003', 'NOT_ON_WHATSAPP', '2026-10-01T10:00:00+00:00'); // stored with its "+"
+        row('now-2a', '919820000002', 'NOT_ON_WHATSAPP', '2026-10-01T10:00:00+00:00');
+        row('now-2b', '919820000002', 'DELIVERED', '2026-10-05T10:00:00+00:00'); // joined WhatsApp since
+        assert.deepEqual(contacts.find({ notOnWhatsapp: true }).map((c) => c.phone).sort(), ['919820000001', '919820000003']);
+        scoped.db.prepare("DELETE FROM messages WHERE message_id LIKE 'now-%'").run();
+    });
+
     it('re-evaluates a segment on every use, so it cannot go stale', () => {
         const contacts = store();
         const segment = contacts.saveSegment({ name: 'Gold plan', filter: { custom: { plan: 'gold' } } });

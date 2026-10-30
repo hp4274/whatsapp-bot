@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-    LEVELS, contentError, dayPlan, inQuiet, quietExtraSeconds, quietLeftSeconds, quietStatus, isDaytimeFor, seeded, shuffle, typingMs, zoneOf,
+    LEVELS, contactZone, contentError, dayPlan, inQuiet, quietExtraSeconds, quietLeftSeconds, quietStatus, isDaytimeFor, seeded, shuffle, typingMs, zoneOf,
 } from '../src/campaign/humanize.js';
 import { MessageQueue, queueItem } from '../src/campaign/queue.js';
 
@@ -93,6 +93,19 @@ describe('recipient local time', () => {
         assert.ok(isDaytimeFor('12125550100', new Date('2026-06-01T18:30:00Z')));
         assert.ok(!isDaytimeFor('12125550100', new Date('2026-06-01T14:00:00Z')), '07:00 in Los Angeles is too early');
         assert.ok(isDaytimeFor('0000', noonUtc), 'unknown country is never held');
+    });
+
+    it('uses a contact\'s own timezone field over the country code, and ignores a bad one', () => {
+        const at = new Date('2026-06-01T14:00:00Z'); // 10:00 in New York, 07:00 in Los Angeles
+        assert.ok(!isDaytimeFor('12125550100', at), 'the country code waits for the west coast');
+        assert.equal(contactZone({ timezone: ' America/New_York ' }), 'America/New_York');
+        assert.ok(isDaytimeFor('12125550100', at, { zone: contactZone({ timezone: 'America/New_York' }) }));
+        // 23:30 in India, 14:00 in New York: an Indian number living in New York is messaged now.
+        assert.ok(isDaytimeFor('919876543210', new Date('2026-06-01T18:00:00Z'), { zone: 'America/New_York' }));
+        assert.equal(contactZone({ timezone: 'Mars/Olympus' }), null);
+        assert.equal(contactZone({}), null);
+        assert.equal(contactZone(null), null);
+        assert.ok(!isDaytimeFor('12125550100', at, { zone: contactZone({ timezone: 'Mars/Olympus' }) }), 'a bad zone falls back');
     });
 });
 
@@ -236,7 +249,8 @@ describe('campaign manager', () => {
     });
 
     it('shows typing for 2s+ on real sends', async () => {
-        if (restingNow()) return;
+        // Bulk to a +91 number waits for the recipient's daytime: outside it nothing is sent to measure.
+        if (restingNow() || !isDaytimeFor(sheet[0].phone)) return;
         const { sent } = await run(sheet.slice(0, 1), { config: { humanTiming: true } });
         assert.ok(sent[0].opts.typingMs >= 2000);
     });

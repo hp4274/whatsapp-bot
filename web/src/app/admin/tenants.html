@@ -108,7 +108,7 @@
             <span class="po-top">
               <strong>{{ p.name }}</strong>
               @if (p.trialDays) {
-                <span class="s-pill tone-info">{{ p.trialDays }}d trial</span>
+                <span class="s-pill tone-info">{{ p.trialDays }}-day trial</span>
               }
             </span>
             <span class="po-price">{{ formatPrice(p) }}</span>
@@ -184,12 +184,16 @@
         <h4>Operations</h4>
         <div class="switches">
           @for (control of controlKeys; track control) {
-            <label class="switch">
-              <input
-                type="checkbox"
-                [checked]="draft().controls[control]"
-                (change)="toggleDraftControl(control, checked($event))"
-              />
+            <label class="opt">
+              <button
+                type="button"
+                role="switch"
+                class="switch"
+                [attr.aria-checked]="draft().controls[control]"
+                (click)="toggleDraftControl(control, !draft().controls[control])"
+              >
+                <span class="thumb"></span>
+              </button>
               <span>{{ controlLabel(control) }}</span>
             </label>
           }
@@ -265,27 +269,30 @@
         <span class="avatar" aria-hidden="true">{{ tenant.name.charAt(0) }}</span>
         <div class="who">
           <span class="mono muted">#{{ tenant.id }}</span>
-          <h3>{{ tenant.name }}</h3>
-          <p class="muted">{{ tenant.slug }} &middot; {{ tenant.users }} user(s)</p>
-          @if (tenant.subscription; as sub) {
-            <button
-              class="s-pill plan-badge {{ stateTone(sub.state) }}"
-              type="button"
-              (click)="openSettings(tenant, 'plan')"
-              [title]="sub.planName + ' - ' + sub.state"
+          <h3 [title]="tenant.name">{{ tenant.name }}</h3>
+          <p class="muted" [title]="tenant.slug">{{ tenant.slug }} &middot; {{ tenant.users }} user(s)</p>
+          <!-- Status and plan share one row that every card has, so cards in a grid row match in height. -->
+          <div class="tags">
+            <span
+              class="s-pill"
+              [class.tone-ok]="tenant.status === 'active'"
+              [class.tone-warn]="tenant.status === 'suspended'"
+              [class.tone-mute]="tenant.status === 'archived'"
+              >{{ sentence(tenant.status) }}</span
             >
-              <i class="ti ti-crown" aria-hidden="true"></i>{{ sub.planName }}
-              <span class="sr-only">({{ sub.state }})</span>
-            </button>
-          }
+            @if (tenant.subscription; as sub) {
+              <button
+                class="s-pill plan-badge {{ stateTone(sub.state) }}"
+                type="button"
+                (click)="openSettings(tenant, 'plan')"
+                [title]="sub.planName + ' - ' + sub.state"
+              >
+                <i class="ti ti-crown" aria-hidden="true"></i>{{ sub.planName }}
+                <span class="sr-only">({{ sub.state }})</span>
+              </button>
+            }
+          </div>
         </div>
-        <span
-          class="s-pill"
-          [class.tone-ok]="tenant.status === 'active'"
-          [class.tone-warn]="tenant.status === 'suspended'"
-          [class.tone-mute]="tenant.status === 'archived'"
-          >{{ tenant.status }}</span
-        >
         <div class="menu-wrap">
           <button
             class="icon-btn"
@@ -489,17 +496,23 @@
     </header>
 
     <div class="drawer-checks">
-      @for (service of services(); track service) {
-        <label class="check drawer-check">
-          <input
-            type="checkbox"
-            [checked]="drawer.services.includes(service)"
-            [disabled]="serviceDrawerBusy()"
-            (change)="toggleDrawerService(service, checked($event))"
-          />
-          <span>{{ serviceLabel(service) }}</span>
-        </label>
-      }
+      <div class="opt-list">
+        @for (service of services(); track service) {
+          <label class="opt">
+            <span><i class="ti ti-{{ serviceIcon(service) }}" aria-hidden="true"></i>{{ serviceLabel(service) }}</span>
+            <button
+              type="button"
+              role="switch"
+              class="switch"
+              [attr.aria-checked]="drawer.services.includes(service)"
+              [disabled]="serviceDrawerBusy()"
+              (click)="toggleDrawerService(service, !drawer.services.includes(service))"
+            >
+              <span class="thumb"></span>
+            </button>
+          </label>
+        }
+      </div>
     </div>
 
     <footer>

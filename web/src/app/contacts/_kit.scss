@@ -85,14 +85,14 @@
   }
 }
 
-// Modal in Kardlyz's confirm-dialog language: blurred ink scrim, a 24px card,
+// Modal in Kardlyz's confirm-dialog language: blurred --overlay scrim, a 24px card,
 // hairline-separated head and foot, outline cancel beside an ink primary.
 @mixin dialog($width: 680px) {
   .overlay {
     position: fixed;
     inset: 0;
     z-index: 80;
-    background: rgba(16, 16, 24, 0.45);
+    background: var(--overlay);
     backdrop-filter: blur(4px);
     animation: dlg-fade 200ms var(--ease) both;
   }
@@ -162,7 +162,7 @@
 
   @keyframes dlg-fade { from { opacity: 0; } }
   @keyframes dlg-rise {
-    from { opacity: 0; transform: perspective(1200px) rotateX(8deg) translateY(18px) scale(0.97); }
+    from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: none; }
   }
 

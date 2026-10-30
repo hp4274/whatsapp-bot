@@ -160,7 +160,7 @@
             <span class="viewer-hint"><i class="ti ti-hand-finger" aria-hidden="true"></i>Tapped, it opens as a swipe viewer</span>
             <div class="cards" role="list" aria-label="Swipe viewer">
               @for (m of cardMessages(); track $index) {
-                <div class="card" role="listitem">
+                <div class="wa-card" role="listitem">
                   @if (m.mediaUrl) {
                     <img class="pic" [mediaSrc]="m.mediaUrl" alt="" />
                   } @else {
@@ -209,9 +209,12 @@
               </div>
             }
             @case ('carousel') {
+              @if ((block.carousel?.cards?.length ?? 0) > 1) {
+                <span class="viewer-hint"><i class="ti ti-arrows-horizontal" aria-hidden="true"></i>Swipe for more cards</span>
+              }
               <div class="cards" role="list" aria-label="Carousel cards">
                 @for (c of block.carousel?.cards ?? []; track $index) {
-                  <div class="card" role="listitem">
+                  <div class="wa-card" role="listitem">
                     @if (c.mediaUrl) {
                       <img class="pic" [mediaSrc]="c.mediaUrl" alt="" />
                     } @else {

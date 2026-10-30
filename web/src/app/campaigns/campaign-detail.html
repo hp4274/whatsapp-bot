@@ -35,8 +35,13 @@
   </header>
 
   @if (statusReason(); as reason) {
-    <p class="s-banner tone-warn" role="status">
-      <i class="ti ti-player-pause" aria-hidden="true"></i>
+    <!-- Running: a daily or monthly limit holds it and it carries on by itself. Done: nothing was left to send. -->
+    <p class="s-banner" [class]="c.status === 'done' ? 'tone-info' : 'tone-warn'" role="status">
+      <i
+        class="ti"
+        [class]="c.status === 'running' ? 'ti-clock-pause' : c.status === 'done' ? 'ti-info-circle' : 'ti-player-pause'"
+        aria-hidden="true"
+      ></i>
       <span class="grow">{{ reason }}</span>
     </p>
   }

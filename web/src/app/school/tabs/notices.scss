@@ -29,7 +29,7 @@
   animation-delay: calc(var(--i, 0) * 50ms);
 
   .mon { font-size: 11px; font-weight: 600; letter-spacing: 0.01em; color: var(--tone); }
-  .day { font-size: 40px; font-weight: 500; line-height: 1; letter-spacing: -0.04em; color: var(--text-strong); transform: translateZ(20px); }
+  .day { font-size: 40px; font-weight: 500; line-height: 1; letter-spacing: -0.04em; color: var(--text-strong); }
   .wk { font-size: 12px; color: var(--text-muted); }
   strong { margin: 6px 0; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .s-pill { justify-self: start; }
@@ -68,7 +68,6 @@
     border-color: var(--tone);
     background: color-mix(in srgb, var(--tone) 10%, var(--surface-card));
     color: var(--text-strong);
-    transform: translateY(-3px) rotateX(8deg);
   }
 }
 

@@ -15,12 +15,10 @@
 @include s.tilt;
 @include s.drawer;
 
-:host { display: grid; gap: var(--space-xl); align-content: start; }
+:host { display: grid; @include s.fit-grid; gap: var(--space-xl); align-content: start; }
 
 .stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: var(--space-lg);
+  @include s.stat-grid(170px);
 
   .muted { display: block; margin-top: 6px; font-size: 12px; color: var(--hint); }
   button.s-stat { cursor: pointer; }
@@ -56,7 +54,7 @@
   }
 }
 
-.list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-sm); perspective: 1200px; }
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-sm); }
 
 .row {
   --tone: var(--text-muted);
@@ -110,11 +108,11 @@
   color: var(--text-muted);
   background: var(--surface-sunken);
   .ti { font-size: 15px; }
-  &.over { color: var(--danger-text); background: color-mix(in srgb, var(--danger) 12%, transparent); animation: s-pulse 2s var(--ease) infinite; }
+  &.over { color: var(--danger-text); background: color-mix(in srgb, var(--danger) 12%, transparent); animation: sla-pulse 2s var(--ease) infinite; }
   &.off { background: none; font-weight: 400; }
 }
 
-@keyframes s-pulse {
+@keyframes sla-pulse { // not s-pulse: that name is the kit skeleton's, and redefining it here stopped skeletons pulsing
   50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 18%, transparent); }
 }
 

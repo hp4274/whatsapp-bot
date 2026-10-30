@@ -45,7 +45,7 @@ A reply to someone who wrote in is never held by a daily limit. Auto-replies and
 ## 2. The one sending path: QR numbers
 
 - The Meta Cloud API has been removed. Every real number is a **QR-login (Baileys) number**: the business scans a QR code with WhatsApp on its phone.
-- The **sandbox** transport (development and tests) never really sends. It has no levels and never waits, and only a plain `dailyLimit` applies to it.
+- The **sandbox** transport (development and tests) never really sends. It has no levels, never waits, and has **no daily limit counting**: its sends leave nothing behind, so they never count toward `dailyLimit` and a sandbox run is never paused for the day.
 - There is no warm-up feature. The sending level (section 4), started from the two questions (section 3), does that job.
 
 ## 3. Connecting a number: the two questions
@@ -63,9 +63,9 @@ Right after the first successful QR scan, the Connection page opens a popup with
 
 | age + usage | Start level | Starting limit |
 |---|---|---|
-| 0-1 | 2 | 20 a day |
-| 2 | 3 | 40 a day |
-| 3 | 4 | 60 a day |
+| 0-1 | 2 | 35 a day |
+| 2 | 3 | 55 a day |
+| 3 | 4 | 80 a day |
 | 4 | 5 | 100 a day |
 | 5 | 6 | 150 a day |
 | 6 | 7 | 200 a day |
@@ -74,6 +74,7 @@ Right after the first successful QR scan, the Connection page opens a popup with
 - **Until the questions are answered, bulk is held.** Replies and transactional sends still go. A campaign started on an unanswered number waits, then sends by itself once the questions are answered.
 - **Answers are final.** They can be given once (a second attempt returns 409), so nobody can re-answer to jump higher.
 - **When they are asked again:** after a WhatsApp ban, or when a different phone takes over the channel. Moving the number to another business also clears them.
+- **A phone that comes back is not asked again.** Each phone's answers are kept on the channel (`channel_ops.start_by_phone`). When a phone that answered before is linked again, its own answers apply again, unless the channel had a ban since they were given (`channelOps.switchPhone`, called when WhatsApp reports a different account).
 - **Numbers that sent before the questions existed** keep the level their history earned (`legacy` start) and are not held.
 
 ### Skipping the questions
@@ -95,13 +96,13 @@ Each QR number sits on a level from 0 to 11. The level sets its day, its new-cha
 | Lvl | Name | Per day | New chats / day | Per hour | Gap (s) | Rest every | Rest (min) | Quiet time / day (h) | Needs: active days / delivered / bulk delivered |
 |---|---|---|---|---|---|---|---|---|---|
 | 0 | Resting | 0 | 0 | 0 | 90-300 | 5 | 45-60 | 6-8 | the wait after linking or a ban |
-| 1 | First steps | 10 | 3 | 5 | 90-300 | 5 | 45-60 | 6-8 | none |
-| 2 | Settling in | 20 | 5 | 8 | 60-180 | 8 | 45-55 | 6-8 | 3 / 8 / 0 |
-| 3 | Building | 40 | 10 | 10 | 45-150 | 10 | 40-50 | 6-8 | 6 / 40 / 0 |
-| 4 | Growing | 60 | 15 | 12 | 40-120 | 12 | 40-50 | 5-7 | 9 / 100 / 40 |
-| 5 | Steady | 100 | 20 | 15 | 30-120 | 15 | 35-45 | 5-7 | 12 / 220 / 90 |
-| 6 | Trusted | 150 | 30 | 20 | 30-90 | 20 | 35-45 | 4-5.5 | 17 / 500 / 200 |
-| 7 | Established | 200 | 50 | 30 | 20-90 | 30 | 30-40 | 3-4 | 24 / 1000 / 400 |
+| 1 | First steps | 20 | 20 | 8 | 90-300 | 5 | 45-60 | 6-8 | none |
+| 2 | Settling in | 35 | 35 | 10 | 60-180 | 8 | 45-55 | 6-8 | 3 / 8 / 0 |
+| 3 | Building | 55 | 55 | 12 | 45-150 | 10 | 40-50 | 6-8 | 6 / 40 / 0 |
+| 4 | Growing | 80 | 80 | 15 | 40-120 | 12 | 40-50 | 5-7 | 9 / 100 / 40 |
+| 5 | Steady | 100 | 80 | 15 | 30-120 | 15 | 35-45 | 5-7 | 12 / 220 / 90 |
+| 6 | Trusted | 150 | 80 | 20 | 30-90 | 20 | 35-45 | 4-5.5 | 17 / 500 / 200 |
+| 7 | Established | 200 | 80 | 30 | 20-90 | 30 | 30-40 | 3-4 | 24 / 1000 / 400 |
 | 8 | Proven | 250 | 80 | 30 | 20-60 | 30 | 35-45 | 3-4 | 40 / 2500 / 1000 |
 | 9 | Reliable | 400 | 120 | 45 | 20-50 | 40 | 20-30 | 2.5-3.5 | 40 / 3000 / 1500 |
 | 10 | Strong | 650 | 200 | 70 | 20-40 | 60 | 15-25 | 2-2.5 | 40 / 6000 / 3000 |
@@ -129,16 +130,16 @@ The ceiling also caps the **level itself**, not only the count. A Starter number
 **Step 2: the growth cap (35% a day).** A level's day is a destination, not a minimum. Today's bulk is `min(ceiling, cap)`:
 
 ```
-no delivered bulk before today     cap = startDaily              (the start level's day, or 10)
-a clean day in the last 7          cap = max(10, bestCleanDay7 × multiplier)
-no clean day in the last 7         cap = max(10, lastDayDelivered)    (holds flat)
+no delivered bulk before today     cap = startDaily              (the start level's day, or level 1's 20)
+a clean day in the last 7          cap = max(20, bestCleanDay7 × multiplier)
+no clean day in the last 7         cap = max(20, lastDayDelivered)    (holds flat)
 ```
 
 - **`bestCleanDay7`**: the most bulk **delivered** in one day during the 7 days before today, leaving out days when a brake was on.
 - **`multiplier`**: 1.35, or **1.15** if any brake was on in the last 7 days, so a number climbs back slowly after a problem.
 - **Example (a dip day):** six days at 100, then one at 30 → the next day's cap is 135, because the number already proved 100.
-- **Example (a promotion):** moving from L3 to L4 climbs 40 → 54 → 60, never 40 → 60 in one jump.
-- **Example (all braked):** seven braked days → the cap holds flat at the latest day. It never jumps back to `startDaily` and never drops below 10.
+- **Example (a promotion):** moving from L3 to L4 climbs 55 → 74 → 80, never 55 → 80 in one jump.
+- **Example (all braked):** seven braked days → the cap holds flat at the latest day. It never jumps back to `startDaily` and never drops below level 1's day (20).
 - **Shadow-mode rows** (section 12) never count as brake days.
 
 **Step 3: reductions.** Brakes halve or zero parts of the day (section 10).
@@ -149,12 +150,13 @@ Messages over today's limit are **not lost**. They wait and go out the next day 
 
 ## 6. Pacing: gaps, rests and quiet time
 
-- **Gap between messages.** Each gap is drawn at random within the level's range. A message with media, or a carousel, waits **1.6×** longer.
+- **Gap between messages.** `gap = random(level min, level max) × speed preset × today's pace factor (0.8-1.3) × 1.6 for media or a carousel`. It counts from the number's last real send or lookup, so a new campaign right after another one still waits it out.
 - **Typing.** Before each message the number shows "typing…" for a few seconds, longer for longer messages (`humanTiming`, on by default).
-- **Rests.** After roughly every `restEvery` messages (varied ±30%) the number takes a longer rest within the level's range.
-- **Daily pace.** Each day gets a random pace factor (0.8-1.3) and **2-3 quiet windows**: stretches with no bulk, of the length shown in the table. Their total shrinks as the level grows.
-- **Speed preset.** The plan sets it (`bulk.maxSpeed`; Starter Slow, Business Normal, Enterprise Fast) and the business cannot change it. Slow stretches the gaps 1.5×. On a QR level, Fast runs as Normal: the level's gaps are already the fastest safe pace.
-- **Admin gap.** An admin gap (`minDelaySeconds` / `maxDelaySeconds`) can only **slow** a level down, never speed it up.
+- **Rests.** After roughly every `restEvery` messages (varied ±30%) the number takes a longer rest within the level's range. The count belongs to the **number, not the campaign**: back-to-back small campaigns still rest. It starts again only after a real pause (no send for at least the shortest rest, and never under a minute) or on a new day. On a QR number the level's `restEvery` and rest lengths always apply; the tenant's `restEvery` / `restMinMinutes` / `restMaxMinutes` are not used.
+- **Daily pace.** Each day gets a random pace factor (0.8-1.3) and **2-3 quiet windows**: stretches with no bulk, of the length shown in the table. Their total shrinks as the level grows. A level's quiet time can be at most **14 hours** (`sending.levels` validation; longer tables are clamped), so the windows never overlap or cross midnight. The windows only exist, and are only shown, while they hold bulk: with sending safety on and quiet time not skipped.
+- **Speed preset.** The plan sets it (`bulk.maxSpeed`; Starter Slow, Business Normal, Enterprise Fast) and the business cannot change it. Slow stretches the gaps 1.5×, so a Starter L1 number waits 135-450 s, not 90-300 s. On a QR level, Fast runs as Normal: the level's gaps are already the fastest safe pace. The pacing and estimate the app shows use the plan's speed too.
+- **Admin gap.** An admin gap (`minDelaySeconds` / `maxDelaySeconds`) can only **slow** a level down, never speed it up. `0` means the level's own gap.
+- **Pacing mode.** `pacingMode: fixed` (rate limit only) is **ignored on a QR number**: every QR number keeps its level's gaps, also after the business left sending safety (it then runs at its plan's level). Fixed only applies off a level (the sandbox, which never waits anyway).
 - **Hourly cap.** The level's `perHour` limits bulk in any rolling 60 minutes.
 
 ## 7. When messages may go out
@@ -170,6 +172,8 @@ Bulk waits (it is not dropped) until **all** of these are open:
 | The number's own business hours | none | The business, per number |
 
 Replies are never held by these windows.
+
+The recipient's time zone comes from the number's country code (every zone of a multi-zone country must be in daytime). A contact custom field `timezone` holding a valid IANA zone (e.g. `America/Chicago`, from a CSV column or the contact drawer) replaces it for that person; an invalid value is ignored (`contactZone` in `campaign/humanize.js`).
 
 ## 8. Message rules
 
@@ -197,12 +201,14 @@ A file from the media library is uploaded to WhatsApp **once per hour**, not onc
 - **Warm first.** A campaign queues people who wrote to the number before ahead of strangers (each group shuffled). Their replies come early, and strangers left at the end of the day wait for the next day's new-chat budget.
 - **List check at import.** The contacts import preview flags, for the mapped phone column, numbers that are not valid, repeats, numbers that don't look like Indian mobiles (+91 then 10 digits from 6-9) and numbers outside the default country. Nothing is looked up on WhatsApp.
 - **Opt-in only.** With `bulk.requireOptIn` on, only contacts who opted in receive bulk.
+  Every move to opted in leaves proof in `opt_ins`: the number, the contact, how (`manual`, `import`, `api`, `keyword`, `merge`, `workflow`), the wording, the team member where there is one, and when. The wording is what the person or operator gave: the START/subscribe text they sent, the cell of an import column mapped to "Opt-in consent" (any answer but a no), or the reason typed when opting someone in; otherwise a short description of the source. A START from a number with no contact creates one, opted in. Re-saving a contact that is already opted in writes nothing; STOP then START writes a new row. Like `safety_consents`, the table is append-only: triggers refuse UPDATE and DELETE. The contact drawer shows the latest proof under the consent switch, and the contacts CSV export has `opted_in_at` and `opt_in_source` (`contactStore.js` `recordOptIn`).
 - **Not on WhatsApp.** Before a first message to a stranger the number checks the recipient is on WhatsApp. Results are cached 24h. A "not on WhatsApp" result is recorded separately and never counts as a failure.
+- **Known dead numbers are skipped at start.** A number with a NOT_ON_WHATSAPP row in this tenant in the last 30 days, and no SENT/DELIVERED/READ after it, is left out of the queue (`skippedNotOnWhatsapp`; `notOnWhatsappSince` in `db.js`). Only stored history is used: no up-front lookups, which would be mass contact discovery.
 - **Maximum list size.** `bulk.maxRecipients` and the tenant's `maxContactsPerCampaign`; the stricter one wins.
 
 ## 10. Brakes: sending less when signals go bad
 
-Brakes are checked continuously. A health scan runs every 10 minutes for each connected number, whether or not it is sending.
+Brakes are checked continuously. A health scan runs every 10 minutes for each connected number, whether or not it is sending; the number's health card also asks for one, at most every 30 seconds.
 
 | Brake | Fires when | Effect | Default thresholds (editable) |
 |---|---|---|---|
@@ -264,6 +270,8 @@ Health is judged over the last 7 days, or since the last demotion if that is lat
 | Kill switch | `bulk.killSwitch` on the platform stops all bulk everywhere; on a tenant, stops that tenant. Running sends stop at once |
 | Tenant controls | Turning off a tenant's `sendingEnabled` or `campaignsEnabled` stops running campaigns; `automationsEnabled` holds workflows and auto-replies |
 | Admin stop | The super admin can pause, resume or cancel any campaign, or stop all bulk for one tenant or for the platform |
+| Pause (business or admin) | Holds the run at once, including a message already waiting out its pacing gap; one already handed to WhatsApp still completes. Replies and quick sends keep going. Pause, resume and cancel act only on that campaign, on the number it sends from |
+| Cancel | Cancels the run's waiting messages; replies and quick sends waiting in the same queue keep their place |
 
 ## 14. Connection and WhatsApp errors
 
@@ -287,13 +295,17 @@ With `channels.routing = quota`, each send picks a number. Numbers under a brake
 | Per-number day (`channels.dailyCap`) | Starter 250 · Business 500 · Enterprise 1000 | Read live |
 | Plan speed (`bulk.maxSpeed`) | Slow · Normal · Fast | Set by plan |
 | Business daily / monthly cap (`bulk.dailyCap`, `bulk.monthlyCap`) | off | Across all numbers |
-| Billing: messages per month | from the plan (Starter 1,000 · Business 25,000 · Enterprise unlimited) | Over the quota: sends refused, campaigns paused, auto-replies go quiet. Admin override per tenant; 0 = unlimited |
+| Billing: messages per month | from the plan (Starter 1,000 · Business 25,000 · Enterprise unlimited) | Counted from the real sends (SENT/DELIVERED/READ) of the UTC month, all numbers; the meter and the limit use the same count. Over the quota: quick sends refused ("Not sent: …"), queued ones dropped, campaigns paused until there is room, auto-replies go quiet. A campaign row is re-checked right before it goes, so it cannot go one over. Admin override per tenant; 0 = unlimited |
 | Billing: API requests per month | from the plan (Starter 0 = no API access) | 429 when over |
 | Billing: storage | from the plan | 413 when over |
 | Campaign limits | `campaigns.maxRunning`, `maxScheduled`, scheduling, follow-ups, interactive | Per plan or tenant |
 | Tenant controls | `sendingEnabled`, `campaignsEnabled`, `automationsEnabled` | Admin on/off switches per tenant |
 
-An expired subscription blocks writes (402).
+Every business sees its quota, whatever its plan: `GET /api/plan-usage` (Home and Analytics show it) lists each limit with what is used, including templates and team seats.
+
+An expired subscription (past its grace days) blocks writes (402) but not reads, so the business can still see its data. It also sends nothing: every plan limit reads 0, quick sends, auto-replies and workflow steps are refused, and running campaigns pause with "Your subscription has ended", resuming by themselves once it is renewed. `/api/auth/me` carries the subscription state, so the app shows the banner on load.
+
+Editing a plan merges what is sent into the plan (limits, tenant limits and features key by key), and both an edit and "Reset to default" move the plan's businesses to the new tenant limits, except a limit an admin changed for that business.
 
 ## 17. What the super admin can change
 
@@ -315,15 +327,16 @@ Everything below is a **platform-policy** setting. It can be set for the whole p
 | **Skip growth cap** (`sending.skipGrowthCap`) | A day may reach the level's full day at once, without the 35% climb over the best recent day | Levels, plan day, gaps, brakes |
 
 **Per number** (Admin › Services › WhatsApp channels):
-- **Pin level:** set a number to any level 0-11. It skips the wait and idle decay; brakes and caps still apply. Choosing a level above the earned one shows a ban-risk warning. A ban or a new phone clears the pin.
+- **Pin level:** set a number to any level 0-11. It skips the wait and idle decay; brakes and caps still apply. Choosing a level above the earned one shows a ban-risk warning. A ban or a new phone clears the pin. A pin can always be cleared (`{ level: null }`), even on a number that is no longer QR-linked; brakes can always be turned back on the same way.
 - **End wait:** shown as an orange "New-link wait" pill in the number's row; ends that number's wait after linking now.
 - **Brakes off** (shield button): turns the number's brakes off for 1 hour to 30 days (`PUT /api/admin/numbers/:id/brakes { hours }`, `null` turns them back on). Ignored while off: reply, report, block, failure, ban, delivery, stuck and unstable brakes, and the campaign pause on blocks. Still applies: WhatsApp's own restriction, the level, the plan day, the growth cap and the pace. A ban after it was set turns the brakes back on.
 - **Business left sending safety**: an account admin can leave safety from the number page (`POST /api/safety/custom/exit`, the same consent fields as custom limits, kind `safety_exit`, asked again on every exit; `DELETE` rejoins). It forces `safetyEnabled: false` over every other layer for all the business's numbers. It is not gated by `allowCustomSafety`. The tenant panel shows who left and when.
 - **Pause, resume, force disconnect, move to another business.** Moving clears the pin, the brakes-off and the answers.
-- **History:** level changes, brake events, shadow triggers and the delivery window, for each number.
+- **History:** level changes, brake events, shadow triggers and the delivery window, for each number. The level the questions set (or skipping them) is logged as a **start** ("Started at level 5 from the two questions"), not as a promotion.
 
 **Per tenant:**
-- Anti-ban settings: daily limit, delays, rests, rate, retries, `recipientDailyCap`, quiet hours, failure stop.
+- Anti-ban settings: daily limit, delays, rests, rate, retries, `recipientDailyCap`, quiet hours, failure stop. A key the admin never set shows its default (the daily limit shows `0`: no admin ceiling, each number keeps its plan's day), and saving the drawer sends only the fields that changed. The server also ignores a saved value equal to the shown default for a key never set, so an untouched form pins nothing.
+- A business saving its own number settings (`PUT /api/config`, the Connect button) stores only the number's own keys, never the admin's enforced anti-ban values, so removing an admin value takes the number back to its own.
 - Limits: numbers, users, templates, list size, media size, blocked words.
 - Controls, plan, quotas, security, and stop all bulk.
 

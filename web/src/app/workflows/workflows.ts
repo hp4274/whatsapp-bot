@@ -6,6 +6,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { TitleCasePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
 import { Store } from '../core/store';
@@ -72,7 +73,7 @@ const ACTION_ICONS: Record<string, string> = {
  */
 @Component({
   selector: 'app-workflows',
-  imports: [FormsModule, Tilt],
+  imports: [FormsModule, TitleCasePipe, Tilt],
   templateUrl: './workflows.html',
   styleUrl: './workflows.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

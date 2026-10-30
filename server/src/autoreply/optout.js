@@ -1,3 +1,4 @@
+import { ContactStore } from '../contactStore.js';
 import { normalizeInboundText } from './engine.js';
 
 // Matched against the whole message after normalising case, punctuation and
@@ -27,6 +28,8 @@ export async function processOptOut(db, transport, msg, platformWords = []) {
     }
 
     if (OPTIN_KEYWORDS.has(text)) {
+        // Proof of consent in their exact words, before the opt-out goes: STOP then START is a fresh opt-in.
+        new ContactStore(db).keywordOptIn(msg.sender, msg.body);
         const removed = db.removeOptOut(msg.sender);
         if (removed && transport?.isConnected?.()) {
             await transport.sendMessage(

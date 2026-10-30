@@ -9,6 +9,7 @@
 
 :host {
   display: grid;
+  @include s.fit-grid;
   gap: var(--space-lg);
 }
 
@@ -95,7 +96,6 @@ h3 {
   margin: 0;
   padding: 0;
   list-style: none;
-  perspective: 900px;
 }
 
 .stage {
@@ -113,7 +113,7 @@ h3 {
     border-color var(--base) var(--ease);
 
   &:hover {
-    transform: translateY(-3px) rotateX(5deg);
+    transform: translateY(-2px);
     border-color: var(--border-hover);
     box-shadow: var(--shadow-lift);
   }
@@ -273,11 +273,12 @@ h3 {
 }
 
 @media (max-width: 900px) {
-  .stages { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .split { grid-template-columns: 1fr; }
+  .stages { @include s.stat-grid(150px); }
+  .split { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 520px) {
-  .stages { grid-template-columns: 1fr; }
+  .stage { padding: 14px; }
+  .count { font-size: 26px; }
   .rt { flex: 1 1 100%; }
 }

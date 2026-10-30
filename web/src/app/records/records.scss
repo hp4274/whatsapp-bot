@@ -9,10 +9,11 @@
 @include s.empty;
 @include s.skeleton;
 @include s.banner;
+@include s.drawer-keyframes;
 
 :host { display: block; }
 
-.rec { display: grid; gap: var(--space-xl); }
+.rec { display: grid; @include s.fit-grid; gap: var(--space-xl); }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .muted { color: var(--text-muted); }
 .s-head p strong { font-weight: 500; color: var(--text-strong); }
@@ -75,12 +76,12 @@ tbody tr {
 
 .s-empty { padding: 48px var(--space-lg); h2 { margin: 0; font-size: 15px; font-weight: 500; color: var(--text-strong); } }
 
-/* Drawer */
-.scrim { position: fixed; inset: 0; z-index: 70; background: rgba(16, 16, 24, 0.45); backdrop-filter: blur(4px); animation: s-pop 200ms var(--ease) both; }
+/* Drawer: the kit's flat slide from the right edge; a fixed head over a scrolling form. */
+.scrim { @include s.scrim; }
 .drawer {
-  position: fixed; top: 0; right: 0; bottom: 0; z-index: 71; display: flex; flex-direction: column;
-  width: min(520px, 100vw); background: var(--surface-card); border-left: 1px solid var(--border-color);
-  box-shadow: var(--shadow-lift); outline: 0; animation: rec-slide 320ms var(--ease) both;
+  @include s.drawer-panel(520px);
+  display: flex; flex-direction: column; gap: 0; padding: 0; overflow: hidden; outline: 0;
+  @media (max-width: 520px) { padding: 0; }
 }
 .drawer-head {
   display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-md);
@@ -129,7 +130,6 @@ tbody tr {
 .ev-detail { font-size: 13px; word-break: break-word; color: var(--text-color); }
 .ev-meta { font-size: 12px; color: var(--hint); }
 
-@keyframes rec-slide { from { transform: translateX(40px) rotateY(-8deg); opacity: 0; } }
 
 @media (max-width: 720px) {
   .s-head .btn { width: 100%; }

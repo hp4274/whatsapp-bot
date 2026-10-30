@@ -1,0 +1,101 @@
+@use '../school/school-shared' as s;
+
+@include s.card;
+@include s.buttons;
+@include s.skeleton;
+@include s.banner;
+
+:host {
+  display: block;
+  min-width: 0;
+}
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px var(--space-md);
+  margin-bottom: var(--space-md);
+}
+h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--text-strong);
+}
+.muted {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 var(--space-md);
+  font-size: 13px;
+  color: var(--danger-text);
+}
+.meters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: var(--space-md) var(--space-xl);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+  --tone: var(--primary);
+  &.warn {
+    --tone: var(--warning);
+  }
+  &.full {
+    --tone: var(--danger);
+  }
+  > .ti {
+    font-size: 16px;
+    color: var(--text-muted);
+  }
+}
+.label {
+  font-size: 13px;
+  color: var(--text-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.figure {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  small {
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+}
+.bar {
+  grid-column: 1 / -1;
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+  i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--tone);
+    transition: width 600ms var(--ease);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar i {
+    transition: none;
+  }
+}

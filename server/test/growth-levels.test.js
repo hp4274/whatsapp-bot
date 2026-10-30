@@ -120,7 +120,7 @@ describe('growth cap: 35% over the best recent clean day', () => {
         db.close();
     });
 
-    it('all 7 days braked: holds flat at the latest day, never falls back to startDaily, never below 10', () => {
+    it('all 7 days braked: holds flat at the latest day, never falls back to startDaily, never below level 1\'s 20', () => {
         const db = freshDb();
         for (let d = 7; d >= 2; d -= 1) day(db, d, 80);
         day(db, 1, 25);
@@ -133,7 +133,7 @@ describe('growth cap: 35% over the best recent clean day', () => {
             day(low, d, 4);
             brakeDay(low, d);
         }
-        assert.equal(quotaOn(low).limitOn(), 10, 'level 1\'s day is the floor');
+        assert.equal(quotaOn(low).limitOn(), 20, 'level 1\'s day is the floor');
         db.close();
         low.close();
     });
@@ -152,16 +152,16 @@ describe('growth cap: 35% over the best recent clean day', () => {
         next.close();
     });
 
-    it('a promotion climbs 40 -> 54 -> 60, not 40 -> 60', () => {
+    it('a promotion climbs 55 -> 74 -> 80, not 55 -> 80', () => {
         const db = freshDb();
-        day(db, 1, 40);
+        day(db, 1, 55);
         const a = quotaOn(db, 4).allowance();
-        assert.equal(a.level.level, 4, 'level 4 allows 60');
-        assert.equal(a.budgets.bulk.limit, 54);
+        assert.equal(a.level.level, 4, 'level 4 allows 80');
+        assert.equal(a.budgets.bulk.limit, 74, '55 x 1.35');
         const next = freshDb();
-        day(next, 2, 40);
-        day(next, 1, 54);
-        assert.equal(quotaOn(next, 4).limitOn(), 60);
+        day(next, 2, 55);
+        day(next, 1, 74);
+        assert.equal(quotaOn(next, 4).limitOn(), 80, '74 x 1.35 = 99, held to the level\'s 80');
         db.close();
         next.close();
     });

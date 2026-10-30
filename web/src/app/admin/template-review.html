@@ -50,7 +50,7 @@
               </header>
               <div class="meta">
                 <span class="s-pill tone-info"><i class="ti ti-building-store" aria-hidden="true"></i>{{ t.tenantName }}</span>
-                <span class="s-pill tone-mute">{{ t.category }}</span>
+                <span class="s-pill tone-mute">{{ sentence(t.category) }}</span>
                 <span class="mode">
                   <i class="ti {{ t.mode === 'baileys' ? 'ti-device-mobile' : 'ti-world' }}" aria-hidden="true"></i>
                   {{ t.mode === 'baileys' ? 'Baileys numbers only' : 'All numbers' }}
@@ -202,7 +202,7 @@
               <header class="top">
                 <h3 [id]="uid + '-s' + i">{{ s.name }}</h3>
                 <span class="s-pill" [class.tone-warn]="s.category === 'marketing'" [class.tone-info]="s.category === 'utility'" [class.tone-ok]="s.category === 'authentication'">
-                  {{ s.category }}
+                  {{ sentence(s.category) }}
                 </span>
               </header>
               @if (s.description) {

@@ -5,6 +5,7 @@ import { catchError, throwError } from 'rxjs';
 import { spacedPhone } from '../contacts/contact-util';
 import type { User } from '../core/auth';
 import type { AccountGroup, AccountNumber, NumberDetails } from './number-details';
+import { sentenceCase } from './text';
 
 /** Shortest password the server accepts (tenancy.js setPassword). */
 const MIN_PASSWORD = 8;
@@ -35,6 +36,8 @@ export class TenantAccounts {
 
   readonly tenantId = input.required<number>();
 
+  /** Pill labels are sentence case: "past_due" reads "Past due". */
+  protected readonly sentence = sentenceCase;
   protected readonly minPassword = MIN_PASSWORD;
   protected readonly spacedPhone = spacedPhone;
   protected readonly users = signal<User[]>([]);

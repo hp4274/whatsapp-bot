@@ -37,7 +37,7 @@
 
   li {
     display: grid;
-    grid-template-columns: 10px auto minmax(0, 1fr) auto;
+    grid-template-columns: 10px minmax(0, 1fr) auto;
     align-items: center;
     gap: var(--space-md);
     padding: 10px 0;
@@ -45,7 +45,16 @@
     font-size: 13px;
     &:last-child { border-bottom: 0; }
   }
-  .muted { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--primary); }
-  code { font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--text-strong); }
+  .what { display: grid; gap: 2px; min-width: 0; }
+  strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--text-strong); }
+  .muted { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  time { white-space: nowrap; }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--tone, var(--primary));
+    &.warn { --tone: var(--warning); }
+    &.danger { --tone: var(--danger-text); }
+  }
 }

@@ -35,7 +35,7 @@ describe('startLevelFor', () => {
                 assert.equal(startLevelFor({ age, usage }), want[age + usage], `age ${age}, usage ${usage}`);
             }
         }
-        assert.deepEqual([2, 3, 4, 5, 6, 7].map((l) => LEVELS[l].dailyLimit), [20, 40, 60, 100, 150, 200]);
+        assert.deepEqual([2, 3, 4, 5, 6, 7].map((l) => LEVELS[l].dailyLimit), [35, 55, 80, 100, 150, 200]);
     });
 
     it('refuses an answer outside 0-3', () => {
@@ -226,7 +226,7 @@ describe('POST/GET /api/channels/:id/start', () => {
         const res = await call(owner, 'POST', `/api/channels/${qrId}/start`, { age: 1, usage: 2 });
         assert.equal(res.status, 200, JSON.stringify(res.body));
         assert.deepEqual(res.body, { todayLimit: LEVELS[4].dailyLimit, planLimit: 250 });
-        assert.deepEqual((await card(qrId)).usage, { todayLimit: 60, sentToday: 0, planLimit: 250, growing: true, asked: true });
+        assert.deepEqual((await card(qrId)).usage, { todayLimit: 80, sentToday: 0, planLimit: 250, growing: true, asked: true });
         assert.equal((await call(owner, 'GET', `/api/channels/${qrId}/start`)).body.asked, true);
         assert.equal(audits('channel.start').length, 1);
         assert.equal((await call(owner, 'POST', `/api/channels/${qrId}/start`, { age: 3, usage: 3 })).status, 409, 'no re-answering upward');
@@ -255,9 +255,9 @@ describe('POST/GET /api/channels/:id/start', () => {
     it('a just-linked new number shows the day it starts at, and when', async () => {
         const res = await call(owner, 'POST', `/api/channels/${freshId}/start`, { age: 0, usage: 0 });
         assert.equal(res.status, 200, JSON.stringify(res.body));
-        assert.deepEqual(res.body, { todayLimit: 20, planLimit: 250 });
+        assert.deepEqual(res.body, { todayLimit: 35, planLimit: 250 });
         const { usage, quality } = await card(freshId);
-        assert.deepEqual([usage.todayLimit, usage.planLimit, usage.growing], [20, 250, true]);
+        assert.deepEqual([usage.todayLimit, usage.planLimit, usage.growing], [35, 250, true]);
         assert.match(usage.blocked, /newly linked number waits before bulk sending\. It starts \w{3} \d\d:\d\d/);
         assert.equal(quality.hints.some((h) => h.code === 'cap_reached'), false, 'waiting is not a used-up cap');
         // The sender still holds bulk until then.

@@ -324,8 +324,9 @@ export class AnalyticsView {
       });
 
     this.loadSources();
+    // `tenant` / `config`: an admin's plan or limit change moves the monthly limit line.
     this.store.watch(
-      ['history', 'campaign', 'analytics', 'objects', 'tickets', 'inbox'],
+      ['history', 'campaign', 'analytics', 'objects', 'tickets', 'inbox', 'tenant', 'config'],
       () => this.load(true),
       2000,
     );
@@ -348,13 +349,12 @@ export class AnalyticsView {
 
   private loadSources(quiet = false) {
     if (!quiet) this.srcLoading.set(true);
-    const now = new Date();
-    const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     // Each source fails alone: a tenant without a service gets 403 there and
     // that section simply does not render.
     const soft = <T>(o: Observable<T>) => o.pipe(catchError(() => of(null)));
     forkJoin({
-      usage: soft(this.api.usage(period)),
+      // No period: the server's own (UTC) month, the one the quota counts; a local month is off near midnight.
+      usage: soft(this.api.usage()),
       months: soft(this.api.usageHistory(6)),
       campaign: soft(this.api.campaignStats()),
       objects: soft(this.api.objectStats()),

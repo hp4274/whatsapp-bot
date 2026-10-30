@@ -6,7 +6,7 @@
  * DailyQuota's `tables` hook returns.
  */
 
-import { BLOCK_PAUSE_MIN_SENT, BLOCK_PAUSE_PERCENT, BRAKES, LEVELS } from '../campaign/humanize.js';
+import { BLOCK_PAUSE_MIN_SENT, BLOCK_PAUSE_PERCENT, BRAKES, LEVELS, MAX_QUIET_HOURS } from '../campaign/humanize.js';
 import { DEFAULT_SENDING } from '../campaign/safety.js';
 
 const S = 'whatsapp_channels';
@@ -18,7 +18,8 @@ const PACE_COLUMNS = [
     { key: 'dailyLimit', type: 'int', min: 0, max: BIG, label: 'Per day' },
     { key: 'minSeconds', type: 'num', min: 0, max: 3600, label: 'Min gap (s)' },
     { key: 'maxSeconds', type: 'num', min: 0, max: 3600, label: 'Max gap (s)' },
-    { key: 'quietHours', type: 'range', min: 0, max: 20, label: 'Quiet hours' },
+    // More than MAX_QUIET_HOURS a day leaves the rest windows overlapping (humanize.js quietWindows).
+    { key: 'quietHours', type: 'range', min: 0, max: MAX_QUIET_HOURS, label: 'Quiet hours' },
     { key: 'restEvery', type: 'int', min: 0, max: 10000, label: 'Rest every' },
     { key: 'restMinMinutes', type: 'num', min: 0, max: 600, label: 'Rest min (min)' },
     { key: 'restMaxMinutes', type: 'num', min: 0, max: 600, label: 'Rest max (min)' },
@@ -122,6 +123,10 @@ export function applySendingPolicy(quota, values, pin = null, start = null) {
             at = Date.now();
         }
         return tables;
+    };
+    // An admin policy save: re-read the tables on the next look instead of up to 5s later.
+    quota.refreshTables = () => {
+        at = -Infinity;
     };
     quota.levelPin = () => pin?.() ?? null;
     if (start) quota.levelStart = () => start() ?? null;

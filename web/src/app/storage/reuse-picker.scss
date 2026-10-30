@@ -2,6 +2,7 @@
 
 .reuse {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   padding: 14px;
   border: 1px solid var(--border-color);

@@ -90,8 +90,11 @@ Tokens live in `src/styles.scss`; components never hard-code a colour.
 
 | Role | Token |
 | --- | --- |
-| Brand fill, active state, focus ring | `--primary` (orange `#ed7e25`) |
-| Orange as text | `--primary-text` (orange is 2.8:1 on white) |
+| Brand fill, active state, focus ring | `--primary` (WhatsApp green `#25d366`; Kardlyz's orange is replaced by this product's brand) |
+| Green as text | `--primary-text` (`#0a7d4b`; the fill green is 1.9:1 on white) |
+| Text on a green fill | `--on-primary` (ink: white on the green is 1.9:1) |
+| Text on a dark, danger or violet fill; switch knob | `--on-fill` (white) |
+| Drawer / modal backdrop | `--overlay` |
 | Primary action button | ink `--text-strong` → `--primary` on hover (`.btn.primary`) |
 | Second accent | `--accent` (violet `#5f68ab`) |
 | Page / card / sunken surfaces | `--bg-color` / `--surface-card` / `--surface-sunken` |
@@ -101,17 +104,21 @@ Tokens live in `src/styles.scss`; components never hard-code a colour.
 
 Patterns:
 
-- **Page header** (`.s-head` from `school/school-shared.scss`): 13px orange
+- **Page header** (`.s-head` from `school/school-shared.scss`): 13px green
   eyebrow, 26–32px title at weight 500 with -1px tracking, 14px muted lede, a
   hairline rule underneath, actions on the right.
 - **Card**: 24px radius, 1px hairline border, card surface, no heavy shadow;
   17px weight-500 heading. Clickable cards lift with `--shadow-lift` on hover.
 - **Buttons**: 38px tall, 10px radius, 13.5px weight 500. `.btn` outline,
   `.btn.primary` ink, `.btn.danger` red outline.
-- **Inputs**: 12px radius, hairline border, orange border and glow on focus;
+- **Inputs**: 12px radius, hairline border, green border and glow on focus;
   13px weight-500 label above.
 - **Tabs / segmented**: sunken track; active item on the card surface, semibold.
-- **Pills**: fully rounded, 12–12.5px weight 500, tone at 12% as background.
+- **Pills**: fully rounded, 12–12.5px weight 500, tone at 12% as background, sentence case (no text-transform).
+- **Switch**: one look everywhere, `@include s.switch` (not part of `s.all`): 40×22, green when on, `--on-fill` knob.
+- **Drawer**: `s.drawer-panel` + `s.scrim` — slides in flat from the right edge, `--overlay` behind it.
+- **Grid hosts**: a `:host { display: grid }` adds `@include s.fit-grid`, or one wide child pushes the page past its panel.
+- **Stat rows**: `@include s.stat-grid` — two tiles to a row on a phone.
 - **Tables**: 12px `--hint` headers, 13px cells, hairline rows, sunken hover.
 - **Numbers**: weight 500 with negative tracking, never bold-800.
 - Font: Inter. Icons: Tabler (`ti ti-*`). Dark mode is a navy ramp; anything

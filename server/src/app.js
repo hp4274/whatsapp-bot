@@ -84,13 +84,14 @@ import { createStorageRouter } from './storage/routes.js';
 import { StorageError, safeName, sha256Of, uploadInfo } from './storage/store.js';
 import { createBillingRouter } from './billing/routes.js';
 import { createCampaignRouter } from './campaigns/routes.js';
-import { dueCampaigns, openCampaigns, recurringTenants, runningSpreadCampaigns } from './campaigns/store.js';
+import { dueCampaigns, finishedCampaigns, openCampaigns, recurringTenants, runningSpreadCampaigns } from './campaigns/store.js';
 import { LinkStore, followLink } from './links/store.js';
 import { DEFAULT_PLANS } from './billing/plans.js';
 import { BillingError, BillingStore } from './billing/store.js';
 import { POLICY_FIELDS, PolicyError, PolicyStore, fillTables } from './policy/index.js';
 import { attachCampaignPolicy, bulkKillReason, createCampaignOpsRouter, retentionSweep } from './policy/campaignOps.js';
 import { bindContext, logger, requestContext } from './observability/logger.js';
+import { createAdminFeed } from './observability/adminFeed.js';
 import { createOpsAlerts } from './observability/alerts.js';
 import { registerQueue, snapshot, unregisterQueue } from './observability/metrics.js';
 import { ApiKeyStore } from './publicapi/keys.js';
@@ -300,6 +301,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     // Feature routers push to the browser through this rather than importing
     // `broadcast` and the client set.
     state.broadcast = (event) => broadcast(state, event);
+    state.adminFeed = deps.adminFeed ?? null; // the super admin's cross-tenant stream (observability/adminFeed.js)
+    state.siblings = () => deps.siblings?.(state) ?? [];
     state.paused = () => deps.channelPaused?.(state.channel?.id) ?? null; // channel_ops row, written by pause()
     state.announce = () => broadcast(state, { type: 'connection', ...connectionState(state) });
 
@@ -483,7 +486,12 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             autoReply.setTransport(new NullTransport());
             broadcast(state, { type: 'connection', connected: false });
         }
-        state.config = state.save(merged);
+        // Persist only the number's own keys. state.config also holds the admin's enforced anti-ban values
+        // (enforcePolicy): saved, they became the number's own and outlived the admin's change, because a reset
+        // falls back to the stored value. The save merges, so the stored anti-ban values stay as they were.
+        state.save(Object.fromEntries(Object.entries(merged)
+            .filter(([key]) => !POLICY_KEYS.includes(key) && !ADMIN_CHANNEL_KEYS.includes(key))));
+        state.config = merged;
         manager.applyConfig(state.config);
         contacts.defaultCountryCode = state.config.defaultCountryCode;
         return res.json({ config: publicConfig(state.config) });
@@ -492,7 +500,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     // --------------------------------------------------------- connection --
     /** WhatsApp never says why it bans; this is the app's own evidence from the last 7 days. */
     const banText = (detail) => {
-        const at = (ms) => new Date(Date.now() - ms).toISOString().replace(/.d{3}Z$/, '+00:00');
+        const at = (ms) => new Date(Date.now() - ms).toISOString().replace(/\.\d{3}Z$/, '+00:00');
         const { reports, blocks } = manager.healthRates();
         const q = db.channelQuality(at(7 * 86_400_000), at(86_400_000));
         const done = q.sent7 + q.failed7;
@@ -609,7 +617,10 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             // Remember which number scanned in, so linking a different one resets the sending level and inbox.
             if (info?.account) {
                 const before = state.channel?.numberSince;
+                const previous = state.channel?.providerAccountId || state.channel?.phoneNumber;
                 state.channel = linked(info.account);
+                // A phone that answered on this channel before gets its answers back instead of the questions again.
+                if (state.channel.numberSince !== before) deps.switchChannelPhone?.(state.channel.id, previous, info.account);
                 if (state.scanned || state.channel.numberSince !== before) {
                     // A fresh QR link: bulk rests first (unless the number's history says it is an old one).
                     state.scanned = false;
@@ -725,7 +736,9 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     /** The user's intent, stored with the channel so it survives a restart. */
     const setWanted = (wanted) => {
         if (Boolean(state.config.autoConnect) === wanted) return;
-        state.config = state.save({ ...state.config, autoConnect: wanted });
+        // Only this key: saving all of state.config froze the admin's enforced anti-ban values (see PUT /config).
+        state.save({ autoConnect: wanted });
+        state.config.autoConnect = wanted;
     };
 
     /**
@@ -1123,7 +1136,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             if (!Number.isInteger(Number(keepId)) || Number(keepId) < 1) {
                 return res.status(400).json({ errors: ['keepId must be a contact id'] });
             }
-            return res.json(contacts.merge(Number(keepId), mergeIds));
+            return res.json(contacts.merge(Number(keepId), mergeIds, req.user?.id));
         } catch (err) {
             return contactFail(res, err);
         }
@@ -1145,7 +1158,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
                 if (!list.length && BULK_ACTIONS.includes(action)) return res.json({ action, affected: 0, missing: [] });
             }
             if (!Array.isArray(list)) return res.status(400).json({ errors: ['ids must be a list of contact ids'] });
-            return res.json(contacts.bulk(list, action, { tags, reason }));
+            return res.json(contacts.bulk(list, action, { tags, reason, userId: req.user?.id }));
         } catch (err) {
             return contactFail(res, err);
         }
@@ -1155,7 +1168,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         try {
             // Look up by the stored form, not by whatever the caller typed.
             const existed = req.body?.phone ? contacts.getByPhone(contacts.normalize(req.body.phone)) : null;
-            const contact = contacts.upsert(req.body ?? {});
+            // An opt-in made here is the operator's: the proof names who, and is never taken from the body.
+            const contact = contacts.upsert({ ...req.body, consent: { source: 'manual', userId: req.user?.id } });
             return res.status(existed ? 200 : 201).json({ contact });
         } catch (err) {
             return contactFail(res, err);
@@ -1174,7 +1188,9 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         try {
             // Replace rather than merge: a PUT from an edit form means "this is
             // the contact now", including any tag the user removed.
-            return res.json({ contact: contacts.upsert({ ...req.body, phone: existing.phone }, { merge: false }) });
+            return res.json({ contact: contacts.upsert({
+                ...req.body, phone: existing.phone, consent: { source: 'manual', userId: req.user?.id },
+            }, { merge: false }) });
         } catch (err) {
             return contactFail(res, err);
         }
@@ -1208,13 +1224,13 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         }
     });
 
-    /** Opt out or back in: writes `opt_outs` and `opt_in_status` together. */
+    /** Opt out or back in: writes `opt_outs` and `opt_in_status` together; back in also writes `opt_ins` proof. */
     app.post('/contacts/:id/consent', (req, res) => {
         const { optedOut, reason } = req.body ?? {};
         if (typeof optedOut !== 'boolean') return res.status(400).json({ errors: ['optedOut must be true or false'] });
         if (reason !== undefined && typeof reason !== 'string') return res.status(400).json({ errors: ['reason must be text'] });
         try {
-            return res.json({ contact: contacts.setOptOut(req.params.id, optedOut, reason) });
+            return res.json({ contact: contacts.setOptOut(req.params.id, optedOut, reason, req.user?.id) });
         } catch (err) {
             return contactFail(res, err);
         }
@@ -1737,7 +1753,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     /** What gets numbers banned, each against its line: bad at or above it, warn from half of it. */
     const banCauses = (health, safety) => {
         const p = deps.platformPolicy?.() ?? {};
-        const at = (ms) => new Date(Date.now() - ms).toISOString().replace(/.d{3}Z$/, '+00:00');
+        const at = (ms) => new Date(Date.now() - ms).toISOString().replace(/\.\d{3}Z$/, '+00:00');
         const q = db.channelQuality(at(7 * 86_400_000), at(86_400_000));
         const level = (value, limit) => (!limit ? 'ok' : value >= limit ? 'bad' : value >= limit / 2 ? 'warn' : 'ok');
         const reportLimit = p['channels.banGuardReports'] ?? 0;
@@ -1751,14 +1767,16 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             const { newChats } = safety.budgets;
             const { reached, replied } = manager.quota.allowance().replies;
             const replyPct = reached ? Math.round((replied / reached) * 1000) / 10 : 0;
+            // The reply brake's own lines (policy sending.replyMinReached / replyMinPercent), not the built-in ones.
+            const { replyMinReached: minReached, replyMinPercent: minPct } = manager.quota.tables().brakes;
             levels.push(
                 { key: 'newchats', label: 'New chats today', level: level(newChats.used, newChats.limit),
                   value: `${newChats.used} of ${newChats.limit}`,
                   hint: 'People who never chatted with this number. WhatsApp watches messages to strangers most closely.' },
                 { key: 'replies', label: 'Replies (48h)',
-                  level: reached < 40 ? 'ok' : replyPct < 15 ? 'bad' : replyPct < 30 ? 'warn' : 'ok',
+                  level: reached < minReached ? 'ok' : replyPct < minPct ? 'bad' : replyPct < minPct * 2 ? 'warn' : 'ok',
                   value: `${replied} of ${reached} people replied (${replyPct}%)`,
-                  hint: 'Below 15% once 40 or more people were reached halves bulk sending. Replies show WhatsApp the messages are wanted.' },
+                  hint: `Below ${minPct}% once ${minReached} or more people were reached halves bulk sending. Replies show WhatsApp the messages are wanted.` },
             );
         }
         return [
@@ -1767,7 +1785,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
               hint: 'People who replied that your message was spam. Reaching the limit pauses the number.' },
             { key: 'blocks', label: 'Likely blocks', level: level(health.blockRatePercent, health.pauseAtPercent),
               value: `${health.blocks} this week (${health.blockRatePercent}% of sent)`,
-              hint: 'Messages that stayed on one tick for a day. Blocks and reports together pause a running campaign.' },
+              // Judged as manager.scanHealth does: once, at 48 hours (BLOCK_SUSPECT_AFTER_SECONDS).
+              hint: 'Messages still on one tick 48 hours after sending, from people who stayed silent while others got theirs. Blocks and reports together pause a running campaign.' },
             { key: 'optouts', label: 'Opt-outs', level: level(optOutPct, OPT_OUT_WARN_PERCENT),
               value: `${q.optOuts7} this week (${optOutPct}% of sent)`,
               hint: 'People who asked to stop. Many opt-outs mean the list is not wanted.' },
@@ -1883,6 +1902,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             'X-Accel-Buffering': 'no',
         });
         res.write(`event: hello\ndata: ${JSON.stringify(connectionState(state))}\n\n`);
+        // Re-checked while the stream is open (pruneRevokedStreams): disabling a user or signing them out ends it.
+        res.sessionToken = req.token;
         state.clients.add(res);
 
         const cleanup = () => {
@@ -1942,6 +1963,9 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
     const app = express.Router();
     const channels = new Channels(db);
     const runtimes = new Map();
+    // Each number streams only its own events, but the Numbers page lists them all: a number connecting or dropping
+    // tells its siblings' pages too (broadcast()).
+    deps = { ...deps, siblings: (self) => [...runtimes.values()].map((r) => r.state).filter((other) => other !== self) };
 
     // First run for this tenant: its config file becomes channel #1, so an
     // existing single-number install comes up already configured. A QR number
@@ -2170,10 +2194,22 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
 
     // -------------------------------------------------- channel routes --
     // A paused number must still show why: these reads (and the ban_guard resume) reach it, nothing else does.
-    const pausedPages = (req) => (req.method === 'GET' && (req.path === '/connection' || req.path === '/events'))
+    const pausedPages = (req) => (req.method === 'GET'
+            && (req.path === '/connection' || req.path === '/events' || req.path === '/safety' || req.path.startsWith('/safety/')))
         || (req.method === 'POST' && req.path === '/connection/resume');
+    /**
+     * A campaign belongs to the number it was made on, and only that number's engine holds its run. The list shows
+     * every number's campaigns, so an action on one must reach its own number whatever number the page has
+     * selected: through another number's store, a pause would leave the run sending and a resume would send it twice.
+     */
+    const campaignChannel = (path) => {
+        const id = /^\/campaigns\/(\d+)(?:\/|$)/.exec(path)?.[1];
+        if (!id) return null;
+        const row = db.db.prepare('SELECT channel_id FROM campaigns WHERE id = ? AND tenant_id = ?').get(Number(id), db.tenantId);
+        return row?.channel_id != null && channels.get(row.channel_id) ? row.channel_id : null;
+    };
     app.use((req, res, next) => {
-        const named = req.get('x-channel-id') ?? req.query.channel;
+        const named = campaignChannel(req.path) ?? req.get('x-channel-id') ?? req.query.channel;
         try {
             // Sender rule (channels.routing) for an unnamed send; reads and other writes keep the default.
             const sending = req.method === 'POST' && SEND_ROUTES[routeKey(req.path)];
@@ -2258,6 +2294,9 @@ export function createApp({
     app.use(express.json({ limit: '1mb' }));
 
     const tenancy = new Tenancy(db);
+    // Admin screens span every tenant: they listen here instead of polling (GET /api/admin/events).
+    const adminFeed = createAdminFeed();
+    tenancy.onAudit = ({ tenantId }) => adminFeed.publish('audit', tenantId);
     // One platform-wide ops alert channel (OPS_ALERT_WEBHOOK); its limits span every tenant and number.
     const opsAlerts = createOpsAlerts({ audit: (entry) => tenancy.audit(entry), ...opsAlertOptions });
     const opsAlert = deps.opsAlert ?? opsAlerts.raise;
@@ -2311,7 +2350,9 @@ export function createApp({
                     channelPin: (channelId) => app.locals.channelOps?.pinOf(channelId) ?? null,
                     channelStart: (channelId) => app.locals.channelOps?.startOf(channelId) ?? null,
                     setChannelStart: (channelId, level, answers) => app.locals.channelOps?.setStart(channelId, level, answers),
+                    switchChannelPhone: (channelId, from, to) => app.locals.channelOps?.switchPhone(channelId, from, to) ?? false,
                     publicBaseUrl,
+                    adminFeed: (event) => adminFeed.fromRuntime(tenantId, event),
                 },
                 audit,
                 policy: () => tenancy.enforcedSafety(tenancy.getTenant(tenantId)),
@@ -2376,10 +2417,14 @@ export function createApp({
         };
     };
 
-    const audit = (req, action, target = '', detail = '') => tenancy.audit({
-        tenantId: req.tenantId ?? req.user?.tenantId ?? null, userId: req.user?.id ?? null,
-        action, target, detail,
-    });
+    // `req.audited`: this request already wrote a named row, so the generic "POST /path" row below is not written too.
+    const audit = (req, action, target = '', detail = '') => {
+        req.audited = true;
+        return tenancy.audit({
+            tenantId: req.tenantId ?? req.user?.tenantId ?? null, userId: req.user?.id ?? null,
+            action, target, detail, ip: req.ip ?? null, requestId: req.id ?? null,
+        });
+    };
     const fail = (res, err) => {
         if (err instanceof TenancyError || err instanceof BillingError) {
             return res.status(err.status).json({ errors: [err.message] });
@@ -2420,16 +2465,26 @@ export function createApp({
         }
         const user = await tenancy.authenticate(email, password);
         const tenant = user?.tenantId == null ? null : tenancy.getTenant(user.tenantId);
-        if (!user || (tenant && tenant.status !== 'active')) {
+        if (!user) {
             if (logins.size > 10000) for (const [k, v] of logins) if (v.until <= now) logins.delete(k);
             for (const k of [key, ipKey]) {
                 const entry = logins.get(k);
-                logins.set(k, { fails: (entry?.until > now ? entry.fails : 0) + 1, until: now + LOGIN_WINDOW_MS });
+                const open = entry?.until > now;
+                // The window starts at the first failure and is not pushed on by later ones, so a lock always ends.
+                logins.set(k, { fails: (open ? entry.fails : 0) + 1, until: open ? entry.until : now + LOGIN_WINDOW_MS });
             }
+            tenancy.audit({ action: 'auth.login_failed', detail: { email: key.slice(0, 120), ip: req.ip } });
             return res.status(401).json({ errors: ['Wrong email or password.'] });
         }
+        // The right password on a business the platform suspended: say so, and never count it towards a lockout.
+        if (tenant && tenant.status !== 'active') {
+            tenancy.audit({ tenantId: user.tenantId, userId: user.id, action: 'auth.login_refused', detail: { status: tenant.status, ip: req.ip } });
+            return res.status(403).json({ errors: ['This business account is suspended. Contact your provider.'] });
+        }
+        // Only the account's own counter: clearing the address's too would let anyone with one account reset it
+        // between guesses at other people's, so a spray from one address would never slow down.
         logins.delete(key);
-        tenancy.audit({ tenantId: user.tenantId, userId: user.id, action: 'auth.login' });
+        tenancy.audit({ tenantId: user.tenantId, userId: user.id, action: 'auth.login', detail: { ip: req.ip } });
         return res.json({ token: tenancy.createSession(user.id), user, tenant });
     });
 
@@ -2487,11 +2542,46 @@ export function createApp({
         const header = req.get('authorization') ?? '';
         // EventSource cannot set headers, so the stream alone takes ?token=.
         const token = header.startsWith('Bearer ') ? header.slice(7)
-            : (req.path === '/events' ? req.query.token : null);
+            : (req.path === '/events' || req.path === '/admin/events' ? req.query.token : null);
         const user = tenancy.resolveSession(token);
         if (!user) return res.status(401).json({ errors: ['Sign in to continue.'] });
         req.user = user;
         req.token = token;
+        return next();
+    });
+
+    /**
+     * A change made outside a number's own router — any super admin write (policy, plans, tenant settings, pins,
+     * brakes, kill switch), or the business's top-level safety / numbers / team routes — never went through that
+     * router's `changed` broadcast, so open pages kept the old limits and the engine its cached tables. Tell the
+     * tenants it touches: their engines drop the cached allowance and their pages reload `config` and `tenant`.
+     * An admin write reaches every loaded tenant: working out which one a number or plan id belongs to buys little
+     * for a change this rare.
+     */
+    const touchTenants = (tenantIds = null, topics = ['config', 'tenant', 'channels']) => {
+        for (const id of tenantIds ?? [...runtimes.keys()]) {
+            const runtime = runtimes.get(Number(id));
+            if (!runtime) continue;
+            for (const { state } of runtime.runtimes.values()) {
+                state.manager?.quota?.refreshTables?.();
+                state.manager?.quota?.invalidate?.();
+                // The connection card reads the pushed state, not a reload: an admin resume must lift "Paused" now.
+                state.announce?.();
+                for (const topic of topics) broadcast(state, { type: 'changed', topic });
+            }
+        }
+    };
+    app.locals.touchTenants = touchTenants;
+    const TENANT_TOP_LEVEL = ['/safety', '/channels', '/users'];
+    app.use('/api', (req, res, next) => {
+        if (req.method === 'GET' || req.method === 'HEAD') return next();
+        const admin = req.path.startsWith('/admin/');
+        if (!admin && !TENANT_TOP_LEVEL.some((prefix) => req.path.startsWith(prefix))) return next();
+        res.on('finish', () => {
+            if (res.statusCode >= 400) return;
+            if (admin) touchTenants();
+            else if (req.tenantId != null) touchTenants([req.tenantId]);
+        });
         return next();
     });
 
@@ -2528,13 +2618,22 @@ export function createApp({
         ? res.json(snapshot())
         : res.status(403).json({ errors: ['You do not have permission to do that.'] })));
 
-    app.get('/api/auth/me', (req, res) => res.json({
-        user: req.user,
-        tenant: req.user.tenantId == null ? null : tenancy.getTenant(req.user.tenantId),
-    }));
+    app.get('/api/auth/me', (req, res) => {
+        const tenant = req.user.tenantId == null ? null : tenancy.getTenant(req.user.tenantId);
+        // The subscription's state rides along so the shell can say "ended" on load, not only after a refused write.
+        const sub = tenant ? new BillingStore(db.forTenant(tenant.id)).subscription() : null;
+        // Same shape as the admin list's summary (tenantOverview), so the web has one type for it.
+        const subscription = sub && {
+            planKey: sub.planKey, planName: sub.plan.name, price: sub.plan.price, currency: sub.plan.currency,
+            interval: sub.plan.interval, state: sub.state, status: sub.status, trialEndsAt: sub.trialEndsAt,
+            currentPeriodEnd: sub.currentPeriodEnd, cancelAtPeriodEnd: sub.cancelAtPeriodEnd, graceEndsAt: sub.graceEndsAt,
+        };
+        return res.json({ user: req.user, tenant: tenant && { ...tenant, subscription } });
+    });
 
     app.post('/api/auth/logout', (req, res) => {
         tenancy.deleteSession(req.token);
+        tenancy.audit({ tenantId: req.user.tenantId, userId: req.user.id, action: 'auth.logout' });
         res.json({ ok: true });
     });
 
@@ -2547,6 +2646,19 @@ export function createApp({
         next();
     });
     app.use('/api/admin', admin);
+    admin.get('/events', (req, res) => adminFeed.stream(req, res));
+    // Every admin change reaches the other open admin screens at once (and the tenant's, through the topics).
+    admin.use((req, res, next) => {
+        if (req.method === 'GET' || req.method === 'HEAD') return next();
+        res.on('finish', () => {
+            if (res.statusCode >= 400) return;
+            const segment = req.path.split('/').filter(Boolean)[0] ?? '';
+            const topic = { numbers: 'channels', channels: 'channels', bulk: 'campaigns', campaigns: 'campaigns' }[segment] ?? segment;
+            adminFeed.publish(topic, req.tenantId ?? null);
+            adminFeed.publish('tenants', req.tenantId ?? null);
+        });
+        return next();
+    });
     admin.use(createCampaignOpsRouter({ db, runtimes, runtimeFor, tenancy, policyStore, audit }));
     registerTemplateAdmin(admin, { db, tenancy, policy: policyStore, audit }); // review queue, starter library
 
@@ -2605,18 +2717,31 @@ export function createApp({
         });
     });
 
+    /**
+     * Subscribers follow a plan's edited tenant limits (an admin's own per-business change stays,
+     * see followPlanLimits), so applyPlan's "still the old plan's value" test reads the live plan.
+     */
+    const followPlanEdit = (before, plan) => {
+        if (!before?.key || sameJson(before.tenantLimits ?? {}, plan.tenantLimits ?? {})) return;
+        db.db.prepare(`SELECT s.tenant_id AS id FROM subscriptions s JOIN tenants t ON t.id = s.tenant_id
+                       WHERE s.plan_key = ? AND t.status != 'archived'`).all(plan.key)
+            .forEach(({ id }) => followPlanLimits(id, before.tenantLimits ?? {}, plan.tenantLimits));
+    };
+
     admin.put('/billing/plans/:key', (req, res) => {
         try {
-            // Merge over what is in force, so a partial PUT (say, active: false)
-            // does not reset everything else to defaults.
+            // Merge over what is in force, so a partial PUT (say, active: false, or one limit)
+            // does not reset everything else to defaults. The three maps merge key by key: a
+            // body with only { limits: { messagesPerMonth } } must keep the plan's other limits,
+            // or every subscriber would be pushed to "unlimited" / off for them.
             const before = catalogue().getPlan(req.params.key) ?? {};
-            const plan = catalogue().savePlan({ ...before, ...(req.body ?? {}), key: req.params.key });
-            // Subscribers follow edited limits, so applyPlan's "still the old plan's value" test reads the live plan.
-            if (before.key && !sameJson(before.tenantLimits ?? {}, plan.tenantLimits ?? {})) {
-                db.db.prepare(`SELECT s.tenant_id AS id FROM subscriptions s JOIN tenants t ON t.id = s.tenant_id
-                               WHERE s.plan_key = ? AND t.status != 'archived'`).all(plan.key)
-                    .forEach(({ id }) => followPlanLimits(id, before.tenantLimits ?? {}, plan.tenantLimits));
+            const body = req.body ?? {};
+            const merged = { ...before, ...body, key: req.params.key };
+            for (const field of ['limits', 'tenantLimits', 'features']) {
+                if (body[field] && typeof body[field] === 'object') merged[field] = { ...before[field], ...body[field] };
             }
+            const plan = catalogue().savePlan(merged);
+            followPlanEdit(before, plan);
             audit(req, 'plan.save', plan.key, plan.name);
             return res.json({ plan });
         } catch (err) {
@@ -2631,7 +2756,10 @@ export function createApp({
             if (custom && subscriberCounts().get(key)) {
                 return res.status(409).json({ errors: ["Move this plan's businesses to another plan first."] });
             }
+            const before = catalogue().getPlan(key);
             const plan = catalogue().removePlan(key);
+            // "Reset to default" on a built-in plan moves its businesses back with it, as an edit does.
+            if (plan) followPlanEdit(before, plan);
             audit(req, 'plan.remove', key);
             return res.json(custom ? { removed: true } : { plan });
         } catch (err) {
@@ -2677,6 +2805,7 @@ export function createApp({
                 plan ? { ...body, services } : body);
             if (plan) applyPlan(created.id, plan, body.trialDays ?? plan.trialDays, services);
             const tenant = tenancy.getTenant(created.id);
+            req.tenantId = tenant.id; // the new business's own trail, not "Platform"
             audit(req, 'tenant.create', tenant.id, plan ? `${tenant.slug} on ${plan.key}` : tenant.slug);
             return res.status(201).json({ tenant: tenantOverview(tenant), owner: user });
         } catch (err) {
@@ -3059,9 +3188,15 @@ export function createApp({
     });
     admin.put('/policy/:scope', (req, res) => {
         try {
+            const before = policyStore.values(req.params.scope);
             const values = policyStore.set(req.params.scope, req.body?.values ?? {});
             securityCache.clear();
-            audit(req, 'policy.change', req.params.scope, Object.keys(req.body?.values ?? {}).join(', '));
+            // { key: { from, to } }: a set, a reset (to null) and the kill switch on/off read differently in the log.
+            const changes = Object.fromEntries(Object.keys(req.body?.values ?? {})
+                .map((key) => [key, { from: before[key] ?? null, to: values[key] ?? null }]));
+            const scopedTenant = /^tenant:(\d+)$/.exec(req.params.scope)?.[1];
+            if (scopedTenant) req.tenantId = Number(scopedTenant); // a business's own rules land in its trail
+            audit(req, 'policy.change', req.params.scope, changes);
             return res.json({ values });
         } catch (err) {
             return policyFail(res, err);
@@ -3084,6 +3219,9 @@ export function createApp({
     admin.get('/audit-logs', (req, res) => (req.query.format === 'csv'
         ? res.type('text/csv').attachment('audit-logs.csv').send(auditCsv(ops.audit(req.query, { maxLimit: 10000 }).logs))
         : res.json(ops.audit(req.query))));
+    // Recent backend log lines (observability/logBuffer.js), redacted when written. ?level=&q=&tenant=&requestId=&before=&limit=
+    admin.get('/logs', (req, res) => res.json(ops.logs(req.query)));
+    ops.feedLogs(adminFeed); // warn/error lines reach open Backend logs screens as topic `logs`, throttled
 
     // ---------------------------------------------------------- team --
     const team = express.Router();
@@ -3099,7 +3237,8 @@ export function createApp({
             return res.status(403).json({ errors: ['You can only add users with a lower role than yours.'] });
         }
         const cap = tenancy.getTenant(req.tenantId)?.limits.maxUsers;
-        if (cap && tenancy.listUsers(req.tenantId).length >= cap) {
+        // A disabled user cannot sign in, so it does not hold a seat: disabling someone frees room for their replacement.
+        if (cap && tenancy.listUsers(req.tenantId).filter((u) => !u.disabled).length >= cap) {
             return res.status(403).json({ errors: [`Your plan allows ${cap} team member${cap === 1 ? '' : 's'}.`] });
         }
         try {
@@ -3117,6 +3256,12 @@ export function createApp({
         if (target.id === req.user.id) return res.status(400).json({ errors: ['You cannot disable yourself.'] });
         if (roleRank(target.role) >= roleRank(req.user.role) && req.user.role !== 'super_admin') {
             return res.status(403).json({ errors: ['You cannot change a user at or above your role.'] });
+        }
+        // Turning someone back on takes a seat again (disabled users hold none, see POST above).
+        const seats = tenancy.getTenant(req.tenantId)?.limits.maxUsers;
+        const active = tenancy.listUsers(req.tenantId).filter((u) => !u.disabled).length;
+        if (!req.body?.disabled && target.disabled && seats && active >= seats) {
+            return res.status(403).json({ errors: [`Your plan allows ${seats} team member${seats === 1 ? '' : 's'}. Disable someone first.`] });
         }
         try {
             const user = tenancy.setUserDisabled(req.tenantId, target.id, Boolean(req.body?.disabled));
@@ -3254,13 +3399,14 @@ export function createApp({
         const tenant = tenancy.getTenant(req.tenantId);
         const accessError = tenant ? tenantAccessError(tenant, req) : 'tenant not found';
         if (accessError) return res.status(403).json({ errors: [accessError] });
-        // Auth and /me sit above this, so an expired business can still sign in
-        // and see why. The super admin is never locked out of a business.
-        if (req.user.role !== 'super_admin'
+        const write = req.method !== 'GET' && req.method !== 'HEAD';
+        // An ended subscription blocks writes only (docs/bulk.md §16): the business can still read its own data,
+        // and nothing sends anyway (billing limits are 0, policy/campaignOps.js). Auth and /me sit above this,
+        // so it can still sign in and see why. The super admin is never locked out of a business.
+        if (write && req.user.role !== 'super_admin'
             && new BillingStore(db.forTenant(req.tenantId)).subscription()?.state === 'expired') {
             return res.status(402).json({ errors: ['Your subscription has ended. Contact your provider to renew.'] });
         }
-        const write = req.method !== 'GET' && req.method !== 'HEAD';
         const p = routeKey(req.path);
         const agentMayWrite = AGENT_WRITES.has(p) || AGENT_WRITE_PREFIXES.some((prefix) => p.startsWith(prefix));
         if (write && roleRank(req.user.role) < roleRank('admin') && !agentMayWrite) {
@@ -3269,7 +3415,8 @@ export function createApp({
         if (write) {
             const action = `${req.method} ${req.path}`; // the router rewrites req.url later
             res.on('finish', () => {
-                if (res.statusCode < 400) audit(req, action);
+                // A route that wrote its own named row ("campaign.start") said it better; this one would only repeat it.
+                if (res.statusCode < 400 && !req.audited) audit(req, action);
             });
         }
         return runtimeFor(req.tenantId).router(req, res, next);
@@ -3289,6 +3436,7 @@ export function createApp({
      * inside resume before that becomes possible.
      */
     const sweepWarned = new Set(); // `${tenantId}:${campaignId}` already logged as not startable
+    const subscriptionStates = new Map(); // tenantId -> last subscription state the sweep saw
     const sweep = async () => {
         await channelOps.guard().catch((err) => console.error('[channels] ban guard failed:', err.message));
         let due = [];
@@ -3312,7 +3460,17 @@ export function createApp({
                     const store = campaignsOn(tenantId, channelId);
                     // Starting resets the queue: wait while this number is still sending another run.
                     if (store?.manager?.queue.pending || store?.manager?.inFlight) continue;
-                    store?.start(id);
+                    const started = store?.start(id);
+                    // Nobody pressed Start, so no route announced it: the open pages and the audit trail hear it here.
+                    const campaign = started?.campaign ?? store?.get(id);
+                    if (campaign) {
+                        const channel = runtimeFor(tenantId).channels.get(campaign.channelId ?? channelId);
+                        const state = channel ? runtimeFor(tenantId).runtimeFor(channel).state : null;
+                        state?.broadcast?.({ type: 'campaignStarted', campaign });
+                        state?.broadcast?.({ type: 'changed', topic: 'campaigns' });
+                        tenancy.audit({ tenantId, userId: null, requestId: null, action: 'campaign.start', target: id,
+                            detail: { name: campaign.name, scheduled: true, audience: started?.audience ?? null, queued: started?.queued ?? null } });
+                    }
                 } catch (err) {
                     // An empty audience, a deleted template or a disconnected
                     // number must not stop the sweep for every other tenant. The
@@ -3338,6 +3496,21 @@ export function createApp({
                     }
                 }
             }
+            // A subscription runs out (or into grace) with the clock, not with a request: tell that business's open
+            // pages so the banner and limits follow at once instead of at the next reload.
+            for (const tenantId of runtimes.keys()) {
+                const subState = new BillingStore(db.forTenant(tenantId)).subscription()?.state ?? null;
+                if (subscriptionStates.has(tenantId) && subscriptionStates.get(tenantId) !== subState) touchTenants([tenantId]);
+                subscriptionStates.set(tenantId, subState);
+            }
+            // Nothing left to send: the run is over, whether or not anyone has its page open (stats() closes it).
+            for (const { id, tenantId, channelId } of finishedCampaigns(db)) {
+                try {
+                    campaignsOn(tenantId, channelId)?.stats(id);
+                } catch (err) {
+                    console.error(`[campaigns] ${id} could not be closed:`, err.message);
+                }
+            }
             // Spread campaigns: close out today's batch (books tomorrow) and lift a daily-cap pause.
             for (const { id, tenantId, channelId } of runningSpreadCampaigns(db)) {
                 try {
@@ -3351,9 +3524,12 @@ export function createApp({
                 try {
                     const channel = runtimeFor(tenantId).channels.getDefault();
                     const state = channel ? runtimeFor(tenantId).runtimeFor(channel).state : null;
-                    for (const campaign of state?.campaigns?.spawnRecurrences() ?? []) {
+                    const booked = state?.campaigns?.spawnRecurrences() ?? [];
+                    for (const campaign of booked) {
                         state.broadcast?.({ type: 'campaignCreated', campaign });
                     }
+                    // Pages that watch the `campaigns` topic rather than the campaign events.
+                    if (booked.length) state.broadcast?.({ type: 'changed', topic: 'campaigns' });
                 } catch (err) {
                     console.error(`[campaigns] repeat booking for tenant ${tenantId} failed:`, err.message);
                 }
@@ -3486,6 +3662,32 @@ export function createApp({
         };
     }
     app.locals.sweep = sweep;
+
+    /**
+     * A session is checked when a stream opens, and an open stream carries inbound messages: so a user who is
+     * disabled, signed out, reset or whose business was suspended must lose it now, not when the tab closes.
+     * Their EventSource reconnects, gets the 401, and the page signs out.
+     */
+    const pruneRevokedStreams = () => {
+        const valid = new Map();
+        const alive = (token) => {
+            if (!valid.has(token)) valid.set(token, tenancy.sessionValid(token));
+            return valid.get(token);
+        };
+        for (const tenant of runtimes.values()) {
+            for (const { state } of tenant.runtimes.values()) {
+                for (const client of state.clients) {
+                    if (client.sessionToken === undefined || alive(client.sessionToken)) continue;
+                    state.clients.delete(client);
+                    client.end();
+                }
+            }
+        }
+        adminFeed.prune(alive);
+    };
+    const pruneTimer = setInterval(pruneRevokedStreams, 5000);
+    pruneTimer.unref();
+    app.locals.pruneRevokedStreams = pruneRevokedStreams;
 
     app.locals.runtimes = runtimes;
     app.locals.tenancy = tenancy;
@@ -3686,6 +3888,10 @@ const digitsOf = (phone) => String(phone ?? '').replace(/\D/g, '');
 const SSE_MAX_BUFFERED = 1024 * 1024;
 
 function broadcast(state, event) {
+    state.adminFeed?.(event);
+    if (event.type === 'connection' || event.type === 'connectionLost') {
+        for (const other of state.siblings?.() ?? []) broadcast(other, { type: 'changed', topic: 'channels' });
+    }
     const payload = `data: ${JSON.stringify(event)}\n\n`;
     for (const client of state.clients) {
         if (client.writableEnded || client.destroyed) {

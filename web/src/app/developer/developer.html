@@ -23,7 +23,16 @@
     </div>
   }
 
-  @if (loading()) {
+  @if (notOnPlan()) {
+    <section class="s-card s-empty" aria-labelledby="dev-off">
+      <i class="ti ti-lock-access" aria-hidden="true"></i>
+      <strong id="dev-off">API access is not on your plan</strong>
+      <p>
+        API keys and webhooks come with plans that include the API. Ask your provider to add it,
+        and this page fills in here.
+      </p>
+    </section>
+  } @else if (loading()) {
     <div class="s-card" aria-busy="true" aria-label="Loading developer settings">
       <div class="s-skel" style="width: 30%"></div>
       <div class="s-skel" style="height: 40px; border-radius: 12px"></div>
@@ -363,7 +372,7 @@
                             [class.tone-bad]="d.status === 'failed'"
                             [class.tone-warn]="d.status === 'pending'"
                           >
-                            {{ d.responseCode ?? d.status }}
+                            {{ d.responseCode ?? (d.status | titlecase) }}
                           </span>
                           <code>{{ d.eventType }}</code>
                           <span class="meta"

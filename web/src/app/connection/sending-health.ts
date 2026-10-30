@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   computed,
   inject,
@@ -65,9 +66,15 @@ const BRAKE_ICONS: Readonly<Record<string, string>> = {
 
 /**
  * The server explains the idle brake in terms of internal levels, which tenants never see;
- * this says the same thing in plain words.
+ * this says the same thing in plain words, with the server's own count of quiet days (3 or more).
  */
-const IDLE_TEXT = "Nothing was delivered in the 3 days before today, so today's limit is lower.";
+const idleText = (serverText: string): string => {
+  const days = /in the (\d+) days/.exec(serverText)?.[1] ?? '3';
+  return `Nothing was delivered in the ${days} days before today, so today's limit is lower.`;
+};
+
+/** Number health reloads at most this often while live events stream in (a run reports every send). */
+const RELOAD_EVERY_MS = 2000;
 
 /** The ban brake holds 30 days from the ban (server humanize.js levelFor), so its `until` dates the ban. */
 const BAN_BRAKE_MS = 30 * 86_400_000;
@@ -83,8 +90,9 @@ const TRUSTED_LEVEL = 4;
  * The server grows a QR number's daily limit as people reply; how it does that
  * is deliberately not shown, only the number today and the most it reaches.
  *
- * Blocks are inferred (a message stuck at one tick for 24 hours), because
- * WhatsApp never tells a sender they were blocked. The copy says "may have".
+ * Blocks are inferred (a message still at one tick 48 hours after sending, judged
+ * once by the server's health scan), because WhatsApp never tells a sender they
+ * were blocked. The copy says "may have".
  */
 @Component({
   selector: 'app-sending-health',
@@ -200,8 +208,25 @@ export class SendingHealth {
 
   constructor() {
     this.load();
-    // The numbers move with sends, the connection and settings; reload on any.
-    this.store.watch(['config', 'connection', 'history', 'stats'], () => this.load(false));
+    // The numbers move with sends, the connection, settings, the admin and the number's questions; reload on any.
+    // At most every 2s (RELOAD_EVERY_MS): a run reports every send, and each reload asks the server for a health scan.
+    this.store.watch(['config', 'connection', 'history', 'stats', 'tenant', 'channels'], () =>
+      this.reloadSoon(),
+    );
+    inject(DestroyRef).onDestroy(() => clearTimeout(this.reloadTimer));
+  }
+
+  private lastLoad = 0;
+  private reloadTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** A throttle, not a debounce: a steady stream of sends still reloads every 2s instead of never. */
+  private reloadSoon(): void {
+    if (this.reloadTimer !== undefined) return;
+    const wait = Math.max(0, this.lastLoad + RELOAD_EVERY_MS - Date.now());
+    this.reloadTimer = setTimeout(() => {
+      this.reloadTimer = undefined;
+      this.load(false);
+    }, wait);
   }
 
   /** Reload in place, for a parent whose change the live events may not carry (safety overrides). */
@@ -210,6 +235,7 @@ export class SendingHealth {
   }
 
   protected load(showSkeleton = true): void {
+    this.lastLoad = Date.now();
     if (showSkeleton) this.loading.set(true);
     this.error.set(null);
     this.api.safetyHealth().subscribe({
@@ -278,7 +304,7 @@ export class SendingHealth {
   }
 
   protected brakeText(b: SendingBrake): string {
-    if (b.code === 'idle') return IDLE_TEXT;
+    if (b.code === 'idle') return idleText(b.text);
     // The server's ban text talks about rests; the brake lasts 30 days from the ban.
     if (b.code === 'ban' && b.until) {
       const on = new Date(Date.parse(b.until) - BAN_BRAKE_MS).toLocaleDateString(undefined, {

@@ -136,6 +136,32 @@ describe('the engine', () => {
         assert.equal(db.history({ campaignId: 'notwa-late' })[0].status, Status.NOT_ON_WHATSAPP);
         assert.equal(manager.stats.failed, 0);
     });
+
+    it('skips numbers its history already found without WhatsApp, and never asks about them again', async () => {
+        const ago = (days) => new Date(Date.now() - days * 86_400_000).toISOString().replace(/\.\d{3}Z$/, '+00:00');
+        const row = (id, recipient, status, at) => db.db.prepare(
+            `INSERT INTO messages (message_id, tenant_id, recipient, message, status, created_at, updated_at)
+             VALUES (?, 1, ?, 'hi', ?, ?, ?)`).run(id, recipient, status, at, at);
+        row('hist-1', '919700000041', Status.NOT_ON_WHATSAPP, ago(2));
+        row('hist-2', '+919700000042', Status.NOT_ON_WHATSAPP, ago(2)); // stored with its "+"
+        row('hist-3a', '919700000043', Status.NOT_ON_WHATSAPP, ago(3));
+        row('hist-3b', '919700000043', Status.DELIVERED, ago(1)); // joined WhatsApp since
+        row('hist-4', '919700000044', Status.NOT_ON_WHATSAPP, ago(40)); // too old to trust
+
+        const transport = checkingTransport();
+        const manager = new CampaignManager(db, transport, engineConfig());
+        const result = manager.enqueueContacts(people('+91 97000 00041', '919700000042', '919700000043', '919700000044', '919700000045'),
+            'Hi {name}', { campaignId: 'notwa-history' });
+        assert.equal(result.skippedNotOnWhatsapp, 2);
+        assert.equal(result.skipped, 2);
+        assert.equal(result.queued, 3);
+        manager.start();
+        assert.ok(await waitFor(() => manager.stats.processed === 3));
+        await manager.shutdown();
+        assert.deepEqual(db.history({ campaignId: 'notwa-history' }).map((r) => r.recipient).sort(),
+            ['919700000043', '919700000044', '919700000045'], 'no row for a skipped number');
+        assert.ok(transport.checks.flat().every((p) => !['919700000041', '919700000042'].includes(p)), 'no lookup spent on them');
+    });
 });
 
 describe('Baileys checkRegistered', () => {
@@ -232,6 +258,17 @@ describe('campaigns and the quick send', () => {
 
         const retry = await api('POST', `/api/campaigns/${id}/retry-failed`);
         assert.equal(retry.status, 409, 'nothing failed: numbers without WhatsApp are not retried');
+    });
+
+    it('closes a later run whose whole audience is known not to be on WhatsApp, and says why', async () => {
+        const audience = people('919550000001', '919550000002'); // found without WhatsApp by the test above
+        const { id } = (await api('POST', '/api/campaigns', { name: 'Again', body: 'Hi {name}', audience })).body.campaign;
+        const started = await api('POST', `/api/campaigns/${id}/start`);
+        assert.equal(started.status, 200);
+        assert.equal(started.body.skippedNotOnWhatsapp, 2);
+        const campaign = (await api('GET', `/api/campaigns/${id}`)).body.campaign;
+        assert.equal(campaign.status, 'done');
+        assert.match(campaign.options.statusReason, /2 not on WhatsApp/);
     });
 
     it('refuses a quick send to a number that is not on WhatsApp', async () => {

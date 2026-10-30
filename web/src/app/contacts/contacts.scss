@@ -20,6 +20,7 @@
 
 :host {
   display: grid;
+  @include s.fit-grid;
   gap: var(--space-xl);
   align-content: start;
 }
@@ -28,10 +29,7 @@
 
 /* Stats ------------------------------------------------------------------ */
 .stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: var(--space-lg);
-  perspective: 1200px;
+  @include s.stat-grid(170px);
 
   .muted { display: block; margin-top: 6px; font-size: 12.5px; }
   button.s-stat { cursor: pointer; }
@@ -63,10 +61,7 @@
     border-radius: 12px;
     color: var(--accent);
     background: var(--accent-soft);
-    transform: perspective(300px) rotateX(8deg) rotateY(-12deg);
-    transition: transform var(--base) var(--ease);
   }
-  &:hover .orb { transform: none; }
 }
 
 /* New contact ----------------------------------------------------------- */
@@ -201,7 +196,8 @@
     .ti { position: absolute; left: 13px; top: 50%; translate: 0 -50%; font-size: 17px; color: var(--hint); pointer-events: none; }
     input { padding-left: 38px; }
   }
-  .consent { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  // Five options don't fit a 390px card on one line: they wrap inside the track rather than clip ("Unknow").
+  .consent { flex-wrap: wrap; max-width: 100%; }
 }
 
 .active-filters {
@@ -293,9 +289,6 @@ th[aria-sort='descending'] .sort { color: var(--text-strong); .ti { opacity: 1; 
 
 .who { display: flex; align-items: center; gap: 11px; min-width: 0; }
 
-// The one 3D touch in the table: the avatar turns toward the pointer's row.
-.avatar { transition: transform var(--base) var(--ease); }
-tbody tr:hover .avatar { transform: perspective(200px) rotateY(-16deg) translateZ(6px); }
 
 .who-text {
   display: grid;
@@ -360,6 +353,3 @@ tbody tr:hover .avatar { transform: perspective(200px) rotateY(-16deg) translate
   .pager { justify-content: center; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  tbody tr:hover .avatar, .dupe-banner .orb { transform: none; }
-}

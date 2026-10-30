@@ -27,6 +27,7 @@ import { POLICY_SERVICES } from './policy-api';
 import { PolicyEditor } from './policy-editor';
 import { TenantAccounts } from './tenant-accounts';
 import { serviceMeta } from './service-meta';
+import { sentenceCase } from './text';
 
 /** Which tab of the drawer is showing. */
 export type SettingsTab = 'general' | 'plan' | 'limits' | 'safety' | 'rules' | 'accounts';
@@ -39,6 +40,8 @@ type SettingsDraft = {
   tenant: Tenant;
   controls: TenantControls;
   safety: SafetyPolicy | null;
+  /** The policy as loaded: Save sends only the fields that differ from it. */
+  safetyBase: SafetyPolicy | null;
   custom: CustomSafetyState | null;
   limits: TenantLimits;
 };
@@ -151,6 +154,8 @@ export class TenantSettings {
   /** The drawer for choosing services lives in the parent. */
   readonly chooseServices = output<Tenant>();
 
+  /** Pill labels are sentence case: "past_due" reads "Past due". */
+  protected readonly sentence = sentenceCase;
   protected readonly settings = signal<SettingsDraft | null>(null);
   protected readonly tab = linkedSignal<SettingsTab>(() => this.initialTab());
   protected readonly saving = signal(false);
@@ -205,13 +210,14 @@ export class TenantSettings {
       tenant,
       controls: { ...DEFAULT_CONTROLS, ...(tenant.controls ?? {}) },
       safety: null,
+      safetyBase: null,
       custom: null,
       limits: { ...DEFAULT_LIMITS, ...(tenant.limits ?? {}) },
     });
     this.api.safety(tenant.id).subscribe({
       next: ({ safety, custom }) =>
         this.settings.update((cur) =>
-          cur?.tenant.id === tenant.id ? { ...cur, safety, custom } : cur,
+          cur?.tenant.id === tenant.id ? { ...cur, safety, safetyBase: safety, custom } : cur,
         ),
       error: (err: Error) => this.error.set(err.message),
     });
@@ -286,10 +292,17 @@ export class TenantSettings {
     if (!cur) return;
     this.saving.set(true);
     this.error.set('');
+    // Only what the admin changed: an untouched field saved back would pin today's shown value for good.
+    const safety = cur.safety;
+    const base = cur.safetyBase;
+    const changed = safety
+      ? (Object.keys(safety) as (keyof SafetyPolicy)[]).filter((key) => safety[key] !== base?.[key])
+      : [];
+    const safetyPatch = Object.fromEntries(changed.map((key) => [key, safety?.[key]])) as Partial<SafetyPolicy>;
     forkJoin([
       this.api.updateTenant(cur.tenant.id, { controls: cur.controls }),
       this.api.setLimits(cur.tenant.id, cur.limits),
-      ...(cur.safety ? [this.api.setSafety(cur.tenant.id, cur.safety)] : []),
+      ...(changed.length ? [this.api.setSafety(cur.tenant.id, safetyPatch)] : []),
     ]).subscribe({
       next: () => {
         this.saving.set(false);
@@ -382,9 +395,5 @@ export class TenantSettings {
 
   protected controlLabel(key: keyof TenantControls): string {
     return CONTROL_LABELS[key];
-  }
-
-  protected checked(event: Event): boolean {
-    return (event.target as HTMLInputElement).checked;
   }
 }

@@ -150,6 +150,11 @@ export class CampaignView implements OnInit {
         icon: 'clock-pause',
         text: "already got today's maximum of bulk messages",
       },
+      {
+        n: r.skippedNotOnWhatsapp ?? 0,
+        icon: 'phone-off',
+        text: 'had no WhatsApp account when last tried',
+      },
     ];
     const explained = rows.reduce((t, x) => t + x.n, 0) + (r.skippedNoOptIn ?? 0);
     const other = (r.skipped ?? 0) - explained;

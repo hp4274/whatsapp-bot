@@ -114,7 +114,11 @@ export class Store {
   private source: EventSource | null = null;
   private clock: ReturnType<typeof setInterval> | null = null;
   private newDay: ReturnType<typeof setTimeout> | null = null;
+  /** Whether this session's stream has said hello before, so the next hello is a reconnect. */
+  private everOpened = false;
   private reopen: ReturnType<typeof setTimeout> | null = null;
+  /** Refused reopens in a row; each waits longer, so a stream the server keeps refusing does not spin. */
+  private refusals = 0;
 
   constructor() {
     this.applyTheme(this.theme());
@@ -171,6 +175,7 @@ export class Store {
    */
   stop() {
     this.dispose();
+    this.refusals = 0;
     this.streamOnline.set(false);
     this.qr.set(null);
     this.connecting.set(false);
@@ -232,12 +237,17 @@ export class Store {
 
     source.addEventListener('hello', (event) => {
       this.zone.run(() => {
+        // A reconnect: anything that changed while the stream was down was never heard, so pages reload once.
+        if (this.refusals > 0 || this.everOpened) this.notify('*');
+        this.everOpened = true;
+        this.refusals = 0;
         this.streamOnline.set(true);
         const state = JSON.parse((event as MessageEvent).data) as ConnectionState;
         this.connection.set(state);
         // A reload must not claim "Ready." while a session is already live.
         if (state.connected) this.setStatus(`Connected - ${state.name}`, 'primary');
-        if (state.qr) this.qr.set(state.qr);
+        // A reconnect after an admin force-disconnect must drop the old code, not keep inviting a scan.
+        this.qr.set(state.qr ?? null);
       });
     });
 
@@ -253,11 +263,16 @@ export class Store {
       // receipt, stat and status would be missed until a page reload, so reopen it ourselves.
       // Without a token (the 401 interceptor signed us out) a reopen would only fail again.
       if (source.readyState !== EventSource.CLOSED || this.source !== source) return;
-      if (!this.auth.token()) return;
+      if (!this.auth.token() || this.auth.blocked()) return;
+      // EventSource never says why it was refused. A plain request does, through the interceptor: a 401 (the
+      // session was revoked) signs out, a 402 (subscription ended) shows the banner and stops this loop.
+      this.zone.run(() => this.auth.refresh());
+      const wait = Math.min(60_000, 3000 * 2 ** this.refusals);
+      this.refusals += 1;
       this.reopen ??= setTimeout(() => {
         this.reopen = null;
-        this.listen();
-      }, 3000);
+        if (this.auth.token() && !this.auth.blocked()) this.listen();
+      }, wait);
     };
   }
 
@@ -272,7 +287,7 @@ export class Store {
     const wanted = new Set(topics);
     let timer: ReturnType<typeof setTimeout> | null = null;
     const listener = (topic: string) => {
-      if (!wanted.has(topic) && !wanted.has('*')) return;
+      if (topic !== '*' && !wanted.has(topic) && !wanted.has('*')) return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
@@ -294,8 +309,23 @@ export class Store {
   /** Route one event: first to page reloaders, then to the signals. */
   private handle(event: ServerEvent) {
     switch (event.type) {
-      case 'changed':
-        this.notify(String(event['topic'] ?? ''));
+      case 'changed': {
+        const topic = String(event['topic'] ?? '');
+        // A super admin changed the business (services, plan, limits): the nav and guards read Auth.
+        if (topic === 'tenant') this.auth.refresh();
+        this.notify(topic);
+        break;
+      }
+      case 'connection':
+      case 'connectionLost':
+        this.notify('connection', 'channels');
+        break;
+      case 'safetyEvent':
+      case 'quotaReached':
+      case 'policyHold':
+      case 'policyStop':
+      case 'failureStop':
+        this.notify('stats', 'config', 'campaigns');
         break;
       case 'inbound_message':
         this.notify('inbox', 'conversations', 'tickets', 'school', 'contacts');
@@ -309,6 +339,8 @@ export class Store {
         this.notify('history', 'campaign', 'analytics');
         break;
       default:
+        // campaignCreated / campaignUpdated / campaignStarted …: the store moved a campaign on its own.
+        if (/^campaign[A-Z]/.test(event.type)) this.notify('campaigns');
         break;
     }
     this.handleEvent(event);

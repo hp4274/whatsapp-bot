@@ -159,6 +159,9 @@ export async function importContacts(filename, buffer, defaultCountryCode = '') 
 export const PREVIEW_ROWS = 10;
 const EMAIL_KEYS = ['email', 'e_mail', 'email_address', 'mail'];
 const TAG_KEYS = ['tags', 'tag', 'labels', 'label', 'groups', 'group'];
+const CONSENT_KEYS = ['consent', 'opt_in', 'optin', 'opted_in', 'whatsapp_consent'];
+// A consent cell is its own proof ("yes", "signed form 3 Mar", "website checkbox"): any answer but a no counts.
+const NO_CONSENT = /^(no|n|false|0|none|unknown|-|opt(ed)?[ _-]?out)$/i;
 
 /** Raw header row + body rows (strings), from CSV or the first XLSX sheet. */
 export async function parseTable(filename, buffer) {
@@ -180,7 +183,7 @@ export async function parseTable(filename, buffer) {
     return { headers, rows };
 }
 
-/** One target per column: phone | name | email | tags | custom:<key> | ignore. */
+/** One target per column: phone | name | email | tags | consent | custom:<key> | ignore. */
 /**
  * What is wrong with a phone column before it is imported: numbers that are not valid, repeats, Indian
  * numbers that are not Indian-mobile-shaped (+91 then 10 digits from 6-9: landlines and typos; WhatsApp is on mobiles)
@@ -234,7 +237,7 @@ export function suggestMapping(headers) {
             return target;
         };
         return claim('phone', PHONE_KEYS) ?? claim('name', NAME_KEYS) ?? claim('email', EMAIL_KEYS)
-            ?? claim('tags', TAG_KEYS) ?? `custom:${key}`;
+            ?? claim('tags', TAG_KEYS) ?? claim('consent', CONSENT_KEYS) ?? `custom:${key}`;
     });
 }
 
@@ -257,11 +260,11 @@ export function resolveMapping(headers, mapping) {
     if (!Array.isArray(list)) throw new Error('mapping must be a list of column targets');
     const out = headers.map((_, i) => {
         const target = String(list[i] ?? 'ignore').trim();
-        if (['phone', 'name', 'email', 'tags', 'ignore'].includes(target)) return target;
+        if (['phone', 'name', 'email', 'tags', 'consent', 'ignore'].includes(target)) return target;
         if (target.startsWith('custom:') && target.slice(7).trim()) return `custom:${target.slice(7).trim()}`;
         throw new Error(`unknown target "${target}" for column ${i + 1}`);
     });
-    for (const single of ['phone', 'name', 'email']) {
+    for (const single of ['phone', 'name', 'email', 'consent']) {
         if (out.filter((t) => t === single).length > 1) throw new Error(`only one column can be ${single}`);
     }
     if (!out.includes('phone')) throw new Error('map one column to phone');
@@ -282,7 +285,11 @@ export function mappedRowsToContacts(rows, mapping, defaultCountryCode = '') {
             else if (target === 'name') contact.name = value;
             else if (target === 'email') contact.email = value;
             else if (target === 'tags') contact.tags.push(...value.split(/[,;|]/).map((t) => t.trim()).filter(Boolean));
-            else if (target.startsWith('custom:') && value) contact.customFields[target.slice(7)] = value;
+            else if (target === 'consent' && value && !NO_CONSENT.test(value)) {
+                // A no or a blank leaves the contact's consent as it was: an import never withdraws it.
+                contact.optInStatus = 'opted_in';
+                contact.consentText = value;
+            } else if (target.startsWith('custom:') && value) contact.customFields[target.slice(7)] = value;
         });
         if (!phoneRaw) {
             result.errors.push(`Row ${lineNumber}: missing phone number`);
@@ -320,12 +327,14 @@ export function csvCell(value) {
 
 export function contactsToCsv(contacts) {
     const keys = [...new Set(contacts.flatMap((c) => Object.keys(c.customFields ?? {})))].sort();
-    const header = ['name', 'phone', 'email', 'tags', 'opt_in_status', 'opted_out', 'status', 'source',
-        'created_at', ...keys];
+    // opted_in_at / opt_in_source: the latest opt-in proof (opt_ins), so the sheet carries its own evidence.
+    const header = ['name', 'phone', 'email', 'tags', 'opt_in_status', 'opted_in_at', 'opt_in_source', 'opted_out',
+        'status', 'source', 'created_at', ...keys];
     const lines = [header.map(csvCell).join(',')];
     for (const c of contacts) {
         lines.push([
-            c.name, c.phone, c.email, (c.tags ?? []).join(', '), c.optInStatus, c.optedOut ? 'yes' : 'no',
+            c.name, c.phone, c.email, (c.tags ?? []).join(', '), c.optInStatus,
+            c.optIn?.at ?? '', c.optIn?.source ?? '', c.optedOut ? 'yes' : 'no',
             c.status, c.source, c.createdAt, ...keys.map((k) => c.customFields?.[k] ?? ''),
         ].map(csvCell).join(','));
     }

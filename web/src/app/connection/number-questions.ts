@@ -18,6 +18,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import { ChannelsApi, NumberStart, NumberStartBody, NumberStartResult } from '../core/api';
+import { Store } from '../core/store';
 
 /** Answer labels in the server's order: the index (0-3) is what gets posted. */
 const AGE_CHOICES: readonly string[] = ['Under 1 month', '1–6 months', '6–24 months', '2+ years'];
@@ -102,6 +103,10 @@ export class NumberQuestions {
       const id = this.channelId();
       untracked(() => this.load(id));
     });
+    // Answered or skipped in another session (a /api/channels write): the popup closes here too.
+    inject(Store).watch(['channels'], () => {
+      if (!this.saving() && !this.result()) this.load(this.channelId(), true);
+    });
     // The native <dialog> gives focus trapping and Escape for free; it just needs opening.
     effect(() => {
       const dialog = this.dialogRef()?.nativeElement;
@@ -119,9 +124,9 @@ export class NumberQuestions {
     effect(() => this.resultRef()?.nativeElement.focus());
   }
 
-  /** Also the error banner's Try again. */
-  protected load(id = this.channelId()): void {
-    this.loading.set(true);
+  /** Also the error banner's Try again. `quiet` keeps what shows while it reloads (a live update). */
+  protected load(id = this.channelId(), quiet = false): void {
+    if (!quiet) this.loading.set(true);
     this.error.set(null);
     this.api
       .startInfo(id)

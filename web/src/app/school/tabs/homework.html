@@ -194,7 +194,7 @@
             [class.tone-ok]="h.status === 'sent'"
             [class.tone-info]="h.status === 'scheduled'"
           >
-            {{ h.status }}
+            {{ h.status | titlecase }}
             @if (h.status === 'scheduled' && h.sendAt) {
               &nbsp;{{ h.sendAt | date: 'shortTime' }}
             }

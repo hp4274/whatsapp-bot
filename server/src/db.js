@@ -224,6 +224,24 @@ CREATE TABLE IF NOT EXISTS opt_outs (
     PRIMARY KEY (tenant_id, phone)
 );
 
+-- Proof of consent: one row per move to opted_in, with how and in what words (contactStore.js recordOptIn).
+-- Evidence for a ban appeal or a complaint, so like safety_consents the database refuses edits and deletes.
+CREATE TABLE IF NOT EXISTS opt_ins (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id     INTEGER NOT NULL,
+    phone         TEXT NOT NULL,
+    contact_id    INTEGER,
+    source        TEXT NOT NULL,
+    consent_text  TEXT NOT NULL DEFAULT '',
+    user_id       INTEGER,
+    at            TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_opt_ins_phone ON opt_ins(tenant_id, phone);
+CREATE TRIGGER IF NOT EXISTS opt_ins_no_update BEFORE UPDATE ON opt_ins
+BEGIN SELECT RAISE(ABORT, 'consent records are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS opt_ins_no_delete BEFORE DELETE ON opt_ins
+BEGIN SELECT RAISE(ABORT, 'consent records are immutable'); END;
+
 CREATE TABLE IF NOT EXISTS auto_replies (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id     INTEGER NOT NULL DEFAULT 1,
@@ -310,6 +328,12 @@ function addTenantControlColumns(db) {
     if (!columnsOf(db, 'messages').includes('parts')) db.exec('ALTER TABLE messages ADD COLUMN parts INTEGER');
     // Set once a campaign message was judged for a block at 48h (stuckSent), so it is never judged again.
     if (!columnsOf(db, 'messages').includes('block_checked')) db.exec('ALTER TABLE messages ADD COLUMN block_checked INTEGER');
+    // Where an audited change came from and which request made it, so the admin can open that request's log lines.
+    // NULL on older rows and on changes no request made (a sweep, a finished campaign).
+    const auditCols = columnsOf(db, 'audit_logs');
+    if (auditCols.length && !auditCols.includes('ip')) db.exec('ALTER TABLE audit_logs ADD COLUMN ip TEXT');
+    if (auditCols.length && !auditCols.includes('request_id')) db.exec('ALTER TABLE audit_logs ADD COLUMN request_id TEXT');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_audit_request ON audit_logs(request_id) WHERE request_id IS NOT NULL');
 }
 
 /** Adds channel_id to tables that predate channels. Existing rows keep NULL
@@ -1215,6 +1239,23 @@ export class Database {
              GROUP BY recipient`,
         ).all(this.tenantId, sinceIso);
         return new Map(rows.map((r) => [r.recipient, r.n]));
+    }
+
+    /**
+     * Of `phones` (bare digits), the ones a NOT_ON_WHATSAPP row since `sinceIso` says have no account, unless a
+     * SENT/DELIVERED/READ came after it (they joined since). One query for the batch; both stored forms of the
+     * recipient (with or without "+"), as contactStore's notOnWhatsapp filter matches them.
+     */
+    notOnWhatsappSince(phones, sinceIso) {
+        if (!phones.length) return new Set();
+        const rows = this.db.prepare(
+            `SELECT DISTINCT p.value AS phone FROM json_each(?) p
+             JOIN messages m ON m.tenant_id = ? AND m.recipient IN (p.value, '+' || p.value)
+             WHERE m.status = 'NOT_ON_WHATSAPP' AND m.updated_at >= ?
+               AND NOT EXISTS (SELECT 1 FROM messages s WHERE s.tenant_id = m.tenant_id AND s.recipient IN (p.value, '+' || p.value)
+                               AND s.status IN ('SENT', 'DELIVERED', 'READ') AND s.updated_at > m.updated_at)`,
+        ).all(JSON.stringify(phones.map(String)), this.tenantId, sinceIso);
+        return new Set(rows.map((r) => r.phone));
     }
 
     insertInbound(record) {

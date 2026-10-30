@@ -18,8 +18,13 @@
 
 :host {
   display: grid;
+  @include s.fit-grid;
   gap: var(--space-xl);
 }
+
+// The scroller is the containing block, so the visually-hidden Actions header is clipped with the table instead of
+// stretching the page sideways.
+.s-table { position: relative; }
 
 .sr-only {
   position: absolute;

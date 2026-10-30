@@ -370,7 +370,7 @@ describe('tenant lifecycle', () => {
 
         const reset = await call(tokens.superAdmin, 'PUT', url, { dailyLimit: null });
         assert.equal(reset.status, 200);
-        assert.equal(reset.body.safety.dailyLimit, DEFAULTS.dailyLimit);
+        assert.equal(reset.body.safety.dailyLimit, 0, 'no admin value: no ceiling of the admin\'s, not DEFAULTS\' 250');
         assert.equal(reset.body.safety.restEvery, 12, 'other keys stay');
         assert.ok(!('dailyLimit' in tenancy.getTenant(made.id).safety), 'the override is gone, not stored as null');
         // Back to the number's own start: a new QR number holds no day of its own (the plan's day applies live).

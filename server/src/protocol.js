@@ -104,7 +104,10 @@ export function isValidPhone(raw, defaultCountryCode = '') {
  */
 export function personalize(template, context = {}) {
     if (!template) return '';
-    const fallbackResolved = String(template).replace(/\{(\w+)\|([^{}]*)\}/g, (match, key, fallback) => {
+    // "{{name}}" is how WhatsApp Business templates write a variable, and people type it here too: read it as
+    // "{name}", or the outer braces would reach the customer ("Hi {Kabir}").
+    const single = String(template).replace(/\{\{\s*(\w+)\s*\}\}/g, '{$1}');
+    const fallbackResolved = single.replace(/\{(\w+)\|([^{}]*)\}/g, (match, key, fallback) => {
         if (!Object.prototype.hasOwnProperty.call(context, key)) return match;
         const value = context[key];
         if (value === undefined || value === null || String(value) === '') return fallback;

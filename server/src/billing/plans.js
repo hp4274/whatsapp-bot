@@ -112,7 +112,8 @@ export const DEFAULT_PLANS = Object.freeze({
         interval: 'month',
         trialDays: 14,
         services: [
-            ...STARTER_SERVICES, 'faq', 'tickets', 'payment_reminders', 'appointments', 'analytics', 'workflows',
+            // 'api' because features.api and apiRequests sell it: without the service /api-keys answers 403.
+            ...STARTER_SERVICES, 'faq', 'tickets', 'payment_reminders', 'appointments', 'analytics', 'workflows', 'api',
         ],
         tenantLimits: {
             maxChannels: 5, maxUsers: 15, maxTemplates: 500, maxContactsPerCampaign: 25000, maxMediaMb: 64,

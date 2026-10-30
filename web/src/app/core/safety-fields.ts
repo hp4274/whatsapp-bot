@@ -1,7 +1,17 @@
 import { SafetyPolicy } from './api';
 
-/** The anti-ban fields, grouped. Shared by the super admin drawer and the tenant's own controls. */
-export type SafetyField = { key: keyof SafetyPolicy; label: string; help: string; step?: number };
+/**
+ * The anti-ban fields, grouped. Shared by the super admin drawer and the tenant's own controls.
+ * `qrIgnored`: a QR number's own sending level sets this (server campaign/safety.js paceFor), so the value
+ * does nothing there; the tenant drawer leaves it out and the admin drawer shows it disabled.
+ */
+export type SafetyField = {
+  key: keyof SafetyPolicy;
+  label: string;
+  help: string;
+  step?: number;
+  qrIgnored?: boolean;
+};
 
 /** Order is the order shown; each field's `help` is the plain-language hint under it. */
 export const SAFETY_GROUPS: { title: string; fields: SafetyField[] }[] = [
@@ -11,18 +21,26 @@ export const SAFETY_GROUPS: { title: string; fields: SafetyField[] }[] = [
       {
         key: 'dailyLimit',
         label: 'Messages per day',
-        help: 'Ceiling per number (0 = off). A QR number grows its daily limit as people reply; this only lowers it',
+        help: "Ceiling per number (0 = the plan's day). A QR number grows its daily limit as people reply; this only lowers it",
       },
     ],
   },
   {
     title: 'Pacing between messages',
     fields: [
-      { key: 'minDelaySeconds', label: 'Min gap (s)', help: '0 = pick from batch size' },
-      { key: 'maxDelaySeconds', label: 'Max gap (s)', help: '0 = pick from batch size' },
-      { key: 'restEvery', label: 'Rest every N messages', help: '0 = never rest' },
-      { key: 'restMinMinutes', label: 'Rest min (min)', help: 'Shortest long pause' },
-      { key: 'restMaxMinutes', label: 'Rest max (min)', help: 'Longest long pause' },
+      {
+        key: 'minDelaySeconds',
+        label: 'Min gap (s)',
+        help: "0 = the number's own gap. A value only ever slows it",
+      },
+      {
+        key: 'maxDelaySeconds',
+        label: 'Max gap (s)',
+        help: "0 = the number's own gap. A value only ever slows it",
+      },
+      { key: 'restEvery', label: 'Rest every N messages', help: '0 = never rest', qrIgnored: true },
+      { key: 'restMinMinutes', label: 'Rest min (min)', help: 'Shortest long pause', qrIgnored: true },
+      { key: 'restMaxMinutes', label: 'Rest max (min)', help: 'Longest long pause', qrIgnored: true },
     ],
   },
   {
@@ -81,7 +99,7 @@ export const BRAKE_LABELS: Readonly<Record<string, string>> = {
   blocks: 'Blocks',
   failures: 'Failed sends',
   restricted: 'Limited by WhatsApp',
-  idle: 'Quiet for 3 days',
+  idle: 'Quiet for a few days',
   ban: 'Recent ban',
   delivery: 'Low delivery',
   stuck: 'Messages stuck on one tick',
@@ -102,12 +120,9 @@ export function safetyRisk(
         : '';
     case 'pacingMode':
       return value === 'fixed' ? 'A fixed rhythm is easy for WhatsApp to spot.' : '';
+    // 0 is no ceiling of its own: the plan's day and the number's gradual rise still hold.
     case 'dailyLimit':
-      return n === 0
-        ? 'No daily cap.'
-        : n > 1000
-          ? 'Over 1,000 a day is high for most numbers.'
-          : '';
+      return n > 1000 ? 'Over 1,000 a day is high for most numbers.' : '';
     case 'minDelaySeconds':
       return n > 0 && n < 4 ? 'Gaps under 4 seconds look automated.' : '';
     case 'maxDelaySeconds':
