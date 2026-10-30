@@ -251,12 +251,12 @@ describe('brakes', () => {
     it('stops new chats and lookups while WhatsApp restricts the number', () => {
         const db = freshDb();
         const until = new Date(Date.now() + 20 * HOUR).toISOString();
-        db.addSafetyEvent({ kind: 'restrict', phone: '15550000001', messageId: until, detail: '463' });
+        db.addSafetyEvent({ kind: 'restrict', phone: '15550000001', messageId: until, detail: '475' });
         const quota = new DailyQuota(db, qr());
         let a = quota.allowance();
         const brake = a.brakes.find((b) => b.code === 'restricted');
         assert.equal(brake.until, until);
-        assert.match(brake.text, /463/);
+        assert.match(brake.text, /475/);
         assert.equal(a.lookups, false);
         assert.equal(a.budgets.newChats.limit, 0);
         db.db.prepare("UPDATE safety_events SET message_id = ? WHERE kind = 'restrict'").run(ago(HOUR));
@@ -269,7 +269,25 @@ describe('brakes', () => {
 });
 
 describe('new chats', () => {
-    for (const safetyEnabled of [true, false]) it(`while WhatsApp restricts the number (463), only people who wrote in are sent to; the rest wait (safety ${safetyEnabled ? 'on' : 'off'})`, async () => {
+    it('a 463 row (one contact\'s missing privacy token) holds nobody: older builds recorded those as restrictions', async () => {
+        const db = freshDb();
+        history(db, { days: 3, perDay: 3 });
+        db.addSafetyEvent({ kind: 'restrict', phone: '15550000001', messageId: new Date(Date.now() + 20 * HOUR).toISOString(), detail: '463' });
+        assert.equal(db.restrictedUntil(), null);
+        const transport = new FakeLive();
+        const manager = new CampaignManager(db, transport, qr());
+        try {
+            assert.equal(codes(manager.quota.allowance()).includes('restricted'), false);
+            manager.enqueueContacts(people(['919900000021', '919900000022']), 'Hi {name}', { campaignId: 'old463' });
+            manager.start();
+            assert.ok(await until(() => transport.sent.length === 2), 'nobody waits');
+        } finally {
+            await manager.shutdown();
+            db.close();
+        }
+    });
+
+    for (const safetyEnabled of [true, false]) it(`while WhatsApp restricts the number (475), only people who wrote in are sent to; the rest wait (safety ${safetyEnabled ? 'on' : 'off'})`, async () => {
         const db = freshDb();
         history(db, { days: 3, perDay: 3 });
         const wrote = '919900000011';
@@ -277,7 +295,7 @@ describe('new chats', () => {
         const stranger = '919900000013';
         db.insertInbound({ sender: wrote, body: 'hi', receivedAt: ago(DAY) });
         sent(db, 'earlier', messaged, ago(2 * DAY)); // outside the 24h per-recipient cap
-        db.addSafetyEvent({ kind: 'restrict', phone: '15550000001', messageId: new Date(Date.now() + 20 * HOUR).toISOString(), detail: '463' });
+        db.addSafetyEvent({ kind: 'restrict', phone: '15550000001', messageId: new Date(Date.now() + 20 * HOUR).toISOString(), detail: '475' });
         const transport = new FakeLive();
         const manager = new CampaignManager(db, transport, qr({ safetyEnabled }));
         try {
@@ -590,7 +608,7 @@ describe('scope and API', () => {
             state.db.insertInbound({ sender: '919811110002', body: 'hi', receivedAt: ago(HOUR) });
             assert.equal((await api('POST', '/api/messages', { recipient: '919811110002', message: 'Hello' })).status, 200);
 
-            state.transport.events.emit('restricted', { code: 463, until: new Date(Date.now() + DAY).toISOString() });
+            state.transport.events.emit('restricted', { code: 475, until: new Date(Date.now() + DAY).toISOString() });
             safety = (await api('GET', '/api/safety')).body.safety;
             assert.ok(safety.brakes.some((b) => b.code === 'restricted'));
             const health = (await api('GET', '/api/safety/health')).body;

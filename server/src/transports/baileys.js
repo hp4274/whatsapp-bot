@@ -56,7 +56,7 @@ export function ackStatus(status) {
 
 /** Why WhatsApp rejected a message it had accepted, from the code on the failed ack (Baileys handleBadAck). */
 const ACK_ERRORS = {
-    463: 'WhatsApp refused this new chat (error 463): the number is limited to people who have messaged it before.',
+    463: 'WhatsApp refused this message (error 463): the linked device has no privacy token for this contact yet.',
     475: 'WhatsApp has paused new chats from this number for a while (error 475). Send later, more slowly.',
     479: 'WhatsApp rejected the message (error 479): the recipient\'s device session was out of date.',
 };
@@ -109,9 +109,9 @@ const CONTACTS_COLLECTION = 'critical_unblock_low';
 /** A forced address-book snapshot costs a round trip, so a number asks for at most one every few minutes. */
 const ADDRESS_BOOK_REFRESH_MS = 5 * 60_000;
 /**
- * Ack errors that mean WhatsApp is capping messages to new people (475 message capping). A 463 counts only when it
- * comes back after the resend with a fresh privacy token: the first one is usually just a token this linked device
- * never got (the phone has it, so the phone can still message that person).
+ * Ack errors that mean WhatsApp is capping messages to new people (475 message capping); the reach-out timelock
+ * (connection.update) is the other signal. A 463 is never one: it is about one contact's privacy token, which this
+ * linked device may lack while the phone has it, so it is resent once and then fails that message alone.
  */
 const RESTRICTED_CODES = new Set(['475']);
 const TOKEN_MISSING = '463';
@@ -288,14 +288,16 @@ export class BaileysTransport extends Transport {
                 // 463 is a missing privacy token as often as a restriction: Baileys asks WhatsApp for the token on
                 // its own, so send the same message once more; only a second 463 fails it.
                 if (code === TOKEN_MISSING && key?.id && key.remoteJid && !this.tokenRetried.has(key.id)) {
+                    // Only a second 463 clears an id (a sent/delivered update in between must not allow a second resend);
+                    // ids that went through stay, so the set is capped like receipts.
+                    if (this.tokenRetried.size >= RECEIPTS_MAX) this.tokenRetried.delete(this.tokenRetried.values().next().value);
                     this.tokenRetried.add(key.id);
                     this.setTimeoutFn(() => { void this.#resendWithToken(sock, key); }, TOKEN_RETRY_MS);
                     continue;
                 }
-                if (code === TOKEN_MISSING) {
-                    this.tokenRetried.delete(key?.id);
-                    this.#restricted(code, Date.now() + RESTRICTED_MIN_MS); // refused even with a token
-                }
+                // A second 463 fails this one message only: it is about this contact, not the whole number (the phone
+                // can still message them). WhatsApp signals a real restriction with 475 or the reach-out timelock.
+                if (code === TOKEN_MISSING) this.tokenRetried.delete(key?.id);
                 this.#emitReceipt(key?.id, ackStatus(update.status), code);
             }
         });
@@ -372,7 +374,7 @@ export class BaileysTransport extends Transport {
         if (sock !== this.sock) return;
         if (reachoutTimeLock?.isActive) {
             const ends = new Date(reachoutTimeLock.timeEnforcementEnds ?? 0).getTime() || 0;
-            this.#restricted('463', Math.max(ends, Date.now() + RESTRICTED_MIN_MS));
+            this.#restricted('timelock', Math.max(ends, Date.now() + RESTRICTED_MIN_MS));
         }
         if (qr) {
             if (this.qrCount >= QR_MAX_CODES) {

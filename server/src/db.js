@@ -827,10 +827,11 @@ export class Database {
             `SELECT COUNT(DISTINCT phone) AS n FROM safety_events e
              WHERE e.tenant_id = ?${on('e', 'at')} AND kind = 'report' AND at >= ?`,
         ).get(this.tenantId, ...at, iso(lastReport - 72 * 3_600_000)).n : 0;
-        // A restriction's end is its message_id (written by app.js from the transport's 'restricted').
+        // A restriction's end is its message_id (written by app.js from the transport's 'restricted'). Rows coded 463
+        // were one contact's missing privacy token, never the number's restriction (transports/baileys.js).
         const restrict = this.db.prepare(
             `SELECT message_id AS until, detail FROM safety_events e
-             WHERE e.tenant_id = ?${on('e', 'at')} AND kind = 'restrict' AND message_id > ? ORDER BY message_id DESC LIMIT 1`,
+             WHERE e.tenant_id = ?${on('e', 'at')} AND kind = 'restrict' AND detail <> '463' AND message_id > ? ORDER BY message_id DESC LIMIT 1`,
         ).get(this.tenantId, ...at, now.toISOString());
         // Enforced delivery / stuck / unstable brakes still running (CampaignManager.recordBrake): code in phone,
         // end in message_id. Shadow rows (kind 'shadow') are never read here.
@@ -995,11 +996,11 @@ export class Database {
             .get(this.tenantId, ...(this.channelId != null ? [this.channelId, numberSince(this)] : []), String(phone)));
     }
 
-    /** When WhatsApp's restriction of this number (463 / 475, a 'restrict' event) ends, or null when none runs. */
+    /** When WhatsApp's restriction of this number (475 / reach-out timelock, a 'restrict' event) ends, or null. */
     restrictedUntil(now = new Date()) {
         const scope = this.channelId != null ? ' AND channel_id = ? AND at >= ?' : '';
         return this.db.prepare(
-            `SELECT MAX(message_id) AS until FROM safety_events WHERE tenant_id = ?${scope} AND kind = 'restrict' AND message_id > ?`)
+            `SELECT MAX(message_id) AS until FROM safety_events WHERE tenant_id = ?${scope} AND kind = 'restrict' AND detail <> '463' AND message_id > ?`)
             .get(this.tenantId, ...(this.channelId != null ? [this.channelId, numberSince(this)] : []), now.toISOString()).until ?? null;
     }
 
