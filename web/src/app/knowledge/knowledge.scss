@@ -17,7 +17,7 @@
 
 :host { display: block; }
 
-.kb { display: grid; gap: var(--space-xl); max-width: 1100px; margin: 0 auto; }
+.kb { display: grid; gap: var(--space-xl); }
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 

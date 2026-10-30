@@ -12,9 +12,6 @@
 :host {
   display: grid;
   gap: var(--space-xl);
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: var(--space-xl) var(--space-lg);
   --c-queued: color-mix(in srgb, var(--text-muted) 45%, var(--surface-sunken));
 }
 
@@ -61,7 +58,7 @@
 .section-h { margin: var(--space-sm) 0 calc(var(--space-sm) * -1); font-size: 13px; font-weight: 500; color: var(--text-muted); }
 
 /* KPI tiles: the Kardlyz balance card — label, big number, footnote. */
-.kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: var(--space-lg); perspective: 1200px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-lg); perspective: 1200px; }
 .kpi {
   position: relative; overflow: hidden; display: grid; align-content: start; gap: 4px; padding: 20px var(--space-xl);
   min-height: 140px; animation: s-rise 520ms var(--ease) backwards; /* not `both`: a held end frame would override the hover translate */ animation-delay: calc(var(--i, 0) * 50ms);
@@ -175,7 +172,6 @@
 }
 
 @media (max-width: 760px) {
-  :host { padding: var(--space-lg); }
   .charts { grid-template-columns: 1fr; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); }
   .panel { padding: 20px; }

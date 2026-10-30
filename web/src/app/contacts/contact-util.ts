@@ -44,6 +44,18 @@ export function hue(seed: string): number {
 
 export const displayPhone = (phone: string) => (/^\d+$/.test(phone) ? `+${phone}` : phone);
 
+/** ITU calling codes are prefix-free: 1 and 7 are one digit, these are two, every other code is three. */
+const TWO_DIGIT_CODES = new Set(
+  '20 27 30 31 32 33 34 36 39 40 41 43 44 45 46 47 48 49 51 52 53 54 55 56 57 58 60 61 62 63 64 65 66 81 82 84 86 90 91 92 93 94 95 98'.split(' '),
+);
+
+/** Digits as "+91 9773444404": the country code, a space, then the national number. */
+export const spacedPhone = (phone: string) => {
+  if (!/^\d{8,15}$/.test(phone)) return displayPhone(phone);
+  const cc = /^[17]/.test(phone) ? 1 : TWO_DIGIT_CODES.has(phone.slice(0, 2)) ? 2 : 3;
+  return `+${phone.slice(0, cc)} ${phone.slice(cc)}`;
+};
+
 export function splitTags(value: string): string[] {
   return [
     ...new Set(

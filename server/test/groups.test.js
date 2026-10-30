@@ -38,7 +38,7 @@ const GROUPS = {
     },
     'g2@g.us': {
         id: 'g2@g.us', subject: 'Cricket, "Sunday"', size: 1, isCommunity: false,
-        participants: [{ id: pn('919800000003'), admin: null }],
+        participants: [{ id: pn('919800000003'), notify: 'Bowler', admin: null }], // a profile name, not saved
     },
 };
 
@@ -303,6 +303,8 @@ describe('groups routes', () => {
         assert.deepEqual(classmate, {
             phone: '919800000004', name: 'Classmate', saved: false, groups: ['Class 10A'],
         });
+        assert.equal(res.body.contacts.find((c) => c.phone === '919800000003').name, 'Bowler',
+            'an unsaved member keeps the profile name the group shows');
         const community = res.body.groups.find((g) => g.id === 'c1@g.us');
         assert.equal(community.isCommunity, true);
         assert.equal(community.communityName, '');
@@ -332,6 +334,13 @@ describe('groups routes', () => {
         const after = (await call('GET', '/api/admin/number-collections', null, sup)).body.collections;
         assert.equal(after.length, 1);
         assert.deepEqual(after[0].numbers, ['919800000001']);
+        assert.deepEqual(after[0].contacts, [{ phone: '919800000001', name: '' }]);
+
+        // Names travel with the numbers.
+        await call('POST', '/api/admin/tenants/1/number-collections',
+            { contacts: [{ phone: '919800000009', name: ' Meera ' }, { phone: '91 98000 00009', name: 'dup' }] }, sup);
+        const named = (await call('GET', '/api/admin/number-collections', null, sup)).body.collections[0];
+        assert.deepEqual(named.contacts, [{ phone: '919800000009', name: 'Meera' }]);
     });
 });
 

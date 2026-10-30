@@ -12,7 +12,7 @@
 
 :host { display: block; }
 
-.rec { display: grid; gap: var(--space-xl); max-width: 1240px; margin: 0 auto; }
+.rec { display: grid; gap: var(--space-xl); }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .muted { color: var(--text-muted); }
 .s-head p strong { font-weight: 500; color: var(--text-strong); }

@@ -184,6 +184,7 @@
 /* List ------------------------------------------------------------------ */
 .list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr); // the chip row scrolls instead of widening the card past the screen
   gap: var(--space-md);
   padding: 18px;
 }

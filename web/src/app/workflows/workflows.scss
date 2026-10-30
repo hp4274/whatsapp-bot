@@ -16,7 +16,7 @@
 
 :host { display: block; }
 
-.wf { display: grid; gap: var(--space-xl); max-width: 1180px; margin: 0 auto; }
+.wf { display: grid; gap: var(--space-xl); }
 
 /* Tabs: the kit's segmented track, driven by aria-selected because these are real tabs. */
 .s-seg button {

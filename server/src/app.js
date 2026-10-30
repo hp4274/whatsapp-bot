@@ -2820,6 +2820,8 @@ export function createApp({
         for (const g of groups ?? []) {
             for (const m of g.members ?? []) {
                 const row = numbers.get(m.phone) ?? { phone: m.phone, name: '', saved: false, groups: [] };
+                // Not in the address book: fall back to the profile name / username the group shows.
+                if (!row.name && m.name) row.name = m.name;
                 if (g.name && !row.groups.includes(g.name)) row.groups.push(g.name);
                 numbers.set(m.phone, row);
             }
@@ -2880,9 +2882,12 @@ export function createApp({
     });
 
     /** One saved read of a business's WhatsApp numbers; saving again replaces it. */
-    const numberCollection = (tenantId, account, numbers, createdAt) => {
+    const numberCollection = (tenantId, account, contacts, createdAt) => {
         const tenant = tenancy.getTenant(tenantId);
-        return { tenantId, tenantName: tenant?.name ?? '', account, count: numbers.length, numbers, createdAt };
+        return {
+            tenantId, tenantName: tenant?.name ?? '', account, count: contacts.length,
+            numbers: contacts.map((c) => c.phone), contacts, createdAt,
+        };
     };
     const NUMBER_COLLECTION_MAX = 50000;
 
@@ -2891,9 +2896,16 @@ export function createApp({
         if (!tenant || tenant.status === 'archived') {
             return res.status(404).json({ errors: ['tenant not found'] });
         }
-        const numbers = [...new Set((Array.isArray(req.body?.numbers) ? req.body.numbers : [])
-            .map((n) => String(n ?? '').replace(/\D/g, ''))
-            .filter((n) => n.length >= 7 && n.length <= 15))];
+        // `contacts` is [{ phone, name }]; plain `numbers` (digits only) still saves, with no names.
+        const entries = Array.isArray(req.body?.contacts) ? req.body.contacts
+            : Array.isArray(req.body?.numbers) ? req.body.numbers : [];
+        const byPhone = new Map();
+        for (const entry of entries) {
+            const phone = String((typeof entry === 'string' ? entry : entry?.phone) ?? '').replace(/\D/g, '');
+            if (phone.length < 7 || phone.length > 15 || byPhone.has(phone)) continue;
+            byPhone.set(phone, { phone, name: String(entry?.name ?? '').trim().slice(0, 100) });
+        }
+        const numbers = [...byPhone.values()];
         if (!numbers.length) return res.status(400).json({ errors: ['There are no numbers to save.'] });
         if (numbers.length > NUMBER_COLLECTION_MAX) {
             return res.status(400).json({ errors: [`Save at most ${NUMBER_COLLECTION_MAX} numbers at a time.`] });
@@ -2915,13 +2927,14 @@ export function createApp({
             SELECT c.tenant_id AS tenantId, c.account, c.numbers, c.created_at AS createdAt, t.name AS tenantName
             FROM number_collections c LEFT JOIN tenants t ON t.id = c.tenant_id
             ORDER BY lower(t.name), c.tenant_id`).all().map((row) => {
-            let numbers = [];
+            let contacts = [];
             try {
-                numbers = JSON.parse(row.numbers);
+                // Rows saved before names were kept hold plain digit strings.
+                contacts = JSON.parse(row.numbers).map((c) => (typeof c === 'string' ? { phone: c, name: '' } : c));
             } catch {
                 // a damaged row still lists, with no numbers
             }
-            return { ...row, numbers, count: numbers.length };
+            return { ...row, numbers: contacts.map((c) => c.phone), contacts, count: contacts.length };
         }),
     }));
 

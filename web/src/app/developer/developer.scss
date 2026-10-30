@@ -14,8 +14,6 @@
 :host { display: block; }
 
 .dev {
-  max-width: 880px;
-  margin: 0 auto;
   display: grid;
   gap: var(--space-xl);
   color: var(--text-color);
