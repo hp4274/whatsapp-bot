@@ -54,6 +54,18 @@ export function ackStatus(status) {
     return ACK_STATUS[String(status)] ?? null; // 1 (pending) reports nothing
 }
 
+/** Why WhatsApp rejected a message it had accepted, from the code on the failed ack (Baileys handleBadAck). */
+const ACK_ERRORS = {
+    463: 'WhatsApp refused this new chat (error 463): the number is limited to people who have messaged it before.',
+    475: 'WhatsApp has paused new chats from this number for a while (error 475). Send later, more slowly.',
+    479: 'WhatsApp rejected the message (error 479): the recipient\'s device session was out of date.',
+};
+
+export function ackError(code) {
+    if (!code) return 'Baileys reported a send failure';
+    return ACK_ERRORS[code] ?? `WhatsApp rejected the message (error ${code}).`;
+}
+
 /** Statuses kept in memory for getStatus(); older ones are forgotten so the map cannot grow without end. */
 const RECEIPTS_MAX = 20_000;
 const LOGGED_OUT = 401;
@@ -266,7 +278,7 @@ export class BaileysTransport extends Transport {
                 const code = String(update?.messageStubParameters?.[0] ?? '');
                 if (RESTRICTED_CODES.has(code)) this.#restricted(code, Date.now() + RESTRICTED_MIN_MS);
                 if (update?.status == null) continue;
-                this.#emitReceipt(key?.id, ackStatus(update.status));
+                this.#emitReceipt(key?.id, ackStatus(update.status), code);
             }
         });
         sock.ev.on('message-receipt.update', (updates) => {
@@ -443,8 +455,9 @@ export class BaileysTransport extends Transport {
         this.receipts.set(providerId, status);
     }
 
-    #emitReceipt(providerId, status) {
+    #emitReceipt(providerId, status, code = '') {
         if (!providerId || !status) return;
+        if (status === Status.FAILED) console.warn(`[baileys] WhatsApp rejected message ${providerId}${code ? ` (error ${code})` : ''}`);
         // A late "delivered" must not hide a "read" the memory already holds.
         const known = this.receipts.get(providerId);
         if (!known || (STATUS_RANK[status] ?? 0) > (STATUS_RANK[known] ?? 0) || status === Status.FAILED) {
@@ -453,7 +466,7 @@ export class BaileysTransport extends Transport {
         this.events.emit('receipt', {
             providerId,
             status,
-            error: status === Status.FAILED ? 'Baileys reported a send failure' : null,
+            error: status === Status.FAILED ? ackError(code) : null,
         });
     }
 

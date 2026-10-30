@@ -708,12 +708,17 @@ export class CampaignManager extends EventEmitter {
             if (!isDaytimeFor(item.recipient, new Date(), { from, to })) return false;
         }
         if (!this.#onLevels() || !(held || item.messageType === 'transactional')) return true;
-        const { budgets } = this.quota.allowance();
+        const { budgets, brakes } = this.quota.allowance();
         // Bulk with nothing left today goes on to #quotaBlocked, which pauses the run and says until when.
         if (held && budgets.bulk.left <= 0) return true;
         if (held && budgets.hour.left <= 0) return false;
         // Lazily, here: restored, recovered and retried items are covered too.
         // shortcut: `cold` is read once; someone who writes in after that still waits for a new chat. Re-read it if that matters.
+        // Restricted (463): WhatsApp refuses anyone who never wrote to this number, even people we messaged
+        // before, so they wait for the restriction to lift instead of failing one after another.
+        if (brakes?.some((b) => b.code === 'restricted')) {
+            return String(item.recipient).includes('@') || (item.wrote ??= Boolean(this.db.wroteIn?.(digits(item.recipient))));
+        }
         return budgets.newChats.left > 0 || !(item.cold ??= this.#cold(item));
     }
 

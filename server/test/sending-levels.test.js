@@ -269,6 +269,30 @@ describe('brakes', () => {
 });
 
 describe('new chats', () => {
+    it('while WhatsApp restricts the number (463), only people who wrote in are sent to; the rest wait', async () => {
+        const db = freshDb();
+        history(db, { days: 3, perDay: 3 });
+        const wrote = '919900000011';
+        const messaged = '919900000012'; // we sent to them before, they never replied: WhatsApp refuses them too
+        const stranger = '919900000013';
+        db.insertInbound({ sender: wrote, body: 'hi', receivedAt: ago(DAY) });
+        sent(db, 'earlier', messaged, ago(2 * DAY)); // outside the 24h per-recipient cap
+        db.addSafetyEvent({ kind: 'restrict', phone: '15550000001', messageId: new Date(Date.now() + 20 * HOUR).toISOString(), detail: '463' });
+        const transport = new FakeLive();
+        const manager = new CampaignManager(db, transport, qr());
+        try {
+            manager.enqueueContacts(people([wrote, messaged, stranger]), 'Hi {name}', { campaignId: 'restricted' });
+            manager.start();
+            assert.ok(await until(() => transport.sent.length === 1));
+            await sleep(300);
+            assert.deepEqual(transport.sent.map((s) => s.to), [wrote]);
+            assert.equal(manager.queue.pending, 2, 'held, not failed');
+        } finally {
+            await manager.shutdown();
+            db.close();
+        }
+    });
+
     it('hold strangers past the day\'s budget while people who know the number keep flowing', async () => {
         const db = freshDb();
         history(db, { days: 3, perDay: 3 }); // level 2: 5 new chats a day
