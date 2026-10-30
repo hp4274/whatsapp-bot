@@ -925,7 +925,9 @@ export class BaileysTransport extends Transport {
     /**
      * WhatsApp's swipe carousel: one interactive message, each card an uploaded image, its text and its buttons
      * (quick replies or one link). A tap comes back as interactiveResponseMessage, which the inbound parser reads.
-     * shortcut: some phones may not display it from a QR number; sending.carouselImages switches back to images.
+     * iOS drops the native carousel when it is wrapped in viewOnceMessage or a card lacks messageParamsJson;
+     * send it raw, label each card by index, and mark the carousel type. sending.carouselImages switches back
+     * to separate images per card for tenants that want the guaranteed-everywhere fallback.
      */
     async #deliverCarouselNative(jid, message, interactive) {
         const { generateWAMessageFromContent, prepareWAMessageMedia } = await import('@whiskeysockets/baileys');
@@ -938,16 +940,11 @@ export class BaileysTransport extends Transport {
             const buttons = kind === 'url'
                 ? (card.cta ?? []).map((b) => ({ name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: b.title, url: b.value, merchant_url: b.value }) }))
                 : (card.buttons ?? []).map((b) => ({ name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: b.title, id: b.id }) }));
-            // Phones drop a native-flow message carrying an empty text field, so an empty body is left out.
-            built.push({ header: { hasMediaAttachment: true, imageMessage }, ...(card.text ? { body: { text: card.text } } : {}), nativeFlowMessage: { buttons } });
+            // iOS drops a card whose nativeFlowMessage lacks messageParamsJson; label each card by index.
+            built.push({ header: { hasMediaAttachment: true, imageMessage }, ...(card.text ? { body: { text: card.text } } : {}), nativeFlowMessage: { buttons, messageParamsJson: JSON.stringify({ card_index: String(built.length) }) } });
         }
         const content = {
-            viewOnceMessage: {
-                message: {
-                    messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
-                    interactiveMessage: { ...(message ? { body: { text: String(message) } } : {}), carouselMessage: { cards: built, messageVersion: 1 } },
-                },
-            },
+            interactiveMessage: { ...(message ? { body: { text: String(message) } } : {}), carouselMessage: { cards: built, messageVersion: 1, carouselCardType: 'UNKNOWN' } }
         };
         const msg = generateWAMessageFromContent(jid, content, { userJid: this.sock.user?.id });
         // Phones drop a native-flow message whose stanza lacks this biz node; Web renders it either way.

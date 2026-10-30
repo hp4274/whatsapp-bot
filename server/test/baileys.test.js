@@ -208,7 +208,7 @@ it('a native carousel is one interactive message: each card an uploaded image, i
     const result = await transport.sendMessage('919800000006', 'Our picks', { interactive, nativeCarousel: true });
     assert.equal(sock().sends.length, 0, 'nothing goes as separate messages');
     assert.equal(sock().relays.length, 1);
-    const msg = sock().relays[0].message.viewOnceMessage.message.interactiveMessage;
+    const msg = sock().relays[0].message.interactiveMessage;
     assert.equal(msg.body.text, 'Our picks');
     const cards = msg.carouselMessage.cards;
     assert.equal(cards.length, 2);
