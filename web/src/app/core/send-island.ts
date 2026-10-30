@@ -2,11 +2,13 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
   computed,
   effect,
   inject,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
@@ -41,6 +43,7 @@ const RECENT_COUNT = 5;
   template: `
     @if (visible()) {
       <aside
+        #island
         class="island"
         [class.done]="phase() === 'done'"
         [class.bad]="phase() === 'stopped'"
@@ -483,7 +486,26 @@ export class SendIsland {
   /** A finished run the user closed; a new run (more total, or less processed) reopens it. */
   private readonly dismissed = signal<{ total: number } | null>(null);
 
+  private readonly islandRef = viewChild<ElementRef<HTMLElement>>('island');
+
   constructor() {
+    // The card floats over the page's bottom-right corner: while it shows, the page keeps that much room at its
+    // end (app.scss .page reads --island-space), so the last rows and buttons can always scroll clear of it.
+    effect((onCleanup) => {
+      const el = this.islandRef()?.nativeElement;
+      const root = document.documentElement.style;
+      if (!el) {
+        root.removeProperty('--island-space');
+        return;
+      }
+      const observer = new ResizeObserver(() => root.setProperty('--island-space', `${el.offsetHeight + 40}px`));
+      observer.observe(el);
+      onCleanup(() => {
+        observer.disconnect();
+        root.removeProperty('--island-space');
+      });
+    });
+
     // A new run brings the card back even if the last one was closed.
     effect(() => {
       if (this.phase() === 'sending' || this.phase() === 'paused') {

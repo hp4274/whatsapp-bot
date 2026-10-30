@@ -16,7 +16,8 @@ import { ContactsApi, ImportPreview, ImportResult } from '../core/api';
 import { splitTags } from './contact-util';
 
 type Step = 'upload' | 'map' | 'tags' | 'done';
-type Kind = 'phone' | 'name' | 'email' | 'tags' | 'custom' | 'ignore';
+/** `consent`: a column whose answer (anything but a no) opts the row in, its text kept as proof. */
+type Kind = 'phone' | 'name' | 'email' | 'tags' | 'consent' | 'custom' | 'ignore';
 
 /**
  * What the list check says per problem, worst first. Numbers are only flagged, never looked up on
@@ -199,8 +200,8 @@ export class ImportWizard {
     this.columns.set(
       this.columns().map((c, i) => {
         if (i === index) return { kind, key: kind === 'custom' ? c.key || slug(header) : c.key };
-        // Phone, name and email are one column each: picking one frees the other.
-        if (c.kind === kind && ['phone', 'name', 'email'].includes(kind))
+        // Phone, name, email and consent are one column each: picking one frees the other.
+        if (c.kind === kind && ['phone', 'name', 'email', 'consent'].includes(kind))
           return { kind: 'custom', key: c.key || slug(this.preview()?.headers[i] ?? '') };
         return c;
       }),
@@ -324,7 +325,7 @@ export class ImportWizard {
 function toColumn(target: string): Column {
   if (target.startsWith('custom:')) return { kind: 'custom', key: target.slice(7) };
   return {
-    kind: (['phone', 'name', 'email', 'tags', 'ignore'].includes(target)
+    kind: (['phone', 'name', 'email', 'tags', 'consent', 'ignore'].includes(target)
       ? target
       : 'ignore') as Kind,
     key: '',

@@ -10,13 +10,24 @@ import {
   viewChild,
 } from '@angular/core';
 
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Router } from '@angular/router';
+
 import { TenancyApi } from '../core/api';
-import { AuditEntry, AuditFilter, AuditVerb, OpsApi } from './ops-api';
+import { AdminFeed } from './admin-feed';
+import type { AuditActor, AuditEntry, AuditFilter, AuditVerb } from './ops-api';
+import { OpsApi } from './ops-api';
 
 /** Entries per keyset page. */
 const PAGE = 50;
+/** Most entries one live pull prepends; a busier gap than this reloads the list instead of leaving a hole. */
+const LIVE_MAX = 200;
 
-/** Audit log search: filters, keyset pages loaded as you scroll, expandable detail, CSV export. */
+/**
+ * Audit log search: each entry is a plain sentence with a severity dot, opening onto its technical record (action,
+ * target, IP, request id, raw detail). Keyset pages load as you scroll; new entries arrive live at the top through
+ * the admin feed without disturbing scroll position or what is expanded.
+ */
 @Component({
   selector: 'app-ops-audit',
   templateUrl: './ops-audit.html',
@@ -26,6 +37,8 @@ const PAGE = 50;
 export class OpsAudit {
   private readonly api = inject(OpsApi);
   private readonly tenancy = inject(TenancyApi);
+  private readonly feed = inject(AdminFeed);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly more = viewChild<ElementRef<HTMLElement>>('more');
 
@@ -38,25 +51,33 @@ export class OpsAudit {
   protected readonly exporting = signal(false);
   protected readonly error = signal('');
   protected readonly open = signal<ReadonlySet<number>>(new Set());
+  /** Entries that arrived live, briefly highlighted. */
+  protected readonly fresh = signal<ReadonlySet<number>>(new Set());
   protected readonly active = computed(() => Object.values(this.filter()).some(Boolean));
-  /** Change-type filter; the empty key means no filter. */
+  /** Change-type filter; the empty key means no filter. "Other" is sign-ins, alerts and the system's own events. */
   protected readonly verbs: { k: '' | AuditVerb; l: string }[] = [
     { k: '', l: 'All' },
     { k: 'create', l: 'Create' },
     { k: 'change', l: 'Change' },
     { k: 'remove', l: 'Remove' },
+    { k: 'other', l: 'Other' },
   ];
 
   /** Bumped per request so a slow older page cannot overwrite a newer filter. */
   private seq = 0;
   private typing?: ReturnType<typeof setTimeout>;
+  private freshTimer?: ReturnType<typeof setTimeout>;
 
   constructor() {
-    this.tenancy.tenants().subscribe({
-      next: ({ tenants }) => this.tenants.set(tenants.map((t) => ({ id: t.id, name: t.name }))),
-      error: () => undefined, // names fall back to "Tenant N"
-    });
+    this.tenancy
+      .tenants()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: ({ tenants }) => this.tenants.set(tenants.map((t) => ({ id: t.id, name: t.name }))),
+        error: () => undefined, // names fall back to the entry's own tenantName
+      });
     this.reload();
+    this.feed.watch(['audit'], () => this.pullNew());
 
     // Infinite scroll: load the next page when the sentinel comes into view.
     const observer = new IntersectionObserver(
@@ -74,6 +95,7 @@ export class OpsAudit {
     this.destroyRef.onDestroy(() => {
       observer.disconnect();
       clearTimeout(this.typing);
+      clearTimeout(this.freshTimer);
     });
   }
 
@@ -82,11 +104,37 @@ export class OpsAudit {
     this.fetch(null);
   }
 
+  /**
+   * Prepend what was written since the newest shown entry. The list, its scroll position and the open rows stay
+   * as they are; only a gap too large for one pull (or an empty list) falls back to a reload.
+   */
+  private pullNew() {
+    const newest = this.logs()[0]?.id;
+    if (newest === undefined || this.loading()) return this.reload();
+    const seq = this.seq;
+    this.api
+      .auditSince(this.filter(), newest, LIVE_MAX)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (page) => {
+          if (seq !== this.seq || !page.logs.length) return;
+          if (page.nextBefore) return this.reload();
+          const known = new Set(this.logs().map((l) => l.id));
+          const added = page.logs.filter((l) => !known.has(l.id));
+          this.logs.update((logs) => [...added, ...logs]);
+          this.fresh.set(new Set(added.map((l) => l.id)));
+          clearTimeout(this.freshTimer);
+          this.freshTimer = setTimeout(() => this.fresh.set(new Set()), 2400);
+        },
+        error: () => undefined, // the next change or a manual refresh catches up
+      });
+  }
+
   private fetch(before: number | null) {
     const seq = ++this.seq; // a newer filter wins over a slow older page
     this.loading.set(true);
     this.error.set('');
-    this.api.audit(this.filter(), before, PAGE).subscribe({
+    this.api.audit(this.filter(), before, PAGE).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (page) => {
         if (seq !== this.seq) return;
         this.logs.set(before ? [...this.logs(), ...page.logs] : page.logs);
@@ -150,9 +198,25 @@ export class OpsAudit {
     });
   }
 
-  protected tenantName(id: number | null): string {
-    if (id === null) return 'Platform';
-    return this.tenants().find((t) => t.id === id)?.name ?? `Tenant ${id}`;
+  protected tenantName(log: AuditEntry): string {
+    if (log.tenantId === null) return 'Platform';
+    return log.tenantName ?? this.tenants().find((t) => t.id === log.tenantId)?.name ?? `Business ${log.tenantId}`;
+  }
+
+  /** "Asha (asha@x.com)", "Super admin", or "System" for what nobody pressed. */
+  protected actorLabel(actor: AuditActor): string {
+    if (actor === 'System') return 'System';
+    if (actor.role === 'super_admin') return actor.name ? `${actor.name} (super admin)` : 'Super admin';
+    return actor.name || actor.email;
+  }
+
+  protected actorEmail(actor: AuditActor): string {
+    return actor === 'System' ? '' : actor.email;
+  }
+
+  /** Open the Backend logs view on just this request's lines. */
+  protected showLogs(requestId: string) {
+    void this.router.navigate(['/admin/audit-logs'], { queryParams: { view: 'logs', requestId } });
   }
 
   /** Detail as pretty JSON when it is JSON, otherwise as written. */

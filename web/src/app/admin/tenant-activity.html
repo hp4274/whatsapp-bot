@@ -5,13 +5,17 @@
       >See all <i class="ti ti-arrow-right" aria-hidden="true"></i
     ></a>
   </div>
-  <ul class="feed">
+  <ul class="feed" aria-live="polite">
     @for (log of recent(); track log.id) {
       <li>
-        <span class="dot" aria-hidden="true"></span>
-        <code>{{ log.action }}</code>
-        <span class="muted">{{ log.detail || log.target }}</span>
-        <time class="muted" [title]="log.createdAt">{{ ago(log.createdAt) }}</time>
+        <span [class]="'dot ' + log.severity" [title]="log.severity" aria-hidden="true"></span>
+        <span class="what">
+          <strong [title]="log.summary">{{ log.summary }}</strong>
+          <span class="muted">{{ log.tenantName ?? 'Platform' }} · {{ actor(log.actor) }}</span>
+        </span>
+        <time class="muted" [attr.datetime]="log.createdAt" [title]="log.createdAt">{{
+          ago(log.createdAt)
+        }}</time>
       </li>
     } @empty {
       <li class="muted">Nothing recorded yet.</li>

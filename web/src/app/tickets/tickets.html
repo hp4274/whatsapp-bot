@@ -115,7 +115,7 @@
           (ngModelChange)="setDraft({ priority: $event })"
         >
           @for (p of priorities; track p) {
-            <option [value]="p">{{ p }} &middot; {{ slaHours[p] }}h SLA</option>
+            <option [value]="p">{{ p | titlecase }} &middot; {{ slaHours[p] }}h SLA</option>
           }
         </select>
       </div>
@@ -192,7 +192,7 @@
   >
     <option value="">All priorities</option>
     @for (p of priorities; track p) {
-      <option [value]="p">{{ p }}</option>
+      <option [value]="p">{{ p | titlecase }}</option>
     }
   </select>
   <select
@@ -375,7 +375,7 @@
           [disabled]="saving()"
         >
           @for (p of priorities; track p) {
-            <option [value]="p">{{ p }}</option>
+            <option [value]="p">{{ p | titlecase }}</option>
           }
         </select>
       </div>

@@ -11,8 +11,10 @@
 @include s.skeleton;
 @include s.banner;
 @include s.buttons;
+@include s.switch;
 
 :host {
+  @include s.fit-grid;
   display: grid;
   gap: var(--space-lg);
   container-type: inline-size;
@@ -70,7 +72,6 @@
   font-size: 13.5px;
   color: var(--text-muted);
 
-  .s-pill { text-transform: none; }
   .s-pill .ti { font-size: 14px; }
 }
 
@@ -107,9 +108,9 @@
   padding: var(--space-md) 0;
   border-top: 1px solid var(--border-color);
 
-  &.wide { grid-template-columns: 1fr; }
+  &.wide { grid-template-columns: minmax(0, 1fr); }
 
-  // A thin orange tick marks rows with unsaved edits.
+  // A thin green tick marks rows with unsaved edits.
   &.dirty::before {
     content: '';
     position: absolute;
@@ -181,32 +182,6 @@
   font-size: 12px;
   font-weight: 500;
   color: var(--accent);
-}
-
-// Kardlyz orange switch.
-.switch {
-  position: relative;
-  width: 40px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: var(--border-hover);
-  transition: background var(--base) var(--ease);
-
-  .thumb {
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: #fff;
-    box-shadow: var(--shadow-sm);
-    transition: transform var(--base) var(--ease);
-  }
-
-  &.on { background: var(--primary); .thumb { transform: translateX(18px); } }
 }
 
 // Sticky to the bottom of whatever scrolls (the page, or the tenant drawer).

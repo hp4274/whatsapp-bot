@@ -144,6 +144,58 @@ describe('message quota', () => {
         assert.equal(transport.sent.length, 1);
         assert.match(events.find((e) => e.type === 'policyHold').reason, /monthly message cap of 2/);
     });
+
+    it('re-checks a campaign row after the gap, so it cannot go one over', async () => {
+        const { db, manager, transport, events } = rig({ 'billing.messagesPerMonth': 1 });
+        manager.enqueueContacts(people(1), 'Hi {name}');
+        // Another number of the business sends while this row waits out its gap (after the first check).
+        const real = manager.bulkPolicy;
+        const lefts = [];
+        manager.bulkPolicy = () => {
+            const policy = real();
+            return { ...policy, capRemaining: () => {
+                const cap = policy.capRemaining();
+                lefts.push(cap.left);
+                if (lefts.length === 1) db.forChannel(9).insert({ messageId: 'gap', recipient: '3', message: 'x', status: 'SENT' });
+                return cap;
+            } };
+        };
+        manager.start();
+        assert.ok(await until(() => events.some((e) => e.type === 'policyHold')));
+        await manager.shutdown();
+        assert.deepEqual(lefts.slice(0, 2), [1, 0], 'room before the gap, none after it');
+        assert.equal(transport.sent.length, 0, 'held at the cap, not sent over it');
+    });
+
+    it('says a quick send refused at the quota was not sent', () => {
+        const { db, manager } = rig({ 'billing.messagesPerMonth': 1 });
+        db.insert({ messageId: 'used', recipient: '919810000001', message: 'x', status: 'SENT' });
+        const text = manager.capBlock(true);
+        assert.match(text, /^Not sent: .*monthly message cap of 1/);
+        assert.doesNotMatch(text, /resumes/);
+    });
+
+    it('an ended subscription sends nothing, with the reason', async () => {
+        const { db, manager, transport, events } = rig();
+        const channel = { id: 1, status: 'active', capabilities: ['transactional_messages', 'auto_replies', 'workflow_messages'] };
+        const service = new MessageService(db, manager, channel, {
+            guard: (job) => manager.sendBlock?.(job.messageType) ?? manager.capBlock?.() ?? null,
+        });
+        manager.enqueueContacts(people(2), 'Hi {name}'); // queued while the subscription was live
+        db.db.prepare("UPDATE subscriptions SET status = 'cancelled', cancelled_at = ? WHERE tenant_id = 1")
+            .run(new Date(Date.now() - 30 * 86_400_000).toISOString());
+        // Auto-replies and workflow steps go through the same service guard.
+        for (const messageType of ['transactional', 'auto_reply', 'workflow']) {
+            assert.throws(() => service.send({ messageType, recipient: '919810000002', text: 'hi', idempotencyKey: messageType }),
+                (err) => err.reason === 'tenant_blocked' && /subscription has ended/.test(err.message));
+        }
+        assert.throws(() => manager.enqueueContacts(people(1), 'Hi {name}'), /subscription has ended/);
+        manager.start();
+        assert.ok(await until(() => events.some((e) => e.type === 'policyHold')));
+        await manager.shutdown();
+        assert.equal(transport.sent.length, 0);
+        assert.match(events.find((e) => e.type === 'policyHold').reason, /subscription has ended/);
+    });
 });
 
 describe('API and storage quotas over HTTP', () => {

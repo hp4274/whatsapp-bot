@@ -292,19 +292,7 @@
           </div>
           @if (audit.issues.length) {
             <p class="muted skipped">
-              Skipped:
-              @if (audit.counts.invalid) {
-                {{ audit.counts.invalid }} invalid
-              }
-              @if (audit.counts.duplicate) {
-                - {{ audit.counts.duplicate }} duplicate
-              }
-              @if (audit.counts.optedOut) {
-                - {{ audit.counts.optedOut }} opted out
-              }
-              @if (audit.counts.recent) {
-                - {{ audit.counts.recent }} messaged recently
-              }
+              Skipped: {{ skippedText() }}
             </p>
           }
 

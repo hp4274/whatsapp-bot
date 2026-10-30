@@ -15,7 +15,7 @@ import { after, describe, it } from 'node:test';
 import { closeApp } from '../src/app.js';
 import { LEVELS, levelFor } from '../src/campaign/humanize.js';
 import { CampaignManager } from '../src/campaign/manager.js';
-import { DailyQuota, OPT_OUT_TEXT, dayStart } from '../src/campaign/safety.js';
+import { DEFAULT_SENDING, DailyQuota, OPT_OUT_TEXT, dayStart } from '../src/campaign/safety.js';
 import { DEFAULTS, TRANSPORT_BAILEYS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { Status } from '../src/protocol.js';
@@ -42,6 +42,9 @@ const qr = (extra = {}) => {
 };
 const codes = (allowance) => allowance.brakes.map((b) => b.code);
 const people = (phones) => phones.map((phone, i) => ({ name: `P${i}`, phone }));
+// The built-in levels 1-4 let every message of the day go to a new chat; this table keeps level 2 at 5 new chats
+// of its 35, so the new-chat budget is what holds.
+const fewNewChats = () => ({ ...DEFAULT_SENDING, levels: LEVELS.map((r) => (r.level === 2 ? { ...r, newChats: 5 } : r)) });
 
 class FakeLive {
     name = 'fake live';
@@ -187,9 +190,9 @@ describe('brakes', () => {
         const quota = new DailyQuota(db, qr());
         let a = quota.allowance();
         assert.ok(codes(a).includes('reply_rate'), '5 of 40 is under 15%');
-        assert.equal(a.budgets.bulk.limit, 5);
-        assert.equal(a.budgets.newChats.limit, 1);
-        assert.equal(a.budgets.hour.limit, 2);
+        assert.equal(a.budgets.bulk.limit, 10, 'half of level 1\'s 20 a day');
+        assert.equal(a.budgets.newChats.limit, 10, 'half of its 20 new chats');
+        assert.equal(a.budgets.hour.limit, 4, 'half of its 8 an hour');
 
         db.insertInbound({ sender: reached[5], body: 'thanks', receivedAt: ago(HOUR) });
         quota.invalidate();
@@ -313,12 +316,14 @@ describe('new chats', () => {
 
     it('hold strangers past the day\'s budget while people who know the number keep flowing', async () => {
         const db = freshDb();
-        history(db, { days: 3, perDay: 3 }); // level 2: 5 new chats a day
+        history(db, { days: 3, perDay: 3 }); // level 2: 5 new chats a day on fewNewChats
         const warm = ['919900000001', '919900000002'];
         for (const phone of warm) db.insertInbound({ sender: phone, body: 'hi', receivedAt: ago(DAY) });
         const strangers = Array.from({ length: 7 }, (_, i) => `91980000000${i}`);
         const transport = new FakeLive();
         const manager = new CampaignManager(db, transport, qr());
+        manager.quota.tables = fewNewChats;
+        manager.quota.invalidate();
         try {
             assert.equal(manager.quota.allowance().level.level, 2);
             manager.enqueueContacts(people([...warm, ...strangers]), 'Hi {name}', { campaignId: 'cold' });
@@ -346,7 +351,7 @@ describe('new chats', () => {
 
     it('looks up strangers one at a time, never people it knows, and a failed lookup spends a new chat', async () => {
         const db = freshDb();
-        history(db, { days: 3, perDay: 3 }); // 5 new chats
+        history(db, { days: 3, perDay: 3 }); // level 2: 5 new chats on fewNewChats
         const warm = '919900000009';
         db.insertInbound({ sender: warm, body: 'hi', receivedAt: ago(DAY) });
         const junk = Array.from({ length: 5 }, (_, i) => `91970000000${i}`);
@@ -355,6 +360,8 @@ describe('new chats', () => {
         transport.supportsRegistrationCheck = true;
         transport.unregistered = new Set(junk);
         const manager = new CampaignManager(db, transport, qr());
+        manager.quota.tables = fewNewChats;
+        manager.quota.invalidate();
         try {
             manager.enqueueContacts(people([warm, ...junk, ...real]), 'Hi {name}', { campaignId: 'lookups' });
             manager.start();
@@ -378,11 +385,11 @@ describe('pacing', () => {
         const db = freshDb();
         const warm = '919900000001';
         db.insertInbound({ sender: warm, body: 'hi', receivedAt: ago(DAY) });
-        for (let i = 0; i < 5; i += 1) sent(db, `hr${i}`, `91981000000${i}`, ago(30 * 60_000));
-        // Midnight ten minutes ago: those five are yesterday's, but still this hour's.
+        for (let i = 0; i < 8; i += 1) sent(db, `hr${i}`, `91981000000${i}`, ago(30 * 60_000)); // level 1's hour
+        // Midnight ten minutes ago: those eight are yesterday's, but still this hour's.
         const fakeMidnight = db.sendingLedger({ dayStart: new Date(Date.now() - 10 * 60_000) });
         assert.equal(fakeMidnight.bulkToday, 0);
-        assert.equal(fakeMidnight.lastHour, 5);
+        assert.equal(fakeMidnight.lastHour, 8);
 
         const transport = new FakeLive();
         const manager = new CampaignManager(db, transport, qr());
@@ -567,12 +574,12 @@ describe('scope and API', () => {
             app.locals.channelOps.setStart(state.channel.id, 1, { age: 0, usage: 0 });
             state.manager.quota.invalidate();
 
-            let { safety } = (await api('GET', '/api/safety?contacts=25')).body;
+            let { safety } = (await api('GET', '/api/safety?contacts=45')).body;
             assert.equal(safety.level.level, 1);
             assert.equal(safety.level.steps.length, LEVELS.length);
             assert.deepEqual(Object.keys(safety.budgets), ['bulk', 'newChats', 'hour']);
             assert.equal(safety.content.optOutLine, OPT_OUT_TEXT);
-            assert.equal(safety.estimateSeconds.days, 3, '10 today, 10 tomorrow, 5 the day after');
+            assert.equal(safety.estimateSeconds.days, 3, '20 today, 20 tomorrow, 5 the day after');
             assert.match(safety.estimateSeconds.finishesOn, /^\d{4}-\d{2}-\d{2}$/);
 
             // A number an earlier lookup found without WhatsApp is refused up front; no fresh lookup is made here.
@@ -598,7 +605,7 @@ describe('scope and API', () => {
             assert.deepEqual(plan.level, { level: 0, name: 'Resting' });
             assert.equal(plan.dailyLimit, LEVELS[1].dailyLimit, 'a resting number plans at level 1, not "no cap"');
             assert.equal(plan.newChatsPerDay, LEVELS[1].newChats);
-            assert.equal(plan.worstDays, 10);
+            assert.equal(plan.worstDays, 2, '30 strangers at 20 new chats a day');
 
             const cold = await api('POST', '/api/messages', { recipient: '919811110001', message: 'Hello' });
             assert.equal(cold.status, 429);

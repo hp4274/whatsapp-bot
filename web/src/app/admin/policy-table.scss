@@ -5,7 +5,7 @@
 @include s.keyframes;
 @include s.banner;
 
-:host { display: grid; gap: var(--space-sm); min-width: 0; }
+:host { @include s.fit-grid; display: grid; gap: var(--space-sm); min-width: 0; }
 
 .msg { flex: 1; min-width: 0; }
 

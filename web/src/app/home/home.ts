@@ -7,6 +7,7 @@ import { CampaignStatusPill } from '../campaigns/status-pill';
 import { type Campaign, CampaignsApi } from '../core/api';
 import { Auth } from '../core/auth';
 import { Store } from '../core/store';
+import { PlanUsagePanel } from './plan-usage';
 
 /** How many campaigns the home list shows before "View all" takes over. */
 const RECENT_LIMIT = 5;
@@ -27,14 +28,14 @@ function failedOf(c: Campaign): number {
  * The tenant's landing page: is the number live, what to do next, and how
  * the latest sends went.
  *
- * Deliberately small. Everything here comes from the live connection signal
- * and one campaigns call, so it costs no more than opening the campaign list;
+ * Deliberately small. Everything here comes from the live connection signal,
+ * one campaigns call and the plan's usage (the one quota view every plan has);
  * the deeper numbers stay on Analytics. Parts for services the tenant does not
  * have are left out rather than shown empty.
  */
 @Component({
   selector: 'app-home',
-  imports: [RouterLink, CampaignStatusPill],
+  imports: [RouterLink, CampaignStatusPill, PlanUsagePanel],
   templateUrl: './home.html',
   styleUrl: './home.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

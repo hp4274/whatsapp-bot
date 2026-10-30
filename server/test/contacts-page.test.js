@@ -376,6 +376,7 @@ describe('timeline', () => {
               status TEXT DEFAULT 'active', opt_in_status TEXT DEFAULT 'unknown', custom_fields TEXT DEFAULT '{}',
               tags TEXT DEFAULT '[]', source TEXT, created_at TEXT, updated_at TEXT, UNIQUE (tenant_id, phone));
             CREATE TABLE opt_outs (tenant_id INTEGER, phone TEXT, reason TEXT, opted_out_at TEXT);
+            CREATE TABLE opt_ins (id INTEGER PRIMARY KEY, tenant_id INTEGER, phone TEXT, source TEXT, consent_text TEXT, at TEXT);
             CREATE TABLE messages (tenant_id INTEGER, message_id TEXT, message_type TEXT, recipient TEXT,
               message TEXT, status TEXT, error TEXT, created_at TEXT);
             CREATE TABLE inbound_messages (id INTEGER PRIMARY KEY, tenant_id INTEGER, message_id TEXT, sender TEXT,

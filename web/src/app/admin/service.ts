@@ -11,9 +11,8 @@ import { ChannelsOps } from './channels-ops';
 import { TemplateReview } from './template-review';
 import { PolicyEditor } from './policy-editor';
 import { serviceMeta } from './service-meta';
+import { sentenceCase } from './text';
 
-/** Daily cap shown when a tenant has no override; mirrors the server's default policy. */
-const DEFAULT_DAILY_CAP = 250;
 const SCHOOL_SERVICE = 'school_whatsapp_bot';
 /** Placeholder rows shown while the tenant list loads. */
 const SKELETON_ROWS: readonly number[] = [0, 1, 2];
@@ -36,6 +35,8 @@ const STUDENT_EXAMPLE_ROW = '24,Aarav Mehta,10,A,Rakesh Mehta,Neha Mehta,9876512
 export class ServiceView {
   private readonly api = inject(TenancyApi);
   private readonly route = inject(ActivatedRoute);
+  /** Pill labels are sentence case: "past_due" reads "Past due". */
+  protected readonly sentence = sentenceCase;
   protected readonly key = toSignal(
     this.route.paramMap.pipe(map((params) => params.get('service') ?? '')),
     { initialValue: '' },
@@ -119,8 +120,14 @@ export class ServiceView {
     return tenant.services.includes(this.key());
   }
 
-  protected cap(tenant: Tenant): number {
-    return Number(tenant.safety?.['dailyLimit'] ?? DEFAULT_DAILY_CAP);
+  /**
+   * The admin's own per-number day for this business, or the plan's when there is none (0 or unset). A fixed
+   * number here read "250" for every business, a Business plan's 500 included.
+   */
+  protected cap(tenant: Tenant): string {
+    const own = Number(tenant.safety?.['dailyLimit'] ?? 0);
+    if (own > 0) return `${own} a day`;
+    return tenant.subscription ? `${tenant.subscription.planName} plan's day` : "the plan's day";
   }
 
   protected toggle(tenant: Tenant, enabled: boolean) {

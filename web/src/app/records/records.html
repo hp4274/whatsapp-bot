@@ -16,7 +16,7 @@
       </p>
     </div>
     <button type="button" class="btn primary" (click)="openNew()" [disabled]="!spec()">
-      <i class="ti ti-plus" aria-hidden="true"></i> New {{ label() }}
+      <i class="ti ti-plus" aria-hidden="true"></i> New {{ label().toLowerCase() }}
     </button>
   </header>
 
@@ -83,7 +83,7 @@
           <h2>No {{ pluralLabel().toLowerCase() }} yet</h2>
           <p>Create one here, or let a workflow add them as conversations happen.</p>
           <button type="button" class="btn primary" (click)="openNew()">
-            <i class="ti ti-plus" aria-hidden="true"></i> New {{ label() }}
+            <i class="ti ti-plus" aria-hidden="true"></i> New {{ label().toLowerCase() }}
           </button>
         </div>
       } @else if (!visible().length) {

@@ -64,6 +64,9 @@
       <div class="fig">
         <small>Space used</small>
         <b>{{ bytes(totals().bytes) }}</b>
+        @if (limitMb(); as limit) {
+          <small class="of-limit">of {{ limit | number }} MB on your plan</small>
+        }
       </div>
     </div>
     @if (share(); as s) {

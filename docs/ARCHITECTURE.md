@@ -531,6 +531,25 @@ EventSource cannot set headers, so `/api/events` accepts `?token=` and
 proxy log is a bearer token in a proxy log. The fix, when it matters, is a
 short-lived single-use stream ticket rather than the session token.
 
+What reaches an open page, so nothing needs a refresh:
+
+- A write through a number's own router broadcasts `changed` with the route's first path segment as the topic.
+  Pages subscribe with `Store.watch(topics, reload)`.
+- Writes outside that router call `touchTenants()` (`app.js`). These are every `/api/admin/*` write, plus the
+  business's top-level `/api/safety*`, `/api/channels*` and `/api/users*`. The tenant's engines drop their cached
+  tables and allowance, and their pages get `config`, `tenant` and `channels`. A `tenant` change makes the shell
+  re-read `/api/auth/me`, so nav and guards follow at once.
+- The store closes a finished campaign by itself (`CampaignStore.onSettled`): about 250 ms after the last send, or
+  on the 5 s sweep (`finishedCampaigns`) after a restart. It writes `campaign.done` to the audit log and broadcasts
+  `changed:campaigns`.
+- Super admin screens span every tenant, so they have their own stream: `GET /api/admin/events`
+  (`observability/adminFeed.js`, `web/src/app/admin/admin-feed.ts`). It carries only "topic X changed for tenants
+  [..]": `channels`, `campaigns`, `usage`, `audit`, `tenants`, `logs`, or an admin route segment. It is coalesced
+  to one event per topic per 700 ms.
+- A stream is re-checked every 5 s against its session (`pruneRevokedStreams`, `tenancy.sessionValid`, which never
+  extends an idle session). A disabled, signed-out or suspended user loses it, their EventSource gets the 401, and
+  the page signs out. A 402 shows one "subscription ended" banner and stops the reopen loop.
+
 **Business events** (Phase 6) are what triggers a workflow. Proposed shape:
 
 ```js

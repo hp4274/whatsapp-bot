@@ -3,6 +3,7 @@
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .btn.ghost { background: transparent; border-color: transparent; }
+a.btn { text-decoration: none; }
 .btn.sm { min-height: 32px; padding: 0 11px; font-size: 12.5px; gap: 6px; .ti { font-size: 16px; } }
 
 .ct-head {
@@ -72,7 +73,7 @@ td.num {
   background: var(--surface-sunken);
   > .ti {
     display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; font-size: 24px;
-    color: var(--primary-text); background: var(--primary-tint); transform: perspective(300px) rotateY(-18deg);
+    color: var(--primary-text); background: var(--primary-tint);
   }
   p { flex: 1 1 220px; margin: 0; font-size: 13px; strong { font-weight: 500; color: var(--text-strong); } }
 }

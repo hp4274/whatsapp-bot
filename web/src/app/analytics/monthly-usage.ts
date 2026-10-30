@@ -90,7 +90,7 @@ const pct = (n: number, of: number) => (of > 0 ? Math.round((n / of) * 1000) / 1
     .mchart {
       position: relative;
       display: grid;
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: var(--space-md);
       padding-top: 4px;
     }

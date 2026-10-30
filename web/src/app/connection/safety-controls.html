@@ -6,8 +6,9 @@
       <div>
         <strong>Sending safety is off</strong>
         <span
-          >Left by {{ off.fullName || off.by }} on {{ off.at | date: 'd MMM, h:mm a' }}. No daily
-          levels, brakes, pacing or quiet hours, so WhatsApp can ban any of your numbers.</span
+          >Left by {{ off.fullName || off.by }} on {{ off.at | date: 'd MMM, h:mm a' }}. Every
+          number sends its plan's full day at its plan's pace, with no gradual rise, no automatic
+          slow-downs and no quiet time, so WhatsApp can ban any of your numbers.</span
         >
       </div>
       <button class="btn primary" type="button" (click)="rejoin()" [disabled]="busy()">
@@ -129,9 +130,10 @@
             <strong>Your WhatsApp number can be restricted or permanently banned.</strong>
             <p>
               @if (leaving()) {
-                Without sending safety, every number sends at your plan's full daily limit and speed
-                from day one, with no warm-up and no brakes. That is the pattern WhatsApp bans for.
-                You are asked this every time you leave.
+                Without sending safety, every number sends your plan's full daily limit from day
+                one, with no gradual rise and no automatic slow-downs when people stop replying or
+                block you. That is the pattern WhatsApp bans for. You are asked this every time you
+                leave.
               } @else {
                 WhatsApp watches for fast, high-volume and unsolicited messaging. The platform's
                 limits exist to keep you under that radar. Loosening them is entirely your
@@ -151,9 +153,12 @@
         <div class="sc-recommended">
           <strong>Recommended (current platform values)</strong>
           <span
-            >{{ v.platform.dailyLimit || 'No' }} messages per day,
-            {{ v.platform.pacingMode }} pacing, {{ v.platform.rateLimitPerSecond }}/s, rest every
-            {{ v.platform.restEvery || '-' }} messages.</span
+            >{{
+              v.platform.dailyLimit
+                ? v.platform.dailyLimit + ' messages per day'
+                : "Your plan's daily limit"
+            }}, at most {{ v.platform.rateLimitPerSecond }} a second, failed sends retried up to
+            {{ v.platform.maxRetries }} times.</span
           >
         </div>
         }
@@ -211,70 +216,63 @@
               <label for="sc-enabled">Sending safety enforced</label>
               <span class="hint">platform: {{ platformValue('safetyEnabled') }}</span>
             </div>
-            <input
+            <button
               id="sc-enabled"
-              class="sc-switch"
-              type="checkbox"
+              class="switch"
+              type="button"
               role="switch"
-              [checked]="d.safetyEnabled"
-              (change)="setValue('safetyEnabled', checked($event))"
-            />
-            @if (risks()['safetyEnabled']; as why) {
-              <span class="sc-risk">{{ why }}</span>
-            }
-          </div>
-
-          <div class="sc-row" [class.risky]="risks()['pacingMode']">
-            <div class="sc-label">
-              <label for="sc-pacing">Pacing mode</label>
-              <span class="hint">platform: {{ platformValue('pacingMode') }}</span>
-            </div>
-            <select
-              id="sc-pacing"
-              [value]="d.pacingMode"
-              (change)="setValue('pacingMode', $any($event.target).value)"
+              [attr.aria-checked]="d.safetyEnabled"
+              (click)="setValue('safetyEnabled', !d.safetyEnabled)"
             >
-              <option value="adaptive">Adaptive - vary the gap, widen it as the batch grows</option>
-              <option value="fixed">Fixed - rate limit only (faster, easier to spot)</option>
-            </select>
-            @if (risks()['pacingMode']; as why) {
+              <span class="thumb"></span>
+            </button>
+            @if (risks()['safetyEnabled']; as why) {
               <span class="sc-risk">{{ why }}</span>
             }
           </div>
         </div>
 
+        <!-- No pacing-mode choice: every number here is QR-linked and always keeps its own varied gaps
+             (server manager.js #fixedPace), so "Fixed" would promise a speed it never gets. -->
         @for (group of groups; track group.title) {
           <fieldset class="sc-group">
             <legend>{{ group.title }}</legend>
+            @if (hasQrIgnored(group.fields)) {
+              <p class="hint sc-group-note">
+                Long pauses follow each number's own daily rhythm, so they are not set here.
+              </p>
+            }
             <div class="sc-rows">
               @for (f of group.fields; track f.key) {
-                <div
-                  class="sc-row"
-                  [class.risky]="risks()[f.key]"
-                  [class.changed]="changedFromPlatform(f)"
-                >
-                  <div class="sc-label">
-                    <label [for]="'sc-' + f.key">{{ f.label }}</label>
-                    <span class="hint" [id]="'sc-h-' + f.key">
-                      {{ f.help }} ·
-                      <span class="sc-platform">platform: {{ platformValue(f.key) }}</span>
-                    </span>
+                @if (!f.qrIgnored) {
+                  <div
+                    class="sc-row"
+                    [class.risky]="risks()[f.key]"
+                    [class.changed]="changedFromPlatform(f)"
+                  >
+                    <div class="sc-label">
+                      <label [for]="'sc-' + f.key">{{ f.label }}</label>
+                      <span class="hint" [id]="'sc-h-' + f.key">
+                        {{ f.help }} ·
+                        <span class="sc-platform">platform: {{ platformValue(f.key) }}</span>
+                      </span>
+                    </div>
+                    <input
+                      [id]="'sc-' + f.key"
+                      type="number"
+                      min="0"
+                      [step]="f.step ?? 1"
+                      [value]="d[f.key]"
+                      (input)="setNumber(f.key, $any($event.target).value)"
+                      [attr.aria-describedby]="'sc-h-' + f.key"
+                    />
+                    @if (risks()[f.key]; as why) {
+                      <span class="sc-risk"
+                        ><i class="ti ti-alert-triangle" aria-hidden="true"></i>{{ why }}</span
+                      >
+                    }
                   </div>
-                  <input
-                    [id]="'sc-' + f.key"
-                    type="number"
-                    min="0"
-                    [step]="f.step ?? 1"
-                    [value]="d[f.key]"
-                    (input)="setNumber(f.key, $any($event.target).value)"
-                    [attr.aria-describedby]="'sc-h-' + f.key"
-                  />
-                  @if (risks()[f.key]; as why) {
-                    <span class="sc-risk"
-                      ><i class="ti ti-alert-triangle" aria-hidden="true"></i>{{ why }}</span
-                    >
-                  }
-                </div>
+                }
               }
             </div>
           </fieldset>

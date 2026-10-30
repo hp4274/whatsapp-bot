@@ -50,6 +50,7 @@ function fakeManager() {
         resetStats() { manager.resets = (manager.resets ?? 0) + 1; },
         enqueueContacts(contacts, template, options) {
             manager.calls.push({ contacts, template, options });
+            manager.campaignId = options.campaignId; // as the real one: the run it now holds
             return { queued: contacts.length, skipped: 0, campaignId: options.campaignId };
         },
         start() { manager.started += 1; },
@@ -252,7 +253,8 @@ describe('the controls', () => {
         manager.enqueueContacts([{ name: 'X', phone: '919000000011' }, { name: 'Y', phone: '919000000012' }],
             'Hi {name}', { campaignId: 'camp-live', reset: {} });
         const unvaried = store.create({ name: 'Same text', body: 'hello', audience: { tags: ['vip'] } });
-        assert.throws(() => store.start(unvaried.id), /must vary the message/);
+        // Refused before anything else: a start would reset the queue that holds the other run.
+        assert.throws(() => store.start(unvaried.id), (err) => err.status === 409 && /still sending another bulk send/.test(err.message));
         assert.equal(manager.queue.pending, 2, 'the live run is still queued');
         assert.equal(manager.campaignId, 'camp-live');
         store.remove(unvaried.id);
@@ -275,9 +277,10 @@ describe('stats', () => {
     it('counts the message rows and marks a drained campaign done', () => {
         const campaign = A.store.create({ name: 'Counted', body: 'hi', audience: { tags: ['vip'] } });
         A.store.start(campaign.id);
+        let n = 0;
         const insert = (status) => A.scoped.insert({
             messageId: `m-${Math.random().toString(36).slice(2)}`,
-            recipient: '+919000000001',
+            recipient: `+91900000000${(n += 1)}`, // one person each: a later row for the same person replaces a failure
             message: 'hi',
             status,
             campaignId: campaignKey(campaign.id),

@@ -41,7 +41,7 @@ export interface Tenant {
   health?: TenantHealth;
   createdAt: string;
   users?: number;
-  /** Plan the business is on; null = custom / legacy, never gated. Only on the admin list. */
+  /** Plan the business is on; null = custom / legacy, never gated. On the admin list and on /api/auth/me (the shell reads its state). */
   subscription?: TenantSubscriptionSummary | null;
 }
 
@@ -117,6 +117,8 @@ export class Auth {
   readonly channelId = signal<number | null>(readNumber(CHANNEL_KEY));
   /** False until the first `/api/auth/me` settles, so guards do not bounce on reload. */
   readonly ready = signal(false);
+  /** The server's 402 text while the business's subscription has ended; the shell shows it once. */
+  readonly blocked = signal<string | null>(null);
 
   readonly isSuperAdmin = computed(() => this.user()?.role === 'super_admin');
   readonly tenantId = computed(() =>
@@ -178,6 +180,22 @@ export class Auth {
     );
   }
 
+  /**
+   * Re-read the user and their business after the server says it changed (a super admin switched a service off,
+   * changed the plan or a limit): the nav and every guard read these signals, so they follow without a reload.
+   * A 401 here goes through the interceptor and signs out.
+   */
+  refresh(): void {
+    if (!this.token()) return;
+    this.http.get<{ user: User; tenant: Tenant | null }>('/api/auth/me').subscribe({
+      next: ({ user, tenant }) => {
+        this.user.set(user);
+        this.tenant.set(tenant);
+      },
+      error: () => undefined,
+    });
+  }
+
   /** Ends the session locally and tells the server on a best-effort basis. */
   logout(): void {
     // Best effort: the local session is gone either way.
@@ -209,6 +227,7 @@ export class Auth {
     this.token.set(null);
     this.user.set(null);
     this.tenant.set(null);
+    this.blocked.set(null);
     this.actingTenantId.set(null);
     this.channelId.set(null);
   }
@@ -238,6 +257,11 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       if (error.status === 401 && !req.url.includes('/api/auth/login')) {
         auth.clear();
         router.navigate(['/login']);
+      }
+      // The business's subscription ended: one banner in the shell says so, instead of an error on every card.
+      if (error.status === 402) {
+        const errors = (error.error as { errors?: string[] } | null)?.errors;
+        auth.blocked.set(errors?.[0] ?? 'Your subscription has ended. Contact your provider to renew.');
       }
       return throwError(() => error);
     }),

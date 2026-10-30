@@ -148,7 +148,7 @@
       } @else if (u.todayLimit === null) {
         <span>No daily limit</span>
       } @else {
-        <span
+        <span class="limit"
           ><strong>{{ u.todayLimit }} messages a day</strong
           >{{ u.growing ? ' · rises gradually to ' + u.planLimit + ' a day' : '' }}</span
         >

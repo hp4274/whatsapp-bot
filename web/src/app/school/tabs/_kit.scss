@@ -27,8 +27,13 @@
 
   :host {
     display: grid;
+    @include s.fit-grid;
     gap: var(--space-xl);
   }
+
+  // A segmented track with more options than a phone's card has room for wraps inside the track instead of
+  // running past the card's edge.
+  .s-seg { flex-wrap: wrap; max-width: 100%; }
 
   /* Cards rise in on their own; set style="--i: n" to stagger. */
   .s-card {
@@ -119,6 +124,10 @@
     animation: s-rise 520ms var(--ease) both;
     animation-delay: calc(var(--i, 0) * 40ms);
   }
+
+  // The scroller is the containing block, so a visually-hidden (absolute) header label in a wide table is clipped
+  // with the table instead of stretching the page sideways.
+  .s-table { position: relative; }
 }
 
 /* Opt-in: attachment chip, toggle chips, file drop zone and switch
@@ -211,9 +220,9 @@
     input { position: absolute; inset: 0; opacity: 0; cursor: pointer; padding: 0; }
   }
 
-  /* Toggle switch: <label class="switch"><input type="checkbox"><i></i> Text</label> */
-  .switch {
-    position: relative;
+  /* The kit switch inside a label: <label class="toggle"><button role="switch" class="switch">…</button>Text</label> */
+  @include s.switch;
+  .toggle {
     display: inline-flex;
     align-items: center;
     gap: 10px;
@@ -221,36 +230,6 @@
     font-weight: 500;
     color: var(--text-strong);
     cursor: pointer;
-
-    input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-
-    i {
-      position: relative;
-      flex: none;
-      width: 38px;
-      height: 22px;
-      border-radius: 999px;
-      background: var(--surface-sunken);
-      box-shadow: inset 0 0 0 1px var(--border-color);
-      transition: background var(--base) var(--ease);
-
-      &::after {
-        content: '';
-        position: absolute;
-        top: 3px;
-        left: 3px;
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-        background: var(--surface-card);
-        box-shadow: var(--shadow-sm);
-        transition: transform var(--base) var(--ease);
-      }
-    }
-
-    input:checked + i { background: var(--primary); box-shadow: none; }
-    input:checked + i::after { transform: translateX(16px); }
-    input:focus-visible + i { outline: 2px solid var(--primary); outline-offset: 2px; }
   }
 }
 
@@ -261,11 +240,6 @@
     padding: var(--space-lg);
     border-radius: var(--radius-lg);
     background: var(--surface-sunken);
-    transform: perspective(900px) rotateY(-5deg) rotateX(3deg);
-    transform-style: preserve-3d;
-    transition: transform 500ms var(--ease);
-
-    &:hover { transform: none; }
   }
 
   .bubble {
@@ -281,7 +255,6 @@
     word-break: break-word;
     font-size: 13px;
     line-height: 1.55;
-    transform: translateZ(24px);
 
     time {
       position: absolute;

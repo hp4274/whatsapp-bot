@@ -11,6 +11,9 @@ import { PolicyStore } from './policy/index.js';
 import { pinFromRow, startFromRow } from './policy/channelOps.js';
 import { applySendingPolicy } from './policy/levels.js';
 import { TENANT_SERVICES } from './tenancy.js';
+import { auditVerb, describeAudit, parseDetail } from './observability/auditText.js';
+import { publishWarnings, recentLogs } from './observability/logBuffer.js';
+import { captureConsole, currentContext } from './observability/logger.js';
 
 const DAY_MS = 86_400_000;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -32,17 +35,22 @@ function addTo(bucket, status, n) {
     if (status === 'SANDBOX') bucket.sandbox += n;
 }
 
-// Same buckets the ops page shows; server-side so filters and pagination agree.
-const VERB_SQL = `CASE
-    WHEN a.action LIKE 'auth.%' THEN 'other'
-    WHEN a.action LIKE '%create%' OR a.action LIKE '%provision%' OR a.action LIKE '%seed%' OR a.action LIKE 'POST %' THEN 'create'
-    WHEN a.action LIKE '%delete%' OR a.action LIKE '%remove%' OR a.action LIKE '%revoke%'
-      OR a.action LIKE '%archived%' OR a.action LIKE 'DELETE %' THEN 'remove'
-    ELSE 'change' END`;
+// The ops page's Create / Change / Remove / Other buckets. One classifier (auditText.js auditVerb), registered as a
+// SQL function so the filter, the pagination and the label on each row can never disagree.
+const VERB_SQL = 'audit_verb(a.action)';
 export const AUDIT_VERBS = Object.freeze(['create', 'change', 'remove', 'other']);
+/** `…1234`: how a number without a display name is named in an audit sentence. */
+const lastDigits = (s) => (String(s ?? '').replace(/\D/g, '').length >= 5 ? `…${String(s).replace(/\D/g, '').slice(-4)}` : '');
 
 export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore(db) }) {
     const raw = tenancy.db;
+    raw.function('audit_verb', { deterministic: true }, (action) => auditVerb(action));
+    // Sweeps and hooks still report through console.error ("[campaigns] … failed"); the Backend logs view
+    // must show those too, not only the structured lines.
+    captureConsole();
+    // Audit rows written without the request at hand (sign-in, a campaign's own audit) still get the request id
+    // of the request they ran in, so "show backend logs for this request" works on them too.
+    tenancy.currentRequestId ??= () => currentContext().requestId ?? null;
     const countBy = (sql) => new Map(raw.prepare(sql).all().map((r) => [r.tenant_id, r.n]));
 
     /** Each tenant's services, plan limits, effective safety and what it uses against them. */
@@ -82,8 +90,9 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
             SELECT tenant_id, substr(created_at, 1, 10) AS day, status, message_type AS type, COUNT(*) AS n
             FROM messages WHERE direction = 'outbound' AND created_at >= ?
             GROUP BY tenant_id, day, status, type`).all(since30);
+        // Saved campaigns only ('camp-<id>'): quick sends and automatic messages carry other ids ('transactional', …).
         const campaigns = countBy(`SELECT tenant_id, COUNT(DISTINCT campaign_id) AS n FROM messages
-            WHERE campaign_id != '' AND created_at >= '${since30}' GROUP BY tenant_id`);
+            WHERE campaign_id LIKE 'camp-%' AND created_at >= '${since30}' GROUP BY tenant_id`);
         // Media is only recorded on saved campaigns (campaigns.media_id); ad-hoc sends do not keep it.
         const media = countBy(`SELECT m.tenant_id, COUNT(*) AS n FROM campaigns c
             JOIN messages m ON m.campaign_id = 'camp-' || c.id AND m.tenant_id = c.tenant_id
@@ -188,7 +197,13 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
                 const lastSeenAt = live === 'connected' ? stamp(now)
                     : [op.last_seen_at, s.last_sent, lastIn.get(`${tenant.id}:${ch.id}`)]
                         .filter(Boolean).sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
-                const online = Boolean(lastSeenAt) && now - Date.parse(lastSeenAt) < offlineMs;
+                // A loaded runtime knows the truth right now: "seen 4 min ago" on a number that just dropped is not
+                // online. Last-seen is only the guess for a number whose runtime is not loaded in this process.
+                // A number switched off (force disconnect, a move, a pause) is not coming back by itself, however
+                // recently it was seen.
+                const online = state ? live === 'connected'
+                    : ch.status === 'active' && ch.settings?.autoConnect !== false
+                        && Boolean(lastSeenAt) && now - Date.parse(lastSeenAt) < offlineMs;
                 const pausedReason = ch.status !== 'active' ? (op.paused_reason ?? null) : null;
                 if (pausedReason) flag('bad', pausedReason);
                 const severity = live === 'disabled' ? 'off'
@@ -247,8 +262,48 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
     };
 
     /**
+     * Names for one page of audit rows: three IN queries for the numbers, campaigns and users the rows point at
+     * (tenants are few, so all of them). Archived tenants and deleted numbers still resolve: their rows stay.
+     */
+    const auditNames = (rows) => {
+        const ids = { channel: new Set(), campaign: new Set(), user: new Set() };
+        for (const r of rows) {
+            const id = Number(/(\d+)$/.exec(String(r.target ?? ''))?.[1]);
+            if (r.action.startsWith('channel.') && id) ids.channel.add(id);
+            if (r.action === 'ops.alert') {
+                const ch = Number(parseDetail(r.detail)?.channelId);
+                if (ch) ids.channel.add(ch);
+            }
+            if (r.action.startsWith('campaign.') && id) ids.campaign.add(id);
+            if (r.action.startsWith('user.') && id) ids.user.add(id);
+        }
+        const fetch = (sql, set) => {
+            if (!set.size) return [];
+            try {
+                return raw.prepare(sql.replace('?', [...set].map(() => '?').join(', '))).all(...set);
+            } catch {
+                return []; // a table this deployment does not have yet: ids are shown instead
+            }
+        };
+        const channels = new Map(fetch('SELECT id, display_name, phone_number, provider_account_id FROM whatsapp_channels WHERE id IN (?)', ids.channel)
+            .map((c) => [c.id, c.display_name || lastDigits(c.phone_number || c.provider_account_id) || null]));
+        const campaigns = new Map(fetch('SELECT id, name FROM campaigns WHERE id IN (?)', ids.campaign).map((c) => [c.id, c.name]));
+        const users = new Map(fetch('SELECT id, name, email FROM users WHERE id IN (?)', ids.user)
+            .map((u) => [u.id, { name: u.name, email: String(u.email).replace(/#deleted-\d+$/, '') }]));
+        const tenants = new Map(raw.prepare('SELECT id, name FROM tenants').all().map((t) => [t.id, t.name]));
+        return {
+            tenant: (id) => tenants.get(Number(id)) ?? null,
+            channel: (id) => channels.get(Number(id)) ?? null,
+            campaign: (id) => campaigns.get(Number(id)) ?? null,
+            user: (id) => users.get(Number(id)) ?? null,
+        };
+    };
+
+    /**
      * Audit search, newest first, keyset-paginated by id (`before`).
-     * Filters: tenant (id or "platform"), user (id), verb, from/to (YYYY-MM-DD, inclusive), q (text).
+     * Filters: tenant (id or "platform"), user (id), verb, from/to (YYYY-MM-DD, inclusive), q (text), requestId.
+     * `after` (an id) returns only newer rows, so a live page can prepend them without reloading what it shows.
+     * Each row carries the raw record plus `summary`, `severity`, `category` and `actor` (auditText.js).
      */
     const audit = (query = {}, { maxLimit = 1000 } = {}) => {
         const where = [];
@@ -263,20 +318,35 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
             args.push(isoDay(Date.parse(`${query.to}T00:00:00Z`) + DAY_MS));
         }
         if (Number(query.before) > 0) { where.push('id < ?'); args.push(Number(query.before)); }
+        if (Number(query.after) > 0) { where.push('id > ?'); args.push(Number(query.after)); }
+        if (query.requestId) { where.push('request_id = ?'); args.push(String(query.requestId).slice(0, 128)); }
         if (query.q) {
-            where.push(`(action || ' ' || COALESCE(target, '') || ' ' || COALESCE(detail, '') || ' ' || COALESCE(user_email, '')) LIKE ? ESCAPE '\\'`);
+            where.push(`(action || ' ' || COALESCE(target, '') || ' ' || COALESCE(detail, '') || ' ' || COALESCE(user_email, '')
+                || ' ' || COALESCE(user_name, '') || ' ' || COALESCE(tenant_name, '') || ' ' || COALESCE(ip, '')) LIKE ? ESCAPE '\\'`);
             args.push(`%${String(query.q).slice(0, 200).replace(/[\\%_]/g, '\\$&')}%`);
         }
         const limit = Math.min(Math.max(Number(query.limit) || 200, 1), maxLimit);
         const rows = raw.prepare(`
-            SELECT * FROM (SELECT a.*, u.email AS user_email, ${VERB_SQL} AS verb
-                           FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id)
+            SELECT * FROM (SELECT a.*, u.email AS user_email, u.name AS user_name, u.role AS user_role,
+                                  t.name AS tenant_name, ${VERB_SQL} AS verb
+                           FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id LEFT JOIN tenants t ON t.id = a.tenant_id)
             ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
             ORDER BY id DESC LIMIT ?`).all(...args, limit + 1);
-        const logs = rows.slice(0, limit).map((r) => ({
-            id: r.id, tenantId: r.tenant_id, userId: r.user_id, userEmail: r.user_email ?? '',
-            action: r.action, verb: r.verb, target: r.target ?? '', detail: r.detail ?? '', createdAt: r.created_at,
-        }));
+        const shown = rows.slice(0, limit);
+        const names = auditNames(shown);
+        const logs = shown.map((r) => {
+            const detail = r.detail ?? '';
+            const ip = r.ip ?? parseDetail(detail)?.ip ?? null;
+            const text = describeAudit({ action: r.action, target: r.target, detail, tenantId: r.tenant_id, ip }, names);
+            return {
+                id: r.id, tenantId: r.tenant_id, tenantName: r.tenant_name ?? null,
+                userId: r.user_id, userEmail: r.user_email ?? '',
+                actor: r.user_id && r.user_email ? { name: r.user_name ?? '', email: r.user_email, role: r.user_role ?? '' } : 'System',
+                action: r.action, verb: r.verb, target: r.target ?? '', detail,
+                summary: text.summary, severity: text.severity, category: text.category,
+                ip: typeof ip === 'string' ? ip : null, requestId: r.request_id ?? null, createdAt: r.created_at,
+            };
+        });
         const page = { logs, nextBefore: rows.length > limit ? logs[logs.length - 1].id : null };
         // Who appears in the log, for the user filter. First page only.
         if (!query.before) {
@@ -317,7 +387,12 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
         return { days: span, generatedAt: stamp(now), rows: out };
     };
 
-    return { plans, usage, health, audit, shadowReview };
+    /** Recent backend log lines, newest first (observability/logBuffer.js); already redacted when written. */
+    const logs = (query = {}) => recentLogs(query);
+    /** Topic `logs` on the admin feed after warn/error lines; returns the stop function. */
+    const feedLogs = (feed) => publishWarnings(feed, 'logs');
+
+    return { plans, usage, health, audit, shadowReview, logs, feedLogs };
 }
 
 /** RFC 4180 CSV. Cells that a spreadsheet would run as a formula get a leading quote. */
@@ -327,6 +402,9 @@ export function auditCsv(logs) {
         if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
         return `"${s.replace(/"/g, '""')}"`;
     };
-    const head = ['id', 'createdAt', 'tenantId', 'userEmail', 'verb', 'action', 'target', 'detail'];
-    return [head.join(','), ...logs.map((l) => head.map((k) => cell(l[k])).join(','))].join('\r\n');
+    // The sentence first, for the person reading the sheet; the raw record after it, for the one checking it.
+    const head = ['id', 'createdAt', 'tenantId', 'tenantName', 'userEmail', 'summary', 'severity', 'verb', 'action', 'target',
+        'ip', 'requestId', 'detail'];
+    const title = { summary: 'Summary' };
+    return [head.map((k) => title[k] ?? k).join(','), ...logs.map((l) => head.map((k) => cell(l[k])).join(','))].join('\r\n');
 }

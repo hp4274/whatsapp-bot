@@ -11,6 +11,16 @@ import { DatePipe } from '@angular/common';
 
 import { Api, CustomSafetyView, SafetyPolicy } from '../core/api';
 import { SAFETY_GROUPS, SafetyField, safetyRisk } from '../core/safety-fields';
+import { Store } from '../core/store';
+
+/**
+ * Policy keys this drawer does not offer: a QR number's own level sets them (SafetyField.qrIgnored),
+ * and its gaps never switch off, so the pacing mode is no choice either (server manager.js #fixedPace).
+ */
+const HIDDEN_KEYS: ReadonlySet<keyof SafetyPolicy> = new Set<keyof SafetyPolicy>([
+  'pacingMode',
+  ...SAFETY_GROUPS.flatMap((g) => g.fields.filter((f) => f.qrIgnored).map((f) => f.key)),
+]);
 
 /**
  * A business changing its own anti-ban limits. Only shown when the platform
@@ -27,6 +37,7 @@ import { SAFETY_GROUPS, SafetyField, safetyRisk } from '../core/safety-fields';
 export class SafetyControls {
   private readonly api = inject(Api);
   private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
+  private readonly store = inject(Store);
 
   /** Fired after limits change, so the page can refresh its live safety numbers. */
   readonly changed = output<void>();
@@ -55,12 +66,13 @@ export class SafetyControls {
 
   // Editor: a local copy, so Cancel discards without touching the server.
   protected readonly draft = signal<SafetyPolicy | null>(null);
-  /** Field key -> why that value raises the ban risk; only risky keys present. */
+  /** Field key -> why that value raises the ban risk; only risky keys present, and only fields shown. */
   protected readonly risks = computed(() => {
     const draft = this.draft();
     if (!draft) return {} as Record<string, string>;
     return Object.fromEntries(
       (Object.keys(draft) as (keyof SafetyPolicy)[])
+        .filter((key) => !HIDDEN_KEYS.has(key))
         .map((key) => [key, safetyRisk(key, draft[key], draft)])
         .filter(([, why]) => why),
     );
@@ -77,6 +89,8 @@ export class SafetyControls {
 
   constructor() {
     this.load();
+    // An admin change, or leaving / rejoining in another session, reaches the badge and banners here.
+    this.store.watch(['config', 'tenant'], () => this.load(), 1000);
   }
 
   private load(): void {
@@ -196,6 +210,10 @@ export class SafetyControls {
 
   protected platformValue(key: keyof SafetyPolicy): string {
     return String(this.view()?.platform[key] ?? '');
+  }
+
+  protected hasQrIgnored(fields: readonly SafetyField[]): boolean {
+    return fields.some((f) => f.qrIgnored);
   }
 
   protected changedFromPlatform(field: SafetyField): boolean {

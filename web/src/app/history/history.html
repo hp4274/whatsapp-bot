@@ -22,7 +22,7 @@
     aria-label="Filter by status"
   >
     @for (option of statuses; track option) {
-      <option [value]="option">{{ option }}</option>
+      <option [value]="option">{{ label(option) }}</option>
     }
   </select>
   <input
@@ -35,7 +35,7 @@
   <div class="counts">
     @for (entry of countEntries(); track entry.status) {
       <span class="s-pill" [class]="toneFor(entry.status)"
-        >{{ entry.status }} <b>{{ entry.n }}</b></span
+        >{{ label(entry.status) }} <b>{{ entry.n }}</b></span
       >
     }
   </div>
@@ -79,15 +79,15 @@
         <tbody>
           @for (record of records(); track record.messageId) {
             <tr>
-              <td class="mono">+{{ record.recipient }}</td>
-              <td>{{ record.name || '-' }}</td>
-              <td class="message" [title]="record.message">{{ record.message }}</td>
-              <td>
-                <span class="s-pill" [class]="toneFor(record.status)">{{ record.status }}</span>
+              <td class="mono ph">{{ phone(record.recipient) }}</td>
+              <td class="name" data-label="Name">{{ record.name || '-' }}</td>
+              <td class="message" data-label="Message" [title]="record.message">{{ record.message }}</td>
+              <td class="st">
+                <span class="s-pill" [class]="toneFor(record.status)">{{ label(record.status) }}</span>
               </td>
-              <td>{{ record.attempt }}</td>
-              <td class="mono">{{ record.updatedAt }}</td>
-              <td class="error">{{ record.error || '' }}</td>
+              <td class="num" data-label="Try">{{ record.attempt }}</td>
+              <td class="when" data-label="Updated" [title]="record.updatedAt">{{ localTime(record.updatedAt) }}</td>
+              <td class="error" [class.none]="!record.error" data-label="Error" [title]="record.error || ''">{{ record.error || '' }}</td>
             </tr>
           }
         </tbody>

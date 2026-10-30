@@ -12,6 +12,7 @@
 
 :host {
   display: grid;
+  @include s.fit-grid;
   gap: var(--space-lg);
   align-content: start;
   min-width: 0;
@@ -44,6 +45,7 @@ a.btn { text-decoration: none; }
     color: var(--text-strong);
     font-variant-numeric: tabular-nums;
   }
+  .of-limit { display: block; margin-top: 6px; font-weight: 400; font-size: 12.5px; }
 }
 
 .mix { display: grid; gap: 10px; min-width: 0; }

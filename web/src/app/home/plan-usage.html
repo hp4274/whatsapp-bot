@@ -1,0 +1,58 @@
+<!-- One meter per plan limit; a limit of 0 reads "Not on your plan", null "Unlimited". -->
+<section class="s-card" aria-labelledby="plan-usage-title" [attr.aria-busy]="!usage() && !error()">
+  <div class="card-head">
+    <h3 id="plan-usage-title">Plan usage</h3>
+    @if (subscription(); as sub) {
+      <span class="muted">{{ sub.plan.name }} · {{ periodLabel() }}</span>
+    }
+  </div>
+
+  @if (error(); as message) {
+    <p class="s-banner" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i>
+      Could not load your plan usage: {{ message }}
+      <button type="button" class="btn sm" (click)="load()">Try again</button>
+    </p>
+  } @else if (!usage()) {
+    @for (n of [1, 2, 3]; track n) {
+      <span class="s-skel"></span>
+    }
+  } @else {
+    @if (ended()) {
+      <p class="note">
+        <i class="ti ti-lock-access" aria-hidden="true"></i>
+        Your subscription has ended, so every limit is 0 until it is renewed.
+      </p>
+    }
+    <ul class="meters">
+      @for (r of rows(); track r.key) {
+        <li [class.warn]="r.tone === 'warn'" [class.full]="r.tone === 'full'">
+          <i class="ti ti-{{ r.icon }}" aria-hidden="true"></i>
+          <span class="label">{{ r.label }}</span>
+          <span class="figure">
+            {{ r.used | number }}{{ r.unit }}
+            @if (r.limit === null) {
+              <small>· Unlimited</small>
+            } @else if (r.limit === 0 && !ended()) {
+              <small>· Not on your plan</small>
+            } @else {
+              <small>of {{ r.limit | number }}{{ r.unit }}</small>
+            }
+          </span>
+          @if (r.limit) {
+            <span
+              class="bar"
+              role="meter"
+              aria-valuemin="0"
+              [attr.aria-valuemax]="r.limit"
+              [attr.aria-valuenow]="r.used"
+              [attr.aria-label]="r.label"
+            >
+              <i [style.width.%]="r.pct"></i>
+            </span>
+          }
+        </li>
+      }
+    </ul>
+  }
+</section>

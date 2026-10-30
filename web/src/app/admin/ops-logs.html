@@ -1,0 +1,134 @@
+<!-- Backend logs: filters (level, text, request id), then one row per line: level dot, time, the plain sentence;
+     a row opens onto the raw JSON. Newest first; older pages on demand. -->
+<form class="filters" role="search" aria-label="Filter the backend logs" (submit)="$event.preventDefault()">
+  <label class="search">
+    <i class="ti ti-search" aria-hidden="true"></i>
+    <span class="sr-only">Search the log lines</span>
+    <input
+      type="search"
+      placeholder="Search message, path, error or business id"
+      [value]="filter().q ?? ''"
+      (input)="typed($event)"
+    />
+  </label>
+
+  <div class="seg" role="radiogroup" aria-label="Level">
+    @for (l of levels; track l.k) {
+      <button
+        type="button"
+        role="radio"
+        [attr.aria-checked]="(filter().level ?? '') === l.k"
+        [class.on]="(filter().level ?? '') === l.k"
+        [class]="'lv-' + (l.k || 'all')"
+        (click)="set('level', l.k)"
+      >
+        {{ l.l }}
+      </button>
+    }
+  </div>
+
+  <label class="f req"
+    ><span>Request id</span>
+    <span class="req-box">
+      <input
+        type="text"
+        spellcheck="false"
+        placeholder="Any request"
+        [value]="filter().requestId ?? ''"
+        (change)="requestTyped($event)"
+      />
+      @if (filter().requestId) {
+        <button class="btn sm" type="button" (click)="set('requestId', '')" aria-label="Show every request">
+          <i class="ti ti-x" aria-hidden="true"></i>
+        </button>
+      }
+    </span>
+  </label>
+</form>
+
+@if (error()) {
+  <p class="error" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="msg">{{ error() }}</span>
+    <button class="btn sm" type="button" (click)="reload()">Try again</button>
+  </p>
+}
+
+<p class="kept muted">
+  <i class="ti ti-info-circle" aria-hidden="true"></i>
+  The last {{ kept().size.toLocaleString() }} of {{ kept().capacity.toLocaleString() }} lines since the server
+  started, secrets and phone numbers already removed. Warnings and errors appear here as they happen.
+</p>
+
+<section class="log" aria-live="polite" [attr.aria-busy]="loading()" aria-label="Backend log lines">
+  @for (row of lines(); track row.id; let i = $index) {
+    <article
+      class="line"
+      [class.open]="open().has(row.id)"
+      [class.fresh]="fresh().has(row.id)"
+      [style.--i]="i < 15 ? i : 0"
+    >
+      <button
+        type="button"
+        class="head"
+        [attr.aria-expanded]="open().has(row.id)"
+        [attr.aria-controls]="'log-' + row.id"
+        (click)="toggle(row.id)"
+      >
+        <span [class]="'lv ' + row.level">{{ row.level }}</span>
+        <span class="what">
+          <strong [title]="row.summary">{{ row.summary }}</strong>
+          <span class="meta muted">
+            <time [attr.datetime]="row.time" [title]="full(row.time)">{{ clock(row.time) }}</time>
+            @if (row.tenantId !== null) {
+              <span aria-hidden="true">·</span><span>Business {{ row.tenantId }}</span>
+            }
+            @if (row.requestId) {
+              <span aria-hidden="true">·</span><code [title]="row.requestId">{{ row.requestId.slice(0, 8) }}</code>
+            }
+          </span>
+        </span>
+        <i class="ti ti-chevron-down chev" aria-hidden="true"></i>
+      </button>
+      @if (open().has(row.id)) {
+        <div class="detail" [id]="'log-' + row.id">
+          <pre>{{ json(row) }}</pre>
+          @if (row.requestId && filter().requestId !== row.requestId) {
+            <button class="btn sm" type="button" (click)="set('requestId', row.requestId)">
+              <i class="ti ti-filter" aria-hidden="true"></i> Only this request
+            </button>
+          }
+        </div>
+      }
+    </article>
+  } @empty {
+    @if (!loading()) {
+      <div class="empty">
+        <i class="ti ti-terminal-2" aria-hidden="true"></i>
+        <strong>{{ active() ? 'No lines match' : 'No log lines yet' }}</strong>
+        <p>
+          {{
+            filter().requestId
+              ? 'That request wrote nothing the server still keeps; older lines roll off after about 2,000.'
+              : active()
+                ? 'Loosen a filter.'
+                : 'Lines show up here as the server works.'
+          }}
+        </p>
+      </div>
+    }
+  }
+</section>
+
+@if (loading()) {
+  <div class="skel-list" aria-busy="true" aria-label="Loading log lines">
+    @for (n of [1, 2, 3]; track n) {
+      <div class="skel"></div>
+    }
+  </div>
+}
+@if (next()) {
+  <div class="more">
+    <button class="btn" type="button" (click)="loadMore()" [disabled]="loading()">Load older lines</button>
+  </div>
+}

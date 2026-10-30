@@ -26,10 +26,13 @@ p {
 .sh {
   position: relative;
   display: grid;
+  @include s.fit-grid;
   gap: var(--space-lg);
+  padding-bottom: var(--space-lg);
   border-top: 1px solid var(--border-color);
 
   > .s-banner,
+  > .allowance,
   > .skeleton,
   > .band {
     margin: 0 var(--space-xl);
@@ -38,6 +41,7 @@ p {
 
 .card-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-md);
   padding: var(--space-xl) var(--space-xl) 0;
@@ -326,7 +330,7 @@ table {
 
   li {
     display: grid;
-    grid-template-columns: auto 1fr;
+    grid-template-columns: auto minmax(0, 1fr);
     gap: var(--space-sm);
     font-size: 13px;
   }
@@ -351,6 +355,17 @@ table {
     color: var(--primary-text);
     font-weight: 500;
     overflow-wrap: anywhere;
+  }
+}
+
+/* Same 20px inset as the card around it on a phone. */
+@media (max-width: 560px) {
+  .card-head {
+    padding: 20px 20px 0;
+  }
+
+  .sh > :is(.s-banner, .allowance, .skeleton, .band) {
+    margin-inline: 20px;
   }
 }
 
@@ -398,10 +413,6 @@ table {
     color: var(--text-color);
   }
 
-  /* Values are sentences and figures ("5 of 40 people replied"), not labels to title-case. */
-  .s-pill {
-    text-transform: none;
-  }
 
   small {
     grid-column: 2 / -1;

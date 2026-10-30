@@ -618,7 +618,7 @@
                 <b>v{{ v.version }}</b>
                 <span class="muted">{{ ago(v.createdAt) }}</span>
                 @if (v.version === p.template.currentVersion) {
-                  <span class="s-pill tone-ok">current</span>
+                  <span class="s-pill tone-ok">Current</span>
                 } @else if (!readOnly()) {
                   <button
                     class="btn sm"

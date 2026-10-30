@@ -1,9 +1,9 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import type { AuditLog } from '../core/api';
+import type { AuditActor, AuditEntry } from './ops-api';
 
-/** Most recent platform changes under the tenant list, with a link to the full audit log. */
+/** Most recent platform changes under the tenant list, as sentences, with a link to the full audit log. */
 @Component({
   selector: 'app-tenant-activity',
   imports: [RouterLink],
@@ -12,9 +12,16 @@ import type { AuditLog } from '../core/api';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TenantActivity {
-  readonly logs = input.required<readonly AuditLog[]>();
+  readonly logs = input.required<readonly AuditEntry[]>();
 
   protected readonly recent = computed(() => this.logs().slice(0, 6));
+
+  /** "Asha", "Super admin" or "System": who did it, short enough for one line. */
+  protected actor(actor: AuditActor): string {
+    if (actor === 'System') return 'System';
+    if (actor.role === 'super_admin') return 'Super admin';
+    return actor.name || actor.email;
+  }
 
   /** "5 min ago" for recent activity, a short date after a day. */
   protected ago(iso: string): string {

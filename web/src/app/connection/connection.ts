@@ -33,6 +33,11 @@ export class ConnectionView {
   private readonly channels = inject(ChannelsApi);
   protected readonly store = inject(Store);
 
+  /** A phone number reads "+91…"; any other account name (the sandbox's "local sandbox") as it is. */
+  protected accountLabel(account: string): string {
+    return /^d+$/.test(account) ? `+${account}` : account;
+  }
+
   /** The default number, for when no number is picked: requests without one run against it. */
   private readonly defaultChannelId = signal<number | null>(null);
   /** The number this page links, which is the one whose start questions are asked here. */
@@ -75,6 +80,18 @@ export class ConnectionView {
   protected readonly stopReason = computed(() => {
     const c = this.store.connection();
     return c.paused?.reason || c.error || c.detail || '';
+  });
+  /**
+   * The ban guard pauses for spam reports or for the failure rate (server policy/channelOps.js);
+   * the heading names the one its reason gives, and stays neutral for any other.
+   */
+  protected readonly guardTitle = computed(() => {
+    const reason = this.store.connection().paused?.reason ?? '';
+    return /reported/i.test(reason)
+      ? 'Sending stopped: too many spam reports'
+      : /failed/i.test(reason)
+        ? 'Sending stopped: too many failed messages'
+        : 'Sending stopped to protect this number';
   });
   /** First click of "Reconnect anyway" arms it; the second sends it. */
   protected readonly resumeConfirm = signal(false);

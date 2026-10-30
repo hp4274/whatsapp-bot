@@ -280,11 +280,25 @@ describe('health view', () => {
         const seen = channels.find((c) => c.tenantId === tenant.id);
         db.db.prepare(`INSERT INTO channel_ops (channel_id, last_seen_at) VALUES (?, ?)
             ON CONFLICT (channel_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`).run(seen.id, stamp(Date.now() - 5 * 60_000));
-        const again = (await call(sup, 'GET', '/api/admin/health-detail')).body.channels.find((c) => c.id === seen.id);
-        assert.equal(again.online, true, 'seen 5 minutes ago, under 30');
-        policy(`tenant:${tenant.id}`, { 'channels.offlineAfterMinutes': 2 });
-        const late = (await call(sup, 'GET', '/api/admin/health-detail')).body.channels.find((c) => c.id === seen.id);
-        assert.equal(late.online, false);
+        const live = (await call(sup, 'GET', '/api/admin/health-detail')).body.channels.find((c) => c.id === seen.id);
+        assert.equal(live.online, false, 'a loaded runtime that is not connected is offline, whatever last-seen says');
+        // With no runtime loaded in this process, last-seen is the only evidence.
+        const loaded = app.locals.runtimes.get(tenant.id).runtimes;
+        const runtime = loaded.get(seen.id);
+        loaded.delete(seen.id);
+        const numbers = new Channels(db.forTenant(tenant.id));
+        try {
+            const notWanted = (await call(sup, 'GET', '/api/admin/health-detail')).body.channels.find((c) => c.id === seen.id);
+            assert.equal(notWanted.online, false, 'a number nobody asked to connect (or force-disconnected) is offline');
+            numbers.update(seen.id, { settings: { autoConnect: true } });
+            const again = (await call(sup, 'GET', '/api/admin/health-detail')).body.channels.find((c) => c.id === seen.id);
+            assert.equal(again.online, true, 'seen 5 minutes ago, under 30');
+            policy(`tenant:${tenant.id}`, { 'channels.offlineAfterMinutes': 2 });
+            const late = (await call(sup, 'GET', '/api/admin/health-detail')).body.channels.find((c) => c.id === seen.id);
+            assert.equal(late.online, false);
+        } finally {
+            if (runtime) loaded.set(seen.id, runtime);
+        }
     });
 });
 

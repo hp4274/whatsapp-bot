@@ -42,7 +42,7 @@
       <div>
         <h3 id="stopped-title">{{
           kind === 'ban' ? 'WhatsApp banned this number'
-            : kind === 'ban_guard' ? 'Sending stopped: too many reports'
+            : kind === 'ban_guard' ? guardTitle()
             : 'Your platform admin paused this number'
         }}</h3>
         @if (connection.paused?.at; as at) {
@@ -80,7 +80,7 @@
           <button type="button" class="btn" (click)="resumeConfirm.set(false)">Cancel</button>
         }
       </div>
-      <p class="fine muted">More reports can get the number banned for good.</p>
+      <p class="fine muted">Sending again before the cause is fixed can get the number banned for good.</p>
     } @else {
       <p class="fine muted">Ask your platform admin to turn this number back on.</p>
     }
@@ -93,7 +93,7 @@
       <span class="badge ok"><i class="ti ti-circle-check" aria-hidden="true"></i></span>
       <h3 id="link-title">Connected{{ connection.name ? ' as ' + connection.name : '' }}</h3>
       <p class="muted">
-        {{ connection.account ? '+' + connection.account + ' · ' : '' }}Session is live. It reconnects by itself
+        {{ connection.account ? accountLabel(connection.account) + ' · ' : '' }}Session is live. It reconnects by itself
         after a restart.
       </p>
 
@@ -135,7 +135,7 @@
     }
   </div>
 
-  <div class="phone">
+  <div class="phone" [class.has-qr]="!!qr || busy">
     <div class="screen">
       @if (live) {
         <i class="ti ti-circle-check done-mark" aria-hidden="true"></i>

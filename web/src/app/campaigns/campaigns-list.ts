@@ -443,10 +443,16 @@ export class CampaignsListView {
    * The Results cell. Only sent / failed / progress: the list's stats are a snapshot written on
    * status changes, so Delivered / Read (which keep arriving after a run) live on the detail page.
    */
+  /** Why the run is paused, held or closed early ("Today's limit reached…"), so nobody has to open each one. */
+  protected reason(c: Campaign): string | null {
+    return (c.options as { statusReason?: string | null } | undefined)?.statusReason ?? null;
+  }
+
   protected result(c: Campaign) {
     const n = listCounts(c.stats);
     const total = n.total || c.audienceSize || 0;
-    const done = Math.max(0, total - n.pending);
+    // No snapshot yet (`stats: {}` before the first write) means nothing has gone out, not everything.
+    const done = n.total ? Math.max(0, n.total - n.pending) : 0;
     const r = reportRates(n);
     return {
       sending: c.status === 'running',

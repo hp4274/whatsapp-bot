@@ -1,5 +1,8 @@
+@use '../school/school-shared' as s;
+
 :host {
   display: grid;
+  @include s.fit-grid;
   gap: var(--space-md);
 }
 

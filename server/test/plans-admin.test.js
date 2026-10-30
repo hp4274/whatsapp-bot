@@ -178,10 +178,18 @@ describe('admin plans & subscriptions', () => {
         // Push the cancellation past the grace window.
         db.db.prepare('UPDATE subscriptions SET cancelled_at = ? WHERE tenant_id = ?')
             .run(new Date(Date.now() - 30 * 86_400_000).toISOString(), tenant.id);
-        const blocked = await call(token, 'GET', '/api/contacts');
+        // Writes stop; the business can still read its own data (docs/bulk.md §16).
+        assert.equal((await call(token, 'GET', '/api/contacts')).status, 200, 'reads are not gated');
+        const blocked = await call(token, 'POST', '/api/contacts', { phone: '919811100001', name: 'X' });
         assert.equal(blocked.status, 402);
         assert.match(blocked.body.errors[0], /subscription has ended/);
-        assert.equal((await call(token, 'GET', '/api/auth/me')).status, 200, '/me is never gated');
+        const me = await call(token, 'GET', '/api/auth/me');
+        assert.equal(me.status, 200, '/me is never gated');
+        assert.equal(me.body.tenant.subscription.state, 'expired', '/me says so, for the banner on load');
+        // Nothing sends: every plan limit is 0 and the quota view says it.
+        const usage = await call(token, 'GET', '/api/plan-usage');
+        assert.equal(usage.status, 200);
+        assert.equal(usage.body.usage.metrics.find((m) => m.metric === 'messages').limit, 0);
         const asAdmin = await call(sup, 'GET', '/api/contacts', null, { 'x-tenant-id': String(tenant.id) });
         assert.equal(asAdmin.status, 200);
 
@@ -207,5 +215,37 @@ describe('admin plans & subscriptions', () => {
         await call(sup, 'PUT', '/api/admin/billing/plans/starter', { price: 1 });
         const reverted = await call(sup, 'DELETE', '/api/admin/billing/plans/starter');
         assert.equal(reverted.body.plan.price, 999);
+    });
+
+    it('moves subscribers back when a built-in plan is reset to default', async () => {
+        const { body: { tenant } } = await createTenant({ planKey: 'starter' });
+        const before = (await call(sup, 'GET', '/api/admin/billing/plans')).body.plans.find((p) => p.key === 'starter');
+        await call(sup, 'PUT', '/api/admin/billing/plans/starter', { tenantLimits: { maxUsers: 42 } });
+        assert.equal((await call(sup, 'GET', `/api/admin/tenants`)).body.tenants.find((t) => t.id === tenant.id).limits.maxUsers, 42);
+
+        const reset = await call(sup, 'DELETE', '/api/admin/billing/plans/starter');
+        assert.equal(reset.status, 200);
+        assert.equal(reset.body.plan.tenantLimits.maxUsers, before.tenantLimits.maxUsers);
+        const after = (await call(sup, 'GET', `/api/admin/tenants`)).body.tenants.find((t) => t.id === tenant.id);
+        assert.equal(after.limits.maxUsers, before.tenantLimits.maxUsers, 'the business follows the reset');
+    });
+
+    it('merges a partial plan edit instead of wiping the other limits', async () => {
+        const { body: { tenant } } = await createTenant({ planKey: 'starter' });
+        const before = (await call(sup, 'GET', '/api/admin/billing/plans')).body.plans.find((p) => p.key === 'starter');
+        const edited = await call(sup, 'PUT', '/api/admin/billing/plans/starter',
+            { limits: { messagesPerMonth: 777 }, tenantLimits: { maxTemplates: 7 }, features: { workflows: true } });
+        assert.equal(edited.status, 200);
+        const plan = edited.body.plan;
+        assert.equal(plan.limits.messagesPerMonth, 777);
+        assert.deepEqual({ ...plan.limits, messagesPerMonth: before.limits.messagesPerMonth }, before.limits, 'other limits kept');
+        assert.deepEqual({ ...plan.tenantLimits, maxTemplates: before.tenantLimits.maxTemplates }, before.tenantLimits);
+        assert.deepEqual({ ...plan.features, workflows: before.features.workflows }, before.features);
+        // Only the edited tenant limit reached the subscriber.
+        const limits = (await call(sup, 'GET', `/api/admin/tenants`)).body.tenants.find((t) => t.id === tenant.id).limits;
+        assert.equal(limits.maxTemplates, 7);
+        assert.equal(limits.maxUsers, before.tenantLimits.maxUsers);
+        assert.equal(limits.maxChannels, before.tenantLimits.maxChannels);
+        await call(sup, 'DELETE', '/api/admin/billing/plans/starter');
     });
 });

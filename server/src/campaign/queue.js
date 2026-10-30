@@ -11,7 +11,7 @@ export const QueueState = Object.freeze({
 export function queueItem({
     recipient, message, name = '', campaignId = '', media = null,
     messageType = 'campaign', priority = 4, idempotencyKey = null, interactive = null,
-    variant = null,
+    variant = null, timezone = null,
 }) {
     return {
         recipient,
@@ -22,6 +22,8 @@ export function queueItem({
         interactive,
         // A/B campaigns: the version ('A' | 'B' | 'C') this recipient got.
         variant,
+        // The contact's own IANA zone (humanize.js contactZone): their daytime, not their country code's.
+        timezone,
         messageType,
         priority,
         idempotencyKey,

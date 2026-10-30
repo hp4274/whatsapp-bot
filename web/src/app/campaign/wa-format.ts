@@ -143,7 +143,10 @@ export function substitute(
 ): Rendered {
   const ctx = withFallbacks(context ?? {}, fallbacks);
   const missing: string[] = [];
-  const inline = String(text ?? '').replace(
+  // "{{name}}" reads as "{name}", exactly as the server's personalize() sends it.
+  const inline = String(text ?? '')
+    .replace(/\{\{\s*(\w+)\s*\}\}/g, '{$1}')
+    .replace(
     /\{(\w+)\|([^{}]*)\}/g,
     (match, key: string, fallback: string) => {
       if (!Object.prototype.hasOwnProperty.call(ctx, key)) return match; // spintax, not a fallback

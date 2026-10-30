@@ -1,4 +1,4 @@
-import { DatePipe } from '@angular/common';
+import { DatePipe, TitleCasePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -25,7 +25,7 @@ type LeaveStatus = LeaveRequest['status'];
  */
 @Component({
   selector: 'school-leave',
-  imports: [FormsModule, DatePipe, Tilt],
+  imports: [FormsModule, DatePipe, TitleCasePipe, Tilt],
   templateUrl: './leave.html',
   styleUrl: './leave.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

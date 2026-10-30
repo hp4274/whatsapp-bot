@@ -33,17 +33,17 @@ An old, busy number starts higher (up to level 7). A brand-new number starts at 
 
 ## Sending levels and speed
 
-Every number has a level, from 1 to 11. A new number sends 10 messages a day; a proven one can reach 1,000. The number moves up on its own as it builds a clean history: days of activity, messages delivered, and bulk messages delivered. You never have to raise it by hand.
+Every number has a level, from 1 to 11. A new number sends 20 messages a day; a proven one can reach 1,000. The number moves up on its own as it builds a clean history: days of activity, messages delivered, and bulk messages delivered. You never have to raise it by hand.
 
 | Level | Name | Messages a day | New chats a day | Per hour | Gap between messages | To reach it |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | First steps | 10 | 3 | 5 | 1.5–5 min | Start |
-| 2 | Settling in | 20 | 5 | 8 | 1–3 min | 3 days, 8 delivered |
-| 3 | Building | 40 | 10 | 10 | 45 s–2.5 min | 6 days, 40 delivered |
-| 4 | Growing | 60 | 15 | 12 | 40 s–2 min | 9 days, 100 delivered, 40 bulk |
-| 5 | Steady | 100 | 20 | 15 | 30 s–2 min | 12 days, 220 delivered, 90 bulk |
-| 6 | Trusted | 150 | 30 | 20 | 30–90 s | 17 days, 500 delivered, 200 bulk |
-| 7 | Established | 200 | 50 | 30 | 20–90 s | 24 days, 1,000 delivered, 400 bulk |
+| 1 | First steps | 20 | 20 | 8 | 1.5–5 min | Start |
+| 2 | Settling in | 35 | 35 | 10 | 1–3 min | 3 days, 8 delivered |
+| 3 | Building | 55 | 55 | 12 | 45 s–2.5 min | 6 days, 40 delivered |
+| 4 | Growing | 80 | 80 | 15 | 40 s–2 min | 9 days, 100 delivered, 40 bulk |
+| 5 | Steady | 100 | 80 | 15 | 30 s–2 min | 12 days, 220 delivered, 90 bulk |
+| 6 | Trusted | 150 | 80 | 20 | 30–90 s | 17 days, 500 delivered, 200 bulk |
+| 7 | Established | 200 | 80 | 30 | 20–90 s | 24 days, 1,000 delivered, 400 bulk |
 | 8 | Proven | 250 | 80 | 30 | 20–60 s | 40 days, 2,500 delivered, 1,000 bulk |
 | 9 | Reliable | 400 | 120 | 45 | 20–50 s | 40 days, 3,000 delivered, 1,500 bulk |
 | 10 | Strong | 650 | 200 | 70 | 20–40 s | 40 days, 6,000 delivered, 3,000 bulk |
@@ -52,11 +52,11 @@ Every number has a level, from 1 to 11. A new number sends 10 messages a day; a 
 What the columns mean:
 
 - **New chats** are people who have never chatted with your number. They count more than regular contacts, so they have their own smaller limit.
-- **Gap** is picked at random within the range for every message, so no two campaigns follow the same pattern.
+- **Gap** is picked at random within the range for every message, so no two campaigns follow the same pattern. Each day runs a little faster or slower (0.8–1.3 times), Starter plans stretch every gap by half again, and a message with a picture or file waits 1.6 times as long.
 
 The pace also includes breaks:
 
-- **Short rests.** Every few messages the number stops for 10–60 minutes, like a person putting the phone down.
+- **Short rests.** Every few messages the number stops for 10–60 minutes, like a person putting the phone down. The count runs across campaigns, so several small campaigns in a row rest just like one big one.
 - **Quiet hours.** Each day has one to eight hours with no bulk sending, longest for new numbers.
 - **Recipient daytime.** Bulk goes out only between 9 am and 9 pm in the recipient's time.
 - **Steady growth.** A day's amount can't jump more than 35% above the best clean day of the last week, even after the level goes up.
@@ -109,7 +109,7 @@ Your plan sets the most bulk messages one number can send in a day. The number's
 | Business | 500 | 10 (Strong) |
 | Enterprise | 1,000 | 11 (Peak) |
 
-So on the Business plan, a brand-new number still starts at 10–20 a day and grows into the 500. To send more in a day, link more numbers: each number has its own level and its own daily amount, and the system can share a campaign across them.
+So on the Business plan, a brand-new number still starts at 20–35 a day and grows into the 500. To send more in a day, link more numbers: each number has its own level and its own daily amount, and the system can share a campaign across them.
 
 Replies to customers and one-to-one messages aren't bulk, so they don't use this amount.
 
@@ -147,7 +147,7 @@ Because the number is new. Speed comes from the number's history, not from setti
 Usually not. A campaign pauses when the day's amount is used up, outside the recipient's daytime, or while a brake is on. It continues by itself, and the number's page tells you which one it is.
 
 **Can I switch the safety rules off?**
-Yes, but think hard first. An account admin can choose **Leave sending safety** on the number page. That turns off the levels, brakes, pacing and quiet hours for every number of your business. You read a warning and confirm with your name each time you leave. **Rejoin sending safety** turns everything back on with one click. Without safety, a ban is likely.
+Yes, but think hard first. An account admin can choose **Leave sending safety** on the number page. That turns off the levels, brakes and quiet hours for every number of your business: each number sends its plan's full day from the start. Messages are still spaced out at your plan's pace. You read a warning and confirm with your name each time you leave. **Rejoin sending safety** turns everything back on with one click. Without safety, a ban is likely.
 
 **Does my phone need to stay on?**
 It should be online most of the time. The system works as a linked device, and WhatsApp unlinks devices whose phone stays offline for about two weeks.

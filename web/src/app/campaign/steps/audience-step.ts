@@ -182,6 +182,17 @@ export class AudienceStep {
   protected readonly issues = computed(() =>
     (this.draft.audit()?.issues ?? []).slice(0, ISSUE_LIMIT),
   );
+  /** "3 invalid · 2 opted out": only the reasons that happened, so no separator dangles in front of the first. */
+  protected readonly skippedText = computed(() => {
+    const counts = this.draft.audit()?.counts;
+    if (!counts) return '';
+    return [
+      counts.invalid ? `${counts.invalid} invalid` : '',
+      counts.duplicate ? `${counts.duplicate} duplicate` : '',
+      counts.optedOut ? `${counts.optedOut} opted out` : '',
+      counts.recent ? `${counts.recent} messaged recently` : '',
+    ].filter(Boolean).join(' · ');
+  });
   protected readonly moreIssues = computed(() =>
     Math.max(0, (this.draft.audit()?.issues.length ?? 0) - ISSUE_LIMIT),
   );

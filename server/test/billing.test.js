@@ -24,12 +24,23 @@ import { createBillingRouter } from '../src/billing/routes.js';
 import { BILLING_SCHEMA } from '../src/billing/schema.js';
 import { DEFAULT_PLANS, METRICS, normalizePlan } from '../src/billing/plans.js';
 import { BillingError, BillingStore, GRACE_DAYS, periodEnd, periodOf } from '../src/billing/store.js';
+import { capRemaining } from '../src/policy/campaignOps.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-billing-'));
 let db;
 let clock = new Date('2026-10-08T10:00:00Z');
 const now = () => clock;
 const at = (iso) => { clock = new Date(iso); };
+let seq = 0;
+/** `n` real sends by `tenantId` at `when`: the messages meter counts these rows, not a counter. */
+const sends = (n, when, tenantId = 1) => {
+    const scoped = db.forTenant(tenantId);
+    db.db.exec('BEGIN');
+    for (let i = 0; i < n; i += 1) {
+        scoped.insert({ messageId: `s${seq++}`, recipient: '911', message: 'hi', status: 'SENT', createdAt: when });
+    }
+    db.db.exec('COMMIT');
+};
 
 let A; // tenant 1, subscribed
 let B; // tenant 2, subscribed
@@ -147,7 +158,9 @@ describe('entitlements and limits', () => {
 
     it('allows up to the limit and refuses past it', () => {
         at('2026-10-08T10:00:00Z');
-        A.record('messages', 995);
+        sends(995, '2026-10-08T09:00:00+00:00');
+        // A drifted counter changes nothing: the meter counts the sends themselves.
+        A.record('messages', 400);
         const ok = A.check('messages', 5);
         assert.equal(ok.allowed, true);
         assert.equal(ok.used, 995);
@@ -204,7 +217,7 @@ describe('usage counters', () => {
         assert.deepEqual(history.map((h) => h.period), ['2026-11', '2026-10', '2026-09']);
         assert.equal(history[0].metrics.workflow_runs, 4);
         assert.equal(history[1].metrics.messages, 995);
-        assert.deepEqual(history[2].metrics, {});
+        assert.deepEqual(history[2].metrics, { messages: 0 }); // counted, so a quiet month says 0
     });
 });
 
@@ -234,6 +247,34 @@ describe('recount', () => {
         A.record('messages', 7);
         at('2027-01-04T12:00:00Z');
         assert.equal(A.recount().repaired.messages.now, 0);
+    });
+});
+
+describe('the meter matches the limit', () => {
+    it('counts messages with the quota query, and stocks as they are now', () => {
+        at('2026-12-20T12:00:00Z');
+        const before = A.usage().metrics.find((m) => m.metric === 'messages').used;
+        sends(4, '2026-12-19T08:00:00+00:00');
+        // Only real sends: failed, sandbox and cancelled rows are not.
+        for (const status of ['FAILED', 'SANDBOX', 'CANCELLED']) {
+            db.forTenant(1).insert({ messageId: `x-${status}`, recipient: '911', message: 'hi', status, createdAt: '2026-12-19T08:00:00+00:00' });
+        }
+        const usage = A.usage();
+        const messages = usage.metrics.find((m) => m.metric === 'messages');
+        assert.equal(messages.used, before + 4);
+        // The enforcement's own count of the month (policy/campaignOps.js capRemaining) agrees.
+        const quota = capRemaining(db.db, 1, { monthlyCap: 1000 }, clock);
+        assert.equal(quota.left, 1000 - messages.used);
+        assert.equal(A.history({ months: 1 })[0].metrics.messages, messages.used);
+
+        // Stocks are counted, not read from a counter nobody writes.
+        db.db.prepare(`INSERT INTO contacts (tenant_id, phone, name, created_at, updated_at)
+                       VALUES (1, '919800000001', 'C', '2026-12-01', '2026-12-01')`).run();
+        const used = (metric) => A.usage().metrics.find((m) => m.metric === metric).used;
+        assert.equal(used('contacts'), db.db.prepare('SELECT COUNT(*) AS n FROM contacts WHERE tenant_id = 1').get().n);
+        assert.equal(used('agents'), db.db.prepare('SELECT COUNT(*) AS n FROM users WHERE tenant_id = 1 AND disabled = 0').get().n);
+        assert.equal(used('channels'), db.db.prepare('SELECT COUNT(*) AS n FROM whatsapp_channels WHERE tenant_id = 1').get().n);
+        assert.ok(used('contacts') >= 1);
     });
 });
 
@@ -302,6 +343,9 @@ describe('cancellation and grace', () => {
         const check = A.check('messages', 1);
         assert.equal(check.allowed, false);
         assert.equal(check.reason, 'subscription_expired');
+        // Every limit is 0 past grace, so the send path (which reads limitFor) refuses too.
+        assert.equal(A.limitFor('messages'), 0);
+        assert.equal(A.usage().metrics.find((m) => m.metric === 'messages').limit, 0);
         // Reading their own data is not gated by any of this - usage and the
         // subscription itself still answer.
         assert.equal(A.usage().period, '2027-05');

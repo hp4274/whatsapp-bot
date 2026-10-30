@@ -54,10 +54,18 @@ export class ContactStore {
      *
      * `merge` keeps existing tags and custom fields and layers the new ones on
      * top, which is what a second import of a partial sheet should do.
+     *
+     * `consent` ({ source, text, userId }) describes an opt-in this write makes, for the
+     * proof row (recordOptIn). Its source defaults to the write's own `source`, else 'manual'.
      */
-    upsert({
+    upsert(input, options) {
+        // One transaction, so a contact is never opted in without its proof row.
+        return this.#atomic(() => this.#upsert(input, options));
+    }
+
+    #upsert({
         phone, name, email, tags, customFields,
-        source, status, optInStatus, normalized: isNormalized = false,
+        source, status, optInStatus, consent, normalized: isNormalized = false,
     }, { merge = true } = {}) {
         // No destructuring defaults on the updatable fields: `undefined` has to
         // stay meaningful so an update that only sets tags does not blank the
@@ -65,6 +73,13 @@ export class ContactStore {
         const normalized = this.#phone(phone, isNormalized);
         const existing = this.getByPhone(normalized);
         const now = utcNow();
+        // Proof only for a move to opted_in: re-saving an opted-in contact is not a new consent.
+        const proved = (contact) => {
+            if (contact.optInStatus === 'opted_in' && existing?.optInStatus !== 'opted_in') {
+                this.#recordOptIn(contact, consent?.source ?? source ?? 'manual', consent?.text, consent?.userId);
+            }
+            return contact;
+        };
 
         if (!existing) {
             const info = this.db.prepare(
@@ -78,7 +93,7 @@ export class ContactStore {
                     JSON.stringify(cleanFields(customFields)), JSON.stringify(cleanTags(tags)),
                     String(source ?? 'manual'), now, now,
                 );
-            return this.get(Number(info.lastInsertRowid));
+            return proved(this.get(Number(info.lastInsertRowid)));
         }
 
         const nextTags = tags === undefined ? existing.tags
@@ -99,7 +114,7 @@ export class ContactStore {
                 source === undefined ? existing.source : String(source),
                 now, existing.id, this.tenantId,
             );
-        return this.get(existing.id);
+        return proved(this.get(existing.id));
     }
 
     /** Bulk upsert, e.g. from an imported sheet. Returns a per-row tally. */
@@ -123,6 +138,9 @@ export class ContactStore {
                         // importer never sets them, so its behaviour is unchanged.
                         tags: rowTags(tags, raw.tags),
                         source,
+                        // A mapped consent column (contacts.js): the cell's own words are the proof.
+                        optInStatus: raw.optInStatus,
+                        consent: { text: raw.consentText },
                     }, { merge });
                     result.ids.push(saved.id);
                     if (before) result.updated += 1;
@@ -159,11 +177,13 @@ export class ContactStore {
     /**
      * Opt a contact out (or back in). `opt_outs` is what the send path obeys
      * and `opt_in_status` is the consent we record, so both move together.
+     * Opting in records proof with the operator's reason as its wording.
      */
-    setOptOut(id, optedOut, reason = '') {
+    setOptOut(id, optedOut, reason = '', userId = null) {
         const contact = this.#require(id);
         const why = String(reason ?? '').trim().slice(0, 200) || 'manual';
         this.#atomic(() => {
+            if (!optedOut && !isOptedIn(contact)) this.#recordOptIn(contact, 'manual', reason, userId);
             if (optedOut) {
                 this.db.prepare(
                     `INSERT INTO opt_outs (tenant_id, phone, reason, opted_out_at) VALUES (?, ?, ?, ?)
@@ -181,10 +201,33 @@ export class ContactStore {
     }
 
     /**
+     * They texted START (or another opt-in word): consent in their own words. Called before the
+     * keyword lifts an opt-out, so STOP then START counts as a fresh opt-in. A number with no
+     * contact gets one, because the opt-in gate (bulk.requireOptIn) reads the contact book.
+     */
+    keywordOptIn(phone, words) {
+        let normalized;
+        try {
+            normalized = this.#phone(phone, true);
+        } catch (err) {
+            if (err instanceof ContactError) return null; // not a number a contact can hold
+            throw err;
+        }
+        return this.#atomic(() => {
+            const contact = this.getByPhone(normalized) ?? this.upsert({ phone: normalized, normalized: true, source: 'keyword' });
+            if (isOptedIn(contact)) return contact;
+            this.db.prepare("UPDATE contacts SET opt_in_status = 'opted_in', updated_at = ? WHERE id = ? AND tenant_id = ?")
+                .run(utcNow(), contact.id, this.tenantId);
+            this.#recordOptIn(contact, 'keyword', words);
+            return this.get(contact.id);
+        });
+    }
+
+    /**
      * One action over many contacts, atomically. Ids from another tenant or
      * already gone are reported in `missing` rather than failing the batch.
      */
-    bulk(ids, action, { tags = [], reason = '' } = {}) {
+    bulk(ids, action, { tags = [], reason = '', userId = null } = {}) {
         if (!BULK_ACTIONS.includes(action)) {
             throw new ContactError(`action must be one of: ${BULK_ACTIONS.join(', ')}`);
         }
@@ -207,7 +250,7 @@ export class ContactStore {
                 if (action === 'addTags') this.addTags(id, clean);
                 else if (action === 'removeTags') this.removeTags(id, clean);
                 else if (action === 'optOut') this.setOptOut(id, true, reason);
-                else if (action === 'optIn') this.setOptOut(id, false);
+                else if (action === 'optIn') this.setOptOut(id, false, reason, userId);
                 else this.remove(id);
                 result.affected += 1;
             }
@@ -256,7 +299,7 @@ export class ContactStore {
      * opt-out anywhere is kept (consent is never widened by a merge). The
      * merged rows are then deleted.
      */
-    merge(keepId, mergeIds) {
+    merge(keepId, mergeIds, userId = null) {
         const keep = this.#require(keepId);
         const ids = unique((Array.isArray(mergeIds) ? mergeIds : []).map(Number))
             .filter((id) => Number.isInteger(id) && id > 0 && id !== keep.id);
@@ -289,6 +332,12 @@ export class ContactStore {
                     `INSERT INTO opt_outs (tenant_id, phone, reason, opted_out_at) VALUES (?, ?, ?, ?)
                      ON CONFLICT(tenant_id, phone) DO NOTHING`)
                     .run(this.tenantId, keep.phone, reason, utcNow());
+            }
+            if (!optedOut && optedIn && keep.optInStatus !== 'opted_in') {
+                // The kept number inherits the consent: its proof names where it came from, in that one's words.
+                const from = others.find((o) => o.optInStatus === 'opted_in');
+                const words = from.optIn ? `${from.optIn.text} (merged from ${from.phone})` : `Merged from ${from.phone}`;
+                this.#recordOptIn(keep, 'merge', words, userId);
             }
             return { contact: this.get(keep.id), removed: others.map((o) => o.id) };
         });
@@ -339,15 +388,22 @@ export class ContactStore {
         const rows = this.db.prepare(
             `SELECT * FROM contacts WHERE ${sql} ORDER BY ${order} LIMIT ? OFFSET ?`)
             .all(...args, Math.min(Number(limit) || 500, 5000), Number(offset) || 0);
-        // One opt-out read for the page, not one per contact.
+        // One opt-out read and one opt-in proof read for the page, not one per contact.
         const contacts = rows.map(toContact);
         const outs = new Map();
+        const ins = new Map();
         if (contacts.length) {
+            const marks = contacts.map(() => '?').join(',');
+            const phones = contacts.map((c) => c.phone);
             for (const row of this.db.prepare(
-                `SELECT phone, reason, opted_out_at FROM opt_outs WHERE tenant_id = ? AND phone IN (${contacts.map(() => '?').join(',')})`)
-                .all(this.tenantId, ...contacts.map((c) => c.phone))) outs.set(row.phone, row);
+                `SELECT phone, reason, opted_out_at FROM opt_outs WHERE tenant_id = ? AND phone IN (${marks})`)
+                .all(this.tenantId, ...phones)) outs.set(row.phone, row);
+            // Oldest first, so the newest proof per number is the one left in the map.
+            for (const row of this.db.prepare(
+                `SELECT phone, source, consent_text, at FROM opt_ins WHERE tenant_id = ? AND phone IN (${marks}) ORDER BY id`)
+                .all(this.tenantId, ...phones)) ins.set(row.phone, row);
         }
-        return contacts.map((contact) => this.#decorate(contact, outs.get(contact.phone) ?? null));
+        return contacts.map((contact) => this.#decorate(contact, outs.get(contact.phone) ?? null, ins.get(contact.phone) ?? null));
     }
 
     count(filter = {}) {
@@ -500,22 +556,50 @@ export class ContactStore {
         return this.get(contact.id);
     }
 
-    /** Opt-out is the send path's authority, so reads report it alongside. */
+    /**
+     * One row of proof for a move to opted_in (the opt_ins table: append-only, the database refuses edits).
+     * `text` is the consent's own wording where there is one; otherwise a short description of the source.
+     */
+    #recordOptIn(contact, source, text = '', userId = null) {
+        const how = String(source || 'manual');
+        this.db.prepare(
+            `INSERT INTO opt_ins (tenant_id, phone, contact_id, source, consent_text, user_id, at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`)
+            .run(this.tenantId, contact.phone, contact.id, how,
+                String(text ?? '').trim().slice(0, 500) || OPT_IN_WORDING[how] || `Opted in via ${how}`,
+                Number.isInteger(userId) ? userId : null, utcNow());
+    }
+
+    /** Opt-out is the send path's authority, so reads report it alongside; and the latest opt-in proof. */
     #decorate(contact, optOut = this.db.prepare('SELECT reason, opted_out_at FROM opt_outs WHERE tenant_id = ? AND phone = ?')
+        .get(this.tenantId, contact.phone), optIn = this.db.prepare(
+        'SELECT source, consent_text, at FROM opt_ins WHERE tenant_id = ? AND phone = ? ORDER BY id DESC LIMIT 1')
         .get(this.tenantId, contact.phone)) {
         const optedOut = Boolean(optOut);
         return {
             ...contact, optedOut, messageable: !optedOut && contact.status === 'active',
             optOutReason: optOut?.reason ?? null, optedOutAt: optOut?.opted_out_at ?? null,
+            optIn: optIn ? { source: optIn.source, text: optIn.consent_text, at: optIn.at } : null,
         };
     }
 }
+
+/** Opted in and not opted out since: a further opt-in would prove nothing new. */
+const isOptedIn = (contact) => contact.optInStatus === 'opted_in' && !contact.optedOut;
+
+/** The proof's wording when the opt-in came with none of its own. */
+const OPT_IN_WORDING = Object.freeze({
+    manual: 'Marked opted in by a team member',
+    import: 'Imported as opted in',
+    api: 'Opted in through the API',
+    workflow: 'Opted in by a workflow',
+});
 
 /**
  * Turn a filter object into SQL.
  *
  * Supported keys: `tags` (all of), `anyTags` (any of), `notTags`, `status`,
- * `optInStatus`, `optedOut`, `source`, `search` (name, phone or email),
+ * `optInStatus`, `optedOut`, `notOnWhatsapp` (last send found no account), `source`, `search` (name, phone or email),
  * `custom` ({ key: value }), `createdAfter`, `createdBefore`, `ids` (hand-picked
  * contact ids, at most MAX_BULK; an empty list matches nobody, never everybody).
  */
@@ -566,6 +650,15 @@ export function buildWhere(filter = {}, tenantId) {
         clauses.push(`${filter.optedOut ? '' : 'NOT '}EXISTS (
             SELECT 1 FROM opt_outs
             WHERE opt_outs.tenant_id = contacts.tenant_id AND opt_outs.phone = contacts.phone)`);
+    }
+    if (filter.notOnWhatsapp) {
+        // The last word on the number was "not on WhatsApp": a later delivery means it has an account now. Both stored
+        // forms of the recipient (with or without "+") so the recipient index still serves the lookup.
+        clauses.push(`EXISTS (SELECT 1 FROM messages m
+            WHERE m.tenant_id = contacts.tenant_id AND m.recipient IN (contacts.phone, '+' || contacts.phone)
+              AND m.status = 'NOT_ON_WHATSAPP'
+              AND NOT EXISTS (SELECT 1 FROM messages s WHERE s.tenant_id = m.tenant_id AND s.recipient = m.recipient
+                              AND s.status IN ('SENT', 'DELIVERED', 'READ') AND s.updated_at > m.updated_at))`);
     }
     if (filter.search) {
         clauses.push('(contacts.name LIKE ? OR contacts.phone LIKE ? OR contacts.email LIKE ?)');

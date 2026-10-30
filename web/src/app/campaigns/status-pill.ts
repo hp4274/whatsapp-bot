@@ -60,7 +60,6 @@ const TONES: Readonly<Record<string, Tone>> = {
       font-weight: 500;
       line-height: 1.3;
       white-space: nowrap;
-      text-transform: capitalize;
       color: var(--tone);
       background: color-mix(in srgb, var(--tone) 12%, transparent);
     }

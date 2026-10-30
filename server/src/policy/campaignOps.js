@@ -34,6 +34,8 @@ const monthStart = (at) => new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth
 
 /** The tightest daily / monthly allowance left, or null when neither cap is set. */
 export function capRemaining(db, tenantId, rules, now = new Date(), zone = null) {
+    // An ended subscription (billing/store.js limitFor) has no allowance at all, whatever was sent.
+    if (rules.expired) return { cap: 0, period: 'monthly', left: 0, expired: true };
     const left = [];
     if (rules.dailyCap) {
         left.push({ cap: rules.dailyCap, period: 'daily',
@@ -48,8 +50,15 @@ export function capRemaining(db, tenantId, rules, now = new Date(), zone = null)
     return { ...tightest, left: Math.max(0, tightest.left) };
 }
 
-export const capReachedText = ({ period, cap }) =>
-    `Your business has reached its ${period} message cap of ${cap}. Sending resumes when the cap resets.`;
+/** Why a campaign is held at the cap. It resumes by itself (manager #pastQuotaPause) once there is room again. */
+export const capReachedText = ({ period, cap, expired }) => (expired
+    ? 'Your subscription has ended, so sending is paused. It resumes once the subscription is renewed.'
+    : `Your business has reached its ${period} message cap of ${cap}. Sending resumes when the cap resets.`);
+
+/** Why a single message is refused or dropped at the cap: unlike a held campaign, it never goes. */
+export const capRefusedText = ({ period, cap, expired }) => (expired
+    ? 'Not sent: your subscription has ended. Contact your provider to renew.'
+    : `Not sent: your business has reached its ${period} message cap of ${cap}. Send it again after the cap resets.`);
 
 /** Phones (digits) the contact book holds as not opted in. */
 export function notOptedIn(db, tenantId) {
@@ -129,7 +138,12 @@ function cached(fn, ms = 1000) {
 /** Wire one channel's manager to its tenant's rules. Called once per channel runtime. */
 export function attachCampaignPolicy(state, deps) {
     const { manager, db } = state;
-    const rules = () => bulkRules(deps.platformPolicy?.() ?? {}, state.limits?.() ?? {}, state.billing?.limitFor('messages') ?? null);
+    // Past grace nothing goes: limitFor is 0 then, and `expired` makes capRemaining say why instead of "a cap of 0".
+    const expired = () => state.billing?.subscription()?.state === 'expired';
+    const rules = () => ({
+        ...bulkRules(deps.platformPolicy?.() ?? {}, state.limits?.() ?? {}, state.billing?.limitFor('messages') ?? null),
+        expired: expired(),
+    });
     manager.bulkPolicy = () => {
         const r = rules();
         return {
@@ -142,13 +156,15 @@ export function attachCampaignPolicy(state, deps) {
     // The plan's message quota refuses every new send; bulk.monthlyCap stays campaign-only (#capBlocked).
     const quotaLeft = () => {
         const limit = state.billing?.limitFor('messages');
-        return limit == null ? null : capRemaining(db.db, db.tenantId, { monthlyCap: limit, quotaBlocked: limit === 0 });
+        return limit == null ? null
+            : capRemaining(db.db, db.tenantId, { monthlyCap: limit, quotaBlocked: limit === 0, expired: expired() });
     };
     const monthly = cached(quotaLeft);
     // `fresh`: the worker re-checks each row as it goes out, so a fan-out accepted under a stale count stops at the quota.
+    // A refused or dropped message is never sent later, so the text says so (capRefusedText), unlike a held campaign's.
     manager.capBlock = (fresh = false) => {
         const cap = fresh ? quotaLeft() : monthly();
-        return cap && cap.left <= 0 ? capReachedText(cap) : null;
+        return cap && cap.left <= 0 ? capRefusedText(cap) : null;
     };
     // Queued replies, workflow steps and reminders wait while their control is off (campaigns stop above).
     const controls = cached(() => deps.controls?.() ?? {});
@@ -243,7 +259,9 @@ export function createCampaignOpsRouter({ db, runtimes, runtimeFor, tenancy, pol
         let dropped = 0;
         let cancelled = 0;
         for (const { state } of runtime.runtimes.values()) {
-            const live = state.campaigns?.list({ limit: 1000 }).filter((c) => ['running', 'paused'].includes(c.status)) ?? [];
+            // The list is the whole tenant's; each number cancels only the runs it sends.
+            const live = state.campaigns?.list({ limit: 1000 })
+                .filter((c) => ['running', 'paused'].includes(c.status) && state.campaigns.owns(c)) ?? [];
             for (const c of live) {
                 state.campaigns.cancel(c.id, reason);
                 cancelled += 1;
@@ -285,7 +303,11 @@ export function createCampaignOpsRouter({ db, runtimes, runtimeFor, tenancy, pol
             for (const t of db.db.prepare(
                 `SELECT campaign_id, COUNT(*) AS total, SUM(status = 'FAILED') AS failed,
                         SUM(status IN (${marks}, 'SANDBOX')) AS sent
-                 FROM messages WHERE campaign_id IN (${keys.map(() => '?').join(',')}) GROUP BY campaign_id`)
+                 FROM messages m WHERE campaign_id IN (${keys.map(() => '?').join(',')})
+                   -- A failure a retry followed up is not a failure any more (campaigns/store.js stats).
+                   AND NOT (status = 'FAILED' AND EXISTS (SELECT 1 FROM messages x WHERE x.tenant_id = m.tenant_id
+                       AND x.campaign_id = m.campaign_id AND x.recipient = m.recipient AND x.rowid > m.rowid))
+                 GROUP BY campaign_id`)
                 .all(...SUCCESS_STATUSES, ...keys)) tally.set(t.campaign_id, t);
         }
         res.json({
@@ -315,12 +337,19 @@ export function createCampaignOpsRouter({ db, runtimes, runtimeFor, tenancy, pol
         const tenant = runtimeFor(row.tenant_id);
         const channel = (row.channel_id != null && tenant.channels.get?.(row.channel_id)) || tenant.channels.getDefault();
         if (!channel) return res.status(409).json({ errors: ['that business has no number to run the campaign on'] });
-        const store = tenant.runtimeFor(channel).state.campaigns;
+        const { state } = tenant.runtimeFor(channel);
+        const store = state.campaigns;
         try {
-            const campaign = action === 'cancel'
-                ? store.cancel(row.id, 'Cancelled by the platform administrator.')
-                : store[action](row.id);
-            audit(req, `campaign.admin_${action}`, row.id, { tenantId: row.tenant_id });
+            // The store acts on the manager only when it holds this run, so another campaign on the number is untouched.
+            const campaign = {
+                pause: () => store.pause(row.id, 'Paused by the platform admin.'),
+                resume: () => store.resume(row.id),
+                cancel: () => store.cancel(row.id, 'Cancelled by the platform administrator.'),
+            }[action]();
+            audit(req, `campaign.admin_${action}`, row.id, { tenantId: row.tenant_id, name: campaign.name });
+            // The business's open pages hear it too, not only the admin's.
+            state.broadcast?.({ type: { pause: 'campaignPaused', resume: 'campaignResumed', cancel: 'campaignCancelled' }[action], campaign });
+            if (action === 'cancel') state.broadcast?.({ type: 'historyDirty' });
             return res.json({ campaign });
         } catch (err) {
             if (typeof err?.status !== 'number') throw err;

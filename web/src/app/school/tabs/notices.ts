@@ -1,4 +1,4 @@
-import { DatePipe } from '@angular/common';
+import { DatePipe, TitleCasePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -32,7 +32,7 @@ export const KINDS: { id: NoticeKind; label: string; icon: string; tone: string 
  */
 @Component({
   selector: 'school-notices',
-  imports: [FormsModule, DatePipe, Tilt],
+  imports: [FormsModule, DatePipe, TitleCasePipe, Tilt],
   templateUrl: './notices.html',
   styleUrl: './notices.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

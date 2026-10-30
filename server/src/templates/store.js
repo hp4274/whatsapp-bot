@@ -336,7 +336,14 @@ export function compatibility(template, channel) {
 
 /** The variables a body actually references. */
 export function usedIn(body) {
-    return [...new Set([...String(body ?? '').matchAll(PLACEHOLDER)].map((m) => m[1]))];
+    const text = String(body ?? '');
+    const plain = new Set([...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]));
+    // `{key|…}` is a fallback only when the contact has `key` (protocol.js personalize); otherwise it is word choices
+    // ("{Hi|Hello}", "{20|30}% off"). Field names are lowercase, choices usually are not, so that decides it here.
+    const keys = [...text.matchAll(PLACEHOLDER)]
+        .filter((m) => !m[0].includes('|') || plain.has(m[1]) || /^[a-z][a-z0-9_]*$/.test(m[1]))
+        .map((m) => m[1]);
+    return [...new Set(keys)];
 }
 
 const cleanList = (list) => (Array.isArray(list)

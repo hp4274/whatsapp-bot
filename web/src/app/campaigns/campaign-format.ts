@@ -224,8 +224,10 @@ export function outcome(
   if (!r.attempted)
     return {
       tone: 'mute',
-      icon: status === 'cancelled' ? 'ban' : 'player-pause',
-      title: status === 'cancelled' ? 'Cancelled before anything was sent' : 'Paused before anything was sent',
+      icon: status === 'cancelled' ? 'ban' : status === 'paused' ? 'player-pause' : 'circle-check',
+      // A done run with nothing attempted closed because every recipient was skipped; its reason says why.
+      title: status === 'cancelled' ? 'Cancelled before anything was sent'
+        : status === 'paused' ? 'Paused before anything was sent' : 'Finished: nothing needed sending',
       detail: status === 'paused' ? 'Resume it to start sending.' : 'Nothing went out.',
     };
   const mostlyFailed = (r.failed ?? 0) >= 50;

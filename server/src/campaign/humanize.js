@@ -25,15 +25,17 @@ export const HELD_TYPES = Object.freeze(['campaign', 'workflow', 'reminder']);
  * linking: replies go out, bulk waits. Its gaps are level 1's, for the
  * one-to-one sends that still go.
  */
+// Levels 1-4 let every message of the day go to a new chat (user's call, 2026-10-31); from 5 on, new chats never drop
+// below level 4's 80, so a promotion never lowers a budget.
 export const LEVELS = Object.freeze([
     { level: 0, name: 'Resting', dailyLimit: 0, newChats: 0, perHour: 0, minSeconds: 90, maxSeconds: 300, quietHours: [6, 8], restEvery: 5, restMinMinutes: 45, restMaxMinutes: 60, links: 0, media: false, need: null },
-    { level: 1, name: 'First steps', dailyLimit: 10, newChats: 3, perHour: 5, minSeconds: 90, maxSeconds: 300, quietHours: [6, 8], restEvery: 5, restMinMinutes: 45, restMaxMinutes: 60, links: 0, media: false, need: { days: 0, delivered: 0, bulk: 0 } },
-    { level: 2, name: 'Settling in', dailyLimit: 20, newChats: 5, perHour: 8, minSeconds: 60, maxSeconds: 180, quietHours: [6, 8], restEvery: 8, restMinMinutes: 45, restMaxMinutes: 55, links: 0, media: false, need: { days: 3, delivered: 8, bulk: 0 } },
-    { level: 3, name: 'Building', dailyLimit: 40, newChats: 10, perHour: 10, minSeconds: 45, maxSeconds: 150, quietHours: [6, 8], restEvery: 10, restMinMinutes: 40, restMaxMinutes: 50, links: 0, media: false, need: { days: 6, delivered: 40, bulk: 0 } },
-    { level: 4, name: 'Growing', dailyLimit: 60, newChats: 15, perHour: 12, minSeconds: 40, maxSeconds: 120, quietHours: [5, 7], restEvery: 12, restMinMinutes: 40, restMaxMinutes: 50, links: 1, media: true, need: { days: 9, delivered: 100, bulk: 40 } },
-    { level: 5, name: 'Steady', dailyLimit: 100, newChats: 20, perHour: 15, minSeconds: 30, maxSeconds: 120, quietHours: [5, 7], restEvery: 15, restMinMinutes: 35, restMaxMinutes: 45, links: 1, media: true, need: { days: 12, delivered: 220, bulk: 90 } },
-    { level: 6, name: 'Trusted', dailyLimit: 150, newChats: 30, perHour: 20, minSeconds: 30, maxSeconds: 90, quietHours: [4, 5.5], restEvery: 20, restMinMinutes: 35, restMaxMinutes: 45, links: 1, media: true, need: { days: 17, delivered: 500, bulk: 200 } },
-    { level: 7, name: 'Established', dailyLimit: 200, newChats: 50, perHour: 30, minSeconds: 20, maxSeconds: 90, quietHours: [3, 4], restEvery: 30, restMinMinutes: 30, restMaxMinutes: 40, links: 1, media: true, need: { days: 24, delivered: 1000, bulk: 400 } },
+    { level: 1, name: 'First steps', dailyLimit: 20, newChats: 20, perHour: 8, minSeconds: 90, maxSeconds: 300, quietHours: [6, 8], restEvery: 5, restMinMinutes: 45, restMaxMinutes: 60, links: 0, media: false, need: { days: 0, delivered: 0, bulk: 0 } },
+    { level: 2, name: 'Settling in', dailyLimit: 35, newChats: 35, perHour: 10, minSeconds: 60, maxSeconds: 180, quietHours: [6, 8], restEvery: 8, restMinMinutes: 45, restMaxMinutes: 55, links: 0, media: false, need: { days: 3, delivered: 8, bulk: 0 } },
+    { level: 3, name: 'Building', dailyLimit: 55, newChats: 55, perHour: 12, minSeconds: 45, maxSeconds: 150, quietHours: [6, 8], restEvery: 10, restMinMinutes: 40, restMaxMinutes: 50, links: 0, media: false, need: { days: 6, delivered: 40, bulk: 0 } },
+    { level: 4, name: 'Growing', dailyLimit: 80, newChats: 80, perHour: 15, minSeconds: 40, maxSeconds: 120, quietHours: [5, 7], restEvery: 12, restMinMinutes: 40, restMaxMinutes: 50, links: 1, media: true, need: { days: 9, delivered: 100, bulk: 40 } },
+    { level: 5, name: 'Steady', dailyLimit: 100, newChats: 80, perHour: 15, minSeconds: 30, maxSeconds: 120, quietHours: [5, 7], restEvery: 15, restMinMinutes: 35, restMaxMinutes: 45, links: 1, media: true, need: { days: 12, delivered: 220, bulk: 90 } },
+    { level: 6, name: 'Trusted', dailyLimit: 150, newChats: 80, perHour: 20, minSeconds: 30, maxSeconds: 90, quietHours: [4, 5.5], restEvery: 20, restMinMinutes: 35, restMaxMinutes: 45, links: 1, media: true, need: { days: 17, delivered: 500, bulk: 200 } },
+    { level: 7, name: 'Established', dailyLimit: 200, newChats: 80, perHour: 30, minSeconds: 20, maxSeconds: 90, quietHours: [3, 4], restEvery: 30, restMinMinutes: 30, restMaxMinutes: 40, links: 1, media: true, need: { days: 24, delivered: 1000, bulk: 400 } },
     { level: 8, name: 'Proven', dailyLimit: 250, newChats: 80, perHour: 30, minSeconds: 20, maxSeconds: 60, quietHours: [3, 4], restEvery: 30, restMinMinutes: 35, restMaxMinutes: 45, links: 1, media: true, need: { days: 40, delivered: 2500, bulk: 1000 } },
     // 9-11 are sized so a full day fits the 12-hour recipient daytime: gaps (typing included), rests, and the
     // share of the quiet windows that lands in the day. About 30% of a day may go to new chats.
@@ -149,11 +151,12 @@ const healthText = (c) => `${c.rates.delivered}% delivered, ${c.rates.stuck}% st
  * remembered: no gate, demotion or probation). With it, a promotion needs good health (healthCheck), bad health
  * demotes, and a demotion starts probation; under `brakesMode` 'shadow' these are only noted (kind 'shadow'), never
  * applied. Returns the `state` to store and the `changes` to log: `{ kind ('level' | 'shadow'), reason, from, to,
- * text, daily }` (`daily`: logged once a day).
+ * text, daily }` (`daily`: logged once a day). `startSkipped`: the start came from skipping the questions (the plan's
+ * day), which only words its log line.
  */
 export function levelFor(ledger, {
     linkedAt = '', now = new Date(), dayStart = now, levels = LEVELS, brakes: b = BRAKES, cap = null, pin = null,
-    start = null, startedAt = '', state = null,
+    start = null, startedAt = '', state = null, startSkipped = false,
 } = {}) {
     const t = now.getTime();
     const seed = start == null ? {} : levels[Math.min(start, levels.length - 1)]?.need ?? {};
@@ -226,7 +229,12 @@ export function levelFor(ledger, {
                 `Strong engagement (${healthText(health)}) would lower the volume needs by 25%, reaching level ${boosted}.`, true);
         }
         if (earned > next.level) {
-            note('level', 'promote', next.level, earned, `Moved up to level ${earned} (${healthText(health)}).`);
+            // A jump no further than the start is the questions (or skipping them), not sends: no health to quote.
+            if (start != null && earned <= start) {
+                note('level', 'start', next.level, earned, startSkipped
+                    ? `Skipped the questions: started at level ${earned}, the plan's day.`
+                    : `Started at level ${earned} from the two questions about this number.`);
+            } else note('level', 'promote', next.level, earned, `Moved up to level ${earned} (${healthText(health)}).`);
             // demotedAt stays (see above); its passed checks keep probation over.
             next.level = earned;
         }
@@ -368,6 +376,11 @@ export function wallClock(at = new Date(), zone = null) {
 
 export const localDayKey = (at = new Date(), zone = null) => wallClock(at, zone).day;
 
+/**
+ * The most rest a day may hold (policy sending.levels quietHours). Up to 3 windows with 2 hours of sending kept
+ * between them; more than this leaves too little of the day to send in, and past 18 hours they cannot fit.
+ */
+export const MAX_QUIET_HOURS = 14;
 /** A rest shorter than this is not worth a pause; the day's total is split so none falls below it. */
 const MIN_WINDOW_MINUTES = 40;
 /** Sending time guaranteed between two rests. Each window keeps half of it clear on both sides of its slot. */
@@ -386,10 +399,17 @@ function quietWindows(random, total) {
     const weights = Array.from({ length: count }, () => 0.5 + random());
     const spare = total - count * MIN_WINDOW_MINUTES;
     const weightSum = weights.reduce((a, b) => a + b, 0);
-    const sizes = weights.map((w) => MIN_WINDOW_MINUTES + Math.floor((spare * w) / weightSum));
+    let sizes = weights.map((w) => MIN_WINDOW_MINUTES + Math.floor((spare * w) / weightSum));
     sizes[count - 1] += total - sizes.reduce((a, b) => a + b, 0);   // rounding remainder
     const slot = 1440 / count;
     const margin = MIN_GAP_MINUTES / 2;
+    // A long rest (policy quietHours up to MAX_QUIET_HOURS) with uneven weights can outgrow its slot, and the
+    // windows would overlap or start before midnight: split it evenly then, never beyond what the slots hold.
+    const room = slot - 2 * margin;
+    if (sizes.some((minutes) => minutes > room)) {
+        const fits = Math.min(total, count * room);
+        sizes = sizes.map((_, i) => Math.floor(fits / count) + (i < fits % count ? 1 : 0));
+    }
     return sizes.map((minutes, i) => ({
         start: Math.round(i * slot + margin + random() * (slot - 2 * margin - minutes)),
         minutes,
@@ -407,7 +427,8 @@ function quietWindows(random, total) {
 export function dayPlan(seed, tier, at = new Date(), zone = null) {
     const random = seeded(`${seed}|${localDayKey(at, zone)}`);
     const [lo, hi] = tier.quietHours;
-    const quietMinutes = Math.round((lo + random() * (hi - lo)) * 60);
+    // A table saved before the policy capped quietHours may still ask for more: clamp, as the validator does.
+    const quietMinutes = Math.round(Math.min(MAX_QUIET_HOURS, Math.max(0, lo + random() * (hi - lo))) * 60);
     const gapFactor = 0.8 + random() * 0.5;
     const windows = quietWindows(random, quietMinutes);
     return { gapFactor, quietStart: windows[0].start, quietMinutes, windows, zone };
@@ -558,12 +579,27 @@ export function localHour(zone, at = new Date()) {
 }
 
 /**
+ * A contact's own `timezone` custom field, when it is a real IANA zone; else null. Checked once at enqueue, so a
+ * typo falls back to the country code instead of throwing in every queue poll.
+ */
+export function contactZone(extra) {
+    const zone = String(extra?.timezone ?? '').trim();
+    if (!zone) return null;
+    try {
+        return new Intl.DateTimeFormat('en-GB', { timeZone: zone }).resolvedOptions().timeZone;
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Is it a sensible time to message this number? 9:00-21:00 where they live.
  * Unknown country = always yes. Outside it the message waits, it does not fail.
+ * `zone` (a contact's own, see contactZone) beats the country code: a US or Brazil code spans several zones.
  */
-export function isDaytimeFor(phone, at = new Date(), { from = BRAKES.daytimeFrom, to = BRAKES.daytimeTo } = {}) {
-    return zonesOf(phone).every((zone) => {
-        const hour = localHour(zone, at);
+export function isDaytimeFor(phone, at = new Date(), { from = BRAKES.daytimeFrom, to = BRAKES.daytimeTo, zone = null } = {}) {
+    return (zone ? [zone] : zonesOf(phone)).every((each) => {
+        const hour = localHour(each, at);
         return hour >= from && hour < to;
     });
 }

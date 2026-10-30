@@ -1,4 +1,4 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { DatePipe, DecimalPipe, TitleCasePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -42,7 +42,7 @@ interface FeeForm {
  */
 @Component({
   selector: 'school-fees',
-  imports: [FormsModule, DatePipe, DecimalPipe],
+  imports: [FormsModule, DatePipe, DecimalPipe, TitleCasePipe],
   templateUrl: './fees.html',
   styleUrl: './fees.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

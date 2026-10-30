@@ -14,7 +14,8 @@ import { CampaignStore, runningSpreadCampaigns } from '../src/campaigns/store.js
 import { ContactStore } from '../src/contactStore.js';
 import { Database } from '../src/db.js';
 
-const day = (offset) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+// The server's local day, as the store counts it (a UTC date is a day behind between midnight and 05:30 IST).
+const day = (offset) => dayKey(new Date(Date.now() + offset * 86_400_000));
 const list = (n) => Array.from({ length: n }, (_, i) => ({ name: `P${i}`, phone: `9198111${String(i).padStart(5, '0')}` }));
 
 describe('spread helpers', () => {

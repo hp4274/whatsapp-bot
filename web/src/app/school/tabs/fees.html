@@ -300,7 +300,7 @@
               <td class="num">{{ f.currency }} {{ f.amount | number }}</td>
               <td>{{ f.dueAt | date: 'd MMM' }}</td>
               <td>
-                <span class="s-pill" [class]="tone(f.status)">{{ f.status }}</span>
+                <span class="s-pill" [class]="tone(f.status)">{{ f.status | titlecase }}</span>
               </td>
               <td class="mono">{{ f.receiptNo || '-' }}</td>
               <td class="row-actions">

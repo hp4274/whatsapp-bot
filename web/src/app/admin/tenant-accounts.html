@@ -27,7 +27,7 @@
             <span class="muted">{{ user.email }}</span>
           </div>
           <span class="s-pill" [class.tone-mute]="user.disabled" [class.tone-info]="!user.disabled">
-            {{ user.disabled ? 'Disabled' : user.role }}
+            {{ user.disabled ? 'Disabled' : sentence(user.role) }}
           </span>
           <button
             class="btn sm"

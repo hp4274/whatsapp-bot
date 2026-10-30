@@ -161,7 +161,7 @@
   strong { margin-top: 4px; font-size: 13.5px; font-weight: 500; color: var(--text-strong); }
   small { font-size: 12px; line-height: 1.35; color: var(--text-muted); }
 
-  &:hover { transform: translateY(-2px) rotateX(3deg); border-color: var(--border-hover); box-shadow: var(--shadow-card); }
+  &:hover { transform: translateY(-2px); border-color: var(--border-hover); box-shadow: var(--shadow-card); }
   &:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
 
   &.on {

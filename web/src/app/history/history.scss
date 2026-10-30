@@ -4,6 +4,7 @@
 
 :host {
   display: grid;
+  @include s.fit-grid;
   gap: var(--space-xl);
   align-content: start;
   min-height: 0;
@@ -46,6 +47,7 @@
 
 table {
   width: 100%;
+  min-width: 860px;
   border-collapse: collapse;
   font-size: 13px;
 }
@@ -71,7 +73,7 @@ tbody td {
   padding: 12px var(--space-md);
   border-bottom: 1px solid var(--border-color);
   color: var(--text-color);
-  vertical-align: top;
+  vertical-align: middle;
 
   &:first-child { padding-left: var(--space-xl); }
   &:last-child { padding-right: var(--space-xl); }
@@ -90,15 +92,85 @@ tbody tr {
   white-space: nowrap;
 }
 
+/* Message and error share what the fixed columns leave: max-width 0 lets them shrink and ellipsize. */
 .message {
-  max-width: 380px;
+  width: 55%;
+  max-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.when,
+.name {
+  white-space: nowrap;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* One line per row: the full error is in the title. */
 .error {
-  max-width: 280px;
+  width: 30%;
+  max-width: 0;
+  min-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--danger-text);
-  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .filters :is(select, input) {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .filters .counts {
+    margin-left: 0;
+  }
+
+  /* Each message becomes a stacked card: number and status, then label/value lines. */
+  .table-wrap { max-height: none; overflow: visible; }
+  table, tbody { display: block; min-width: 0; }
+  thead { display: none; }
+
+  tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px var(--space-md);
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border-color);
+
+    &:last-child { border-bottom: 0; }
+  }
+
+  tbody td {
+    display: block;
+    padding: 0;
+    border: 0;
+
+    &:first-child, &:last-child { padding: 0; }
+  }
+
+  tbody td[data-label] {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: flex-end;
+    align-items: baseline;
+    gap: 6px;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    text-align: right;
+
+    &::before { margin-right: auto; padding-right: var(--space-md); content: attr(data-label); flex: none; color: var(--hint); font-size: 12px; text-align: left; }
+  }
+
+  .ph { grid-row: 1; grid-column: 1; align-self: center; font-size: 13px; }
+  .st { grid-row: 1; grid-column: 2; }
+  tbody td.error.none { display: none; }
+  tbody td:is(.message, .error) { white-space: normal; overflow-wrap: anywhere; }
 }

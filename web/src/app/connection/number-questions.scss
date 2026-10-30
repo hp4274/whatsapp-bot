@@ -22,6 +22,7 @@ p {
 }
 
 .nq {
+  @include s.fit-grid;
   display: grid;
   gap: var(--space-md);
 
@@ -140,7 +141,7 @@ p {
   box-shadow: var(--shadow-lift);
 
   &[open] { animation: nq-dlg-in 360ms var(--ease) both; }
-  &::backdrop { background: color-mix(in srgb, var(--text-strong) 45%, transparent); backdrop-filter: blur(4px); }
+  &::backdrop { background: var(--overlay); backdrop-filter: blur(4px); }
 
   form { display: grid; gap: 12px; }
   h3 { margin: 0; font-size: 17px; font-weight: 500; color: var(--text-strong); }

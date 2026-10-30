@@ -9,11 +9,13 @@
 @include s.buttons;
 
 :host {
+  @include s.fit-grid;
   display: grid;
   gap: var(--space-md);
 }
 
 .accounts {
+  @include s.fit-grid;
   display: grid;
   margin: 0;
   padding: 0;

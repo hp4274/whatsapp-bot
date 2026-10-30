@@ -51,7 +51,7 @@
   .s-pill { --tone: var(--accent); margin-top: 3px; padding: 2px 9px; }
 }
 
-/* The brand tile: a flat orange-tinted square that tips back in 3D on hover. */
+/* The brand tile: a flat green-tinted square. */
 .sp-mark {
   display: grid;
   place-items: center;
@@ -62,10 +62,6 @@
   color: var(--primary-text);
   background: var(--primary-tint);
   border: 1px solid color-mix(in srgb, var(--primary) 22%, transparent);
-  transform: perspective(300px) rotateY(-12deg) rotateX(6deg);
-  transition: transform var(--base) var(--ease);
-
-  &:hover { transform: none; }
 }
 
 .class-pick {

@@ -11,6 +11,7 @@
   --lift: 0px;
   position: relative;
   display: grid;
+  @include s.fit-grid;
   gap: var(--space-md);
   align-content: start;
   min-width: 0;
@@ -62,7 +63,8 @@
   border-radius: 999px;
   font-size: 12px;
   font-weight: 500;
-  color: #fff;
+  // Ink on the green fill: white on WhatsApp green is 2:1.
+  color: var(--brand-ink);
   background: var(--primary);
 
   .ti {
@@ -383,6 +385,11 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
+  }
+
+  // One sentence that wraps as text: as flex items, the bold part and the rest wrapped in two cramped columns.
+  .limit {
+    display: inline;
   }
 
   strong {

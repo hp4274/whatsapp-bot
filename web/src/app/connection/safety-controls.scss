@@ -1,5 +1,11 @@
+@use '../school/school-shared' as s;
+
+@include s.switch;
+@include s.drawer-keyframes;
+
 :host {
   display: grid;
+  @include s.fit-grid;
   gap: var(--space-md);
 }
 
@@ -75,27 +81,17 @@ p { margin: 0; }
 
 /* Drawer --------------------------------------------------------------- */
 .sc-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  background: color-mix(in srgb, var(--brand-ink) 45%, transparent);
-  backdrop-filter: blur(4px);
-  animation: sc-fade var(--base) var(--ease);
+  @include s.scrim;
 }
 
+/* The kit's flat slide from the right; header and footer stay put while the body scrolls. */
 .sc-drawer {
-  position: fixed;
-  inset: 0 0 0 auto;
-  z-index: 41;
-  display: grid;
+  @include s.drawer-panel(560px);
   grid-template-rows: auto minmax(0, 1fr) auto;
-  width: min(560px, 100vw);
-  background: var(--surface-card);
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
   color: var(--text-color);
-  border-left: 1px solid var(--border-color);
-  box-shadow: var(--shadow-lift);
-  transform-origin: right center;
-  animation: sc-in var(--base) var(--ease);
 
   header,
   footer {
@@ -142,7 +138,6 @@ p { margin: 0; }
   border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--danger) 8%, transparent);
-  perspective: 600px;
 
   strong { display: block; color: var(--danger-text); font-size: 15px; font-weight: 500; line-height: 1.4; }
   p { margin-top: 6px; font-size: 13px; line-height: 1.6; }
@@ -156,12 +151,11 @@ p { margin: 0; }
   height: 48px;
   border-radius: 14px;
   background: var(--danger);
-  color: #fff;
+  color: var(--on-fill);
   box-shadow: var(--shadow-sm);
-  transform-style: preserve-3d;
-  animation: sc-tip 700ms var(--ease) both, sc-hover 4s ease-in-out 700ms infinite;
+  animation: sc-tip 320ms var(--ease) both;
 
-  .ti { font-size: 26px; transform: translateZ(12px); }
+  .ti { font-size: 26px; }
 }
 
 .sc-terms {
@@ -217,6 +211,8 @@ p { margin: 0; }
   legend { padding: 0 0 6px; font-size: 13px; font-weight: 500; color: var(--hint); }
 }
 
+.sc-group-note { margin: 0 0 8px; font-size: 12px; color: var(--text-muted); }
+
 /* Form rows: label + hint left, control right, hairline between rows. */
 .sc-rows {
   border-top: 1px solid var(--border-color);
@@ -233,54 +229,21 @@ p { margin: 0; }
   .sc-label { display: grid; gap: 2px; min-width: 0; }
   label { font-size: 13px; font-weight: 500; color: var(--text-strong); }
   .hint { font-size: 12px; color: var(--text-muted); }
-  .sc-switch { justify-self: end; }
+  .switch { justify-self: end; }
   .sc-risk { grid-column: 1 / -1; }
 }
 
 .sc-platform { color: var(--hint); font-weight: 400; }
 
-/* Orange switch on a native checkbox: same input, same events, just painted. */
-.sc-switch {
-  appearance: none;
-  position: relative;
-  width: 40px;
-  height: 22px;
-  margin: 0;
-  padding: 0;
-  border: 1px solid var(--border-hover);
-  border-radius: 999px;
-  background: var(--surface-sunken);
-  cursor: pointer;
-  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
-
-  &::after {
-    content: '';
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: #fff;
-    box-shadow: var(--shadow-sm);
-    transition: transform var(--fast) var(--ease);
-  }
-
-  &:checked {
-    background: var(--primary);
-    border-color: var(--primary);
-
-    &::after { transform: translateX(18px); }
-  }
-}
 
 /* Changed from the platform: an accent edge. Risky: red edge + the reason in words. */
 .sc-row.changed input { border-color: var(--accent); }
-.sc-row.risky input:not(.sc-switch),
+.sc-row.risky input,
 .sc-row.risky select {
   border-color: var(--danger);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 16%, transparent);
 }
+.sc-row.risky .switch { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 30%, transparent); }
 
 .sc-risk {
   display: inline-flex;
@@ -293,21 +256,16 @@ p { margin: 0; }
   .ti { font-size: 14px; }
 }
 
-@keyframes sc-fade { from { opacity: 0; } }
-@keyframes sc-in { from { opacity: 0; transform: perspective(1200px) translateX(40px) rotateY(-8deg); } }
-@keyframes sc-tip { from { transform: rotateX(-70deg) translateY(-6px); opacity: 0; } }
-@keyframes sc-hover {
-  0%, 100% { transform: rotateY(-10deg) rotateX(6deg); }
-  50% { transform: rotateY(10deg) rotateX(-4deg); }
-}
+@keyframes sc-tip { from { transform: translateY(-6px); opacity: 0; } }
 
 @media (prefers-reduced-motion: reduce) {
   .sc-drawer, .sc-backdrop, .sc-shield { animation: none; }
 }
 
 @media (max-width: 560px) {
+  .sc-drawer { padding: 0; }
   .sc-drawer header, .sc-drawer footer, .sc-body { padding-inline: var(--space-lg); }
   .sc-drawer footer .spacer { display: none; }
   .sc-row { grid-template-columns: 1fr; }
-  .sc-row .sc-switch { justify-self: start; }
+  .sc-row .switch { justify-self: start; }
 }

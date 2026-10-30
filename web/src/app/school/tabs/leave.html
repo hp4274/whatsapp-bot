@@ -91,7 +91,7 @@
             [class.tone-warn]="r.status === 'pending'"
             [class.tone-ok]="r.status === 'approved'"
             [class.tone-bad]="r.status === 'rejected'"
-            >{{ r.status }}</span
+            >{{ r.status | titlecase }}</span
           >
         </div>
         <div class="dates">

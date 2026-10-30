@@ -14,6 +14,7 @@ import type { Tenant } from '../core/auth';
 import { Tilt } from '../school/tilt';
 import {
   PLAN_LIMIT_FIELDS,
+  PLAN_QUOTA_FIELDS,
   Plan,
   PlansApi,
   SubscriptionState,
@@ -24,6 +25,7 @@ import {
 } from './plans-api';
 import { PolicyEditor } from './policy-editor';
 import { serviceMeta } from './service-meta';
+import { sentenceCase } from './text';
 
 /** The plan being edited; `isNew` unlocks the key field (keys are immutable ids). */
 type PlanEditor = { isNew: boolean; plan: Plan };
@@ -49,6 +51,8 @@ const BLANK_PLAN: Plan = {
     maxMediaMb: 0,
     allowWhatsappWeb: true,
   },
+  // Unlimited until the admin sets one, as the server reads a missing quota.
+  limits: { messagesPerMonth: null, apiRequests: null, storageMb: null },
   active: true,
 };
 
@@ -78,6 +82,8 @@ export class PlansView {
   private readonly tenancy = inject(TenancyApi);
   private readonly destroyRef = inject(DestroyRef);
 
+  /** Pill labels are sentence case: "past_due" reads "Past due". */
+  protected readonly sentence = sentenceCase;
   protected readonly tab = signal<'plans' | 'subs'>('plans');
   protected readonly loading = signal(true);
   protected readonly error = signal('');
@@ -86,6 +92,7 @@ export class PlansView {
   protected readonly tenants = signal<Tenant[]>([]);
   protected readonly skeleton = SKELETON;
   protected readonly limitFields = PLAN_LIMIT_FIELDS;
+  protected readonly quotaFields = PLAN_QUOTA_FIELDS;
 
   protected readonly editor = signal<PlanEditor | null>(null);
   protected readonly saving = signal(false);
@@ -214,6 +221,14 @@ export class PlansView {
     this.patch({ tenantLimits: { ...e.plan.tenantLimits, [key]: v } });
   }
 
+  /** Empty = unlimited (null); a number, 0 included, is the cap. */
+  protected patchQuota(key: keyof Plan['limits'], raw: string) {
+    const e = this.editor();
+    if (!e) return;
+    const v = raw.trim() === '' ? null : Math.max(0, Math.floor(Number(raw) || 0));
+    this.patch({ limits: { ...e.plan.limits, [key]: v } });
+  }
+
   protected toggleService(service: string) {
     const e = this.editor();
     if (!e) return;
@@ -332,9 +347,5 @@ export class PlansView {
 
   protected serviceIcon(key: string): string {
     return serviceMeta(key).icon;
-  }
-
-  protected checked(event: Event): boolean {
-    return (event.target as HTMLInputElement).checked;
   }
 }

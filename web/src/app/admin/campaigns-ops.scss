@@ -1,4 +1,4 @@
-/* Bulk campaigns panel: a kill-switch card with a tipped badge, the section header with the
+/* Bulk campaigns panel: a kill-switch card with a danger badge, the section header with the
  * status segments, one hairline card holding the table, and a native confirm dialog. */
 @use '../school/school-shared' as s;
 
@@ -14,9 +14,9 @@
 
 :host { display: block; }
 
-.panel { display: grid; gap: var(--space-lg); }
+.panel { @include s.fit-grid; display: grid; gap: var(--space-lg); }
 
-// Danger badge tipped in perspective with an offset tone shadow, same touch as the dialog badges.
+// Danger badge, same as the dialog badge.
 %badge {
   --tone: var(--danger-text);
   display: grid;
@@ -25,7 +25,6 @@
   border-radius: 14px;
   background: color-mix(in srgb, var(--tone) 12%, transparent);
   color: var(--tone);
-  transform: perspective(300px) rotateX(12deg) rotateY(-10deg);
 }
 
 .kill {
@@ -46,9 +45,7 @@
     width: 52px;
     height: 52px;
     font-size: 26px;
-    transition: transform 380ms var(--ease);
   }
-  &:hover .badge { transform: perspective(300px) rotateX(4deg) rotateY(-4deg) translateY(-2px); }
   &.on { border-color: color-mix(in srgb, var(--danger-text) 50%, var(--border-color)); }
 
   > .btn { margin-left: auto; align-self: center; }
@@ -139,7 +136,9 @@
   box-shadow: var(--shadow-lift);
 
   &[open] { animation: dlg-in 360ms var(--ease) both; }
-  &::backdrop { background: color-mix(in srgb, var(--text-strong) 45%, transparent); backdrop-filter: blur(4px); }
+  // showModal() can focus the dialog itself; the card needs no ring, its controls keep theirs.
+  &:focus-visible { outline: none; }
+  &::backdrop { background: var(--overlay); backdrop-filter: blur(4px); }
 
   form { display: grid; gap: 12px; }
   h3 { margin: 0; font-size: 17px; font-weight: 500; color: var(--text-strong); }
@@ -156,12 +155,11 @@
 .dlg-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 
 @keyframes dlg-in {
-  from { opacity: 0; transform: perspective(900px) translateY(16px) rotateX(-10deg) scale(0.97); }
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
   to { opacity: 1; transform: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .dlg[open],
   .kill { animation: none; }
-  .kill .badge { transition: none; }
 }

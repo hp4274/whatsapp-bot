@@ -86,4 +86,59 @@ describe('changing a channel number', () => {
             db.close();
         }
     });
+
+    it('asks a new phone the two questions, but not a phone that answered here before (unless banned since)', async () => {
+        const db = new Database(path.join(tmp, 'q.db'));
+        const sock = { ev: new EventEmitter(), user: { id: '919876543210:7@s.whatsapp.net' }, async end() {}, async logout() {} };
+        const createSocket = async () => {
+            setImmediate(() => sock.ev.emit('connection.update', { connection: 'open' }));
+            return sock;
+        };
+        const config = { ...DEFAULTS, transport: TRANSPORT_BAILEYS, safetyEnabled: true, humanTiming: false };
+        delete config.misc;
+        const dataDir = fs.mkdtempSync(path.join(tmp, 'app-'));
+        const app = createTestApp({ db, config, dataDir, deps: { sessionDir: dataDir, setTimeoutFn: (fn) => setTimeout(fn, 0), createSocket } });
+        const second = () => new Promise((resolve) => setTimeout(resolve, 1100)); // stamps are to the second
+        try {
+            const tenant = app.locals.runtimeFor(1);
+            const channel = tenant.channels.getDefault();
+            const { state } = tenant.runtimeFor(channel);
+            const ops = app.locals.channelOps;
+            await state.connect();
+            const link = (account) => state.transport.events.emit('ready', { connected: true, account });
+            const asked = () => {
+                state.manager.quota.invalidate();
+                return state.manager.quota.allowance().asked;
+            };
+
+            link('919876543210');
+            ops.setStart(channel.id, 5, { age: 2, usage: 2 });
+            assert.equal(asked(), true, 'phone A answered');
+
+            await second();
+            link('917000000001');
+            assert.equal(asked(), false, 'phone B is new on this channel: asked');
+            ops.setStart(channel.id, 3, { age: 1, usage: 1 });
+
+            await second();
+            link('919876543210');
+            assert.equal(asked(), true, 'phone A came back: not asked again');
+            assert.equal(ops.startOf(channel.id).level, 5, 'with its own answers');
+
+            await second();
+            link('917000000001');
+            assert.equal(ops.startOf(channel.id).level, 3, 'and B gets its own back too');
+
+            await second();
+            db.forTenant(1).forChannel(channel.id).db.prepare(
+                `INSERT INTO safety_events (tenant_id, channel_id, kind, phone, at) VALUES (1, ?, 'ban', '', ?)`)
+                .run(channel.id, new Date().toISOString().replace(/\.\d{3}Z$/, '+00:00'));
+            await second();
+            link('919876543210');
+            assert.equal(asked(), false, 'a ban on this channel since A answered: asked again');
+        } finally {
+            await closeApp(app);
+            db.close();
+        }
+    });
 });

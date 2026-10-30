@@ -166,6 +166,18 @@ describe('analytics overview', () => {
         assert.equal(totals.byType.reminder, 1);
     });
 
+    it('does not count a cancelled or never-sent row as sent', () => {
+        const quiet = db.forTenant(1).forChannel(98);
+        send(quiet, { status: 'SENT' });
+        send(quiet, { status: 'CANCELLED' });
+        send(quiet, { status: 'NOT_ON_WHATSAPP' });
+        const { totals } = overview(30, 1, 98);
+        assert.equal(totals.total, 3);
+        assert.equal(totals.attempted, 1);
+        assert.equal(totals.sent, 1);
+        assert.equal(totals.byStatus.CANCELLED, 1, 'still listed by status');
+    });
+
     it('returns one zero-filled point per UTC day in the range', () => {
         const { daily, totals } = overview(30);
         assert.equal(daily.length, 30);

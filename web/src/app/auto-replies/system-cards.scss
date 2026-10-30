@@ -1,4 +1,4 @@
-:host { display: grid; gap: var(--space-md); }
+:host { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-md); }
 
 .bar {
   display: flex;
@@ -70,7 +70,7 @@
   animation-delay: calc(var(--i, 0) * 60ms);
 
   &:hover {
-    transform: translateY(-3px) rotateX(2deg);
+    transform: translateY(-3px);
     border-color: var(--border-hover);
     box-shadow: var(--shadow-lift);
   }
@@ -113,7 +113,10 @@
 
 .snip {
   margin: 8px 0 0;
-  padding: 9px 12px;
+  // Vertical space as a transparent border, not padding: the line clamp clips at the padding box, so padding let
+  // half of a third line show through under the second.
+  padding: 0 12px;
+  border-block: 9px solid transparent;
   border-radius: 4px 12px 12px 12px;
   font-size: 12.5px;
   line-height: 1.45;

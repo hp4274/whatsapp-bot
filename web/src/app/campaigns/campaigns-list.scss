@@ -13,6 +13,7 @@
 
 :host {
   display: grid;
+  @include s.fit-grid;
   gap: var(--space-lg);
   align-content: start;
   min-width: 0;
@@ -284,14 +285,19 @@ a.btn { text-decoration: none; }
 .list { padding-block: 8px; }
 
 .s-table {
-  table { min-width: 860px; }
+  table { min-width: 820px; }
   td { vertical-align: middle; }
   tbody tr.live td:first-child { box-shadow: inset 2px 0 0 var(--info); }
   tr.none:hover { background: none; }
   tr.none td { white-space: normal; }
 }
 
+/* The one column that wraps, so the actions never get pushed out of the card. */
+.s-table td.name { white-space: normal; }
 .name {
+  min-width: 120px;
+  white-space: normal;
+
   a {
     color: var(--text-strong);
     font-weight: 500;
@@ -304,14 +310,69 @@ a.btn { text-decoration: none; }
 
 .rel { display: block; margin-top: 2px; font-size: 11.5px; font-weight: 500; color: var(--accent); }
 .mono { font-family: var(--mono); white-space: nowrap; font-size: 12px; }
+.when { font-size: 13px; white-space: nowrap; }
+td.num { font-variant-numeric: tabular-nums; }
 .good { color: var(--success); font-weight: 500; }
 .bad { color: var(--danger-text); font-weight: 500; }
 
 .idx { width: 1%; color: var(--hint); text-align: right; font-variant-numeric: tabular-nums; }
 /* The flex row lives in a wrapper: display:flex on the <td> itself drops it out of the table row and breaks borders/heights. */
 .actions-cell { width: 1%; }
-.actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; flex-wrap: nowrap; }
+.actions {
+  display: grid;
+  grid-template-columns: 88px 88px repeat(3, 32px);
+  grid-template-areas: 'run stop edit copy open';
+  align-items: center;
+  gap: 6px;
+
+  .a-run { grid-area: run; justify-self: start; }
+  .a-stop { grid-area: stop; justify-self: start; }
+  .a-edit { grid-area: edit; }
+  .a-copy { grid-area: copy; }
+  .a-open { grid-area: open; }
+}
 .actions-col { width: 1%; }
+
+/* A phone: each campaign is a stacked card — name and status, then label/value lines, then the actions. */
+@media (max-width: 720px) {
+  .list { padding: 6px 16px; }
+  .s-table {
+    overflow: visible;
+    margin: 0;
+    padding: 0;
+
+    table, tbody { display: block; min-width: 0; }
+    thead { display: none; }
+    tbody tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px var(--space-md);
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border-color);
+      &:last-child { border-bottom: 0; }
+      &:hover { background: none; }
+    }
+    tbody tr.live td:first-child { box-shadow: none; }
+    td { display: block; padding: 0; border: 0; white-space: normal; }
+    td[data-label] {
+      grid-column: 1 / -1;
+      display: flex;
+      justify-content: flex-end;
+      align-items: baseline;
+      gap: 6px;
+      text-align: right;
+      &::before { margin-right: auto; padding-right: var(--space-md); content: attr(data-label); color: var(--hint); font-size: 12px; text-align: left; }
+    }
+    .idx { display: none; }
+    .name { grid-row: 1; grid-column: 1; align-self: center; min-width: 0; overflow-wrap: anywhere; }
+    .status { grid-row: 1; grid-column: 2; align-self: center; }
+    .rel { display: inline; margin-left: 6px; }
+    .actions-cell { grid-column: 1 / -1; width: auto; padding-top: 6px; }
+    tr.none { display: block; }
+  }
+  .result { white-space: normal; .mini { margin-left: auto; } }
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; .a-run, .a-stop { order: -1; } }
+}
 
 .pager {
   display: flex;
@@ -362,4 +423,16 @@ a.btn { text-decoration: none; }
     background: var(--info);
     transition: width var(--base) var(--ease);
   }
+}
+
+/* The reason under a paused, held or closed run's pill: one line, the rest in the tooltip. */
+.status .why {
+  display: block;
+  max-width: 24ch;
+  margin-top: 4px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

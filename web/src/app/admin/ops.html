@@ -26,7 +26,32 @@
 }
 
 @if (kind() === 'audit') {
-  <app-ops-audit />
+  <!-- Two views of one question, "what happened": people's changes, and the server's own log lines. -->
+  <div class="seg view-tabs" role="tablist" aria-label="Audit view">
+    <button
+      type="button"
+      role="tab"
+      [attr.aria-selected]="auditTab() === 'activity'"
+      [class.on]="auditTab() === 'activity'"
+      (click)="setTab('activity')"
+    >
+      <i class="ti ti-list-details" aria-hidden="true"></i> Activity
+    </button>
+    <button
+      type="button"
+      role="tab"
+      [attr.aria-selected]="auditTab() === 'logs'"
+      [class.on]="auditTab() === 'logs'"
+      (click)="setTab('logs')"
+    >
+      <i class="ti ti-terminal-2" aria-hidden="true"></i> Backend logs
+    </button>
+  </div>
+  @if (auditTab() === 'logs') {
+    <app-ops-logs [requestId]="requestId()" (clearRequest)="clearRequest()" />
+  } @else {
+    <app-ops-audit />
+  }
 } @else if (loading()) {
   <div class="skel-list" aria-busy="true" aria-label="Loading">
     @for (n of [1, 2, 3]; track n) {
@@ -245,18 +270,28 @@
             <li><i class="dot bad"></i>Failed</li>
           </ul>
         </div>
-        <div class="plot big">
-          <ngx-charts-bar-vertical-stacked
-            [results]="heroSeries()"
-            [scheme]="heroScheme"
-            [xAxis]="true"
-            [yAxis]="true"
-            [showGridLines]="true"
-            [gradient]="false"
-            [barPadding]="10"
-            [noBarWhenZero]="true"
-            [animations]="true"
-          />
+        @let h = hero();
+        <div class="chart" role="img" [attr.aria-label]="'Messages per day, ' + u.days[0] + ' to ' + u.days.at(-1)">
+          <div class="scale" aria-hidden="true">
+            @for (t of h.ticks; track t.value) {
+              <span [style.bottom.%]="t.pct"><i>{{ t.value }}</i></span>
+            }
+          </div>
+          <div class="cols" aria-hidden="true">
+            @for (d of h.days; track d.day) {
+              <div class="col" [title]="d.day + ': ' + d.sent + ' sent, ' + d.failed + ' failed'">
+                <span class="stack">
+                  @if (d.failed) {
+                    <span class="b bad" [style.height.%]="d.failedPct"></span>
+                  }
+                  @if (d.sent) {
+                    <span class="b ok" [style.height.%]="d.sentPct"></span>
+                  }
+                </span>
+                <small [class.hide]="!d.showLabel">{{ d.label }}</small>
+              </div>
+            }
+          </div>
         </div>
         <span class="muted range">{{ u.days[0] }} to {{ u.days.at(-1) }}</span>
       </section>
@@ -269,21 +304,30 @@
               <div>
                 <strong>{{ t.name }}</strong>
                 <span class="muted"
-                  >{{ t.campaigns }} campaigns, {{ t.autoReplies }} auto-replies,
+                  >{{ t.campaigns }} {{ t.campaigns === 1 ? 'campaign' : 'campaigns' }}, {{ t.autoReplies }}
+                  {{ t.autoReplies === 1 ? 'auto-reply' : 'auto-replies' }},
                   {{ t.media }} media (30 days)</span
                 >
               </div>
             </div>
-            <div class="plot mini" [attr.aria-label]="t.daily.length + '-day volume'">
-              <ngx-charts-area-chart
-                [results]="tenantSeries().get(t.tenantId) ?? []"
-                [scheme]="miniScheme"
-                [xAxis]="false"
-                [yAxis]="false"
-                [legend]="false"
-                [gradient]="true"
-                [animations]="false"
-              />
+            <div class="plot mini" role="img" [attr.aria-label]="t.daily.length + '-day volume'">
+              @if (sparks().get(t.tenantId); as sp) {
+                <svg
+                  class="spark"
+                  [class.flat]="sp.flat"
+                  [attr.viewBox]="'0 0 ' + sparkBox.w + ' ' + sparkBox.h"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  @if (sp.area) {
+                    <path class="area" [attr.d]="sp.area" />
+                  }
+                  <path class="line" [attr.d]="sp.line" />
+                  @if (sp.dot) {
+                    <path class="dot" [attr.d]="sp.dot" />
+                  }
+                </svg>
+              }
             </div>
             <div
               class="bars"
@@ -354,14 +398,18 @@
             {{ hc.waiting }} messages waiting
           </p>
         </div>
-        <label class="toggle"
-          ><input
-            type="checkbox"
-            [checked]="problemsOnly()"
-            (change)="problemsOnly.set(!problemsOnly())"
-          />
-          Problems only</label
-        >
+        <label class="toggle">
+          <button
+            type="button"
+            role="switch"
+            class="switch"
+            [attr.aria-checked]="problemsOnly()"
+            (click)="problemsOnly.set(!problemsOnly())"
+          >
+            <span class="thumb"></span>
+          </button>
+          Problems only
+        </label>
       </div>
       <p class="backup-line" [class.bad]="!backup()?.ok">
         @if (backup(); as b) {
@@ -388,7 +436,7 @@
         <div class="stat bad" style="--i: 2">
           <small>Need attention</small><b>{{ hc.bad + hc.warn }}</b>
         </div>
-        <div class="stat" style="--i: 3">
+        <div class="stat mute" style="--i: 3">
           <small>Disabled</small><b>{{ hc.off }}</b>
         </div>
       </div>
@@ -410,7 +458,7 @@
         track c.tenantId + '-' + c.id;
         let i = $index
       ) {
-        <article [class]="'row chan sev-' + c.severity" [style.--i]="i < 12 ? i : 12">
+        <article [class]="'row chan sev-' + c.severity + ' st-' + c.state" [style.--i]="i < 12 ? i : 12">
           <div class="who">
             <span [class]="'state-ic ' + c.state" aria-hidden="true"
               ><i class="ti ti-{{ stateCopy(c.state).icon }}" aria-hidden="true"></i

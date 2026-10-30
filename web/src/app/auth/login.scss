@@ -46,7 +46,13 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
 // Inset by 10px so the wash reads as a card inside the frame rather than a
 // block bolted to its edge.
 .aside {
-  --wash: linear-gradient(140deg, #f4f2fb 0%, #fbf3ec 55%, #fdece0 100%);
+  // Violet into brand green, mixed from tokens so the dark theme follows (the old wash was Kardlyz's peach).
+  --wash: linear-gradient(
+    140deg,
+    color-mix(in srgb, var(--accent) 9%, var(--surface-card)) 0%,
+    color-mix(in srgb, var(--primary) 6%, var(--surface-card)) 55%,
+    color-mix(in srgb, var(--primary) 16%, var(--surface-card)) 100%
+  );
   --gleam-x: 50%;
   --gleam-y: 0%;
 
@@ -61,9 +67,6 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
   background: var(--wash);
   perspective: 900px;
 
-  :host-context([data-theme='dark']) & {
-    --wash: linear-gradient(140deg, #0e1426 0%, #131a33 55%, #2a1c16 100%);
-  }
 
   @media (min-width: $lg) {
     display: flex;
@@ -85,7 +88,7 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
   background: radial-gradient(
     420px circle at var(--gleam-x) var(--gleam-y),
-    rgba(255, 255, 255, 0.55),
+    color-mix(in srgb, var(--surface-card) 55%, transparent),
     transparent 60%
   );
   transition: background 120ms linear;
@@ -93,7 +96,7 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
   :host-context([data-theme='dark']) & {
     background: radial-gradient(
       420px circle at var(--gleam-x) var(--gleam-y),
-      rgba(37, 211, 102, 0.12),
+      color-mix(in srgb, var(--primary) 12%, transparent),
       transparent 60%
     );
   }
@@ -104,7 +107,7 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
   position: absolute;
   pointer-events: none;
   border-radius: 64px;
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  border: 1px solid color-mix(in srgb, var(--surface-card) 70%, transparent);
   animation: drift 14s $ease infinite alternate;
 
   &.one {
@@ -112,7 +115,11 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
     right: -60px;
     width: 300px;
     height: 300px;
-    background: linear-gradient(150deg, rgba(37, 211, 102, 0.16), rgba(37, 211, 102, 0.04));
+    background: linear-gradient(
+      150deg,
+      color-mix(in srgb, var(--primary) 16%, transparent),
+      color-mix(in srgb, var(--primary) 4%, transparent)
+    );
     transform: rotateX(18deg) rotateZ(22deg);
   }
 
@@ -121,13 +128,17 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
     left: -70px;
     width: 280px;
     height: 280px;
-    background: linear-gradient(150deg, rgba(95, 104, 171, 0.14), rgba(95, 104, 171, 0.03));
+    background: linear-gradient(
+      150deg,
+      color-mix(in srgb, var(--accent) 14%, transparent),
+      color-mix(in srgb, var(--accent) 3%, transparent)
+    );
     transform: rotateY(-16deg) rotateZ(-16deg);
     animation-delay: -7s;
   }
 
   :host-context([data-theme='dark']) & {
-    border-color: rgba(148, 178, 235, 0.14);
+    border-color: var(--border-color);
     box-shadow: none;
   }
 }
@@ -217,7 +228,7 @@ h1 {
     }
 
     &:hover {
-      transform: translateY(-3px) rotateX(4deg);
+      transform: translateY(-3px);
       box-shadow: var(--shadow-lift);
     }
   }
@@ -244,7 +255,7 @@ h1 {
 
   .first & {
     background: var(--primary);
-    color: #fff;
+    color: var(--brand-ink); // white on the green fill is ~2:1
   }
 }
 
@@ -342,7 +353,7 @@ h1 {
   }
 
   &.error {
-    background: rgba(239, 68, 68, 0.08);
+    background: var(--danger-soft);
     color: var(--danger-text);
   }
 
@@ -468,7 +479,7 @@ h1 {
 
   &:hover:not(:disabled) {
     background: var(--primary);
-    color: #fff;
+    color: var(--brand-ink);
 
     .ti {
       transform: translateX(3px);

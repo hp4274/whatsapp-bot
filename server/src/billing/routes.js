@@ -15,6 +15,7 @@
 
 import express from 'express';
 
+import { stricterCap } from '../templates/policy.js';
 import { BillingStore, periodOf } from './store.js';
 
 export function createBillingRouter({ db, state }) {
@@ -37,6 +38,29 @@ export function createBillingRouter({ db, state }) {
         const period = String(req.query.period ?? periodOf(new Date()));
         if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ errors: ['period must be YYYY-MM'] });
         return res.json({ usage: billing.usage({ period }) });
+    });
+
+    /**
+     * The business's own quota, for every plan: /billing/* needs the analytics
+     * service, which the smallest plan does not sell, and that is the plan most
+     * likely to hit its limits.  Adds the tenant limits a business also runs
+     * into (templates, team seats), counted the way their routes enforce them.
+     */
+    router.get('/plan-usage', (req, res) => {
+        const limits = state?.limits?.() ?? {};
+        const row = (metric, used, cap) => {
+            const limit = cap ? Number(cap) : null;
+            return { metric, used, limit, remaining: limit === null ? null : Math.max(0, limit - used) };
+        };
+        const usage = billing.usage();
+        const extra = [];
+        if (state?.templates) {
+            const cap = stricterCap(limits.maxTemplates, state.platformPolicy?.()?.['templates.maxTemplates']);
+            extra.push(row('templates', state.templates.list().length, cap));
+        }
+        // Team seats: a disabled user holds none (app.js team routes), which is what agents counts.
+        extra.push(row('users', billing.used('agents'), limits.maxUsers));
+        return res.json({ usage: { ...usage, metrics: [...usage.metrics, ...extra] }, subscription: billing.subscription() });
     });
 
     router.get('/billing/usage/history', (req, res) => {

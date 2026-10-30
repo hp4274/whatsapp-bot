@@ -1,4 +1,7 @@
 @use 'ops-kit';
+@use '../school/school-shared' as s;
+
+@include s.switch;
 
 :host { display: block; }
 
@@ -47,10 +50,11 @@
     color: var(--text-strong);
   }
   em { display: block; margin-top: 6px; font-style: normal; font-size: 12px; color: var(--text-muted); }
+  &.mute { --tone: var(--text-muted); }
 }
 
 /* Rows ----------------------------------------------------------------- */
-.list { display: grid; gap: var(--space-md); }
+.list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-md); }
 .row {
   display: grid;
   gap: var(--space-md);
@@ -192,8 +196,59 @@
   li { display: inline-flex; align-items: center; gap: 6px; }
   .dot { width: 9px; height: 9px; border-radius: 3px; background: var(--success); &.bad { background: var(--danger); } }
 }
-/* ngx-charts sizes itself to its parent, so the parent needs a real height. */
-.plot { min-width: 0; position: relative; &.big { height: 240px; } &.mini { height: 56px; } }
+.plot { min-width: 0; position: relative; &.mini { height: 48px; } }
+
+// Platform chart: hairline scale behind one stacked column per day; labels sit in a 24px row under the columns.
+.chart {
+  position: relative;
+  height: 240px;
+  padding-left: 34px;
+}
+.scale {
+  position: absolute;
+  inset: 0 0 24px 34px;
+  span { position: absolute; left: 0; right: 0; border-top: 1px solid var(--border-color); }
+  i {
+    position: absolute;
+    right: calc(100% + 8px);
+    translate: 0 -50%;
+    font-size: 11px;
+    font-style: normal;
+    color: var(--hint);
+    font-variant-numeric: tabular-nums;
+  }
+}
+.cols {
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 6px;
+  height: 100%;
+}
+.col {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 24px;
+  justify-items: center;
+  min-width: 0;
+
+  .stack { display: flex; flex-direction: column; justify-content: flex-end; width: min(100%, 40px); height: 100%; }
+  .b { display: block; flex: none; background: var(--success); transition: height 700ms var(--ease); }
+  .b.bad { background: var(--danger); }
+  .b:first-child { border-radius: 6px 6px 0 0; }
+  &:hover .b { opacity: 0.85; }
+  small { align-self: end; font-size: 11px; color: var(--hint); white-space: nowrap; &.hide { visibility: hidden; } }
+}
+.spark {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  path { fill: none; stroke: var(--primary); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .area { fill: color-mix(in srgb, var(--primary) 14%, transparent); stroke: none; }
+  .dot { stroke-width: 7; }
+  &.flat .line { stroke: var(--border-hover); }
+}
 .usage {
   grid-template-columns: 34px minmax(160px, 1fr) minmax(140px, 240px);
   grid-template-areas: 'rank who plot' 'bars bars bars' 'legend legend legend';
@@ -266,7 +321,7 @@
   .ti { font-size: 16px; color: var(--success); }
   &.bad .ti { color: var(--danger-text); }
 }
-.toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; cursor: pointer; input { width: 16px; height: 16px; } }
+.toggle { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 500; color: var(--text-strong); cursor: pointer; }
 .pick { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 var(--space-lg); font-size: 13px; select { width: auto; padding-block: 6px; padding-inline-start: 10px; } }
 
 .chan {
@@ -277,6 +332,8 @@
   &.sev-warn { --tone: var(--warning); }
   &.sev-bad { --tone: var(--danger-text); border-color: color-mix(in srgb, var(--danger-text) 35%, var(--border-color)); }
   &.sev-off { --tone: var(--border-hover); opacity: 0.75; }
+  // A number nobody has started is not healthy, just quiet: muted, not the OK green.
+  &.sev-ok.st-idle { --tone: var(--text-muted); }
   .meter { max-width: 260px; }
 }
 .state-ic {
@@ -286,11 +343,15 @@
 }
 .err-line { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; color: var(--danger-text); overflow-wrap: anywhere; .ti { font-size: 17px; } }
 
+// Activity / Backend logs switch on the audit page.
+.view-tabs button { display: inline-flex; align-items: center; gap: 6px; .ti { font-size: 16px; } }
+
 @media (max-width: 720px) {
   .row { padding: var(--space-lg); }
   .usage { grid-template-columns: 30px minmax(0, 1fr); grid-template-areas: 'rank who' 'plot plot' 'bars bars' 'legend legend'; }
   .hero .range { justify-self: start; }
-  .plot.big { height: 200px; }
+  .chart { height: 200px; }
+  .cols { gap: 3px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

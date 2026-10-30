@@ -18,7 +18,8 @@ export const routes: Routes = [
   {
     path: 'connection',
     title: 'Connection - WhatsApp Sender',
-    canActivate: [authGuard],
+    // Every action on this page is admin-only on the server; an agent would only meet 403s.
+    canActivate: [roleGuard('admin')],
     loadComponent: () => import('./connection/connection').then((m) => m.ConnectionView),
   },
   {
@@ -120,7 +121,8 @@ export const routes: Routes = [
   {
     path: 'channels',
     title: 'WhatsApp Numbers - WhatsApp Sender',
-    canActivate: [authGuard],
+    // Adding, linking and renaming numbers are admin-only on the server.
+    canActivate: [roleGuard('admin')],
     loadComponent: () => import('./channels/channels').then((m) => m.ChannelsView),
   },
   {

@@ -237,7 +237,10 @@ export class ReviewStep {
         timeStyle: 'short',
       }),
       local: at.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }),
-      past: at.getTime() < Date.now() + 60_000,
+      // store.now() ticks every second, so a time that slips past while the page is open is caught too. Under a
+      // minute ahead is refused as well (the sweeper may not reach it before it is due) but said as "too soon".
+      past: at.getTime() < this.store.now() + 60_000,
+      soon: at.getTime() >= this.store.now(),
     };
   });
 
@@ -262,7 +265,10 @@ export class ReviewStep {
     if (d.scheduleMode() === 'later') {
       const s = this.sendsAt();
       if (!s) out.push('Pick a valid date, time and time zone.');
-      else if (s.past) out.push('The scheduled time is in the past.');
+      else if (s.past) {
+        out.push(s.soon ? 'The scheduled time is less than a minute away. Pick a later time, or send now.'
+          : 'The scheduled time is in the past.');
+      }
     }
     if (d.repeatEvery() && d.repeatUntil() && d.repeatUntil() < this.minDate) {
       out.push('The repeat end date is in the past.');
@@ -350,7 +356,8 @@ export class ReviewStep {
 
   private loadSafety(size: number): void {
     this.loadingSafety.set(true);
-    // One pace for everyone (balanced, unless the plan caps it lower): only the estimate is shown.
+    // Only the estimate is shown. The server answers at the plan's speed (bulk.maxSpeed), as the run
+    // will send, whatever preset is asked for here.
     const preset = this.draft.pacing();
     this.campaignsApi.safetyFor(size, preset).subscribe({
       next: (r) => {

@@ -47,10 +47,16 @@
   &:last-child { border-bottom: 0; }
   &:hover, &.open { background: var(--surface-sunken); }
   &.open .chev { rotate: 180deg; }
+  // Arrived live: a short tint so the eye finds it, then the row settles like the rest.
+  &.fresh { animation: rise 360ms var(--ease) both, arrive 2.4s var(--ease); }
+}
+@keyframes arrive {
+  from { background: color-mix(in srgb, var(--primary) 12%, transparent); }
+  to { background: transparent; }
 }
 .head {
   display: grid;
-  grid-template-columns: 76px minmax(0, 1fr) minmax(0, 190px) 100px 24px;
+  grid-template-columns: 10px minmax(0, 1fr) auto 24px;
   align-items: center;
   gap: var(--space-md);
   width: 100%;
@@ -61,14 +67,28 @@
   color: inherit;
   background: none;
 
-  .what { display: grid; min-width: 0; }
-  .what strong, .what .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .what strong { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--text-strong); }
-  .what .muted { font-size: 12px; }
-  .who-t, time { font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
-  small { font-size: 11px; }
-  time { text-align: right; }
+  .what { display: grid; gap: 3px; min-width: 0; }
+  .what strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 500; color: var(--text-strong); }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 6px;
+    min-width: 0;
+    font-size: 12.5px;
+    span, time { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+  }
   .chev { color: var(--hint); transition: rotate var(--base) var(--ease); }
+}
+// Severity dot: info quiet, warn amber, danger red. The word is in the title for hover and the row's detail.
+.sev {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tone, var(--hint));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone, var(--hint)) 18%, transparent);
+  &.info { --tone: var(--primary); }
+  &.warn { --tone: var(--warning); }
+  &.danger { --tone: var(--danger-text); }
 }
 .verb {
   justify-self: start;
@@ -86,12 +106,23 @@
 .detail {
   display: grid;
   gap: var(--space-md);
-  padding: 0 var(--space-xl) var(--space-lg);
+  padding: 0 var(--space-xl) var(--space-lg) calc(var(--space-xl) + 10px + var(--space-md));
   animation: rise 240ms var(--ease) both;
 
+  h4 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--hint);
+  }
   dl { display: flex; flex-wrap: wrap; gap: 6px 24px; margin: 0; font-size: 13px; }
   dt { font-size: 12px; font-weight: 500; color: var(--hint); }
   dd { margin: 0; font-weight: 500; color: var(--text-strong); overflow-wrap: anywhere; }
+  code { font-family: var(--mono); font-size: 12px; }
+  .logs-link { justify-self: start; }
   pre {
     margin: 0;
     max-height: 320px;
@@ -114,11 +145,15 @@
 
 @media (max-width: 720px) {
   .tools { grid-column: 1 / -1; justify-content: flex-start; }
-  .head { grid-template-columns: 70px minmax(0, 1fr) 24px; }
-  .head .who-t, .head time { grid-column: 2; text-align: left; }
-  .head .chev { grid-row: 1; grid-column: 3; }
+  // Two fields to a row, and the change types wrap rather than run under the card's edge.
+  .filters { grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr)); padding: var(--space-lg); }
+  .filters .seg { flex-wrap: wrap; }
+  .head { grid-template-columns: 10px minmax(0, 1fr) 24px; padding-inline: var(--space-lg); }
+  .head .what strong { white-space: normal; }
+  .head .verb { display: none; } // the dot and the sentence carry it on a phone
+  .detail { padding-inline: var(--space-lg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .line, .detail { animation: none; }
+  .line, .line.fresh, .detail { animation: none; }
 }

@@ -14,6 +14,27 @@ export interface PlanTenantLimits {
   readonly allowWhatsappWeb: boolean;
 }
 
+/**
+ * The plan's metered quotas (server billing/plans.js `limits`). Unlike the tenant
+ * limits, null is unlimited and 0 is none at all (Starter's 0 API requests = no API).
+ */
+export interface PlanQuotas {
+  readonly messagesPerMonth: number | null;
+  readonly apiRequests: number | null;
+  readonly storageMb: number | null;
+  readonly [key: string]: number | null;
+}
+
+/** Quotas shown on plan cards and in the editor; the rest are not enforced, so not offered. */
+export const PLAN_QUOTA_FIELDS: readonly {
+  readonly key: 'messagesPerMonth' | 'apiRequests' | 'storageMb';
+  readonly label: string;
+}[] = [
+  { key: 'messagesPerMonth', label: 'Messages / month' },
+  { key: 'apiRequests', label: 'API requests / month' },
+  { key: 'storageMb', label: 'Storage MB' },
+];
+
 export interface Plan {
   readonly key: string;
   readonly name: string;
@@ -26,6 +47,7 @@ export interface Plan {
   readonly trialDays: number;
   readonly services: readonly string[];
   readonly tenantLimits: PlanTenantLimits;
+  readonly limits: PlanQuotas;
   /** False = archived: hidden from pickers, existing subscribers keep it. */
   readonly active: boolean;
   /** Only on the admin list endpoint. */

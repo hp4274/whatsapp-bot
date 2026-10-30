@@ -209,24 +209,29 @@
               <td class="name">
                 <a [routerLink]="['/campaigns', c.id]">{{ c.name || 'Untitled campaign' }}</a>
               </td>
-              <td class="mono">{{ localTime(c.createdAt) }}</td>
-              <td>
+              <td class="when" data-label="Created">{{ localTime(c.createdAt) }}</td>
+              <td class="when" data-label="Scheduled">
                 @if (c.scheduledAt) {
-                  <span class="mono">{{ localTime(c.scheduledAt) }}</span>
+                  <span>{{ localTime(c.scheduledAt) }}</span>
                   <small class="rel">{{ relative(c.scheduledAt) }}</small>
                 } @else {
                   <span class="muted">-</span>
                 }
               </td>
-              <td><app-campaign-status [status]="c.status" /></td>
-              <td class="num mono">
+              <td class="status">
+                <app-campaign-status [status]="c.status" />
+                @if (reason(c); as why) {
+                  <small class="why" [title]="why">{{ why }}</small>
+                }
+              </td>
+              <td class="num" data-label="Audience">
                 @if (c.segmentId !== null && !c.audienceSize && (c.status === 'draft' || c.status === 'scheduled')) {
                   <span class="muted" title="A saved segment: counted when it starts">Segment</span>
                 } @else {
                   {{ count(c.audienceSize) }}
                 }
               </td>
-              <td class="num result">
+              <td class="num result" data-label="Results">
                 @let r = result(c);
                 @if (r.sending) {
                   <span
@@ -241,6 +246,9 @@
                   <span class="line">{{ count(r.done) }} of {{ count(r.total) }} done</span>
                 } @else if (r.attempted) {
                   <span class="line"><b>{{ count(r.sent) }}</b> sent</span>
+                } @else if (c.status === 'done' || c.status === 'cancelled') {
+                  <!-- Closed without a send: everyone skipped (opted out, …) or cancelled before the first. -->
+                  <span class="muted">Nothing sent</span>
                 } @else {
                   <span class="muted">Not sent yet</span>
                 }
@@ -249,11 +257,12 @@
                 }
               </td>
               <td class="actions-cell">
+                <!-- Fixed slots (run, stop, edit, copy, open), so each action sits at the same x on every row. -->
                 <div class="actions">
                 @if (canStart(c.status)) {
                   <button
                     type="button"
-                    class="btn sm primary"
+                    class="btn sm primary a-run"
                     [disabled]="busy() === c.id"
                     (click)="act(c, 'start')"
                     [attr.aria-label]="'Start ' + c.name"
@@ -264,7 +273,7 @@
                 @if (canPause(c.status)) {
                   <button
                     type="button"
-                    class="btn sm"
+                    class="btn sm a-run"
                     [disabled]="busy() === c.id"
                     (click)="act(c, 'pause')"
                     [attr.aria-label]="'Pause ' + c.name"
@@ -275,7 +284,7 @@
                 @if (canResume(c.status)) {
                   <button
                     type="button"
-                    class="btn sm primary"
+                    class="btn sm primary a-run"
                     [disabled]="busy() === c.id"
                     (click)="act(c, 'resume')"
                     [attr.aria-label]="'Resume ' + c.name"
@@ -286,7 +295,7 @@
                 @if (canCancel(c.status)) {
                   <button
                     type="button"
-                    class="btn sm"
+                    class="btn sm a-stop"
                     [class.danger]="isConfirming(c.id, 'cancel')"
                     [disabled]="busy() === c.id"
                     (click)="act(c, 'cancel')"
@@ -296,14 +305,16 @@
                     "
                   >
                     <i class="ti ti-ban" aria-hidden="true"></i>
-                    {{ isConfirming(c.id, 'cancel') ? 'Confirm cancel?' : 'Cancel' }}
+                    {{ isConfirming(c.id, 'cancel') ? 'Confirm?' : 'Cancel' }}
                   </button>
                 }
                 @if (canDelete(c.status)) {
                   <button
                     type="button"
-                    class="btn sm ghost"
+                    class="btn sm ghost a-stop"
+                    [class.icon]="!isConfirming(c.id, 'delete')"
                     [class.danger]="isConfirming(c.id, 'delete')"
+                    [attr.title]="isConfirming(c.id, 'delete') ? null : 'Delete'"
                     [disabled]="busy() === c.id"
                     (click)="act(c, 'delete')"
                     (blur)="isConfirming(c.id, 'delete') && confirming.set(null)"
@@ -317,28 +328,31 @@
                 }
                 @if (c.status === 'draft' || c.status === 'scheduled') {
                   <a
-                    class="btn sm"
+                    class="btn sm icon a-edit"
                     routerLink="/campaign"
                     [queryParams]="{ edit: c.id }"
                     [attr.aria-label]="'Edit ' + c.name"
+                    title="Edit"
                   >
-                    <i class="ti ti-pencil" aria-hidden="true"></i>Edit
+                    <i class="ti ti-pencil" aria-hidden="true"></i>
                   </a>
                 }
                 <a
-                  class="btn sm"
+                  class="btn sm icon a-copy"
                   routerLink="/campaign"
                   [queryParams]="{ duplicate: c.id }"
                   [attr.aria-label]="'Duplicate ' + c.name"
+                  title="Duplicate"
                 >
-                  <i class="ti ti-copy" aria-hidden="true"></i>Duplicate
+                  <i class="ti ti-copy" aria-hidden="true"></i>
                 </a>
                 <a
-                  class="btn sm"
+                  class="btn sm icon a-open"
                   [routerLink]="['/campaigns', c.id]"
                   [attr.aria-label]="'Open ' + c.name"
+                  title="Open"
                 >
-                  Open<i class="ti ti-arrow-right" aria-hidden="true"></i>
+                  <i class="ti ti-arrow-right" aria-hidden="true"></i>
                 </a>
                 </div>
               </td>

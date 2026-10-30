@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
+import { localTime, statusLabel } from '../campaigns/campaign-format';
 import { Api, MessageRecord } from '../core/api';
 import { Store } from '../core/store';
 
@@ -65,6 +66,19 @@ export class HistoryView {
   protected readonly counts = signal<Record<string, number>>({});
   protected readonly loading = signal(false);
   protected readonly error = signal('');
+
+  /** The same short local date and time the campaign screens use. */
+  protected readonly localTime = localTime;
+
+  /** Sentence-case words for a status code; the filter's `ALL` reads "All statuses". */
+  protected label(status: string): string {
+    return status === 'ALL' ? 'All statuses' : statusLabel(status);
+  }
+
+  /** A recipient as typed may already carry its "+" (a pasted list); show exactly one. */
+  protected phone(recipient: string): string {
+    return `+${recipient.replace(/^\+/, '')}`;
+  }
 
   /** The signature the browser already holds; the server 204s when it matches. */
   private signature = '';

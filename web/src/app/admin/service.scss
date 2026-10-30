@@ -10,8 +10,10 @@
 @include s.empty;
 @include s.skeleton;
 @include s.banner;
+@include s.switch;
 
 :host {
+  @include s.fit-grid;
   display: grid;
   gap: var(--space-xl);
   align-content: start;
@@ -54,11 +56,12 @@
 
   strong { font-weight: 500; color: var(--text-strong); }
   span { font-size: 12px; }
+  strong, span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 
 .muted { color: var(--text-muted); }
 
-.rules { display: grid; gap: var(--space-lg); }
+.rules { @include s.fit-grid; display: grid; gap: var(--space-lg); }
 .rules-head {
   display: grid;
   gap: 4px;
@@ -75,8 +78,7 @@
   font-size: 13px;
   font-weight: 500;
   color: var(--text-strong);
-
-  input { width: 18px; height: 18px; }
+  cursor: pointer;
 }
 
 .pack {
@@ -99,10 +101,9 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: var(--space-md);
-  perspective: 800px;
 }
 
-// Clickable recipe cards lift towards the viewer on hover.
+// Clickable recipe cards lift on hover.
 .recipe {
   display: flex;
   align-items: flex-start;
@@ -116,7 +117,7 @@
 
   &:hover,
   &:has(input:focus-visible) {
-    transform: translateZ(12px) rotateX(2deg) translateY(-2px);
+    transform: translateY(-2px);
     border-color: var(--border-hover);
     box-shadow: var(--shadow-lift);
   }
@@ -186,6 +187,17 @@
   .recipe { transition: none; &:hover, &:has(input:focus-visible) { transform: none; } }
 }
 
+// Phone: avatar, name and switch on the first line (the switch alone: its label says the state); the chips under
+// the name; the provision button last.
 @media (max-width: 760px) {
-  .row { grid-template-columns: auto minmax(0, 1fr); }
+  .row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    row-gap: var(--space-sm);
+    > .s-chip, > .s-pill { grid-row: 2; justify-self: start; }
+    > .s-chip { grid-column: 2; }
+    > .s-pill { grid-column: 3; justify-self: end; }
+    &:not(:has(> .s-chip)) > .s-pill { grid-column: 2; justify-self: start; }
+    > .btn { grid-row: 3; grid-column: 2 / -1; justify-self: start; }
+    > .toggle { grid-row: 1; grid-column: 3; min-width: 0; > span { display: none; } }
+  }
 }

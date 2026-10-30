@@ -15,6 +15,7 @@
 
 :host {
   display: grid;
+  @include s.fit-grid;
   gap: var(--space-xl);
 }
 
@@ -139,7 +140,7 @@
   transition: transform var(--base) var(--ease), box-shadow var(--base) var(--ease);
 
   &:hover {
-    transform: translateY(-3px) rotateX(8deg);
+    transform: translateY(-3px);
     box-shadow: var(--shadow-lift);
   }
 

@@ -22,6 +22,9 @@
  *   .s-tilt      3D tilt surface driven by --rx/--ry from the [schoolTilt] directive
  *   .s-drawer    side drawer + .s-scrim backdrop
  *   .s-enter     staggered entrance; set style="--i: n"
+ *   .switch      the one on/off switch: `@include s.switch` where a component has one (kept out of `all` for size)
+ * Layout mixins, included where needed (not by `all`): s.fit-grid on a grid host, s.stat-grid on a tile row,
+ * s.drawer-panel / s.scrim for a component's own drawer.
  * Keyframes: s-rise, s-shimmer, s-float, s-pop.
  * Every colour comes from styles.scss tokens so light and dark both work.
  */
@@ -167,7 +170,7 @@
     border-radius: 999px;
     font-size: 12px;
     font-weight: 500;
-    text-transform: capitalize;
+    // Labels are written in sentence case; a transform here turned "Managed by platform" into "Managed By Platform".
     white-space: nowrap;
     background: color-mix(in srgb, var(--tone, var(--text-muted)) 12%, transparent);
     color: var(--tone, var(--text-muted));
@@ -211,6 +214,8 @@
   // Kardlyz tab strip: sunken track, the active item lifts onto the card surface.
   .s-seg {
     display: inline-flex;
+    flex-wrap: wrap; // more options than fit a phone wrap inside the card instead of clipping
+    max-width: 100%;
     gap: 2px;
     padding: 3px;
     border-radius: 12px;
@@ -241,6 +246,7 @@
 
 @mixin table {
   .s-table {
+    position: relative; // keeps a visually hidden header from stretching the page sideways
     overflow-x: auto;
     margin: 0 calc(var(--space-xl) * -1);
     padding: 0 var(--space-xl);
@@ -298,8 +304,8 @@
   .btn.danger-ghost {
     background: transparent;
     color: var(--danger-text);
-    border-color: rgba(220, 38, 38, 0.35);
-    &:hover:not(:disabled) { background: rgba(239, 68, 68, 0.08); }
+    border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+    &:hover:not(:disabled) { background: var(--danger-soft); }
   }
 }
 
@@ -375,36 +381,109 @@
   }
 }
 
-@mixin drawer {
-  .s-scrim {
-    position: fixed;
-    inset: 0;
-    z-index: 70;
-    border: 0;
-    background: rgba(16, 16, 24, 0.45);
-    backdrop-filter: blur(4px);
-    animation: s-pop 200ms var(--ease) both;
-  }
-  .s-drawer {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 71;
-    width: min(440px, 100vw);
-    overflow-y: auto;
-    display: grid;
-    align-content: start;
-    gap: var(--space-lg);
-    padding: var(--space-xl);
-    background: var(--surface-card);
-    border-left: 1px solid var(--border-color);
-    box-shadow: var(--shadow-lift);
-    animation: s-drawer-in 320ms var(--ease) both;
-  }
+/* The backdrop behind a drawer or modal. */
+@mixin scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  border: 0;
+  background: var(--overlay);
+  backdrop-filter: blur(4px);
+  animation: s-fade 200ms var(--ease) both;
+}
+
+/*
+ * A panel that slides in from the right edge: the whole way, flat, no 3D swing, so every drawer in the app moves
+ * the same. `$width` caps it on wide screens; on a phone it is the full width.
+ */
+@mixin drawer-panel($width: 440px) {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 71;
+  width: min(#{$width}, 100vw);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+  background: var(--surface-card);
+  border-left: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lift);
+  animation: s-drawer-in var(--base) var(--ease) both;
+
+  @media (max-width: 520px) { padding: var(--space-lg); }
+}
+
+@mixin drawer-keyframes {
   @keyframes s-drawer-in {
-    from { transform: translateX(40px) rotateY(-8deg); opacity: 0; }
-    to { transform: none; opacity: 1; }
+    from { transform: translateX(100%); }
+    to { transform: none; }
+  }
+  @keyframes s-fade { from { opacity: 0; } }
+  // Reduced motion is handled once, globally (styles.scss).
+}
+
+@mixin drawer {
+  @include drawer-keyframes;
+  .s-scrim { @include scrim; }
+  .s-drawer { @include drawer-panel; }
+}
+
+/*
+ * A grid host's implicit column grows to its widest child's min-content, so one wide table pushed the whole page
+ * past its panel (and a drawer past the phone's edge). minmax(0, 1fr) holds the column to the space it has; the
+ * wide child scrolls inside its own wrapper instead.
+ */
+@mixin fit-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* A row of stat tiles: as many as fit, never narrower than $min, and two to a row even on a 390px phone. */
+@mixin stat-grid($min: 150px) {
+  display: grid;
+  gap: var(--space-md);
+  grid-template-columns: repeat(auto-fit, minmax(min(#{$min}, calc(50% - var(--space-md) / 2)), 1fr));
+}
+
+/*
+ * The one on/off switch: <button type="button" role="switch" class="switch" [attr.aria-checked]="on">
+ * <span class="thumb"></span></button>. On = aria-checked="true" (or .on). Green when on, a hairline grey when off.
+ */
+@mixin switch {
+  .switch {
+    position: relative;
+    flex: none;
+    width: 40px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: var(--border-hover);
+    cursor: pointer;
+    transition: background var(--fast) var(--ease);
+
+    .thumb {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--on-fill);
+      box-shadow: var(--shadow-sm);
+      transition: transform var(--fast) var(--ease);
+    }
+
+    &[aria-checked='true'], &.on {
+      background: var(--primary);
+      .thumb { transform: translateX(18px); }
+    }
+    &:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
   }
 }
 

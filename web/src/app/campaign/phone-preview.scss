@@ -380,20 +380,27 @@
   .ti { font-size: 13px; }
 }
 
-// Carousel: a swipeable row of mini cards under the bubble.
+// Carousel: a swipeable row of mini cards under the bubble. It bleeds to the screen edge like WhatsApp's,
+// with the chat's 10px inset kept as scroll padding so the first and last card don't sit on the edge.
 .cards {
   display: flex;
   gap: 6px;
-  width: 100%;
+  width: calc(100% + 20px);
+  margin-inline: -10px;
+  padding-inline: 10px;
+  scroll-padding-inline: 10px;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
 
   &::-webkit-scrollbar { display: none; }
+  &::after { content: ''; flex: 0 0 4px; }
 }
 
-.card {
+// Not `.card`: that global class would draw the app's hairline card frame around a WhatsApp tile.
+.wa-card {
   display: grid;
+  align-content: start;
   gap: 3px;
   flex: 0 0 72%;
   scroll-snap-align: start;
@@ -477,6 +484,7 @@
   .bubble { animation: none; }
 }
 
+/* Under the form on narrow screens: only as tall as the chat needs, so a short message leaves no empty phone. */
 @media (max-width: 1000px) {
-  .screen { height: 520px; }
+  .screen { height: auto; min-height: 360px; max-height: 520px; }
 }

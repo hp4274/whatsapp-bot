@@ -19,7 +19,7 @@ export type MessageStatus = 'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'READ'
 
 export interface UsageMetric { metric: string; used: number; limit: number | null; remaining: number | null }
 export interface Usage { period: string; planKey: string | null; metrics: UsageMetric[] }
-/** Newest period first. `metrics` only holds counters that were ever written. */
+/** Newest period first. `messages` is always there (counted from the sends); other metrics only once a counter was written. */
 export interface UsagePeriod { period: string; metrics: Record<string, number> }
 
 export interface MessageRecord {
@@ -134,7 +134,10 @@ export class AnalyticsApi {
     return this.http.get<T>(`/api${path}`, { params }).pipe(catchError(toMessage));
   }
 
-  usage(period: string) { return this.get<{ usage: Usage }>('/billing/usage', { period }).pipe(map((r) => r.usage)); }
+  /** Omit `period` for the server's current month (UTC, as the quota counts it). */
+  usage(period?: string) {
+    return this.get<{ usage: Usage }>('/billing/usage', period ? { period } : {}).pipe(map((r) => r.usage));
+  }
   usageHistory(months = 6) {
     return this.get<{ history: UsagePeriod[] }>('/billing/usage/history', { months }).pipe(map((r) => r.history));
   }

@@ -100,7 +100,7 @@
           class="s-pill"
           [class.tone-ok]="tenant.status === 'active'"
           [class.tone-mute]="tenant.status !== 'active'"
-          >{{ tenant.status }}</span
+          >{{ sentence(tenant.status) }}</span
         >
         @if (isSchool() && has(tenant)) {
           <button
@@ -114,13 +114,17 @@
           </button>
         }
         <label class="toggle">
-          <input
-            type="checkbox"
-            [checked]="has(tenant)"
+          <button
+            type="button"
+            role="switch"
+            class="switch"
+            [attr.aria-checked]="has(tenant)"
             [disabled]="busyId() === tenant.id"
-            (change)="toggle(tenant, checked($event))"
+            (click)="toggle(tenant, !has(tenant))"
             [attr.aria-label]="'Enable ' + meta().label + ' for ' + tenant.name"
-          />
+          >
+            <span class="thumb"></span>
+          </button>
           <span>{{ has(tenant) ? 'Enabled' : 'Disabled' }}</span>
         </label>
         @if (result(tenant); as r) {

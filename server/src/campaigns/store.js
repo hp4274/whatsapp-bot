@@ -15,7 +15,7 @@
  */
 
 import { toCsv, withFallbacks } from '../campaign/importer.js';
-import { shuffle } from '../campaign/humanize.js';
+import { contactZone, shuffle } from '../campaign/humanize.js';
 import { PACING_PRESETS } from '../campaign/safety.js';
 import { dayKey, daysBetween, isDateKey, isEarlyContinue, nextDayAt, spreadPlan, todaysBatch } from '../campaign/spread.js';
 import { linkClicksByRecipient } from '../links/store.js';
@@ -83,6 +83,12 @@ export class CampaignStore {
         this.mediaLookup = media;
         this.interactiveStats = interactiveStats;
         this.now = now ? () => iso(now()) : utcNow;
+        /**
+         * Called with the fresh row whenever the store itself moves a campaign on (it finished sending, or a
+         * spread day's batch went out): nobody pressed a button, so no route announces it. The runtime pushes
+         * it to open pages and the audit log (campaigns/routes.js).
+         */
+        this.onSettled = null;
     }
 
     // --------------------------------------------------------------- CRUD --
@@ -174,8 +180,11 @@ export class CampaignStore {
     }
 
     remove(id) {
-        const campaign = this.require(id);
+        const campaign = this.#own(this.require(id));
         if (campaign.status === 'running') throw new CampaignError('cancel the campaign before deleting it', 409);
+        // A paused run still owns QUEUED rows (and maybe the manager's paused queue), which would sit in front of
+        // every later send on this number: close it properly first.
+        if (campaign.status === 'paused') this.cancel(campaign.id);
         this.db.prepare('DELETE FROM campaigns WHERE id = ? AND tenant_id = ?').run(campaign.id, this.tenantId);
         return true;
     }
@@ -289,6 +298,9 @@ export class CampaignStore {
         // simply stays `scheduled` and the next sweep tries again.
         if (this.canSend && !this.canSend()) throw new CampaignError('Connect a transport first.', 409);
         this.#checkPolicy(campaign, { starting: true, except: campaign.id });
+        // A new run resets the number's queue: another run still in it would lose its waiting rows for good.
+        const busy = this.#busyWith(campaign);
+        if (busy) throw new CampaignError(busyText(busy), 409);
         const text = this.messageText(campaign);
         // Platform template review (templates/policy.js reviewBlock).
         // A template deleted since it was picked does not block a campaign that
@@ -351,39 +363,82 @@ export class CampaignStore {
             throw err;
         }
         this.manager.start();
-        this.#set(campaign.id, { status: 'running', started_at: campaign.startedAt ?? this.now(), finished_at: null });
+        const startedAt = campaign.startedAt ?? this.now();
+        if (!result.queued) {
+            // Everyone was skipped: no send will ever settle this run, so it must not sit in `running`
+            // (holding a maxRunning slot and blocking delete) waiting for one.
+            if (spread) {
+                this.#set(campaign.id, { started_at: startedAt });
+                this.#spreadAdvance(campaign, cursor + batch);
+                return { campaign: this.get(campaign.id), audience: recipients.length, ...result, carried };
+            }
+            const snapshot = this.#snapshot(campaign);
+            this.#set(campaign.id, { status: 'done', started_at: startedAt, finished_at: this.now(), ...snapshot });
+            this.#reason(campaign.id, skippedText(result, recipients.length));
+            return { campaign: this.#settled(campaign.id, snapshot), audience: recipients.length, ...result, carried };
+        }
+        // Written now, not at the first poll: a list reading `{}` shows the whole run as already done.
+        this.#set(campaign.id, { status: 'running', started_at: startedAt, finished_at: null, ...this.#snapshot(campaign) });
         if (spread) this.#saveSpread(campaign, cursor + batch);
         this.#reason(campaign.id, null);
         return { campaign: this.get(campaign.id), audience: recipients.length, ...result, carried };
     }
 
-    pause(id) {
-        const campaign = this.require(id);
+    /** `reason` (a platform admin's pause) is kept on the campaign so its owner sees why. */
+    pause(id, reason = null) {
+        const campaign = this.#own(this.require(id));
         if (campaign.status !== 'running') throw new CampaignError(`a ${campaign.status} campaign cannot be paused`, 409);
-        this.manager?.pause();
+        // Only the run the manager holds: pausing the number would halt whichever campaign it is sending now.
+        // A run it does not hold (a restart) is restored paused by `recover`.
+        if (this.#isLive(campaign)) this.manager.pause();
         this.#set(campaign.id, { status: 'paused' });
-        return this.#reason(campaign.id, null);
+        return this.#reason(campaign.id, reason);
     }
 
     resume(id) {
-        const campaign = this.require(id);
+        const campaign = this.#own(this.require(id));
         if (campaign.status !== 'paused') throw new CampaignError(`a ${campaign.status} campaign cannot be resumed`, 409);
-        // The manager refuses when today's budget is spent; that is its call.
-        if (this.manager && this.manager.resume() === false) {
-            throw new CampaignError(this.manager.resumeRefusal
-                ?? `daily limit of ${this.manager.quota.limit} reached - resume after midnight`, 409);
+        const live = this.#isLive(campaign);
+        if (live) {
+            // The manager refuses when today's budget is spent; that is its call.
+            if (this.manager.resume() === false) {
+                throw new CampaignError(this.manager.resumeRefusal
+                    ?? `daily limit of ${this.manager.quota.limit} reached - resume after midnight`, 409);
+            }
+        } else {
+            // Its rows go back into the queue below, which a run still in there would lose.
+            const busy = this.#busyWith(campaign);
+            if (busy) throw new CampaignError(busyText(busy, 'resume'), 409);
         }
         this.#set(campaign.id, { status: 'running' });
-        return this.#reason(campaign.id, null);
+        const resumed = this.#reason(campaign.id, null);
+        // Now rather than at the next sweep; waits for a connected number like any recovery.
+        if (!live) this.recover(campaign.id);
+        return resumed;
     }
 
     /** `reason` (an admin or platform stop) is kept on the campaign so its owner sees why. */
     cancel(id, reason = null) {
-        const campaign = this.require(id);
+        const campaign = this.#own(this.require(id));
         if (FINAL.includes(campaign.status)) return campaign;
-        const dropped = this.manager?.stop(reason ?? undefined) ?? 0;
-        this.#set(campaign.id, { status: 'cancelled', finished_at: this.now(), dropped });
+        // Stopping the manager drops whatever run it holds: only do that when it holds this one.
+        let dropped;
+        if (this.#isLive(campaign)) {
+            dropped = this.manager.stop(reason ?? undefined) ?? 0;
+            reopenWhenIdle(this.manager);
+        } else {
+            dropped = this.#dropRows(campaign, reason ?? 'Stopped by operator');
+        }
+        this.#set(campaign.id, { status: 'cancelled', finished_at: this.now(), ...this.#snapshot(campaign), dropped });
         return this.#reason(campaign.id, reason);
+    }
+
+    /** A run the manager does not hold: its waiting rows are closed in the table, where they live. */
+    #dropRows(campaign, reason) {
+        return this.db.prepare(
+            `UPDATE messages SET status = 'CANCELLED', error = ?, updated_at = ?
+             WHERE tenant_id = ? AND campaign_id = ? AND status IN ('QUEUED', 'SENDING')`)
+            .run(reason, this.now(), this.tenantId, campaignKey(campaign.id)).changes;
     }
 
     /**
@@ -395,6 +450,17 @@ export class CampaignStore {
         const campaign = Number.isInteger(id) ? this.get(id) : null;
         if (!campaign || !['running', 'paused'].includes(campaign.status)) return null;
         this.#set(id, status === 'cancelled' ? { status, finished_at: this.now() } : { status });
+        return this.#reason(id, reason);
+    }
+
+    /**
+     * The manager is holding the run for `key` until a daily or monthly limit allows, and lifts that itself: the
+     * record stays `running` and only says why (`reason` null once it carries on). Null when nothing changed.
+     */
+    hold(key, reason) {
+        const id = Number(/^camp-(\d+)$/.exec(String(key ?? ''))?.[1]);
+        const campaign = id ? this.get(id) : null;
+        if (campaign?.status !== 'running' || (campaign.options?.statusReason ?? null) === reason) return null;
         return this.#reason(id, reason);
     }
 
@@ -426,12 +492,8 @@ export class CampaignStore {
      */
     stats(id) {
         const campaign = this.require(id);
-        const byStatus = this.counts(campaignKey(campaign.id));
-        const total = Object.values(byStatus).reduce((n, v) => n + v, 0);
-        const pending = OPEN_STATUSES.reduce((n, s) => n + (byStatus[s] ?? 0), 0);
-        const failed = byStatus.FAILED ?? 0;
-        const notSent = (byStatus.CANCELLED ?? 0) + (byStatus.NOT_ON_WHATSAPP ?? 0);
-        const snapshot = { total, pending, failed, sent: total - pending - failed - notSent, byStatus };
+        const snapshot = this.#snapshot(campaign);
+        const { total, pending } = snapshot;
 
         if (campaign.status === 'running' && total > 0 && pending === 0) {
             const spread = campaign.options?.spread;
@@ -439,15 +501,35 @@ export class CampaignStore {
                 // Today's batch is out; the rest waits for tomorrow's start.
                 this.#set(campaign.id, { status: 'scheduled', ...snapshot });
                 this.#bookNextDay(campaign);
-                return { campaign: this.get(campaign.id), stats: snapshot };
+                return { campaign: this.#settled(campaign.id, snapshot), stats: snapshot };
             }
             this.#set(campaign.id, { status: 'done', finished_at: this.now(), ...snapshot });
-            return { campaign: this.get(campaign.id), stats: snapshot };
+            return { campaign: this.#settled(campaign.id, snapshot), stats: snapshot };
         }
         // The detail page polls this: write only when a number moved.
         if (JSON.stringify(campaign.stats) === JSON.stringify(snapshot)) return { campaign, stats: snapshot };
         this.#set(campaign.id, snapshot);
         return { campaign: this.get(campaign.id), stats: snapshot };
+    }
+
+    /**
+     * The campaign's counts by message status. A FAILED row that a retry followed up for the same person is not
+     * counted: the newer row is the truth about them (as in `analytics`). Every other row counts, so a number that
+     * was deliberately sent twice ("skip duplicates" off) and every open row stay in the tally.
+     */
+    #snapshot(campaign) {
+        const byStatus = Object.fromEntries(this.db.prepare(
+            `SELECT status, COUNT(*) AS n FROM messages m
+             WHERE m.tenant_id = ? AND m.campaign_id = ?
+               AND NOT (m.status = 'FAILED' AND EXISTS (
+                   SELECT 1 FROM messages x WHERE x.tenant_id = m.tenant_id AND x.campaign_id = m.campaign_id
+                     AND x.recipient = m.recipient AND x.rowid > m.rowid))
+             GROUP BY status`).all(this.tenantId, campaignKey(campaign.id)).map((r) => [r.status, r.n]));
+        const total = Object.values(byStatus).reduce((n, v) => n + v, 0);
+        const pending = OPEN_STATUSES.reduce((n, s) => n + (byStatus[s] ?? 0), 0);
+        const failed = byStatus.FAILED ?? 0;
+        const notSent = (byStatus.CANCELLED ?? 0) + (byStatus.NOT_ON_WHATSAPP ?? 0);
+        return { total, pending, failed, sent: total - pending - failed - notSent, byStatus };
     }
 
     // ------------------------------------------------------------- v2 ops --
@@ -477,6 +559,7 @@ export class CampaignStore {
      * the message gets it twice.
      */
     retryFailed(id) {
+        this.#own(this.require(id), { queues: true });
         const { campaign, stats } = this.stats(id);
         if (['draft', 'scheduled', 'running'].includes(campaign.status)) {
             throw new CampaignError(`a ${campaign.status} campaign has nothing to retry yet`, 409);
@@ -486,6 +569,9 @@ export class CampaignStore {
         }
         if (this.canSend && !this.canSend()) throw new CampaignError('Connect a transport first.', 409);
         if (!this.manager) throw new CampaignError('no campaign manager is configured', 500);
+        // The retry resets the number's queue, like a start.
+        const busy = this.#busyWith(campaign);
+        if (busy) throw new CampaignError(busyText(busy, 'retry'), 409);
         const optOuts = this.#optOuts();
         const failed = this.latestRows(campaign.id)
             .filter((row) => row.status === 'FAILED' && !optOuts.has(digits(row.recipient)));
@@ -514,14 +600,17 @@ export class CampaignStore {
                 messageType: 'campaign',
                 interactive,
                 variant: row.variant ?? null,
+                timezone: contactZone(contact.extra),
             });
             if (messageId !== null) queued += 1;
         }
         this.manager.setPace?.(options.pacing ?? 'balanced', queued);
         this.manager.start();
-        this.db.prepare(`UPDATE campaigns SET status = 'running', finished_at = NULL, updated_at = ?
-                         WHERE id = ? AND tenant_id = ?`).run(this.now(), campaign.id, this.tenantId);
-        return { campaign: this.get(campaign.id), queued };
+        // The fresh snapshot counts the retried rows as waiting, not the failures they replace.
+        this.db.prepare(`UPDATE campaigns SET status = 'running', finished_at = NULL, stats = ?, updated_at = ?
+                         WHERE id = ? AND tenant_id = ?`)
+            .run(JSON.stringify(this.#snapshot(campaign)), this.now(), campaign.id, this.tenantId);
+        return { campaign: this.#reason(campaign.id, null), queued };
     }
 
     /**
@@ -753,8 +842,14 @@ export class CampaignStore {
     /** A slice produced nothing to send: skip it, then finish or book the next day. */
     #spreadAdvance(campaign, cursor) {
         this.#saveSpread(campaign, cursor);
-        if (cursor < campaign.options.spread.total) this.#bookNextDay(campaign);
-        else this.#set(campaign.id, { status: 'done', finished_at: this.now() });
+        if (cursor < campaign.options.spread.total) {
+            // A draft started by hand is now a booked run too, or the sweeper would never start its next day.
+            this.#set(campaign.id, { status: 'scheduled' });
+            this.#bookNextDay(campaign);
+        } else {
+            this.#set(campaign.id, { status: 'done', finished_at: this.now() });
+            this.#settled(campaign.id, campaign.stats ?? {});
+        }
     }
 
     /**
@@ -780,6 +875,7 @@ export class CampaignStore {
         const campaign = this.get(id);
         const manager = this.manager;
         if (!campaign || !manager || !['running', 'paused'].includes(campaign.status)) return false;
+        if (!this.owns(campaign)) return false;
         // This run is already in the manager, or the manager is busy with another one.
         if (this.#isLive(campaign) || manager.queue.pending || manager.inFlight) return false;
         if (this.canSend && !this.canSend()) return false;
@@ -801,7 +897,7 @@ export class CampaignStore {
                 messageId: row.message_id, attempt: row.attempt, recipient: row.recipient, text: row.message,
                 name: row.name ?? '', media,
                 interactive: options.interactive ? personalizeInteractive(this.#withCardMedia(options.interactive), context) : null,
-                variant: row.variant ?? null,
+                variant: row.variant ?? null, timezone: contactZone(contact.extra),
             });
         }
         const byStatus = this.counts(key);
@@ -817,9 +913,50 @@ export class CampaignStore {
     }
 
     // ------------------------------------------------------------ helpers --
+    /** Tell `onSettled` the store moved a campaign on; a broken listener must not undo the write. */
+    #settled(id, stats) {
+        const campaign = this.get(id);
+        try {
+            this.onSettled?.(campaign, stats);
+        } catch (err) {
+            console.error(`[campaigns] ${id} settle hook failed:`, err.message);
+        }
+        return campaign;
+    }
+
+    /** Whether this store's number is the one `campaign` sends from (a campaign without a number: any). */
+    owns(campaign) {
+        return campaign.channelId == null || this.channelId == null || campaign.channelId === this.channelId;
+    }
+
+    /**
+     * Only the campaign's own number may act on its run: through another number's store, a pause would leave it
+     * sending and a resume would queue it on this number too, so every message went out twice.
+     */
+    #own(campaign, { queues = false } = {}) {
+        // A draft or a closed run touches no engine; only a live run (or a retry, which queues rows here) must.
+        if (!queues && !['running', 'paused'].includes(campaign.status)) return campaign;
+        if (!this.owns(campaign)) throw new CampaignError('that campaign sends from another number; switch to it first', 409);
+        return campaign;
+    }
+
     #isLive(campaign) {
         return ['running', 'paused'].includes(campaign.status)
             && this.manager?.campaignId === campaignKey(campaign.id);
+    }
+
+    /**
+     * The other bulk run this number's queue still holds (waiting, sending or paused), or null when it holds none.
+     * Quick sends and replies in the queue do not count: a new run keeps them (`keepOneOff`).
+     */
+    #busyWith(campaign) {
+        const manager = this.manager;
+        if (!manager || manager.campaignId === campaignKey(campaign.id)) return null;
+        const waiting = manager.pendingByType?.()?.campaign ?? 0;
+        const sending = manager.inFlight > 0 && manager.current?.messageType === 'campaign';
+        if (!waiting && !sending) return null;
+        const id = /^camp-(\d+)$/.exec(String(manager.campaignId ?? ''))?.[1];
+        return (id && this.get(id)) || { name: null, status: 'running' };
     }
 
     #media(campaign) {
@@ -976,6 +1113,20 @@ export class CampaignStore {
 export const campaignKey = (id) => `camp-${Number(id)}`;
 
 /**
+ * A stopped queue refuses every new item, so after a cancel each quick send, reply and workflow step would be turned
+ * away (as a "duplicate") until something started a run. Reopen it once the message caught mid-send has seen the
+ * stop: reopening earlier would let that cancelled message go out.
+ */
+export function reopenWhenIdle(manager) {
+    if (!manager?.queue?.isStopped || manager.shuttingDown) return;
+    if (!manager.inFlight) {
+        manager.start();
+        return;
+    }
+    setTimeout(() => reopenWhenIdle(manager), 100).unref?.();
+}
+
+/**
  * For the scheduler, which is not a tenant: which campaigns are due anywhere,
  * and whose they are, so it can start each through that tenant's store.
  */
@@ -992,6 +1143,19 @@ export function openCampaigns(database) {
         `SELECT c.id, c.tenant_id, c.channel_id FROM campaigns c WHERE c.status IN ('running', 'paused')
            AND EXISTS (SELECT 1 FROM messages m WHERE m.tenant_id = c.tenant_id
                        AND m.campaign_id = 'camp-' || c.id AND m.status IN ('QUEUED', 'SENDING'))`)
+        .all().map((row) => ({ id: row.id, tenantId: row.tenant_id, channelId: row.channel_id }));
+}
+
+/**
+ * For the scheduler: running campaigns that have messages but none left QUEUED or SENDING. `stats` closes them;
+ * without this a run that finished while nobody had its page open would read `running` forever.
+ */
+export function finishedCampaigns(database) {
+    return database.db.prepare(
+        `SELECT c.id, c.tenant_id, c.channel_id FROM campaigns c WHERE c.status = 'running'
+           AND EXISTS (SELECT 1 FROM messages m WHERE m.tenant_id = c.tenant_id AND m.campaign_id = 'camp-' || c.id)
+           AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.tenant_id = c.tenant_id
+                           AND m.campaign_id = 'camp-' || c.id AND m.status IN ('QUEUED', 'SENDING'))`)
         .all().map((row) => ({ id: row.id, tenantId: row.tenant_id, channelId: row.channel_id }));
 }
 
@@ -1175,6 +1339,31 @@ function audienceIndex(audience) {
     }
     return index;
 }
+/** Why a number already holding `other`'s run cannot take another now; `what` is the refused action. */
+function busyText(other, what = 'start') {
+    const name = other.name ? `«${other.name}»` : 'another bulk send';
+    const after = { start: 'or schedule this one for later', resume: 'then resume this one', retry: 'then retry this one' }[what];
+    if (other.status === 'paused') {
+        return `${name} is paused on this number with messages still waiting. Resume or cancel it first, ${after}.`;
+    }
+    return `This number is still sending ${name}. Wait for it to finish, ${after}.`;
+}
+
+/** Why a run closed without sending anything, from enqueueContacts' skip counts. */
+function skippedText(result, audience) {
+    const parts = [
+        [result.skippedOptOut, 'opted out'],
+        [result.skippedNoOptIn, 'not opted in'],
+        [result.skippedMuted, 'muted by a reply rule'],
+        [result.skippedFrequency, 'messaged too often in the last 24 hours'],
+        [result.skippedNotOnWhatsapp, 'not on WhatsApp'],
+    ].filter(([n]) => n > 0);
+    const repeats = (result.skipped ?? 0) - parts.reduce((n, [k]) => n + k, 0);
+    if (repeats > 0) parts.push([repeats, 'already in the queue']);
+    const why = parts.length ? ` (${parts.map(([n, text]) => `${n} ${text}`).join(', ')})` : '';
+    return `Nothing was sent: all ${audience} recipient${audience === 1 ? ' was' : 's were'} skipped${why}.`;
+}
+
 const pickStatus = (value, fallback) => (CAMPAIGN_STATUSES.includes(value) ? value : fallback);
 const nullableInt = (value) => (value == null || value === '' ? null : Number(value));
 const toRecipient = (contact) => ({ name: contact.name, phone: contact.phone, extra: contact.customFields ?? {} });

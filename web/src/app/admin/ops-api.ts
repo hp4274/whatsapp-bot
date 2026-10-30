@@ -99,16 +99,30 @@ export function zeroCapLabel(c: Pick<ChannelDetail, 'provider' | 'quota'>): stri
 
 export type AuditVerb = 'create' | 'change' | 'remove' | 'other';
 
+/** How loud an audit entry or log line is; drives its dot colour. */
+export type LogSeverity = 'info' | 'warn' | 'danger';
+
+/** Who made a change: a signed-in user, or "System" for sweeps, alerts and finished runs. */
+export type AuditActor = { readonly name: string; readonly email: string; readonly role: string } | 'System';
+
+/** One audit row: the plain sentence (server: observability/auditText.js) and the raw record behind it. */
 export interface AuditEntry {
-  id: number;
-  tenantId: number | null;
-  userId: number | null;
-  userEmail: string;
-  action: string;
-  verb: AuditVerb;
-  target: string;
-  detail: string;
-  createdAt: string;
+  readonly id: number;
+  readonly tenantId: number | null;
+  readonly tenantName: string | null;
+  readonly userId: number | null;
+  readonly userEmail: string;
+  readonly actor: AuditActor;
+  readonly action: string;
+  readonly verb: AuditVerb;
+  readonly target: string;
+  readonly detail: string;
+  readonly summary: string;
+  readonly severity: LogSeverity;
+  readonly category: string;
+  readonly ip: string | null;
+  readonly requestId: string | null;
+  readonly createdAt: string;
 }
 
 export interface AuditFilter {
@@ -118,6 +132,31 @@ export interface AuditFilter {
   from?: string;
   to?: string;
   q?: string;
+}
+
+/** One backend log line (server: observability/logBuffer.js), already redacted. */
+export interface LogLine {
+  readonly id: number;
+  readonly level: 'debug' | 'info' | 'warn' | 'error';
+  readonly time: string;
+  readonly summary: string;
+  readonly severity: LogSeverity;
+  readonly requestId: string | null;
+  readonly tenantId: number | null;
+  readonly line: Readonly<Record<string, unknown>>;
+}
+
+export interface LogFilter {
+  level?: string;
+  q?: string;
+  requestId?: string;
+}
+
+export interface LogPage {
+  readonly lines: LogLine[];
+  readonly nextBefore: number | null;
+  readonly size: number;
+  readonly capacity: number;
 }
 
 export interface AuditPage {
@@ -138,7 +177,10 @@ const toMessage = (error: HttpErrorResponse) => {
   );
 };
 
-const filterParams = (filter: AuditFilter, extra: Record<string, string | number> = {}) => {
+const filterParams = (
+  filter: AuditFilter | LogFilter,
+  extra: Record<string, string | number | undefined> = {},
+) => {
   let params = new HttpParams();
   for (const [key, value] of Object.entries({ ...filter, ...extra })) {
     if (value !== undefined && value !== null && value !== '')
@@ -189,6 +231,20 @@ export class OpsApi {
     const params = filterParams(filter, before ? { before, limit } : { limit });
     return this.http
       .get<AuditPage>('/api/admin/audit-logs', { params })
+      .pipe(catchError(toMessage));
+  }
+
+  /** Entries newer than `after`, for prepending live without reloading what is shown. */
+  auditSince(filter: AuditFilter, after: number, limit = 200): Observable<AuditPage> {
+    return this.http
+      .get<AuditPage>('/api/admin/audit-logs', { params: filterParams(filter, { after, limit }) })
+      .pipe(catchError(toMessage));
+  }
+
+  /** Recent backend log lines, newest first; `after` returns only newer ones. */
+  logs(filter: LogFilter, cursor: { before?: number; after?: number } = {}, limit = 100): Observable<LogPage> {
+    return this.http
+      .get<LogPage>('/api/admin/logs', { params: filterParams(filter, { ...cursor, limit }) })
       .pipe(catchError(toMessage));
   }
 

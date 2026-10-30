@@ -111,7 +111,7 @@
                     · v{{ w.version }} · updated {{ ago(w.updatedAt) }}
                   </span>
                 </div>
-                <span [class]="'s-pill st-' + w.status">{{ w.status }}</span>
+                <span [class]="'s-pill st-' + w.status">{{ w.status | titlecase }}</span>
                 <div class="actions">
                   @if (confirmId() === w.id) {
                     <span class="confirm" role="group" aria-label="Confirm delete">
@@ -243,7 +243,7 @@
                                 (click)="showRun(r)"
                               >
                                 <span [class]="'s-pill tone-' + runTone(r.status)">{{
-                                  r.status
+                                  r.status | titlecase
                                 }}</span>
                                 <span>{{ ago(r.startedAt) }}</span>
                                 <small class="muted">v{{ r.workflowVersion }}</small>
@@ -270,7 +270,7 @@
                                 @for (st of openRun()?.steps ?? []; track st.id) {
                                   <li>
                                     <span [class]="'s-pill tone-' + runTone(st.status)">{{
-                                      st.status
+                                      st.status | titlecase
                                     }}</span>
                                     <span
                                       >{{ st.stepId }} · {{ humanize(st.action) }}
@@ -356,10 +356,19 @@
                         maxlength="120"
                       />
                     </div>
-                    <label class="toggle">
-                      <input type="checkbox" name="activate" [(ngModel)]="installActivate" />
-                      <span class="track" aria-hidden="true"></span> Activate now
-                    </label>
+                    <div class="toggle">
+                      <button
+                        type="button"
+                        role="switch"
+                        class="switch"
+                        aria-labelledby="wf-activate"
+                        [attr.aria-checked]="installActivate"
+                        (click)="installActivate = !installActivate"
+                      >
+                        <span class="thumb"></span>
+                      </button>
+                      <span id="wf-activate">Activate now</span>
+                    </div>
                     @if (installError(); as ie) {
                       <p class="err" role="alert">{{ ie }}</p>
                     }

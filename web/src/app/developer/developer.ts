@@ -1,6 +1,8 @@
+import { TitleCasePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
+import { Auth } from '../core/auth';
 import { Store } from '../core/store';
 
 import {
@@ -22,7 +24,7 @@ import {
  */
 @Component({
   selector: 'app-developer',
-  imports: [FormsModule],
+  imports: [FormsModule, TitleCasePipe],
   templateUrl: './developer.html',
   styleUrl: './developer.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -30,6 +32,19 @@ import {
 export class DeveloperView {
   private readonly api = inject(DeveloperApi);
   private readonly store = inject(Store);
+  private readonly auth = inject(Auth);
+
+  /**
+   * The business's plan has no API service, so every call here would be a raw 403:
+   * say so once instead. Known up front from the tenant's services, and also
+   * caught from the server's answer (the admin may have just switched it off).
+   * A super admin acting inside a business is not told its services, as on Home.
+   */
+  protected readonly notOnPlan = signal(false);
+  private readonly planLacksApi = computed(() => {
+    const owned = this.auth.isSuperAdmin() ? undefined : this.auth.tenant()?.services;
+    return !!owned && !owned.includes('api');
+  });
 
   protected readonly loading = signal(true);
   protected readonly error = signal('');
@@ -97,13 +112,19 @@ export class DeveloperView {
 
   constructor() {
     void this.load();
-    this.store.watch(['api-keys', 'webhook-endpoints'], () => void this.load(true));
+    // `tenant`: an admin adding or removing the API service (or changing the plan) lifts or shows the notice.
+    this.store.watch(['api-keys', 'webhook-endpoints', 'tenant'], () => void this.load(true));
   }
 
   /** `quiet` skips the loading skeleton, for refreshes driven by the event stream. */
   protected async load(quiet = false) {
     if (!quiet) this.loading.set(true);
     this.error.set('');
+    this.notOnPlan.set(this.planLacksApi());
+    if (this.notOnPlan()) {
+      this.loading.set(false);
+      return;
+    }
     try {
       const [k, e] = await Promise.all([
         firstValueFrom(this.api.keys()),
@@ -116,7 +137,9 @@ export class DeveloperView {
       this.endpoints.set(e.endpoints);
       this.events.set(e.events);
     } catch (err) {
-      this.error.set(msg(err));
+      // The server's service gate (app.js tenantAccessError): "api is disabled for this tenant".
+      if (/api is disabled/i.test(msg(err))) this.notOnPlan.set(true);
+      else this.error.set(msg(err));
     } finally {
       this.loading.set(false);
     }

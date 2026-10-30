@@ -9,12 +9,13 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
-import { type Color, NgxChartsModule, ScaleType } from '@swimlane/ngx-charts';
 
+import { AdminFeed } from './admin-feed';
 import { OpsAudit } from './ops-audit';
+import { OpsLogs } from './ops-logs';
 import {
   type BackupStatus,
   ChannelDetail,
@@ -30,6 +31,16 @@ import { serviceMeta } from './service-meta';
 /** Which ops page the route renders; one component serves all five. */
 type PageKind = 'plans' | 'usage' | 'health' | 'audit' | 'channels';
 type Range = 'today' | 'd7' | 'd30';
+/** The audit page's two views: what people changed, and what the server logged (`?view=logs`). */
+type AuditTab = 'activity' | 'logs';
+
+/**
+ * Least time between two live reloads of one page. The feed sends `usage`/`campaigns` up to every 700 ms while a
+ * campaign sends, and health-detail reads every number: once per few seconds is live enough and cheap.
+ */
+const LIVE_MIN_GAP_MS = 5000;
+/** Safety-net reload for anything the feed does not carry (a clock-driven change such as a sending window opening). */
+const FALLBACK_POLL_MS = 90_000;
 
 const COPY: Record<PageKind, { title: string; lede: string; icon: string }> = {
   plans: {
@@ -44,12 +55,12 @@ const COPY: Record<PageKind, { title: string; lede: string; icon: string }> = {
   },
   health: {
     title: 'Health',
-    lede: 'Live state of every number. Problems are listed first; refreshes every 30 seconds.',
+    lede: 'Live state of every number. Problems are listed first; updates as numbers connect, drop or send.',
     icon: 'heart-rate-monitor',
   },
   audit: {
     title: 'Audit logs',
-    lede: 'Every change made on the platform, newest first.',
+    lede: 'Every change made on the platform in plain words, newest first, with the backend record behind it.',
     icon: 'list-search',
   },
   channels: {
@@ -70,6 +81,38 @@ const STATE_COPY: Record<LiveState, { label: string; icon: string }> = {
   disabled: { label: 'Disabled', icon: 'ban' },
 };
 
+/** The sparkline's drawing box; the SVG stretches it to the cell, strokes stay 2px (non-scaling). */
+const SPARK_BOX = { w: 120, h: 40, pad: 4 } as const;
+
+/** Narrow enough that 14 day labels would rotate and collide under the platform chart. */
+const NARROW_QUERY = '(max-width: 720px)';
+
+/**
+ * One business's days as SVG paths. All zero: a flat baseline, not a full-height band. One day with data: a stem
+ * and a dot, not the thin triangle an area chart draws towards a lone point. Otherwise a line over a soft area.
+ */
+function sparkline(values: readonly number[]): { line: string; area: string; dot: string; flat: boolean } {
+  const { w, h, pad } = SPARK_BOX;
+  const base = h - pad;
+  const max = Math.max(0, ...values);
+  if (!max) return { line: `M0 ${base} H${w}`, area: '', dot: '', flat: true };
+  const step = values.length > 1 ? (w - pad * 2) / (values.length - 1) : 0;
+  const pts = values.map((v, i) => [pad + i * step, base - (v / max) * (h - pad * 2)] as const);
+  const lit = values.flatMap((v, i) => (v ? [i] : []));
+  if (lit.length === 1) {
+    const [x, y] = pts[lit[0]];
+    return { line: `M0 ${base} H${w} M${x} ${base} V${y}`, area: '', dot: `M${x} ${y} h0`, flat: false };
+  }
+  const line = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ');
+  return { line, area: `${line} L${pts.at(-1)![0]} ${base} L${pad} ${base} Z`, dot: '', flat: false };
+}
+
+/** A round axis step (1, 2 or 5 times a power of ten) at least `raw`, so the scale reads 0, 10, 20, 30. */
+function niceStep(raw: number): number {
+  const pow = 10 ** Math.floor(Math.log10(Math.max(raw, 1)));
+  return ([1, 2, 5, 10].find((m) => m * pow >= raw) ?? 10) * pow;
+}
+
 /** Transport ids from the server mapped to what an operator would call them. */
 const PROVIDERS: Record<string, string> = { baileys: 'WhatsApp QR' };
 
@@ -77,13 +120,14 @@ const PROVIDERS: Record<string, string> = { baileys: 'WhatsApp QR' };
  * Read-only platform pages for the super admin: plans, usage, health,
  * audit logs and channels.
  *
- * The live pages (usage, health, channels) poll every 30 seconds because
- * `/api/admin` is not part of the tenant event stream. Polls are quiet: they
- * never flash the skeleton or clear a shown error until they succeed.
+ * The pages follow the super admin's live feed (`AdminFeed`): a change to
+ * usage, numbers, businesses or campaigns reloads the page shown, at most
+ * every few seconds, with a slow poll as a safety net. Live reloads are quiet:
+ * they never flash the skeleton or clear a shown error until they succeed.
  */
 @Component({
   selector: 'app-admin-ops',
-  imports: [RouterLink, OpsAudit, NgxChartsModule],
+  imports: [RouterLink, OpsAudit, OpsLogs],
   templateUrl: './ops.html',
   styleUrl: './ops.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -92,10 +136,22 @@ export class AdminOpsView {
   private readonly api = inject(OpsApi);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
+  private readonly feed = inject(AdminFeed);
   private readonly auditView = viewChild(OpsAudit);
+  private readonly logsView = viewChild(OpsLogs);
   protected readonly kind = toSignal(
     this.route.data.pipe(map((data) => data['kind'] as PageKind)),
     { initialValue: 'plans' as PageKind },
+  );
+  protected readonly auditTab = toSignal(
+    this.route.queryParamMap.pipe(map((q): AuditTab => (q.get('view') === 'logs' ? 'logs' : 'activity'))),
+    { initialValue: 'activity' as AuditTab },
+  );
+  /** `?requestId=` from an audit entry's "Show backend logs for this request". */
+  protected readonly requestId = toSignal(
+    this.route.queryParamMap.pipe(map((q) => q.get('requestId') ?? '')),
+    { initialValue: '' },
   );
 
   protected readonly copy = computed(() => COPY[this.kind()]);
@@ -140,34 +196,43 @@ export class AdminOpsView {
   protected readonly maxWindow = computed(() =>
     Math.max(1, ...this.ranked().map((t) => t[this.range()].total)),
   );
-  /** Chart colours come from the theme tokens: ngx-charts wants literal colours, not var(). */
-  protected readonly heroScheme = this.scheme(['--success', '--danger'], ['#16a34a', '#dc2626']);
-  protected readonly miniScheme = this.scheme(['--primary'], ['#2563eb']);
+  protected readonly sparkBox = SPARK_BOX;
+  /** True on a phone-width screen, where the platform chart labels every third day. */
+  private readonly narrow = signal(typeof matchMedia === 'function' && matchMedia(NARROW_QUERY).matches);
 
-  /** Stacked per-day columns for the platform chart: delivered-side vs failed. */
-  protected readonly heroSeries = computed(() => {
-    const u = this.usage();
+  /**
+   * The platform chart: one stacked column per day (sent under failed) on a rounded scale. Drawn in plain CSS: the
+   * ngx-charts stacked bars need an animations provider this app does not load, and threw instead of drawing.
+   */
+  protected readonly hero = computed(() => {
+    const days = this.usage()?.days ?? [];
     const daily = this.platformDaily();
     const failed = this.platformFailed();
-    return (u?.days ?? []).map((day, i) => ({
-      name: day.slice(5),
-      series: [
-        { name: 'Sent', value: Math.max(0, daily[i] - failed[i]) },
-        { name: 'Failed', value: failed[i] },
-      ],
-    }));
+    const step = niceStep(Math.max(1, ...daily) / 3);
+    const top = Math.ceil(Math.max(1, ...daily) / step) * step;
+    const every = this.narrow() ? 3 : 1;
+    return {
+      ticks: Array.from({ length: Math.round(top / step) + 1 }, (_, i) => ({ value: i * step, pct: ((i * step) / top) * 100 })),
+      days: days.map((day, i) => {
+        const bad = failed[i] ?? 0;
+        const sent = Math.max(0, (daily[i] ?? 0) - bad);
+        return {
+          day,
+          label: day.slice(5),
+          showLabel: (days.length - 1 - i) % every === 0,
+          sent,
+          failed: bad,
+          sentPct: (sent / top) * 100,
+          failedPct: (bad / top) * 100,
+        };
+      }),
+    };
   });
 
-  /** One stable series per business, so a poll with unchanged data does not redraw its chart. */
-  protected readonly tenantSeries = computed(() => {
-    const u = this.usage();
-    return new Map(
-      (u?.tenants ?? []).map((t) => [
-        t.tenantId,
-        [{ name: 'Messages', series: u!.days.map((d, i) => ({ name: d.slice(5), value: t.daily[i] })) }],
-      ]),
-    );
-  });
+  /** Each business's sparkline paths, keyed by tenant. */
+  protected readonly sparks = computed(
+    () => new Map((this.usage()?.tenants ?? []).map((t) => [t.tenantId, sparkline(t.daily)])),
+  );
 
   protected readonly platformDaily = computed(() => {
     const u = this.usage();
@@ -217,19 +282,56 @@ export class AdminOpsView {
       this.kind();
       untracked(() => this.load());
     });
-    // /api/admin is not broadcast; poll the live pages quietly.
+    // Live: the audit views follow their own topics; the data pages reload on these, throttled.
+    this.feed.watch(['usage', 'channels', 'tenants', 'campaigns', 'plans'], () => this.liveReload());
     const timer = setInterval(() => {
-      if (['usage', 'health', 'channels'].includes(this.kind()) && !document.hidden)
-        this.load(true);
-    }, 30_000);
-    this.destroyRef.onDestroy(() => clearInterval(timer));
+      if (this.kind() !== 'audit' && !document.hidden) this.load(true);
+    }, FALLBACK_POLL_MS);
+    const media = typeof matchMedia === 'function' ? matchMedia(NARROW_QUERY) : null;
+    const onMedia = (e: MediaQueryListEvent) => this.narrow.set(e.matches);
+    media?.addEventListener('change', onMedia);
+    this.destroyRef.onDestroy(() => {
+      media?.removeEventListener('change', onMedia);
+      clearInterval(timer);
+      clearTimeout(this.liveTimer);
+    });
+  }
+
+  private liveTimer?: ReturnType<typeof setTimeout>;
+  private lastLive = 0;
+
+  /** At most one quiet reload per LIVE_MIN_GAP_MS, trailing, so a busy campaign never starves or floods the page. */
+  private liveReload() {
+    if (this.kind() === 'audit' || this.liveTimer) return;
+    const wait = Math.max(0, this.lastLive + LIVE_MIN_GAP_MS - Date.now());
+    this.liveTimer = setTimeout(() => {
+      this.liveTimer = undefined;
+      this.lastLive = Date.now();
+      if (!document.hidden) this.load(true);
+    }, wait);
+  }
+
+  protected setTab(tab: AuditTab) {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { view: tab === 'logs' ? 'logs' : null, requestId: null },
+    });
+  }
+
+  protected clearRequest() {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { requestId: null },
+      queryParamsHandling: 'merge',
+    });
   }
 
   protected load(quiet = false) {
     const kind = this.kind();
     if (kind === 'audit') {
       this.loading.set(false);
-      this.auditView()?.reload();
+      if (this.auditTab() === 'logs') this.logsView()?.reload();
+      else this.auditView()?.reload();
       return;
     }
     if (!quiet) {
@@ -358,15 +460,5 @@ export class AdminOpsView {
     if (s < 3600) return `${Math.floor(s / 60)} min ago`;
     if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
     return new Date(then).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-  }
-
-  private scheme(vars: string[], fallback: string[]): Color {
-    const css = typeof document === 'undefined' ? null : getComputedStyle(document.documentElement);
-    return {
-      name: 'ops',
-      selectable: false,
-      group: ScaleType.Ordinal,
-      domain: vars.map((v, i) => css?.getPropertyValue(v).trim() || fallback[i]),
-    };
   }
 }

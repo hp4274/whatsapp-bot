@@ -10,7 +10,9 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
+import { AdminFeed } from './admin-feed';
 import { CampaignsOpsApi, type CampaignFilter, type OpsCampaign } from './campaigns-ops-api';
+import { sentenceCase } from './text';
 
 /** The destructive action waiting on the confirm dialog. */
 type Pending = { readonly kind: 'stop-all' } | { readonly kind: 'cancel'; readonly row: OpsCampaign };
@@ -46,6 +48,8 @@ export class CampaignsOps {
   private readonly destroyRef = inject(DestroyRef);
   private readonly dialogRef = viewChild<ElementRef<HTMLDialogElement>>('dialog');
 
+  /** Pill labels are sentence case: "past_due" reads "Past due". */
+  protected readonly sentence = sentenceCase;
   protected readonly filters = FILTERS;
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
@@ -61,6 +65,8 @@ export class CampaignsOps {
 
   constructor() {
     this.load();
+    // A run finishing, pausing on a limit or being stopped anywhere on the platform shows here as it happens.
+    inject(AdminFeed).watch(['campaigns'], () => this.load(true), 600);
     // The native <dialog> gives focus trapping and Escape for free; it just needs opening.
     effect(() => {
       const dialog = this.dialogRef()?.nativeElement;
@@ -70,9 +76,12 @@ export class CampaignsOps {
     });
   }
 
-  load(): void {
-    this.loading.set(true);
-    this.error.set(null);
+  /** `quiet`: a live refresh, which keeps the table on screen instead of flashing the loader. */
+  load(quiet = false): void {
+    if (!quiet) {
+      this.loading.set(true);
+      this.error.set(null);
+    }
     this.api
       .list(this.filter())
       .pipe(takeUntilDestroyed(this.destroyRef))

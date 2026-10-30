@@ -286,9 +286,9 @@ describe('DailyQuota hooks', () => {
     });
 
     it('skipGrowth lets the bulk day reach the level day at once', () => {
-        const ledger = { ...LEVEL5, hasHistory: true, bestCleanDay7: 10 };
+        const ledger = { ...LEVEL5, hasHistory: true, bestCleanDay7: 20 };
         const quota = quotaFor(ledger);
-        assert.equal(quota.allowance().budgets.bulk.limit, 13, '35% over the best day');
+        assert.equal(quota.allowance().budgets.bulk.limit, 27, '35% over the best day');
         quota.tables = () => ({ ...DEFAULT_SENDING, skipGrowth: true });
         quota.invalidate();
         assert.equal(quota.allowance().budgets.bulk.limit, LEVELS[5].dailyLimit);
