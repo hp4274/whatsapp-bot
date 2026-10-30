@@ -269,7 +269,7 @@ describe('brakes', () => {
 });
 
 describe('new chats', () => {
-    it('while WhatsApp restricts the number (463), only people who wrote in are sent to; the rest wait', async () => {
+    for (const safetyEnabled of [true, false]) it(`while WhatsApp restricts the number (463), only people who wrote in are sent to; the rest wait (safety ${safetyEnabled ? 'on' : 'off'})`, async () => {
         const db = freshDb();
         history(db, { days: 3, perDay: 3 });
         const wrote = '919900000011';
@@ -279,7 +279,7 @@ describe('new chats', () => {
         sent(db, 'earlier', messaged, ago(2 * DAY)); // outside the 24h per-recipient cap
         db.addSafetyEvent({ kind: 'restrict', phone: '15550000001', messageId: new Date(Date.now() + 20 * HOUR).toISOString(), detail: '463' });
         const transport = new FakeLive();
-        const manager = new CampaignManager(db, transport, qr());
+        const manager = new CampaignManager(db, transport, qr({ safetyEnabled }));
         try {
             manager.enqueueContacts(people([wrote, messaged, stranger]), 'Hi {name}', { campaignId: 'restricted' });
             manager.start();

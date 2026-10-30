@@ -108,8 +108,14 @@ const REGISTRY_TIMEOUT_MS = 15000;
 const CONTACTS_COLLECTION = 'critical_unblock_low';
 /** A forced address-book snapshot costs a round trip, so a number asks for at most one every few minutes. */
 const ADDRESS_BOOK_REFRESH_MS = 5 * 60_000;
-/** Ack errors that mean WhatsApp is capping messages to new people (463 reach-out timelock, 475 message capping). */
-const RESTRICTED_CODES = new Set(['463', '475']);
+/**
+ * Ack errors that mean WhatsApp is capping messages to new people (475 message capping). A 463 counts only when it
+ * comes back after the resend with a fresh privacy token: the first one is usually just a token this linked device
+ * never got (the phone has it, so the phone can still message that person).
+ */
+const RESTRICTED_CODES = new Set(['475']);
+const TOKEN_MISSING = '463';
+const TOKEN_RETRY_MS = 5000;
 const RESTRICTED_MIN_MS = 24 * 3_600_000;
 const RETRY_MISS = 'recv retry request, but message not available';
 /**
@@ -191,6 +197,7 @@ export class BaileysTransport extends Transport {
         this.reconnectAttempt = 0;
         this.badSessions = 0; // 500s in a row with no open between (#rescan)
         this.receipts = new Map();
+        this.tokenRetried = new Set(); // message ids resent once after a 463; dropped on their second answer
         // The number's address book as WhatsApp syncs it (contacts.upsert / history). Baileys 7 keeps no
         // store of its own, so this is the only place `listContacts()` can read it from. WhatsApp sends
         // the address book once, so the last copy is kept in the session folder and read back on restart.
@@ -278,6 +285,17 @@ export class BaileysTransport extends Transport {
                 const code = String(update?.messageStubParameters?.[0] ?? '');
                 if (RESTRICTED_CODES.has(code)) this.#restricted(code, Date.now() + RESTRICTED_MIN_MS);
                 if (update?.status == null) continue;
+                // 463 is a missing privacy token as often as a restriction: Baileys asks WhatsApp for the token on
+                // its own, so send the same message once more; only a second 463 fails it.
+                if (code === TOKEN_MISSING && key?.id && key.remoteJid && !this.tokenRetried.has(key.id)) {
+                    this.tokenRetried.add(key.id);
+                    this.setTimeoutFn(() => { void this.#resendWithToken(sock, key); }, TOKEN_RETRY_MS);
+                    continue;
+                }
+                if (code === TOKEN_MISSING) {
+                    this.tokenRetried.delete(key?.id);
+                    this.#restricted(code, Date.now() + RESTRICTED_MIN_MS); // refused even with a token
+                }
                 this.#emitReceipt(key?.id, ackStatus(update.status), code);
             }
         });
@@ -482,6 +500,18 @@ export class BaileysTransport extends Transport {
         this.rateLimits = this.rateLimits.filter((at) => now - at < 3_600_000);
         this.rateLimits.push(now);
         if (this.rateLimits.length >= RATE_LIMITS_TO_RESTRICT) this.#restricted('429', now + RESTRICTED_MIN_MS);
+    }
+
+    /** The one resend after a 463 (see messages.update): same id, so its receipt lands on the same job. */
+    async #resendWithToken(sock, key) {
+        const message = await this.#getMessage(key);
+        try {
+            if (!message || sock !== this.sock) throw new Error('message or connection gone');
+            await sock.relayMessage(key.remoteJid, message, { messageId: key.id });
+        } catch {
+            this.tokenRetried.delete(key.id);
+            this.#emitReceipt(key.id, Status.FAILED, TOKEN_MISSING);
+        }
     }
 
     /**
