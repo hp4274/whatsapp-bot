@@ -1050,7 +1050,7 @@ export class Database {
 
     /**
      * Newest first, with the contact's name from the last message sent to them. Brake rows (kind 'brake' /
-     * 'shadow', see brakeEvents), brake days and level changes are the number's own state, not a person, and
+     * 'shadow', see brakeEvents), brake days, level changes and WhatsApp's restrictions are the number's own state, not a person, and
      * shadow rows are for the admin only.
      */
     safetyEvents(limit = 50) {
@@ -1060,7 +1060,7 @@ export class Database {
             `SELECT e.id, e.kind, e.phone, e.campaign_id AS campaignId, e.detail, e.at,
                     (SELECT m.name FROM messages m WHERE m.tenant_id = e.tenant_id AND m.recipient = e.phone
                      AND m.name != '' ORDER BY m.created_at DESC LIMIT 1) AS name
-             FROM safety_events e WHERE e.tenant_id = ?${scope} AND e.kind NOT IN ('brake', 'shadow', 'brake_day', 'level') ORDER BY e.id DESC LIMIT ?`,
+             FROM safety_events e WHERE e.tenant_id = ?${scope} AND e.kind NOT IN ('brake', 'shadow', 'brake_day', 'level', 'restrict') ORDER BY e.id DESC LIMIT ?`,
         ).all(this.tenantId, ...args, limit);
     }
 
