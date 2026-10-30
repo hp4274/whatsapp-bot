@@ -265,23 +265,26 @@ it('a carousel campaign on a QR number counts each part against the day', async 
     }
 });
 
-it('emits restricted on a 463 / 475 ack and on a reach-out timelock, at least 24h out', async () => {
+it('emits restricted on a 475 ack and on a reach-out timelock, at least 24h out; never on a 463', async () => {
     const { transport, sock } = makeTransport();
     await transport.connect();
     const restricted = [];
     transport.events.on('restricted', (r) => restricted.push(r));
     const day = Date.now() + 24 * 3_600_000;
     sock().ev.emit('messages.update', [{ key: { id: 'A' }, update: { status: 0, messageStubParameters: ['463'] } }]);
-    assert.equal(restricted.length, 1);
-    assert.equal(restricted[0].code, '463');
-    assert.ok(Math.abs(Date.parse(restricted[0].until) - day) < 5000);
+    assert.equal(restricted.length, 0, 'a 463 is one contact missing a token, not the number');
     sock().ev.emit('messages.update', [{ key: { id: 'B' }, update: { status: 0, messageStubParameters: ['475'] } }]);
+    assert.equal(restricted.length, 1);
+    assert.equal(restricted[0].code, '475');
+    assert.ok(Math.abs(Date.parse(restricted[0].until) - day) < 5000);
+    sock().ev.emit('messages.update', [{ key: { id: 'B2' }, update: { status: 0, messageStubParameters: ['475'] } }]);
     assert.equal(restricted.length, 1, 'a burst of failed acks is one restriction');
     sock().ev.emit('messages.update', [{ key: { id: 'C' }, update: { status: 0, messageStubParameters: ['479'] } }]);
     const later = new Date(Date.now() + 3 * 86_400_000);
     sock().ev.emit('connection.update', { reachoutTimeLock: { isActive: true, timeEnforcementEnds: later } });
     assert.equal(restricted.length, 2);
     assert.equal(restricted[1].until, later.toISOString());
+    assert.equal(restricted[1].code, 'timelock');
     sock().ev.emit('connection.update', { reachoutTimeLock: { isActive: false } });
     assert.equal(restricted.length, 2);
 });
@@ -412,7 +415,7 @@ it('maps receipts to DELIVERED/READ/FAILED and ignores pending', async () => {
     assert.equal(transport.getStatus('B'), Status.READ);
 });
 
-it('a 463 resends the message once (Baileys fetches the missing privacy token); only a second 463 fails it', async () => {
+it('a 463 resends the message once (Baileys fetches the missing privacy token); a second 463 fails that message only', async () => {
     const { proto } = await import('@whiskeysockets/baileys');
     const bytes = proto.Message.encode({ conversation: 'Hi' }).finish();
     const { transport, sock } = makeTransport({ messageStore: { sentProto: (id) => (id === 'M1' ? bytes : null), saveSentProto() {} } });
@@ -433,7 +436,7 @@ it('a 463 resends the message once (Baileys fetches the missing privacy token); 
 
     sock().ev.emit('messages.update', [{ key, update: { status: 0, messageStubParameters: ['463'] } }]);
     assert.deepEqual(receipts, [['M1', Status.FAILED]]);
-    assert.equal(restricted.length, 1, 'refused even with a fresh token: the number is restricted');
+    assert.equal(restricted.length, 0, 'one contact refused is not the whole number restricted');
 });
 
 it('a failed ack says which WhatsApp error it was', async () => {
@@ -445,7 +448,7 @@ it('a failed ack says which WhatsApp error it was', async () => {
         { key: { id: 'A' }, update: { status: 0, messageStubParameters: ['463'] } },
         { key: { id: 'B' }, update: { status: 0, messageStubParameters: ['421'] } },
     ]);
-    assert.match(errors[0], /error 463.*messaged it before/);
+    assert.match(errors[0], /error 463.*privacy token/);
     assert.equal(errors[1], 'WhatsApp rejected the message (error 421).');
 });
 
