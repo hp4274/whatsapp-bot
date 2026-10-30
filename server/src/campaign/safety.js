@@ -440,9 +440,26 @@ export class DailyQuota {
         }
     }
 
-    /** The pacing row: a QR number's level row, or null (pacing by batch size). */
+    /** The pacing row: a QR number's level row (the plan's own with safety left), or null (pacing by batch size). */
     tier(now = Date.now()) {
-        return this.qr ? this.allowance(new Date(now)).row : null;
+        if (!this.qr) return null;
+        return this.config.safetyEnabled ? this.allowance(new Date(now)).row : this.#planRow();
+    }
+
+    /**
+     * Left sending safety: no warm-up and no brakes, but the plan still holds. The number runs at the level whose
+     * day reaches the plan's (channels.dailyCap; the top one without a plan) and is paced by that level's gaps.
+     */
+    #planRow() {
+        const { levels, planDaily } = this.tables();
+        const row = (Number(planDaily) > 0 ? levels.find((r) => r.level >= 1 && r.dailyLimit >= Number(planDaily)) : null) ?? levels.at(-1);
+        return { ...row, level: undefined }; // not "on a level": the plan's own speed applies, fast included
+    }
+
+    /** Left sending safety: the plan's per-number day and what is left of it (no plan: no cap). */
+    #planDay(now) {
+        const limit = Number(this.tables().planDaily) > 0 ? Number(this.tables().planDaily) : 0;
+        return { limit, left: limit ? Math.max(0, limit - this.usedToday(now)) : Infinity };
     }
 
     /** The cap for the day `now` falls in (0 = none): a QR number's level, else `dailyLimit`. */
@@ -469,7 +486,7 @@ export class DailyQuota {
     }
 
     remaining(now = new Date()) {
-        if (!this.config.safetyEnabled) return Infinity;
+        if (!this.config.safetyEnabled) return this.qr ? this.#planDay(now).left : Infinity;
         if (this.qr) return this.allowance(now).budgets.bulk.left;
         const limit = this.limitOn(now);
         if (limit === 0) return Infinity;
@@ -486,8 +503,11 @@ export class DailyQuota {
         if (this.qr) {
             const a = this.allowance(now);
             const { bulk } = a.budgets;
+            // Left sending safety: today's limit is the plan's day, not the level's.
+            const plan = enabled ? null : this.#planDay(now);
             return {
-                enabled, limit: bulk.limit, used: bulk.used, remaining: enabled ? bulk.left : null, resetsAt: bulk.resetsAt,
+                enabled, limit: plan ? plan.limit : bulk.limit, used: bulk.used,
+                remaining: plan ? (plan.limit ? plan.left : null) : bulk.left, resetsAt: bulk.resetsAt,
                 level: a.level, budgets: a.budgets, brakes: a.brakes, content: a.content, ceiling: a.ceiling, asked: a.asked, growth: a.growth,
             };
         }
