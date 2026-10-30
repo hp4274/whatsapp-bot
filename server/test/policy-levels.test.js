@@ -335,6 +335,24 @@ describe('the ladder to 1000 a day', () => {
         assert.equal(quotaFor({ ...TOP, reached: 100, replied: 5 }, ENTERPRISE).limitOn(), 500);
     });
 
+    it('a number that left sending safety runs at its plan: the plan\'s day, the matching level\'s gaps, no warm-up', () => {
+        const off = { ...qr, safetyEnabled: false };
+        // A brand-new number (no history) that would otherwise rest and start at level 1.
+        const quota = quotaFor({ bulkToday: 40 }, { 'channels.dailyCap': 250 }, off);
+        assert.equal(quota.remaining(), 210, '250 a day, 40 already sent');
+        const status = quota.status();
+        assert.deepEqual([status.enabled, status.limit, status.remaining], [false, 250, 210]);
+        const row = quota.tier();
+        assert.equal(row.dailyLimit, LEVELS[8].dailyLimit, 'paced like the level whose day reaches 250');
+        assert.equal(row.minSeconds, LEVELS[8].minSeconds);
+        assert.equal(row.level, undefined, 'not on a level, so the plan\'s "fast" is not slowed to balanced');
+        assert.ok(paceFor(100, off, 'balanced', row).maxSeconds > 0, 'there is a gap between messages');
+
+        const unplanned = quotaFor({}, {}, off);
+        assert.equal(unplanned.remaining(), Infinity, 'no plan day: no cap');
+        assert.equal(unplanned.tier().dailyLimit, LEVELS.at(-1).dailyLimit);
+    });
+
     it('the plan day caps the level, read live from policy', () => {
         const starter = quotaFor(TOP, { 'channels.dailyCap': 250 });
         assert.deepEqual([starter.allowance().level.level, starter.limitOn(), starter.planLimit()], [8, 250, 250]);

@@ -97,13 +97,13 @@ export const NUMBER_SKIP_TEXT = [
     'I accept full responsibility for any restriction or ban of this number, and for any lost messages, contacts or business that follow. The platform cannot restore a banned number.',
 ];
 /**
- * What a business accepts to leave sending safety: levels, brakes, pacing and quiet time all off
+ * What a business accepts to leave sending safety: levels, brakes and quiet time off, the plan's day and speed kept
  * (POST /api/safety/custom/exit). Asked again on every exit, as kind `safety_exit`.
  */
-export const SAFETY_EXIT_VERSION = '2026-10-1';
+export const SAFETY_EXIT_VERSION = '2026-10-2';
 export const SAFETY_EXIT_TEXT = [
-    'Leaving sending safety removes the daily levels, the brakes, the pacing between messages and the quiet hours from every number of our business.',
-    'Numbers will send as fast and as much as campaigns ask. WhatsApp is likely to restrict or ban a number that does that, temporarily or permanently.',
+    'Leaving sending safety removes the warm-up levels, the brakes and the quiet hours from every number of our business.',
+    'Numbers will send at our plan\'s full daily limit and speed from the first day. WhatsApp is likely to restrict or ban a number that does that, temporarily or permanently.',
     'I accept full responsibility for any restriction or ban of our number(s), and for any lost messages, contacts or business that follow. The platform cannot restore a banned number.',
 ];
 /** Consent kinds: the text version and hash each one records. */

@@ -115,9 +115,11 @@ export class SendingHealth {
   protected readonly allowance = computed<Allowance | null>(() => {
     const s = this.safety();
     if (!s) return null;
-    // Safety off holds nothing and asks nothing (server channelUsage.js), whatever `asked` says.
+    // Safety off asks nothing and has no warm-up; only the plan's day holds (server DailyQuota.status).
     if (!s.enabled)
-      return { held: false, icon: 'ti-infinity', lead: 'No daily limit', rest: '' };
+      return s.limit
+        ? { held: false, icon: 'ti-send', lead: `${s.limit} messages a day`, rest: ` · your plan's limit, ${s.used} sent today` }
+        : { held: false, icon: 'ti-infinity', lead: 'No daily limit', rest: '' };
     if (s.asked === false)
       return { held: true, icon: 'ti-help-circle', lead: 'Answer 2 questions to start sending', rest: '' };
     const wait = s.level?.resting;

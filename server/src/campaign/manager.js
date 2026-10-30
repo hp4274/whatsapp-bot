@@ -143,7 +143,6 @@ export class CampaignManager extends EventEmitter {
         this.pace = this.#paceFor(this.pace.batchSize, this.pacePreset);
     }
 
-    /** A QR number with safety on and a real transport: sending levels govern every send. */
     /** Whether WhatsApp restricts this number now; read at most every 30s (`restrictedCache = null` re-reads). */
     #restricted() {
         const t = Date.now();
@@ -153,6 +152,7 @@ export class CampaignManager extends EventEmitter {
         return Date.parse(this.restrictedCache.until ?? '') > t;
     }
 
+    /** A QR number with safety on and a real transport: sending levels govern every send. */
     #onLevels() {
         return this.quota.qr && this.config.safetyEnabled && Boolean(this.transport?.realDelivery);
     }
@@ -763,7 +763,8 @@ export class CampaignManager extends EventEmitter {
     async #paceBeforeSend(item) {
         // A reply to someone who just wrote in is not bulk traffic: no gap.
         if (item?.messageType === 'auto_reply') return true;
-        const adaptive = this.config.safetyEnabled && this.config.pacingMode !== 'fixed';
+        // A QR number that left sending safety is still paced, at its plan's level and speed (DailyQuota.tier).
+        const adaptive = (this.config.safetyEnabled || this.quota.qr) && this.config.pacingMode !== 'fixed';
         // Sandbox sends never leave the machine, so they are not paced.
         if (!adaptive || !this.transport?.realDelivery) return true;
 
@@ -977,7 +978,8 @@ export class CampaignManager extends EventEmitter {
      * point of a cap that is not a failure.
      */
     #quotaBlocked(item) {
-        if (!this.config.safetyEnabled || !this.transport?.realDelivery) return false;
+        // Safety left: a QR number still stops at its plan's day (DailyQuota.remaining).
+        if (!(this.config.safetyEnabled || this.quota.qr) || !this.transport?.realDelivery) return false;
         // A reply to someone who wrote in is not bulk: it counts toward the day, but never holds the queue.
         if (QUOTA_EXEMPT.has(item.messageType)) return false;
         if (!this.quota.exhausted()) return false;
@@ -993,6 +995,9 @@ export class CampaignManager extends EventEmitter {
     #quotaText() {
         const status = this.quota.status();
         const zone = this.timezone?.() || null;
+        if (!status.enabled) {
+            return `Today's plan limit of ${status.limit} is used. Sending continues automatically at ${clockAt(status.resetsAt, zone)}.`;
+        }
         if (status.asked === false) {
             return 'Answer 2 questions about this number on the Connection page to start sending. Sending continues by itself once they are answered.';
         }

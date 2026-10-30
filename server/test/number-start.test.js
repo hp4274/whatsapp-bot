@@ -281,10 +281,10 @@ describe('POST/GET /api/channels/:id/start', () => {
         assert.deepEqual(channels.find((c) => c.id === skipId).level.start.answers, { skipped: true });
     });
 
-    it('with safety off nothing is held: no cap (null) for the business, not asked for the admin either', async () => {
+    it('with safety off nothing is held but the plan: its day is the limit, nothing asked of the admin either', async () => {
         const channels = new Channels(db.forTenant(tenant.id));
         const offId = channels.create({ displayName: 'QR off', settings: { transport: TRANSPORT_BAILEYS, autoConnect: false, safetyEnabled: false } }).id;
-        assert.deepEqual((await card(offId)).usage, { todayLimit: null, sentToday: 0, planLimit: null, growing: false });
+        assert.deepEqual((await card(offId)).usage, { todayLimit: 250, sentToday: 0, planLimit: 250, growing: false }, 'the plan day, no warm-up');
         assert.equal((await call(owner, 'GET', `/api/channels/${offId}/start`)).body.asked, true);
         const sup = sessionFor(app, { role: 'super_admin' });
         const { channels: rows } = (await call(sup, 'GET', '/api/admin/health-detail')).body;

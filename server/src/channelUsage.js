@@ -42,7 +42,8 @@ export function channelUsage(channel, { db, config, sending = {}, pin = null, st
     if (!live) quota.zone = () => channel.timezone || null;
     const status = quota.status(now);
     // A QR number's 0 is a real "none today"; the sandbox's 0 is "no limit".
-    let todayLimit = status.enabled && (quota.qr || status.limit > 0) ? status.limit : null;
+    // Safety left: the plan's day (DailyQuota.status), no limit without a plan.
+    let todayLimit = status.enabled ? (quota.qr || status.limit > 0 ? status.limit : null) : (quota.qr && status.limit > 0 ? status.limit : null);
     const has = (code) => quota.qr && status.brakes.some((b) => b.code === code);
     // A newly linked number waits before bulk: show the day it then runs at, and when it starts.
     const waits = quota.qr && status.enabled && status.level.resting.active && !has('ban') ? status.level.resting.endsAt : null;
