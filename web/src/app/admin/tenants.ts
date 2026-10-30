@@ -114,6 +114,7 @@ export class TenantsView {
   protected readonly busy = signal(false);
   protected readonly savingId = signal<number | null>(null);
   protected readonly showForm = signal(false);
+  protected readonly showPassword = signal(false);
   protected readonly actingId = this.auth.actingTenantId;
 
   protected readonly services = signal<string[]>([...DEFAULT_SERVICES]);

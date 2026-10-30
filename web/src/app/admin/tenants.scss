@@ -37,6 +37,12 @@
   button[type='submit'] { justify-self: start; }
 }
 
+.pw {
+  display: flex;
+  gap: 6px;
+  input { flex: 1; min-width: 0; }
+}
+
 .field-error { color: var(--danger-text); font-size: 12px; font-weight: 500; }
 
 h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(--text-strong); }
