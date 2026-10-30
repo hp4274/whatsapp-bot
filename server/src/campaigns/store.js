@@ -444,6 +444,8 @@ export class CampaignStore {
             this.#set(campaign.id, { status: 'done', finished_at: this.now(), ...snapshot });
             return { campaign: this.get(campaign.id), stats: snapshot };
         }
+        // The detail page polls this: write only when a number moved.
+        if (JSON.stringify(campaign.stats) === JSON.stringify(snapshot)) return { campaign, stats: snapshot };
         this.#set(campaign.id, snapshot);
         return { campaign: this.get(campaign.id), stats: snapshot };
     }
@@ -911,7 +913,7 @@ export class CampaignStore {
     /** The recipient as the campaign knew them: the list entry's extras, or the contact's fields. */
     #contactFor(campaign, phone, name = '') {
         if (Array.isArray(campaign.audience)) {
-            const entry = campaign.audience.find((e) => digits(e?.phone) === digits(phone));
+            const entry = audienceIndex(campaign.audience).get(digits(phone));
             if (entry) return { name: entry.name || name || '', phone, extra: entry.extra ?? {} };
         }
         const known = this.#known(phone);
@@ -1158,6 +1160,21 @@ function normalizeSpread(input) {
 }
 
 const digits = (phone) => String(phone ?? '').replace(/\D/g, '');
+
+/** An audience list by digits, first entry wins (as `find` did); built once per list, not once per row. */
+const audienceIndexes = new WeakMap();
+function audienceIndex(audience) {
+    let index = audienceIndexes.get(audience);
+    if (!index) {
+        index = new Map();
+        for (const entry of audience) {
+            const key = digits(entry?.phone);
+            if (!index.has(key)) index.set(key, entry);
+        }
+        audienceIndexes.set(audience, index);
+    }
+    return index;
+}
 const pickStatus = (value, fallback) => (CAMPAIGN_STATUSES.includes(value) ? value : fallback);
 const nullableInt = (value) => (value == null || value === '' ? null : Number(value));
 const toRecipient = (contact) => ({ name: contact.name, phone: contact.phone, extra: contact.customFields ?? {} });

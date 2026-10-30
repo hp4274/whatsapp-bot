@@ -65,9 +65,12 @@ EOF
   fi
 
   echo "==> Install, build, start"
-  sudo -u "$APP_USER" -H bash -c "cd '$APP_DIR' && npm --prefix server ci && npm --prefix web ci && npm run build \
+  sudo -u "$APP_USER" -H bash -c "cd '$APP_DIR' && npm --prefix server ci --omit=dev && npm --prefix web ci && npm run build \
     && pm2 startOrRestart ecosystem.config.cjs && pm2 save"
   env PATH="$PATH" pm2 startup systemd -u "$APP_USER" --hp "/home/$APP_USER" >/dev/null
+  # Logs never fill the disk: rotate at 20 MB, keep 10 files, compressed.
+  sudo -u "$APP_USER" -H bash -c 'pm2 module:list | grep -q pm2-logrotate || pm2 install pm2-logrotate;
+    pm2 set pm2-logrotate:max_size 20M && pm2 set pm2-logrotate:retain 10 && pm2 set pm2-logrotate:compress true'
 
   echo "==> Caddy site"
   cat > /etc/caddy/Caddyfile <<EOF

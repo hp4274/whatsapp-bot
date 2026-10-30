@@ -54,6 +54,8 @@ export function ackStatus(status) {
     return ACK_STATUS[String(status)] ?? null; // 1 (pending) reports nothing
 }
 
+/** Statuses kept in memory for getStatus(); older ones are forgotten so the map cannot grow without end. */
+const RECEIPTS_MAX = 20_000;
 const LOGGED_OUT = 401;
 const CONNECTION_REPLACED = 440;
 const FORBIDDEN = 403; // WhatsApp banned the number (CB:failure)
@@ -435,12 +437,18 @@ export class BaileysTransport extends Transport {
         return (drops.get(this.authDir) ?? []).filter((at) => Date.now() - at < 3_600_000).length;
     }
 
+    /** Remember a message's latest status; the oldest is forgotten past RECEIPTS_MAX (the database keeps them all). */
+    #receipt(providerId, status) {
+        if (!this.receipts.has(providerId) && this.receipts.size >= RECEIPTS_MAX) this.receipts.delete(this.receipts.keys().next().value);
+        this.receipts.set(providerId, status);
+    }
+
     #emitReceipt(providerId, status) {
         if (!providerId || !status) return;
         // A late "delivered" must not hide a "read" the memory already holds.
         const known = this.receipts.get(providerId);
         if (!known || (STATUS_RANK[status] ?? 0) > (STATUS_RANK[known] ?? 0) || status === Status.FAILED) {
-            this.receipts.set(providerId, status);
+            this.#receipt(providerId, status);
         }
         this.events.emit('receipt', {
             providerId,
@@ -656,6 +664,7 @@ export class BaileysTransport extends Transport {
         const sock = this.sock;
         this.sock = null;
         if (sock) await this.#endSocket(sock);
+        if (this.contactsSave) this.#flushContacts(); // a pending save is written before the session closes
         this.#unlock();
     }
 
@@ -723,8 +732,11 @@ export class BaileysTransport extends Transport {
         for (const g of all) {
             const members = new Map();
             let hidden = 0;
-            for (const p of g.participants ?? []) {
-                const phone = await phoneOf(sock, p);
+            const participants = g.participants ?? [];
+            // LID lookups are independent: ask for every member at once, keep the order.
+            const phones = await Promise.all(participants.map((p) => phoneOf(sock, p)));
+            for (const [i, p] of participants.entries()) {
+                const phone = phones[i];
                 if (!phone) hidden += 1;
                 else if (phone !== this.account && !members.has(phone)) {
                     // Group metadata carries a profile name / username when WhatsApp knows one for the member.
@@ -762,8 +774,10 @@ export class BaileysTransport extends Transport {
         if (!this.#hasAddressBook()) await this.#refreshAddressBook(sock);
         const byPhone = new Map();
         let hidden = 0;
-        for (const contact of this.contacts.values()) {
-            const phone = await phoneOf(sock, contact);
+        const book = [...this.contacts.values()];
+        const phones = await Promise.all(book.map((contact) => phoneOf(sock, contact)));
+        for (const [i, contact] of book.entries()) {
+            const phone = phones[i];
             if (!phone) {
                 hidden += 1;
                 continue;
@@ -840,8 +854,17 @@ export class BaileysTransport extends Transport {
         return true;
     }
 
-    /** Best effort: a failed write only means the next restart syncs the address book again. */
+    /** History sync sends the book in many batches: write it at most every 5s, not once per batch. */
     #saveContacts() {
+        if (this.contactsSave) return;
+        this.contactsSave = setTimeout(() => this.#flushContacts(), 5000);
+        this.contactsSave.unref?.();
+    }
+
+    /** Best effort: a failed write only means the next restart syncs the address book again. */
+    #flushContacts() {
+        clearTimeout(this.contactsSave);
+        this.contactsSave = null;
         try {
             fs.mkdirSync(this.authDir, { recursive: true });
             fs.writeFileSync(this.contactsFile, JSON.stringify([...this.contacts.values()]));
@@ -954,7 +977,7 @@ export class BaileysTransport extends Transport {
     #accepted(id) {
         const providerId = id ?? `local.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
         // A receipt can beat us here; never write SENT over DELIVERED/READ.
-        if (!this.receipts.has(providerId)) this.receipts.set(providerId, Status.SENT);
+        if (!this.receipts.has(providerId)) this.#receipt(providerId, Status.SENT);
         return {
             providerId,
             status: Status.SENT,

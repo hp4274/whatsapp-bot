@@ -105,31 +105,38 @@ export class ContactStore {
     /** Bulk upsert, e.g. from an imported sheet. Returns a per-row tally. */
     importMany(contacts, { source = 'import', tags = [], merge = true, normalized = false } = {}) {
         const result = { created: 0, updated: 0, failed: [], ids: [] };
-        for (const [index, raw] of contacts.entries()) {
-            try {
-                const before = this.getByPhone(this.#phone(raw.phone, normalized));
-                const saved = this.upsert({
-                    phone: raw.phone,
-                    normalized,
-                    name: raw.name,
-                    email: raw.email,
-                    // The importer calls the leftover columns `extra`; they are
-                    // exactly what custom fields are for.
-                    customFields: raw.customFields ?? raw.extra,
-                    // Per-row tags only come from a mapped import; the plain
-                    // importer never sets them, so its behaviour is unchanged.
-                    tags: rowTags(tags, raw.tags),
-                    source,
-                }, { merge });
-                result.ids.push(saved.id);
-                if (before) result.updated += 1;
-                else result.created += 1;
-            } catch (err) {
-                if (!(err instanceof ContactError) && !(err instanceof PhoneError)) throw err;
-                result.failed.push({ row: index + 1, phone: raw.phone, error: err.message });
+        // One commit for the whole sheet; a savepoint per row keeps a rejected row's writes out, as before.
+        return this.#atomic(() => {
+            for (const [index, raw] of contacts.entries()) {
+                this.db.exec('SAVEPOINT import_row');
+                try {
+                    const before = this.getByPhone(this.#phone(raw.phone, normalized));
+                    const saved = this.upsert({
+                        phone: raw.phone,
+                        normalized,
+                        name: raw.name,
+                        email: raw.email,
+                        // The importer calls the leftover columns `extra`; they are
+                        // exactly what custom fields are for.
+                        customFields: raw.customFields ?? raw.extra,
+                        // Per-row tags only come from a mapped import; the plain
+                        // importer never sets them, so its behaviour is unchanged.
+                        tags: rowTags(tags, raw.tags),
+                        source,
+                    }, { merge });
+                    result.ids.push(saved.id);
+                    if (before) result.updated += 1;
+                    else result.created += 1;
+                    this.db.exec('RELEASE import_row');
+                } catch (err) {
+                    this.db.exec('ROLLBACK TO import_row');
+                    this.db.exec('RELEASE import_row');
+                    if (!(err instanceof ContactError) && !(err instanceof PhoneError)) throw err;
+                    result.failed.push({ row: index + 1, phone: raw.phone, error: err.message });
+                }
             }
-        }
-        return result;
+            return result;
+        });
     }
 
     addTags(id, tags) {
@@ -332,7 +339,15 @@ export class ContactStore {
         const rows = this.db.prepare(
             `SELECT * FROM contacts WHERE ${sql} ORDER BY ${order} LIMIT ? OFFSET ?`)
             .all(...args, Math.min(Number(limit) || 500, 5000), Number(offset) || 0);
-        return rows.map((row) => this.#decorate(toContact(row)));
+        // One opt-out read for the page, not one per contact.
+        const contacts = rows.map(toContact);
+        const outs = new Map();
+        if (contacts.length) {
+            for (const row of this.db.prepare(
+                `SELECT phone, reason, opted_out_at FROM opt_outs WHERE tenant_id = ? AND phone IN (${contacts.map(() => '?').join(',')})`)
+                .all(this.tenantId, ...contacts.map((c) => c.phone))) outs.set(row.phone, row);
+        }
+        return contacts.map((contact) => this.#decorate(contact, outs.get(contact.phone) ?? null));
     }
 
     count(filter = {}) {
@@ -486,9 +501,8 @@ export class ContactStore {
     }
 
     /** Opt-out is the send path's authority, so reads report it alongside. */
-    #decorate(contact) {
-        const optOut = this.db.prepare('SELECT reason, opted_out_at FROM opt_outs WHERE tenant_id = ? AND phone = ?')
-            .get(this.tenantId, contact.phone);
+    #decorate(contact, optOut = this.db.prepare('SELECT reason, opted_out_at FROM opt_outs WHERE tenant_id = ? AND phone = ?')
+        .get(this.tenantId, contact.phone)) {
         const optedOut = Boolean(optOut);
         return {
             ...contact, optedOut, messageable: !optedOut && contact.status === 'active',

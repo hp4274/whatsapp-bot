@@ -1,5 +1,5 @@
 /**
- * In-memory media registry that falls back to server/uploads, so a campaign
+ * In-memory media registry (metadata and path, never the bytes) that falls back to server/uploads, so a campaign
  * queued before a restart can still resolve its attachment.
  * Files are stored as `${mediaId}_${filename}`; `${mediaId}.tenant` records the
  * owning tenant so one tenant cannot resolve another's upload by id. Files
@@ -56,14 +56,13 @@ export class MediaStore extends Map {
             const stored = fs.readdirSync(this.uploadDir).find((name) => name.startsWith(`${mediaId}_`));
             if (!stored) return undefined;
             const filePath = path.join(this.uploadDir, stored);
-            const buffer = fs.readFileSync(filePath);
+            // Metadata only: a whole video per entry kept forever is what filled the process before.
             const media = {
                 mediaId,
                 filename: stored.slice(mediaId.length + 1),
                 mimetype: MEDIA_MIME[path.extname(stored).toLowerCase()] ?? 'application/octet-stream',
-                size: buffer.length,
+                size: fs.statSync(filePath).size,
                 filePath,
-                buffer,
                 url: `/api/media/${mediaId}`,
             };
             this.set(mediaId, media);

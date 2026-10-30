@@ -79,6 +79,8 @@ SUPER_ADMIN_PASSWORD=changeme \
 npm start
 ```
 
+Running a server: [docs/OPS.md](docs/OPS.md). What to speed up next: [docs/OPTIMIZE.md](docs/OPTIMIZE.md).
+
 ---
 
 ## Configuration

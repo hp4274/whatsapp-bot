@@ -46,7 +46,8 @@ it('rehydrates a mediaId missing from memory from the uploads directory', () => 
     assert.equal(media.filename, 'My Doc.pdf');
     assert.equal(media.mimetype, 'application/pdf');
     assert.equal(media.size, 8);
-    assert.equal(media.buffer.toString(), '%PDF-1.4');
+    assert.equal(media.buffer, undefined, 'only metadata stays in memory');
+    assert.equal(fs.readFileSync(media.filePath, 'utf8'), '%PDF-1.4');
     assert.equal(store.get('med_ffffffffffff'), undefined);
     assert.equal(store.get('../etc'), undefined);
     fs.rmSync(dir, { recursive: true, force: true });

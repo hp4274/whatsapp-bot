@@ -149,9 +149,12 @@ export function requestContext() {
         res.on('finish', () => {
             // tenantId / channelId are bound later by the dispatcher, so read
             // them now rather than when the request started.
-            logger.info('request', {
+            const path = req.originalUrl ?? req.url;
+            // A served file (chunk, font, icon) that worked is noise at info: one page load is dozens of them.
+            const asset = req.method === 'GET' && res.statusCode < 400 && /\.[a-z0-9]{2,5}(\?|$)/i.test(path);
+            logger[asset ? 'debug' : 'info']('request', {
                 method: req.method,
-                path: req.originalUrl ?? req.url,
+                path,
                 status: res.statusCode,
                 durationMs: Number(process.hrtime.bigint() - started) / 1e6,
                 tenantId: req.tenantId ?? req.user?.tenantId,

@@ -9,6 +9,7 @@ __pycache__/
 server/uploads/
 server/server/
 server/.wwebjs_cache/
+server/.test_wwebjs/
 
 # Stray tool logs and superseded specs
 .reticle-setup-crash.log

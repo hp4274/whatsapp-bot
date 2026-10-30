@@ -77,7 +77,13 @@ const webDist = path.join(HERE, '..', '..', 'web', 'dist', 'web', 'browser');
 if (fs.existsSync(webDist)) {
     // The CSP must allow the build's inline bootstrap script by hash (see security/headers.js).
     trackIndexHashes(app, path.join(webDist, 'index.html'));
-    app.use(express.static(webDist));
+    // Built chunks carry a content hash in their name, so a browser may keep them for a year; index.html and
+    // anything unhashed (icons, favicon) are checked each time so a deploy shows up at once.
+    app.use(express.static(webDist, {
+        setHeaders: (res, file) => {
+            res.setHeader('Cache-Control', /-[A-Za-z0-9_]{8,}\.(js|css)$/.test(file) ? 'public, max-age=31536000, immutable' : 'no-cache');
+        },
+    }));
     app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(webDist, 'index.html')));
 }
 

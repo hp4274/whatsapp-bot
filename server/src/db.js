@@ -159,6 +159,10 @@ CREATE INDEX IF NOT EXISTS idx_messages_channel     ON messages(channel_id);
 -- The sending ledger (sendingLedger, isCold): one number's sends by time and by recipient.
 CREATE INDEX IF NOT EXISTS idx_messages_channel_sent ON messages(tenant_id, channel_id, sent_at);
 CREATE INDEX IF NOT EXISTS idx_messages_channel_recipient ON messages(tenant_id, channel_id, recipient);
+-- A campaign's latest row per recipient (campaigns/store.js latestRows), history by tenant, the ban guard's window.
+CREATE INDEX IF NOT EXISTS idx_messages_campaign_recipient ON messages(tenant_id, campaign_id, recipient);
+CREATE INDEX IF NOT EXISTS idx_messages_tenant_created ON messages(tenant_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_updated_at ON messages(updated_at);
 -- One accepted job per key per tenant: the retry-safety guarantee.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_idempotency
     ON messages(tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
@@ -181,6 +185,8 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
 CREATE INDEX IF NOT EXISTS idx_inbound_sender ON inbound_messages(sender);
 CREATE INDEX IF NOT EXISTS idx_inbound_received_at ON inbound_messages(received_at);
 CREATE INDEX IF NOT EXISTS idx_inbound_channel_sender ON inbound_messages(tenant_id, channel_id, sender);
+CREATE INDEX IF NOT EXISTS idx_inbound_tenant_received ON inbound_messages(tenant_id, received_at);
+CREATE INDEX IF NOT EXISTS idx_inbound_tenant_sender ON inbound_messages(tenant_id, sender, received_at);
 
 -- Suspected blocks and reports of a sending number: who, when, what.
 CREATE TABLE IF NOT EXISTS safety_events (
@@ -485,6 +491,9 @@ const DEFAULT_AUTO_REPLIES = Object.freeze([
 
 export { DEFAULT_TENANT_ID };
 
+/** When each connection last dropped old sent protos (saveSentProto). */
+const protoSweptAt = new WeakMap();
+
 export class Database {
     constructor(dbPath = DB_PATH) {
         fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -492,6 +501,21 @@ export class Database {
         this.db = new DatabaseSync(dbPath);
         this.db.exec('PRAGMA journal_mode = WAL');
         this.db.exec('PRAGMA synchronous = NORMAL');
+        // The backup's and restore script's own connections wait for a write instead of failing with SQLITE_BUSY.
+        this.db.exec('PRAGMA busy_timeout = 5000');
+        // node:sqlite compiles SQL on every prepare(); the same text reuses one statement. Safe because no caller
+        // iterates or configures a statement. Dynamic SQL is capped by clearing when full.
+        const prepare = this.db.prepare.bind(this.db);
+        const statements = new Map();
+        this.db.prepare = (sql) => {
+            let statement = statements.get(sql);
+            if (!statement) {
+                if (statements.size >= 1000) statements.clear();
+                statement = prepare(sql);
+                statements.set(sql, statement);
+            }
+            return statement;
+        };
         const old = legacyTables(this.db);
         if (old.length) prepareLegacy(this.db, old);
         // Before SCHEMA: its indexes reference channel_id on tables that predate it.
@@ -511,6 +535,8 @@ export class Database {
         this.tenantId = DEFAULT_TENANT_ID;
         this.channelId = null;
         this.seedAutoReplies();
+        // Refresh the query planner's statistics where they are stale; cheap, and what SQLite recommends on open.
+        this.db.exec('PRAGMA optimize=0x10002');
     }
 
     /** A view of the same connection with every query pinned to one tenant. */
@@ -1300,15 +1326,20 @@ export class Database {
 
     /** Keep one sent message's proto bytes for retry requests (baileys getMessage); drops rows over 14 days old. */
     saveSentProto(id, bytes) {
-        this.db.prepare('DELETE FROM sent_protos WHERE at < ?').run(new Date(Date.now() - 14 * 86_400_000).toISOString());
+        // The 14-day cleanup at most once an hour, not on every send.
+        if (Date.now() - (protoSweptAt.get(this.db) ?? 0) > 3_600_000) {
+            protoSweptAt.set(this.db, Date.now());
+            this.db.prepare('DELETE FROM sent_protos WHERE at < ?').run(new Date(Date.now() - 14 * 86_400_000).toISOString());
+        }
         this.db.prepare('INSERT OR REPLACE INTO sent_protos (tenant_id, channel_id, id, proto, at) VALUES (?, ?, ?, ?, ?)')
             .run(this.tenantId, this.channelId ?? null, String(id), bytes, new Date().toISOString());
     }
 
     /** The bytes saveSentProto kept for this message id, or null. By id alone: a receipt from a LID device has the same id. */
     sentProto(id) {
-        return this.db.prepare('SELECT proto FROM sent_protos WHERE tenant_id = ? AND id = ?')
-            .get(this.tenantId, String(id))?.proto ?? null;
+        // Over 14 days is gone even before the hourly cleanup deletes it.
+        return this.db.prepare('SELECT proto FROM sent_protos WHERE tenant_id = ? AND id = ? AND at >= ?')
+            .get(this.tenantId, String(id), new Date(Date.now() - 14 * 86_400_000).toISOString())?.proto ?? null;
     }
 
     seedAutoReplies() {

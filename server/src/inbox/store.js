@@ -170,12 +170,13 @@ export class ConversationStore {
      * Conversations are only opened by an inbound message, so a number we messaged
      * (campaign, quick send) or that wrote before this table existed had no row and
      * never showed in the inbox.  Open the missing ones from the message tables.
-     * Cheap when nothing is new: it only runs when either table has grown.
+     * Incremental: only this tenant's rows newer than the last pass are read, so a busy campaign (or another
+     * tenant's traffic) does not make every inbox load rescan the whole history.
      */
     #syncFromHistory() {
-        const mark = `${this.db.prepare('SELECT MAX(rowid) AS n FROM messages').get().n ?? 0}:`
-            + `${this.db.prepare('SELECT MAX(rowid) AS n FROM inbound_messages').get().n ?? 0}`;
-        if (mark === this.#synced) return;
+        const sent = this.db.prepare('SELECT MAX(rowid) AS n FROM messages WHERE tenant_id = ?').get(this.tenantId).n ?? 0;
+        const got = this.db.prepare('SELECT MAX(rowid) AS n FROM inbound_messages WHERE tenant_id = ?').get(this.tenantId).n ?? 0;
+        if (sent === this.#sentMark && got === this.#gotMark) return;
         const scope = this.channelId ? 'AND (channel_id = ? OR channel_id IS NULL)' : '';
         const scopeArgs = this.channelId ? [this.channelId] : [];
         this.db.prepare(
@@ -183,19 +184,21 @@ export class ConversationStore {
                                         last_message_at, last_inbound_at, tags, created_at, updated_at)
              SELECT ?, ?, phone, 'open', SUM(unread), MAX(at), MAX(CASE WHEN inbound THEN at END), '[]', MIN(at), MAX(at)
              FROM (SELECT recipient AS phone, created_at AS at, 0 AS inbound, 0 AS unread
-                   FROM messages WHERE tenant_id = ? ${scope}
+                   FROM messages WHERE tenant_id = ? AND rowid > ? ${scope}
                    UNION ALL
                    SELECT sender, received_at, 1, CASE WHEN COALESCE(is_read, 0) = 0 THEN 1 ELSE 0 END
-                   FROM inbound_messages WHERE tenant_id = ? ${scope}) h
+                   FROM inbound_messages WHERE tenant_id = ? AND rowid > ? ${scope}) h
              WHERE phone <> '' AND NOT EXISTS (SELECT 1 FROM conversations c
                    WHERE c.tenant_id = ? AND c.channel_id = ? AND c.phone = h.phone)
              GROUP BY phone`)
-            .run(this.tenantId, this.channelId, this.tenantId, ...scopeArgs, this.tenantId, ...scopeArgs,
+            .run(this.tenantId, this.channelId, this.tenantId, this.#sentMark, ...scopeArgs, this.tenantId, this.#gotMark, ...scopeArgs,
                 this.tenantId, this.channelId);
-        this.#synced = mark;
+        this.#sentMark = sent;
+        this.#gotMark = got;
     }
 
-    #synced = '';
+    #sentMark = 0;
+    #gotMark = 0;
 
     list({ status = null, assignedTo = undefined, unread = false, botPaused = false, search = null, limit = 100 } = {}) {
         this.#syncFromHistory();
