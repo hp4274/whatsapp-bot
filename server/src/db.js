@@ -995,6 +995,14 @@ export class Database {
             .get(this.tenantId, ...(this.channelId != null ? [this.channelId, numberSince(this)] : []), String(phone)));
     }
 
+    /** When WhatsApp's restriction of this number (463 / 475, a 'restrict' event) ends, or null when none runs. */
+    restrictedUntil(now = new Date()) {
+        const scope = this.channelId != null ? ' AND channel_id = ? AND at >= ?' : '';
+        return this.db.prepare(
+            `SELECT MAX(message_id) AS until FROM safety_events WHERE tenant_id = ?${scope} AND kind = 'restrict' AND message_id > ?`)
+            .get(this.tenantId, ...(this.channelId != null ? [this.channelId, numberSince(this)] : []), now.toISOString()).until ?? null;
+    }
+
     /** True when this number never sent to `phone` and never heard from them: a new chat (bare digits). */
     isCold(phone) {
         const since = numberSince(this);

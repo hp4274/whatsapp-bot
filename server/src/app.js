@@ -653,6 +653,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
                 messageId: (Number.isNaN(end.getTime()) ? new Date(Date.now() + 86_400_000) : end).toISOString(), detail: String(code ?? ''),
             });
             manager.quota.invalidate();
+            manager.restrictedCache = null; // the next send sees the restriction at once
             broadcast(state, { type: 'safetyEvent', kind: 'restrict' });
         });
         // Over 8 socket drops in an hour (this process): the 8h `unstable` pause (shadow-logged until enforced;

@@ -101,6 +101,7 @@ export class CampaignManager extends EventEmitter {
         // Sending safety: a daily ceiling, and a gap between messages that
         // varies with how many are going out.
         this.quota = new DailyQuota(db, config);
+        this.restrictedCache = null; // #restricted()
         // The budget resets at midnight on the channel's clock (`timezone` is set by the channel runtime).
         this.quota.zone = () => this.timezone?.() || null;
         this.pacePreset = 'balanced';   // 'safe' | 'balanced' | 'fast'
@@ -143,6 +144,15 @@ export class CampaignManager extends EventEmitter {
     }
 
     /** A QR number with safety on and a real transport: sending levels govern every send. */
+    /** Whether WhatsApp restricts this number now; read at most every 30s (`restrictedCache = null` re-reads). */
+    #restricted() {
+        const t = Date.now();
+        if (!this.restrictedCache || t - this.restrictedCache.at > 30_000) {
+            this.restrictedCache = { at: t, until: this.db.restrictedUntil?.() ?? null };
+        }
+        return Date.parse(this.restrictedCache.until ?? '') > t;
+    }
+
     #onLevels() {
         return this.quota.qr && this.config.safetyEnabled && Boolean(this.transport?.realDelivery);
     }
@@ -699,6 +709,10 @@ export class CampaignManager extends EventEmitter {
      */
     #ready(item) {
         if ((item.notBefore ?? 0) > Date.now()) return false;
+        // WhatsApp's own restriction (463), safety on or off: it refuses anyone who never wrote to this number, even
+        // people we messaged before, so they wait for it to lift instead of failing one after another.
+        if (this.quota.qr && this.transport?.realDelivery && !String(item.recipient).includes('@') && this.#restricted()
+            && !(item.wrote ??= Boolean(this.db.wroteIn?.(digits(item.recipient))))) return false;
         if (item.messageType !== 'campaign' && this.sendBlock?.(item.messageType)) return false;
         const held = HELD.has(item.messageType);
         // Every held type on a QR number; elsewhere campaigns only, so a school's early notice is not held till 9.
@@ -708,17 +722,12 @@ export class CampaignManager extends EventEmitter {
             if (!isDaytimeFor(item.recipient, new Date(), { from, to })) return false;
         }
         if (!this.#onLevels() || !(held || item.messageType === 'transactional')) return true;
-        const { budgets, brakes } = this.quota.allowance();
+        const { budgets } = this.quota.allowance();
         // Bulk with nothing left today goes on to #quotaBlocked, which pauses the run and says until when.
         if (held && budgets.bulk.left <= 0) return true;
         if (held && budgets.hour.left <= 0) return false;
         // Lazily, here: restored, recovered and retried items are covered too.
         // shortcut: `cold` is read once; someone who writes in after that still waits for a new chat. Re-read it if that matters.
-        // Restricted (463): WhatsApp refuses anyone who never wrote to this number, even people we messaged
-        // before, so they wait for the restriction to lift instead of failing one after another.
-        if (brakes?.some((b) => b.code === 'restricted')) {
-            return String(item.recipient).includes('@') || (item.wrote ??= Boolean(this.db.wroteIn?.(digits(item.recipient))));
-        }
         return budgets.newChats.left > 0 || !(item.cold ??= this.#cold(item));
     }
 

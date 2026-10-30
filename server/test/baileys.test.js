@@ -412,6 +412,30 @@ it('maps receipts to DELIVERED/READ/FAILED and ignores pending', async () => {
     assert.equal(transport.getStatus('B'), Status.READ);
 });
 
+it('a 463 resends the message once (Baileys fetches the missing privacy token); only a second 463 fails it', async () => {
+    const { proto } = await import('@whiskeysockets/baileys');
+    const bytes = proto.Message.encode({ conversation: 'Hi' }).finish();
+    const { transport, sock } = makeTransport({ messageStore: { sentProto: (id) => (id === 'M1' ? bytes : null), saveSentProto() {} } });
+    await transport.connect();
+    const receipts = [];
+    const restricted = [];
+    transport.events.on('receipt', (r) => receipts.push([r.providerId, r.status]));
+    transport.events.on('restricted', (r) => restricted.push(r));
+    const key = { id: 'M1', remoteJid: '919800000001@s.whatsapp.net', fromMe: true };
+
+    sock().ev.emit('messages.update', [{ key, update: { status: 0, messageStubParameters: ['463'] } }]);
+    await tick();
+    assert.deepEqual(receipts, [], 'no failure yet: it is being resent');
+    assert.deepEqual(restricted, [], 'one 463 is not a restriction');
+    assert.equal(sock().relays.length, 1);
+    assert.equal(sock().relays[0].opts.messageId, 'M1', 'same id, so the job hears the answer');
+    assert.equal(sock().relays[0].message.conversation, 'Hi');
+
+    sock().ev.emit('messages.update', [{ key, update: { status: 0, messageStubParameters: ['463'] } }]);
+    assert.deepEqual(receipts, [['M1', Status.FAILED]]);
+    assert.equal(restricted.length, 1, 'refused even with a fresh token: the number is restricted');
+});
+
 it('a failed ack says which WhatsApp error it was', async () => {
     const { transport, sock } = makeTransport();
     await transport.connect();
