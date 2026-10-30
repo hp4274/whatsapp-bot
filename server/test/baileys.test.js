@@ -412,6 +412,19 @@ it('maps receipts to DELIVERED/READ/FAILED and ignores pending', async () => {
     assert.equal(transport.getStatus('B'), Status.READ);
 });
 
+it('a failed ack says which WhatsApp error it was', async () => {
+    const { transport, sock } = makeTransport();
+    await transport.connect();
+    const errors = [];
+    transport.events.on('receipt', (r) => errors.push(r.error));
+    sock().ev.emit('messages.update', [
+        { key: { id: 'A' }, update: { status: 0, messageStubParameters: ['463'] } },
+        { key: { id: 'B' }, update: { status: 0, messageStubParameters: ['421'] } },
+    ]);
+    assert.match(errors[0], /error 463.*messaged it before/);
+    assert.equal(errors[1], 'WhatsApp rejected the message (error 421).');
+});
+
 it('reconnects with a fresh socket after a close (restart required after QR scan)', async () => {
     const { transport, socks, sock } = makeTransport();
     const states = [];

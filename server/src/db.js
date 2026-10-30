@@ -985,6 +985,16 @@ export class Database {
             .all(this.tenantId, ...(this.channelId != null ? [this.channelId, numberSince(this)] : [])).map((r) => r.sender));
     }
 
+    /**
+     * True when `phone` ever wrote to this number (scoped as isCold). Under a WhatsApp restriction (463) only these
+     * get through: they hold a privacy token, someone we only messaged does not.
+     */
+    wroteIn(phone) {
+        const scope = this.channelId != null ? ' AND channel_id = ? AND received_at >= ?' : '';
+        return Boolean(this.db.prepare(`SELECT 1 FROM inbound_messages WHERE tenant_id = ?${scope} AND sender = ? LIMIT 1`)
+            .get(this.tenantId, ...(this.channelId != null ? [this.channelId, numberSince(this)] : []), String(phone)));
+    }
+
     /** True when this number never sent to `phone` and never heard from them: a new chat (bare digits). */
     isCold(phone) {
         const since = numberSince(this);
