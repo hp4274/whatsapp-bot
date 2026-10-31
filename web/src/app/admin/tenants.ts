@@ -6,6 +6,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 
@@ -107,7 +108,7 @@ const emptyDraft = (): TenantDraft => ({
  */
 @Component({
   selector: 'app-admin-tenants',
-  imports: [FormsModule, TenantActivity, TenantSettings],
+  imports: [FormsModule, NgTemplateOutlet, TenantActivity, TenantSettings],
   templateUrl: './tenants.html',
   styleUrl: './tenants.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -152,6 +153,10 @@ export class TenantsView {
   protected readonly query = signal('');
   protected readonly statusFilter = signal<'all' | 'active' | 'suspended'>('all');
   protected readonly view = signal<'grid' | 'list'>(readView());
+  private readonly wideQuery = matchMedia('(min-width: 1101px)');
+  private readonly wide = signal(this.wideQuery.matches);
+  /** The list's table needs the room: on a narrower screen, list view shows the cards. */
+  protected readonly listMode = computed(() => this.view() === 'list' && this.wide());
   protected readonly menuId = signal<number | null>(null);
   /** Tenant whose settings drawer is open, and the tab it opens on. */
   protected readonly settingsTenant = signal<Tenant | null>(null);
@@ -200,7 +205,12 @@ export class TenantsView {
     // Live: another admin's change, a number dropping or a campaign sending updates the cards and the activity.
     this.feed.watch(['tenants', 'channels', 'usage'], () => this.liveList());
     this.feed.watch(['audit'], () => this.loadActivity());
-    inject(DestroyRef).onDestroy(() => clearTimeout(this.liveTimer));
+    const resized = () => this.wide.set(this.wideQuery.matches);
+    this.wideQuery.addEventListener('change', resized);
+    inject(DestroyRef).onDestroy(() => {
+      clearTimeout(this.liveTimer);
+      this.wideQuery.removeEventListener('change', resized);
+    });
   }
 
   private liveTimer?: ReturnType<typeof setTimeout>;
@@ -356,6 +366,13 @@ export class TenantsView {
 
   protected controlLabel(key: keyof TenantControls): string {
     return CONTROL_LABELS[key];
+  }
+
+  /** Failed as a share of everything sent or failed, rounded; 0 when nothing failed. */
+  protected failRate(tenant: Tenant): number {
+    const failed = tenant.health?.failed ?? 0;
+    const total = failed + (tenant.health?.sent ?? 0);
+    return total ? Math.round((failed / total) * 100) : 0;
   }
 
   protected serviceSummary(services: string[]): string {
