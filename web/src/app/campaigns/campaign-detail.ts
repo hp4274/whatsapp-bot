@@ -17,6 +17,8 @@ import {
   type Campaign,
   type CampaignAnalytics,
   CampaignsApi,
+  type Channel,
+  ChannelsApi,
   ContactsApi,
   type PacingPreset,
 } from '../core/api';
@@ -69,6 +71,15 @@ export class CampaignDetailView {
 
   /** Route param, bound by withComponentInputBinding. */
   readonly id = input.required<string>();
+
+  private readonly channels = signal<Channel[]>([]);
+  /** Shared over several numbers: one list per number, named as on the Numbers page. */
+  protected readonly numbers = computed(() =>
+    (this.campaign()?.numbers ?? []).map(({ channelId }) => {
+      const c = this.channels().find((ch) => ch.id === channelId);
+      return { channelId, label: c?.displayName || c?.phoneNumber || `Number #${channelId}` };
+    }),
+  );
 
   /**
    * Why the platform paused or stopped this run (auto-pause on failures, the
@@ -253,6 +264,8 @@ export class CampaignDetailView {
       });
     });
     this.store.watch(['campaigns', 'campaign', 'history', 'analytics'], () => this.reload(), 700);
+    // Names only, for a shared campaign's lists: a failure leaves "Number #id".
+    inject(ChannelsApi).list().subscribe({ next: ({ channels }) => this.channels.set(channels), error: () => {} });
     // Events sent while the stream was down are gone: read again once it is back.
     let wasOnline = this.store.streamOnline();
     effect(() => {

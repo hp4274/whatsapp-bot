@@ -315,6 +315,8 @@ function addTenantControlColumns(db) {
     if (!cols.includes('limits')) db.exec("ALTER TABLE tenants ADD COLUMN limits TEXT NOT NULL DEFAULT '{}'");
     if (!cols.includes('custom_safety')) db.exec("ALTER TABLE tenants ADD COLUMN custom_safety TEXT NOT NULL DEFAULT '{}'");
     if (!cols.includes('safety_exit')) db.exec('ALTER TABLE tenants ADD COLUMN safety_exit TEXT');
+    // The number the round-robin sender rule picked last (Channels.pick), so rotation survives a restart.
+    if (!cols.includes('last_sender_id')) db.exec('ALTER TABLE tenants ADD COLUMN last_sender_id INTEGER');
     // Session idle timeout (see Tenancy.resolveSession).
     if (!columnsOf(db, 'sessions').includes('last_seen_at')) db.exec('ALTER TABLE sessions ADD COLUMN last_seen_at TEXT');
     if (!columnsOf(db, 'whatsapp_channels').includes('number_since')) db.exec('ALTER TABLE whatsapp_channels ADD COLUMN number_since TEXT');

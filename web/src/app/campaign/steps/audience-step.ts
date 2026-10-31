@@ -21,7 +21,7 @@ import {
   RetargetFilter,
   Segment,
 } from '../../core/api';
-import { splitTags } from '../../contacts/contact-util';
+import { spacedPhone, splitTags } from '../../contacts/contact-util';
 import { ReusePicker } from '../../storage/reuse-picker';
 import type { StorageUse } from '../../storage/storage-api';
 import { shortDate } from '../../storage/storage-format';
@@ -197,6 +197,25 @@ export class AudienceStep {
     Math.max(0, (this.draft.audit()?.issues.length ?? 0) - ISSUE_LIMIT),
   );
 
+  // The file's rows that will get the message, a page at a time, each removable for this campaign only.
+  protected readonly spacedPhone = spacedPhone;
+  protected readonly perPage = 25;
+  protected readonly page = signal(0);
+  protected readonly kept = computed(() => {
+    const removed = new Set(this.draft.excludedRows());
+    return (this.draft.audit()?.valid ?? []).filter((v) => !removed.has(v.row));
+  });
+  protected readonly pages = computed(() => Math.max(1, Math.ceil(this.kept().length / this.perPage)));
+  /** Clamped: removing the last row of the last page steps back a page. */
+  protected readonly pageAt = computed(() => Math.min(this.page(), this.pages() - 1));
+  protected readonly pageRows = computed(() =>
+    this.kept().slice(this.pageAt() * this.perPage, (this.pageAt() + 1) * this.perPage),
+  );
+
+  protected removeRow(row: number): void {
+    this.draft.excludedRows.update((rows) => [...rows, row]);
+  }
+
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** The debounced audit waiting on `timer`. */
   private pendingAudit: (() => void) | null = null;
@@ -329,6 +348,7 @@ export class AudienceStep {
           this.draft.audit.set(audit);
           this.draft.excludedRows.set([]);
           this.draft.previewIndex.set(0);
+          this.page.set(0);
         },
         error: (err: Error) => {
           if (seq !== this.auditSeq) return;

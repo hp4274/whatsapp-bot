@@ -158,6 +158,20 @@
     color: var(--text-muted);
   }
 
+  .wa-numbers-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 8px;
+
+    select {
+      max-width: 280px;
+      padding-block: 6px;
+      font-size: 13px;
+    }
+  }
+
   .wa-summary {
     margin: 0;
     font-size: 13px;

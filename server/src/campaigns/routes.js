@@ -38,6 +38,7 @@ export function createCampaignRouter({ db, state }) {
     campaigns.onSettled = (campaign, stats) => {
         announce('campaignUpdated', campaign);
         state.broadcast?.({ type: 'changed', topic: 'campaigns' });
+        tellSiblings(campaign);
         state.tenancy?.audit({
             // The engine closed it, not whichever request happened to read the stats: no request id.
             tenantId: db.tenantId ?? null, userId: null, requestId: null,
@@ -78,6 +79,7 @@ export function createCampaignRouter({ db, state }) {
                 const { campaign } = campaigns.stats(id);
                 if (JSON.stringify(campaign.stats) !== JSON.stringify(before.stats)) {
                     state.broadcast?.({ type: 'changed', topic: 'campaigns' });
+                    tellSiblings(campaign);
                 }
             } catch (err) {
                 console.error(`[campaigns] ${id} progress refresh failed:`, err.message);
@@ -162,6 +164,73 @@ export function createCampaignRouter({ db, state }) {
         return out;
     };
     const announce = (type, campaign) => state.broadcast?.({ type, campaign });
+
+    // ------------------------------------------------- one campaign, several numbers --
+    /**
+     * A campaign shared over several numbers (split, below) is one campaign to the business. Every other number
+     * runs a hidden copy (options.parentId) holding its own share, on its own engine and pace, so the numbers never
+     * wait on each other. Reads add the copies up; actions reach every copy.
+     */
+    const sharesOf = (campaign) => (campaign?.options?.shares ?? []).flatMap((share) => {
+        const other = state.channelState?.(share.channelId);
+        const copy = other?.campaigns?.get(share.id);
+        return copy ? [{ other, copy }] : [];
+    });
+    const addUp = (all) => all.reduce((sum, stats) => {
+        for (const key of ['total', 'pending', 'failed', 'sent']) sum[key] = (sum[key] ?? 0) + (stats?.[key] ?? 0);
+        for (const [key, n] of Object.entries(stats?.byStatus ?? {})) sum.byStatus[key] = (sum.byStatus[key] ?? 0) + n;
+        return sum;
+    }, { byStatus: {} });
+    /** The campaign as the business sees it: live while any number still sends, every number's counts together. */
+    const whole = (campaign, shares = sharesOf(campaign)) => {
+        if (!shares.length) return campaign;
+        const all = [campaign, ...shares.map(({ copy }) => copy)];
+        // A number left with nobody (failover moved everyone off it) never starts: its draft does not decide the status.
+        const sending = all.filter((c) => c.audienceSize !== 0);
+        return {
+            ...campaign,
+            // Live while any number still sends; after that, cancelled on any number means the campaign was cancelled
+            // (this number finishing its share first does not make the whole campaign done).
+            status: ['running', 'paused', 'scheduled', 'cancelled'].find((s) => sending.some((c) => c.status === s))
+                ?? (sending[0] ?? campaign).status,
+            audienceSize: all.reduce((n, c) => n + (c.audienceSize ?? 0), 0),
+            stats: addUp(all.map((c) => c.stats)),
+            numbers: all.map((c) => ({ channelId: c.channelId, status: c.status })),
+        };
+    };
+    /** Run `act` on every copy; one that cannot (already finished, say) does not stop the rest. */
+    const eachShare = (campaign, act) => sharesOf(campaign).map(({ other, copy }) => {
+        try {
+            const result = act(other.campaigns, copy.id);
+            other.broadcast?.({ type: 'changed', topic: 'campaigns' });
+            return { channelId: other.channel.id, result };
+        } catch (err) {
+            if (!(err instanceof CampaignError)) throw err;
+            return { channelId: other.channel.id, error: err.message };
+        }
+    });
+    /**
+     * `act` on this number's campaign and on every copy, each on its own: a number that cannot (already finished,
+     * not connected) neither stops the others nor fails the request, unless none of them could.
+     */
+    const acrossNumbers = (campaign, act) => {
+        let own = null;
+        let refused = null;
+        try {
+            own = act(campaigns, campaign.id);
+        } catch (err) {
+            if (!(err instanceof CampaignError)) throw err;
+            refused = err;
+        }
+        const shares = eachShare(campaign, act);
+        if (refused && (!shares.length || shares.every((share) => share.error))) throw refused;
+        return { own, refused: refused?.message ?? null, shares };
+    };
+    /** A copy moved: the campaign's page is open on another number, so tell every number. */
+    const tellSiblings = (campaign) => {
+        if (!campaign?.options?.parentId) return;
+        for (const other of state.siblings?.() ?? []) other.broadcast?.({ type: 'changed', topic: 'campaigns' });
+    };
     /** A named entry for the owner's own action; `req.audited` lets the generic per-request row step aside. */
     const userAudit = (req, action, campaign, detail = {}) => {
         state.tenancy?.audit({
@@ -173,13 +242,31 @@ export function createCampaignRouter({ db, state }) {
 
     // --------------------------------------------------------- campaigns --
     router.get('/campaigns', (req, res) => res.json({
-        campaigns: campaigns.list({ status: req.query.status || null, limit: Number(req.query.limit) || 200 }),
+        // A number's share of a shared campaign is listed as part of that campaign, not on its own.
+        campaigns: campaigns.list({ status: req.query.status || null, limit: Number(req.query.limit) || 200 })
+            .filter((c) => !c.options?.parentId).map((c) => whole(c)),
     }));
 
     // Spread sending: can this many go out between two dates under today's cap?
     router.post('/campaigns/spread-check', (req, res) => {
         const { count, from, to, timezone } = req.body ?? {};
         return res.json({ plan: campaigns.spreadCheck({ count, from, to, timezone }) });
+    });
+
+    /**
+     * Of these people, how many each number already chats with: it sent them a message or heard from them since it
+     * got its current number (db.isCold, the test the engine's new-chat budget uses). Only a hint for picking a
+     * number, so the list is capped rather than resolved in full.
+     */
+    router.post('/campaigns/warm-check', (req, res) => {
+        const phones = [...new Set((Array.isArray(req.body?.phones) ? req.body.phones : [])
+            .map((p) => String(p).replace(/\D/g, '')).filter(Boolean))].slice(0, 5000);
+        const warm = {};
+        for (const id of new Set((Array.isArray(req.body?.channelIds) ? req.body.channelIds : []).map(Number))) {
+            const number = id === state.channel.id ? state : state.channelState?.(id);
+            if (number?.db) warm[id] = phones.filter((p) => !number.db.isCold(p)).length;
+        }
+        return res.json({ checked: phones.length, warm });
     });
 
     router.post('/campaigns', (req, res) => {
@@ -195,7 +282,7 @@ export function createCampaignRouter({ db, state }) {
 
     router.get('/campaigns/:id', (req, res) => {
         try {
-            return res.json({ campaign: campaigns.require(req.params.id) });
+            return res.json({ campaign: whole(campaigns.require(req.params.id)) });
         } catch (err) {
             return fail(res, err);
         }
@@ -214,6 +301,11 @@ export function createCampaignRouter({ db, state }) {
     router.delete('/campaigns/:id', (req, res) => {
         try {
             const campaign = campaigns.require(req.params.id);
+            // Copies first: one still sending refuses (409) before anything is gone.
+            for (const { other, copy } of sharesOf(campaign)) {
+                other.campaigns.remove(copy.id);
+                other.broadcast?.({ type: 'changed', topic: 'campaigns' });
+            }
             campaigns.remove(campaign.id);
             userAudit(req, 'campaign.delete', campaign, { status: campaign.status });
             announce('campaignDeleted', { ...campaign, audience: null });
@@ -227,9 +319,13 @@ export function createCampaignRouter({ db, state }) {
 
     router.get('/campaigns/:id/stats', (req, res) => {
         try {
-            const { campaign, stats } = campaigns.stats(req.params.id);
+            const own = campaigns.stats(req.params.id);
+            // Polling settles each copy too, as it does this number's run.
+            const shares = sharesOf(own.campaign).map(({ other, copy }) => ({ other, copy: other.campaigns.stats(copy.id).campaign }));
+            const campaign = whole(own.campaign, shares);
+            const stats = shares.length ? addUp([own.stats, ...shares.map(({ copy }) => copy.stats)]) : own.stats;
             // The live queue view only exists while this manager holds the run.
-            const live = campaign.status === 'running' || campaign.status === 'paused'
+            const live = own.campaign.status === 'running' || own.campaign.status === 'paused'
                 ? state.manager?.statsSnapshot() ?? null : null;
             return res.json({ campaign, stats, live, campaignId: campaignKey(campaign.id) });
         } catch (err) {
@@ -269,9 +365,10 @@ export function createCampaignRouter({ db, state }) {
     // ------------------------------------------------- v2: speed, retry --
     router.post('/campaigns/:id/speed', (req, res) => {
         try {
-            const result = campaigns.setSpeed(req.params.id, req.body?.pacing);
+            const { own } = acrossNumbers(campaigns.require(req.params.id), (store, id) => store.setSpeed(id, req.body?.pacing));
+            const result = own ?? { campaign: campaigns.get(req.params.id) };
             announce('campaignUpdated', result.campaign);
-            return res.json(result);
+            return res.json({ ...result, campaign: whole(result.campaign) });
         } catch (err) {
             return fail(res, err);
         }
@@ -279,10 +376,12 @@ export function createCampaignRouter({ db, state }) {
 
     router.post('/campaigns/:id/retry-failed', (req, res) => {
         try {
-            const result = campaigns.retryFailed(req.params.id);
-            userAudit(req, 'campaign.retry', result.campaign, { queued: result.queued });
+            const { own, shares } = acrossNumbers(campaigns.require(req.params.id), (store, id) => store.retryFailed(id));
+            const result = own ?? { campaign: campaigns.get(req.params.id), queued: 0 };
+            const queued = (result.queued ?? 0) + shares.reduce((n, share) => n + (share.result?.queued ?? 0), 0);
+            userAudit(req, 'campaign.retry', result.campaign, { queued });
             announce('campaignStarted', result.campaign);
-            return res.json(result);
+            return res.json({ ...result, queued, campaign: whole(result.campaign) });
         } catch (err) {
             return fail(res, err);
         }
@@ -290,7 +389,31 @@ export function createCampaignRouter({ db, state }) {
 
     router.get('/campaigns/:id/analytics', (req, res) => {
         try {
-            return res.json(campaigns.analytics(req.params.id));
+            const own = campaigns.analytics(req.params.id);
+            const shares = sharesOf(own.campaign);
+            if (!shares.length) return res.json(own);
+            // One report: every number's people in one list, each tagged with the number that sends to them.
+            const parts = [
+                { channelId: state.channel.id, report: own },
+                ...shares.map(({ other, copy }) => ({ channelId: other.channel.id, report: other.campaigns.analytics(copy.id) })),
+            ];
+            const funnel = {};
+            for (const { report } of parts) {
+                for (const [key, n] of Object.entries(report.funnel)) funnel[key] = (funnel[key] ?? 0) + n;
+            }
+            const failures = new Map();
+            for (const entry of parts.flatMap(({ report }) => report.failures)) {
+                const key = `${entry.code}:${entry.label}`;
+                failures.set(key, { ...entry, count: (failures.get(key)?.count ?? 0) + entry.count });
+            }
+            return res.json({
+                ...own,
+                campaign: whole(own.campaign, shares.map(({ other }, i) => ({ other, copy: parts[i + 1].report.campaign }))),
+                funnel,
+                failures: [...failures.values()].sort((a, b) => b.count - a.count),
+                // shortcut: buttons and A/B figures are this number's only; add them up if shared runs use them a lot.
+                recipients: parts.flatMap(({ channelId, report }) => report.recipients.map((r) => ({ ...r, channelId }))),
+            });
         } catch (err) {
             return fail(res, err);
         }
@@ -299,7 +422,10 @@ export function createCampaignRouter({ db, state }) {
     router.get('/campaigns/:id/export.csv', (req, res) => {
         try {
             const campaign = campaigns.require(req.params.id);
-            const csv = campaigns.exportCsv(campaign.id);
+            // A shared campaign's file holds every number's people: each copy's rows without its header line.
+            const csv = [campaigns.exportCsv(campaign.id), ...sharesOf(campaign)
+                .map(({ other, copy }) => other.campaigns.exportCsv(copy.id).replace(/^.*\r?\n/, ''))]
+                .filter(Boolean).join('');
             res.type('text/csv');
             res.set('Content-Disposition', `attachment; filename="campaign-${campaign.id}.csv"`);
             return res.send(csv);
@@ -309,6 +435,64 @@ export function createCampaignRouter({ db, state }) {
     });
 
     // Kept last: `speed`, `retry-failed` and friends above match first.
+    /**
+     * Share one saved campaign over several numbers: its people are dealt out in turn, this number keeps the
+     * first share and every other picked number gets a copy holding its own, so each sends under its own limits.
+     * One transaction: a copy that fails leaves nothing half-split to send twice.
+     */
+    router.post('/campaigns/:id/split', (req, res) => {
+        try {
+            const campaign = campaigns.require(req.params.id);
+            if (!['draft', 'scheduled'].includes(campaign.status)) {
+                throw new CampaignError(`a ${campaign.status} campaign cannot be shared out`, 409);
+            }
+            const ids = [...new Set((Array.isArray(req.body?.channelIds) ? req.body.channelIds : []).map(Number))]
+                .filter((id) => id !== state.channel.id);
+            const others = ids.map((id) => {
+                const other = state.channelState?.(id);
+                if (!other?.campaigns) throw new CampaignError(`number #${id} cannot send campaigns`, 409);
+                return other;
+            });
+            const list = Array.isArray(campaign.audience) ? campaign.audience : campaigns.resolveAudience(campaign);
+            // Evenly over every number switched on: one with no room yet keeps its share until it can send.
+            const shares = [state, ...others].map((_, i, all) => list.filter((__, n) => n % all.length === i));
+            const options = { ...campaign.options, extraNumbers: [] }; // already dealt into the shares
+            const rules = state.interactions?.rules(campaignKey(campaign.id)) ?? [];
+            db.db.exec('BEGIN');
+            let result;
+            try {
+                // Fewer people than numbers: a number with no share gets no copy.
+                // Shared before (a send that was retried): its unstarted copies make way for the new deal.
+                for (const { other, copy } of sharesOf(campaign)) other.campaigns.remove(copy.id);
+                const copies = others.flatMap((other, i) => {
+                    if (!shares[i + 1].length) return [];
+                    const copy = other.campaigns.create({
+                        name: campaign.name, status: campaign.status, templateId: campaign.templateId, body: campaign.body,
+                        audience: shares[i + 1], mediaId: campaign.mediaId,
+                        scheduledAt: campaign.scheduledAt, channelId: other.channel.id, options,
+                    });
+                    if (rules.length) other.interactions?.setRules(campaignKey(copy.id), rules);
+                    return [{ other, copy: other.campaigns.link(copy.id, { parentId: campaign.id }) }];
+                });
+                campaigns.update(campaign.id, { audience: shares[0], segmentId: null, options });
+                const own = campaigns.link(campaign.id, {
+                    shares: copies.map(({ other, copy }) => ({ channelId: other.channel.id, id: copy.id })),
+                });
+                result = { own, copies };
+                db.db.exec('COMMIT');
+            } catch (err) {
+                db.db.exec('ROLLBACK');
+                throw err;
+            }
+            for (const { other, copy } of result.copies) other.broadcast?.({ type: 'campaignCreated', campaign: copy });
+            announce('campaignUpdated', result.own);
+            userAudit(req, 'campaign.split', result.own, { numbers: 1 + result.copies.length, people: list.length });
+            return res.json({ campaigns: [result.own, ...result.copies.map(({ copy }) => copy)] });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
     router.post('/campaigns/:id/:action', (req, res) => {
         const { action } = req.params;
         if (!['start', 'pause', 'resume', 'cancel'].includes(action)) {
@@ -317,22 +501,42 @@ export function createCampaignRouter({ db, state }) {
         try {
             if (action !== 'start') {
                 const before = campaigns.require(req.params.id);
-                const campaign = campaigns[action](before.id);
+                const campaign = acrossNumbers(before, (store, id) => store[action](id)).own ?? campaigns.get(before.id);
                 // A cancel of an already finished run changes nothing: no event, no audit row.
                 if (campaign.status !== before.status) {
                     userAudit(req, `campaign.${action}`, campaign, { from: before.status });
                     announce({ pause: 'campaignPaused', resume: 'campaignResumed', cancel: 'campaignCancelled' }[action], campaign);
                     if (action === 'cancel') state.broadcast?.({ type: 'historyDirty' });
                 }
-                return res.json({ campaign, stats: state.manager?.statsSnapshot() ?? null });
+                return res.json({ campaign: whole(campaign), stats: state.manager?.statsSnapshot() ?? null });
             }
             // The store refuses (409) without a transport and (404) when the
             // campaign's media is gone; it resolves the media itself.
-            const result = campaigns.start(req.params.id, {
-                onePerNumber: req.body?.onePerNumber !== false,
+            // A shared campaign starts on every number at once; each sends its share at its own pace.
+            const onePerNumber = req.body?.onePerNumber !== false;
+            const across = acrossNumbers(campaigns.require(req.params.id), (store, id) => {
+                // Left with nobody (failover moved everyone to a sibling): nothing to start here, and nothing wrong.
+                const one = store.get(id);
+                if (one.audienceSize === 0 && one.options?.shares?.length) return { campaign: one, queued: 0, skipped: 0, audience: 0 };
+                return store.start(id, { onePerNumber });
             });
+            const own = across.own ?? { campaign: campaigns.get(req.params.id), queued: 0, skipped: 0, audience: 0 };
+            const sum = (key) => (own[key] ?? 0) + across.shares.reduce((n, share) => n + (share.result?.[key] ?? 0), 0);
+            const result = {
+                ...own,
+                campaign: whole(own.campaign),
+                audience: sum('audience'), queued: sum('queued'), skipped: sum('skipped'),
+                // Per number, so the page can say which one is held or did not start.
+                numbers: [
+                    { channelId: state.channel.id, queued: own.queued ?? 0, safety: own.safety ?? null, error: across.refused },
+                    ...across.shares.map((share) => ({
+                        channelId: share.channelId, queued: share.result?.queued ?? 0,
+                        safety: share.result?.safety ?? null, error: share.error ?? null,
+                    })),
+                ],
+            };
             userAudit(req, 'campaign.start', result.campaign, {
-                audience: result.audience, queued: result.queued ?? 0, skipped: result.skipped ?? 0,
+                audience: result.audience, queued: result.queued, skipped: result.skipped,
             });
             announce('campaignStarted', result.campaign);
             return res.json(result);

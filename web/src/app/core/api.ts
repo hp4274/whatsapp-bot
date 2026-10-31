@@ -970,6 +970,8 @@ export type QualityLevel = 'ok' | 'info' | 'warn' | 'bad';
 
 export interface ChannelQuality {
   level: QualityLevel;
+  /** 0-100, higher = safer to send on: failures, opt-outs and a used-up cap pull it down. */
+  score: number;
   sent24h: number;
   failed24h: number;
   failureRate24h: number;
@@ -1545,6 +1547,10 @@ export type CampaignStatus = 'draft' | 'scheduled' | 'running' | 'paused' | 'don
 
 export interface Campaign {
   id: number;
+  /** The number it sends from. */
+  channelId: number | null;
+  /** Shared over several numbers: each number's status, this one first. Absent for a one-number campaign. */
+  numbers?: { channelId: number; status: CampaignStatus }[];
   name: string;
   status: CampaignStatus;
   templateId: number | null;
@@ -1590,6 +1596,8 @@ export interface CampaignCreate {
 export interface CampaignStartResult {
   campaign: Campaign;
   stats?: CampaignStats | null;
+  /** One entry per number the campaign sends from, this one first; each starts on its own. */
+  numbers?: { channelId: number; queued: number; safety: SafetyStatus | null; error: string | null }[];
   /** Recipients the audience resolved to before any skip. */
   audience?: number;
   queued?: number;
@@ -1659,6 +1667,8 @@ export interface CampaignAnalytics {
     replied: boolean;
     clickedLink?: boolean;
     variant?: 'A' | 'B' | 'C' | null;
+    /** A campaign shared over several numbers: the number that sends to this person. */
+    channelId?: number;
   }[];
 }
 
@@ -1737,6 +1747,13 @@ export class CampaignsApi {
       .pipe(catchError(toMessage));
   }
 
+  /** Share a saved campaign's people over more numbers: this one first, then one copy per other number. */
+  split(id: number, channelIds: number[]): Observable<{ campaigns: Campaign[] }> {
+    return this.http
+      .post<{ campaigns: Campaign[] }>(`/api/campaigns/${id}/split`, { channelIds })
+      .pipe(catchError(toMessage));
+  }
+
   replyRules(id: number): Observable<CampaignReplyRules> {
     return this.http
       .get<CampaignReplyRules>(`/api/campaigns/${id}/reply-rules`)
@@ -1799,6 +1816,22 @@ export class CampaignsApi {
   }): Observable<{ plan: SpreadPlan }> {
     return this.http
       .post<{ plan: SpreadPlan }>('/api/campaigns/spread-check', body)
+      .pipe(catchError(toMessage));
+  }
+
+  /**
+   * Per number (by channel id), how many of `phones` it already chats with: sent to or heard from. The server
+   * checks at most 5,000 phones; `checked` is how many it did. A disabled number is left out of `warm`.
+   */
+  warmCheck(
+    phones: readonly string[],
+    channelIds: readonly number[],
+  ): Observable<{ readonly checked: number; readonly warm: Readonly<Record<number, number>> }> {
+    return this.http
+      .post<{ checked: number; warm: Record<number, number> }>('/api/campaigns/warm-check', {
+        phones,
+        channelIds,
+      })
       .pipe(catchError(toMessage));
   }
 

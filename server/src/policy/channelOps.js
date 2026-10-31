@@ -194,7 +194,61 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
         setStatus(row, 'disabled');
         upsert(row.id, { paused_reason: reason, paused_by: by, paused_at: stamp(now()) });
         stateOf(row.tenant_id, row.id)?.announce?.(); // open pages learn why before close() ends their stream
-        await close(row.tenant_id, row.id);
+        await close(row.tenant_id, row.id); // its engine is down: the unsent rows sit QUEUED in the table
+        try {
+            failover(row);
+        } catch (err) {
+            console.error(`[channels] failover from number ${row.id} failed:`, err.message);
+        }
+    };
+
+    /**
+     * Opt-in (channels.failover, off by default: people then hear from a number they do not know, and a ban often
+     * means the list is the risk): the paused number's running and scheduled campaigns go on from the sibling with
+     * most of today's sends left that can send now, as a share of the same campaign (CampaignStore.takeOver). With
+     * no such sibling they wait, as without failover. Spread and repeating campaigns always wait: their day plan
+     * and their next run belong to their own number.
+     */
+    const failover = (row) => {
+        if (!policy.resolve(row.tenant_id).values['channels.failover']) return;
+        const tenant = runtimes.get(row.tenant_id);
+        const scoped = db.forTenant(row.tenant_id);
+        const best = (tenant?.channels.list() ?? [])
+            .filter((c) => c.id !== row.id && c.status === 'active' && c.capabilities.includes('campaigns') && !pausedOf(c.id))
+            .map((channel) => ({ channel, runtime: tenant.runtimes.get(channel.id) }))
+            .filter(({ runtime }) => runtime?.state.campaigns && runtime.state.transport?.isConnected?.())
+            .map((c) => ({ ...c, left: quotaLeft(scoped, c.channel, c.runtime) }))
+            .filter((c) => c.left >= 1) // -1 under a brake, a fraction for an empty day
+            .reduce((a, b) => (!a || b.left > a.left ? b : a), null);
+        if (!best) return;
+        const name = (n, phone) => `"${n || phone}"`;
+        const note = (people) => `${name(row.display_name, row.phone_number)} was paused; the remaining ${people} `
+            + `${people === 1 ? 'person continues' : 'people continue'} from ${name(best.channel.displayName, best.channel.phoneNumber)}.`;
+        const ids = raw.prepare(`SELECT id, options FROM campaigns WHERE tenant_id = ? AND channel_id = ? AND status IN ('running', 'scheduled')`)
+            .all(row.tenant_id, row.id).filter((c) => {
+                const options = JSON.parse(c.options || '{}');
+                return !options.spread && !options.recurrence;
+            }).map((c) => c.id);
+        let moved = 0;
+        for (const id of ids) {
+            let result;
+            try {
+                result = best.runtime.state.campaigns.takeOver(id, note);
+            } catch (err) {
+                // A plan limit, say: that campaign waits, the rest still move.
+                console.error(`[channels] campaign ${id} could not move to number ${best.channel.id}:`, err.message);
+                continue;
+            }
+            if (!result) continue;
+            moved += 1;
+            tenancy.audit({ tenantId: row.tenant_id, userId: null, action: 'campaign.auto_failover', target: result.root.id,
+                detail: { name: result.root.name, from: row.id, to: best.channel.id, people: result.people, reason: result.root.options?.statusReason } });
+        }
+        if (!moved) return;
+        for (const { state } of tenant.runtimes.values()) {
+            state.broadcast?.({ type: 'changed', topic: 'campaigns' });
+            state.broadcast?.({ type: 'historyDirty' });
+        }
     };
 
     /** Why a number is paused (null when it is not), for the business's own Connection page. */

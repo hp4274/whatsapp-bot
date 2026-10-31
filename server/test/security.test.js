@@ -164,10 +164,28 @@ describe('API rate limit', () => {
 
     it('prefers an API key over the tenant and evicts idle buckets', async () => {
         let clock = 0;
-        const limit = rateLimit({ ratePerSecond: 1, burst: 1, maxKeys: 1, idleMs: 1000, now: () => clock });
+        const limit = rateLimit({ ratePerSecond: 1, burst: 1, idleMs: 1000, now: () => clock });
         assert.equal((await run(limit, { apiKey: { id: 9 }, user: { tenantId: 1 } })).next, true);
         assert.equal((await run(limit, { user: { tenantId: 1 } })).next, true, 'tenant bucket is separate from the key bucket');
-        clock += 2; // the first two buckets are now idle and get swept at the next insert
+        clock += 2; // the first two buckets are now idle and get swept at the next request
         assert.equal((await run(limit, { user: { id: 5 } })).next, true);
+    });
+
+    it('shares one budget between processes over the same database', async () => {
+        const file = path.join(tmp, 'rate.db');
+        const [one, two] = [new Database(file), new Database(file)]; // two connections, as two processes would have
+        try {
+            const clock = () => 0;
+            const a = rateLimit({ db: one.db, ratePerSecond: 1, burst: 2, now: clock });
+            const b = rateLimit({ db: two.db, ratePerSecond: 1, burst: 2, now: clock });
+            const req = { apiKey: { id: 7 } };
+            assert.equal((await run(a, req)).next, true);
+            assert.equal((await run(b, req)).next, true);
+            assert.equal((await run(a, req)).status, 429, 'the burst of 2 was spent across both');
+            assert.equal((await run(b, req)).status, 429);
+        } finally {
+            one.close();
+            two.close();
+        }
     });
 });

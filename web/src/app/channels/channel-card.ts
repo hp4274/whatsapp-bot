@@ -49,6 +49,8 @@ export class ChannelCard {
   readonly channel = input.required<Channel>();
   readonly capabilities = input<string[]>([]);
   readonly active = input(false);
+  /** The page's pick of the number to send on next (channels.ts recommendedId). */
+  readonly recommended = input(false);
   readonly canDelete = input(false);
 
   /** Something changed server-side: the page should reload the list. */
@@ -77,6 +79,11 @@ export class ChannelCard {
   protected readonly asking = signal(false);
   protected readonly quality = computed(() => this.channel().health?.quality ?? null);
   protected readonly hints = computed(() => this.quality()?.hints ?? []);
+  /** 60 is where the server's "bad" hints land, 90 a used-up cap alone. */
+  protected readonly scoreTone = computed(() => {
+    const score = this.quality()?.score ?? 100;
+    return score >= 90 ? 'tone-ok' : score >= 70 ? 'tone-warn' : 'tone-bad';
+  });
 
   /** 0..1 share of today's cap, or null when there is no cap. */
   protected readonly usedShare = computed(() => {

@@ -13,7 +13,17 @@ import { RouterLink } from '@angular/router';
 import { Observable, of, type Subscription } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
 
-import { Api, Campaign, CampaignsApi, PacingPreset, SafetyStatus } from '../../core/api';
+import {
+  Api,
+  Campaign,
+  CampaignsApi,
+  type CampaignStartResult,
+  type Channel,
+  ChannelsApi,
+  PacingPreset,
+  SafetyStatus,
+} from '../../core/api';
+import { Auth } from '../../core/auth';
 import type { SpreadPlan } from '../../core/api';
 import { Store } from '../../core/store';
 import { CampaignDraft, addDays, today } from '../draft';
@@ -58,6 +68,9 @@ function dayLabel(date: string): string {
 /** Wait this long after the last date/count change before asking the server for a plan. */
 const SPREAD_DEBOUNCE_MS = 350;
 
+/** The most phones the server's warm check reads (campaigns/routes.js warm-check): a hint, not a full count. */
+const WARM_CHECK_MAX = 5000;
+
 function zones(current: string): string[] {
   let list: string[] = [];
   try {
@@ -93,6 +106,17 @@ export function finishEstimate(
   return { days, label, worst: worst > days ? worst : null };
 }
 
+/** A shared campaign's finish `days` from today (1 = today) as the banner shows it; null when it all goes today. */
+export function sharedFinish(
+  days: number,
+): { readonly days: number; readonly label: string; readonly worst: number | null } | null {
+  if (days < 2) return null;
+  const on = new Date();
+  on.setDate(on.getDate() + days - 1);
+  const label = on.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' });
+  return { days, label, worst: null };
+}
+
 /**
  * Step 2: name, pace and timing, then send. Safety previews for all three
  * presets load together so switching pace is instant; blockers keep the send
@@ -110,6 +134,8 @@ export class ReviewStep {
   protected readonly store = inject(Store);
   private readonly api = inject(Api);
   private readonly campaignsApi = inject(CampaignsApi);
+  private readonly channelsApi = inject(ChannelsApi);
+  private readonly auth = inject(Auth);
   /** Plan rules: the plan's sending speed, and whether scheduling is allowed. */
   protected readonly policy = inject(CampaignPolicy);
 
@@ -162,6 +188,145 @@ export class ReviewStep {
   });
 
   protected readonly connected = computed(() => this.store.connection().connected);
+  /**
+   * "Now" needs this number connected: its own share would otherwise stay a draft that nothing starts when it
+   * reconnects, while the shared numbers send theirs. Schedule it instead.
+   */
+  protected readonly canSendNow = computed(() => this.connected());
+
+  /** The business's numbers that may send campaigns. */
+  protected readonly numbers = signal<Channel[]>([]);
+  /** Other numbers switched on: the people are shared out and each number sends its own share. */
+  protected readonly alsoFrom = signal<number[]>([]);
+  /** The number this page is on; it always sends. */
+  protected readonly ownId = computed(
+    () => this.auth.channelId() ?? this.numbers().find((c) => c.isDefault)?.id ?? null,
+  );
+  /** The switched-on numbers that can take a share right now (a disconnected one cannot for "Now"). */
+  protected readonly sharedIds = computed(() =>
+    this.alsoFrom().filter((id) => this.numbers().some((c) => c.id === id && this.canShare(c))),
+  );
+  /** Each sending number's room today (this one, then the switched-on ones); Infinity = no cap or not known. */
+  private readonly rooms = computed(() =>
+    [this.ownId(), ...this.sharedIds()].map((id) => {
+      const u = this.numbers().find((c) => c.id === id)?.health?.usage;
+      if (!u) return Infinity;
+      if (u.blocked || u.asked === false) return 0;
+      return u.todayLimit === null ? Infinity : Math.max(0, u.todayLimit - u.sentToday);
+    }),
+  );
+  /** How many people each sending number gets: dealt in turn, as the split route does. Same order as `rooms`. */
+  protected readonly dealt = computed(() => {
+    const n = 1 + this.sharedIds().length;
+    return Array.from({ length: n }, (_, i) => Math.floor(this.size() / n) + (i < this.size() % n ? 1 : 0));
+  });
+  /** Each sending number's share that does not fit in its room today. Same order as `rooms`. */
+  private readonly overBy = computed(() => this.dealt().map((share, i) => Math.max(0, share - this.rooms()[i])));
+
+  /** Switched-on numbers that cannot send their whole share today, and why: their people wait, they are not lost. */
+  protected readonly waiting = computed(() =>
+    this.sharedIds().length
+      ? [this.ownId(), ...this.sharedIds()].flatMap((id, i) => {
+          const over = this.overBy()[i];
+          const c = this.numbers().find((n) => n.id === id);
+          if (!over || !c) return [];
+          const u = c.health?.usage;
+          const why =
+            u?.asked === false
+              ? 'until its 2 questions are answered on the Numbers page'
+              : u?.blocked
+                ? `while it is paused (${u.blocked})`
+                : 'until its daily limit resets tomorrow';
+          return [`${this.numberName(c)}: ${over} of its ${this.dealt()[i]} wait ${why}.`];
+        })
+      : [],
+  );
+  /** What this number sends: the whole list, or its share when numbers are switched on. Its own estimates use it. */
+  protected readonly perNumber = computed(() => this.dealt()[0] ?? this.size());
+
+  protected shareOf(id: number): number {
+    return this.dealt()[[this.ownId(), ...this.sharedIds()].indexOf(id)] ?? 0;
+  }
+
+  /** Per number, how many of these people it already chats with; null until checked, and for non-file audiences. */
+  protected readonly warm = signal<{ readonly checked: number; readonly warm: Readonly<Record<number, number>> } | null>(
+    null,
+  );
+  /** The numbers' ids; equal while only their health changes, so a reconnect does not re-run the warm check. */
+  private readonly numberIds = computed(() => this.numbers().map((c) => c.id), {
+    equal: (a, b) => a.join() === b.join(),
+  });
+  /**
+   * The number best placed to send now: connected, then the safest quality score, then the most of these people
+   * already chatting with it (they skip its new-chat budget), then the most of today's limit left.
+   */
+  protected readonly recommendedId = computed(() => {
+    const warm = this.warm()?.warm ?? {};
+    const left = (c: Channel): number => {
+      const u = c.health?.usage;
+      if (!u) return 0;
+      return u.todayLimit === null ? Number.MAX_SAFE_INTEGER : Math.max(0, u.todayLimit - u.sentToday);
+    };
+    const [best] = this.numbers()
+      .filter((c) => c.health?.connected)
+      .sort(
+        (a, b) =>
+          (b.health?.quality?.score ?? -1) - (a.health?.quality?.score ?? -1) ||
+          (warm[b.id] ?? 0) - (warm[a.id] ?? 0) ||
+          left(b) - left(a),
+      );
+    return best?.id ?? null;
+  });
+  /** The number switched on for the user because this one was not connected when the page opened. */
+  protected readonly autoOn = signal<number | null>(null);
+  private defaulted = false;
+
+  /** "120 warm · 380 new" for one number, or '' before the check answers. */
+  protected warmLabel(c: Channel): string {
+    const check = this.warm();
+    const n = check?.warm[c.id];
+    if (!check || n === undefined) return '';
+    const capped = this.draft.fileAudience().length > WARM_CHECK_MAX ? ` of the first ${WARM_CHECK_MAX.toLocaleString()}` : '';
+    return `${n.toLocaleString()} warm · ${(check.checked - n).toLocaleString()} new${capped}`;
+  }
+
+  protected numberName(c: Channel): string {
+    return c.displayName || c.phoneNumber || c.health?.account || `Number #${c.id}`;
+  }
+
+  /** "Now" needs the number connected; a later time only needs it connected by then. */
+  protected canShare(c: Channel): boolean {
+    return this.draft.scheduleMode() !== 'now' || Boolean(c.health?.connected);
+  }
+
+  protected toggleNumber(id: number): void {
+    this.alsoFrom.update((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  }
+
+  private loadNumbers(): void {
+    this.channelsApi.list().subscribe({
+      next: ({ channels }) => {
+        this.numbers.set(channels.filter((c) => c.status === 'active' && c.capabilities.includes('campaigns')));
+        if (!this.defaulted && this.numbers().length) this.defaultNumber();
+      },
+      error: () => this.numbers.set([]), // the card just stays hidden; sending from this number still works
+    });
+  }
+
+  /**
+   * Once, on the first list: this number cannot send right now, so the recommended one is switched on to send
+   * with it. Later reloads never touch the switches again, so the user's own choice stands. The campaign stays
+   * this number's.
+   */
+  private defaultNumber(): void {
+    this.defaulted = true;
+    const own = this.numbers().find((c) => c.id === this.ownId());
+    const pick = this.recommendedId();
+    if (!own || own.health?.connected || pick === null || pick === own.id || this.alsoFrom().includes(pick)) return;
+    this.alsoFrom.update((ids) => [...ids, pick]);
+    this.autoOn.set(pick);
+  }
+
   protected readonly current = computed(() => this.safety()[this.draft.pacing()] ?? null);
   protected readonly size = computed(() => this.draft.estimatedSize());
 
@@ -171,7 +336,7 @@ export class ReviewStep {
     if (!plan || !plan.dailyLimit || plan.perDay <= plan.dailyLimit) return null;
     return {
       perDay: plan.perDay - plan.dailyLimit,
-      missed: Math.max(0, this.size() - plan.days * plan.dailyLimit),
+      missed: Math.max(0, this.perNumber() - plan.days * plan.dailyLimit),
     };
   });
 
@@ -187,9 +352,12 @@ export class ReviewStep {
   protected readonly overQuota = computed(() => {
     // A spread sends one batch a day: today's budget says nothing about the whole list.
     // Held for the questions, nothing is "over today's limit": the held banner explains it.
-    if (this.draft.spreadActive() || this.held()) return 0;
+    if (this.draft.spreadActive()) return 0;
+    // Shared: each number's own wait is named in `waiting` instead.
+    if (this.sharedIds().length) return 0;
+    if (this.held()) return 0;
     const s = this.current();
-    return s && s.remaining !== null ? Math.max(0, this.size() - s.remaining) : 0;
+    return s && s.remaining !== null ? Math.max(0, this.perNumber() - s.remaining) : 0;
   });
 
   /**
@@ -197,9 +365,20 @@ export class ReviewStep {
    * today's level). `worst`: the days if everyone is new to this number, when the new-chat budget sets the pace.
    * Null when it all goes today, or nothing is capped.
    */
-  protected readonly finish = computed(() =>
-    this.draft.spreadActive() || this.held() ? null : finishEstimate(this.current(), this.size()),
-  );
+  protected readonly finish = computed(() => {
+    if (this.draft.spreadActive()) return null;
+    // Shared: the slowest number decides, its overflow at its own daily limit. One that cannot send yet (limit 0)
+    // has no date to give; `waiting` says what it waits for.
+    if (this.sharedIds().length) {
+      let days = 0;
+      [this.ownId(), ...this.sharedIds()].forEach((id, i) => {
+        const limit = this.numbers().find((c) => c.id === id)?.health?.usage?.todayLimit;
+        if (this.overBy()[i] && limit) days = Math.max(days, 1 + Math.ceil(this.overBy()[i] / limit));
+      });
+      return sharedFinish(days);
+    }
+    return this.held() ? null : finishEstimate(this.current(), this.perNumber());
+  });
 
   protected readonly buttonsLabel = computed(() => {
     const block = this.draft.interactive();
@@ -221,7 +400,7 @@ export class ReviewStep {
         ? 'this audience'
         : `${this.size().toLocaleString()} ${this.size() === 1 ? 'person' : 'people'}`;
     const s = this.current();
-    const took = s && this.size() > 1 ? ` It will take about ${formatDuration(s.estimateSeconds.typical)}.` : '';
+    const took = s && this.perNumber() > 1 ? ` It will take about ${formatDuration(s.estimateSeconds.typical)}.` : '';
     return `Send to ${who} now?${took}`;
   });
 
@@ -291,6 +470,8 @@ export class ReviewStep {
 
   constructor() {
     this.policy.load();
+    this.loadNumbers();
+    this.store.watch(['channels', 'connection'], () => this.loadNumbers());
     // A draft from before the rules loaded (or changed) is pulled back inside them.
     effect(() => {
       const d = this.draft;
@@ -321,7 +502,8 @@ export class ReviewStep {
       const d = this.draft;
       this.spreadRetry();
       const active = d.spreadActive();
-      const count = d.validContacts().length;
+      // Each shared number spreads its own share over the same days.
+      const count = Math.ceil(d.validContacts().length / (1 + this.sharedIds().length));
       const body = { count, from: d.spreadFrom(), to: d.spreadTo(), timezone: d.timezone() };
       const blocked = !active || count === 0 || this.spreadRangeIssue() !== '';
       untracked(() => {
@@ -349,8 +531,29 @@ export class ReviewStep {
       });
     });
     effect(() => {
-      const size = this.size();
+      const size = this.perNumber();
       untracked(() => this.loadSafety(size));
+    });
+    /**
+     * Warm vs new per number, debounced and cancelled like the spread check. Only an uploaded file gives the page
+     * its phones; a contacts or segment audience resolves on the server, so the card shows no counts for it.
+     */
+    effect((onCleanup) => {
+      const phones = this.draft.fileAudience().map((c) => c.phone);
+      const ids = this.numberIds();
+      untracked(() => this.warm.set(null));
+      if (!phones.length || ids.length < 2) return;
+      let sub: Subscription | undefined;
+      const timer = setTimeout(() => {
+        sub = this.campaignsApi.warmCheck(phones.slice(0, WARM_CHECK_MAX), ids).subscribe({
+          next: (check) => this.warm.set(check),
+          error: () => this.warm.set(null), // only a hint: the card simply shows no counts
+        });
+      }, SPREAD_DEBOUNCE_MS);
+      onCleanup(() => {
+        clearTimeout(timer);
+        sub?.unsubscribe();
+      });
     });
   }
 
@@ -436,7 +639,7 @@ export class ReviewStep {
       return;
     }
     const now = d.scheduleMode() === 'now';
-    if (now && !this.connected()) {
+    if (now && !this.canSendNow()) {
       this.error.set('Connect a WhatsApp number before sending now - or schedule it instead.');
       return;
     }
@@ -446,23 +649,33 @@ export class ReviewStep {
     }
     this.confirmSend.set(false);
     this.busy.set(true);
+    const shared = this.sharedIds();
     d.save()
-      .pipe(switchMap((campaign) => this.checkMissing(campaign.id).pipe(map(() => campaign))))
+      .pipe(
+        // Shared: this number keeps the first share, every other one gets a copy with its own.
+        switchMap((campaign) =>
+          shared.length ? this.campaignsApi.split(campaign.id, shared).pipe(map((r) => r.campaigns)) : of([campaign]),
+        ),
+        switchMap((all) => this.checkMissing(all[0].id).pipe(map(() => all))),
+      )
       .subscribe({
-        next: (campaign) => {
+        next: ([campaign, ...copies]) => {
+          const others = copies.length ? ` and ${copies.length} more number${copies.length === 1 ? '' : 's'}` : '';
           if (!now) {
             this.busy.set(false);
             d.result.set({ campaign, started: false });
             const spread = this.spreadSummary();
             this.store.setStatus(
-              spread
+              (spread
                 ? `Campaign "${campaign.name}" spread from ${spread.from} to ${spread.to}, daily at ${spread.time}`
-                : `Campaign "${campaign.name}" scheduled for ${this.sendsAt()?.zoned ?? campaign.scheduledAt}`,
+                : `Campaign "${campaign.name}" scheduled for ${this.sendsAt()?.zoned ?? campaign.scheduledAt}`) +
+                (others && `, from this number${others}`),
               'primary',
             );
             d.goTo(3);
             return;
           }
+          // The server starts every number together; each sends its share at its own pace.
           this.start(campaign);
         },
         error: (err: Error) => {
@@ -472,6 +685,31 @@ export class ReviewStep {
       });
   }
 
+  protected channelName(id: number | null): string {
+    const c = this.numbers().find((n) => n.id === id);
+    return c ? this.numberName(c) : 'Another number';
+  }
+
+  /** Which shared number is held or did not start: without it, it looks as if only one number sends. */
+  private numberNotes(numbers: NonNullable<CampaignStartResult['numbers']>): string[] {
+    if (numbers.length < 2) return [];
+    // A number dealt nobody (no room today while another had some) is not sending, and nothing is wrong with it.
+    const going = numbers.filter((n) => !n.error && n.queued > 0).length;
+    return [
+      going > 1 ? `Sending from ${going} numbers at once, each its own share at its own pace.` : '',
+      ...numbers.flatMap((n) => {
+        const name = this.channelName(n.channelId);
+        if (n.error) return [`${name} did not start: ${n.error}`];
+        if (!n.queued) return [];
+        if (n.safety?.enabled && n.safety.asked === false) {
+          return [`${name} holds its share until its 2 questions are answered.`];
+        }
+        if (n.safety?.remaining === 0) return [`${name} has no messages left today; its share goes tomorrow.`];
+        return [];
+      }),
+    ];
+  }
+
   private start(campaign: Campaign): void {
     const d = this.draft;
     this.campaignsApi.action(campaign.id, 'start').subscribe({
@@ -479,10 +717,10 @@ export class ReviewStep {
         this.busy.set(false);
         const overQuota =
           res.safety && res.safety.remaining !== null
-            ? Math.max(0, (res.queued ?? 0) - res.safety.remaining)
+            ? Math.max(0, (res.numbers?.[0]?.queued ?? res.queued ?? 0) - res.safety.remaining)
             : 0;
         // The server's own notes may already explain a lowered speed; add ours only if they do not.
-        const notes = [...(res.policyNotes ?? [])];
+        const notes = [...(res.policyNotes ?? []), ...this.numberNotes(res.numbers ?? []).filter(Boolean)];
         const clamp = res.pacingClamped;
         if (clamp && !notes.some((n) => /speed|pace/i.test(n))) {
           notes.push(`Speed lowered to ${clamp.applied} by your plan.`);

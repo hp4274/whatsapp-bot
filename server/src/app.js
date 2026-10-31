@@ -303,6 +303,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     state.broadcast = (event) => broadcast(state, event);
     state.adminFeed = deps.adminFeed ?? null; // the super admin's cross-tenant stream (observability/adminFeed.js)
     state.siblings = () => deps.siblings?.(state) ?? [];
+    state.channelState = (id) => deps.channelState?.(id) ?? null; // another of the tenant's numbers, loaded if cold
     state.paused = () => deps.channelPaused?.(state.channel?.id) ?? null; // channel_ops row, written by pause()
     state.announce = () => broadcast(state, { type: 'connection', ...connectionState(state) });
 
@@ -1965,7 +1966,19 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
     const runtimes = new Map();
     // Each number streams only its own events, but the Numbers page lists them all: a number connecting or dropping
     // tells its siblings' pages too (broadcast()).
-    deps = { ...deps, siblings: (self) => [...runtimes.values()].map((r) => r.state).filter((other) => other !== self) };
+    deps = {
+        ...deps,
+        siblings: (self) => [...runtimes.values()].map((r) => r.state).filter((other) => other !== self),
+        // A campaign shared over several numbers (campaigns/routes.js split): null for a disabled or non-campaign one.
+        channelState: (id) => {
+            try {
+                return runtimeFor(channels.route({ channelId: id, capability: 'campaigns' })).state;
+            } catch (err) {
+                if (err instanceof ChannelError) return null;
+                throw err;
+            }
+        },
+    };
 
     // First run for this tenant: its config file becomes channel #1, so an
     // existing single-number install comes up already configured. A QR number
@@ -2206,7 +2219,8 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         const id = /^\/campaigns\/(\d+)(?:\/|$)/.exec(path)?.[1];
         if (!id) return null;
         const row = db.db.prepare('SELECT channel_id FROM campaigns WHERE id = ? AND tenant_id = ?').get(Number(id), db.tenantId);
-        return row?.channel_id != null && channels.get(row.channel_id) ? row.channel_id : null;
+        // A paused number's engine holds no run: its campaigns (one moved off it by failover) read through the page's.
+        return row?.channel_id != null && channels.get(row.channel_id)?.status === 'active' ? row.channel_id : null;
     };
     app.use((req, res, next) => {
         const named = campaignChannel(req.path) ?? req.get('x-channel-id') ?? req.query.channel;
@@ -2217,6 +2231,8 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
                 ? channels.route(sending ? {
                     rule: deps.platformPolicy?.()['channels.routing'],
                     remaining: (ch) => quotaLeft(db, ch, runtimes.get(ch.id), policy(), deps.platformPolicy?.() ?? {}, () => deps.channelPin?.(ch.id), deps.channelStart && (() => deps.channelStart(ch.id))),
+                    // A disconnected, restricted or paused number would only hold the message.
+                    ready: (ch) => Boolean(runtimes.get(ch.id)?.state.transport?.isConnected?.()) && !deps.channelPaused?.(ch.id),
                 } : { any: pausedPages(req) })
                 : channels.route({ channelId: Number(named), any: pausedPages(req) });
             req.channel = channel;
@@ -2314,7 +2330,9 @@ export function createApp({
     };
     tenancy.idleMsFor = (tenantId) => securityFor(tenantId)['security.sessionIdleMinutes'] * 60000;
     // The public API's budget is per key, not per tenant: one runaway integration cannot starve another.
+    // In the app's database, so every process on the host shares the one budget.
     const v1Limit = rateLimit({
+        db: db.db,
         keyFor: (req) => `v1:${req.apiKey.id}`,
         limitsFor: (req) => {
             const sec = securityFor(req.apiKey.tenantId);
@@ -2925,10 +2943,10 @@ export function createApp({
      * Every number the linked WhatsApp account knows, from WhatsApp itself: the number's address
      * book plus the members of every group and community it joined. A group member with no saved
      * name has `name: ''`; numbers WhatsApp only shows as a LID are counted in `hidden`, never
-     * invented. Null when the transport cannot answer right now.
+     * invented. Several connected numbers are read together and merged. Null when none can answer
+     * right now.
      */
-    const whatsappAccountNumbers = async (transport) => {
-        if (!transport?.isConnected?.()) return null;
+    const whatsappAccountNumbers = async (transports) => {
         // One side failing (a group fetch timing out, say) must not throw away the other.
         const read = async (work, fallback) => {
             try {
@@ -2937,16 +2955,25 @@ export function createApp({
                 return fallback;
             }
         };
-        const groups = transport.supportsGroups ? await read(() => transport.listGroups(), null) : [];
-        const book = transport.supportsContacts
-            ? await read(() => transport.listContacts(), null)
-            : { contacts: [], hidden: 0 };
-        if (!groups && !book) return null;
+        const reads = (await Promise.all(transports.map(async (transport) => [
+            transport.supportsGroups ? await read(() => transport.listGroups(), null) : [],
+            transport.supportsContacts ? await read(() => transport.listContacts(), null) : { contacts: [], hidden: 0 },
+        ]))).filter(([groups, book]) => groups || book);
+        if (!reads.length) return null;
+        // A group both numbers joined is listed once.
+        const byId = new Map();
+        for (const g of reads.flatMap(([groups]) => groups ?? [])) if (!byId.has(g.id)) byId.set(g.id, g);
+        const groups = [...byId.values()];
+        const books = reads.map(([, book]) => book).filter(Boolean);
         const numbers = new Map();
-        for (const c of book?.contacts ?? []) {
-            numbers.set(c.phone, { phone: c.phone, name: c.name ?? '', saved: Boolean(c.saved), groups: [] });
+        for (const c of books.flatMap((book) => book.contacts)) {
+            const row = numbers.get(c.phone) ?? { phone: c.phone, name: '', saved: false, groups: [] };
+            row.name ||= c.name ?? '';
+            row.saved ||= Boolean(c.saved);
+            numbers.set(c.phone, row);
         }
-        for (const g of groups ?? []) {
+        const saved = numbers.size;
+        for (const g of groups) {
             for (const m of g.members ?? []) {
                 const row = numbers.get(m.phone) ?? { phone: m.phone, name: '', saved: false, groups: [] };
                 // Not in the address book: fall back to the profile name / username the group shows.
@@ -2957,9 +2984,9 @@ export function createApp({
         }
         return {
             contacts: [...numbers.values()].sort((a, b) => a.phone.localeCompare(b.phone)),
-            groups: groups ?? [],
-            saved: (book?.contacts ?? []).length,
-            hidden: (book?.hidden ?? 0) + (groups ?? []).reduce((n, g) => n + (g.hidden ?? 0), 0),
+            groups,
+            saved,
+            hidden: books.reduce((n, book) => n + (book.hidden ?? 0), 0) + groups.reduce((n, g) => n + (g.hidden ?? 0), 0),
         };
     };
 
@@ -2969,24 +2996,21 @@ export function createApp({
             return res.status(404).json({ errors: ['tenant not found'] });
         }
         const rt = runtimeFor(tenant.id);
-        // Any connected number can answer; the tenant's default one first.
+        // Every connected number answers; the tenant's default one first.
         const channels = new Map();
         for (const channel of [rt.channels.getDefault(), ...rt.channels.list()]) {
             if (channel) channels.set(channel.id, channel);
         }
-        let transport = null;
-        for (const channel of channels.values()) {
-            const candidate = rt.runtimeFor(channel).state.transport;
-            if (candidate?.isConnected?.()) {
-                transport = candidate;
-                break;
-            }
-        }
-        if (!transport) return res.status(409).json({ errors: ['Connect a WhatsApp QR number first.'] });
-        if (!transport.supportsContacts && !transport.supportsGroups) {
+        const connected = [...channels.values()]
+            .map((channel) => rt.runtimeFor(channel).state.transport)
+            .filter((transport) => transport?.isConnected?.());
+        if (!connected.length) return res.status(409).json({ errors: ['Connect a WhatsApp QR number first.'] });
+        const linked = connected.filter((transport) => transport.supportsContacts || transport.supportsGroups);
+        if (!linked.length) {
             return res.status(409).json({ errors: ['This number is not a linked WhatsApp account.'] });
         }
-        const account = await whatsappAccountNumbers(transport);
+        const transport = linked[0];
+        const account = await whatsappAccountNumbers(linked);
         if (!account) return res.status(503).json({ errors: ['WhatsApp did not answer. Try again in a moment.'] });
         const communityName = (g) => (g.community ? account.groups.find((c) => c.id === g.community)?.name ?? '' : '');
         return res.json({
@@ -3066,6 +3090,13 @@ export function createApp({
             return { ...row, numbers: contacts.map((c) => c.phone), contacts, count: contacts.length };
         }),
     }));
+
+    admin.delete('/number-collections/:tenantId', (req, res) => {
+        const { changes } = db.db.prepare('DELETE FROM number_collections WHERE tenant_id = ?').run(Number(req.params.tenantId));
+        if (!changes) return res.status(404).json({ errors: ['collection not found'] });
+        audit(req, 'number_collection.delete', Number(req.params.tenantId));
+        return res.status(204).end();
+    });
 
     // Contact segments/groups: a super admin can view a business's audience segments.
     admin.get('/tenants/:id/segments', (req, res) => {

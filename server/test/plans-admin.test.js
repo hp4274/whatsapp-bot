@@ -202,6 +202,15 @@ describe('admin plans & subscriptions', () => {
         assert.equal(later.body.subscription.cancelAtPeriodEnd, true);
     });
 
+    it('plan usage shows the number cap the admin set, not the plan constant', async () => {
+        const { body: { tenant } } = await createTenant({ planKey: 'starter' });
+        assert.equal((await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/limits`, { maxChannels: 7 })).status, 200);
+        const token = sessionFor(app, { tenantId: tenant.id, role: 'owner' });
+        const metrics = (await call(token, 'GET', '/api/plan-usage')).body.usage.metrics;
+        assert.equal(metrics.find((m) => m.metric === 'channels').limit, 7);
+        assert.equal(metrics.find((m) => m.metric === 'contacts').limit, null, 'nothing caps contacts');
+    });
+
     it('refuses to delete a custom plan with subscribers, reverts a constant', async () => {
         await call(sup, 'PUT', '/api/admin/billing/plans/solo', { name: 'Solo', price: 100 });
         const { body: { tenant } } = await createTenant({ planKey: 'solo' });

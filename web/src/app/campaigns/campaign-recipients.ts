@@ -43,10 +43,23 @@ export class CampaignRecipients {
   readonly recipients = input.required<Recipient[]>();
   /** The failure buckets from analytics: their labels name a recipient's failure in plain words. */
   readonly failures = input<CampaignAnalytics['failures']>([]);
+  /** A campaign shared over several numbers: each number's name, to show and filter its own list. */
+  readonly numbers = input<{ channelId: number; label: string }[]>([]);
 
   protected readonly status = signal('ALL');
   protected readonly search = signal('');
   protected readonly limit = signal(PAGE);
+  /** One number's list, or every number's ('ALL'). */
+  protected readonly number = signal<number | 'ALL'>('ALL');
+  protected readonly shared = computed(() => this.numbers().length > 1);
+
+  protected numberLabel(id: number | undefined): string {
+    return this.numbers().find((n) => n.channelId === id)?.label ?? '-';
+  }
+
+  protected numberCount(id: number): number {
+    return this.recipients().filter((r) => r.channelId === id).length;
+  }
 
   protected readonly statusCounts = computed(() => {
     const counts = new Map<string, number>();
@@ -68,8 +81,10 @@ export class CampaignRecipients {
     const status = this.status();
     const q = this.search().trim().toLowerCase();
     const digits = q.replace(/\D/g, '');
+    const number = this.number();
     return this.recipients().filter(
       (r) =>
+        (number === 'ALL' || r.channelId === number) &&
         (status === 'ALL' || r.status === status) &&
         (!q || (r.name ?? '').toLowerCase().includes(q) || (!!digits && r.phone.includes(digits))),
     );
@@ -96,6 +111,11 @@ export class CampaignRecipients {
 
   protected setStatus(value: string): void {
     this.status.set(value);
+    this.limit.set(PAGE);
+  }
+
+  protected setNumber(value: string): void {
+    this.number.set(value === 'ALL' ? 'ALL' : Number(value));
     this.limit.set(PAGE);
   }
 

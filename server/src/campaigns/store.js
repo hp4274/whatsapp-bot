@@ -134,7 +134,10 @@ export class CampaignStore {
             mediaId: patch.mediaId === undefined ? campaign.mediaId : (patch.mediaId == null ? null : String(patch.mediaId)),
             scheduledAt: patch.scheduledAt === undefined ? campaign.scheduledAt : scheduledIso(patch.scheduledAt),
             status: patch.status === undefined ? campaign.status : pickStatus(patch.status, campaign.status),
-            options: patch.options === undefined ? campaign.options : normalizeOptions(patch.options),
+            options: patch.options === undefined ? campaign.options : {
+                ...normalizeOptions(patch.options),
+                ...linkOf(campaign.options),
+            },
         };
         if (!next.name) throw new CampaignError('a campaign needs a name');
         // Mid-run the cursor indexes the stored order: the list cannot change under it.
@@ -426,6 +429,9 @@ export class CampaignStore {
         if (this.#isLive(campaign)) {
             dropped = this.manager.stop(reason ?? undefined) ?? 0;
             reopenWhenIdle(this.manager);
+            // Rows the engine was not holding (a held number, a run it never reloaded) close in the table too. Not
+            // SENDING: that one may be going out right now.
+            dropped += this.#dropRows(campaign, reason ?? 'Stopped by operator', ['QUEUED']);
         } else {
             dropped = this.#dropRows(campaign, reason ?? 'Stopped by operator');
         }
@@ -434,11 +440,11 @@ export class CampaignStore {
     }
 
     /** A run the manager does not hold: its waiting rows are closed in the table, where they live. */
-    #dropRows(campaign, reason) {
+    #dropRows(campaign, reason, statuses = ['QUEUED', 'SENDING']) {
         return this.db.prepare(
             `UPDATE messages SET status = 'CANCELLED', error = ?, updated_at = ?
-             WHERE tenant_id = ? AND campaign_id = ? AND status IN ('QUEUED', 'SENDING')`)
-            .run(reason, this.now(), this.tenantId, campaignKey(campaign.id)).changes;
+             WHERE tenant_id = ? AND campaign_id = ? AND status IN (${statuses.map(() => '?').join(', ')})`)
+            .run(reason, this.now(), this.tenantId, campaignKey(campaign.id), ...statuses).changes;
     }
 
     /**
@@ -476,9 +482,12 @@ export class CampaignStore {
     /** campaigns.* plan rules (policy/campaignOps.js campaignRefusal). */
     #checkPolicy(campaign, { starting = false, except = null } = {}) {
         if (!this.policy) return;
+        // A campaign shared over several numbers is one campaign: its copies (options.parentId) do not count, and a
+        // copy is checked as part of its campaign, so the campaign it belongs to does not count against it either.
         const counts = (status) => this.db.prepare(
-            'SELECT COUNT(*) AS n FROM campaigns WHERE tenant_id = ? AND status = ? AND id IS NOT ?')
-            .get(this.tenantId, status, except).n;
+            `SELECT COUNT(*) AS n FROM campaigns WHERE tenant_id = ? AND status = ? AND id IS NOT ?
+               AND NOT (json_valid(options) AND json_extract(options, '$.parentId') IS NOT NULL)`)
+            .get(this.tenantId, status, campaign.options?.parentId ?? except).n;
         const refusal = campaignRefusal(this.policy(), campaign, counts, { starting });
         if (refusal) throw new CampaignError(refusal.message, refusal.status);
     }
@@ -768,10 +777,71 @@ export class CampaignStore {
         return booked;
     }
 
+    /** Link a campaign to its copies on other numbers ({shares}) or a copy to its campaign ({parentId}). */
+    link(id, patch) {
+        this.#mergeOptions(id, patch);
+        return this.get(id);
+    }
+
     #mergeOptions(id, patch) {
         const campaign = this.get(id);
         this.db.prepare('UPDATE campaigns SET options = ?, updated_at = ? WHERE id = ? AND tenant_id = ?')
             .run(JSON.stringify({ ...(campaign.options ?? {}), ...patch }), this.now(), campaign.id, this.tenantId);
+    }
+
+    /**
+     * Failover (policy/channelOps.js): campaign `id`'s number was paused, so this number takes over everyone it has
+     * not sent to yet, in a hidden copy linked as a split links one. A running campaign hands over its waiting rows
+     * as they are (text, variant, place in line), so nobody it reached is sent again; a scheduled one hands over its
+     * list. The campaign keeps the record of what it sent and closes on its own number, saying why (`note(people)`).
+     * Returns `{ root, copy, people }`, or null when nobody is left to send to.
+     */
+    takeOver(id, note) {
+        const campaign = this.require(id);
+        const key = campaignKey(campaign.id);
+        const running = campaign.status === 'running';
+        const rows = (where) => this.db.prepare(`SELECT recipient, name FROM messages WHERE tenant_id = ? AND campaign_id = ? AND ${where}`)
+            .all(this.tenantId, key).map((r) => this.#contactFor(campaign, r.recipient, r.name ?? ''));
+        const audience = running ? rows("status = 'QUEUED' ORDER BY rowid") : this.resolveAudience(campaign);
+        if (!audience.length) return null;
+        // It keeps only who it already reached, so the campaign's size still adds up over its numbers.
+        const kept = running ? rows("status != 'QUEUED' GROUP BY recipient") : [];
+        const { statusReason, previousId, ...options } = campaign.options ?? {};
+        const root = this.require(campaign.options?.parentId ?? campaign.id);
+        const why = note(audience.length);
+        let copy;
+        this.db.exec('BEGIN');
+        try {
+            // Closed first, so the plan's limits do not count it and its copy as two campaigns.
+            this.#set(campaign.id, { status: 'done', finished_at: this.now() });
+            copy = this.create({
+                name: campaign.name, status: running ? 'draft' : 'scheduled', templateId: campaign.templateId,
+                body: campaign.body, audience, mediaId: campaign.mediaId, scheduledAt: campaign.scheduledAt,
+                channelId: this.channelId, options: { ...options, extraNumbers: [] },
+            });
+            if (running) {
+                this.db.prepare(`UPDATE messages SET campaign_id = ?, channel_id = ?, updated_at = ?
+                    WHERE tenant_id = ? AND campaign_id = ? AND status = 'QUEUED'`)
+                    .run(campaignKey(copy.id), this.channelId, this.now(), this.tenantId, key);
+                this.#set(copy.id, { status: 'running', started_at: this.now(), ...this.#snapshot(copy) });
+            }
+            this.#dropRows(campaign, why); // one caught mid-send may have gone out: closed, never sent again
+            this.db.prepare('UPDATE campaigns SET audience = ?, segment_id = NULL WHERE id = ? AND tenant_id = ?')
+                .run(JSON.stringify(kept), campaign.id, this.tenantId);
+            this.#set(campaign.id, this.#snapshot(campaign));
+            this.#reason(root.id, why); // the campaign the business sees, when this was one number's share of it
+            const replies = this.replies?.();
+            const rules = replies?.rules(key) ?? [];
+            if (rules.length) replies.setRules(campaignKey(copy.id), rules);
+            this.link(copy.id, { parentId: root.id });
+            this.link(root.id, { shares: [...(root.options?.shares ?? []), { channelId: this.channelId, id: copy.id }] });
+            this.db.exec('COMMIT');
+        } catch (err) {
+            this.db.exec('ROLLBACK');
+            throw err;
+        }
+        if (running) this.recover(copy.id); // a busy number picks it up at the sweep's next recovery
+        return { root: this.get(root.id), copy: this.get(copy.id), people: audience.length };
     }
 
     // ------------------------------------------------------------- spread --
@@ -1237,6 +1307,10 @@ export function ensureCampaignOptionsColumn(db) {
  * Unknown keys pass through untouched
  * (other features may keep their own there); known ones are validated.
  */
+/** The share links normalizeOptions drops, kept across an edit. */
+const linkOf = (options = {}) => Object.fromEntries(
+    ['shares', 'parentId'].filter((key) => options?.[key] !== undefined).map((key) => [key, options[key]]));
+
 export function normalizeOptions(input) {
     const src = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
     const out = { ...src };
@@ -1265,6 +1339,9 @@ export function normalizeOptions(input) {
     // Only spawnRecurrences writes these: a duplicated campaign must still repeat.
     delete out.nextId;
     delete out.recurrenceNote;
+    // Only link() writes these (a campaign shared over several numbers): a duplicate or an edit cannot forge them.
+    delete out.shares;
+    delete out.parentId;
     if (src.trackLinks !== undefined) out.trackLinks = src.trackLinks === true;
     if (src.recurrence !== undefined) out.recurrence = normalizeRecurrence(src.recurrence);
     if (out.recurrence && out.spread) {

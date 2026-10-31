@@ -192,6 +192,18 @@
   tbody tr:last-child td { border-bottom: 0; }
   .mono { font-family: var(--mono); font-size: 12px; }
   .more { margin: 0; padding: 9px 10px; border: 0; font-size: 12px; }
+  .acts { width: 1%; padding-block: 4px; text-align: right; }
+  .btn.icon { width: 32px; padding: 0; justify-content: center; }
+}
+
+// Who gets it: page through the file's numbers, put removed ones back.
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  font-size: 12.5px;
 }
 
 .cols { display: grid; gap: 8px; p { margin: 0; font-size: 13px; } }

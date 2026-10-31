@@ -160,12 +160,30 @@
         </ul>
       }
 
-      <h4>Numbers</h4>
-      @if (!contacts().length) {
-        <p class="muted">WhatsApp returned no readable numbers for this account.</p>
+      <div class="wa-numbers-head">
+        <h4 id="wa-numbers-title">Numbers</h4>
+        @if (groups().length) {
+          <select
+            aria-label="Show the numbers in one group"
+            [value]="group()"
+            (change)="group.set($any($event.target).value)"
+          >
+            <option value="">All numbers ({{ contacts().length }})</option>
+            @for (g of groups(); track g.id) {
+              @if (g.name) {
+                <option [value]="g.name">{{ g.name }} ({{ g.members }})</option>
+              }
+            }
+          </select>
+        }
+      </div>
+      @if (!shownContacts().length) {
+        <p class="muted">
+          {{ group() ? 'WhatsApp shows no readable numbers in this group.' : 'WhatsApp returned no readable numbers for this account.' }}
+        </p>
       } @else {
-        <ul class="wa-numbers">
-          @for (contact of contacts(); track contact.phone) {
+        <ul class="wa-numbers" aria-labelledby="wa-numbers-title">
+          @for (contact of shownContacts(); track contact.phone) {
             <li>
               <span class="wa-who">
                 <strong>{{ contact.name || spacedPhone(contact.phone) }}</strong>

@@ -536,5 +536,44 @@ describe('campaigns over HTTP', () => {
             name: 'Bad buttons', body: 'hi', options: { interactive: { type: 'list' } },
         })).status, 400);
     });
+
+    it('shares a campaign over several numbers: people dealt in turn, one copy per extra number', async () => {
+        const made = await api('POST', '/api/channels', { displayName: 'Number C', settings: { transport: TRANSPORT_SANDBOX } });
+        const other = made.body.channel.id;
+        const people = [1, 2, 3, 4, 5].map((n) => ({ name: `P${n}`, phone: `91985550010${n}` }));
+        const { campaign } = (await api('POST', '/api/campaigns', { name: 'Shared', body: 'Hi {name}', audience: people })).body;
+        const split = `/api/campaigns/${campaign.id}/split`;
+
+        assert.equal((await api('POST', split, { channelIds: [other, 99999] })).status, 409);
+        assert.equal((await api('GET', `/api/campaigns/${campaign.id}`)).body.campaign.audience.length, 5,
+            'a refused split changes nothing');
+
+        const res = await api('POST', split, { channelIds: [other] });
+        assert.equal(res.status, 200, JSON.stringify(res.body));
+        const [own, copy] = res.body.campaigns;
+        assert.deepEqual(own.audience.map((p) => p.name), ['P1', 'P3', 'P5']);
+        assert.deepEqual(copy.audience.map((p) => p.name), ['P2', 'P4']);
+        assert.equal(copy.channelId, other);
+        assert.equal(copy.status, 'draft');
+
+        // One campaign to the business: the copy is not listed, and starting the campaign starts both numbers.
+        assert.deepEqual((await api('GET', '/api/campaigns')).body.campaigns.filter((c) => c.name === 'Shared').map((c) => c.id), [own.id]);
+        const onOther = { 'x-channel-id': String(other), 'content-type': 'application/json' };
+        assert.equal((await fetch(`${base}/api/connection/connect`, { method: 'POST', headers: onOther })).status, 200);
+        const started = await api('POST', `/api/campaigns/${own.id}/start`, {});
+        assert.equal(started.status, 200, JSON.stringify(started.body));
+        assert.equal(started.body.queued, 5, 'both shares queued by the one start');
+        assert.deepEqual(started.body.numbers.map((n) => n.queued), [3, 2]);
+        const sentFrom = (id) => db.db.prepare('SELECT DISTINCT channel_id FROM messages WHERE campaign_id = ?')
+            .all(campaignKey(id)).map((r) => r.channel_id);
+        assert.ok(await waitFor(() => sentFrom(copy.id).length && sentFrom(own.id).length));
+        assert.deepEqual(sentFrom(copy.id), [other]);
+        assert.notDeepEqual(sentFrom(own.id), [other]);
+
+        const report = (await api('GET', `/api/campaigns/${own.id}/analytics`)).body;
+        assert.equal(report.recipients.length, 5, 'one list holds every number\'s people');
+        assert.deepEqual([...new Set(report.recipients.map((r) => r.channelId))].length, 2);
+        assert.equal(report.funnel.queued, 5);
+    });
 });
 

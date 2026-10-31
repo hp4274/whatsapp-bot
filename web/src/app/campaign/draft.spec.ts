@@ -14,6 +14,7 @@ const KEY = 'wsender.campaignDraft.3.5';
 function campaign(over: Partial<Campaign> = {}): Campaign {
   return {
     id: 7,
+    channelId: null,
     name: 'Diwali offer',
     status: 'done',
     templateId: null,

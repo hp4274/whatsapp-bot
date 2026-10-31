@@ -93,19 +93,109 @@
       >
     </p>
   }
+  @if (waiting().length) {
+    <p class="banner">
+      <i class="ti ti-hourglass-high" aria-hidden="true"></i>
+      <span>
+        @for (line of waiting(); track line) {
+          {{ line }}
+        }
+        The others send theirs now; nothing to resume.
+      </span>
+    </p>
+  }
   @if (finish(); as f) {
     <p class="banner info">
       <i class="ti ti-calendar-time" aria-hidden="true"></i>
       <span
         >Finishes around <strong>{{ f.label }}</strong> ({{ f.days }} days)@if (f.worst) {
           , or up to {{ f.worst }} days if most of these people never chatted with this number
-        }. Each number has its own daily limit, so
-        <a routerLink="/channels">adding another number</a> is the safe way to finish sooner.</span
+        }.
+        @if (sharedIds().length) {
+          {{ sharedIds().length + 1 }} numbers send at once, each sending its own share under its own limit.
+        } @else if (numbers().length > 1) {
+          Each number has its own daily limit, so switching on another number below is the safe way to finish
+          sooner.
+        } @else {
+          Each number has its own daily limit, so
+          <a routerLink="/channels">adding another number</a> is the safe way to finish sooner.
+        }</span
       >
     </p>
   }
 
 </section>
+
+@if (numbers().length > 1) {
+  <section class="card panel" aria-labelledby="send-from-title">
+    <div class="ph">
+      <span class="badge"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i></span>
+      <div>
+        <h3 id="send-from-title">Send from</h3>
+        <p class="muted">Switch on more numbers to share the people out. Each number sends its own share, under its own daily limit.</p>
+      </div>
+    </div>
+
+    <ul class="numbers">
+      @for (c of numbers(); track c.id) {
+        @let own = c.id === ownId();
+        @let on = own || sharedIds().includes(c.id);
+        @let warmText = warmLabel(c);
+        <li [class.on]="on">
+          <span class="who">
+            <span class="name">
+              <strong>{{ numberName(c) }}</strong>
+              @if (c.id === recommendedId()) {
+                <span class="pill rec"><i class="ti ti-star" aria-hidden="true"></i> Recommended</span>
+              }
+            </span>
+            <span class="muted">
+              @if (own) {
+                This number
+              } @else if (!c.health?.connected) {
+                Not connected{{ canShare(c) ? ' - it must be by the send time' : '' }}
+              } @else {
+                Connected
+              }
+              @if (warmText) {
+                · {{ warmText }}
+              }
+              @if (on && sharedIds().length) {
+                · <strong class="gets">gets {{ shareOf(c.id) }}</strong>
+              }
+            </span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            class="switch"
+            [attr.aria-checked]="on"
+            [attr.aria-label]="'Send from ' + numberName(c)"
+            [disabled]="own || !canShare(c)"
+            (click)="toggleNumber(c.id)"
+          >
+            <span class="thumb"></span>
+          </button>
+        </li>
+      }
+    </ul>
+
+    @if (autoOn(); as id) {
+      @if (sharedIds().includes(id)) {
+        <p class="muted share-note">
+          <i class="ti ti-bulb" aria-hidden="true"></i>
+          This number is not connected, so {{ channelName(id) }} is switched on to send with it.
+        </p>
+      }
+    }
+    @if (sharedIds().length) {
+      <p class="muted share-note">
+        <i class="ti ti-arrows-split" aria-hidden="true"></i>
+        People are shared evenly over the numbers switched on; each sends its share under its own limit.
+      </p>
+    }
+  </section>
+}
 
 <section class="card panel">
   <div class="ph">
@@ -310,7 +400,7 @@
         </div>
       }
     </div>
-  } @else if (!connected()) {
+  } @else if (!canSendNow()) {
     <p class="banner danger">
       <i class="ti ti-link-off" aria-hidden="true"></i>
       <span
@@ -399,7 +489,7 @@
     type="button"
     class="btn primary go"
     (click)="send()"
-    [disabled]="busy() || blockers().length > 0 || (d.scheduleMode() === 'now' && !connected())"
+    [disabled]="busy() || blockers().length > 0 || (d.scheduleMode() === 'now' && !canSendNow())"
   >
     @let mode = d.scheduleMode();
     @if (busy()) {
@@ -428,6 +518,6 @@
 </div>
 @if (blockers().length) {
   <p class="muted hint">{{ blockers()[0] }}</p>
-} @else if (d.scheduleMode() === 'now' && !connected()) {
+} @else if (d.scheduleMode() === 'now' && !canSendNow()) {
   <p class="muted hint">Connect a WhatsApp number to send now - or schedule it instead.</p>
 }

@@ -27,6 +27,16 @@
         <h2>{{ c.name || 'Untitled campaign' }}</h2>
         <app-campaign-status [status]="c.status" />
       </div>
+      @if (numbers().length > 1) {
+        <p class="eyebrow">
+          <i class="ti ti-arrows-split" aria-hidden="true"></i>
+          {{ c.status === 'running' || c.status === 'paused' || c.status === 'scheduled' ? 'Sending' : 'Sent' }}
+          from {{ numbers().length }} numbers at once:
+          @for (n of numbers(); track n.channelId; let last = $last) {
+            {{ n.label }}{{ last ? '' : ',' }}
+          }
+        </p>
+      }
     </div>
     <div class="audience">
       <strong>{{ count(audience()) }}</strong>
@@ -292,6 +302,6 @@
       (refresh)="reload()"
       (showFailed)="showFailed()"
     />
-    <app-campaign-recipients [recipients]="a.recipients" [failures]="a.failures" />
+    <app-campaign-recipients [recipients]="a.recipients" [failures]="a.failures" [numbers]="numbers()" />
   }
 }
