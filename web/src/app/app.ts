@@ -329,8 +329,8 @@ export class App {
   /** What the header calls the current workspace. */
   protected readonly workspace = computed(() => {
     const user = this.auth.user();
-    if (!user) return 'WhatsApp Sender';
-    if (user.role !== 'super_admin') return this.auth.tenant()?.name ?? 'WhatsApp Sender';
+    if (!user) return 'Wapzo';
+    if (user.role !== 'super_admin') return this.auth.tenant()?.name ?? 'Wapzo';
     const acting = this.auth.actingTenantId();
     return acting === null ? 'Platform admin' : (this.acting()?.name ?? `Tenant ${acting}`);
   });
