@@ -375,7 +375,6 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
 $list-cols: minmax(220px, 2.2fr) repeat(4, minmax(68px, 0.6fr)) minmax(120px, 1fr) auto;
 
 .list-head { display: none; }
-.rate { margin-left: 5px; font-size: 12px; font-style: normal; color: var(--danger-text); }
 
 // Only on a wide screen (listMode in tenants.ts): narrower, list view shows the cards.
 // The list owns the columns and every row borrows them (subgrid), so the header lines up whatever a row holds.

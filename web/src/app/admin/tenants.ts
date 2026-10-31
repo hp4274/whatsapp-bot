@@ -368,13 +368,6 @@ export class TenantsView {
     return CONTROL_LABELS[key];
   }
 
-  /** Failed as a share of everything sent or failed, rounded; 0 when nothing failed. */
-  protected failRate(tenant: Tenant): number {
-    const failed = tenant.health?.failed ?? 0;
-    const total = failed + (tenant.health?.sent ?? 0);
-    return total ? Math.round((failed / total) * 100) : 0;
-  }
-
   protected serviceSummary(services: string[]): string {
     return `${services.length} of ${this.services().length} enabled`;
   }
