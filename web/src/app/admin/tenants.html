@@ -276,9 +276,7 @@
         <div class="who">
           <span class="mono muted">#{{ tenant.id }}</span>
           <h3 [title]="tenant.name">{{ tenant.name }}</h3>
-          <p class="muted" [title]="tenant.slug">
-            {{ tenant.slug }} &middot; {{ tenant.users }} {{ tenant.users === 1 ? 'user' : 'users' }}
-          </p>
+          <p class="muted" [title]="tenant.slug">{{ tenant.slug }} &middot; {{ tenant.users }} user(s)</p>
           <!-- Status and plan share one row that every card has, so cards in a grid row match in height. -->
           <div class="tags">
             <span
@@ -314,11 +312,7 @@
         </div>
         <div class="stat" [class.bad]="(tenant.health?.failed ?? 0) > 0">
           <i class="ti ti-x" aria-hidden="true"></i>
-          <strong
-            >{{ tenant.health?.failed ?? 0 }}
-            @if (failRate(tenant); as rate) {
-              <em class="rate">{{ rate }}%</em>
-            }</strong
+          <strong>{{ tenant.health?.failed ?? 0 }}</strong
           ><span [class.sr-only]="listMode()">Failed</span>
         </div>
         <div class="stat">
