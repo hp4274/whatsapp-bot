@@ -80,8 +80,8 @@ export class Channels {
      * sending appointment reminders down a number set up for campaigns is the
      * kind of surprise that gets a number banned.
      */
-    route({ channelId = null, capability = null, rule = 'default', remaining = null, any = false } = {}) {
-        const channel = channelId == null ? this.pick(rule, capability, remaining) : this.get(channelId);
+    route({ channelId = null, capability = null, rule = 'default', remaining = null, ready = null, any = false } = {}) {
+        const channel = channelId == null ? this.pick(rule, capability, remaining, ready) : this.get(channelId);
         if (!channel) throw new ChannelError('channel not found', 404);
         if (channel.status !== 'active' && !any) throw new ChannelError(`channel ${channel.id} is disabled`, 409);
         if (capability && !channel.capabilities.includes(capability)) {
@@ -93,15 +93,22 @@ export class Channels {
     /**
      * The sender rule (`channels.routing` policy) for a send that names no
      * number: the fixed default, round-robin over active numbers, or the one
-     * with most of today's quota left (`remaining(channel)`, ties to the default).
+     * with most of today's quota left (`remaining(channel)`, ties to the default). `ready(channel)`: can it send
+     * now (connected, not paused)? The others are skipped while any is ready; with none ready, all stay in.
      */
-    pick(rule, capability, remaining) {
+    pick(rule, capability, remaining, ready = null) {
         if (rule !== 'round_robin' && rule !== 'quota') return this.getDefault();
-        const pool = this.list().filter((c) => c.status === 'active' && (!capability || c.capabilities.includes(capability)));
+        const active = this.list().filter((c) => c.status === 'active' && (!capability || c.capabilities.includes(capability)));
+        const live = ready ? active.filter(ready) : active;
+        const pool = live.length ? live : active;
         if (pool.length < 2) return pool[0] ?? this.getDefault();
         if (rule === 'round_robin') {
-            this.turn = ((this.turn ?? -1) + 1) % pool.length; // ponytail: per process, resets on restart
-            return pool[this.turn];
+            // The next number after the last one picked, by id. Kept on the tenant row, not the instance:
+            // a Channels is made per request and a restart wipes memory, and either would restart the turn.
+            const last = this.db.prepare('SELECT last_sender_id AS id FROM tenants WHERE id = ?').get(this.tenantId)?.id ?? 0;
+            const next = pool.find((c) => c.id > last) ?? pool[0];
+            this.db.prepare('UPDATE tenants SET last_sender_id = ? WHERE id = ?').run(next.id, this.tenantId);
+            return next;
         }
         pool.sort((a, b) => Number(b.isDefault) - Number(a.isDefault));
         return pool.reduce((best, c) => (remaining(c) > remaining(best) ? c : best));

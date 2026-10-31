@@ -61,7 +61,10 @@ describe('engine-wide pause / resume / stop on a saved campaign', () => {
         assert.equal(await status(id), 'paused');
         assert.equal((await api('POST', '/api/campaign/resume')).status, 200);
         assert.equal(await status(id), 'running');
-        assert.equal((await api('POST', '/api/campaign/stop')).status, 200);
+        const stopped = await api('POST', '/api/campaign/stop');
+        assert.equal(stopped.status, 200);
         assert.equal(await status(id), 'cancelled');
+        // The card reads the run's state: stop reopens the queue for replies, but the run must read as stopped.
+        assert.equal(stopped.body.stats.state, 'STOPPED');
     });
 });

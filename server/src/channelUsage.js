@@ -153,8 +153,18 @@ function quality(db, usage, now) {
     }
 
     const level = hints.reduce((worst, h) => (LEVEL_RANK[h.level] > LEVEL_RANK[worst] ? h.level : worst), 'ok');
+    // One 0-100 figure: weights put each "bad" hint threshold (20% failures, 5% opt-outs) at 60 and a used-up cap at 90.
+    // Rates count only past the hints' minimum sample, so a few early failures do not sink a new number.
+    const failures = Math.max(
+        q.failed24 + q.sent24 >= MIN_24H ? failureRate24h : 0,
+        q.failed7 + q.sent7 >= MIN_7D ? failureRate7d : 0,
+    );
+    const optOuts = q.optOuts7 >= 3 ? optOutRate7d : 0;
+    const capped = hints.some((h) => h.code === 'cap_reached');
+    const score = Math.max(0, Math.min(100, Math.round(100 - 200 * failures - 800 * optOuts - (capped ? 10 : 0))));
     return {
         level,
+        score,
         sent24h: q.sent24,
         failed24h: q.failed24,
         failureRate24h,

@@ -296,6 +296,73 @@
             </p>
           }
 
+          @if (audit.valid.length) {
+            <details class="more">
+              <summary>
+                See who gets it
+                @if (d.excludedRows().length) {
+                  <span class="muted">· {{ d.excludedRows().length }} removed</span>
+                }
+              </summary>
+              @if (kept().length) {
+                <div class="issues" role="region" aria-label="Numbers that will get the message" tabindex="0">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Row</th>
+                        <th>Name</th>
+                        <th>Number</th>
+                        <th><span class="sr-only">Remove</span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (v of pageRows(); track v.row) {
+                        <tr>
+                          <td class="mono">{{ v.row + 2 }}</td>
+                          <td>{{ v.name || '—' }}</td>
+                          <td class="mono">{{ spacedPhone(v.phone) }}</td>
+                          <td class="acts">
+                            <button
+                              type="button"
+                              class="btn small icon"
+                              (click)="removeRow(v.row)"
+                              [attr.aria-label]="'Remove ' + spacedPhone(v.phone) + ' from this campaign'"
+                            >
+                              <i class="ti ti-x" aria-hidden="true"></i>
+                            </button>
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              } @else {
+                <p class="muted">Everyone is removed - put them back to send.</p>
+              }
+              <div class="pager">
+                @if (pages() > 1) {
+                  <button type="button" class="btn small" (click)="page.set(pageAt() - 1)" [disabled]="pageAt() === 0">
+                    <i class="ti ti-chevron-left" aria-hidden="true"></i> Previous
+                  </button>
+                  <span class="muted">Page {{ pageAt() + 1 }} of {{ pages() }}</span>
+                  <button
+                    type="button"
+                    class="btn small"
+                    (click)="page.set(pageAt() + 1)"
+                    [disabled]="pageAt() === pages() - 1"
+                  >
+                    Next <i class="ti ti-chevron-right" aria-hidden="true"></i>
+                  </button>
+                }
+                @if (d.excludedRows().length) {
+                  <button type="button" class="btn small" (click)="d.excludedRows.set([])">
+                    <i class="ti ti-arrow-back-up" aria-hidden="true"></i> Put back {{ d.excludedRows().length }} removed
+                  </button>
+                }
+              </div>
+            </details>
+          }
+
           @if (issues().length) {
             <details class="more">
               <summary>See skipped rows</summary>

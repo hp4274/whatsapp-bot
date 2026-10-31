@@ -1,5 +1,5 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, effect, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
 import { catchError, throwError } from 'rxjs';
 
 import { spacedPhone } from '../contacts/contact-util';
@@ -63,6 +63,12 @@ export class TenantAccounts {
   /** Confirmation line for the last saved bulk collection. */
   protected readonly collectionDone = signal('');
   protected readonly savingCollection = signal(false);
+  /** The group picked in the dropdown; '' shows every number. */
+  protected readonly group = signal('');
+  // shortcut: contacts carry group names, not ids, so two groups with one name show together.
+  protected readonly shownContacts = computed(() =>
+    this.group() ? this.contacts().filter((c) => c.groups.includes(this.group())) : this.contacts(),
+  );
 
   constructor() {
     effect(() => this.load(this.tenantId()));
@@ -122,6 +128,7 @@ export class TenantAccounts {
           this.account.set(details.account);
           this.contacts.set(details.contacts);
           this.groups.set(details.groups);
+          if (!details.groups.some((g) => g.name === this.group())) this.group.set('');
           this.savedCount.set(details.saved);
           this.hiddenCount.set(details.hidden);
           this.fetched.set(true);
@@ -140,6 +147,7 @@ export class TenantAccounts {
   private resetFetched(): void {
     this.contacts.set([]);
     this.groups.set([]);
+    this.group.set('');
     this.account.set('');
     this.savedCount.set(0);
     this.hiddenCount.set(0);

@@ -39,6 +39,9 @@ export const CHANNEL_POLICY = Object.freeze([
       label: 'Minimum sends before judging', hint: 'So two failures out of three never pause a number.' },
     { key: 'channels.banGuardReports', service: S, group: 'Ban-risk guard', type: 'int', default: 10, min: 0, max: 1000,
       label: 'Pause at spam reports (7 days)', hint: 'Pause a number when this many different people report it in 7 days. 0 turns it off.' },
+    { key: 'channels.failover', service: S, group: 'Ban-risk guard', type: 'bool', default: false,
+      label: 'Move campaigns off a paused number',
+      hint: 'When a number is paused, its running and scheduled campaigns go on from the healthiest other number. People then hear from a number they do not know, and a ban often means the list itself is risky.' },
 
     // ------------------------------------------------------------ health --
     { key: 'channels.offlineAfterMinutes', service: S, group: 'Health', type: 'int', default: 30, min: 1, max: 10080,

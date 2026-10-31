@@ -57,17 +57,75 @@
               <td class="num"><span class="strong">{{ row.count }}</span></td>
               <td class="when">{{ when(row.createdAt) }}</td>
               <td class="acts">
-                <button class="btn sm" type="button" (click)="copy(row)">
-                  <i class="ti ti-copy" aria-hidden="true"></i> Copy
-                </button>
-                <button class="btn sm" type="button" (click)="download(row)">
-                  <i class="ti ti-download" aria-hidden="true"></i> CSV
-                </button>
-                <button class="btn sm" type="button" (click)="pdf(row)">
-                  <i class="ti ti-file-type-pdf" aria-hidden="true"></i> PDF
-                </button>
+                @if (confirmDelete() === row.tenantId) {
+                  <span class="when">Delete this collection?</span>
+                  <button class="btn sm" type="button" (click)="confirmDelete.set(null)" [disabled]="deleting()">Keep</button>
+                  <button class="btn sm danger" type="button" (click)="remove(row)" [disabled]="deleting()">
+                    <i class="ti ti-trash" aria-hidden="true"></i> {{ deleting() ? 'Deleting…' : 'Delete' }}
+                  </button>
+                } @else {
+                  <button
+                    class="btn sm"
+                    type="button"
+                    (click)="toggle(row)"
+                    [attr.aria-expanded]="openId() === row.tenantId"
+                    [attr.aria-controls]="'nums-' + row.tenantId"
+                  >
+                    <i class="ti ti-{{ openId() === row.tenantId ? 'eye-off' : 'eye' }}" aria-hidden="true"></i>
+                    {{ openId() === row.tenantId ? 'Hide' : 'View' }}
+                  </button>
+                  <button class="btn sm" type="button" (click)="copy(row)">
+                    <i class="ti ti-copy" aria-hidden="true"></i> Copy
+                  </button>
+                  <button class="btn sm" type="button" (click)="download(row)">
+                    <i class="ti ti-download" aria-hidden="true"></i> CSV
+                  </button>
+                  <button class="btn sm" type="button" (click)="pdf(row)">
+                    <i class="ti ti-file-type-pdf" aria-hidden="true"></i> PDF
+                  </button>
+                  <button
+                    class="btn sm icon"
+                    type="button"
+                    (click)="confirmDelete.set(row.tenantId)"
+                    [attr.aria-label]="'Delete the collection of ' + name(row)"
+                  >
+                    <i class="ti ti-trash" aria-hidden="true"></i>
+                  </button>
+                }
               </td>
             </tr>
+            @if (openId() === row.tenantId) {
+              <tr class="open">
+                <td colspan="5" [id]="'nums-' + row.tenantId">
+                  <label class="search">
+                    <i class="ti ti-search" aria-hidden="true"></i>
+                    <span class="sr-only">Search {{ name(row) }}'s numbers by name or number</span>
+                    <input
+                      type="search"
+                      placeholder="Search by name or number"
+                      [value]="typed()"
+                      (input)="typed.set($any($event.target).value)"
+                    />
+                  </label>
+                  <p class="hint" aria-live="polite">
+                    {{ matches().length }} of {{ row.count }} numbers
+                    @if (matches().length > shown().length) {
+                      · showing the first {{ shown().length }}, search to narrow
+                    }
+                  </p>
+                  @if (shown().length) {
+                    <ul class="nums">
+                      @for (c of shown(); track c.phone) {
+                        <li>
+                          <span class="strong">{{ c.name || '—' }}</span>
+                          <span class="mono">{{ spacedPhone(c.phone) }}</span>
+                        </li>
+                      }
+                    </ul>
+                  }
+                </td>
+              </tr>
+            }
           }
         </tbody>
       </table>

@@ -15,6 +15,7 @@
 
 import express from 'express';
 
+import { numberCap } from '../policy/channelOps.js';
 import { stricterCap } from '../templates/policy.js';
 import { BillingStore, periodOf } from './store.js';
 
@@ -60,7 +61,13 @@ export function createBillingRouter({ db, state }) {
         }
         // Team seats: a disabled user holds none (app.js team routes), which is what agents counts.
         extra.push(row('users', billing.used('agents'), limits.maxUsers));
-        return res.json({ usage: { ...usage, metrics: [...usage.metrics, ...extra] }, subscription: billing.subscription() });
+        // The admin's Limits and Plans editors set maxChannels, never the plan's billing `channels` / `contacts`
+        // (which nothing enforces): show the cap adding a number really meets, and contacts uncapped.
+        const subscription = billing.subscription();
+        const enforced = { channels: numberCap(limits, state?.platformPolicy?.() ?? {}), contacts: null };
+        const metrics = subscription?.state === 'expired' ? usage.metrics
+            : usage.metrics.map((m) => (m.metric in enforced ? row(m.metric, m.used, enforced[m.metric]) : m));
+        return res.json({ usage: { ...usage, metrics: [...metrics, ...extra] }, subscription });
     });
 
     router.get('/billing/usage/history', (req, res) => {

@@ -265,11 +265,15 @@ export class CampaignManager extends EventEmitter {
     statsSnapshot() {
         const byType = this.campaignId ? this.queue.pendingByType() : {};
         const oneOff = [...QUOTA_EXEMPT].reduce((n, type) => n + (byType[type] ?? 0), 0);
+        const { stopped, ...stats } = this.stats;
+        const pending = this.queue.pending - oneOff;
         return {
-            ...this.stats,
-            pending: this.queue.pending - oneOff,
+            ...stats,
+            pending,
             duplicates: this.queue.duplicatesRejected,
-            state: this.queue.state,
+            // stop() reopens the queue for replies at once: the run itself still reads as stopped, until anything of
+            // a run is queued again.
+            state: stopped && !pending ? QueueState.STOPPED : this.queue.state,
             safety: this.safetyStatus(),
         };
     }
@@ -685,6 +689,7 @@ export class CampaignManager extends EventEmitter {
      */
     stop(reason = 'Stopped by operator') {
         this.stopReason = reason;
+        this.stats.stopped = true; // a new run replaces this.stats, which clears it
         const waiting = this.queue.stop();
         const kept = waiting.filter((item) => QUOTA_EXEMPT.has(item.messageType));
         const dropped = waiting.filter((item) => !QUOTA_EXEMPT.has(item.messageType));
@@ -1197,7 +1202,8 @@ export class CampaignManager extends EventEmitter {
     async #attempt(item) {
         for (;;) {
             if (this.#stopped()) {
-                this.#finish(item, Status.CANCELLED, { error: this.stopReason });
+                if (this.shuttingDown) this.queue.putFront(item); // as below: a shutdown keeps the row queued
+                else this.#finish(item, Status.CANCELLED, { error: this.stopReason });
                 return;
             }
             if (await this.#heldOutsideWindow(item)) return;
@@ -1213,7 +1219,9 @@ export class CampaignManager extends EventEmitter {
             if (levels && await this.#notOnWhatsapp(item)) return;
             // Rate limit sits between the queue and the transport.
             if (!await this.rateLimiter.acquire(() => this.#stopped())) {
-                this.#finish(item, Status.CANCELLED, { error: this.stopReason });
+                // Shutting down (a pause, a restart): the row waits for the next start. An operator stop cancels it.
+                if (this.shuttingDown) this.queue.putFront(item);
+                else this.#finish(item, Status.CANCELLED, { error: this.stopReason });
                 return;
             }
             // Enqueue checked opt-outs, but a STOP can land while this row waited its turn.

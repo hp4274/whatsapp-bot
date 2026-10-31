@@ -3,58 +3,59 @@
  * for the API.
  */
 
-import { RateLimiter } from '../campaign/limits.js';
+import { DatabaseSync } from 'node:sqlite';
 
 /**
  * Token-bucket rate limit for the authenticated API, one bucket per key.
  *
- * Reuses `RateLimiter` from the outbound pipeline, but only its non-blocking
- * half (`delay()`/`consume()`): outbound *waits* for a token because the
- * message must go eventually, inbound *refuses* with 429 because the client
- * should back off, not queue inside our process.
+ * Unlike the outbound pacer (campaign/limits.js), which *waits* for a token
+ * because the message must go eventually, inbound *refuses* with 429 because
+ * the client should back off, not queue inside our process.
  *
- * ponytail: buckets live in a Map in this process. Idle buckets are swept
- * when the map grows past `maxKeys`; a second app process has its own
- * buckets, so the effective limit doubles. Upgrade is a shared store (Redis
- * INCR with TTL) behind the same middleware signature.
+ * Buckets are rows in `db` - pass the app's SQLite connection and every process
+ * on the host spends one budget per key instead of one each (without it, a
+ * private in-memory database). Limiters sharing a `db` must use distinct keys.
+ * Refill-and-take is one UPSERT, so two processes cannot both spend the last
+ * token: `level` is the bucket before the last request took its token (it took
+ * one iff level >= 1), which lets the statement decide and report in one go.
+ * The clock is wall time because the processes must agree on it. Buckets idle
+ * for `idleMs` (refilled by then) are dropped at most once per `idleMs`.
  *
  * `limitsFor(req)` may return `{ ratePerSecond, burst }` to override the
  * defaults per request (a tenant's security policy). A changed value is
- * applied to the live bucket, so its tokens carry over.
+ * applied to the live bucket, so its tokens carry over; the idle time before
+ * the change still refills at the old rate (the stored `rate`).
  */
 export function rateLimit({
-    ratePerSecond = 20, burst = 40, maxKeys = 10000, idleMs = 60000,
-    keyFor = defaultKey, limitsFor = () => null, now = () => performance.now() / 1000,
+    db = new DatabaseSync(':memory:'), ratePerSecond = 20, burst = 40, idleMs = 60000,
+    keyFor = defaultKey, limitsFor = () => null, now = () => Date.now() / 1000,
 } = {}) {
-    const buckets = new Map(); // key -> { limiter, seen }
-
-    const sweep = () => {
-        const cutoff = now() - idleMs / 1000;
-        for (const [key, entry] of buckets) if (entry.seen < cutoff) buckets.delete(key);
-    };
+    db.exec(`CREATE TABLE IF NOT EXISTS rate_buckets (
+        key TEXT PRIMARY KEY, level REAL NOT NULL, rate REAL NOT NULL, at REAL NOT NULL)`);
+    const take = db.prepare(`
+        INSERT INTO rate_buckets (key, level, rate, at) VALUES (:key, :size, :rate, :now)
+        ON CONFLICT (key) DO UPDATE SET
+            level = MIN(:size, level - (level >= 1) + MAX(0, :now - at) * rate),
+            rate = :rate, at = MAX(at, :now)
+        RETURNING level`);
+    let swept = now();
 
     return (req, res, next) => {
         const key = keyFor(req);
         if (key == null) return next();
         const limits = limitsFor(req);
         const rate = limits?.ratePerSecond ?? ratePerSecond;
-        const size = limits?.burst ?? burst;
-        let entry = buckets.get(key);
-        if (!entry) {
-            if (buckets.size >= maxKeys) sweep();
-            entry = { limiter: new RateLimiter(rate, size, now), seen: 0 };
-            buckets.set(key, entry);
-        } else if (entry.limiter.rate !== rate || entry.limiter.burst !== size) {
-            entry.limiter.delay(); // settle the idle refill at the old rate before the new one applies
-            entry.limiter.setRate(rate, size);
+        const size = Math.max(1, limits?.burst ?? burst);
+        const t = now();
+        if (t - swept >= idleMs / 1000) {
+            swept = t;
+            db.prepare('DELETE FROM rate_buckets WHERE at < ?').run(t - idleMs / 1000);
         }
-        entry.seen = now();
-        const wait = entry.limiter.delay();
-        if (wait > 0) {
-            res.setHeader('Retry-After', String(Math.ceil(wait)));
+        const { level } = take.get({ key, size, rate, now: t });
+        if (level < 1) {
+            res.setHeader('Retry-After', String(Math.ceil((1 - level) / rate)));
             return res.status(429).json({ errors: ['Too many requests. Slow down.'] });
         }
-        entry.limiter.consume();
         return next();
     };
 }

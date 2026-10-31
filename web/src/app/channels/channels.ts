@@ -78,6 +78,30 @@ export class ChannelsView {
     };
   });
 
+  /**
+   * The one number to send on next: active, connected, bulk not held, highest health score,
+   * then most of today's quota left. None with a single number: there is nothing to choose.
+   */
+  protected readonly recommendedId = computed(() => {
+    const list = this.channels();
+    const ready = list.filter(
+      (c) =>
+        c.status === 'active' &&
+        c.health?.connected &&
+        !c.health.usage?.blocked &&
+        c.health.usage?.asked !== false,
+    );
+    if (list.length < 2 || !ready.length) return null;
+    const score = (c: Channel) => c.health?.quality?.score ?? 0;
+    const left = (c: Channel) => {
+      const u = c.health?.usage;
+      return u?.todayLimit == null ? Infinity : u.todayLimit - u.sentToday;
+    };
+    return ready.reduce((best, c) =>
+      score(c) > score(best) || (score(c) === score(best) && left(c) > left(best)) ? c : best,
+    ).id;
+  });
+
   constructor() {
     this.refresh();
     this.store.watch(['channels', 'history', 'campaign'], () => this.refresh());

@@ -21,4 +21,39 @@
     white-space: nowrap;
     .btn { margin-left: 6px; }
   }
+
+  // The numbers of one business, opened under its row.
+  tr.open > td { padding: var(--space-md); background: var(--surface-sunken); }
+}
+
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  max-width: 360px;
+  .ti { position: absolute; left: 12px; color: var(--hint); pointer-events: none; }
+  input { width: 100%; padding-left: 36px; }
+}
+
+.hint { margin: 8px 0; font-size: 12px; color: var(--hint); }
+
+.nums {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0 var(--space-lg);
+  max-height: 420px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+
+  li {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 13px;
+  }
+  .strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }

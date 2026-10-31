@@ -1,4 +1,7 @@
 @use 'step';
+@use '../../school/school-shared' as s;
+
+@include s.switch;
 
 .recap {
   display: flex;
@@ -202,3 +205,40 @@
 .go { padding-inline: 22px; }
 
 .hint { margin: -8px 0 0; font-size: 12px; text-align: right; }
+
+// Send from: one row per number, a switch to share the people with it.
+.numbers {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: 12px 14px;
+    transition: background var(--fast) var(--ease);
+    &.on { background: var(--primary-tint); }
+  }
+  li + li { border-top: 1px solid var(--border-color); }
+
+  .who { display: grid; flex: 1; min-width: 0; }
+  .name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .muted .gets { font-size: inherit; }
+  .rec { padding: 2px 8px; font-size: 11.5px; color: var(--primary-text); background: var(--primary-soft); }
+  strong { overflow: hidden; font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); }
+  .muted { font-size: 12px; }
+}
+
+.share-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  .ti { color: var(--primary-text); }
+}

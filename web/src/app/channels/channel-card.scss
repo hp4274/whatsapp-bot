@@ -166,7 +166,20 @@
     background: color-mix(in srgb, var(--accent) 12%, transparent);
     color: var(--accent);
   }
+
+  &.score {
+    background: color-mix(in srgb, var(--tone) 12%, transparent);
+    color: var(--tone);
+    font-variant-numeric: tabular-nums;
+  }
+
+  &.recommended {
+    background: var(--primary-tint);
+    color: var(--primary-text);
+  }
 }
+
+@include s.tones;
 
 .ident {
   display: flex;

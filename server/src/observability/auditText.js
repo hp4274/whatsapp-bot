@@ -172,12 +172,14 @@ const RULES = {
     'campaign.update': (c) => `Edited campaign ${c.campaign()}`,
     'campaign.create': (c) => `Created campaign ${c.campaign()}${field(c.detail, 'status') === 'scheduled' ? ' (scheduled)' : ''}`,
     'campaign.start': (c) => `Started campaign ${c.campaign()}${field(c.detail, 'audience') ? ` to ${plural(field(c.detail, 'audience'), 'contact')}` : ''}`,
+    'campaign.split': (c) => `Shared campaign ${c.campaign()} over ${plural(field(c.detail, 'numbers') ?? 1, 'number')}`,
     'campaign.pause': (c) => `Paused campaign ${c.campaign()}`,
     'campaign.resume': (c) => `Resumed campaign ${c.campaign()}`,
     'campaign.cancel': (c) => [`Cancelled campaign ${c.campaign()}`, 'warn'],
     'campaign.retry': (c) => `Retried the failed messages of campaign ${c.campaign()}`,
     'campaign.delete': (c) => [`Deleted campaign ${c.campaign()}`, 'warn'],
     'campaign.auto_paused': (c) => [`Campaign ${c.campaign()} was paused automatically${c.reason()}`, 'warn'],
+    'campaign.auto_failover': (c) => [`Campaign ${c.campaign()} moved to another number${c.reason()}`, 'warn'],
     'campaign.auto_cancelled': (c) => [`Campaign ${c.campaign()} was cancelled automatically${c.reason()}`, 'danger'],
     'campaign.admin_pause': (c) => [`Super admin paused campaign ${c.campaign()}${c.at()}`, 'warn'],
     'campaign.admin_resume': (c) => `Super admin resumed campaign ${c.campaign()}${c.at()}`,
@@ -209,6 +211,7 @@ const RULES = {
     'tenant.sessions.revoke': (c) => [`Signed everyone out of ${c.biz()} (${plural(field(c.detail, 'count') ?? 0, 'session')})`, 'warn'],
     'tenant.api_keys.revoke': (c) => [`Revoked every API key of ${c.biz()} (${plural(field(c.detail, 'count') ?? 0, 'key')})`, 'warn'],
     'number_collection.save': (c) => `Saved ${plural(field(c.detail, 'count') ?? 0, 'number')} to the number collection of ${c.biz()}`,
+    'number_collection.delete': (c) => [`Deleted the number collection of ${c.biz()}`, 'warn'],
 
     // users
     'user.create': (c) => `Added user ${text(c.detail) || c.user()}`,

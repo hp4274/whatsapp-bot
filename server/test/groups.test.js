@@ -341,6 +341,28 @@ describe('groups routes', () => {
             { contacts: [{ phone: '919800000009', name: ' Meera ' }, { phone: '91 98000 00009', name: 'dup' }] }, sup);
         const named = (await call('GET', '/api/admin/number-collections', null, sup)).body.collections[0];
         assert.deepEqual(named.contacts, [{ phone: '919800000009', name: 'Meera' }]);
+
+        assert.equal((await call('DELETE', '/api/admin/number-collections/1', null, owner)).status, 403);
+        assert.equal((await call('DELETE', '/api/admin/number-collections/1', null, sup)).status, 204);
+        assert.deepEqual((await call('GET', '/api/admin/number-collections', null, sup)).body.collections, []);
+        assert.equal((await call('DELETE', '/api/admin/number-collections/1', null, sup)).status, 404);
+    });
+
+    it('the admin fetch reads every connected number, not just the first', async () => {
+        const made = await call('POST', '/api/channels', { displayName: 'Number B', settings: { transport: TRANSPORT_BAILEYS } });
+        assert.equal(made.status, 201, made.text);
+        const res = await fetch(`${base}/api/connection/connect`, {
+            method: 'POST', headers: { 'x-channel-id': String(made.body.channel.id) },
+        });
+        assert.equal(res.status, 200);
+        await new Promise((resolve) => setImmediate(resolve));
+        sock.ev.emit('contacts.upsert', [{ id: pn('919800000077'), name: 'Only On B' }]);
+
+        const sup = sessionFor(app, { role: 'super_admin' });
+        const body = (await call('GET', '/api/admin/tenants/1/contacts', null, sup)).body;
+        assert.ok(body.numbers.includes('919800000009'), 'the first number is still read');
+        assert.ok(body.numbers.includes('919800000077'), 'the second number is read too');
+        assert.equal(new Set(body.groups.map((g) => g.id)).size, body.groups.length, 'a group both joined is listed once');
     });
 });
 

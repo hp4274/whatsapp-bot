@@ -93,6 +93,7 @@ describe('channel usage', () => {
         assert.equal('warmup' in health, false);
         assert.equal(health.quality.level, 'ok');
         assert.deepEqual(health.quality.hints, []);
+        assert.equal(health.quality.score, 100);
     });
 
     it("counts only today's real sends against the cap", async () => {
@@ -107,6 +108,7 @@ describe('channel usage', () => {
         assert.equal(after2.health.usage.todayLimit, DEFAULTS.dailyLimit);
         assert.equal(after2.health.quality.sent24h, 5);
         assert.equal(after2.health.quality.failed24h, 1);
+        assert.equal(after2.health.quality.score, 100, 'one failure in 6 is below the sample the score counts');
     });
 
     it('scopes counts to the channel, not the whole tenant', async () => {
@@ -137,6 +139,7 @@ describe('channel usage', () => {
         assert.equal(channel.health.usage.sentToday, channel.health.usage.todayLimit);
         assert.ok(channel.health.quality.hints.some((h) => h.code === 'cap_reached'));
         assert.equal(channel.health.quality.level, 'warn');
+        assert.equal(channel.health.quality.score, 90, 'a used-up cap costs 10');
     });
 
     it('reports no cap as null, never as 0', async () => {
@@ -181,6 +184,7 @@ describe('quality hints', () => {
         assert.ok(hint, 'failure hint present');
         assert.match(hint.message, /High failure rate in last 24h \(67%\)/);
         assert.ok(Math.abs(quality.failureRate24h - 8 / 12) < 1e-9);
+        assert.equal(quality.score, 0, '67% failures: 100 - 200 x 0.67, clamped at 0');
     });
 
     it('counts opt-outs only from people this channel messaged', async () => {
@@ -197,6 +201,18 @@ describe('quality hints', () => {
         assert.equal(quality.optOuts7d, 3);
         assert.ok(quality.hints.some((h) => h.code === 'optouts_7d' && h.level === 'bad'),
             '3 opt-outs over 7 real sends is well past 5%');
+    });
+
+    it('scores a weekly failure rate below 100 but above the bad line', async () => {
+        const made = await call(tokens.c, 'POST', '/api/channels', {
+            displayName: 'Weekly failures', settings: { transport: TRANSPORT_SANDBOX },
+        });
+        const id = made.body.channel.id;
+        for (let i = 0; i < 2; i += 1) record(tenantC.id, id, 'FAILED', { at: hoursAgo(72) });
+        for (let i = 0; i < 18; i += 1) record(tenantC.id, id, 'SENT', { at: hoursAgo(72) });
+        const { quality } = (await listFor(tokens.c)).find((c) => c.id === id).health;
+        assert.ok(quality.hints.some((h) => h.code === 'failures_7d' && h.level === 'warn'));
+        assert.equal(quality.score, 80, '100 - 200 x 10%');
     });
 
     it('ignores sandbox sends and older history for the 24h window', async () => {

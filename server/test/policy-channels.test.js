@@ -310,9 +310,19 @@ describe('sender rule', () => {
         const picks = Array.from({ length: pool.length + 1 }, () => chans.route({ rule: 'round_robin' }).id);
         assert.equal(new Set(picks).size, pool.length, 'every active number gets a turn');
         assert.equal(picks.at(-1), picks[0], 'then it wraps');
+        const fresh = new Channels(db.forTenant(other.id)); // as after a restart, or in the next request
+        assert.equal(fresh.route({ rule: 'round_robin' }).id, picks[1], 'a new instance continues the rotation');
         const left = new Map(pool.map((c, i) => [c.id, i * 10]));
         assert.equal(chans.route({ rule: 'quota', remaining: (c) => left.get(c.id) }).id, pool.at(-1).id);
         assert.equal(chans.route({ rule: 'default' }).id, chans.getDefault().id);
+
+        // A number that cannot send now (disconnected, paused) is skipped while another can; with none ready, all count.
+        const down = pool[0].id;
+        const ready = (c) => c.id !== down;
+        const healthy = Array.from({ length: pool.length * 2 }, () => chans.route({ rule: 'round_robin', ready }).id);
+        assert.ok(!healthy.includes(down), 'round-robin skips it');
+        assert.notEqual(chans.route({ rule: 'quota', remaining: () => 5, ready }).id, down, 'most-quota skips it');
+        assert.ok(chans.route({ rule: 'round_robin', ready: () => false }), 'none ready: still picks one');
     });
 
     it('applies the policy rule to unnamed sends over HTTP', async () => {

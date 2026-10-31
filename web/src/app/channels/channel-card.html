@@ -11,6 +11,19 @@
     {{ stateLabel() }}
   </span>
   <div class="badges">
+    @if (recommended()) {
+      <span class="badge recommended" title="Best number to send on now: connected, healthiest, most of today left">
+        <i class="ti ti-thumb-up" aria-hidden="true"></i>Recommended
+      </span>
+    }
+    @if (quality(); as q) {
+      <span
+        class="badge score {{ scoreTone() }}"
+        title="Health score out of 100: lower when messages fail, people opt out or today's cap is used up"
+      >
+        <i class="ti ti-activity-heartbeat" aria-hidden="true"></i>Health {{ q.score }}
+      </span>
+    }
     <span class="badge transport" [title]="transport().hint || transport().label">
       <i class="ti ti-{{ transport().icon }}" aria-hidden="true"></i>{{ transport().short }}
     </span>

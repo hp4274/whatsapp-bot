@@ -5,6 +5,20 @@
       <p>{{ count(filtered().length) }} of {{ count(recipients().length) }} shown by latest status</p>
     </div>
     <div class="filters">
+      @if (shared()) {
+        <select
+          [value]="number()"
+          (change)="setNumber($any($event.target).value)"
+          aria-label="Show one number's list"
+        >
+          <option value="ALL" [selected]="number() === 'ALL'">All numbers ({{ count(recipients().length) }})</option>
+          @for (n of numbers(); track n.channelId) {
+            <option [value]="n.channelId" [selected]="number() === n.channelId">
+              {{ n.label }} ({{ count(numberCount(n.channelId)) }})
+            </option>
+          }
+        </select>
+      }
       @if (failedCount()) {
         <button
           type="button"
@@ -44,6 +58,9 @@
         <tr>
           <th scope="col">Phone</th>
           <th scope="col">Name</th>
+          @if (shared()) {
+            <th scope="col">Sent from</th>
+          }
           <th scope="col">Status</th>
           <th scope="col">Updated</th>
           <th scope="col">Failure reason</th>
@@ -56,6 +73,9 @@
           <tr [style.--i]="i">
             <td class="mono ph">+{{ r.phone }}</td>
             <td data-label="Name">{{ r.name || '-' }}</td>
+            @if (shared()) {
+              <td data-label="Sent from"><span class="tag">{{ numberLabel(r.channelId) }}</span></td>
+            }
             <td class="st"><app-campaign-status [status]="r.status" /></td>
             <td class="when" data-label="Updated">{{ localTime(r.updatedAt) }}</td>
             <td class="err" data-label="Failure reason" [title]="r.error || ''">{{ reason(r) }}</td>

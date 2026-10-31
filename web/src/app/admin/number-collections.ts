@@ -1,10 +1,11 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { catchError, throwError } from 'rxjs';
 
 import { downloadCsv, toCsv, today } from '../analytics/analytics-util';
 import { spacedPhone } from '../contacts/contact-util';
+import { AdminFeed } from './admin-feed';
 
 /** One business's saved number read (server: GET /api/admin/number-collections). */
 interface NumberCollection {
@@ -43,13 +44,39 @@ export class NumberCollectionsView {
   protected readonly loading = signal(true);
   protected readonly error = signal('');
   protected readonly notice = signal('');
+  /** The business whose numbers are open below its row. */
+  protected readonly openId = signal<number | null>(null);
+  /** What is typed in the search box; `query` follows it once typing pauses. */
+  protected readonly typed = signal('');
+  private readonly query = signal('');
+  /** The business whose delete is waiting on a second click. */
+  protected readonly confirmDelete = signal<number | null>(null);
+  protected readonly deleting = signal(false);
+
+  protected readonly spacedPhone = spacedPhone;
+  protected readonly matches = computed(() => {
+    const row = this.rows().find((r) => r.tenantId === this.openId());
+    const q = this.query().trim().toLowerCase();
+    const digits = q.replace(/\D/g, '');
+    if (!row) return [];
+    if (!q) return row.contacts;
+    return row.contacts.filter((c) => c.name.toLowerCase().includes(q) || (digits && c.phone.includes(digits)));
+  });
+  // shortcut: renders the first 500 matches only, add paging if admins need to scroll past that.
+  protected readonly shown = computed(() => this.matches().slice(0, 500));
 
   constructor() {
     this.load();
+    inject(AdminFeed).watch(['tenants', 'number-collections'], () => this.load(true));
+    effect((onCleanup) => {
+      const q = this.typed();
+      const timer = setTimeout(() => this.query.set(q), 300);
+      onCleanup(() => clearTimeout(timer));
+    });
   }
 
-  protected load(): void {
-    this.loading.set(true);
+  protected load(quiet = false): void {
+    if (!quiet) this.loading.set(true);
     this.error.set('');
     this.http
       .get<{ collections: NumberCollection[] }>('/api/admin/number-collections')
@@ -62,6 +89,33 @@ export class NumberCollectionsView {
         error: (err: Error) => {
           this.error.set(err.message);
           this.loading.set(false);
+        },
+      });
+  }
+
+  protected toggle(row: NumberCollection): void {
+    this.openId.set(this.openId() === row.tenantId ? null : row.tenantId);
+    this.typed.set('');
+    this.query.set('');
+  }
+
+  protected remove(row: NumberCollection): void {
+    this.deleting.set(true);
+    this.notice.set('');
+    this.http
+      .delete(`/api/admin/number-collections/${row.tenantId}`)
+      .pipe(catchError(toMessage), takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.deleting.set(false);
+          this.confirmDelete.set(null);
+          if (this.openId() === row.tenantId) this.openId.set(null);
+          this.rows.update((rows) => rows.filter((r) => r.tenantId !== row.tenantId));
+          this.notice.set(`${this.name(row)}'s collection deleted.`);
+        },
+        error: (err: Error) => {
+          this.deleting.set(false);
+          this.error.set(err.message);
         },
       });
   }

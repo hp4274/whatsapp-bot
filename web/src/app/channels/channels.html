@@ -153,6 +153,7 @@
         [channel]="channel"
         [capabilities]="capabilities()"
         [active]="activeId() === channel.id"
+        [recommended]="recommendedId() === channel.id"
         [canDelete]="channels().length > 1"
         (changed)="refresh()"
         (use)="use(channel)"
