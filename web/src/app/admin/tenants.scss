@@ -193,6 +193,7 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
 
   &:hover { border-color: var(--border-hover); box-shadow: var(--shadow-lift); }
   &.acting { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+  &:has(.menu) { z-index: 5; } // an open menu sits over the rows below it
   &.suspended .who,
   &.suspended .stats { opacity: 0.6; }
 
@@ -369,18 +370,64 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   .square { width: 38px; padding: 0; }
 }
 
-/* List layout: one row per tenant. ------------------------------------------ */
+/* List layout: a table, one row per tenant, every column under one header. ------ */
+// Business | Sent | Failed | Connected | Queued | Services | actions
+$list-cols: minmax(220px, 2.2fr) repeat(4, minmax(68px, 0.6fr)) minmax(120px, 1fr) auto;
+
+.list-head { display: none; }
+.rate { margin-left: 5px; font-size: 12px; font-style: normal; color: var(--danger-text); }
+
+// Only on a wide screen (listMode in tenants.ts): narrower, list view shows the cards.
+// The list owns the columns and every row borrows them (subgrid), so the header lines up whatever a row holds.
 .tenants.list {
-  grid-template-columns: 1fr;
-  gap: var(--space-md);
+  grid-template-columns: $list-cols;
+  gap: var(--space-sm) var(--space-lg);
+
+  > * { grid-column: 1 / -1; }
+  .list-head,
+  .tenant {
+    grid-template-columns: subgrid;
+    padding-inline: var(--space-xl);
+  }
+
+  .list-head {
+    display: grid;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--hint);
+  }
 
   .tenant {
-    grid-template-columns: minmax(280px, 1.3fr) minmax(280px, 1fr) minmax(190px, 0.7fr) auto;
     align-items: center;
-    gap: var(--space-lg);
-    padding: var(--space-md) var(--space-xl);
+    row-gap: var(--space-md);
+    padding-block: 14px;
+    border-radius: var(--radius-lg);
   }
-  .services-row { border-block: 0; padding: 0; }
+
+  .avatar { width: 40px; height: 40px; border-radius: 12px; font-size: 17px; }
+  .tags { margin-top: 6px; }
+
+  // Each figure sits in its own column; the header names it, the hidden label still reads out.
+  .stats { display: contents; }
+  .stat {
+    justify-items: start;
+    padding: 0;
+    background: none;
+    .ti { display: none; }
+    strong { font-size: 17px; }
+  }
+
+  .services-row {
+    padding: 0;
+    border-block: 0;
+    white-space: nowrap;
+    strong, > .ti:first-child { display: none; }
+  }
+
+  // Confirmations and results take the whole row under the tenant.
+  .seed-confirm, .seed-result { grid-column: 1 / -1; }
+
+  .actions { grid-template-columns: repeat(4, auto); }
 }
 
 .mono { font-family: var(--mono); font-size: 12px; }
@@ -454,9 +501,6 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   .btn.danger-fill { border-color: transparent; background: var(--danger); color: var(--on-fill); &:hover:not(:disabled) { background: var(--danger-hover); } }
 }
 
-@media (max-width: 1100px) {
-  .tenants.list .tenant { grid-template-columns: 1fr; }
-}
 
 @media (max-width: 520px) {
   .service-drawer { header, footer { padding-inline: var(--space-lg); } }

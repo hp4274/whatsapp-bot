@@ -252,11 +252,17 @@
   </div>
 </div>
 
-<div class="tenants" [class.list]="view() === 'list'" [attr.aria-busy]="loading()">
+<div class="tenants" [class.list]="listMode()" [attr.aria-busy]="loading()">
   @if (loading()) {
     @for (n of skeletonRows; track n) {
       <div class="skeleton" style="height: 220px; border-radius: 24px"></div>
     }
+  }
+  @if (listMode() && visible().length) {
+    <div class="list-head" aria-hidden="true">
+      <span>Business</span><span>Sent</span><span>Failed</span><span>Connected</span><span>Queued</span
+      ><span>Services</span><span></span>
+    </div>
   }
   @for (tenant of visible(); track tenant.id; let i = $index) {
     <article
@@ -270,7 +276,9 @@
         <div class="who">
           <span class="mono muted">#{{ tenant.id }}</span>
           <h3 [title]="tenant.name">{{ tenant.name }}</h3>
-          <p class="muted" [title]="tenant.slug">{{ tenant.slug }} &middot; {{ tenant.users }} user(s)</p>
+          <p class="muted" [title]="tenant.slug">
+            {{ tenant.slug }} &middot; {{ tenant.users }} {{ tenant.users === 1 ? 'user' : 'users' }}
+          </p>
           <!-- Status and plan share one row that every card has, so cards in a grid row match in height. -->
           <div class="tags">
             <span
@@ -293,61 +301,35 @@
             }
           </div>
         </div>
-        <div class="menu-wrap">
-          <button
-            class="icon-btn"
-            type="button"
-            (click)="toggleMenu(tenant)"
-            aria-label="More actions"
-            aria-haspopup="menu"
-            [attr.aria-expanded]="menuId() === tenant.id"
-          >
-            <i class="ti ti-dots-vertical" aria-hidden="true"></i>
-          </button>
-          @if (menuId() === tenant.id) {
-            <div class="menu-backdrop" (click)="menuId.set(null)"></div>
-            <div class="menu" role="menu">
-              <button
-                type="button"
-                role="menuitem"
-                (click)="toggleStatus(tenant)"
-                [disabled]="savingId() === tenant.id"
-              >
-                {{ tenant.status === 'active' ? 'Suspend tenant' : 'Activate tenant' }}
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                (click)="askSeed(tenant)"
-                [disabled]="seedingId() === tenant.id"
-              >
-                Fill with demo data
-              </button>
-            </div>
-          }
-        </div>
+        @if (!listMode()) {
+          <ng-container *ngTemplateOutlet="moreMenu; context: { $implicit: tenant }" />
+        }
       </div>
 
       <div class="stats">
         <div class="stat">
           <i class="ti ti-send" aria-hidden="true"></i>
           <strong>{{ tenant.health?.sent ?? 0 }}</strong
-          ><span>Sent</span>
+          ><span [class.sr-only]="listMode()">Sent</span>
         </div>
         <div class="stat" [class.bad]="(tenant.health?.failed ?? 0) > 0">
           <i class="ti ti-x" aria-hidden="true"></i>
-          <strong>{{ tenant.health?.failed ?? 0 }}</strong
-          ><span>Failed</span>
+          <strong
+            >{{ tenant.health?.failed ?? 0 }}
+            @if (failRate(tenant); as rate) {
+              <em class="rate">{{ rate }}%</em>
+            }</strong
+          ><span [class.sr-only]="listMode()">Failed</span>
         </div>
         <div class="stat">
           <i class="ti ti-link" aria-hidden="true"></i>
           <strong>{{ tenant.health?.connected ?? 0 }}</strong
-          ><span>Connected</span>
+          ><span [class.sr-only]="listMode()">Connected</span>
         </div>
         <div class="stat">
           <i class="ti ti-clock" aria-hidden="true"></i>
           <strong>{{ tenant.health?.queued ?? 0 }}</strong
-          ><span>Queued</span>
+          ><span [class.sr-only]="listMode()">Queued</span>
         </div>
       </div>
 
@@ -445,6 +427,9 @@
         >
           <i class="ti ti-trash" aria-hidden="true"></i>
         </button>
+        @if (listMode()) {
+          <ng-container *ngTemplateOutlet="moreMenu; context: { $implicit: tenant }" />
+        }
       </div>
     </article>
   } @empty {
@@ -463,6 +448,42 @@
     }
   }
 </div>
+
+<ng-template #moreMenu let-tenant>
+  <div class="menu-wrap">
+    <button
+      class="icon-btn"
+      type="button"
+      (click)="toggleMenu(tenant)"
+      aria-label="More actions"
+      aria-haspopup="menu"
+      [attr.aria-expanded]="menuId() === tenant.id"
+    >
+      <i class="ti ti-dots-vertical" aria-hidden="true"></i>
+    </button>
+    @if (menuId() === tenant.id) {
+      <div class="menu-backdrop" (click)="menuId.set(null)"></div>
+      <div class="menu" role="menu">
+        <button
+          type="button"
+          role="menuitem"
+          (click)="toggleStatus(tenant)"
+          [disabled]="savingId() === tenant.id"
+        >
+          {{ tenant.status === 'active' ? 'Suspend tenant' : 'Activate tenant' }}
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          (click)="askSeed(tenant)"
+          [disabled]="seedingId() === tenant.id"
+        >
+          Fill with demo data
+        </button>
+      </div>
+    }
+  </div>
+</ng-template>
 
 <app-tenant-activity [logs]="logs()" />
 
