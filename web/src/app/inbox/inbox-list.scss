@@ -30,7 +30,7 @@
     min-width: 18px; padding: 1px 5px; border-radius: 999px; background: var(--surface-band); color: var(--text-muted);
     font-size: 11px; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums;
   }
-  &.on .n { background: var(--primary); color: var(--brand-ink); } // white on the green fill is ~2:1
+  &.on .n { background: var(--primary); color: var(--on-primary); }
 }
 
 .ib-rows { flex: 1; overflow-y: auto; display: grid; align-content: start; gap: 2px; padding: 8px; }
@@ -61,7 +61,7 @@
     .pv { color: var(--text-color); }
   }
   .badge {
-    min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--primary); color: var(--brand-ink);
+    min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--primary); color: var(--on-primary);
     font-size: 11px; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums;
     animation: ib-badge var(--base) var(--ease) both;
   }

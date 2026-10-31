@@ -1,8 +1,8 @@
 // Design tokens and app-wide primitives.
 //
 // The visual language is Kardlyz's (`D:\Work\kardlyz\src\styles\global\_tokens.scss`):
-// one brand green for fills and active states, a near-black ink for the
-// primary action, a violet second accent, neutral grey surfaces in light mode
+// the Wapzo blue for fills and active states (the logo's cyan-to-violet gradient
+// for the mark), a near-black ink for the primary action, a violet second accent, neutral grey surfaces in light mode
 // and a navy ramp in dark mode. Every value is a CSS custom property so the
 // theme switches at runtime and no component hard-codes a colour.
 //
@@ -31,21 +31,29 @@
   --transition-normal: 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 
   // ---------------------------------------------------------------- brand
-  --brand-ink: #101014;
-  --brand-green: #25d366;
-  --brand-violet: #5f68ab;
-  /// WhatsApp green is 1.9:1 on white: fine as a fill, unreadable as type.
-  --brand-green-ink: #0a7d4b;
+  /// The wordmark's navy.
+  --brand-ink: #121c35;
+  /// The logo's blue: white labels on it are 4.5:1.
+  --brand-blue: #2f6bff;
+  --brand-violet: #5b21f5;
+  /// The blue for type and small glyphs on light surfaces (6.2:1 on white).
+  --brand-blue-ink: #2253e0;
+  /// The mark's own gradient: the logo tile, avatars.
+  --brand-gradient: linear-gradient(135deg, #13c3ff 0%, #2f7bff 50%, #5b21f5 100%);
+  /// The wordmark's "zo": the logo's blue into violet.
+  --brand-word-gradient: linear-gradient(90deg, #1f86ff 0%, #5b21f5 100%);
+  /// The wordmark's "wap": the logo's navy (light text on dark surfaces).
+  --brand-word-ink: var(--brand-ink);
 
   // -------------------------------------------------------------- semantic
   /// Fills, borders, active states, icon tints.
-  --primary: var(--brand-green);
-  /// Links and small text — use this whenever green lands on glyphs.
-  --primary-text: var(--brand-green-ink);
+  --primary: var(--brand-blue);
+  /// Links and small text — use this whenever the blue lands on glyphs.
+  --primary-text: var(--brand-blue-ink);
   /// Primary button surface: the mark's black, so white labels clear AA.
   --primary-deep: var(--brand-ink);
-  --primary-glow: rgba(37, 211, 102, 0.2);
-  --primary-tint: #e8faef;
+  --primary-glow: rgba(47, 107, 255, 0.2);
+  --primary-tint: #eaf0ff;
   --accent: var(--brand-violet);
 
   // -------------------------------------------------------------- surfaces
@@ -67,7 +75,7 @@
   --border-color: rgba(16, 16, 24, 0.09);
   --border-hover: rgba(16, 16, 24, 0.18);
   --input-bg: rgba(16, 16, 24, 0.02);
-  --input-focus: rgba(37, 211, 102, 0.2);
+  --input-focus: rgba(47, 107, 255, 0.2);
 
   // --------------------------------------------------------------- shadows
   --shadow-sm: none;
@@ -88,13 +96,16 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  // On navy the darkened green disappears, so the text-safe tone lightens.
-  --brand-green-ink: #5eea9a;
+  // On navy the deep blue disappears, so the text-safe tone lightens (7.8:1).
+  --brand-blue-ink: #7aa2ff;
   // A black button has no edge on a dark panel, so the primary surface inverts.
   --primary-deep: #eef2fb;
-  --primary-glow: rgba(37, 211, 102, 0.24);
-  --primary-tint: rgba(37, 211, 102, 0.14);
-  --accent: #9aa2e0;
+  --primary-glow: rgba(47, 107, 255, 0.24);
+  --primary-tint: rgba(47, 107, 255, 0.16);
+  --accent: #8b7bff;
+  // The logo's violet sinks into navy: the wordmark lifts a step.
+  --brand-word-gradient: linear-gradient(90deg, #4d9bff 0%, #8b6bff 100%);
+  --brand-word-ink: var(--text-strong);
 
   --bg-color: #04070e;
   --panel-solid: #080d18;
@@ -111,7 +122,7 @@
   --border-color: rgba(148, 178, 235, 0.13);
   --border-hover: rgba(148, 178, 235, 0.28);
   --input-bg: rgba(148, 178, 235, 0.05);
-  --input-focus: rgba(37, 211, 102, 0.28);
+  --input-focus: rgba(47, 107, 255, 0.3);
 
   --shadow-sm: none;
   --shadow-card: none;
@@ -135,11 +146,11 @@
   --border: var(--border-color);
   --text: var(--text-color);
 
-  // A deeper green for a hovered fill (the orange here was left over from Kardlyz).
+  // A deeper blue for a hovered fill.
   --primary-hover: color-mix(in srgb, var(--primary) 85%, var(--brand-ink));
   --primary-soft: var(--primary-tint);
-  /// Text and icons on a --primary (green) fill: ink, since white on WhatsApp green is 1.9:1.
-  --on-primary: var(--brand-ink);
+  /// Text and icons on a --primary (blue) fill: white is 4.5:1 there, navy only 3.8:1.
+  --on-primary: #ffffff;
   /// Text on a dark, danger or violet fill, and a switch's knob.
   --on-fill: #ffffff;
   /// The backdrop behind a drawer or a modal; deeper in dark mode, where a light veil would glow.
@@ -253,7 +264,7 @@ input[type='checkbox'],
 input[type='radio'] {
   width: auto;
   padding: 0;
-  accent-color: var(--brand-green);
+  accent-color: var(--brand-blue);
 }
 
 // Keyboard focus is always visible, never painted on mouse clicks.
@@ -287,7 +298,7 @@ input[type='radio'] {
 // Buttons ---------------------------------------------------------------
 //
 // `.btn` is the outline button (card surface, hairline border); `.primary` is
-// the ink button that turns brand green on hover; `.danger` is the red-outline
+// the ink button that turns brand blue on hover; `.danger` is the red-outline
 // destructive one. 38px tall, 10px radius, 13.5px medium — Kardlyz's sizes.
 .btn {
   display: inline-flex;
@@ -333,8 +344,7 @@ input[type='radio'] {
 
     &:hover:not(:disabled) {
       background: var(--primary);
-      // Ink, not white: white on WhatsApp green is 1.9:1, ink is about 11:1.
-      color: var(--brand-ink);
+      color: var(--on-primary);
     }
   }
 

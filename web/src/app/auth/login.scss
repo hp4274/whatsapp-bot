@@ -255,7 +255,7 @@ h1 {
 
   .first & {
     background: var(--primary);
-    color: var(--brand-ink); // white on the green fill is ~2:1
+    color: var(--on-primary);
   }
 }
 
@@ -292,30 +292,26 @@ h1 {
   margin-bottom: 28px;
 }
 
+// The Wapzo chat-bubble mark: it carries its own gradient, so no tile behind it.
 .brand-mark {
-  display: inline-grid;
-  place-items: center;
   width: 34px;
   height: 34px;
-  border-radius: 10px;
-  color: var(--primary);
-  background: linear-gradient(160deg, #2a2b33 0%, var(--brand-ink) 70%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 0 0 1px var(--border-color);
-
-  .ti {
-    font-size: 20px;
-  }
+  object-fit: contain;
 }
 
 .brand-word {
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: -0.3px;
-  color: var(--text-strong);
+  // Lowercase and heavy, like the logo: "wap" in ink, "zo" in the blue-to-violet gradient.
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  white-space: nowrap;
+  color: var(--brand-word-ink);
 
   span {
-    font-weight: 500;
-    color: var(--text-muted);
+    background: var(--brand-word-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
 }
 
@@ -479,7 +475,7 @@ h1 {
 
   &:hover:not(:disabled) {
     background: var(--primary);
-    color: var(--brand-ink);
+    color: var(--on-primary);
 
     .ti {
       transform: translateX(3px);
