@@ -1,0 +1,39 @@
+<div class="picker" role="group" aria-label="Show a conversation for" [segThumb]="scenarioKey()">
+  <span class="thumb" aria-hidden="true"></span>
+  @for (s of scenarios; track s.key) {
+    <button
+      type="button"
+      [attr.aria-pressed]="scenarioKey() === s.key"
+      (click)="scenarioKey.set(s.key)"
+    >
+      <i class="ti ti-{{ s.icon }}" aria-hidden="true"></i>{{ s.label }}
+    </button>
+  }
+</div>
+
+<figure class="phone" [schoolTilt]="5" data-ui>
+  <div class="phone-top">
+    <span class="avatar" aria-hidden="true">{{ scenario().contact.charAt(0) }}</span>
+    <span class="who">
+      <strong>{{ scenario().contact }}</strong>
+      <small>via your WhatsApp number</small>
+    </span>
+    <span class="auto"><i class="ti ti-message-bolt" aria-hidden="true"></i>Auto-reply on</span>
+  </div>
+  <ol class="thread" aria-live="polite">
+    @for (line of scenario().lines; track scenario().key + $index) {
+      <li class="msg {{ line.side }}" [style.--i]="$index">
+        <span class="text">{{ line.text }}</span>
+        <span class="meta">
+          {{ line.time }}
+          @if (line.side === 'out') {
+            <i class="ti ti-checks" aria-label="Read"></i>
+          }
+        </span>
+      </li>
+    }
+  </ol>
+  <figcaption class="sr-only">
+    A sample conversation for a {{ scenario().label.toLowerCase() }}, answered by Wapzo.
+  </figcaption>
+</figure>

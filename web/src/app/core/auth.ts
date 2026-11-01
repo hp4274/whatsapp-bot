@@ -298,6 +298,12 @@ export const homeGuard: CanActivateFn = () => {
     : true;
 };
 
+/** The public landing page is for visitors; a signed-in user goes straight to their dashboard. */
+export const landingGuard: CanActivateFn = () => {
+  const auth = inject(Auth);
+  return auth.user() ? inject(Router).createUrlTree(['/home']) : true;
+};
+
 function readNumber(key: string): number | null {
   const raw = localStorage.getItem(key);
   return raw === null || Number.isNaN(Number(raw)) ? null : Number(raw);
