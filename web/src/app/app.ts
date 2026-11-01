@@ -95,6 +95,12 @@ const HEALTH_REFRESH_MS = 60_000;
 const SUBSCRIPTION_ENDED_TEXT =
   'Your subscription has ended. You can still see your data, but nothing is sent and changes are off. Contact your provider to renew.';
 
+/** The landing page (`/`, with any fragment or query) and the sign-in screen render without the shell. */
+function isBare(url: string): boolean {
+  const path = url.split(/[?#]/)[0];
+  return path === '/' || path === '' || path.startsWith('/login');
+}
+
 /** Web Storage throws outright in some privacy modes, so the read is guarded. */
 function readCollapsed(): boolean {
   try {
@@ -214,13 +220,13 @@ export class App {
       .subscribe(() => this.closeNav());
   }
 
-  /** The sign-in screen is full-bleed: no sidebar, no content panel. */
+  /** The landing page and the sign-in screen are full-bleed: no sidebar, no content panel. */
   protected readonly bare = toSignal(
     this.router.events.pipe(
       filter((event): event is NavigationEnd => event instanceof NavigationEnd),
-      map((event) => event.urlAfterRedirects.startsWith('/login')),
+      map((event) => isBare(event.urlAfterRedirects)),
     ),
-    { initialValue: location.pathname.startsWith('/login') },
+    { initialValue: isBare(location.pathname) },
   );
 
   protected readonly themes = THEMES;

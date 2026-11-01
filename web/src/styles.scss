@@ -194,6 +194,13 @@ body {
   height: 100%;
 }
 
+// The landing page's in-page links glide to their section; the app shell scrolls its own panel, so only here.
+@media (prefers-reduced-motion: no-preference) {
+  html:has(app-landing) {
+    scroll-behavior: smooth;
+  }
+}
+
 body {
   margin: 0;
   font-family: var(--font-body);

@@ -1,9 +1,15 @@
 import { Routes } from '@angular/router';
 
-import { authGuard, homeGuard, roleGuard } from './core/auth';
+import { authGuard, homeGuard, landingGuard, roleGuard } from './core/auth';
 
 export const routes: Routes = [
-  { path: '', pathMatch: 'full', redirectTo: 'home' },
+  {
+    path: '',
+    pathMatch: 'full',
+    title: 'Wapzo - Bulk WhatsApp messaging from your own number',
+    canActivate: [landingGuard],
+    loadComponent: () => import('./landing/landing').then((m) => m.Landing),
+  },
   {
     path: 'login',
     title: 'Sign in - Wapzo',

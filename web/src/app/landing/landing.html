@@ -1,0 +1,418 @@
+<!--
+  One scrolling page on the dashboard's tokens, ordered around bulk sending:
+  the hero is a campaign going out; how a send works; what a bulk send can
+  carry; how it keeps the number safe; what happens when people reply; the
+  rest of the toolkit; who it is for; pricing; questions; a navy close.
+
+  Interface fragments carry `data-ui`: they copy the app's own cards, so they
+  keep its hairlines and pills. `reveal` rises a block on first view;
+  `reveal="children"` rises its children one after another (motion.ts).
+-->
+<a class="skip-to-content" href="#main">Skip to content</a>
+<div class="progress" aria-hidden="true"></div>
+
+<header class="nav">
+  <div class="wrap nav-row">
+    <a class="brand" href="#top" aria-label="Wapzo, back to top">
+      <img class="brand-mark" src="assets/brand/logo.png" alt="" width="34" height="34" />
+      <span class="brand-word">wap<span>zo</span></span>
+    </a>
+    <nav class="nav-links" aria-label="Page sections">
+      <a href="#features" [class.on]="active() === 'features'">Bulk messaging</a>
+      <a href="#safety" [class.on]="active() === 'safety'">Safety</a>
+      <a href="#replies" [class.on]="active() === 'replies'">Replies</a>
+      <a href="#pricing" [class.on]="active() === 'pricing'">Pricing</a>
+      <a href="#faq" [class.on]="active() === 'faq'">FAQ</a>
+    </nav>
+    <a class="btn primary" routerLink="/login">Sign in <i class="ti ti-arrow-right" aria-hidden="true"></i></a>
+  </div>
+</header>
+
+<main id="main">
+  <!-- ================================ HERO ================================ -->
+  <section class="hero field" id="top" aria-labelledby="hero-title">
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <h1 id="hero-title">Send bulk WhatsApp messages</h1>
+        <p class="hero-lede">
+          Reach every customer at once from the WhatsApp number you already use. Each message
+          carries the person’s name, goes out at a careful pace that protects your number, and
+          every reply lands in one shared inbox.
+        </p>
+        <div class="hero-actions">
+          <a class="btn go" [href]="mail('Request access to Wapzo')">
+            Start sending <i class="ti ti-arrow-right" aria-hidden="true"></i>
+          </a>
+          <a class="btn ghost" href="#how">See how it works</a>
+        </div>
+        <ul class="hero-facts">
+          <li><i class="ti ti-check" aria-hidden="true"></i>No Business API approval</li>
+          <li><i class="ti ti-check" aria-hidden="true"></i>14-day free trial</li>
+          <li><i class="ti ti-check" aria-hidden="true"></i>From ₹999 a month</li>
+        </ul>
+      </div>
+
+      <!-- The live thing: pick a campaign and watch it go out, one personalised message at a time. -->
+      <app-bulk-demo class="hero-demo" />
+    </div>
+  </section>
+
+  <!-- ============================ HOW IT WORKS ============================ -->
+  <section class="section" id="how" aria-labelledby="how-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="how-title">From a spreadsheet to a sent campaign</h2>
+        <p>No developer and no paperwork with Meta. Three moves, and the first campaign is on its way.</p>
+      </div>
+
+      <ol class="steps" reveal="children">
+        <li>
+          <div class="qr" data-ui aria-hidden="true">
+            @for (cell of qr; track $index) {
+              <span [class.on]="cell"></span>
+            }
+          </div>
+          <h3>Link your number</h3>
+          <p>Open WhatsApp on your phone and scan the code. Your number is connected and your chats stay on your phone as before.</p>
+        </li>
+        <li>
+          <div class="sheet" data-ui aria-hidden="true">
+            <span><b>Name</b><b>Phone</b><b>Group</b></span>
+            <span><i>Priya Shah</i><i>+91 98200 11234</i><i>VIP</i></span>
+            <span><i>Rohan Mehta</i><i>+91 99300 55821</i><i>Diwali</i></span>
+          </div>
+          <h3>Upload your list</h3>
+          <p>Drop in the Excel or CSV you already keep. Wapzo checks every number, removes duplicates and sorts people into groups.</p>
+        </li>
+        <li>
+          <div class="sendbar" data-ui aria-hidden="true">
+            <span>Hi {{ '{' }}name{{ '}' }}, our Diwali sale starts Friday…</span>
+            <i class="ti ti-send round"></i>
+          </div>
+          <h3>Write once, send to all</h3>
+          <p>One message with each person’s name in it, an image if you like, sent now or on a schedule to the groups you pick.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ============================ BULK SENDING ============================ -->
+  <section class="section" id="features" aria-labelledby="features-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="features-title">Everything a bulk send needs</h2>
+        <p>Built for the message you send to hundreds or thousands of people, not one at a time.</p>
+      </div>
+
+      <article class="show">
+        <div class="show-copy">
+          <h3>Send to thousands, paced like a person</h3>
+          <p>
+            A campaign goes out from your own number with a natural gap between each message, and
+            you watch delivered, read and replied rise as it goes.
+          </p>
+          <ul class="ticks">
+            <li><i class="ti ti-check round" aria-hidden="true"></i>Live totals while it sends</li>
+            <li><i class="ti ti-check round" aria-hidden="true"></i>Pause, resume or stop at any time</li>
+            <li><i class="ti ti-check round" aria-hidden="true"></i>Stops itself if too many messages fail</li>
+          </ul>
+        </div>
+        <div class="frag" data-ui>
+          <div class="frag-head">
+            <strong>Diwali sale 2026</strong>
+            <span class="pill live"><span class="dot"></span>Sending</span>
+          </div>
+          <div class="bar" role="img" aria-label="812 of 1,240 sent"><span style="width: 65%"></span></div>
+          <dl class="kpis">
+            <div><dt>Sent</dt><dd [countUp]="812">812</dd></div>
+            <div><dt>Delivered</dt><dd [countUp]="798">798</dd></div>
+            <div><dt>Read</dt><dd [countUp]="611">611</dd></div>
+            <div><dt>Replied</dt><dd [countUp]="94">94</dd></div>
+          </dl>
+          <p class="frag-note"><i class="ti ti-clock" aria-hidden="true"></i>428 left, next message in 14s</p>
+        </div>
+      </article>
+
+      <article class="show flip">
+        <div class="show-copy">
+          <h3>Every message carries their name</h3>
+          <p>
+            Write the message once with fields from your list, and each person gets their own
+            version: their name, their child’s name, their amount, their appointment time.
+          </p>
+          <ul class="ticks">
+            <li><i class="ti ti-check round" aria-hidden="true"></i>Any column of your spreadsheet as a field</li>
+            <li><i class="ti ti-check round" aria-hidden="true"></i>Variations so no two messages match</li>
+            <li><i class="ti ti-check round" aria-hidden="true"></i>A preview for every recipient before you send</li>
+          </ul>
+        </div>
+        <div class="frag personal" data-ui>
+          <p class="tpl">Hi <span class="var">{{ '{' }}name{{ '}' }}</span>, your order <span class="var">{{ '{' }}order{{ '}' }}</span> ships today.</p>
+          <i class="ti ti-arrow-down arrow" aria-hidden="true"></i>
+          <ul fanOut=".tpl">
+            <li>Hi <b>Priya</b>, your order <b>#4821</b> ships today.</li>
+            <li>Hi <b>Rohan</b>, your order <b>#4822</b> ships today.</li>
+            <li>Hi <b>Kavya</b>, your order <b>#4830</b> ships today.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="show">
+        <div class="show-copy">
+          <h3>See who read it, retry who didn’t</h3>
+          <p>
+            Every campaign keeps a report for each person on the list. Find who never got it,
+            fix the number or send again to just those people.
+          </p>
+          <ul class="ticks">
+            <li><i class="ti ti-check round" aria-hidden="true"></i>Status for every recipient</li>
+            <li><i class="ti ti-check round" aria-hidden="true"></i>Retry only the failed ones</li>
+            <li><i class="ti ti-check round" aria-hidden="true"></i>Replies linked back to the campaign</li>
+          </ul>
+        </div>
+        <div class="frag report" data-ui>
+          <div class="frag-head">
+            <strong>Recipients</strong>
+            <span class="retry"><i class="ti ti-refresh" aria-hidden="true"></i>Retry 12 failed</span>
+          </div>
+          <ul reveal="children">
+            <li><b>Priya Shah</b><small>+91 98200 11234</small><span class="pill ok">Read</span></li>
+            <li><b>Rohan Mehta</b><small>+91 99300 55821</small><span class="pill ok">Replied</span></li>
+            <li><b>Kavya Rao</b><small>+91 98450 22109</small><span class="pill">Delivered</span></li>
+            <li><b>Imran Ali</b><small>+91 97000 01234</small><span class="pill bad">Not on WhatsApp</span></li>
+          </ul>
+        </div>
+      </article>
+
+      <ul class="kit" reveal="children">
+        @for (k of kit; track k.name) {
+          <li>
+            <i class="ti ti-{{ k.icon }}" aria-hidden="true"></i>
+            <b>{{ k.name }}</b>
+            <span>{{ k.text }}</span>
+          </li>
+        }
+      </ul>
+    </div>
+  </section>
+
+  <!-- =============================== SAFETY =============================== -->
+  <section class="section field safety" id="safety" aria-labelledby="safety-title">
+    <div class="wrap safety-grid">
+      <div>
+        <h2 id="safety-title">Bulk sending that keeps your number safe</h2>
+        <p class="lede">
+          Numbers get blocked when they send like a machine. Wapzo sends like a careful person
+          and holds back when something looks wrong.
+        </p>
+        <ul class="guards" reveal="children">
+          <li>
+            <i class="ti ti-gauge" aria-hidden="true"></i>
+            <span><b>A daily limit that grows with your number.</b> A new number starts small; an established one sends more.</span>
+          </li>
+          <li>
+            <i class="ti ti-clock" aria-hidden="true"></i>
+            <span><b>Random gaps and rests.</b> No two messages leave at a machine’s even rhythm.</span>
+          </li>
+          <li>
+            <i class="ti ti-moon" aria-hidden="true"></i>
+            <span><b>Quiet hours.</b> Bulk sends wait overnight instead of waking your customers.</span>
+          </li>
+          <li>
+            <i class="ti ti-shield-check" aria-hidden="true"></i>
+            <span><b>Automatic pause.</b> A campaign stops when failures climb, before WhatsApp notices.</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Wrapped: reveal leaves an inline transform, which would pin the tilt. -->
+      <div reveal>
+        <div class="frag health" data-ui [schoolTilt]="4">
+          <div class="frag-head">
+            <strong>Sending health</strong>
+            <span class="pill ok"><span class="dot"></span>Healthy</span>
+          </div>
+          <div class="gauge">
+            <span class="big" [countUp]="312">312</span><span class="of">of 500 today</span>
+          </div>
+          <div class="bar" role="img" aria-label="312 of 500 messages sent today"><span style="width: 62%"></span></div>
+          <dl class="rows">
+            <div><dt>Sending window</dt><dd>9:00 to 20:00</dd></div>
+            <div><dt>Gap between messages</dt><dd>8 to 22 seconds</dd></div>
+            <div><dt>Failed in the last hour</dt><dd>0.4%</dd></div>
+            <div><dt>Next rest</dt><dd>after 40 more</dd></div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================== REPLIES ============================== -->
+  <section class="section" id="replies" aria-labelledby="replies-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="replies-title">When they reply, you’re ready</h2>
+        <p>A bulk send brings answers back. Wapzo replies to the common ones and puts the rest in front of your team.</p>
+      </div>
+      <div class="replies">
+        <div>
+          <h3>Auto-replies, in your words</h3>
+          <p>Keywords, numbered menus and after-hours messages. Pick a business and watch one answer.</p>
+          <app-chat-preview />
+        </div>
+        <div>
+          <h3>One inbox for the whole team</h3>
+          <p>Every reply from every number in one list, assigned to the right person.</p>
+          <div class="frag inbox" data-ui>
+            <div class="frag-head"><strong>Inbox</strong><span class="pill">4 open</span></div>
+            <ul>
+              <li>
+                <span class="av round">P</span>
+                <span class="line"><b>Priya Shah</b><small>SHOP, I want the blue kurta</small></span>
+                <span class="side"><small>9:42</small><span class="who-tag">Bot</span></span>
+              </li>
+              <li class="unread">
+                <span class="av round">K</span>
+                <span class="line"><b>Kavya Rao</b><small>Is the sale on in the Pune store too?</small></span>
+                <span class="side"><small>9:38</small><span class="count">2</span></span>
+              </li>
+              <li>
+                <span class="av round">A</span>
+                <span class="line"><b>Arjun Nair</b><small>Thanks, ordered!</small></span>
+                <span class="side"><small>9:20</small><span class="who-tag">Neha</span></span>
+              </li>
+              <li class="unread">
+                <span class="av round">S</span>
+                <span class="line"><b>Sana Qureshi</b><small>Do you deliver to Nashik?</small></span>
+                <span class="side"><small>9:05</small><span class="count">1</span></span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= FACILITIES ============================= -->
+  <section class="section" aria-labelledby="more-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="more-title">And the rest of the toolkit</h2>
+        <p>Switch on what your business needs; each one lives in the same dashboard.</p>
+      </div>
+      <div class="facilities" reveal="children">
+        @for (group of facilities; track group.heading) {
+          <div class="fac-group">
+            <h3>{{ group.heading }}</h3>
+            <ul>
+              @for (item of group.items; track item.name) {
+                <li>
+                  <i class="ti ti-{{ item.icon }}" aria-hidden="true"></i>
+                  <span><b>{{ item.name }}</b>{{ item.text }}</span>
+                </li>
+              }
+            </ul>
+          </div>
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== AUDIENCES ============================= -->
+  <section class="section" aria-labelledby="who-title">
+    <div class="wrap who-grid">
+      <div class="section-head">
+        <h2 id="who-title">Who it’s built for</h2>
+        <p>Anyone with a list of customers who would rather hear from you on WhatsApp than by SMS or email.</p>
+      </div>
+      <ul class="audiences" reveal="children">
+        @for (a of audiences; track a.name) {
+          <li>
+            <i class="ti ti-{{ a.icon }}" aria-hidden="true"></i>
+            <h3>{{ a.name }}</h3>
+            <p>{{ a.text }}</p>
+          </li>
+        }
+      </ul>
+    </div>
+  </section>
+
+  <!-- =============================== PRICING ============================== -->
+  <section class="section band" id="pricing" aria-labelledby="pricing-title">
+    <div class="wrap">
+      <div class="section-head center">
+        <h2 id="pricing-title">Pay for the messages you send</h2>
+        <p>Every paid plan starts with 14 days free. Prices in Indian rupees, plus GST.</p>
+      </div>
+      <div class="plans" reveal="children">
+        @for (plan of plans; track plan.name) {
+          <article class="plan" [class.featured]="plan.featured">
+            <h3>{{ plan.name }}</h3>
+            <p class="plan-text">{{ plan.text }}</p>
+            <p class="price"><span>{{ plan.price }}</span> {{ plan.per }}</p>
+            <ul>
+              @for (item of plan.items; track item) {
+                <li><i class="ti ti-check" aria-hidden="true"></i>{{ item }}</li>
+              }
+            </ul>
+            <a
+              class="btn"
+              [class.go]="plan.featured"
+              [href]="mail(plan.price === 'Custom' ? 'Wapzo Enterprise enquiry' : 'Start a ' + plan.name + ' trial')"
+            >
+              {{ plan.price === 'Custom' ? 'Talk to us' : 'Start free trial' }}
+            </a>
+          </article>
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================= FAQ ================================ -->
+  <section class="section" id="faq" aria-labelledby="faq-title">
+    <div class="wrap faq-grid">
+      <div class="section-head">
+        <h2 id="faq-title">Questions, answered</h2>
+        <p>Anything else? <a [href]="mail('A question about Wapzo')">Write to us</a> and a person replies.</p>
+      </div>
+      <div class="faqs" reveal="children">
+        @for (f of faqs; track f.q; let first = $first) {
+          <details [open]="first">
+            <summary>{{ f.q }}<i class="ti ti-chevron-down" aria-hidden="true"></i></summary>
+            <p>{{ f.a }}</p>
+          </details>
+        }
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ============================ CLOSE + FOOTER ============================ -->
+<footer class="close field" aria-labelledby="close-title">
+  <div class="wrap">
+    <div class="close-row">
+      <h2 id="close-title">Your next campaign is one upload away</h2>
+      <div class="hero-actions">
+        <a class="btn go" [href]="mail('Request access to Wapzo')">
+          Start sending <i class="ti ti-arrow-right" aria-hidden="true"></i>
+        </a>
+        <a class="btn ghost" routerLink="/login">Sign in</a>
+      </div>
+    </div>
+
+    <p class="giant" aria-hidden="true">wapzo</p>
+
+    <div class="foot">
+      <nav aria-label="Footer">
+        <a href="#features">Bulk messaging</a>
+        <a href="#how">How it works</a>
+        <a href="#safety">Safety</a>
+        <a href="#replies">Replies</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#faq">FAQ</a>
+        <a routerLink="/login">Sign in</a>
+      </nav>
+      <p>© {{ year }} Wapzo. WhatsApp is a trademark of Meta Platforms, Inc.; Wapzo is not affiliated with Meta.</p>
+    </div>
+  </div>
+</footer>

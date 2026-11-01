@@ -1,0 +1,194 @@
+@use '../school/school-shared' as s;
+
+// Sits on the page ground, beside the inbox in the replies section.
+:host {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+}
+
+@include s.tilt;
+
+.picker {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  padding: 4px;
+  gap: 2px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 38px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 500;
+    transition: var(--fast) var(--ease);
+
+    &:hover {
+      color: var(--text-strong);
+    }
+
+    &[aria-pressed='true'] {
+      color: var(--on-primary);
+    }
+  }
+}
+
+// Slides under the chosen option (SegThumb); the deeper blue keeps white labels above 4.5:1.
+.thumb {
+  position: absolute;
+  inset: 4px auto 4px 0;
+  z-index: -1;
+  width: 0;
+  border-radius: 999px;
+  background: var(--primary-hover);
+}
+
+// The phone: the app's own chat preview, on the card surface.
+.phone {
+  margin: 0;
+  width: min(100%, 380px);
+  border-radius: 32px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--surface-card);
+  color: var(--text-color);
+}
+
+.phone-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 14px;
+
+  .avatar {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .who {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+    line-height: 1.25;
+
+    strong {
+      color: var(--text-strong);
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    small {
+      color: var(--hint);
+      font-size: 12px;
+    }
+  }
+
+  .auto {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--primary-tint);
+    color: var(--primary-text);
+    font-size: 12px;
+    font-weight: 500;
+  }
+}
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 380px;
+  margin: 0;
+  padding: 16px 12px;
+  list-style: none;
+  border-radius: 24px;
+  background: var(--surface-sunken);
+}
+
+.msg {
+  max-width: 84%;
+  padding: 9px 12px 6px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.45;
+  animation: s-pop-in 420ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 650ms + 150ms);
+
+  .text {
+    display: block;
+    white-space: pre-line;
+    color: var(--text-strong);
+  }
+
+  .meta {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 3px;
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--hint);
+
+    .ti {
+      font-size: 14px;
+      color: var(--primary-text);
+    }
+  }
+
+  &.in {
+    align-self: flex-start;
+    background: var(--surface-card);
+    border-bottom-left-radius: 4px;
+  }
+
+  &.out {
+    align-self: flex-end;
+    background: var(--primary-tint);
+    border-bottom-right-radius: 4px;
+  }
+}
+
+@keyframes s-pop-in {
+  from {
+    opacity: 0;
+    translate: 0 10px;
+    scale: 0.96;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg {
+    animation: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .picker button {
+    padding: 0 12px;
+  }
+}
+
+@media (pointer: coarse) {
+  .picker button {
+    min-height: 44px;
+  }
+}
