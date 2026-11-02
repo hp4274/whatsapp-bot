@@ -152,9 +152,6 @@ option:disabled {
     border-radius: var(--radius-md);
     background: var(--surface-card);
     color: var(--text-color);
-    box-shadow:
-      0 14px 32px -10px color-mix(in srgb, var(--brand-ink) 32%, transparent),
-      0 2px 6px color-mix(in srgb, var(--brand-ink) 10%, transparent);
     max-height: min(320px, 50vh);
     white-space: normal;
     overflow-y: auto;

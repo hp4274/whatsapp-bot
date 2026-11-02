@@ -194,12 +194,6 @@ body {
   height: 100%;
 }
 
-// The landing page's in-page links glide to their section; the app shell scrolls its own panel, so only here.
-@media (prefers-reduced-motion: no-preference) {
-  html:has(app-landing) {
-    scroll-behavior: smooth;
-  }
-}
 
 body {
   margin: 0;
@@ -583,5 +577,5 @@ details[open]::details-content {
 .ngx-charts text { fill: var(--hint); font-size: 11px; }
 .ngx-charts .gridline-path { stroke: var(--border-color); }
 .ngx-charts .tick text { fill: var(--hint); }
-.ngx-charts-tooltip-content { background: var(--surface-card) !important; color: var(--text-strong) !important; border: 1px solid var(--border-color); box-shadow: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.18)); }
+.ngx-charts-tooltip-content { background: var(--surface-card) !important; color: var(--text-strong) !important; border: 1px solid var(--border-color); }
 .ngx-charts-tooltip-content .tooltip-caption, .ngx-charts-tooltip-content .tooltip-label { color: var(--text-muted) !important; }

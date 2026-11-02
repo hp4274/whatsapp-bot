@@ -323,6 +323,13 @@ describe('sender rule', () => {
         assert.ok(!healthy.includes(down), 'round-robin skips it');
         assert.notEqual(chans.route({ rule: 'quota', remaining: () => 5, ready }).id, down, 'most-quota skips it');
         assert.ok(chans.route({ rule: 'round_robin', ready: () => false }), 'none ready: still picks one');
+
+        // A connected number under a routing brake (quotaLeft scores it -1) is skipped by round-robin too.
+        const braked = pool[1].id;
+        const remaining = (c) => (c.id === braked ? -1 : 5);
+        const turns = Array.from({ length: pool.length * 2 }, () => chans.route({ rule: 'round_robin', remaining }).id);
+        assert.ok(!turns.includes(braked), 'round-robin skips a braked number');
+        assert.ok(chans.route({ rule: 'round_robin', remaining: () => -1 }), 'all braked: still picks one');
     });
 
     it('applies the policy rule to unnamed sends over HTTP', async () => {

@@ -216,7 +216,6 @@ a.btn { text-decoration: none; }
     &:hover {
       --lift: -3px;
       border-color: var(--border-hover);
-      box-shadow: 0 18px 30px -20px color-mix(in srgb, var(--brand-ink) 50%, transparent);
 
       .ico { transform: translateZ(22px); }
     }

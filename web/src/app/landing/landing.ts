@@ -8,11 +8,13 @@ import {
   signal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import Lenis from 'lenis';
 import { animate, inView, scroll, stagger } from 'motion';
 
 import { Tilt } from '../school/tilt';
 import { BulkDemo } from './bulk-demo';
 import { ChatPreview } from './chat-preview';
+import { LandingNav } from './landing-nav';
 import { CountUp, EASE_OUT, FanOut, Reveal, SPRING, still } from './motion';
 
 /** Everything a bulk send can carry, under the three showcased rows. */
@@ -175,14 +177,15 @@ const CONTACT_EMAIL = 'connection@zarklyx.com';
  *
  * Motion (the `motion` package) drives the scroll work: the reading bar, the
  * nav marking the section on screen, the hero's spring entrance and every
- * section's reveal. Anchor jumps glide via `scroll-behavior` in styles.scss.
+ * section's reveal. Lenis smooths the page's scrolling, in-page links included (`jump`).
  */
 @Component({
   selector: 'app-landing',
-  imports: [RouterLink, Reveal, FanOut, CountUp, Tilt, BulkDemo, ChatPreview],
+  imports: [RouterLink, Reveal, FanOut, CountUp, Tilt, BulkDemo, ChatPreview, LandingNav],
   templateUrl: './landing.html',
   styleUrl: './landing.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(click)': 'jump($event)' },
 })
 export class Landing {
   private readonly el = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
@@ -197,9 +200,16 @@ export class Landing {
   /** The section on screen, for the nav's highlight. */
   protected readonly active = signal('');
 
+  /** Smooth scrolling for this page only; it is torn down on leaving, as the app shell scrolls its own panel. */
+  private lenis: Lenis | null = null;
+
   constructor() {
     const destroyRef = inject(DestroyRef);
     afterNextRender(() => {
+      // Lenis honours reduced motion by itself: scrolling then tracks the input 1:1 and jumps are instant.
+      this.lenis = new Lenis({ autoRaf: true });
+      destroyRef.onDestroy(() => this.lenis?.destroy());
+
       // A band across the middle of the screen: whichever section crosses it is "current".
       // The callback returns a leave handler: without one, inView stops watching after the first entry.
       const stops = [...this.el.querySelectorAll<HTMLElement>('section[id]')].map((s) =>
@@ -233,6 +243,21 @@ export class Landing {
       }
       destroyRef.onDestroy(() => stops.forEach((stop) => stop()));
     });
+  }
+
+  /**
+   * In-page links (`#id`) glide there with Lenis, landing below the floating bar. Lenis's own anchor option
+   * would leave the browser's instant jump in place and skip the focus move the skip link exists for.
+   */
+  protected jump(event: MouseEvent): void {
+    const link = (event.target as Element | null)?.closest<HTMLAnchorElement>('a[href^="#"]');
+    const target = link && document.getElementById(link.hash.slice(1));
+    if (!link || !target) return;
+    event.preventDefault();
+    // Lenis honours the section's scroll-margin-top (landing.scss), so it lands below the floating bar.
+    if (this.lenis) this.lenis.scrollTo(target);
+    else target.scrollIntoView();
+    if (link.classList.contains('skip-to-content')) target.focus({ preventScroll: true });
   }
 
   /** A mailto with the subject and a short brief filled in, so the request arrives answerable. */

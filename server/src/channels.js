@@ -95,12 +95,15 @@ export class Channels {
      * number: the fixed default, round-robin over active numbers, or the one
      * with most of today's quota left (`remaining(channel)`, ties to the default). `ready(channel)`: can it send
      * now (connected, not paused)? The others are skipped while any is ready; with none ready, all stay in.
+     * A number `remaining` scores below 0 (under a routing brake: restricted, failing, blocked... see quotaLeft)
+     * is skipped by both rules the same way while a clear one is ready.
      */
     pick(rule, capability, remaining, ready = null) {
         if (rule !== 'round_robin' && rule !== 'quota') return this.getDefault();
         const active = this.list().filter((c) => c.status === 'active' && (!capability || c.capabilities.includes(capability)));
         const live = ready ? active.filter(ready) : active;
-        const pool = live.length ? live : active;
+        const clear = remaining ? live.filter((c) => remaining(c) >= 0) : live;
+        const pool = clear.length ? clear : live.length ? live : active;
         if (pool.length < 2) return pool[0] ?? this.getDefault();
         if (rule === 'round_robin') {
             // The next number after the last one picked, by id. Kept on the tenant row, not the instance:

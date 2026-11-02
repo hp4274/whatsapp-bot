@@ -11,24 +11,9 @@
 <a class="skip-to-content" href="#main">Skip to content</a>
 <div class="progress" aria-hidden="true"></div>
 
-<header class="nav">
-  <div class="wrap nav-row">
-    <a class="brand" href="#top" aria-label="Wapzo, back to top">
-      <img class="brand-mark" src="assets/brand/logo.png" alt="" width="34" height="34" />
-      <span class="brand-word">wap<span>zo</span></span>
-    </a>
-    <nav class="nav-links" aria-label="Page sections">
-      <a href="#features" [class.on]="active() === 'features'">Bulk messaging</a>
-      <a href="#safety" [class.on]="active() === 'safety'">Safety</a>
-      <a href="#replies" [class.on]="active() === 'replies'">Replies</a>
-      <a href="#pricing" [class.on]="active() === 'pricing'">Pricing</a>
-      <a href="#faq" [class.on]="active() === 'faq'">FAQ</a>
-    </nav>
-    <a class="btn primary" routerLink="/login">Sign in <i class="ti ti-arrow-right" aria-hidden="true"></i></a>
-  </div>
-</header>
+<app-landing-nav [active]="active()" />
 
-<main id="main">
+<main id="main" tabindex="-1">
   <!-- ================================ HERO ================================ -->
   <section class="hero field" id="top" aria-labelledby="hero-title">
     <div class="wrap hero-grid">

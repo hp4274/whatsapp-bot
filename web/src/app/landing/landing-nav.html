@@ -1,0 +1,34 @@
+<!-- Logo on the left; section links and Sign in on the right. -->
+<nav class="bar" [class.solid]="scrolled()" aria-label="Main">
+  <a class="brand" href="#top" aria-label="Wapzo, back to top">
+    <img class="brand-mark" src="assets/brand/logo.png" alt="" width="34" height="34" />
+    <span class="brand-word">wap<span>zo</span></span>
+  </a>
+
+  <div class="links">
+    @for (link of links; track link.id) {
+      <a [href]="'#' + link.id" [class.on]="active() === link.id">{{ link.label }}</a>
+    }
+  </div>
+
+  <a class="signin" routerLink="/login">Sign in <i class="ti ti-arrow-right" aria-hidden="true"></i></a>
+
+  <button
+    type="button"
+    class="toggle"
+    aria-controls="landing-menu"
+    [attr.aria-expanded]="menuOpen()"
+    aria-label="Toggle navigation menu"
+    (click)="menuOpen.set(!menuOpen())"
+  >
+    <i class="ti" [class.ti-menu-2]="!menuOpen()" [class.ti-x]="menuOpen()" aria-hidden="true"></i>
+  </button>
+</nav>
+
+@if (menuOpen()) {
+  <div class="menu" id="landing-menu">
+    @for (link of links; track link.id) {
+      <a [href]="'#' + link.id" [class.on]="active() === link.id" (click)="menuOpen.set(false)">{{ link.label }}</a>
+    }
+  </div>
+}

@@ -91,7 +91,6 @@
   border-radius: 0 10px 10px 10px;
   background: var(--wa-bubble);
   color: var(--wa-text);
-  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13), 0 6px 16px -8px rgba(11, 20, 26, 0.25);
   overflow-wrap: anywhere;
 
   /* The little tail on the top-left corner. */
@@ -154,9 +153,8 @@
   color: var(--wa-link);
   font: inherit;
   font-weight: 500;
-  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
   transform-style: preserve-3d;
-  transition: transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+  transition: transform var(--fast) var(--ease);
 
   .ti {
     font-size: 17px;
@@ -164,7 +162,6 @@
 
   &:hover {
     transform: rotateX(8deg) translateZ(6px);
-    box-shadow: 0 8px 14px -8px rgba(11, 20, 26, 0.35);
   }
 }
 
@@ -182,7 +179,6 @@ button.wa-btn {
   border-radius: 10px;
   background: var(--wa-sheet);
   color: var(--wa-text);
-  box-shadow: 0 12px 28px -12px rgba(11, 20, 26, 0.45);
   overflow: hidden;
 }
 
