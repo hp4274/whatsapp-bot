@@ -607,6 +607,9 @@ export class CampaignManager extends EventEmitter {
             if (this.queue.put(item)) queued += 1;
         }
         this.queue.dedupe = dedupe;
+        // Put without dedupe so repeated rows come back, but remembered: the same message to the same number must
+        // still be refused while the restored one waits, as it was before the restart.
+        for (const item of this.queue.items) this.queue.seen.add(this.queue.onePerRecipient ? item.recipient : item.key);
         this.stats = {
             total: queued + sent + failed + notOnWhatsapp, successful: sent, failed,
             processed: sent + failed + notOnWhatsapp, skippedOptOut: 0, notOnWhatsapp,

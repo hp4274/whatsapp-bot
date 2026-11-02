@@ -122,7 +122,6 @@ a.btn { text-decoration: none; }
     background: color-mix(in srgb, var(--accent) 12%, var(--surface-card));
     border-color: var(--accent);
     color: var(--accent);
-    box-shadow: 0 8px 18px -12px color-mix(in srgb, var(--accent) 80%, transparent);
     animation: s-pop 320ms var(--ease) both;
     .mono { color: inherit; }
     small { color: inherit; opacity: 0.75; }
@@ -133,8 +132,7 @@ a.btn { text-decoration: none; }
     opacity: 1;
     transform: translateY(-1px);
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent),
-      0 10px 18px -12px color-mix(in srgb, var(--accent) 75%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
   }
   &.dim { filter: opacity(0.6); }
 }
@@ -207,8 +205,7 @@ a.btn { text-decoration: none; }
     --glow: color-mix(in srgb, var(--accent) 60%, var(--primary));
     background: color-mix(in srgb, var(--accent) 72%, transparent);
     transform: translateY(-1px) scaleY(1.4);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--glow) 55%, transparent),
-      0 6px 16px -3px color-mix(in srgb, var(--glow) 70%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--glow) 55%, transparent);
   }
   &.dim { filter: opacity(0.55) saturate(0.7); }
 }
@@ -227,7 +224,6 @@ a.btn { text-decoration: none; }
   border-radius: 1px;
   background: var(--text-strong);
   opacity: 0.55;
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
   pointer-events: none;
   animation: quiet-fade var(--fast) var(--ease) both;
 }

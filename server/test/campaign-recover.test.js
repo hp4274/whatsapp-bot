@@ -117,4 +117,17 @@ describe('a campaign across a restart', () => {
             await second.manager.shutdown();
         }
     });
+
+    it('still refuses the same message to the same number after a restore', async () => {
+        const { manager } = boot();
+        try {
+            const job = { messageId: 'restored-1', recipient: '919811199999', text: 'Hello again', name: 'Dup' };
+            assert.equal(manager.restoreRun({ campaignId: 'restored', jobs: [job], paused: true }), 1);
+            const again = manager.enqueueJob({ recipient: job.recipient, text: job.text, messageType: 'campaign', campaignId: 'restored' });
+            assert.equal(again, null, 'deduped against the restored row');
+            assert.equal(manager.queue.pending, 1);
+        } finally {
+            await manager.shutdown();
+        }
+    });
 });

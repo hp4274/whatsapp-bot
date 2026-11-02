@@ -184,7 +184,6 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-xl);
   background: var(--surface-card);
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--text-strong) 4%, transparent), 0 18px 40px -28px color-mix(in srgb, var(--primary) 45%, transparent);
   animation: rise 420ms var(--ease) both;
   small { display: block; font-size: 13px; font-weight: 500; }
   b { font-size: 30px; font-weight: 500; letter-spacing: -1px; color: var(--text-strong); .muted { font-size: 13px; letter-spacing: 0; } }

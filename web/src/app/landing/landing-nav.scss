@@ -1,0 +1,264 @@
+// Kardlyz's marketing header, on this app's tokens: fixed, inset to sit on the hero panel, bare over the
+// navy and frosted once the page scrolls. The landing hero's top padding clears it (top + height).
+:host {
+  position: fixed;
+  inset: 20px 20px auto;
+  z-index: 50;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 60px;
+  padding: 0 14px;
+  border-radius: 20px;
+  transition:
+    background-color 300ms var(--ease),
+    backdrop-filter 300ms var(--ease);
+
+  // The frost is the one place this page uses blur: the user asked for Kardlyz's bar, and it is what keeps
+  // the links legible over every section the bar crosses.
+  &.solid {
+    background: color-mix(in srgb, var(--surface-card) 75%, transparent);
+    backdrop-filter: blur(40px) saturate(1.4);
+  }
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-right: auto;
+  text-decoration: none;
+}
+
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+}
+
+// "wap" is white over the navy hero and the wordmark's ink once frosted; "zo" keeps the logo's gradient.
+.brand-word {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--on-fill);
+  transition: color 300ms var(--ease);
+
+  .solid & {
+    color: var(--brand-word-ink);
+  }
+
+  span {
+    background: var(--brand-word-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+.links {
+  display: flex;
+  gap: 2px;
+
+  a {
+    padding: 8px 16px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    color: color-mix(in srgb, var(--on-fill) 85%, transparent);
+    transition: var(--fast) var(--ease);
+
+    &:hover {
+      color: var(--on-fill);
+      background: color-mix(in srgb, var(--on-fill) 15%, transparent);
+    }
+
+    &.on {
+      color: var(--on-fill);
+      background: color-mix(in srgb, var(--on-fill) 20%, transparent);
+    }
+
+    .solid & {
+      color: var(--text-muted);
+
+      &:hover {
+        color: var(--text-strong);
+        background: var(--surface-sunken);
+      }
+
+      &.on {
+        color: var(--primary-text);
+        background: var(--primary-tint);
+      }
+    }
+  }
+}
+
+// The same Sign in as before; over the navy it is a white pill, since the ink one would vanish there.
+.signin {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: none;
+  background: color-mix(in srgb, var(--on-fill) 92%, transparent);
+  color: var(--brand-ink);
+  transition: var(--fast) var(--ease);
+
+  .ti {
+    transition: translate var(--fast) var(--ease);
+  }
+
+  &:hover {
+    background: var(--primary-hover);
+    color: var(--on-primary);
+
+    .ti {
+      translate: 3px 0;
+    }
+  }
+
+  &:active {
+    scale: 0.97;
+  }
+
+  .solid & {
+    background: var(--text-strong);
+    color: var(--surface-card);
+
+    &:hover {
+      background: var(--primary-hover);
+      color: var(--on-primary);
+    }
+  }
+}
+
+.toggle {
+  display: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--on-fill);
+  font-size: 20px;
+  transition: var(--fast) var(--ease);
+
+  &:hover {
+    background: color-mix(in srgb, var(--on-fill) 15%, transparent);
+  }
+
+  .solid & {
+    color: var(--text-strong);
+
+    &:hover {
+      background: var(--surface-sunken);
+    }
+  }
+}
+
+// The phone and tablet panel: the section links, frosted like the bar, dropped just under it.
+.menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--surface-card) 85%, transparent);
+  backdrop-filter: blur(24px);
+  box-shadow: 0 18px 34px -18px var(--overlay);
+  animation: drop 220ms var(--ease) both;
+
+  a {
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 500;
+    text-decoration: none;
+    color: var(--text-color);
+
+    &:hover {
+      background: var(--surface-sunken);
+    }
+
+    &.on {
+      color: var(--primary-text);
+      background: var(--primary-tint);
+    }
+  }
+}
+
+@keyframes drop {
+  from {
+    opacity: 0;
+    translate: 0 -8px;
+  }
+}
+
+@media (min-width: 768px) {
+  :host {
+    inset: 26px 30px auto;
+  }
+
+  .bar {
+    height: 68px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .bar {
+    padding: 0 22px;
+  }
+}
+
+@media (min-width: 1280px) {
+  :host {
+    inset: 26px 46px auto;
+  }
+
+  .bar {
+    border-radius: 24px;
+  }
+}
+
+@media (max-width: 1023px) {
+  .links {
+    display: none;
+  }
+
+  .toggle {
+    display: grid;
+  }
+}
+
+@media (pointer: coarse) {
+  .signin,
+  .toggle {
+    min-height: 44px;
+  }
+
+  .toggle {
+    width: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu {
+    animation: none;
+  }
+}

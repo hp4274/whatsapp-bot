@@ -49,7 +49,7 @@
     min-height: 460px;
     border-radius: 34px;
     border: 9px solid #0f1418;
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06) inset, 0 2px 0 1px #2a3138;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
     transform-style: preserve-3d;
     transform: rotateY(calc(-6deg + var(--px) * 12deg)) rotateX(calc(3deg - var(--py) * 8deg));
     transition: transform 600ms var(--ease);

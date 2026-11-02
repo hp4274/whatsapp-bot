@@ -30,76 +30,9 @@
   padding: 0 var(--gutter);
 }
 
+// Clears the floating bar (top + height + a little air); Lenis glides to the same line (landing.ts).
 section[id] {
-  scroll-margin-top: 76px;
-}
-
-// ------------------------------------------------------------------- nav
-.nav {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  background: var(--bg-color);
-}
-
-.nav-row {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  height: 68px;
-}
-
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  text-decoration: none;
-  margin-right: auto;
-}
-
-.brand-mark {
-  width: 34px;
-  height: 34px;
-  object-fit: contain;
-}
-
-.brand-word {
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: -0.5px;
-  color: var(--brand-word-ink);
-
-  span {
-    background: var(--brand-word-gradient);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-}
-
-.nav-links {
-  display: flex;
-  gap: 4px;
-
-  a {
-    padding: 8px 12px;
-    border-radius: 999px;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-muted);
-    text-decoration: none;
-    transition: var(--fast) var(--ease);
-
-    &:hover {
-      color: var(--text-strong);
-      background: var(--surface-sunken);
-    }
-
-    &.on {
-      color: var(--primary-text);
-      background: var(--primary-tint);
-    }
-  }
+  scroll-margin-top: 100px;
 }
 
 // Reading progress, scrubbed by Motion's scroll() along the top edge.
@@ -129,12 +62,6 @@ section[id] {
   &:hover .ti-arrow-right {
     translate: 3px 0;
   }
-}
-
-.nav .btn {
-  min-height: 40px;
-  padding: 0 18px;
-  font-size: 14px;
 }
 
 // Text-bearing blue fills use the deeper blue: white on the brand blue is 4.49:1, just under AA.
@@ -173,8 +100,10 @@ section[id] {
 }
 
 // ------------------------------------------------------------------ hero
+// The panel starts 12px down and its top padding clears the floating bar over it (landing-nav).
 .hero {
-  padding: clamp(56px, 8vw, 104px) 0 clamp(56px, 7vw, 96px);
+  margin-top: 12px;
+  padding: calc(clamp(56px, 8vw, 104px) + 72px) 0 clamp(56px, 7vw, 96px);
   overflow: hidden;
 }
 
@@ -1228,10 +1157,6 @@ p {
 }
 
 @media (max-width: 767px) {
-  .nav-links {
-    display: none;
-  }
-
   .field {
     margin: 0 8px;
     border-radius: 22px;
@@ -1264,11 +1189,12 @@ p {
 
 // Fingers need 44px targets.
 @media (pointer: coarse) {
-  .nav .btn {
-    min-height: 44px;
-  }
-
   .foot a {
     padding: 12px 0;
   }
+}
+
+// The skip link moves focus here; the jump itself is the cue, not a ring round the whole page.
+main:focus {
+  outline: none;
 }
