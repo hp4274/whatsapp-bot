@@ -15,6 +15,7 @@ import { Tilt } from '../school/tilt';
 import { BulkDemo } from './bulk-demo';
 import { ChatPreview } from './chat-preview';
 import { LandingNav } from './landing-nav';
+import { LeadForm } from './lead-form';
 import { CountUp, EASE_OUT, FanOut, Reveal, SPRING, still } from './motion';
 
 /** Everything a bulk send can carry, under the three showcased rows. */
@@ -67,6 +68,8 @@ const AUDIENCES: readonly { readonly icon: string; readonly name: string; readon
 ];
 
 /**
+ * Pricing is hidden for now (the section is commented out in landing.html); kept so it can come back as it was.
+ *
  * The default plan catalogue, mirrored from `server/src/billing/plans.js`.
  * shortcut: an operator can override a plan in the database and this will not follow; add a public
  * plans endpoint if prices start to be edited there.
@@ -163,7 +166,7 @@ const QR: readonly number[] = [
   .split('')
   .map(Number);
 
-/** Where "Request access" goes; accounts are issued by the platform, so there is no sign-up form. */
+/** Where the FAQ's "Write to us" goes; account requests use the form (LeadForm). */
 const CONTACT_EMAIL = 'connection@zarklyx.com';
 
 /**
@@ -181,7 +184,7 @@ const CONTACT_EMAIL = 'connection@zarklyx.com';
  */
 @Component({
   selector: 'app-landing',
-  imports: [RouterLink, Reveal, FanOut, CountUp, Tilt, BulkDemo, ChatPreview, LandingNav],
+  imports: [RouterLink, Reveal, FanOut, CountUp, Tilt, BulkDemo, ChatPreview, LandingNav, LeadForm],
   templateUrl: './landing.html',
   styleUrl: './landing.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

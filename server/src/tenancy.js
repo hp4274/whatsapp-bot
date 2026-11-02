@@ -458,9 +458,51 @@ export class Tenancy {
         return ok && row && !row.disabled ? toUser(row) : null;
     }
 
+    /** Removed members (removeUser) stay in the table for the audit trail, but are nobody's teammate. */
     listUsers(tenantId) {
-        return this.db.prepare('SELECT * FROM users WHERE tenant_id = ? ORDER BY id')
+        return this.db.prepare("SELECT * FROM users WHERE tenant_id = ? AND email NOT LIKE '%#deleted-%' ORDER BY id")
             .all(Number(tenantId)).map(toUser);
+    }
+
+    /**
+     * Change a user's sign-in email and/or password. Scoped by tenant (null for a super admin), so a wrong pairing
+     * touches nobody. A new password signs the user out everywhere except `keepToken`, the session making the change.
+     */
+    async setCredentials(tenantId, userId, { email, password } = {}, keepToken = null) {
+        const fields = {};
+        if (email !== undefined && email !== null && email !== '') fields.email = cleanUserEmail(email);
+        if (password !== undefined && password !== null && password !== '') {
+            if (String(password).length < 8) throw new TenancyError('password must be at least 8 characters');
+            fields.password_hash = await hashPassword(String(password));
+        }
+        if (!Object.keys(fields).length) throw new TenancyError('nothing to change');
+        try {
+            const info = this.db.prepare(
+                `UPDATE users SET ${Object.keys(fields).map((k) => `${k} = ?`).join(', ')}
+                 WHERE id = ? AND tenant_id IS ? AND email NOT LIKE '%#deleted-%'`)
+                .run(...Object.values(fields), Number(userId), tenantId == null ? null : Number(tenantId));
+            if (!info.changes) throw new TenancyError('user not found', 404);
+        } catch (err) {
+            if (/UNIQUE/.test(err.message)) throw new TenancyError('that email is already registered', 409);
+            throw err;
+        }
+        if (fields.password_hash) {
+            this.db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash IS NOT ?')
+                .run(Number(userId), keepToken ? sha256(keepToken) : null);
+        }
+        return this.getUser(userId);
+    }
+
+    /**
+     * Remove a team member: signed out, unable to sign in, and the email free to use again. The row stays (renamed,
+     * like an archived business's users in #release) so the audit trail and old tickets still name who did what.
+     */
+    removeUser(tenantId, userId) {
+        const info = this.db.prepare(
+            `UPDATE users SET email = email || '#deleted-' || id, disabled = 1
+             WHERE id = ? AND tenant_id = ? AND email NOT LIKE '%#deleted-%'`).run(Number(userId), Number(tenantId));
+        if (!info.changes) throw new TenancyError('user not found', 404);
+        this.revokeSessions(userId);
     }
 
     /** Scoped by tenant: an admin can only disable their own people. */

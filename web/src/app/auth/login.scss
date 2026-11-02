@@ -508,3 +508,76 @@ h1 {
     transform: none;
   }
 }
+
+// The request-access dialog for an email with no account (native <dialog>: focus trap and Escape built in).
+// No shadow, like the dashboards: the dimmed backdrop already lifts it off the page.
+.signup {
+  width: min(600px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: clamp(20px, 4vw, 32px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  background: var(--surface-card);
+  color: var(--text-color);
+
+  &[open] {
+    animation: rise 260ms var(--ease) both;
+  }
+
+  &::backdrop {
+    background: var(--overlay);
+  }
+
+  header {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    color: var(--text-strong);
+  }
+
+  p {
+    margin: 8px 0 0;
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: var(--text-muted);
+  }
+
+  .x {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--surface-sunken);
+    color: var(--text-strong);
+    font-size: 18px;
+
+    &:hover {
+      background: var(--border-color);
+    }
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    translate: 0 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signup[open] {
+    animation: none;
+  }
+}

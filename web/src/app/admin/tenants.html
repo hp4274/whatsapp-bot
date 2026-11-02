@@ -165,6 +165,19 @@
               (ngModelChange)="draft.set({ ...draft(), trialDays: +$event || 0 })"
             />
           </div>
+          <div class="field trial">
+            <label for="t-payment">Payment</label>
+            <select
+              id="t-payment"
+              name="payment"
+              [ngModel]="draft().payment"
+              (ngModelChange)="draft.set({ ...draft(), payment: $event })"
+            >
+              @for (p of payments; track p.key) {
+                <option [value]="p.key">{{ p.label }}</option>
+              }
+            </select>
+          </div>
         </div>
       } @else {
         <div class="service-picker">
@@ -264,7 +277,7 @@
       ><span>Services</span><span></span>
     </div>
   }
-  @for (tenant of visible(); track tenant.id; let i = $index) {
+  @for (tenant of shown(); track tenant.id; let i = $index) {
     <article
       class="tenant"
       [class.suspended]="tenant.status === 'suspended'"
@@ -277,31 +290,35 @@
           <span class="mono muted">#{{ tenant.id }}</span>
           <h3 [title]="tenant.name">{{ tenant.name }}</h3>
           <p class="muted" [title]="tenant.slug">{{ tenant.slug }} &middot; {{ tenant.users }} user(s)</p>
-          <!-- Status and plan share one row that every card has, so cards in a grid row match in height. -->
-          <div class="tags">
-            <span
-              class="s-pill"
-              [class.tone-ok]="tenant.status === 'active'"
-              [class.tone-warn]="tenant.status === 'suspended'"
-              [class.tone-mute]="tenant.status === 'archived'"
-              >{{ sentence(tenant.status) }}</span
-            >
-            @if (tenant.subscription; as sub) {
-              <button
-                class="s-pill plan-badge {{ stateTone(sub.state) }}"
-                type="button"
-                (click)="openSettings(tenant, 'plan')"
-                [title]="sub.planName + ' - ' + sub.state"
-              >
-                <i class="ti ti-crown" aria-hidden="true"></i>{{ sub.planName }}
-                <span class="sr-only">({{ sub.state }})</span>
-              </button>
-            }
-          </div>
         </div>
         @if (!listMode()) {
           <ng-container *ngTemplateOutlet="moreMenu; context: { $implicit: tenant }" />
         }
+        <!-- Status and plan on one row under the name, across to the card edge: every card has it, so cards line up. -->
+        <div class="tags">
+          <span
+            class="s-pill"
+            [class.tone-ok]="tenant.status === 'active'"
+            [class.tone-warn]="tenant.status === 'suspended'"
+            [class.tone-mute]="tenant.status === 'archived'"
+            >{{ sentence(tenant.status) }}</span
+          >
+          @if (tenant.subscription; as sub) {
+            <button
+              class="s-pill plan-badge {{ stateTone(sub.state) }}"
+              type="button"
+              (click)="openSettings(tenant, 'plan')"
+              [title]="sub.planName + ' - ' + sub.state + (sub.payment ? ', ' + sub.payment : '')"
+            >
+              <i class="ti ti-crown" aria-hidden="true"></i>{{ sub.planName }}
+              <!-- Payment rides in the plan pill, so every card keeps one tag row and the same height. -->
+              @if (paymentOf(sub.payment); as pay) {
+                <span class="pay">&middot; {{ pay.label }}</span>
+              }
+              <span class="sr-only">({{ sub.state }})</span>
+            </button>
+          }
+        </div>
       </div>
 
       <div class="stats">
@@ -442,6 +459,7 @@
     }
   }
 </div>
+<app-pager [total]="visible().length" [size]="pageSize" [(page)]="page" label="Tenant pages" />
 
 <ng-template #moreMenu let-tenant>
   <div class="menu-wrap">
@@ -552,25 +570,13 @@
 }
 
 @if (deleteTarget(); as target) {
-  <div class="dialog-wrap" (click)="cancelDelete()">
-    <div
-      class="dialog"
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby="delete-title"
-      aria-describedby="delete-desc"
-      (click)="$event.stopPropagation()"
-    >
-      <h3 id="delete-title">Delete {{ target.name }}?</h3>
-      <p id="delete-desc">This archives the tenant and removes it from this list.</p>
-      <div class="dialog-actions">
-        <button class="btn" type="button" (click)="cancelDelete()">Cancel</button>
-        <button class="btn danger-fill" type="button" (click)="deleteTenant(target)">
-          Delete tenant
-        </button>
-      </div>
-    </div>
-  </div>
+  <app-confirm
+    [heading]="'Delete ' + target.name + '?'"
+    text="This archives the tenant and removes it from this list."
+    action="Delete tenant"
+    (confirm)="deleteTenant(target)"
+    (cancel)="cancelDelete()"
+  />
 }
 
 @if (settingsTenant(); as tenant) {

@@ -176,12 +176,13 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
   gap: var(--space-lg);
-  align-items: start;
+  align-items: stretch; // a row of cards ends level, whatever one of them shows
 }
 
 .tenant {
   position: relative;
   display: grid;
+  align-content: start;
   gap: var(--space-lg);
   padding: 20px;
   background: var(--surface-card);
@@ -205,7 +206,7 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
-  gap: var(--space-md);
+  gap: 8px var(--space-md);
 }
 
 .avatar {
@@ -226,7 +227,9 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   h3, p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mono { display: block; line-height: 1.4; }
 }
-.tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+// One row on every card, so cards in a grid row and rows in the list line up; a long plan name truncates.
+.tags { grid-column: 2 / -1; display: flex; gap: 6px; min-width: 0; > * { flex: none; } .plan-badge { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; } }
+.pay { font-weight: 400; }
 
 .menu-wrap { position: relative; }
 
@@ -372,7 +375,7 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
 
 /* List layout: a table, one row per tenant, every column under one header. ------ */
 // Business | Sent | Failed | Connected | Queued | Services | actions
-$list-cols: minmax(220px, 2.2fr) repeat(4, minmax(68px, 0.6fr)) minmax(120px, 1fr) auto;
+$list-cols: minmax(300px, 3fr) repeat(4, minmax(52px, 0.5fr)) minmax(116px, 1fr) auto;
 
 .list-head { display: none; }
 
@@ -404,7 +407,6 @@ $list-cols: minmax(220px, 2.2fr) repeat(4, minmax(68px, 0.6fr)) minmax(120px, 1f
   }
 
   .avatar { width: 40px; height: 40px; border-radius: 12px; font-size: 17px; }
-  .tags { margin-top: 6px; }
 
   // Each figure sits in its own column; the header names it, the hidden label still reads out.
   .stats { display: contents; }
@@ -432,8 +434,7 @@ $list-cols: minmax(220px, 2.2fr) repeat(4, minmax(68px, 0.6fr)) minmax(120px, 1f
 .mono { font-family: var(--mono); font-size: 12px; }
 
 /* Drawers and the delete dialog --------------------------------------------- */
-.drawer-backdrop,
-.dialog-wrap { @include s.scrim; }
+.drawer-backdrop { @include s.scrim; }
 
 .service-drawer {
   position: fixed;
@@ -483,22 +484,6 @@ $list-cols: minmax(220px, 2.2fr) repeat(4, minmax(68px, 0.6fr)) minmax(120px, 1f
   }
 }
 
-// Confirm dialog (Kardlyz confirm-dialog): scrim + blur, 24px card, ink primary, outline cancel.
-.dialog-wrap { z-index: 72; display: grid; place-items: center; padding: var(--space-lg); }
-.dialog {
-  width: min(420px, 100%);
-  padding: var(--space-xl);
-  background: var(--surface-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lift);
-  animation: s-pop 280ms var(--ease) both;
-
-  h3 { margin: 0 0 8px; font-size: 18px; font-weight: 500; }
-  p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--text-muted); }
-  .dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-sm); margin-top: var(--space-xl); }
-  .btn.danger-fill { border-color: transparent; background: var(--danger); color: var(--on-fill); &:hover:not(:disabled) { background: var(--danger-hover); } }
-}
 
 
 @media (max-width: 520px) {
@@ -515,5 +500,5 @@ $list-cols: minmax(220px, 2.2fr) repeat(4, minmax(68px, 0.6fr)) minmax(120px, 1f
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .seed-confirm, .seed-result, .tenant, .service-drawer, .dialog, .dialog-wrap { animation: none; }
+  .seed-confirm, .seed-result, .tenant, .service-drawer { animation: none; }
 }

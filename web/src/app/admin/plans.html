@@ -249,7 +249,7 @@
             </tr>
           </thead>
           <tbody>
-            @for (t of rows(); track t.id; let i = $index) {
+            @for (t of shownRows(); track t.id; let i = $index) {
               <tr [style.--i]="i">
                 <td>
                   <strong class="biz">{{ t.name }}</strong>
@@ -373,6 +373,7 @@
           </tbody>
         </table>
       </div>
+      <app-pager [total]="rows().length" [size]="pageSize" [(page)]="page" label="Subscription pages" />
     }
   </div>
 }

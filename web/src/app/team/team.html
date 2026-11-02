@@ -55,14 +55,23 @@
                 </td>
                 <td class="right">
                   @if (canManage(user)) {
-                    <button
-                      class="btn sm"
-                      [class.danger]="!user.disabled"
-                      type="button"
-                      (click)="toggle(user)"
-                    >
-                      {{ user.disabled ? 'Enable' : 'Disable' }}
-                    </button>
+                    <div class="row-acts">
+                      @if (user.disabled) {
+                        <button class="btn sm" type="button" (click)="toggle(user)">Enable</button>
+                      }
+                      <button class="btn sm" type="button" (click)="openEdit(user)">
+                        <i class="ti ti-pencil" aria-hidden="true"></i> Edit sign-in
+                      </button>
+                      <button
+                        class="btn sm icon danger-ghost"
+                        type="button"
+                        [attr.aria-label]="'Remove ' + (user.name || user.email)"
+                        title="Remove from the team"
+                        (click)="removing.set(user)"
+                      >
+                        <i class="ti ti-trash" aria-hidden="true"></i>
+                      </button>
+                    </div>
                   }
                 </td>
               </tr>
@@ -135,3 +144,64 @@
     </button>
   </form>
 </div>
+
+<!-- A member's sign-in, changed by the owner or an admin above them. -->
+@if (editing(); as user) {
+  <div class="dialog-wrap" (click)="editing.set(null)" (keydown.escape)="editing.set(null)">
+    <form
+      class="dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="edit-title"
+      (click)="$event.stopPropagation()"
+      (submit)="saveEdit($event)"
+    >
+      <h3 id="edit-title">{{ user.name || user.email }}'s sign-in</h3>
+      <p>A new password signs them out on every device.</p>
+      <div class="fields">
+        <div class="s-field">
+          <label for="e-email">Email</label>
+          <input
+            id="e-email"
+            name="email"
+            type="email"
+            required
+            [ngModel]="editDraft().email"
+            (ngModelChange)="editDraft.set({ ...editDraft(), email: $event })"
+          />
+        </div>
+        <div class="s-field">
+          <label for="e-pass">New password</label>
+          <input
+            id="e-pass"
+            name="password"
+            type="password"
+            autocomplete="new-password"
+            minlength="8"
+            [ngModel]="editDraft().password"
+            (ngModelChange)="editDraft.set({ ...editDraft(), password: $event })"
+          />
+          <span class="hint">Leave blank to keep their password.</span>
+        </div>
+      </div>
+      @if (editError()) {
+        <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ editError() }}</p>
+      }
+      <div class="dialog-actions">
+        <button class="btn" type="button" (click)="editing.set(null)">Cancel</button>
+        <button class="btn primary" type="submit" [disabled]="busy()">{{ busy() ? 'Saving...' : 'Save' }}</button>
+      </div>
+    </form>
+  </div>
+}
+
+<!-- Removing asks first: the same confirm dialog as signing out and deleting a tenant. -->
+@if (removing(); as user) {
+  <app-confirm
+    [heading]="'Remove ' + (user.name || user.email) + '?'"
+    text="They are signed out and can no longer sign in. What they did stays in the history."
+    action="Remove"
+    (confirm)="remove(user)"
+    (cancel)="removing.set(null)"
+  />
+}

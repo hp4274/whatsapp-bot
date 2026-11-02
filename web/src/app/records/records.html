@@ -106,7 +106,7 @@
               </tr>
             </thead>
             <tbody>
-              @for (o of visible(); track o.id) {
+              @for (o of shown(); track o.id) {
                 <tr
                   tabindex="0"
                   [class.active]="selected()?.id === o.id && drawerOpen()"
@@ -135,6 +135,7 @@
             </tbody>
           </table>
         </div>
+        <app-pager [total]="visible().length" [size]="pageSize" [(page)]="page" [label]="pluralLabel() + ' pages'" />
       }
     }
   </div>

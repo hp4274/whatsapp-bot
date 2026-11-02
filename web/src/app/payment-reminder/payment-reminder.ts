@@ -1,7 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal, signal } from '@angular/core';
 
 import { Api, PaymentReminder, SafetyStatus } from '../core/api';
+import { Pager, pageOf } from '../core/pager';
 import { Store } from '../core/store';
+
+/** Imported rows per page. */
+const PAGE_SIZE = 20;
 
 /**
  * Turns an Excel sheet of payment dues into queued WhatsApp reminders.
@@ -11,6 +15,7 @@ import { Store } from '../core/store';
  */
 @Component({
   selector: 'app-payment-reminder',
+  imports: [Pager],
   templateUrl: './payment-reminder.html',
   styleUrl: './payment-reminder.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -27,6 +32,13 @@ export class PaymentReminderView {
   protected readonly notice = signal('');
   protected readonly plan = signal<SafetyStatus | null>(null);
 
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page on every import; nothing else replaces the rows. */
+  protected readonly page = linkedSignal(() => {
+    this.reminders();
+    return 0;
+  });
+  protected readonly shown = computed(() => pageOf(this.reminders(), this.page(), PAGE_SIZE));
   protected readonly connected = computed(() => this.store.connection().connected);
   protected readonly validCount = computed(() => this.reminders().length);
   protected readonly firstPreview = computed(() => this.reminders()[0]?.finalMessage ?? '');

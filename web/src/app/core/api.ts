@@ -44,6 +44,17 @@ export interface AppConfig {
   restMaxMinutes: number;
 }
 
+/** What a visitor sends to ask for an account. `website` is the hidden box only bots fill. */
+export interface AccessRequest {
+  name: string;
+  business: string;
+  email: string;
+  phone: string;
+  message: string;
+  source: 'landing' | 'login';
+  website: string;
+}
+
 /** `POST /api/media/upload`; the optional fields come from Storage (see `ImportPreview`). */
 export interface UploadedMedia {
   mediaId: string;
@@ -332,6 +343,11 @@ export type AutoReplyRulePayload = Omit<AutoReplyRule, 'id' | 'createdAt' | 'upd
 @Injectable({ providedIn: 'root' })
 export class Api {
   private readonly http = inject(HttpClient);
+
+  /** Public: "Request access" from the landing page or the sign-in dialog (server leads.js). */
+  requestAccess(lead: AccessRequest): Observable<{ ok: true }> {
+    return this.http.post<{ ok: true }>('/api/leads', lead).pipe(catchError(toMessage));
+  }
 
   getConfig(): Observable<{
     config: AppConfig;
@@ -906,6 +922,23 @@ export class TenancyApi {
     return this.http
       .patch<{ user: User }>(`/api/users/${id}`, { disabled })
       .pipe(catchError(toMessage));
+  }
+
+  /** A member below you: new email and/or password. Empty fields are left as they are. */
+  setUserCredentials(id: number, body: { email?: string; password?: string }): Observable<{ user: User }> {
+    return this.http
+      .put<{ user: User }>(`/api/users/${id}/credentials`, body)
+      .pipe(catchError(toMessage));
+  }
+
+  /** Removes a member for good: signed out, off the team, email free again. */
+  removeUser(id: number): Observable<{ ok: true }> {
+    return this.http.delete<{ ok: true }>(`/api/users/${id}`).pipe(catchError(toMessage));
+  }
+
+  /** Your own sign-in; the current password is required. Agents may only send `password`. */
+  updateAccount(body: { currentPassword: string; email?: string; password?: string }): Observable<{ user: User }> {
+    return this.http.put<{ user: User }>('/api/account', body).pipe(catchError(toMessage));
   }
 }
 

@@ -16,6 +16,8 @@ import { CustomSafetyState, SafetyPolicy, TenancyApi, TenantLimits } from '../co
 import { Tenant, TenantControls, TenantSubscriptionSummary } from '../core/auth';
 import { SAFETY_GROUPS } from '../core/safety-fields';
 import {
+  PAYMENTS,
+  Payment,
   Plan,
   PlansApi,
   Subscription,
@@ -186,6 +188,7 @@ export class TenantSettings {
   protected readonly planNotice = signal('');
   protected readonly formatPrice = formatPrice;
   protected readonly stateTone = stateTone;
+  protected readonly payments = PAYMENTS;
   protected readonly when = subscriptionWhen;
   /** Which service's rules the Rules tab is showing. */
   protected readonly rulesService = signal(POLICY_SERVICES[0]);
@@ -329,6 +332,26 @@ export class TenantSettings {
         this.load({ ...cur.tenant, ...tenant });
         this.sub.set(subscription);
         this.planNotice.set('Plan applied. Services and limits now follow it.');
+        this.saved.emit();
+      },
+      error: (err: Error) => {
+        this.saving.set(false);
+        this.error.set(err.message);
+      },
+    });
+  }
+
+  /** Paid, free or unpaid: a note for the platform, saved at once; the plan and its period stay. */
+  protected setPayment(payment: Payment) {
+    const cur = this.settings();
+    if (!cur || this.sub()?.payment === payment) return;
+    this.saving.set(true);
+    this.error.set('');
+    this.planNotice.set('');
+    this.plansApi.setPayment(cur.tenant.id, payment).subscribe({
+      next: ({ subscription }) => {
+        this.saving.set(false);
+        this.sub.set(subscription);
         this.saved.emit();
       },
       error: (err: Error) => {

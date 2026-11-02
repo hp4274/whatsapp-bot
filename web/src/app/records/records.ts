@@ -6,11 +6,13 @@ import {
   effect,
   inject,
   input,
+  linkedSignal,
   signal,
   untracked,
   viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Pager, pageOf } from '../core/pager';
 import { Store } from '../core/store';
 
 import {
@@ -42,6 +44,8 @@ const TYPE_ICON: Record<string, string> = {
 };
 /** The list is filtered client-side, so fetch enough rows that search and status chips feel instant. */
 const FETCH_LIMIT = 500;
+/** Record rows per page. */
+const PAGE_SIZE = 20;
 
 /** "scheduledAt" -> "Scheduled at", "no_show" -> "No show". */
 export function humanize(key: string): string {
@@ -80,7 +84,7 @@ const isBlank = (v: unknown) =>
  */
 @Component({
   selector: 'app-records',
-  imports: [FormsModule],
+  imports: [FormsModule, Pager],
   templateUrl: './records.html',
   styleUrl: './records.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -174,6 +178,16 @@ export class RecordsView {
       return hay.includes(q);
     });
   });
+
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever the record type, the status chip or the search changes. */
+  protected readonly page = linkedSignal(() => {
+    this.type();
+    this.statusFilter();
+    this.query();
+    return 0;
+  });
+  protected readonly shown = computed(() => pageOf(this.visible(), this.page(), PAGE_SIZE));
 
   protected readonly filtering = computed(() => !!this.statusFilter() || !!this.query().trim());
 

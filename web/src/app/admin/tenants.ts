@@ -4,6 +4,7 @@ import {
   DestroyRef,
   computed,
   inject,
+  linkedSignal,
   signal,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
@@ -12,11 +13,13 @@ import { ActivatedRoute, Router } from '@angular/router';
 
 import { TenancyApi } from '../core/api';
 import { Auth, Tenant, TenantControls } from '../core/auth';
+import { ConfirmDialog } from '../core/confirm-dialog';
+import { Pager, pageOf } from '../core/pager';
 import { Store } from '../core/store';
 import { AdminFeed } from './admin-feed';
 import type { AuditEntry } from './ops-api';
 import { OpsApi } from './ops-api';
-import { Plan, PlansApi, formatPrice, stateTone } from './plans-api';
+import { PAYMENTS, Payment, Plan, PlansApi, formatPrice, stateTone } from './plans-api';
 import { serviceMeta } from './service-meta';
 import { TenantActivity } from './tenant-activity';
 import { SettingsTab, TenantSettings } from './tenant-settings';
@@ -34,6 +37,8 @@ type TenantDraft = {
   /** null = no plan, services picked by hand. */
   planKey: string | null;
   trialDays: number;
+  /** How the business pays; only sent with a plan. */
+  payment: Payment;
 };
 
 /** `draft` edits the unsaved form's services; `tenant` saves straight to the server. */
@@ -84,6 +89,9 @@ const LIVE_GAP_MS = 3000;
 /** Placeholder cards shown while the first list loads. */
 const SKELETON_CARDS: readonly number[] = [0, 1, 2];
 
+/** Cards per page; a multiple of 2, 3 and 4 so grid rows fill. */
+const PAGE_SIZE = 12;
+
 /** localStorage key remembering grid vs list. */
 const VIEW_KEY = 'wsender.tenantView';
 
@@ -97,6 +105,7 @@ const emptyDraft = (): TenantDraft => ({
   controls: { ...DEFAULT_CONTROLS },
   planKey: null,
   trialDays: 0,
+  payment: 'unpaid',
 });
 
 /**
@@ -108,7 +117,7 @@ const emptyDraft = (): TenantDraft => ({
  */
 @Component({
   selector: 'app-admin-tenants',
-  imports: [FormsModule, NgTemplateOutlet, TenantActivity, TenantSettings],
+  imports: [ConfirmDialog, FormsModule, NgTemplateOutlet, Pager, TenantActivity, TenantSettings],
   templateUrl: './tenants.html',
   styleUrl: './tenants.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -145,6 +154,7 @@ export class TenantsView {
   );
   protected readonly formatPrice = formatPrice;
   protected readonly stateTone = stateTone;
+  protected readonly payments = PAYMENTS;
   protected readonly serviceDrawer = signal<ServiceDrawer | null>(null);
   protected readonly serviceDrawerBusy = computed(() => {
     const drawer = this.serviceDrawer();
@@ -175,6 +185,14 @@ export class TenantsView {
         (!q || `${tenant.name} ${tenant.slug}`.toLowerCase().includes(q)),
     );
   });
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page when the search or status filter changes; a live reload keeps the page. */
+  protected readonly page = linkedSignal(() => {
+    this.query();
+    this.statusFilter();
+    return 0;
+  });
+  protected readonly shown = computed(() => pageOf(this.visible(), this.page(), PAGE_SIZE));
   protected readonly controlKeys: readonly (keyof TenantControls)[] = [
     'sendingEnabled',
     'campaignsEnabled',
@@ -273,7 +291,7 @@ export class TenantsView {
         slug: d.slug.trim() || undefined,
         services: d.services,
         controls: d.controls,
-        ...(d.planKey ? { planKey: d.planKey, trialDays: d.trialDays } : {}),
+        ...(d.planKey ? { planKey: d.planKey, trialDays: d.trialDays, payment: d.payment } : {}),
         owner: { email: d.email.trim(), name: d.ownerName.trim(), password: d.password },
       })
       .subscribe({
@@ -354,6 +372,10 @@ export class TenantsView {
   protected toggleDraftControl(key: keyof TenantControls, checked: boolean) {
     const current = this.draft();
     this.draft.set({ ...current, controls: { ...current.controls, [key]: checked } });
+  }
+
+  protected paymentOf(key: string | null | undefined) {
+    return PAYMENTS.find((p) => p.key === key) ?? null;
   }
 
   protected serviceLabel(service: string): string {

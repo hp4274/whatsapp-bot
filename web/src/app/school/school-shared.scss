@@ -393,6 +393,27 @@
 }
 
 /*
+ * Confirm dialog (Kardlyz confirm-dialog): scrim + blur, 24px card, outline cancel, red confirm. Shared by
+ * the tenant delete and sign-out, so every "are you sure" looks the same. Needs `keyframes` for s-pop.
+ */
+@mixin confirm {
+  .dialog-wrap { @include scrim; z-index: 72; display: grid; place-items: center; padding: var(--space-lg); }
+  .dialog {
+    width: min(420px, 100%);
+    padding: var(--space-xl);
+    background: var(--surface-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-xl);
+    animation: s-pop 280ms var(--ease) both;
+
+    h3 { margin: 0 0 8px; font-size: 18px; font-weight: 500; color: var(--text-strong); }
+    p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--text-muted); }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-sm); margin-top: var(--space-xl); }
+    .btn.danger-fill { border-color: transparent; background: var(--danger); color: var(--on-fill); &:hover:not(:disabled) { background: var(--danger-hover); } }
+  }
+}
+
+/*
  * A panel that slides in from the right edge: the whole way, flat, no 3D swing, so every drawer in the app moves
  * the same. `$width` caps it on wide screens; on a phone it is the full width.
  */

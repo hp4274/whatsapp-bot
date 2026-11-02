@@ -58,6 +58,8 @@ export interface TenantSubscriptionSummary {
   readonly currentPeriodEnd: string | null;
   readonly cancelAtPeriodEnd: boolean;
   readonly graceEndsAt: string | null;
+  /** The super admin's note of how the business pays; only on the admin list. */
+  readonly payment?: 'paid' | 'free' | 'unpaid' | null;
 }
 
 /** Per-tenant kill switches the platform admin can flip. */
@@ -309,8 +311,13 @@ function readNumber(key: string): number | null {
   return raw === null || Number.isNaN(Number(raw)) ? null : Number(raw);
 }
 
+/** `signup`: sign-in found no account for the email, so the page offers to request one. */
+export type AuthError = Error & { signup?: boolean };
+
 /** The API answers `{ errors: [...] }`; surface the first line, not a status code. */
 function toMessage(error: HttpErrorResponse) {
-  const errors = (error.error as { errors?: string[] } | null)?.errors;
-  return throwError(() => new Error(errors?.[0] ?? error.message ?? 'Request failed'));
+  const body = error.error as { errors?: string[]; signup?: boolean } | null;
+  const err: AuthError = new Error(body?.errors?.[0] ?? error.message ?? 'Request failed');
+  err.signup = body?.signup === true;
+  return throwError(() => err);
 }

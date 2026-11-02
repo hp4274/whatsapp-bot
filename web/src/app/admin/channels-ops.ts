@@ -6,6 +6,7 @@ import {
   computed,
   effect,
   inject,
+  linkedSignal,
   signal,
   viewChild,
 } from '@angular/core';
@@ -13,11 +14,15 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable } from 'rxjs';
 
 import { transportMeta } from '../channels/channel-meta';
+import { Pager, pageOf } from '../core/pager';
 import { AdminFeed } from './admin-feed';
 import { type PlanRow, zeroCapLabel } from './ops-api';
 import { ChannelsOpsApi, type NumberHealth, type NumberLevel } from './channels-ops-api';
 import { ShadowReview } from './shadow-review';
 import { sentenceCase } from './text';
+
+/** Number rows per page. */
+const PAGE_SIZE = 20;
 
 /** Short forms of the tenant's 2 start answers (connection/number-questions.ts), by index 0-3. */
 const START_AGE: readonly string[] = ['under 1 month', '1–6 months', '6–24 months', '2+ years'];
@@ -67,7 +72,7 @@ const LEVEL_REASONS: Readonly<Record<string, string>> = {
  */
 @Component({
   selector: 'app-channels-ops',
-  imports: [ShadowReview],
+  imports: [ShadowReview, Pager],
   templateUrl: './channels-ops.html',
   styleUrl: './channels-ops.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -120,6 +125,14 @@ export class ChannelsOps {
       (r) => (!this.offlineOnly() || !r.online) && (!this.pausedOnly() || r.status !== 'active'),
     ),
   );
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever the offline or paused filter changes. */
+  protected readonly page = linkedSignal(() => {
+    this.offlineOnly();
+    this.pausedOnly();
+    return 0;
+  });
+  protected readonly shown = computed(() => pageOf(this.visible(), this.page(), PAGE_SIZE));
   protected readonly offlineCount = computed(() => this.rows().filter((r) => !r.online).length);
   protected readonly pausedCount = computed(() => this.rows().filter((r) => r.status !== 'active').length);
   /** Businesses a number can move to: any but its current owner. */

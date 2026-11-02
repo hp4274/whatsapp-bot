@@ -2,7 +2,8 @@
   One scrolling page on the dashboard's tokens, ordered around bulk sending:
   the hero is a campaign going out; how a send works; what a bulk send can
   carry; how it keeps the number safe; what happens when people reply; the
-  rest of the toolkit; who it is for; pricing; questions; a navy close.
+  rest of the toolkit; who it is for; the request-access form; questions; a navy close.
+  Pricing is commented out below until it is shown again.
 
   Interface fragments carry `data-ui`: they copy the app's own cards, so they
   keep its hairlines and pills. `reveal` rises a block on first view;
@@ -25,7 +26,7 @@
           every reply lands in one shared inbox.
         </p>
         <div class="hero-actions">
-          <a class="btn go" [href]="mail('Request access to Wapzo')">
+          <a class="btn go" href="#access">
             Start sending <i class="ti ti-arrow-right" aria-hidden="true"></i>
           </a>
           <a class="btn ghost" href="#how">See how it works</a>
@@ -33,7 +34,7 @@
         <ul class="hero-facts">
           <li><i class="ti ti-check" aria-hidden="true"></i>No Business API approval</li>
           <li><i class="ti ti-check" aria-hidden="true"></i>14-day free trial</li>
-          <li><i class="ti ti-check" aria-hidden="true"></i>From ₹999 a month</li>
+          <li><i class="ti ti-check" aria-hidden="true"></i>Set up for you in a day</li>
         </ul>
       </div>
 
@@ -322,7 +323,25 @@
     </div>
   </section>
 
-  <!-- =============================== PRICING ============================== -->
+  <!-- =========================== REQUEST ACCESS =========================== -->
+  <section class="section band" id="access" aria-labelledby="access-title">
+    <div class="wrap access-grid">
+      <div class="section-head" reveal>
+        <h2 id="access-title">Ask for your account</h2>
+        <p>Tell us about your business. We set up your workspace and email your sign-in details.</p>
+        <ol class="next">
+          <li><i class="ti ti-mail" aria-hidden="true"></i>We reply within one working day.</li>
+          <li><i class="ti ti-building-store" aria-hidden="true"></i>We create your workspace on the plan that fits.</li>
+          <li><i class="ti ti-qrcode" aria-hidden="true"></i>You scan one QR code and send your first campaign.</li>
+        </ol>
+      </div>
+      <div class="access-card" reveal>
+        <app-lead-form source="landing" />
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== PRICING: hidden for now, kept to bring back ==============
   <section class="section band" id="pricing" aria-labelledby="pricing-title">
     <div class="wrap">
       <div class="section-head center">
@@ -353,6 +372,8 @@
     </div>
   </section>
 
+  ========================================================================= -->
+
   <!-- ================================= FAQ ================================ -->
   <section class="section" id="faq" aria-labelledby="faq-title">
     <div class="wrap faq-grid">
@@ -378,7 +399,7 @@
     <div class="close-row">
       <h2 id="close-title">Your next campaign is one upload away</h2>
       <div class="hero-actions">
-        <a class="btn go" [href]="mail('Request access to Wapzo')">
+        <a class="btn go" href="#access">
           Start sending <i class="ti ti-arrow-right" aria-hidden="true"></i>
         </a>
         <a class="btn ghost" routerLink="/login">Sign in</a>
@@ -393,7 +414,7 @@
         <a href="#how">How it works</a>
         <a href="#safety">Safety</a>
         <a href="#replies">Replies</a>
-        <a href="#pricing">Pricing</a>
+        <a href="#access">Request access</a>
         <a href="#faq">FAQ</a>
         <a routerLink="/login">Sign in</a>
       </nav>

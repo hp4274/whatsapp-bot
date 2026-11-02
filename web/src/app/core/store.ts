@@ -85,6 +85,11 @@ export class Store {
   /** Bumped whenever the server says the history table changed. */
   readonly historyRevision = signal(0);
   readonly theme = signal<ThemeMode>(readStoredTheme());
+  /**
+   * The landing page and sign-in are always light: the theme is a dashboard setting, and a visitor never chose
+   * one. Read from the address at boot so a reload on /login does not flash dark; the shell keeps it current.
+   */
+  private publicPage = isBare(location.pathname);
   /** Which WhatsApp number the UI is working on; owned by Auth, mirrored here. */
   readonly channelId = this.auth.channelId;
 
@@ -194,6 +199,13 @@ export class Store {
     this.statusTone.set(tone);
   }
 
+  /** The shell calls this on every navigation; leaving the dashboard drops to light, coming back restores the choice. */
+  setPublicPage(on: boolean) {
+    if (on === this.publicPage) return;
+    this.publicPage = on;
+    this.applyTheme(this.theme());
+  }
+
   /** Persist the choice and apply it to the document right away. */
   setTheme(mode: ThemeMode, from?: Event) {
     this.theme.set(mode);
@@ -203,7 +215,8 @@ export class Store {
 
   private applyTheme(mode: ThemeMode, from?: Event) {
     const dark =
-      mode === 'dark' || (mode === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+      !this.publicPage &&
+      (mode === 'dark' || (mode === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches));
     const root = document.documentElement;
     const next = dark ? 'dark' : 'light';
     if (root.dataset['theme'] === next) return;
@@ -476,4 +489,10 @@ export class Store {
 function readStoredTheme(): ThemeMode {
   const stored = localStorage.getItem('wsender.theme');
   return stored === 'light' || stored === 'dark' || stored === 'auto' ? stored : 'auto';
+}
+
+/** The landing page (`/`, with any fragment or query) and the sign-in screen: no shell, and always light. */
+export function isBare(url: string): boolean {
+  const path = url.split(/[?#]/)[0];
+  return path === '/' || path === '' || path.startsWith('/login');
 }

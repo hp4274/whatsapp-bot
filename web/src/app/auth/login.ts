@@ -1,21 +1,24 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, effect, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
-import { Auth } from '../core/auth';
+import { Auth, AuthError } from '../core/auth';
 import { Store } from '../core/store';
+import { LeadForm } from '../landing/lead-form';
 
 /**
  * The front door: email and password, nothing else. There is no self-service
  * sign-up or reset because accounts are issued by an administrator, which is
- * what the forgot-password hint says instead of linking anywhere.
+ * what the forgot-password hint says instead of linking anywhere. An email with
+ * no account opens the request-access dialog (the landing page's form), which
+ * the super admin turns into an account from Leads.
  *
  * The email is remembered in localStorage (when asked) so a returning operator
  * only types the password; storage can be blocked, so every access is guarded.
  */
 @Component({
   selector: 'app-login',
-  imports: [FormsModule],
+  imports: [FormsModule, LeadForm],
   templateUrl: './login.html',
   styleUrl: './login.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -33,6 +36,17 @@ export class LoginView {
   /** Whether the "ask your administrator" note under Forgot password is open. */
   protected readonly hint = signal(false);
   protected readonly remember = signal(true);
+  /** The request-access dialog, opened when the server says the email has no account. */
+  protected readonly signup = signal(false);
+  private readonly signupRef = viewChild<ElementRef<HTMLDialogElement>>('signupDialog');
+
+  constructor() {
+    // The native <dialog> traps focus and closes on Escape; it only needs opening.
+    effect(() => {
+      const dialog = this.signupRef()?.nativeElement;
+      if (dialog && this.signup() && !dialog.open) dialog.showModal();
+    });
+  }
 
   protected submit(event: Event): void {
     event.preventDefault();
@@ -51,9 +65,10 @@ export class LoginView {
           this.router.navigate(['/home']);
         }
       },
-      error: (err: Error) => {
+      error: (err: AuthError) => {
         this.busy.set(false);
         this.error.set(err.message);
+        this.signup.set(err.signup === true);
       },
     });
   }

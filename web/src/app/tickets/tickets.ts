@@ -4,6 +4,7 @@ import {
   DestroyRef,
   computed,
   inject,
+  linkedSignal,
   signal,
 } from '@angular/core';
 import { TitleCasePipe } from '@angular/common';
@@ -11,6 +12,7 @@ import { FormsModule } from '@angular/forms';
 
 import { TenancyApi } from '../core/api';
 import { Auth, User } from '../core/auth';
+import { Pager, pageOf } from '../core/pager';
 import { Store } from '../core/store';
 import { Tilt } from '../school/tilt';
 import {
@@ -29,6 +31,8 @@ import {
 } from './tickets-api';
 
 const CLOSED: TicketStatus[] = ['RESOLVED', 'CLOSED'];
+/** Ticket rows per page. */
+const PAGE_SIZE = 20;
 const STATUS_LABEL: Record<TicketStatus, string> = {
   OPEN: 'Open',
   IN_PROGRESS: 'In progress',
@@ -68,7 +72,7 @@ const blankDraft = (): TicketDraft => ({
  */
 @Component({
   selector: 'app-tickets',
-  imports: [FormsModule, TitleCasePipe, Tilt],
+  imports: [FormsModule, TitleCasePipe, Tilt, Pager],
   templateUrl: './tickets.html',
   styleUrl: './tickets.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -129,6 +133,15 @@ export class TicketsView {
       `${t.reference} ${t.subject} ${t.category}`.toLowerCase().includes(q),
     );
   });
+
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever the search or a filter (which refetches) changes. */
+  protected readonly page = linkedSignal(() => {
+    this.search();
+    this.filter();
+    return 0;
+  });
+  protected readonly shown = computed(() => pageOf(this.visible(), this.page(), PAGE_SIZE));
 
   protected readonly openCount = computed(() => {
     const s = this.stats()?.byStatus;

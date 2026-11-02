@@ -1,0 +1,56 @@
+@if (done()) {
+  <div class="done" role="status">
+    <i class="ti ti-circle-check" aria-hidden="true"></i>
+    <div>
+      <strong>Request sent</strong>
+      <p>We will write to {{ done() }} within one working day with your sign-in details.</p>
+    </div>
+  </div>
+} @else {
+  <form class="lead" (submit)="submit($event)">
+    <div class="pair">
+      <div class="f">
+        <label [attr.for]="source() + '-name'">Your name</label>
+        <input [id]="source() + '-name'" name="name" autocomplete="name" required maxlength="120"
+          [ngModel]="name()" (ngModelChange)="name.set($event)" />
+      </div>
+      <div class="f">
+        <label [attr.for]="source() + '-business'">Business name</label>
+        <input [id]="source() + '-business'" name="business" autocomplete="organization" required maxlength="160"
+          [ngModel]="business()" (ngModelChange)="business.set($event)" />
+      </div>
+    </div>
+    <div class="pair">
+      <div class="f">
+        <label [attr.for]="source() + '-email'">Work email</label>
+        <input [id]="source() + '-email'" name="email" type="email" autocomplete="email" required maxlength="254"
+          placeholder="name@company.com" [ngModel]="address()" (ngModelChange)="address.set($event)" />
+      </div>
+      <div class="f">
+        <label [attr.for]="source() + '-phone'">WhatsApp number <small>optional</small></label>
+        <input [id]="source() + '-phone'" name="phone" type="tel" autocomplete="tel" maxlength="32"
+          placeholder="+91 98765 43210" [ngModel]="phone()" (ngModelChange)="phone.set($event)" />
+      </div>
+    </div>
+    <div class="f">
+      <label [attr.for]="source() + '-message'">What will you send? <small>optional</small></label>
+      <textarea [id]="source() + '-message'" name="message" rows="3" maxlength="2000"
+        placeholder="Fee reminders to 1,200 parents every month"
+        [ngModel]="message()" (ngModelChange)="message.set($event)"></textarea>
+    </div>
+    <!-- Bots fill every box; people never see this one. -->
+    <input class="trap" name="website" tabindex="-1" autocomplete="off" aria-hidden="true"
+      [ngModel]="website()" (ngModelChange)="website.set($event)" />
+
+    @if (error()) {
+      <p class="err" role="alert"><i class="ti ti-alert-triangle" aria-hidden="true"></i>{{ error() }}</p>
+    }
+
+    <div class="foot">
+      <button class="send" type="submit" [disabled]="busy()">
+        {{ busy() ? 'Sending...' : 'Request access' }}
+      </button>
+      <p>A person reads every request. We reply by email within one working day.</p>
+    </div>
+  </form>
+}

@@ -288,7 +288,7 @@
       </div>
     } @else {
       <ul class="arch">
-        @for (n of filtered(); track n.id; let i = $index) {
+        @for (n of archiveShown(); track n.id; let i = $index) {
           <li [style.--i]="i" [class]="kindOf(n.kind).tone">
             <i class="ti ti-{{ kindOf(n.kind).icon }} ic" aria-hidden="true"></i>
             <div class="body">
@@ -317,6 +317,7 @@
           </li>
         }
       </ul>
+      <app-pager [total]="filtered().length" [size]="pageSize" [(page)]="archivePage" label="Archive pages" />
     }
   </section>
 </div>

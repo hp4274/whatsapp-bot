@@ -87,7 +87,11 @@ import { createCampaignRouter } from './campaigns/routes.js';
 import { dueCampaigns, finishedCampaigns, openCampaigns, recurringTenants, runningSpreadCampaigns } from './campaigns/store.js';
 import { LinkStore, followLink } from './links/store.js';
 import { DEFAULT_PLANS } from './billing/plans.js';
+import { PAYMENTS } from './billing/schema.js';
 import { BillingError, BillingStore } from './billing/store.js';
+import { LeadError, Leads } from './leads.js';
+import { leadAlertEmail, leadReceivedEmail, welcomeEmail } from './mail/emails.js';
+import { noMailer } from './mail/mailer.js';
 import { POLICY_FIELDS, PolicyError, PolicyStore, fillTables } from './policy/index.js';
 import { attachCampaignPolicy, bulkKillReason, createCampaignOpsRouter, retentionSweep } from './policy/campaignOps.js';
 import { bindContext, logger, requestContext } from './observability/logger.js';
@@ -2296,6 +2300,8 @@ export function createApp({
     publicBaseUrl = null,
     // Overrides for createOpsAlerts (url, secret, fetch, now): tests point the webhook at a stub.
     opsAlertOptions = {},
+    // Outgoing email (mail/mailer.js). A no-op unless index.js passes one built from SMTP_* settings.
+    mailer = noMailer,
 } = {}) {
     const app = express();
     app.disable('x-powered-by');
@@ -2310,6 +2316,7 @@ export function createApp({
     app.use(express.json({ limit: '1mb' }));
 
     const tenancy = new Tenancy(db);
+    const leads = new Leads(db);
     // Admin screens span every tenant: they listen here instead of polling (GET /api/admin/events).
     const adminFeed = createAdminFeed();
     tenancy.onAudit = ({ tenantId }) => adminFeed.publish('audit', tenantId);
@@ -2419,6 +2426,7 @@ export function createApp({
                 currentPeriodEnd: sub.currentPeriodEnd,
                 cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
                 graceEndsAt: sub.graceEndsAt,
+                payment: sub.payment,
             },
             users: tenancy.listUsers(tenant.id).length,
             channels,
@@ -2444,7 +2452,7 @@ export function createApp({
         });
     };
     const fail = (res, err) => {
-        if (err instanceof TenancyError || err instanceof BillingError) {
+        if (err instanceof TenancyError || err instanceof BillingError || err instanceof LeadError) {
             return res.status(err.status).json({ errors: [err.message] });
         }
         throw err;
@@ -2470,6 +2478,34 @@ export function createApp({
         return res.redirect(302, url);
     });
 
+    /**
+     * "Request access" from the landing page and the sign-in dialog. Public, so throttled hard per address,
+     * and a filled `website` field (a box people never see) is a bot: it gets the same 201 and nothing is kept.
+     */
+    const leadLimit = rateLimit({ ratePerSecond: 1 / 60, burst: 5, keyFor: (req) => `lead:${req.ip}` });
+    app.post('/api/leads', leadLimit, (req, res) => {
+        try {
+            const body = req.body ?? {};
+            if (body.website) return res.status(201).json({ ok: true });
+            const lead = leads.create({ ...body, ip: req.ip ?? '' });
+            adminFeed.publish('leads', null);
+            // Not awaited: the visitor's answer never waits on a mail server. The alert's link uses only the
+            // configured address, never this request's Origin, which a stranger could set to anything.
+            void mailer.send({ to: lead.email, ...leadReceivedEmail(lead) });
+            if (mailer.notifyTo) {
+                void mailer.send({
+                    to: mailer.notifyTo,
+                    replyTo: lead.email,
+                    ...leadAlertEmail(lead, publicBaseUrl && `${publicBaseUrl}/admin/leads`),
+                });
+            }
+            tenancy.audit({ action: 'lead.create', target: String(lead.id), detail: { source: lead.source } });
+            return res.status(201).json({ ok: true });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
     app.post('/api/auth/login', async (req, res) => {
         const { email = '', password = '' } = req.body ?? {};
         const key = String(email).trim().toLowerCase();
@@ -2492,7 +2528,13 @@ export function createApp({
                 logins.set(k, { fails: (open ? entry.fails : 0) + 1, until: open ? entry.until : now + LOGIN_WINDOW_MS });
             }
             tenancy.audit({ action: 'auth.login_failed', detail: { email: key.slice(0, 120), ip: req.ip } });
-            return res.status(401).json({ errors: ['Wrong email or password.'] });
+            // An email with no account gets the "request access" dialog instead of a retry. This tells a visitor
+            // whether an email has an account (asked for by the product); the per-address lockout above caps
+            // how fast anyone can probe.
+            const known = Boolean(db.db.prepare('SELECT 1 FROM users WHERE email = ?').get(key));
+            return res.status(401).json(known
+                ? { errors: ['Wrong email or password.'] }
+                : { errors: ['There is no account with this email.'], signup: true });
         }
         // The right password on a business the platform suspended: say so, and never count it towards a lockout.
         if (tenant && tenant.status !== 'active') {
@@ -2655,6 +2697,29 @@ export function createApp({
         res.json({ ok: true });
     });
 
+    /**
+     * Your own sign-in, from the account dialog. The current password is asked again, so an unlocked screen is not
+     * enough to take the account over. Agents may change only their password; the email is who their admin added.
+     * Other sessions end on a new password; this one stays signed in.
+     */
+    app.put('/api/account', async (req, res) => {
+        const { currentPassword = '', email, password } = req.body ?? {};
+        if (email && req.user.role === 'agent' && String(email).trim().toLowerCase() !== req.user.email) {
+            return res.status(403).json({ errors: ['Ask your admin to change your email.'] });
+        }
+        if (!(await tenancy.authenticate(req.user.email, currentPassword))) {
+            return res.status(403).json({ errors: ['Your current password is not right.'] });
+        }
+        try {
+            const user = await tenancy.setCredentials(req.user.tenantId, req.user.id, { email, password }, req.token);
+            tenancy.audit({ tenantId: req.user.tenantId, userId: req.user.id, action: 'user.credentials', target: String(user.id),
+                detail: { email: user.email !== req.user.email, password: Boolean(password) } });
+            return res.json({ user });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
     // ---------------------------------------------------- super admin --
     const admin = express.Router();
     admin.use(requireRole('super_admin'));
@@ -2717,6 +2782,12 @@ export function createApp({
         tenancy.updateTenant(tenantId, { services });
         followPlanLimits(tenantId, old, plan.tenantLimits);
         return subscription;
+    };
+    /** An optional payment note (PAYMENTS), checked before anything is written. */
+    const paymentOr400 = (payment) => {
+        if (payment == null || payment === '') return null;
+        if (!PAYMENTS.includes(payment)) throw new BillingError(`payment must be one of ${PAYMENTS.join(', ')}`);
+        return payment;
     };
     const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     /** Move a business's limits from `from` to `to`, keeping any an admin changed (no longer equal to `from`). */
@@ -2793,9 +2864,24 @@ export function createApp({
             // A first assignment gets the plan's trial; a change or renewal is
             // paid-for, so no fresh trial unless the admin asks for one.
             const hadOne = new BillingStore(db.forTenant(tenant.id)).subscription() !== null;
-            const subscription = applyPlan(tenant.id, plan, req.body?.trialDays ?? (hadOne ? 0 : plan.trialDays));
-            audit(req, 'tenant.subscription', tenant.id, { planKey: plan.key, state: subscription.state });
+            const payment = paymentOr400(req.body?.payment);
+            let subscription = applyPlan(tenant.id, plan, req.body?.trialDays ?? (hadOne ? 0 : plan.trialDays));
+            if (payment) subscription = new BillingStore(db.forTenant(tenant.id)).setPayment(payment);
+            audit(req, 'tenant.subscription', tenant.id, { planKey: plan.key, state: subscription.state, payment });
             return res.json({ subscription, tenant: tenantOverview(tenancy.getTenant(tenant.id)) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /** Paid, free or unpaid on its own: unlike the PUT above, it does not renew the plan or touch the period. */
+    admin.put('/tenants/:id/payment', (req, res) => {
+        try {
+            const payment = paymentOr400(req.body?.payment);
+            if (!payment) return res.status(400).json({ errors: ['Choose paid, free or unpaid.'] });
+            const subscription = new BillingStore(db.forTenant(Number(req.params.id))).setPayment(payment);
+            audit(req, 'tenant.payment', Number(req.params.id), { payment });
+            return res.json({ subscription });
         } catch (err) {
             return fail(res, err);
         }
@@ -2812,20 +2898,79 @@ export function createApp({
         }
     });
 
+    /** A business and its owner, on a plan when one is named; shared by "New tenant" and converting a lead. */
+    const createTenant = async (req, body) => {
+        // Resolved before the tenant exists, so a bad key creates nothing.
+        const plan = body.planKey ? planOr404(body.planKey) : null;
+        const payment = paymentOr400(body.payment);
+        // The admin may hand-pick services on top of a plan; omitted = the plan's own.
+        const services = Array.isArray(body.services) ? body.services : plan?.services;
+        const { tenant: created, owner: user } = await tenancy.createTenantWithOwner(
+            plan ? { ...body, services } : body);
+        if (plan) applyPlan(created.id, plan, body.trialDays ?? plan.trialDays, services);
+        if (plan && payment) new BillingStore(db.forTenant(created.id)).setPayment(payment);
+        const tenant = tenancy.getTenant(created.id);
+        req.tenantId = tenant.id; // the new business's own trail, not "Platform"
+        audit(req, 'tenant.create', tenant.id, plan ? `${tenant.slug} on ${plan.key}` : tenant.slug);
+        return { tenant: tenantOverview(tenant), owner: user };
+    };
+
     admin.post('/tenants', async (req, res) => {
         try {
+            return res.status(201).json(await createTenant(req, req.body ?? {}));
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    // ---- leads: account requests from the public site, converted into tenants here ----
+    // `:leadId`, not `:id`: admin.param('id') would file the lead's number as a tenant id.
+    admin.get('/leads', (req, res) => res.json(leads.list({ status: req.query.status })));
+
+    admin.patch('/leads/:leadId', (req, res) => {
+        try {
+            const lead = leads.setStatus(req.params.leadId, req.body?.status);
+            audit(req, `lead.${lead.status}`, String(lead.id));
+            return res.json({ lead });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /** The business and owner come from the lead unless the admin edited them; a plan is required. */
+    admin.post('/leads/:leadId/convert', async (req, res) => {
+        try {
+            const lead = leads.get(req.params.leadId);
+            if (!lead) return res.status(404).json({ errors: ['lead not found'] });
+            if (lead.status === 'converted') return res.status(409).json({ errors: ['this lead is already a tenant'] });
             const body = req.body ?? {};
-            // Resolved before the tenant exists, so a bad key creates nothing.
-            const plan = body.planKey ? planOr404(body.planKey) : null;
-            // The admin may hand-pick services on top of a plan; omitted = the plan's own.
-            const services = Array.isArray(body.services) ? body.services : plan?.services;
-            const { tenant: created, owner: user } = await tenancy.createTenantWithOwner(
-                plan ? { ...body, services } : body);
-            if (plan) applyPlan(created.id, plan, body.trialDays ?? plan.trialDays, services);
-            const tenant = tenancy.getTenant(created.id);
-            req.tenantId = tenant.id; // the new business's own trail, not "Platform"
-            audit(req, 'tenant.create', tenant.id, plan ? `${tenant.slug} on ${plan.key}` : tenant.slug);
-            return res.status(201).json({ tenant: tenantOverview(tenant), owner: user });
+            if (!body.planKey) return res.status(400).json({ errors: ['Choose a plan.'] });
+            const created = await createTenant(req, {
+                ...body,
+                name: body.name || lead.business,
+                owner: { name: lead.name, email: lead.email, ...body.owner },
+            });
+            const converted = leads.markConverted(lead.id, created.tenant.id);
+            adminFeed.publish('leads', null);
+            // The owner's sign-in details by email, unless the admin unticked it. Awaited, so the dialog can say
+            // whether it went; the mailer gives up within seconds and never throws.
+            let email = { sent: false, reason: 'Not sent.' };
+            if (body.sendWelcome !== false) {
+                const base = publicBaseUrl ?? req.get('origin') ?? null;
+                email = await mailer.send({
+                    to: created.owner.email,
+                    ...welcomeEmail({
+                        name: created.owner.name,
+                        business: created.tenant.name,
+                        planName: created.tenant.subscription?.planName,
+                        email: created.owner.email,
+                        password: String(body.owner?.password ?? ''),
+                        loginUrl: base && `${base}/login`,
+                    }),
+                });
+                audit(req, 'lead.welcome_email', String(lead.id), { sent: email.sent });
+            }
+            return res.status(201).json({ ...created, lead: converted, email });
         } catch (err) {
             return fail(res, err);
         }
@@ -3281,13 +3426,45 @@ export function createApp({
         }
     });
 
-    team.patch('/:id', (req, res) => {
+    /** A member below you in this business, or an error response already sent. Your own account is the account dialog's. */
+    const memberBelow = (req, res) => {
         const target = tenancy.listUsers(req.tenantId).find((u) => u.id === Number(req.params.id));
-        if (!target) return res.status(404).json({ errors: ['user not found'] });
-        if (target.id === req.user.id) return res.status(400).json({ errors: ['You cannot disable yourself.'] });
+        if (!target) return void res.status(404).json({ errors: ['user not found'] });
+        if (target.id === req.user.id) return void res.status(400).json({ errors: ['Use your account settings for your own sign-in.'] });
         if (roleRank(target.role) >= roleRank(req.user.role) && req.user.role !== 'super_admin') {
-            return res.status(403).json({ errors: ['You cannot change a user at or above your role.'] });
+            return void res.status(403).json({ errors: ['You cannot change a user at or above your role.'] });
         }
+        return target;
+    };
+
+    /** An owner (or admin) resetting a member's email and/or password; the member is signed out on a new password. */
+    team.put('/:id/credentials', async (req, res) => {
+        const target = memberBelow(req, res);
+        if (!target) return undefined;
+        try {
+            const user = await tenancy.setCredentials(req.tenantId, target.id, { email: req.body?.email, password: req.body?.password });
+            audit(req, 'user.credentials', user.id, { email: user.email, password: Boolean(req.body?.password) });
+            return res.json({ user });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    team.delete('/:id', (req, res) => {
+        const target = memberBelow(req, res);
+        if (!target) return undefined;
+        try {
+            tenancy.removeUser(req.tenantId, target.id);
+            audit(req, 'user.remove', target.id, target.email);
+            return res.json({ ok: true });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    team.patch('/:id', (req, res) => {
+        const target = memberBelow(req, res);
+        if (!target) return undefined;
         // Turning someone back on takes a seat again (disabled users hold none, see POST above).
         const seats = tenancy.getTenant(req.tenantId)?.limits.maxUsers;
         const active = tenancy.listUsers(req.tenantId).filter((u) => !u.disabled).length;

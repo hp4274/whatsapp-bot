@@ -84,7 +84,7 @@
       }
     </div>
   } @else {
-    @for (tenant of tenants(); track tenant.id; let i = $index) {
+    @for (tenant of shownTenants(); track tenant.id; let i = $index) {
       <div class="row s-enter" [class.off]="!has(tenant)" [style.--i]="i">
         <span class="avatar" aria-hidden="true">{{ tenant.name.charAt(0) }}</span>
         <div class="who">
@@ -144,6 +144,7 @@
         <p>Create a tenant on the Tenants page and it will show up here.</p>
       </div>
     }
+    <app-pager [total]="tenants().length" [size]="pageSize" [(page)]="page" label="Tenant pages" />
   }
 </section>
 

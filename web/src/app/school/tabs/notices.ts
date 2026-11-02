@@ -5,17 +5,22 @@ import {
   computed,
   inject,
   input,
+  linkedSignal,
   output,
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
+import { Pager, pageOf } from '../../core/pager';
 import { Store } from '../../core/store';
 import { SchoolApi } from '../school-api';
 import type { Audience, ClassInfo, Notice, NoticeKind, SchoolArea, SchoolMe } from '../school-api';
 import { Tilt } from '../tilt';
 
 type AudienceMode = 'all' | 'classes' | 'routes';
+
+/** Archive rows per page. */
+const PAGE_SIZE = 20;
 
 /** Notice kinds with the kit tone class that colours their card, icon and pill. */
 export const KINDS: { id: NoticeKind; label: string; icon: string; tone: string }[] = [
@@ -32,7 +37,7 @@ export const KINDS: { id: NoticeKind; label: string; icon: string; tone: string 
  */
 @Component({
   selector: 'school-notices',
-  imports: [FormsModule, DatePipe, TitleCasePipe, Tilt],
+  imports: [FormsModule, DatePipe, TitleCasePipe, Tilt, Pager],
   templateUrl: './notices.html',
   styleUrl: './notices.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -73,6 +78,13 @@ export class NoticesTab {
     const f = this.filter();
     return f ? this.notices().filter((n) => n.kind === f) : this.notices();
   });
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever the archive's kind filter changes. */
+  protected readonly archivePage = linkedSignal(() => {
+    this.filter();
+    return 0;
+  });
+  protected readonly archiveShown = computed(() => pageOf(this.filtered(), this.archivePage(), PAGE_SIZE));
   protected readonly upcoming = computed(() => {
     const today = new Date().toISOString().slice(0, 10);
     return this.notices()
@@ -182,6 +194,7 @@ export class NoticesTab {
       .subscribe({
         next: (r) => {
           this.notices.update((l) => [r.notice, ...l]);
+          this.archivePage.set(0); // the new notice is first in the archive
           this.flash.set(
             r.sent !== undefined
               ? `Published - ${r.sent} sent, ${r.skipped ?? 0} skipped, ${r.failed ?? 0} failed.`

@@ -123,6 +123,15 @@
             }
             <button
               type="button"
+              class="icon-btn"
+              aria-label="Your sign-in: email and password"
+              title="Email and password"
+              (click)="accountOpen.set(true)"
+            >
+              <i class="ti ti-user-cog" aria-hidden="true"></i>
+            </button>
+            <button
+              type="button"
               class="icon-btn theme-cycle"
               [attr.aria-label]="'Theme: ' + store.theme() + '. Change theme'"
               [attr.title]="'Theme: ' + store.theme()"
@@ -135,7 +144,7 @@
               class="icon-btn danger"
               aria-label="Sign out"
               title="Sign out"
-              (click)="signOut()"
+              (click)="confirmSignOut.set(true)"
             >
               <i class="ti ti-logout" aria-hidden="true"></i>
             </button>
@@ -203,5 +212,20 @@
 
   @if (auth.user()) {
     <app-send-island />
+  }
+
+  @if (accountOpen()) {
+    <app-account-dialog (closed)="accountOpen.set(false)" />
+  }
+
+  <!-- Sign-out asks first; the same confirm dialog as deleting a tenant. -->
+  @if (confirmSignOut()) {
+    <app-confirm
+      heading="Sign out?"
+      text="You will need your email and password to sign back in."
+      action="Sign out"
+      (confirm)="signOut()"
+      (cancel)="confirmSignOut.set(false)"
+    />
   }
 }

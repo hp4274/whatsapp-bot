@@ -1,10 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 
 import { SchoolCatalog, SchoolProvisionResult, TenancyApi } from '../core/api';
 import { Tenant } from '../core/auth';
+import { Pager, pageOf } from '../core/pager';
 import { POLICY_SERVICES } from './policy-api';
 import { CampaignsOps } from './campaigns-ops';
 import { ChannelsOps } from './channels-ops';
@@ -16,6 +17,8 @@ import { sentenceCase } from './text';
 const SCHOOL_SERVICE = 'school_whatsapp_bot';
 /** Placeholder rows shown while the tenant list loads. */
 const SKELETON_ROWS: readonly number[] = [0, 1, 2];
+/** Tenant rows per page. */
+const PAGE_SIZE = 20;
 /** One sample line under the header in the downloadable student CSV. */
 const STUDENT_EXAMPLE_ROW = '24,Aarav Mehta,10,A,Rakesh Mehta,Neha Mehta,9876512001,4,No';
 
@@ -27,7 +30,7 @@ const STUDENT_EXAMPLE_ROW = '24,Aarav Mehta,10,A,Rakesh Mehta,Neha Mehta,9876512
  */
 @Component({
   selector: 'app-admin-service',
-  imports: [PolicyEditor, ChannelsOps, TemplateReview, CampaignsOps],
+  imports: [PolicyEditor, ChannelsOps, TemplateReview, CampaignsOps, Pager],
   templateUrl: './service.html',
   styleUrl: './service.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -47,6 +50,13 @@ export class ServiceView {
   protected readonly tenants = signal<Tenant[]>([]);
   protected readonly busyId = signal<number | null>(null);
   protected readonly error = signal('');
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever the route moves to another service. */
+  protected readonly page = linkedSignal(() => {
+    this.key();
+    return 0;
+  });
+  protected readonly shownTenants = computed(() => pageOf(this.tenants(), this.page(), PAGE_SIZE));
   protected readonly meta = computed(() => serviceMeta(this.key()));
   protected readonly catalog = signal<SchoolCatalog | null>(null);
   protected readonly picked = signal<Set<string>>(new Set());

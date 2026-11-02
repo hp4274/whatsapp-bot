@@ -5,6 +5,7 @@ import {
   effect,
   inject,
   input,
+  linkedSignal,
   output,
   signal,
   untracked,
@@ -12,6 +13,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
+import { Pager, pageOf } from '../../core/pager';
 import { Store } from '../../core/store';
 import { SchoolApi } from '../school-api';
 import type { ClassInfo, ImportResult, SchoolArea, SchoolMe, Student } from '../school-api';
@@ -47,6 +49,8 @@ const TEMPLATE_HEADERS =
   'Roll No,Student Name,Class,Section,Father Name,Mother Name,Parent Phone,Bus Route,Hostel';
 /** 10 digits, or + country code and 8-15 digits. Spaces and dashes are ignored. */
 const PHONE = /^(\d{10}|\+\d{8,15})$/;
+/** Student rows per page. */
+const PAGE_SIZE = 20;
 
 /**
  * The student directory and the parent WhatsApp numbers every broadcast goes to.
@@ -58,7 +62,7 @@ const PHONE = /^(\d{10}|\+\d{8,15})$/;
  */
 @Component({
   selector: 'school-students',
-  imports: [FormsModule],
+  imports: [FormsModule, Pager],
   templateUrl: './students.html',
   styleUrl: './students.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -132,6 +136,16 @@ export class StudentsTab {
       ].some((v) => v?.toLowerCase().includes(q));
     });
   });
+
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever the class, the chip or the search changes. */
+  protected readonly page = linkedSignal(() => {
+    this.classKey();
+    this.chip();
+    this.query();
+    return 0;
+  });
+  protected readonly shown = computed(() => pageOf(this.filtered(), this.page(), PAGE_SIZE));
 
   protected readonly errors = computed(() => {
     const d = this.draft();

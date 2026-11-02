@@ -3,19 +3,25 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  computed,
   effect,
   inject,
+  linkedSignal,
   signal,
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
+import { Pager, pageOf } from '../core/pager';
 import { AdminFeed } from './admin-feed';
 import { CampaignsOpsApi, type CampaignFilter, type OpsCampaign } from './campaigns-ops-api';
 import { sentenceCase } from './text';
 
 /** The destructive action waiting on the confirm dialog. */
 type Pending = { readonly kind: 'stop-all' } | { readonly kind: 'cancel'; readonly row: OpsCampaign };
+
+/** Campaign rows per page. */
+const PAGE_SIZE = 20;
 
 /** Segments of the status filter; values are what the server's `?status=` accepts. */
 const FILTERS: readonly { readonly value: CampaignFilter; readonly label: string }[] = [
@@ -38,7 +44,7 @@ const FILTERS: readonly { readonly value: CampaignFilter; readonly label: string
  */
 @Component({
   selector: 'app-campaigns-ops',
-  imports: [],
+  imports: [Pager],
   templateUrl: './campaigns-ops.html',
   styleUrl: './campaigns-ops.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -62,6 +68,14 @@ export class CampaignsOps {
   /** Result of the last action, shown above the table. */
   protected readonly notice = signal<{ readonly tone: 'ok' | 'bad'; readonly text: string } | null>(null);
   protected readonly pending = signal<Pending | null>(null);
+
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever the status filter (which refetches) changes. */
+  protected readonly page = linkedSignal(() => {
+    this.filter();
+    return 0;
+  });
+  protected readonly shown = computed(() => pageOf(this.rows(), this.page(), PAGE_SIZE));
 
   constructor() {
     this.load();

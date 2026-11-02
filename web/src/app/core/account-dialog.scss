@@ -1,0 +1,14 @@
+@use '../school/school-shared' as s;
+
+// The same dialog as sign-out and tenant delete, with the app's form fields.
+@include s.keyframes;
+@include s.drawer-keyframes;
+@include s.confirm;
+@include s.field;
+@include s.banner;
+@include s.tones;
+
+.fields { display: grid; gap: var(--space-md); margin-top: var(--space-lg); }
+small { font-weight: 400; color: var(--text-muted); }
+input[readonly] { background: var(--surface-sunken); color: var(--text-muted); }
+.s-banner { margin-top: var(--space-md); }

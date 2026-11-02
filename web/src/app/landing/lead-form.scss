@@ -1,0 +1,143 @@
+// Inputs take the app's global field styles (styles.scss); this only lays the form out.
+:host {
+  display: block;
+}
+
+.lead {
+  display: grid;
+  gap: 16px;
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.f {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+
+  label {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--text-strong);
+  }
+
+  small {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+
+  input {
+    min-height: 46px;
+  }
+
+  textarea {
+    resize: vertical;
+    min-height: 88px;
+  }
+}
+
+// Off screen, not display:none: some bots skip hidden fields.
+.trap {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.err {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  font-size: 13.5px;
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+
+  p {
+    margin: 0;
+    flex: 1 1 220px;
+    font-size: 13.5px;
+    color: var(--text-muted);
+  }
+}
+
+// The one action, in the brand blue (the 10 of 60-30-10), pill-shaped like the page's other actions.
+.send {
+  min-height: 48px;
+  padding: 0 28px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 15px;
+  font-weight: 600;
+  transition:
+    background var(--fast) var(--ease),
+    scale var(--fast) var(--ease);
+
+  &:hover:not(:disabled) {
+    background: var(--primary-hover);
+  }
+
+  &:active:not(:disabled) {
+    scale: 0.97;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: progress;
+  }
+}
+
+.done {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 20px;
+  border-radius: var(--radius-lg);
+  background: var(--success-soft);
+  color: var(--text-strong);
+  animation: arrive 320ms var(--ease) both;
+
+  .ti {
+    font-size: 26px;
+    color: var(--success);
+  }
+
+  strong {
+    font-size: 17px;
+  }
+
+  p {
+    margin: 4px 0 0;
+    color: var(--text-color);
+  }
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .done {
+    animation: none;
+  }
+}

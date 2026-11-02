@@ -66,7 +66,7 @@
             </tr>
           </thead>
           <tbody>
-            @for (row of visible(); track row.id; let i = $index) {
+            @for (row of shown(); track row.id; let i = $index) {
               <tr [style.--i]="i" [class.off]="row.status !== 'active'">
                 <td>
                   <span class="strong">{{ row.tenantName }}</span>
@@ -205,6 +205,7 @@
           </tbody>
         </table>
       </div>
+      <app-pager [total]="visible().length" [size]="pageSize" [(page)]="page" label="Number pages" />
     </div>
   }
 

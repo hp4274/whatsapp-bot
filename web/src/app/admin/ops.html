@@ -90,7 +90,7 @@
       </div>
     </div>
     <section class="list">
-      @for (p of shownPlans(); track p.tenantId; let i = $index) {
+      @for (p of plansShown(); track p.tenantId; let i = $index) {
         <article class="row" [style.--i]="i < 12 ? i : 12">
           <div class="who">
             <span class="avatar">{{ initial(p.name) }}</span>
@@ -215,6 +215,7 @@
         </div>
       }
     </section>
+    <app-pager [total]="shownPlans().length" [size]="pageSize" [(page)]="plansPage" label="Business pages" />
   } @else if (kind() === 'usage') {
     @if (usage(); as u) {
       <div class="seg" role="radiogroup" aria-label="Period">
@@ -296,10 +297,10 @@
         <span class="muted range">{{ u.days[0] }} to {{ u.days.at(-1) }}</span>
       </section>
       <section class="list">
-        @for (t of ranked(); track t.tenantId; let i = $index) {
+        @for (t of rankedShown(); track t.tenantId; let i = $index) {
           @let b = t[range()];
           <article class="row usage" [style.--i]="i < 12 ? i : 12">
-            <span class="rank" aria-label="Rank {{ i + 1 }}">{{ i + 1 }}</span>
+            <span class="rank" aria-label="Rank {{ rankOffset() + i + 1 }}">{{ rankOffset() + i + 1 }}</span>
             <div class="who">
               <div>
                 <strong>{{ t.name }}</strong>
@@ -374,6 +375,7 @@
           </div>
         }
       </section>
+      <app-pager [total]="ranked().length" [size]="pageSize" [(page)]="usagePage" label="Usage pages" />
     }
   } @else {
     @if (kind() === 'health') {
@@ -453,11 +455,7 @@
       }
     }
     <section class="list">
-      @for (
-        c of kind() === 'health' ? shownHealth() : shownChannels();
-        track c.tenantId + '-' + c.id;
-        let i = $index
-      ) {
+      @for (c of numbersShown(); track c.tenantId + '-' + c.id; let i = $index) {
         <article [class]="'row chan sev-' + c.severity + ' st-' + c.state" [style.--i]="i < 12 ? i : 12">
           <div class="who">
             <span [class]="'state-ic ' + c.state" aria-hidden="true"
@@ -557,5 +555,6 @@
         </div>
       }
     </section>
+    <app-pager [total]="numbers().length" [size]="pageSize" [(page)]="numbersPage" label="Number pages" />
   }
 }

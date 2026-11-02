@@ -137,7 +137,7 @@
   }
 
   <div class="grid">
-    @for (t of filtered(); track t.id; let i = $index) {
+    @for (t of shown(); track t.id; let i = $index) {
       <article
         class="tcard s-enter"
         [class]="cat[t.category].tone"
@@ -245,6 +245,7 @@
       </article>
     }
   </div>
+  <app-pager [total]="filtered().length" [size]="pageSize" [(page)]="page" label="Template pages" />
 }
 
 @if (panel(); as p) {
