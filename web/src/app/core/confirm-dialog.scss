@@ -1,0 +1,5 @@
+@use '../school/school-shared' as s;
+
+@include s.keyframes;
+@include s.drawer-keyframes;
+@include s.confirm;

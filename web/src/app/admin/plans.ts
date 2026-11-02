@@ -4,6 +4,7 @@ import {
   DestroyRef,
   computed,
   inject,
+  linkedSignal,
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -11,6 +12,7 @@ import { Observable, forkJoin } from 'rxjs';
 
 import { TenancyApi } from '../core/api';
 import type { Tenant } from '../core/auth';
+import { Pager, pageOf } from '../core/pager';
 import { Tilt } from '../school/tilt';
 import {
   PLAN_LIMIT_FIELDS,
@@ -60,6 +62,8 @@ const BLANK_PLAN: Plan = {
 const KEY_PATTERN = /^[a-z0-9_-]+$/;
 
 const SKELETON: readonly number[] = [0, 1, 2];
+/** Subscription rows per page. */
+const PAGE_SIZE = 20;
 
 /**
  * Plans & billing for the super admin: the plan catalogue (what each plan
@@ -72,7 +76,7 @@ const SKELETON: readonly number[] = [0, 1, 2];
  */
 @Component({
   selector: 'app-admin-plans',
-  imports: [Tilt, PolicyEditor],
+  imports: [Tilt, PolicyEditor, Pager],
   templateUrl: './plans.html',
   styleUrl: './plans.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -150,6 +154,14 @@ export class PlansView {
       f === 'all' ? true : f === 'none' ? !t.subscription : t.subscription?.state === f,
     );
   });
+
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever the state filter changes. */
+  protected readonly page = linkedSignal(() => {
+    this.filter();
+    return 0;
+  });
+  protected readonly shownRows = computed(() => pageOf(this.rows(), this.page(), PAGE_SIZE));
 
   protected readonly keyValid = computed(() => {
     const e = this.editor();

@@ -1,14 +1,26 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  linkedSignal,
+  signal,
+} from '@angular/core';
 import { catchError, throwError } from 'rxjs';
 
 import { spacedPhone } from '../contacts/contact-util';
 import type { User } from '../core/auth';
+import { Pager, pageOf } from '../core/pager';
 import type { AccountGroup, AccountNumber, NumberDetails } from './number-details';
 import { sentenceCase } from './text';
 
 /** Shortest password the server accepts (tenancy.js setPassword). */
 const MIN_PASSWORD = 8;
+/** WhatsApp numbers per page. */
+const PAGE_SIZE = 20;
 
 const toMessage = (error: HttpErrorResponse) => {
   const errors = error.error?.errors;
@@ -27,6 +39,7 @@ const toMessage = (error: HttpErrorResponse) => {
  */
 @Component({
   selector: 'app-tenant-accounts',
+  imports: [Pager],
   templateUrl: './tenant-accounts.html',
   styleUrl: './tenant-accounts.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -69,6 +82,14 @@ export class TenantAccounts {
   protected readonly shownContacts = computed(() =>
     this.group() ? this.contacts().filter((c) => c.groups.includes(this.group())) : this.contacts(),
   );
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever the business or the picked group changes. */
+  protected readonly contactsPage = linkedSignal(() => {
+    this.tenantId();
+    this.group();
+    return 0;
+  });
+  protected readonly contactsShown = computed(() => pageOf(this.shownContacts(), this.contactsPage(), PAGE_SIZE));
 
   constructor() {
     effect(() => this.load(this.tenantId()));

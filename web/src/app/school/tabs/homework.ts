@@ -6,14 +6,19 @@ import {
   effect,
   inject,
   input,
+  linkedSignal,
   output,
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
+import { Pager, pageOf } from '../../core/pager';
 import { Store } from '../../core/store';
 import { SchoolApi } from '../school-api';
 import type { ClassInfo, Homework, SchoolArea, SchoolMe } from '../school-api';
+
+/** Homework rows per page. */
+const PAGE_SIZE = 20;
 
 /**
  * Homework desk: publish an assignment (optionally with a worksheet) and the
@@ -23,7 +28,7 @@ import type { ClassInfo, Homework, SchoolArea, SchoolMe } from '../school-api';
  */
 @Component({
   selector: 'school-homework',
-  imports: [FormsModule, DatePipe, TitleCasePipe],
+  imports: [FormsModule, DatePipe, TitleCasePipe, Pager],
   templateUrl: './homework.html',
   styleUrl: './homework.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -53,6 +58,13 @@ export class HomeworkTab {
   protected readonly list = signal<Homework[]>([]);
   protected readonly loading = signal(true);
   protected readonly removing = signal<number | null>(null);
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever the class (which refetches) changes. */
+  protected readonly page = linkedSignal(() => {
+    this.cls();
+    return 0;
+  });
+  protected readonly shown = computed(() => pageOf(this.list(), this.page(), PAGE_SIZE));
 
   protected readonly valid = computed(
     () => !!(this.cls() && this.subject().trim() && this.title().trim()),
@@ -134,6 +146,7 @@ export class HomeworkTab {
       .subscribe({
         next: (r) => {
           this.list.update((l) => [r.homework, ...l]);
+          this.page.set(0); // the new assignment is first in the list
           this.flash.set(
             sendAt ? `Scheduled for ${this.sendTime()} today.` : 'Sent to parents on WhatsApp.',
           );

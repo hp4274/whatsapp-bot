@@ -147,6 +147,22 @@
                 </div>
                 <span class="s-pill {{ stateTone(cur.state) }}">{{ sentence(cur.state) }}</span>
               </div>
+              <div class="payment">
+                <span id="pay-label">Payment</span>
+                <div class="pay-opts" role="radiogroup" aria-labelledby="pay-label">
+                  @for (p of payments; track p.key) {
+                    <button
+                      type="button"
+                      role="radio"
+                      [attr.aria-checked]="cur.payment === p.key"
+                      [disabled]="saving()"
+                      (click)="setPayment(p.key)"
+                    >
+                      {{ p.label }}
+                    </button>
+                  }
+                </div>
+              </div>
             } @else {
               <p class="muted compact">
                 No plan: services and limits are set by hand and billing never blocks this

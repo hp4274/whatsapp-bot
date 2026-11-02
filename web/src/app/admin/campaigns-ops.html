@@ -90,7 +90,7 @@
             </tr>
           </thead>
           <tbody>
-            @for (row of rows(); track row.id) {
+            @for (row of shown(); track row.id) {
               <tr>
                 <td><span class="strong">{{ row.tenantName }}</span></td>
                 <td class="name">
@@ -134,6 +134,7 @@
           </tbody>
         </table>
       </div>
+      <app-pager [total]="rows().length" [size]="pageSize" [(page)]="page" label="Campaign pages" />
     </div>
   }
 </section>

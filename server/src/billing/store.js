@@ -40,6 +40,7 @@
 import { billingLimit } from '../policy/billing.js';
 import { tenantSentSince } from '../policy/campaignOps.js';
 import { utcNow } from '../protocol.js';
+import { PAYMENTS } from './schema.js';
 import {
     DEFAULT_PLANS,
     FEATURES,
@@ -205,6 +206,7 @@ export class BillingStore {
             cancelAtPeriodEnd: Boolean(row.cancel_at_period_end),
             cancelledAt: row.cancelled_at,
             graceEndsAt: grace,
+            payment: row.payment ?? null,
         };
     }
 
@@ -229,6 +231,14 @@ export class BillingStore {
         } else {
             this.patch({ pending_plan_key: next.key });
         }
+        return this.subscription();
+    }
+
+    /** Record how the business pays (PAYMENTS). A plan change keeps it: `subscribe` leaves the column alone. */
+    setPayment(payment) {
+        if (!PAYMENTS.includes(payment)) throw new BillingError(`payment must be one of ${PAYMENTS.join(', ')}`);
+        this.require();
+        this.patch({ payment });
         return this.subscription();
     }
 

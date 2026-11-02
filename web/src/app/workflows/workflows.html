@@ -91,7 +91,7 @@
         </div>
       } @else {
         <ul class="list">
-          @for (w of visible(); track w.id; let i = $index) {
+          @for (w of shown(); track w.id; let i = $index) {
             <li
               class="row card s-enter"
               [class.hl]="highlightId() === w.id"
@@ -297,6 +297,7 @@
             </li>
           }
         </ul>
+        <app-pager [total]="visible().length" [size]="pageSize" [(page)]="page" label="Workflow pages" />
       }
     } @else {
       <!-- ================================================ Recipe gallery -->

@@ -163,7 +163,7 @@
           </tr>
         </thead>
         <tbody>
-          @for (s of filtered(); track s.id; let i = $index) {
+          @for (s of shown(); track s.id; let i = $index) {
             <tr [style.--i]="i">
               <td class="mono">{{ s.rollNumber }}</td>
               <td class="name">
@@ -226,6 +226,7 @@
         </tbody>
       </table>
     </div>
+    <app-pager [total]="filtered().length" [size]="pageSize" [(page)]="page" label="Student pages" />
   }
 </section>
 

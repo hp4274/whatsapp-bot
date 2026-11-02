@@ -50,7 +50,7 @@
           </tr>
         </thead>
         <tbody>
-          @for (r of rows(); track r.channelId + r.kind) {
+          @for (r of shown(); track r.channelId + r.kind) {
             <tr>
               <td>{{ r.tenantName }}</td>
               <td>{{ r.number }}</td>
@@ -63,5 +63,6 @@
         </tbody>
       </table>
     </div>
+    <app-pager [total]="rows().length" [size]="pageSize" [(page)]="page" label="Shadow review pages" />
   }
 </section>

@@ -1,8 +1,10 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
+  linkedSignal,
   signal,
   untracked,
 } from '@angular/core';
@@ -10,6 +12,7 @@ import { FormsModule } from '@angular/forms';
 
 import { localTime, statusLabel } from '../campaigns/campaign-format';
 import { Api, MessageRecord } from '../core/api';
+import { Pager, pageOf } from '../core/pager';
 import { Store } from '../core/store';
 
 /** Filter options; `ALL` is a UI-only value the server treats as "no filter". */
@@ -28,6 +31,8 @@ const STATUSES: readonly string[] = [
 
 /** Placeholder rows shown while the first page loads. */
 const SKELETON_ROWS: readonly number[] = [0, 1, 2, 3, 4];
+/** Message rows per page. */
+const PAGE_SIZE = 20;
 
 /** Pill tone per delivery status, matching the colour the global `.status-*` classes use. */
 const STATUS_TONE: Readonly<Record<string, string>> = {
@@ -49,7 +54,7 @@ const STATUS_TONE: Readonly<Record<string, string>> = {
  */
 @Component({
   selector: 'app-history',
-  imports: [FormsModule],
+  imports: [FormsModule, Pager],
   templateUrl: './history.html',
   styleUrl: './history.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -66,6 +71,14 @@ export class HistoryView {
   protected readonly counts = signal<Record<string, number>>({});
   protected readonly loading = signal(false);
   protected readonly error = signal('');
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever a filter (which refetches) changes; a live update keeps the page. */
+  protected readonly page = linkedSignal(() => {
+    this.status();
+    this.recipient();
+    return 0;
+  });
+  protected readonly shown = computed(() => pageOf(this.records(), this.page(), PAGE_SIZE));
 
   /** The same short local date and time the campaign screens use. */
   protected readonly localTime = localTime;

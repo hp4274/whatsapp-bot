@@ -103,7 +103,7 @@
       </div>
     } @else {
       <ul class="list" aria-label="WhatsApp groups">
-        @for (r of rows(); track r.group.id; let i = $index) {
+        @for (r of shown(); track r.group.id; let i = $index) {
           <li [class.child]="r.child" [style.--i]="i">
             <label class="row" [class.on]="isOn(r.group.id)" [class.head]="r.group.isCommunity">
               <input type="checkbox" [checked]="isOn(r.group.id)" (change)="toggle(r.group.id)" />
@@ -129,6 +129,7 @@
           </li>
         }
       </ul>
+      <app-pager [total]="rows().length" [size]="pageSize" [(page)]="page" label="Group pages" />
     }
   </div>
 

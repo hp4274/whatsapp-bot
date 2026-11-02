@@ -6,12 +6,14 @@ import {
   effect,
   inject,
   input,
+  linkedSignal,
   output,
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Observable, map } from 'rxjs';
 
+import { Pager, pageOf } from '../../core/pager';
 import { Store } from '../../core/store';
 import { SchoolApi } from '../school-api';
 import type {
@@ -25,6 +27,8 @@ import type {
 } from '../school-api';
 
 const METHODS = ['cash', 'UPI', 'card', 'netbanking', 'cheque'];
+/** Fee rows per page. */
+const PAGE_SIZE = 20;
 
 interface FeeForm {
   classKey: string;
@@ -42,7 +46,7 @@ interface FeeForm {
  */
 @Component({
   selector: 'school-fees',
-  imports: [FormsModule, DatePipe, DecimalPipe, TitleCasePipe],
+  imports: [FormsModule, DatePipe, DecimalPipe, TitleCasePipe, Pager],
   templateUrl: './fees.html',
   styleUrl: './fees.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -91,6 +95,16 @@ export class FeesTab {
   protected readonly currency = computed(
     () => this.totals()?.currency || this.fees()[0]?.currency || 'INR',
   );
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever a filter (which refetches) changes. */
+  protected readonly page = linkedSignal(() => {
+    this.fClass();
+    this.fStatus();
+    this.fTerm();
+    return 0;
+  });
+  protected readonly shown = computed(() => pageOf(this.fees(), this.page(), PAGE_SIZE));
+  /** "Select all" covers every fee the filters match, on every page; the Remind button shows the count. */
   protected readonly allChecked = computed(
     () => this.fees().length > 0 && this.fees().every((f) => this.selected().has(f.id)),
   );

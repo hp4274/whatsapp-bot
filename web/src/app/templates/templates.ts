@@ -5,6 +5,7 @@ import {
   computed,
   effect,
   inject,
+  linkedSignal,
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -12,6 +13,7 @@ import { Router } from '@angular/router';
 
 import { validateInteractive } from '../campaign/interactive/interactive.model';
 import { Auth } from '../core/auth';
+import { Pager, pageOf } from '../core/pager';
 import { scrollToTop } from '../core/scroll';
 import { Store } from '../core/store';
 import { Tilt } from '../school/tilt';
@@ -33,6 +35,9 @@ import {
   usedIn,
   validate,
 } from './templates-api';
+
+/** Template cards per page. */
+const PAGE_SIZE = 12;
 
 /** The drawer shows either the editor (id null = new) or one template's version history. */
 type Panel =
@@ -108,7 +113,7 @@ const kindOf = (mime: string): HeaderMedia['kind'] =>
  */
 @Component({
   selector: 'app-templates',
-  imports: [FormsModule, Tilt, TemplatePreview, ButtonsEditor],
+  imports: [FormsModule, Tilt, TemplatePreview, ButtonsEditor, Pager],
   templateUrl: './templates.html',
   styleUrl: './templates.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -180,6 +185,15 @@ export class TemplatesView {
         (!q || x.name.toLowerCase().includes(q) || x.body.toLowerCase().includes(q)),
     );
   });
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever the search, type or category filter changes. */
+  protected readonly page = linkedSignal(() => {
+    this.query();
+    this.typeFilter();
+    this.categoryFilter();
+    return 0;
+  });
+  protected readonly shown = computed(() => pageOf(this.filtered(), this.page(), PAGE_SIZE));
   protected readonly presentTypes = computed(() =>
     TEMPLATE_TYPES.filter((t) => this.templates().some((x) => x.templateType === t)),
   );

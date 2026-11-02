@@ -3,20 +3,26 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  computed,
   effect,
   inject,
   input,
+  linkedSignal,
   output,
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
+import { Pager, pageOf } from '../../core/pager';
 import { Store } from '../../core/store';
 import { SchoolApi } from '../school-api';
 import type { ClassInfo, LeaveRequest, SchoolArea, SchoolMe } from '../school-api';
 import { Tilt } from '../tilt';
 
 type LeaveStatus = LeaveRequest['status'];
+
+/** Leave cards per page. */
+const PAGE_SIZE = 12;
 
 /**
  * Leave desk: requests parents send over WhatsApp, decided in one tap. A decided
@@ -25,7 +31,7 @@ type LeaveStatus = LeaveRequest['status'];
  */
 @Component({
   selector: 'school-leave',
-  imports: [FormsModule, DatePipe, TitleCasePipe, Tilt],
+  imports: [FormsModule, DatePipe, TitleCasePipe, Tilt, Pager],
   templateUrl: './leave.html',
   styleUrl: './leave.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -45,6 +51,14 @@ export class LeaveTab {
   protected readonly loading = signal(true);
   protected readonly error = signal('');
   protected readonly toast = signal('');
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever the status tab (which refetches) or the class changes. */
+  protected readonly page = linkedSignal(() => {
+    this.status();
+    this.classKey();
+    return 0;
+  });
+  protected readonly shown = computed(() => pageOf(this.requests(), this.page(), PAGE_SIZE));
 
   /** The card whose decision row is open, and which way. */
   protected readonly deciding = signal<{ id: number; decision: 'approve' | 'reject' } | null>(null);

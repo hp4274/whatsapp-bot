@@ -901,6 +901,54 @@ p {
   }
 }
 
+// --------------------------------------------------------- request access
+.access-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: clamp(32px, 6vw, 96px);
+  align-items: start;
+
+  .section-head {
+    margin-bottom: 0;
+  }
+}
+
+// What happens after sending, in order, so a real list.
+.next {
+  display: grid;
+  gap: 14px;
+  margin: 36px 0 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-size: 16px;
+    color: var(--text-strong);
+  }
+
+  .ti {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: var(--surface-card);
+    color: var(--primary-text);
+    font-size: 19px;
+  }
+}
+
+.access-card {
+  padding: clamp(24px, 3.5vw, 40px);
+  border-radius: var(--radius-xl);
+  background: var(--surface-card);
+}
+
+/* Pricing styles, hidden with the section (landing.html); restore both together.
 // ---------------------------------------------------------------- pricing
 .plans {
   display: grid;
@@ -986,6 +1034,8 @@ p {
     }
   }
 }
+
+*/
 
 // -------------------------------------------------------------------- FAQ
 .faq-grid {
@@ -1141,7 +1191,7 @@ p {
   }
 
   .facilities,
-  .plans {
+  .access-grid {
     grid-template-columns: minmax(0, 1fr);
     max-width: 560px;
     margin-inline: auto;

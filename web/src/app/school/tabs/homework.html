@@ -177,7 +177,7 @@
     </div>
   } @else {
     <ul class="hw">
-      @for (h of list(); track h.id; let i = $index) {
+      @for (h of shown(); track h.id; let i = $index) {
         <li [style.--i]="i" [class.out]="removing() === h.id">
           <span class="subj">{{ h.subject }}</span>
           <div class="body">
@@ -211,5 +211,6 @@
         </li>
       }
     </ul>
+    <app-pager [total]="list().length" [size]="pageSize" [(page)]="page" label="Homework pages" />
   }
 </section>

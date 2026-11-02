@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable } from 'rxjs';
 
+import { Pager, pageOf } from '../core/pager';
 import { Tilt } from '../school/tilt';
 import {
   QueuedTemplate,
@@ -35,6 +36,8 @@ export const STARTER_CATEGORIES: readonly StarterCategory[] = ['marketing', 'uti
 const SPAM_WARN = 40;
 const SPAM_BAD = 70;
 const FLASH_MS = 3000;
+/** Queue cards per page. */
+const PAGE_SIZE = 12;
 
 let nextId = 0;
 
@@ -51,7 +54,7 @@ let nextId = 0;
  */
 @Component({
   selector: 'app-template-review',
-  imports: [DatePipe, Tilt],
+  imports: [DatePipe, Tilt, Pager],
   templateUrl: './template-review.html',
   styleUrl: './template-review.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -73,6 +76,10 @@ export class TemplateReview {
 
   protected readonly queue = new Slot<readonly QueuedTemplate[]>();
   protected readonly library = new Slot<readonly Starter[]>();
+
+  protected readonly pageSize = PAGE_SIZE;
+  protected readonly queuePage = signal(0);
+  protected readonly queueShown = computed(() => pageOf(this.queue.data() ?? [], this.queuePage(), PAGE_SIZE));
 
   /** The card whose approve/reject note is open, keyed by `tenantId:id`. */
   protected readonly deciding = signal<{ readonly key: string; readonly action: Decision } | null>(null);

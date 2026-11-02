@@ -5,6 +5,7 @@ import {
   computed,
   effect,
   inject,
+  linkedSignal,
   signal,
   untracked,
   viewChild,
@@ -13,6 +14,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 
+import { Pager, clampPage, pageOf } from '../core/pager';
 import { AdminFeed } from './admin-feed';
 import { OpsAudit } from './ops-audit';
 import { OpsLogs } from './ops-logs';
@@ -39,6 +41,8 @@ type AuditTab = 'activity' | 'logs';
  * campaign sends, and health-detail reads every number: once per few seconds is live enough and cheap.
  */
 const LIVE_MIN_GAP_MS = 5000;
+/** Rows per page on the plans, usage, health and channels lists. */
+const PAGE_SIZE = 20;
 /** Safety-net reload for anything the feed does not carry (a clock-driven change such as a sending window opening). */
 const FALLBACK_POLL_MS = 90_000;
 
@@ -127,7 +131,7 @@ const PROVIDERS: Record<string, string> = { baileys: 'WhatsApp QR' };
  */
 @Component({
   selector: 'app-admin-ops',
-  imports: [RouterLink, OpsAudit, OpsLogs],
+  imports: [RouterLink, OpsAudit, OpsLogs, Pager],
   templateUrl: './ops.html',
   styleUrl: './ops.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -169,10 +173,19 @@ export class AdminOpsView {
   /** Last daily backup, shown on the health page; null until one has run. */
   protected readonly backup = signal<BackupStatus | null>(null);
 
+  protected readonly pageSize = PAGE_SIZE;
+
   // ---- plans ----
   protected readonly shownPlans = computed(() =>
     this.match(this.plans(), (p) => `${p.name} ${p.slug}`),
   );
+  /** Back to the first page whenever the page kind or the search changes. */
+  protected readonly plansPage = linkedSignal(() => {
+    this.kind();
+    this.filter();
+    return 0;
+  });
+  protected readonly plansShown = computed(() => pageOf(this.shownPlans(), this.plansPage(), PAGE_SIZE));
   protected readonly planTotals = computed(() => {
     const p = this.plans();
     return {
@@ -193,6 +206,18 @@ export class AdminOpsView {
       (a, b) => b[w].total - a[w].total || a.name.localeCompare(b.name),
     );
   });
+  /** Back to the first page whenever the page kind, the search or the period (which re-ranks) changes. */
+  protected readonly usagePage = linkedSignal(() => {
+    this.kind();
+    this.filter();
+    this.range();
+    return 0;
+  });
+  protected readonly rankedShown = computed(() => pageOf(this.ranked(), this.usagePage(), PAGE_SIZE));
+  /** Rows before the shown page, so rank numbers run on across pages. */
+  protected readonly rankOffset = computed(
+    () => clampPage(this.usagePage(), this.ranked().length, PAGE_SIZE) * PAGE_SIZE,
+  );
   protected readonly maxWindow = computed(() =>
     Math.max(1, ...this.ranked().map((t) => t[this.range()].total)),
   );
@@ -276,6 +301,20 @@ export class AdminOpsView {
       .filter((c) => !p || c.provider === p)
       .sort((a, b) => a.tenantName.localeCompare(b.tenantName) || a.id - b.id);
   });
+
+  /** The health or the channels list, whichever page this is. */
+  protected readonly numbers = computed(() =>
+    this.kind() === 'health' ? this.shownHealth() : this.shownChannels(),
+  );
+  /** Back to the first page whenever the page kind, the search, the transport or "Problems only" changes. */
+  protected readonly numbersPage = linkedSignal(() => {
+    this.kind();
+    this.filter();
+    this.provider();
+    this.problemsOnly();
+    return 0;
+  });
+  protected readonly numbersShown = computed(() => pageOf(this.numbers(), this.numbersPage(), PAGE_SIZE));
 
   constructor() {
     effect(() => {

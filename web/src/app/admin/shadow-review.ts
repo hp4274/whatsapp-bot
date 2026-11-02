@@ -3,6 +3,11 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { DatePipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
+import { Pager, pageOf } from '../core/pager';
+
+/** Shadow rows per page. */
+const PAGE_SIZE = 20;
+
 /** One number and one kind of shadow trigger (server: adminOps.shadowReview). */
 interface ShadowRow {
   readonly tenantName: string;
@@ -38,7 +43,7 @@ const KIND_LABELS: Readonly<Record<string, string>> = {
  */
 @Component({
   selector: 'app-shadow-review',
-  imports: [DatePipe],
+  imports: [DatePipe, Pager],
   templateUrl: './shadow-review.html',
   styleUrl: './shadow-review.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -53,6 +58,10 @@ export class ShadowReview {
 
   protected readonly totalHours = computed(() => this.rows().reduce((sum, r) => sum + r.pauseHours, 0));
   protected readonly numbers = computed(() => new Set(this.rows().map((r) => r.channelId)).size);
+
+  protected readonly pageSize = PAGE_SIZE;
+  protected readonly page = signal(0);
+  protected readonly shown = computed(() => pageOf(this.rows(), this.page(), PAGE_SIZE));
 
   constructor() {
     this.load();

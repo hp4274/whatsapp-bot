@@ -36,7 +36,7 @@
         </div>
       } @else {
         <div class="grid">
-          @for (t of queue.data(); track key(t); let i = $index) {
+          @for (t of queueShown(); track key(t); let i = $index) {
             <article class="card s-enter" [style.--i]="i" [attr.aria-labelledby]="uid + '-q' + i">
               <header class="top">
                 <h3 [id]="uid + '-q' + i">{{ t.name }}</h3>
@@ -124,6 +124,7 @@
             </div>
           }
         </div>
+        <app-pager [total]="queue.data()?.length ?? 0" [size]="pageSize" [(page)]="queuePage" label="Review queue pages" />
       }
     }
 

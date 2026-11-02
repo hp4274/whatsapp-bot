@@ -4,11 +4,13 @@ import {
   DestroyRef,
   computed,
   inject,
+  linkedSignal,
   signal,
 } from '@angular/core';
 import { TitleCasePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
+import { Pager, pageOf } from '../core/pager';
 import { Store } from '../core/store';
 import { Tilt } from '../school/tilt';
 import {
@@ -25,6 +27,8 @@ import {
 
 /** `mine` lists installed workflows; `gallery` is the recipe catalogue they come from. */
 type Tab = 'mine' | 'gallery';
+/** Workflow rows per page. */
+const PAGE_SIZE = 20;
 type Filter = WorkflowStatus | null;
 
 /** Tabler icon per trigger family (the part of the event name before the dot). */
@@ -73,7 +77,7 @@ const ACTION_ICONS: Record<string, string> = {
  */
 @Component({
   selector: 'app-workflows',
-  imports: [FormsModule, TitleCasePipe, Tilt],
+  imports: [FormsModule, TitleCasePipe, Tilt, Pager],
   templateUrl: './workflows.html',
   styleUrl: './workflows.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -129,6 +133,14 @@ export class WorkflowsView {
     const f = this.filter();
     return f ? this.workflows().filter((w) => w.status === f) : this.workflows();
   });
+
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever the status filter changes. */
+  protected readonly page = linkedSignal(() => {
+    this.filter();
+    return 0;
+  });
+  protected readonly shown = computed(() => pageOf(this.visible(), this.page(), PAGE_SIZE));
 
   protected readonly groups = computed(() => {
     const map = new Map<string, Recipe[]>();
@@ -319,6 +331,7 @@ export class WorkflowsView {
           this.installKey.set(null);
           this.workflows.update((list) => [workflow, ...list.filter((w) => w.id !== workflow.id)]);
           this.filter.set(null);
+          this.page.set(0); // the new workflow is first in the list
           this.tab.set('mine');
           this.highlightId.set(workflow.id);
           setTimeout(() => this.highlightId.set(null), 2400);

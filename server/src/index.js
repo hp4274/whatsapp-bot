@@ -22,6 +22,7 @@ import { createOpsAlerts } from './observability/alerts.js';
 import { logger } from './observability/logger.js';
 import { trackRestarts } from './observability/metrics.js';
 import { migrateChannelSettings } from './security/crypto.js';
+import { createMailer } from './mail/mailer.js';
 import { startupKeyGate } from './security/keyGate.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -70,7 +71,9 @@ try {
 migrateChannelSettings(db.db);
 // The real server runs the workflow sweeper; tests opt in explicitly.
 // PUBLIC_BASE_URL (e.g. https://send.example.com): where recipients' phones reach /l/<code> for tracked links.
-const app = createApp({ db, config, scheduler: true, publicBaseUrl: process.env.PUBLIC_BASE_URL || null });
+const mailer = createMailer();
+if (!mailer.configured) console.log('[whatsapp-sender] email off: set SMTP_HOST, SMTP_USER and SMTP_PASSWORD to send mail');
+const app = createApp({ db, config, scheduler: true, publicBaseUrl: process.env.PUBLIC_BASE_URL || null, mailer });
 
 // Serve the built frontend when it exists, so `npm start` is the whole app.
 const webDist = path.join(HERE, '..', '..', 'web', 'dist', 'web', 'browser');

@@ -43,3 +43,9 @@
 @media (max-width: 960px) {
   .split { grid-template-columns: 1fr; }
 }
+
+// Edit and remove use the app's one confirm dialog (school-shared confirm).
+@include s.confirm;
+.dialog .fields { display: grid; gap: var(--space-md); margin-top: var(--space-lg); }
+.dialog .s-banner { margin-top: var(--space-md); }
+.row-acts { display: inline-flex; gap: 6px; }

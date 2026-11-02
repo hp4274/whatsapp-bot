@@ -16,8 +16,10 @@ import { type ChannelDetail, OpsApi } from './admin/ops-api';
 import { SERVICE_META } from './admin/service-meta';
 import { TenancyApi } from './core/api';
 import { Auth, Role, Tenant } from './core/auth';
+import { AccountDialog } from './core/account-dialog';
+import { ConfirmDialog } from './core/confirm-dialog';
 import { SendIsland } from './core/send-island';
-import { Store, ThemeMode } from './core/store';
+import { Store, ThemeMode, isBare } from './core/store';
 
 type NavItem = {
   path: string;
@@ -95,12 +97,6 @@ const HEALTH_REFRESH_MS = 60_000;
 const SUBSCRIPTION_ENDED_TEXT =
   'Your subscription has ended. You can still see your data, but nothing is sent and changes are off. Contact your provider to renew.';
 
-/** The landing page (`/`, with any fragment or query) and the sign-in screen render without the shell. */
-function isBare(url: string): boolean {
-  const path = url.split(/[?#]/)[0];
-  return path === '/' || path === '' || path.startsWith('/login');
-}
-
 /** Web Storage throws outright in some privacy modes, so the read is guarded. */
 function readCollapsed(): boolean {
   try {
@@ -123,7 +119,7 @@ function readCollapsed(): boolean {
  */
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, SendIsland],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, SendIsland, AccountDialog, ConfirmDialog],
   templateUrl: './app.html',
   styleUrl: './app.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -171,6 +167,9 @@ export class App {
       const state = this.auth.tenant()?.subscription?.state;
       if (state && state !== 'expired') untracked(() => this.auth.blocked.set(null));
     });
+
+    // The theme belongs to the dashboard: the landing page and sign-in stay light whatever was picked here.
+    effect(() => this.store.setPublicPage(this.bare()));
 
     // Only the platform view needs the fleet, so nobody else pays for the poll. The
     // computed above flips only on a real view change, which keeps the timer from
@@ -293,6 +292,7 @@ export class App {
   /** The super admin's own pages, above the per-service settings on the platform view. */
   private readonly platformNav: readonly NavItem[] = [
     { path: '/admin/tenants', label: 'Tenants', icon: ICONS.tenants },
+    { path: '/admin/leads', label: 'Leads', icon: 'user-plus' },
     { path: '/admin/plans', label: 'Plans & billing', icon: ICONS.plans },
     { path: '/admin/usage', label: 'Usage', icon: ICONS.usage },
     { path: '/admin/health', label: 'Health', icon: ICONS.health },
@@ -427,7 +427,14 @@ export class App {
     () => THEMES.find((theme) => theme.value === this.store.theme())?.icon ?? 'sun-moon',
   );
 
+  /** Your own email and password (AccountDialog), from the account row. */
+  protected readonly accountOpen = signal(false);
+
+  /** Sign-out asks first, with the same dialog as deleting a tenant. */
+  protected readonly confirmSignOut = signal(false);
+
   protected signOut() {
+    this.confirmSignOut.set(false);
     this.auth.logout();
     this.store.stop();
     this.router.navigate(['/login']);

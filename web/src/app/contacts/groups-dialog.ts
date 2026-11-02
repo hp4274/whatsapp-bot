@@ -5,6 +5,7 @@ import {
   afterNextRender,
   computed,
   inject,
+  linkedSignal,
   output,
   signal,
   viewChild,
@@ -12,7 +13,11 @@ import {
 import { RouterLink } from '@angular/router';
 
 import { ContactsApi, WhatsappGroup } from '../core/api';
+import { Pager, pageOf } from '../core/pager';
 import { saveBlob, today } from './contact-util';
+
+/** Group rows per page. */
+const PAGE_SIZE = 20;
 
 interface GroupRow {
   group: WhatsappGroup;
@@ -26,7 +31,7 @@ interface GroupRow {
  */
 @Component({
   selector: 'app-groups-dialog',
-  imports: [RouterLink],
+  imports: [RouterLink, Pager],
   templateUrl: './groups-dialog.html',
   styleUrl: './groups-dialog.scss',
   host: { '(document:keydown.escape)': 'close()' },
@@ -70,6 +75,14 @@ export class GroupsDialog {
     }
     return out;
   });
+
+  protected readonly pageSize = PAGE_SIZE;
+  /** Back to the first page whenever the search changes. */
+  protected readonly page = linkedSignal(() => {
+    this.query();
+    return 0;
+  });
+  protected readonly shown = computed(() => pageOf(this.rows(), this.page(), PAGE_SIZE));
 
   protected readonly selectedCount = computed(() => this.selected().size);
   protected readonly allVisibleSelected = computed(() => {

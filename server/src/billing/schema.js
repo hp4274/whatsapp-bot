@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     pending_plan_key     TEXT,
     cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
     cancelled_at         TEXT,
+    -- How the business pays: 'paid' | 'free' | 'unpaid', set by the super admin. NULL = never recorded.
+    payment              TEXT,
     created_at           TEXT NOT NULL,
     updated_at           TEXT NOT NULL
 );
@@ -74,4 +76,9 @@ CREATE INDEX IF NOT EXISTS idx_usage_counters_period ON usage_counters(tenant_id
 export function migratePlans(db) {
     const cols = db.prepare('PRAGMA table_info(plans)').all().map((c) => c.name);
     if (!cols.includes('details')) db.exec("ALTER TABLE plans ADD COLUMN details TEXT NOT NULL DEFAULT '{}'");
+    const subs = db.prepare('PRAGMA table_info(subscriptions)').all().map((c) => c.name);
+    if (!subs.includes('payment')) db.exec('ALTER TABLE subscriptions ADD COLUMN payment TEXT');
 }
+
+/** How a business pays, as the super admin records it. A note for the operator: the plan's state is what is enforced. */
+export const PAYMENTS = Object.freeze(['paid', 'free', 'unpaid']);

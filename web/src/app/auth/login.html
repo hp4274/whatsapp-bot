@@ -143,3 +143,27 @@
     </div>
   </div>
 </div>
+
+<!-- An email with no account: offer the landing page's request form instead of another try. -->
+@if (signup()) {
+  <dialog
+    #signupDialog
+    class="signup"
+    aria-labelledby="signup-title"
+    aria-describedby="signup-desc"
+    (close)="signup.set(false)"
+  >
+    <header>
+      <div>
+        <h2 id="signup-title">No account for this email yet</h2>
+        <p id="signup-desc">
+          Accounts are set up for you. Send a request and we will email your sign-in details.
+        </p>
+      </div>
+      <button class="x" type="button" aria-label="Close" (click)="signupDialog.close()">
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
+    </header>
+    <app-lead-form source="login" [email]="email().trim()" />
+  </dialog>
+}

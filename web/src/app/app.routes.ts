@@ -150,6 +150,12 @@ export const routes: Routes = [
     loadComponent: () => import('./admin/tenants').then((m) => m.TenantsView),
   },
   {
+    path: 'admin/leads',
+    title: 'Leads - Wapzo',
+    canActivate: [roleGuard('super_admin')],
+    loadComponent: () => import('./admin/leads').then((m) => m.LeadsView),
+  },
+  {
     path: 'admin/plans',
     title: 'Plans & billing - Wapzo',
     canActivate: [roleGuard('super_admin')],

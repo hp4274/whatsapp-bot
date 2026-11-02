@@ -72,7 +72,7 @@
   </div>
 } @else {
   <div class="grid">
-    @for (r of requests(); track r.ticketId; let i = $index) {
+    @for (r of shown(); track r.ticketId; let i = $index) {
       <article
         class="s-card s-tilt req"
         [schoolTilt]="4"
@@ -160,6 +160,7 @@
       </article>
     }
   </div>
+  <app-pager [total]="requests().length" [size]="pageSize" [(page)]="page" label="Leave request pages" />
 }
 
 <div class="toast" role="status" aria-live="polite" [class.show]="toast()">

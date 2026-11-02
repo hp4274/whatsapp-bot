@@ -282,7 +282,7 @@
           </tr>
         </thead>
         <tbody>
-          @for (f of fees(); track f.id; let i = $index) {
+          @for (f of shown(); track f.id; let i = $index) {
             <tr [style.--i]="i" [class.flip]="justPaid() === f.id">
               <td>
                 <input
@@ -360,5 +360,6 @@
         </tbody>
       </table>
     </div>
+    <app-pager [total]="fees().length" [size]="pageSize" [(page)]="page" label="Fee pages" />
   }
 </section>

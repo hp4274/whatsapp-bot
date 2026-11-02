@@ -103,7 +103,7 @@
           </tr>
         </thead>
         <tbody>
-          @for (item of reminders(); track item.phone) {
+          @for (item of shown(); track item.phone) {
             <tr>
               <td>{{ item.rowNumber }}</td>
               <td>{{ item.name || '-' }}</td>
@@ -116,6 +116,7 @@
         </tbody>
       </table>
     </div>
+    <app-pager [total]="reminders().length" [size]="pageSize" [(page)]="page" label="Imported row pages" />
 
     @if (firstPreview()) {
       <p class="preview"><span>First preview</span>{{ firstPreview() }}</p>

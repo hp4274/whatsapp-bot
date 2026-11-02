@@ -183,7 +183,7 @@
         </p>
       } @else {
         <ul class="wa-numbers" aria-labelledby="wa-numbers-title">
-          @for (contact of shownContacts(); track contact.phone) {
+          @for (contact of contactsShown(); track contact.phone) {
             <li>
               <span class="wa-who">
                 <strong>{{ contact.name || spacedPhone(contact.phone) }}</strong>
@@ -200,6 +200,12 @@
             </li>
           }
         </ul>
+        <app-pager
+          [total]="shownContacts().length"
+          [size]="pageSize"
+          [(page)]="contactsPage"
+          label="WhatsApp number pages"
+        />
       }
     }
   </section>

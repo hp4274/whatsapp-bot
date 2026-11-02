@@ -233,7 +233,7 @@
 } @else if (!error()) {
   @if (visible().length) {
     <ul class="list" aria-label="Tickets">
-      @for (t of visible(); track t.id; let i = $index) {
+      @for (t of shown(); track t.id; let i = $index) {
         @let clock = sla(t);
         <li class="s-enter" [style.--i]="i < 12 ? i : 12">
           <button
@@ -275,6 +275,7 @@
         </li>
       }
     </ul>
+    <app-pager [total]="visible().length" [size]="pageSize" [(page)]="page" label="Ticket pages" />
   } @else if (filtered()) {
     <div class="s-card s-empty tone-info">
       <i class="ti ti-filter-off" aria-hidden="true"></i>

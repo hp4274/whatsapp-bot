@@ -88,6 +88,23 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_logs(tenant_id, id);
+-- People asking for an account from the public site (leads.js). Platform-wide, like plans: no tenant
+-- until a super admin converts one, which stamps tenant_id.
+CREATE TABLE IF NOT EXISTS leads (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    business    TEXT NOT NULL,
+    email       TEXT NOT NULL,
+    phone       TEXT NOT NULL DEFAULT '',
+    message     TEXT NOT NULL DEFAULT '',
+    source      TEXT NOT NULL DEFAULT 'landing',
+    status      TEXT NOT NULL DEFAULT 'new',
+    tenant_id   INTEGER,
+    ip          TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status, id);
 -- A tenant accepting the risk of its own sending limits. Evidence, so the
 -- database itself refuses to edit or delete a row.
 CREATE TABLE IF NOT EXISTS safety_consents (

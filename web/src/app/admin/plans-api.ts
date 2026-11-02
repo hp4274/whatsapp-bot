@@ -66,7 +66,16 @@ export interface Subscription {
   readonly cancelAtPeriodEnd: boolean;
   readonly cancelledAt: string | null;
   readonly graceEndsAt: string | null;
+  readonly payment?: Payment | null;
 }
+
+/** How a business pays, as the super admin records it (server billing/schema.js PAYMENTS). */
+export type Payment = 'paid' | 'free' | 'unpaid';
+export const PAYMENTS: readonly { readonly key: Payment; readonly label: string; readonly tone: string }[] = [
+  { key: 'paid', label: 'Paid', tone: 'tone-ok' },
+  { key: 'free', label: 'Free', tone: 'tone-info' },
+  { key: 'unpaid', label: 'Unpaid', tone: 'tone-warn' },
+];
 
 export type SubscriptionState = 'trialing' | 'active' | 'grace' | 'expired';
 
@@ -127,7 +136,7 @@ export function subscriptionWhen(sub: TenantSubscriptionSummary | Subscription):
   return `${sub.cancelAtPeriodEnd ? 'Ends' : 'Renews'} ${d(sub.currentPeriodEnd)}`;
 }
 
-function toMessage(error: HttpErrorResponse) {
+export function toMessage(error: HttpErrorResponse) {
   const errors = error.error?.errors;
   const message =
     Array.isArray(errors) && errors.length
@@ -167,12 +176,20 @@ export class PlansApi {
     tenantId: number,
     planKey: string,
     trialDays?: number,
+    payment?: Payment,
   ): Observable<{ subscription: Subscription; tenant: Tenant }> {
     return this.http
       .put<{ subscription: Subscription; tenant: Tenant }>(
         `/api/admin/tenants/${tenantId}/subscription`,
-        trialDays === undefined ? { planKey } : { planKey, trialDays },
+        { planKey, ...(trialDays === undefined ? {} : { trialDays }), ...(payment ? { payment } : {}) },
       )
+      .pipe(catchError(toMessage));
+  }
+
+  /** Paid, free or unpaid; leaves the plan and its period alone. */
+  setPayment(tenantId: number, payment: Payment): Observable<{ subscription: Subscription }> {
+    return this.http
+      .put<{ subscription: Subscription }>(`/api/admin/tenants/${tenantId}/payment`, { payment })
       .pipe(catchError(toMessage));
   }
 

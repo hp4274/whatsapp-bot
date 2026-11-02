@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 
 import { TenancyApi } from '../core/api';
 import { Auth, ROLE_RANK, Role, User } from '../core/auth';
+import { ConfirmDialog } from '../core/confirm-dialog';
 
 /** Placeholder rows shown while the first user list loads. */
 const SKELETON_ROWS: readonly number[] = [0, 1, 2];
@@ -11,11 +12,13 @@ const SKELETON_ROWS: readonly number[] = [0, 1, 2];
  * Who can sign in to the workspace.
  *
  * Role rules are mirrored here only to hide controls the server would reject
- * anyway; the server remains the authority on who may create or disable whom.
+ * anyway; the server remains the authority on who may create, change or remove whom.
+ * An owner (or admin) changes a member's email and password here, and removes a
+ * member; everyone's own sign-in is the account dialog in the sidebar.
  */
 @Component({
   selector: 'app-team',
-  imports: [FormsModule],
+  imports: [ConfirmDialog, FormsModule],
   templateUrl: './team.html',
   styleUrl: './team.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -90,6 +93,53 @@ export class TeamView {
           this.error.set(err.message);
         },
       });
+  }
+
+  /** The member being edited and the form for them: a blank password keeps theirs. */
+  protected readonly editing = signal<User | null>(null);
+  protected readonly editDraft = signal({ email: '', password: '' });
+  protected readonly editError = signal('');
+  /** The member awaiting the remove confirmation. */
+  protected readonly removing = signal<User | null>(null);
+
+  protected openEdit(user: User) {
+    this.editError.set('');
+    this.editDraft.set({ email: user.email, password: '' });
+    this.editing.set(user);
+  }
+
+  protected saveEdit(event: Event) {
+    event.preventDefault();
+    const user = this.editing();
+    if (!user || this.busy() || !(event.target as HTMLFormElement).reportValidity()) return;
+    const d = this.editDraft();
+    const email = d.email.trim();
+    this.busy.set(true);
+    this.editError.set('');
+    this.api
+      .setUserCredentials(user.id, {
+        ...(email.toLowerCase() !== user.email ? { email } : {}),
+        ...(d.password ? { password: d.password } : {}),
+      })
+      .subscribe({
+        next: () => {
+          this.busy.set(false);
+          this.editing.set(null);
+          this.refresh();
+        },
+        error: (err: Error) => {
+          this.busy.set(false);
+          this.editError.set(err.message);
+        },
+      });
+  }
+
+  protected remove(user: User) {
+    this.removing.set(null);
+    this.api.removeUser(user.id).subscribe({
+      next: () => this.refresh(),
+      error: (err: Error) => this.error.set(err.message),
+    });
   }
 
   protected toggle(user: User) {
