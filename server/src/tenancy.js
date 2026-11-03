@@ -762,9 +762,31 @@ function cleanUserEmail(email) {
     return cleanEmail;
 }
 
+/**
+ * Services not open yet ("Coming soon" in the app): no tenant or plan has one, whatever was saved, so they count for
+ * nothing and their routes answer "disabled". WHATSAPP_SOON_SERVICES (comma list) overrides; '' opens them all.
+ * Keep in step with web/src/app/admin/service-meta.ts SOON_SERVICES, which marks them in the menus.
+ */
+const DEFAULT_SOON_SERVICES = Object.freeze([
+    'school_whatsapp_bot', 'payment_reminders', 'workflows', 'faq', 'tickets', 'appointments', 'orders', 'leads',
+    'subscriptions', 'events', 'api', 'analytics', 'integrations', 'ai',
+]);
+
+export function soonServices() {
+    const env = process.env.WHATSAPP_SOON_SERVICES;
+    return env === undefined ? DEFAULT_SOON_SERVICES : env.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+/** The services a tenant or plan can have today: the "of N" in "8 of 8 enabled". */
+export function openServices() {
+    const soon = soonServices();
+    return TENANT_SERVICES.filter((service) => !soon.includes(service));
+}
+
 export function normalizeTenantServices(services) {
-    if (!Array.isArray(services)) return [...TENANT_SERVICES];
-    return TENANT_SERVICES.filter((service) => services.includes(service));
+    const open = openServices();
+    if (!Array.isArray(services)) return open;
+    return open.filter((service) => services.includes(service));
 }
 
 /**

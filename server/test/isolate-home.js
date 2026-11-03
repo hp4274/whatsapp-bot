@@ -8,3 +8,5 @@ process.env.WHATSAPP_SENDER_HOME ||= fs.mkdtempSync(path.join(os.tmpdir(), 'wsen
 process.env.WHATSAPP_SENDER_SANDBOX ||= '1';
 // The nightly rest and recipient-hours holds depend on the wall clock; tests must not.
 process.env.WHATSAPP_SENDER_FAST ||= '1';
+// Every service open, so the features behind "Coming soon" keep their tests (tenancy.js soonServices).
+process.env.WHATSAPP_SOON_SERVICES ??= '';

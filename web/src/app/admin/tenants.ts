@@ -103,6 +103,11 @@ export class TenantsView {
   protected readonly actingId = this.auth.actingTenantId;
 
   protected readonly services = signal<string[]>([...DEFAULT_SERVICES]);
+  /** The drawer's list: what a business can have (the server's), then what is coming soon, shown switched off. */
+  protected readonly drawerServices = computed(() => [
+    ...this.services(),
+    ...[...SOON_SERVICES].filter((s) => !this.services().includes(s)),
+  ]);
   /** IDs in use, for Add tenant's "already in use" hint. */
   protected readonly slugs = computed(() => this.tenants().map((t) => t.slug));
   protected readonly stateTone = stateTone;

@@ -431,7 +431,7 @@
 
     <div class="drawer-checks">
       <div class="opt-list">
-        @for (service of services(); track service) {
+        @for (service of drawerServices(); track service) {
           <label class="opt">
             <span>
               <i class="ti ti-{{ serviceIcon(service) }}" aria-hidden="true"></i>{{ serviceLabel(service) }}

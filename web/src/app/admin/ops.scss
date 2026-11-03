@@ -284,11 +284,15 @@
   list-style: none;
   font-size: 13px;
   color: var(--text-muted);
-  li { display: inline-flex; align-items: center; gap: 4px; }
+  // Plain inline text, not flex: a flex gap would also open before the commas ("0 , 0% failed").
+  li { line-height: 20px; }
   li.ok, li.bad, li.warn { color: var(--tone); font-weight: 500; }
   b { font-weight: 500; font-variant-numeric: tabular-nums; color: var(--text-strong); }
-  .ti { font-size: 16px; }
+  // -2px puts a 16px icon's middle on the middle of 13px capitals.
+  .ti { margin-right: 4px; font-size: 16px; vertical-align: -2px; }
 }
+// A problem is one icon and one sentence: the icon stays centred on the first line when the sentence wraps.
+.problems li { display: flex; align-items: flex-start; gap: 6px; .ti { margin: 2px 0 0; } }
 
 /* Health / channels ---------------------------------------------------- */
 .banner {
@@ -303,6 +307,7 @@
   border-radius: var(--radius-xl);
   background: color-mix(in srgb, var(--tone) 8%, var(--surface-card));
   animation: rise 420ms var(--ease) both;
+  &:has(+ .backup-line) { margin-bottom: var(--space-md); }
   &.warn { --tone: var(--warning); }
   &.bad { --tone: var(--danger-text); }
   > .ti { font-size: 34px; color: var(--tone); }
@@ -314,7 +319,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: calc(var(--space-lg) * -1) 0 var(--space-xl);
+  margin: 0 0 var(--space-xl);
   font-size: 13px;
   color: var(--text-muted);
   .ti { font-size: 16px; color: var(--success); }

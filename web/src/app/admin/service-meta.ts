@@ -28,7 +28,10 @@ export const SERVICE_META: Record<string, { label: string; icon: string; sends?:
 export const serviceMeta = (key: string) =>
   SERVICE_META[key] ?? { label: key.replace(/_/g, ' '), icon: 'components', sends: false };
 
-/** Services not open yet: listed and marked "Coming soon", but not reachable from the menus or switchable. */
+/**
+ * Services not open yet: listed and marked "Coming soon", but not reachable from the menus or switchable. The server
+ * (tenancy.js soonServices) keeps them off every tenant and plan; keep the two lists in step.
+ */
 export const SOON_SERVICES: ReadonlySet<string> = new Set([
   'school_whatsapp_bot',
   'payment_reminders',
