@@ -144,6 +144,61 @@ describe('plan management', () => {
         assert.equal((await call(sup, 'PUT', url, { amount: null })).status, 400, 'nothing to change on a priced plan');
     });
 
+    it('bills monthly, quarterly or annually from the plan price, and counts the renewal from the start date', async () => {
+        const { cycleAmount } = await import('../src/billing/store.js');
+        assert.equal(cycleAmount(999, 'month', 'quarter'), 2997);
+        assert.equal(cycleAmount(999, 'month', 'year'), 11988);
+        assert.equal(cycleAmount(12000, 'year', 'month'), 1000);
+        const url = `/api/admin/tenants/${tenantId}`;
+        await call(sup, 'PUT', `${url}/subscription`, { planKey: 'starter' });
+        const before = (await call(sup, 'GET', `${url}/payments`)).body.charged;
+        assert.equal((await call(sup, 'PUT', `${url}/cycle`, { cycle: 'weekly' })).status, 400);
+        const q = await call(sup, 'PUT', `${url}/cycle`, { cycle: 'quarter' });
+        assert.equal(q.status, 200, JSON.stringify(q.body));
+        assert.equal(q.body.subscription.billingCycle, 'quarter');
+        assert.equal(q.body.tenant.balance.charged, before, 'this period was already charged: the new cycle starts at renewal');
+        // Renewed quarterly: three months in one charge, noted as such.
+        await call(sup, 'PUT', `${url}/subscription`, { planKey: 'starter' });
+        const bill = (await call(sup, 'GET', `${url}/payments`)).body;
+        assert.equal(bill.charged, before + 2997);
+        assert.equal(bill.planPrice, 2997);
+        assert.equal(bill.interval, 'quarter');
+        assert.match(bill.entries[0].note, /Starter plan, quarterly, renewed/);
+        // The start date moves the next renewal with it.
+        const start = await call(sup, 'PUT', `${url}/start`, { startsAt: '2026-01-31' });
+        assert.equal(start.body.subscription.startsAt, '2026-01-31T00:00:00.000Z');
+        assert.equal(start.body.subscription.renewsAt, '2026-04-30T00:00:00.000Z');
+        assert.equal((await call(sup, 'PUT', `${url}/start`, { startsAt: 'soon' })).status, 400);
+        await call(sup, 'PUT', `${url}/cycle`, { cycle: 'month' });
+        await new Promise((resolve) => setTimeout(resolve, 2100)); // the API's request burst refills for the next test
+    });
+
+    it('gives a business its own plan from what it has, without charging it twice', async () => {
+        const url = `/api/admin/tenants/${tenantId}`;
+        await call(sup, 'PUT', `${url}/subscription`, { planKey: 'business' });
+        const before = (await call(sup, 'GET', `${url}/payments`)).body.charged;
+        const made = await call(sup, 'POST', `${url}/own-plan`);
+        assert.equal(made.status, 201, JSON.stringify(made.body));
+        assert.equal(made.body.subscription.planKey, `own-${tenantId}`);
+        assert.equal(made.body.plan.tenantId, tenantId);
+        assert.equal(made.body.plan.active, false, 'never offered to anyone else');
+        assert.equal(made.body.subscription.customPrice, 2999, "Business's price carried over as its own");
+        assert.equal(made.body.plan.limits.messagesPerMonth, 25000);
+        assert.equal(made.body.tenant.balance.charged, before, 'same period: not charged again');
+        assert.equal((await call(sup, 'POST', `${url}/own-plan`)).status, 409);
+        // Its services are its own: renewing does not put the plan's back.
+        await call(sup, 'PATCH', url, { services: ['contacts', 'templates'] });
+        await call(sup, 'PUT', `${url}/subscription`, { planKey: `own-${tenantId}` });
+        const tenant = (await call(sup, 'GET', '/api/admin/tenants')).body.tenants.find((t) => t.id === tenantId);
+        assert.deepEqual([...tenant.services].sort(), ['contacts', 'templates']);
+        // Another business cannot be put on it.
+        const other = await call(sup, 'POST', '/api/admin/tenants', {
+            name: 'Other Biz', planKey: 'starter', trialDays: 0, owner: { email: 'o@other.test', password: 'password123' },
+        });
+        assert.equal((await call(sup, 'PUT', `/api/admin/tenants/${other.body.tenant.id}/subscription`, { planKey: `own-${tenantId}` })).status, 404);
+        await new Promise((resolve) => setTimeout(resolve, 2100)); // the API's request burst refills for the next test
+    });
+
     it('keeps a log of plan changes the Plan tab can read', async () => {
         await call(sup, 'PUT', `/api/admin/tenants/${tenantId}/payment`, { payment: 'free' });
         const actions = 'tenant.subscription,tenant.payment,tenant.topup,tenant.validity';

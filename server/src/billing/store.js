@@ -77,6 +77,29 @@ export function periodEnd(period) {
 }
 
 const days = (n) => n * 24 * 3600 * 1000;
+
+/** How often a business can be billed, and the months in each. */
+export const BILLING_CYCLES = Object.freeze({ month: 1, quarter: 3, year: 12 });
+
+/**
+ * What one billing cycle costs, from a price quoted per `interval` ('month' | 'year'): a quarter of a monthly
+ * plan is three months, a quarter of a yearly plan is a quarter of the year. Whole units, rounded.
+ */
+export function cycleAmount(price, interval, cycle) {
+    const perMonth = Number(price || 0) / (interval === 'year' ? 12 : 1);
+    return Math.round(perMonth * (BILLING_CYCLES[cycle] ?? 1));
+}
+
+/** `iso` plus `months` calendar months (the 31st of a short month lands on its last day). */
+function addMonths(iso, months) {
+    const d = new Date(iso);
+    const day = d.getUTCDate();
+    d.setUTCDate(1);
+    d.setUTCMonth(d.getUTCMonth() + months);
+    const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+    d.setUTCDate(Math.min(day, last));
+    return d.toISOString();
+}
 const iso = (value) => (value ? new Date(value).toISOString() : null);
 
 export class BillingStore {
@@ -124,8 +147,8 @@ export class BillingStore {
         if (!plan.name) throw new BillingError('plan name is required');
         const problem = planProblem(input);
         if (problem) throw new BillingError(problem);
-        const { description, price, currency, interval, trialDays, services, tenantLimits, active } = plan;
-        const details = { description, price, currency, interval, trialDays, services, tenantLimits, active };
+        const { description, price, currency, interval, trialDays, services, tenantLimits, active, tenantId } = plan;
+        const details = { description, price, currency, interval, trialDays, services, tenantLimits, active, tenantId };
         const now = utcNow();
         this.db.prepare(
             `INSERT INTO plans (key, name, tier, limits, features, details, created_at, updated_at)
@@ -221,6 +244,10 @@ export class BillingStore {
             topupMessages: row.topup_period === period ? Number(row.topup_messages) || 0 : 0,
             // Only on a plan with no list price; a priced plan's own price is what is paid.
             customPrice: plan.price ? null : (row.custom_price ?? null),
+            // Monthly, quarterly or annually; the plan's own interval until one is chosen.
+            billingCycle: row.billing_cycle ?? (plan.interval === 'year' ? 'year' : 'month'),
+            /** When the next cycle starts: the start date plus one cycle. */
+            renewsAt: addMonths(row.starts_at, BILLING_CYCLES[row.billing_cycle ?? (plan.interval === 'year' ? 'year' : 'month')]),
         };
     }
 
@@ -271,6 +298,24 @@ export class BillingStore {
             value = Math.round(value);
         }
         this.patch({ custom_price: value });
+        return this.subscription();
+    }
+
+    /** How often this business is billed ('month' | 'quarter' | 'year'). */
+    setCycle(cycle) {
+        if (!(cycle in BILLING_CYCLES)) throw new BillingError('Choose monthly, quarterly or annual billing.');
+        this.require();
+        this.patch({ billing_cycle: cycle });
+        return this.subscription();
+    }
+
+    /** When the plan started (a date, or a time); the next renewal counts from it. */
+    setStart(startsAt) {
+        this.require();
+        const text = String(startsAt ?? '');
+        const at = new Date(/^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T00:00:00.000Z` : text);
+        if (!text || Number.isNaN(at.getTime())) throw new BillingError('the start must be a date');
+        this.patch({ starts_at: at.toISOString() });
         return this.subscription();
     }
 

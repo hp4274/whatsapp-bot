@@ -120,7 +120,8 @@ export class PlansView {
       .filter((p) => p.active)
       .sort((a, b) => a.tier - b.tier),
   );
-  protected readonly archivedPlans = computed(() => this.plans().filter((p) => !p.active));
+  // A business's own plan (Tenant settings > Create plan) lives in its settings, not in this catalogue.
+  protected readonly archivedPlans = computed(() => this.plans().filter((p) => !p.active && p.tenantId == null));
   /** Middle tier gets the "popular" lift, like a pricing page. */
   protected readonly featuredKey = computed(() => {
     const list = this.activePlans();

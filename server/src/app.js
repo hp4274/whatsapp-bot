@@ -88,7 +88,7 @@ import { busyText, dueCampaigns, finishedCampaigns, openCampaigns, recurringTena
 import { LinkStore, followLink } from './links/store.js';
 import { DEFAULT_PLANS } from './billing/plans.js';
 import { PAYMENTS } from './billing/schema.js';
-import { BillingError, BillingStore } from './billing/store.js';
+import { BillingError, BillingStore, cycleAmount } from './billing/store.js';
 import { Ledger, amountOr400, totals } from './billing/ledger.js';
 import { PlatformMessages, createNotifier } from './platform/notify.js';
 import { LeadError, Leads } from './leads.js';
@@ -2334,6 +2334,7 @@ export function createApp({
     const tenancy = new Tenancy(db);
     const leads = new Leads(db);
     const ledger = new Ledger(db);
+    const CYCLE_WORD = { month: 'monthly', quarter: 'quarterly', year: 'annual' };
     // Wapzo's own WhatsApp number writing to clients (platform/notify.js); runtimeFor is defined further down.
     const platformMessages = new PlatformMessages(db.db);
     const notifier = createNotifier({ tenancy, runtimeFor: (id) => runtimeFor(id), templates: platformMessages });
@@ -2508,6 +2509,8 @@ export function createApp({
                 validUntil: sub.validUntil,
                 topupMessages: sub.topupMessages,
                 customPrice: sub.customPrice,
+                billingCycle: sub.billingCycle,
+                renewsAt: sub.renewsAt,
             },
             // What the business owes: plan and top-up charges less the payments recorded (Tenant settings > Payments).
             balance: totals(ledger.entries(tenant.id)),
@@ -2850,9 +2853,11 @@ export function createApp({
          JOIN tenants t ON t.id = s.tenant_id WHERE t.status != 'archived' GROUP BY s.plan_key`)
         .all().map((r) => [r.key, r.n]));
     /** An archived plan stays with whoever has it (renewals work) but is not handed out again. */
-    const planOr404 = (key, currentKey = null) => {
+    const planOr404 = (key, currentKey = null, tenantId = null) => {
         const plan = catalogue().getPlan(key);
         if (!plan) throw new BillingError('unknown plan', 404);
+        // Another business's own plan is not on offer.
+        if (plan.tenantId != null && plan.tenantId !== Number(tenantId)) throw new BillingError('unknown plan', 404);
         if (plan.active === false && plan.key !== currentKey) throw new BillingError('that plan is archived', 409);
         return plan;
     };
@@ -2871,8 +2876,11 @@ export function createApp({
         const subscription = store.subscribe(tenantId, plan.key, {
             trialEndsAt: days ? new Date(Date.now() + days * 24 * 3600 * 1000) : null,
         });
-        tenancy.updateTenant(tenantId, { services });
-        followPlanLimits(tenantId, old, plan.tenantLimits);
+        // A business's own plan is its own settings: renewing it must not reset what was set for it.
+        if (plan.tenantId !== Number(tenantId)) {
+            tenancy.updateTenant(tenantId, { services });
+            followPlanLimits(tenantId, old, plan.tenantLimits);
+        }
         return subscription;
     };
     /** An optional payment note (PAYMENTS), checked before anything is written. */
@@ -2890,11 +2898,13 @@ export function createApp({
     const chargeIfActive = (req, tenantId, subscription = new BillingStore(db.forTenant(tenantId)).subscription(), renewed = false) => {
         if (!subscription || subscription.state !== 'active' || subscription.payment === 'free') return 0;
         if (tenancy.getTenant(tenantId)?.status !== 'active') return 0;
-        const amount = subscription.plan.price || subscription.customPrice;
+        // One billing cycle: monthly, quarterly or annual, from the plan's price per its own interval.
+        const amount = cycleAmount(subscription.plan.price || subscription.customPrice, subscription.plan.interval, subscription.billingCycle);
         if (!amount || ledger.planChargedSince(tenantId, subscription.startsAt)) return 0;
         ledger.add(tenantId, {
             kind: 'plan', amount, currency: subscription.plan.currency,
-            note: `${subscription.plan.name} plan${renewed ? ', renewed' : ''}`, userId: req.user?.id ?? null,
+            note: `${subscription.plan.name} plan, ${CYCLE_WORD[subscription.billingCycle] ?? 'monthly'}${renewed ? ', renewed' : ''}`,
+            userId: req.user?.id ?? null,
         });
         return amount;
     };
@@ -3040,7 +3050,7 @@ export function createApp({
             const tenant = tenancy.getTenant(req.params.id);
             if (!tenant || tenant.status === 'archived') return res.status(404).json({ errors: ['tenant not found'] });
             const before = new BillingStore(db.forTenant(tenant.id)).subscription();
-            const plan = planOr404(req.body?.planKey, before?.planKey);
+            const plan = planOr404(req.body?.planKey, before?.planKey, tenant.id);
             // A first assignment gets the plan's trial; a change or renewal is
             // paid-for, so no fresh trial unless the admin asks for one.
             const hadOne = before !== null;
@@ -3097,6 +3107,33 @@ export function createApp({
         }
     });
 
+    /** How often the business is billed (`cycle`: month | quarter | year); charged now if nothing was this period. */
+    admin.put('/tenants/:id/cycle', (req, res) => {
+        try {
+            const tenant = tenancy.getTenant(req.params.id);
+            if (!tenant || tenant.status === 'archived') return res.status(404).json({ errors: ['tenant not found'] });
+            const subscription = new BillingStore(db.forTenant(tenant.id)).setCycle(req.body?.cycle);
+            const charged = chargeIfActive(req, tenant.id, subscription);
+            audit(req, 'tenant.cycle', tenant.id, { cycle: subscription.billingCycle, charged, currency: subscription.plan.currency });
+            return res.json({ subscription, tenant: tenantOverview(tenancy.getTenant(tenant.id)) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /** When the plan started (`startsAt`: a date); the next renewal counts from it. */
+    admin.put('/tenants/:id/start', (req, res) => {
+        try {
+            const tenant = tenancy.getTenant(req.params.id);
+            if (!tenant || tenant.status === 'archived') return res.status(404).json({ errors: ['tenant not found'] });
+            const subscription = new BillingStore(db.forTenant(tenant.id)).setStart(req.body?.startsAt);
+            audit(req, 'tenant.start', tenant.id, { startsAt: subscription.startsAt });
+            return res.json({ subscription, tenant: tenantOverview(tenancy.getTenant(tenant.id)) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
     /** The plan's end date (`validUntil`: a date, or null for none: it renews monthly). */
     admin.put('/tenants/:id/validity', (req, res) => {
         try {
@@ -3142,6 +3179,46 @@ export function createApp({
         }
     });
 
+    /**
+     * Create plan: the business gets a plan of its own, made from what it has now (its services and limits, the
+     * plan's quotas, rules and price, its dates, cycle and payment), and moves onto it without a new period, so
+     * nothing is charged twice. From then on its plan is edited in its settings, not the shared catalogue.
+     */
+    admin.post('/tenants/:id/own-plan', (req, res) => {
+        try {
+            const tenant = tenancy.getTenant(req.params.id);
+            if (!tenant || tenant.status === 'archived') return res.status(404).json({ errors: ['tenant not found'] });
+            const store = new BillingStore(db.forTenant(tenant.id));
+            const before = store.subscription();
+            const key = `own-${tenant.id}`;
+            if (before?.planKey === key) return res.status(409).json({ errors: ['This business already has its own plan.'] });
+            const from = before?.plan ?? null;
+            const plan = catalogue().savePlan({
+                key, name: 'Own plan', tier: from?.tier ?? 0, description: `Made for ${tenant.name}`,
+                // No list price: what it pays is the amount set for it (Billing).
+                price: 0, currency: from?.currency ?? 'INR', interval: from?.interval ?? 'month', trialDays: 0,
+                services: tenant.services, limits: from?.limits ?? {}, features: from?.features ?? {},
+                tenantLimits: from?.tenantLimits ?? {}, active: false, tenantId: tenant.id,
+            });
+            // The shared plan's rules (its day per number, sending speed) come along.
+            if (before) {
+                const rules = policyStore.values(`plan:${before.planKey}`);
+                if (Object.keys(rules).length) policyStore.set(`plan:${key}`, rules);
+            }
+            let subscription = store.subscribe(tenant.id, key, {
+                startsAt: before?.startsAt ?? null,
+                trialEndsAt: before?.state === 'trialing' ? before.trialEndsAt : null,
+            });
+            const price = before ? (before.plan.price || before.customPrice || 0) : 0;
+            if (price) subscription = store.setCustomPrice(price);
+            const charged = chargeIfActive(req, tenant.id, subscription);
+            audit(req, 'tenant.own_plan', tenant.id, { from: before?.planKey ?? null, price, charged, currency: plan.currency });
+            return res.status(201).json({ subscription, plan, tenant: tenantOverview(tenancy.getTenant(tenant.id)) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
     // ---- payments: what a business was charged (plan, top-ups), what it paid, and what is still due ----
     const liveTenant = (id) => {
         const tenant = tenancy.getTenant(id);
@@ -3149,7 +3226,10 @@ export function createApp({
         return tenant;
     };
     /** The price a business's plan bills at: the list price, else the amount agreed; null for none. */
-    const billedPrice = (sub) => (sub ? (sub.plan.price || sub.customPrice || null) : null);
+    /** What one billing cycle of the business's plan costs (list price, else the agreed amount); null for none. */
+    const billedPrice = (sub) => (sub ? (cycleAmount(sub.plan.price || sub.customPrice, sub.plan.interval, sub.billingCycle) || null) : null);
+    /** The cycle as the price is shown: per month, quarter or year. */
+    const cycleOf = (sub) => sub?.billingCycle ?? 'month';
 
     admin.get('/tenants/:id/payments', (req, res) => {
         try {
@@ -3158,7 +3238,7 @@ export function createApp({
             return res.json({
                 ...ledger.statement(tenant.id),
                 currency: sub?.plan.currency ?? 'INR',
-                interval: sub?.plan.interval ?? 'month',
+                interval: cycleOf(sub),
                 planPrice: billedPrice(sub),
                 payment: sub?.payment ?? null,
             });
@@ -3208,7 +3288,7 @@ export function createApp({
             return {
                 tenantId: tenant.id, name: tenant.name, slug: tenant.slug, status: tenant.status,
                 planKey: sub?.planKey ?? null, planName: sub?.plan.name ?? null, planPrice: billedPrice(sub),
-                currency: sub?.plan.currency ?? 'INR', interval: sub?.plan.interval ?? 'month', payment: sub?.payment ?? null,
+                currency: sub?.plan.currency ?? 'INR', interval: cycleOf(sub), payment: sub?.payment ?? null,
                 state: sub?.state ?? null, validUntil: sub?.validUntil ?? null,
                 ...none, lastPaidAt: null, ...sums.get(tenant.id),
             };
@@ -3254,7 +3334,7 @@ export function createApp({
 
     /** A business and its owner, on a plan when one is named; shared by "New tenant" and converting a lead. */
     /** The cheapest plan still offered: where a pending business starts until the admin picks its plan. */
-    const firstPlanKey = () => catalogue().plans().filter((p) => p.active !== false).sort((a, b) => a.tier - b.tier)[0]?.key;
+    const firstPlanKey = () => catalogue().plans().filter((p) => p.active !== false && p.tenantId == null).sort((a, b) => a.tier - b.tier)[0]?.key;
 
     const createTenant = async (req, input) => {
         // A pending business (Add tenant, or an accepted lead) starts on the first plan, paying, with a password nobody

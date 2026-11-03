@@ -210,6 +210,8 @@ export function normalizePlan(plan = {}) {
         services: normalizeTenantServices(plan.services),
         tenantLimits: Object.fromEntries(PLAN_TENANT_LIMIT_KEYS.map((key) => [key, tenantLimits[key]])),
         active: plan.active === undefined ? true : Boolean(plan.active),
+        // A business's own plan (Tenant settings > Plan > Create plan): never offered to anyone else.
+        tenantId: Number.isInteger(Number(plan.tenantId)) && plan.tenantId !== null ? Number(plan.tenantId) : null,
         limits,
         features,
     };

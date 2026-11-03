@@ -12,11 +12,41 @@ import Lenis from 'lenis';
 import { animate, inView, scroll, stagger } from 'motion';
 
 import { Tilt } from '../school/tilt';
-import { BulkDemo } from './bulk-demo';
 import { ChatPreview } from './chat-preview';
 import { LandingNav } from './landing-nav';
 import { LeadForm } from './lead-form';
 import { CountUp, EASE_OUT, FanOut, Reveal, SPRING, still } from './motion';
+
+/** The hero's slides: a photo of customers getting a message, with its own headline and line. */
+const SLIDES: readonly { readonly image: string; readonly who: string; readonly title: string; readonly lede: string }[] = [
+  {
+    image: 'hero-shop.jpg',
+    who: 'a clothes shop',
+    title: 'Send bulk WhatsApp messages',
+    lede: 'Reach every customer at once from the WhatsApp number you already use. Each message carries the person’s name, goes out at a careful pace that protects your number, and every reply lands in one shared inbox.',
+  },
+  {
+    image: 'hero-studio.jpg',
+    who: 'a pottery studio',
+    title: 'Remind every class at once',
+    lede: 'Class times, changes and fee reminders reach every student by name, from the number they already know, and their replies come back to one inbox.',
+  },
+  {
+    image: 'hero-music.jpg',
+    who: 'a music club',
+    title: 'Fill every seat on Saturday',
+    lede: 'Announce the line-up to your whole list with the poster and a booking link. Each message greets them by name and goes out at a pace that keeps your number safe.',
+  },
+  {
+    image: 'hero-campus.jpg',
+    who: 'a campus club',
+    title: 'Reach every member on campus',
+    lede: 'Passes, schedules and reminders go out to every student in one send, each with their own name, and every reply lands in one shared inbox.',
+  },
+];
+
+/** How long each hero slide stays up. */
+const SLIDE_MS = 7000;
 
 /** Everything beyond bulk sending, grouped the way the app's sidebar groups them; `tone` picks the tint and the picture. */
 const FACILITIES: readonly {
@@ -172,7 +202,7 @@ const CONTACT_EMAIL = 'connection@zarklyx.com';
 
 /**
  * The public front page for a visitor from search: Wapzo is bulk WhatsApp
- * messaging first, so the hero is a campaign going out, and the replies,
+ * messaging first, so the hero shows customers getting their message, and the replies,
  * inbox and the rest follow. Signed-in users never see it (`landingGuard`).
  *
  * Colour follows 60-30-10 on the dashboard's tokens: the ground and cards are
@@ -185,7 +215,7 @@ const CONTACT_EMAIL = 'connection@zarklyx.com';
  */
 @Component({
   selector: 'app-landing',
-  imports: [RouterLink, Reveal, FanOut, CountUp, Tilt, BulkDemo, ChatPreview, LandingNav, LeadForm],
+  imports: [RouterLink, Reveal, FanOut, CountUp, Tilt, ChatPreview, LandingNav, LeadForm],
   templateUrl: './landing.html',
   styleUrl: './landing.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -194,6 +224,13 @@ const CONTACT_EMAIL = 'connection@zarklyx.com';
 export class Landing {
   private readonly el = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
 
+  protected readonly slides = SLIDES;
+  /** The hero slide on show. */
+  protected readonly slide = signal(0);
+  /** Autoplay; off under reduced motion, and the pause button turns it off. */
+  protected readonly playing = signal(true);
+  /** Pointer or focus inside the hero: the slide holds while someone is reading or using it. */
+  protected hold = false;
   protected readonly facilities = FACILITIES;
   protected readonly numbers = NUMBERS;
   protected readonly audiences = AUDIENCES;
@@ -226,21 +263,19 @@ export class Landing {
           { margin: '-45% 0px -45% 0px' },
         ),
       );
+      if (still()) this.playing.set(false);
+      const timer = setInterval(() => {
+        if (this.playing() && !this.hold && !document.hidden) this.slide.update((i) => (i + 1) % SLIDES.length);
+      }, SLIDE_MS);
+      destroyRef.onDestroy(() => clearInterval(timer));
+
       if (!still()) {
         const bar = this.el.querySelector('.progress');
         if (bar) stops.push(scroll(animate(bar, { scaleX: [0, 1] }, { ease: 'linear' })));
-        // The hero as one sequence: the headline wipes up out of a mask, the rest rises after it,
-        // and the campaign card comes into focus from a blur before it starts sending.
+        // The hero's first slide: the headline wipes up out of a mask, the rest rises after it.
         const h1 = this.el.querySelector('h1');
         if (h1) animate(h1, { clipPath: ['inset(-10% -4% 100% -4%)', 'inset(-10% -4% -12% -4%)'], y: [28, 0] }, { duration: 0.9, ease: EASE_OUT });
         animate(this.el.querySelectorAll('.hero-copy > :not(h1)'), { opacity: [0, 1], y: [24, 0] }, { ...SPRING, delay: stagger(0.08, { startDelay: 0.25 }) });
-        const demo = this.el.querySelector<HTMLElement>('.hero-demo');
-        if (demo) {
-          animate(demo, { opacity: [0, 1], y: [40, 0], filter: ['blur(12px)', 'blur(0px)'] }, { duration: 0.9, delay: 0.2, ease: EASE_OUT })
-            // A resting filter still makes a compositing layer; clear it once the card has landed.
-            // Motion commits the last frame after the promise settles, so wait one frame.
-            .then(() => requestAnimationFrame(() => demo.style.removeProperty('filter')));
-        }
         // The footer's wordmark rises into place as the close scrolls into view.
         const giant = this.el.querySelector('.giant');
         if (giant) stops.push(scroll(animate(giant, { y: ['45%', '0%'] }, { ease: 'linear' }), { target: giant, offset: ['start end', 'end end'] }));

@@ -14,27 +14,45 @@
   >
 </section>
 
-@if (lead(); as l) {
-  <section>
-    <h5>Request</h5>
+<!-- Who the business is and how to reach it; Edit turns these lines into boxes right here. -->
+<section>
+  <div class="h5-row">
+    <h5>{{ lead() ? 'Request' : 'Details' }}</h5>
+    @if (!editing()) {
+      <button class="btn sm" type="button" (click)="editing.set(true)" [disabled]="busy()">
+        <i class="ti ti-pencil" aria-hidden="true"></i> Edit details
+      </button>
+    }
+  </div>
+  @if (editing()) {
+    <app-tenant-details-edit [tenant]="tenant()" (saved)="saved($event)" (cancelled)="editing.set(false)" />
+  } @else {
     <dl class="facts">
-      <dt>Name</dt>
-      <dd>{{ l.name }}</dd>
+      <dt>Owner</dt>
+      <dd>{{ owner()?.name || lead()?.name || '—' }}</dd>
       <dt>Email</dt>
-      <dd><a [href]="'mailto:' + l.email">{{ l.email }}</a></dd>
-      @if (l.phone) {
-        <dt>WhatsApp</dt>
-        <dd>{{ l.phone }}</dd>
+      <dd>
+        @if (owner()?.email; as email) {
+          <a [href]="'mailto:' + email">{{ email }}</a>
+        } @else {
+          …
+        }
+      </dd>
+      <dt>WhatsApp</dt>
+      <dd>{{ tenant().contactPhone || 'Not set' }}</dd>
+      <dt>Updates</dt>
+      <dd>{{ tenant().wapzoUpdates === false ? 'No Wapzo WhatsApp updates' : 'Wapzo WhatsApp updates on' }}</dd>
+      @if (lead(); as l) {
+        @if (l.message) {
+          <dt>Will send</dt>
+          <dd>{{ l.message }}</dd>
+        }
+        <dt>Asked</dt>
+        <dd>{{ l.createdAt | date: 'd MMM y' }}, {{ l.source === 'login' ? 'sign-in page' : 'landing page' }}</dd>
       }
-      @if (l.message) {
-        <dt>Will send</dt>
-        <dd>{{ l.message }}</dd>
-      }
-      <dt>Asked</dt>
-      <dd>{{ l.createdAt | date: 'd MMM y' }}, {{ l.source === 'login' ? 'sign-in page' : 'landing page' }}</dd>
     </dl>
-  </section>
-}
+  }
+</section>
 
 <section>
   <h5>Plan</h5>
@@ -42,7 +60,7 @@
     <!-- "Business · Free": the plan stays the plan; how it is paid rides beside it. -->
     <div class="plan-line">
       <strong>{{ plan()?.name ?? s.planKey }}{{ payment() ? ' · ' + payment()!.label : '' }}</strong>
-      <span class="s-pill {{ stateTone(s.state) }}">{{ s.state }}</span>
+      <span class="s-pill {{ s.state === 'trialing' ? 'tone-ok' : stateTone(s.state) }}">{{ s.state === 'trialing' ? 'Active' : sentence(s.state) }}</span>
     </div>
     <p class="sub">
       @if (plan(); as p) {
@@ -143,9 +161,7 @@
       </p>
       <dl class="facts">
         <dt>Owner</dt>
-        <dd>{{ ownerEmail() || '…' }}</dd>
-        <dt>WhatsApp</dt>
-        <dd>{{ tenant().contactPhone || 'Not set: add it under Edit details' }}</dd>
+        <dd>{{ owner()?.email || '…' }}</dd>
       </dl>
       <div class="f">
         <label for="act-pass">Owner password <small>8+ characters</small></label>
@@ -173,12 +189,6 @@
       </button>
     </form>
   } @else {
-    <dl class="facts">
-      <dt>Owner</dt>
-      <dd>{{ ownerEmail() || '…' }}</dd>
-      <dt>WhatsApp</dt>
-      <dd>{{ tenant().contactPhone || 'Not set: add it under Edit details' }}</dd>
-    </dl>
-    <p class="sub">Reset a password under Accounts.</p>
+    <p class="sub">The owner signs in with the email above. Reset a password under Accounts.</p>
   }
 </section>

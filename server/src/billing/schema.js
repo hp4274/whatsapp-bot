@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     topup_period         TEXT,
     -- What this business pays on a plan with no list price (Enterprise, custom), per the plan's interval. NULL = none agreed.
     custom_price         INTEGER,
+    -- How often this business is billed: 'month' | 'quarter' | 'year'. NULL = the plan's own interval.
+    billing_cycle        TEXT,
     created_at           TEXT NOT NULL,
     updated_at           TEXT NOT NULL
 );
@@ -104,6 +106,7 @@ export function migratePlans(db) {
     if (!subs.includes('topup_messages')) db.exec('ALTER TABLE subscriptions ADD COLUMN topup_messages INTEGER NOT NULL DEFAULT 0');
     if (!subs.includes('topup_period')) db.exec('ALTER TABLE subscriptions ADD COLUMN topup_period TEXT');
     if (!subs.includes('custom_price')) db.exec('ALTER TABLE subscriptions ADD COLUMN custom_price INTEGER');
+    if (!subs.includes('billing_cycle')) db.exec('ALTER TABLE subscriptions ADD COLUMN billing_cycle TEXT');
     const ledger = db.prepare('PRAGMA table_info(billing_ledger)').all().map((c) => c.name);
     if (ledger.length && !ledger.includes('method')) db.exec("ALTER TABLE billing_ledger ADD COLUMN method TEXT NOT NULL DEFAULT ''");
     // 'unpaid' is gone: what is owed is now the payments ledger's balance, so an unpaid business is a paying one.

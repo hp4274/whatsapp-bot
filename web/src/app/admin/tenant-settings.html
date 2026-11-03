@@ -19,16 +19,6 @@
       </div>
       <div class="head-acts">
         <button
-          class="btn"
-          type="button"
-          [attr.aria-pressed]="editing()"
-          (click)="editing.set(!editing())"
-          [disabled]="saving()"
-        >
-          <i class="ti ti-{{ editing() ? 'arrow-back-up' : 'pencil' }}" aria-hidden="true"></i>
-          {{ editing() ? 'Back to summary' : 'Edit details' }}
-        </button>
-        <button
           class="btn icon"
           type="button"
           (click)="close()"
@@ -41,9 +31,6 @@
     </header>
 
     <div class="split">
-    @if (editing()) {
-      <app-tenant-details-edit [tenant]="s.tenant" (saved)="detailsSaved($event)" (cancelled)="editing.set(false)" />
-    } @else {
     <app-tenant-summary
       [tenant]="s.tenant"
       [sub]="sub()"
@@ -57,8 +44,8 @@
       [balance]="balance()"
       (openPayments)="tab.set('payments')"
       (activate)="activate($event)"
+      (detailsSaved)="detailsSaved($event)"
     />
-    }
 
     <div class="pane">
     <nav class="tabs" role="tablist" aria-label="Tenant settings">
@@ -147,6 +134,7 @@
         }
 
         @case ('plan') {
+          <!-- In the order an admin sets a business up: plan, services, limits, billing, dates, top-ups. -->
           @if (planNotice()) {
             <p class="s-banner tone-ok" role="status">
               <i class="ti ti-circle-check" aria-hidden="true"></i>
@@ -155,225 +143,70 @@
           }
 
           <section>
-            <h4>Subscription</h4>
-            @if (sub(); as cur) {
-              <div class="plan-now">
-                <i class="ti ti-crown" aria-hidden="true"></i>
-                <div>
-                  <strong>{{ planLabel() }}</strong>
-                  <span class="muted">
-                    @if (currentPlan(); as p) {
-                      {{ cur.payment === 'free' ? 'Free, normally ' + paidPrice(p, cur.customPrice) : paidPrice(p, cur.customPrice) }} &middot;
-                    }
-                    {{ when(cur) }}
-                  </span>
+            <div class="section-head">
+              <!-- A business being set up creates its plan here; an active one just has its plan. Either way the first
+                   thing saved below makes it its own plan if it is still on a shared one. -->
+              <h4>{{ s.tenant.status === 'pending' && !ownPlan() ? 'Create plan' : 'Plan' }}</h4>
+              @if (sub(); as cur) {
+                <!-- A trial is a running plan: it reads Active; when the trial ends is under Dates. -->
+                <span class="s-pill {{ cur.state === 'trialing' ? 'tone-ok' : stateTone(cur.state) }}">{{
+                  cur.state === 'trialing' ? 'Active' : sentence(cur.state)
+                }}</span>
+              }
+            </div>
+            @if (ownPlan()) {
+              @if (sub(); as cur) {
+                <p class="muted compact">
+                  {{ planLabel() }} &middot; {{ when(cur) }}. Set it up below: services, limits, billing, dates and
+                  top-ups are this business's alone.
                   @if (cur.cancelAtPeriodEnd && cur.state !== 'expired') {
                     <span class="warn-note">Cancels at the end of this period.</span>
                   }
-                </div>
-                <span class="s-pill {{ stateTone(cur.state) }}">{{ sentence(cur.state) }}</span>
-              </div>
-
-              <dl class="plan-dates">
-                <div>
-                  <dt>Started</dt>
-                  <dd>{{ cur.startsAt ? (cur.startsAt | date: 'd MMM y') : '—' }}</dd>
-                </div>
-                @if (cur.trialEndsAt) {
-                  <div>
-                    <dt>Trial ends</dt>
-                    <dd>{{ cur.trialEndsAt | date: 'd MMM y' }}</dd>
-                  </div>
-                }
-                <div>
-                  <dt>{{ cur.cancelAtPeriodEnd ? 'Period ends' : 'Renews' }}</dt>
-                  <dd>{{ cur.currentPeriodEnd ? (cur.currentPeriodEnd | date: 'd MMM y') : '—' }}</dd>
-                </div>
-                <div>
-                  <dt>Ends on</dt>
-                  <dd>{{ cur.validUntil ? (cur.validUntil | date: 'd MMM y') : 'No end date' }}</dd>
-                </div>
-                @if (cur.topupMessages) {
-                  <div>
-                    <dt>Extra messages this month</dt>
-                    <dd>{{ cur.topupMessages | number }}</dd>
-                  </div>
-                }
-              </dl>
-              @if (balance(); as b) {
-                @if (b.charged) {
-                <button class="owed" type="button" [class.settled]="!b.due" (click)="tab.set('payments')">
-                  <i class="ti ti-{{ b.due ? 'receipt' : 'circle-check' }}" aria-hidden="true"></i>
-                  {{ b.due ? remainingText(b.due) : 'All paid' }}
-                  <span>Payments</span>
-                </button>
-                }
-              }
-            } @else {
-              <p class="muted compact">
-                No plan: services and limits are set by hand and billing never blocks this
-                business.
-              </p>
-            }
-          </section>
-
-          <!-- Billing: whether this business is charged, and its price on a plan without a list price. -->
-          @if (sub(); as cur) {
-            <section>
-              <div class="section-head">
-                <h4 id="pay-label">Billing</h4>
-                <div class="pay-opts" role="radiogroup" aria-labelledby="pay-label">
-                  @for (p of payments; track p.key) {
-                    <button
-                      type="button"
-                      role="radio"
-                      [attr.aria-checked]="(cur.payment ?? 'paid') === p.key"
-                      [disabled]="saving()"
-                      (click)="setPayment(p.key)"
-                    >
-                      {{ p.label }}
-                    </button>
-                  }
-                </div>
-              </div>
-              <p class="muted compact">
-                {{
-                  hybrid()
-                    ? 'Hybrid: the plan is free, and its top-ups with a price are charged and stay unpaid until you record a payment under Payments.'
-                    : free()
-                      ? 'Free: the plan is not charged. A top-up with a price still is, which makes it Hybrid.'
-                      : 'Paid: the plan is charged as soon as it is active, and each top-up with a price when it is added. Both stay unpaid until you record a payment under Payments.'
-                }}
-              </p>
-              @if (currentPlan(); as p) {
-                @if (!p.price) {
-                  <div class="field">
-                    <label for="pl-agreed">
-                      {{ p.name }} price <small class="muted">{{ p.currency }} per {{ p.interval }}, for this business</small>
-                    </label>
-                    <div class="plan-change">
-                      <input
-                        id="pl-agreed"
-                        type="number"
-                        min="0"
-                        step="1"
-                        placeholder="Not set"
-                        [value]="agreedAmount() ?? ''"
-                        (input)="setAgreed($any($event.target).value)"
-                      />
+                </p>
+                <div class="plan-actions">
+                  <button class="btn" type="button" (click)="subscribe(cur.planKey)" [disabled]="saving()">
+                    <i class="ti ti-refresh" aria-hidden="true"></i> Renew
+                  </button>
+                  @if (cur.state !== 'expired') {
+                    @if (cancelAsk()) {
                       <button
                         class="btn"
                         type="button"
-                        (click)="saveAgreed()"
-                        [disabled]="saving() || agreedAmount() === null || agreedAmount() === (cur.customPrice ?? null)"
+                        (click)="cancelPlan(false)"
+                        [disabled]="saving() || cur.cancelAtPeriodEnd"
                       >
-                        Save price
+                        End of period
                       </button>
-                    </div>
-                  </div>
-                }
-              }
-            </section>
-          }
-
-          <section>
-            <h4>{{ sub() ? 'Change plan' : 'Put on a plan' }}</h4>
-            <p class="muted compact">
-              Takes effect now and starts a new period. The plan's services and limits replace this
-              business's current ones.
-            </p>
-            <!--
-              Cards, not a native select: a select redrawn under a live update can show another option than the
-              one stored. Each card says what the business would pay: "Starter · Free" while it is free.
-            -->
-            <div class="plan-options" role="radiogroup" aria-label="Plan">
-              @for (p of choosablePlans(); track p.key) {
-                <button
-                  type="button"
-                  role="radio"
-                  class="plan-opt"
-                  [attr.aria-checked]="pickedPlan() === p.key"
-                  [disabled]="saving()"
-                  (click)="pickedPlan.set(p.key)"
-                >
-                  <span class="po-name">{{ planTitle(p) }}</span>
-                  <span class="po-price">{{ planPrice(p) }}</span>
-                  <span class="po-msgs"><i class="ti ti-message" aria-hidden="true"></i>{{ planMessages(p) }}</span>
-                  @if (p.key === sub()?.planKey) {
-                    <span class="s-pill tone-info po-current">Current</span>
+                      <button class="btn danger" type="button" (click)="cancelPlan(true)" [disabled]="saving()">
+                        End now
+                      </button>
+                      <button class="btn" type="button" (click)="cancelAsk.set(false)">Keep</button>
+                    } @else {
+                      <button
+                        class="btn danger-ghost"
+                        type="button"
+                        (click)="cancelAsk.set(true)"
+                        [disabled]="saving()"
+                      >
+                        Cancel plan
+                      </button>
+                    }
                   }
-                </button>
+                </div>
               }
-            </div>
-            <!-- What choosing it costs: a plan with no list price takes the price typed here for this business. -->
-            @if (needsAmount() && pickedPlan() !== sub()?.planKey) {
-              <div class="field">
-                <label for="pl-amount">
-                  {{ pickedInfo()?.name }} price <small class="muted">{{ pickedInfo()?.currency }} per {{ pickedInfo()?.interval }}, for this business</small>
-                </label>
-                <input
-                  id="pl-amount"
-                  type="number"
-                  min="1"
-                  step="1"
-                  placeholder="Amount to pay"
-                  [value]="planAmount() ?? ''"
-                  (input)="planAmount.set(topupNumber($any($event.target).value))"
-                />
-              </div>
-            }
-            <p class="muted compact">{{ chargeNote() }}</p>
-            <button
-              class="btn primary save-limits"
-              type="button"
-              (click)="subscribe(pickedPlan())"
-              [disabled]="saving() || !pickedPlan() || pickedPlan() === sub()?.planKey || (needsAmount() && !planAmount())"
-            >
-              {{ pickedPlan() && pickedPlan() !== sub()?.planKey ? 'Move to ' + planName(pickedPlan()) : 'Apply' }}
-            </button>
-            @if (sub(); as cur) {
-              <div class="plan-actions">
-                <button class="btn" type="button" (click)="subscribe(cur.planKey)" [disabled]="saving()">
-                  <i class="ti ti-refresh" aria-hidden="true"></i> Renew
-                </button>
-                @if (cur.state !== 'expired') {
-                  @if (cancelAsk()) {
-                    <button
-                      class="btn"
-                      type="button"
-                      (click)="cancelPlan(false)"
-                      [disabled]="saving() || cur.cancelAtPeriodEnd"
-                    >
-                      End of period
-                    </button>
-                    <button class="btn danger" type="button" (click)="cancelPlan(true)" [disabled]="saving()">
-                      End now
-                    </button>
-                    <button class="btn" type="button" (click)="cancelAsk.set(false)">Keep</button>
-                  } @else {
-                    <button
-                      class="btn danger-ghost"
-                      type="button"
-                      (click)="cancelAsk.set(true)"
-                      [disabled]="saving()"
-                    >
-                      Cancel plan
-                    </button>
-                  }
-                }
-              </div>
             }
           </section>
 
           <section>
             <h4>Services</h4>
             <p class="muted compact">
-              {{ s.tenant.services.length + ' of ' + serviceCount() + ' enabled' }}. A plan change replaces them with the
-              plan's own.
+              {{ s.tenant.services.length + ' of ' + serviceCount() + ' enabled' }}. They are this business's own: renewing keeps
+              them.
             </p>
             <div class="plan-actions">
-              <button class="btn" type="button" (click)="chooseServices.emit(s.tenant)">
-                <i class="ti ti-apps" aria-hidden="true"></i> Choose services
+              <!-- Opens the services drawer beside this one; pressed again, closes it. -->
+              <button class="btn" type="button" [attr.aria-expanded]="pushed()" (click)="chooseServices.emit(s.tenant)">
+                <i class="ti ti-{{ pushed() ? 'x' : 'apps' }}" aria-hidden="true"></i> {{ pushed() ? 'Close services' : 'Choose services' }}
               </button>
             </div>
           </section>
@@ -447,6 +280,145 @@
           </section>
 
           @if (sub(); as cur) {
+            <!-- Billing: how often, whether it is charged at all, and the price of a plan without a list price. -->
+            <section>
+              <h4>Billing</h4>
+              <div class="bill-rows">
+                <span class="bill-label" id="cycle-label">Billed</span>
+                <div class="pay-opts" role="radiogroup" aria-labelledby="cycle-label">
+                  @for (c of cycles; track c.key) {
+                    <button
+                      type="button"
+                      role="radio"
+                      [attr.aria-checked]="(cur.billingCycle ?? 'month') === c.key"
+                      [disabled]="saving()"
+                      (click)="setCycle(c.key)"
+                    >
+                      {{ c.label }}
+                    </button>
+                  }
+                </div>
+                <span class="bill-label" id="pay-label">Payment</span>
+                <div class="pay-opts" role="radiogroup" aria-labelledby="pay-label">
+                  @for (p of payments; track p.key) {
+                    <button
+                      type="button"
+                      role="radio"
+                      [attr.aria-checked]="(cur.payment ?? 'paid') === p.key"
+                      [disabled]="saving()"
+                      (click)="setPayment(p.key)"
+                    >
+                      {{ p.label }}
+                    </button>
+                  }
+                </div>
+              </div>
+              @if (currentPlan(); as p) {
+                @if (!p.price) {
+                  <div class="field">
+                    <label for="pl-agreed">
+                      {{ p.name }} price <small class="muted">{{ p.currency }} per {{ p.interval }}, for this business</small>
+                    </label>
+                    <div class="plan-change">
+                      <input
+                        id="pl-agreed"
+                        type="number"
+                        min="0"
+                        step="1"
+                        placeholder="Not set"
+                        [value]="agreedAmount() ?? ''"
+                        (input)="setAgreed($any($event.target).value)"
+                      />
+                      <button
+                        class="btn"
+                        type="button"
+                        (click)="saveAgreed()"
+                        [disabled]="saving() || agreedAmount() === null || agreedAmount() === (cur.customPrice ?? null)"
+                      >
+                        Save price
+                      </button>
+                    </div>
+                  </div>
+                }
+              }
+              <p class="muted compact">
+                @if (cycleCharge(); as charge) {
+                  <strong class="charge">{{ charge }}</strong>
+                }
+                {{
+                  hybrid()
+                    ? 'Hybrid: the plan is free, and its top-ups with a price are charged and stay unpaid until you record a payment under Payments.'
+                    : free()
+                      ? 'Free: the plan is not charged. A top-up with a price still is, which makes it Hybrid.'
+                      : 'Charged as soon as the plan is active, then at each renewal; a new cycle applies from the next one. Unpaid until you record a payment under Payments.'
+                }}
+              </p>
+              @if (balance(); as b) {
+                @if (b.charged) {
+                  <button class="owed" type="button" [class.settled]="!b.due" (click)="tab.set('payments')">
+                    <i class="ti ti-{{ b.due ? 'receipt' : 'circle-check' }}" aria-hidden="true"></i>
+                    {{ b.due ? remainingText(b.due) : 'All paid' }}
+                    <span>Payments</span>
+                  </button>
+                }
+              }
+            </section>
+
+            <section>
+              <h4>Dates</h4>
+              <p class="muted compact">
+                The next renewal counts from the start date. After the end date the plan has 7 days of grace, then
+                stops until it is extended or topped up.
+              </p>
+              <div class="safety-fields">
+                <div class="field">
+                  <label for="pl-start">Start date</label>
+                  <input id="pl-start" type="date" [value]="startDate()" (input)="startDate.set($any($event.target).value)" />
+                </div>
+                <div class="field">
+                  <label for="pl-end">End date <small class="muted">optional</small></label>
+                  <input id="pl-end" type="date" [value]="endDate()" (input)="endDate.set($any($event.target).value)" />
+                </div>
+              </div>
+              <dl class="plan-dates">
+                <div>
+                  <dt>Next renewal</dt>
+                  <dd>{{ cur.renewsAt ? (cur.renewsAt | date: 'd MMM y') : '—' }}</dd>
+                </div>
+                @if (cur.trialEndsAt) {
+                  <div>
+                    <dt>Trial ends</dt>
+                    <dd>{{ cur.trialEndsAt | date: 'd MMM y' }}</dd>
+                  </div>
+                }
+                <div>
+                  <dt>Ends</dt>
+                  <dd>{{ cur.validUntil ? (cur.validUntil | date: 'd MMM y') : 'No end date' }}</dd>
+                </div>
+                @if (cur.topupMessages) {
+                  <div>
+                    <dt>Extra messages this month</dt>
+                    <dd>{{ cur.topupMessages | number }}</dd>
+                  </div>
+                }
+              </dl>
+              <div class="plan-actions">
+                <button
+                  class="btn primary"
+                  type="button"
+                  (click)="saveDates()"
+                  [disabled]="saving() || !datesChanged()"
+                >
+                  Save dates
+                </button>
+                @if (cur.validUntil) {
+                  <button class="btn" type="button" (click)="saveValidity(true)" [disabled]="saving()">
+                    Remove end date
+                  </button>
+                }
+              </div>
+            </section>
+
             <section>
               <h4>Top up</h4>
               <p class="muted compact">
@@ -518,31 +490,6 @@
               >
                 Apply top-up
               </button>
-            </section>
-
-            <section>
-              <h4>End date</h4>
-              <p class="muted compact">
-                After the end date the plan has 7 days of grace, then stops until it is extended or topped up.
-              </p>
-              <div class="plan-change">
-                <input type="date" aria-label="End date" [value]="endDate()" (input)="endDate.set($any($event.target).value)" />
-                <button
-                  class="btn primary"
-                  type="button"
-                  (click)="saveValidity()"
-                  [disabled]="saving() || !endDate() || endDate() === savedEndDay()"
-                >
-                  Save
-                </button>
-              </div>
-              @if (cur.validUntil) {
-                <div class="plan-actions">
-                  <button class="btn" type="button" (click)="saveValidity(true)" [disabled]="saving()">
-                    Remove end date
-                  </button>
-                </div>
-              }
             </section>
           }
 

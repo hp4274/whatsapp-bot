@@ -39,6 +39,8 @@ export const PLAN_QUOTA_FIELDS: readonly {
 export interface Plan {
   readonly key: string;
   readonly name: string;
+  /** Set on a business's own plan (Tenant settings > Create plan): only that business is ever on it. */
+  readonly tenantId?: number | null;
   readonly tier: number;
   readonly description: string;
   /** Major units; 0 = free / custom pricing. */
@@ -76,6 +78,24 @@ export interface Subscription {
   readonly topupMessages?: number;
   /** What this business pays on a plan with no list price (Enterprise, custom); null = none agreed. */
   readonly customPrice?: number | null;
+  /** How often the business is billed; the plan's own interval until one is chosen. */
+  readonly billingCycle?: BillingCycle;
+  /** When the next billing cycle starts: the start date plus one cycle. */
+  readonly renewsAt?: string;
+}
+
+/** How often a business is billed (server billing/store.js BILLING_CYCLES), with the months in each. */
+export type BillingCycle = 'month' | 'quarter' | 'year';
+export const BILLING_CYCLES: readonly { readonly key: BillingCycle; readonly label: string; readonly every: string; readonly months: number }[] = [
+  { key: 'month', label: 'Monthly', every: 'month', months: 1 },
+  { key: 'quarter', label: 'Quarterly', every: 'quarter', months: 3 },
+  { key: 'year', label: 'Annual', every: 'year', months: 12 },
+];
+
+/** One cycle's price from a price per `interval`, as the server charges it (billing/store.js cycleAmount). */
+export function cycleAmount(price: number, interval: 'month' | 'year', cycle: BillingCycle): number {
+  const months = BILLING_CYCLES.find((c) => c.key === cycle)?.months ?? 1;
+  return Math.round((price / (interval === 'year' ? 12 : 1)) * months);
 }
 
 /** One row of Tenant settings > Limits: used against the limit (null = no limit, 0 = none allowed). */
@@ -105,6 +125,8 @@ const PLAN_LOG_ACTIONS = [
   'tenant.topup',
   'tenant.validity',
   'tenant.price',
+  'tenant.cycle',
+  'tenant.start',
 ].join(',');
 
 /** How a business pays (server billing/schema.js PAYMENTS): paid is charged for its plan and top-ups, free is not. */
@@ -258,12 +280,16 @@ export function stateTone(state: SubscriptionState | undefined | null): string {
 
 /** The one date that matters for a subscription right now, as a short sentence. */
 export function subscriptionWhen(sub: TenantSubscriptionSummary | Subscription): string {
-  const d = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '');
+  // "15 Jan 2027", as the dates in Tenant settings read.
+  const d = (iso: string | null | undefined) =>
+    iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
   if (sub.state === 'trialing' && sub.trialEndsAt) return `Trial ends ${d(sub.trialEndsAt)}`;
   if (sub.state === 'grace' && sub.graceEndsAt) return `Grace until ${d(sub.graceEndsAt)}`;
   if (sub.state === 'expired') return 'Ended';
-  if (!sub.currentPeriodEnd) return '';
-  return `${sub.cancelAtPeriodEnd ? 'Ends' : 'Renews'} ${d(sub.currentPeriodEnd)}`;
+  // Cancelling ends with the usage period; otherwise the next billing renewal (start date plus one cycle).
+  if (sub.cancelAtPeriodEnd) return sub.currentPeriodEnd ? `Ends ${d(sub.currentPeriodEnd)}` : '';
+  const renews = sub.renewsAt ?? sub.currentPeriodEnd;
+  return renews ? `Renews ${d(renews)}` : '';
 }
 
 export function toMessage(error: HttpErrorResponse) {
@@ -331,6 +357,27 @@ export class PlansApi {
   }
 
   /** The plan's end date (YYYY-MM-DD), or null to remove it. */
+  /** Create plan: the business's own plan, made from what it has now; it moves onto it in the same period. */
+  createOwnPlan(tenantId: number): Observable<{ subscription: Subscription; plan: Plan; tenant: Tenant }> {
+    return this.http
+      .post<{ subscription: Subscription; plan: Plan; tenant: Tenant }>(`/api/admin/tenants/${tenantId}/own-plan`, {})
+      .pipe(catchError(toMessage));
+  }
+
+  /** Billed monthly, quarterly or annually; charged now when nothing was this period. */
+  setCycle(tenantId: number, cycle: BillingCycle): Observable<{ subscription: Subscription; tenant: Tenant }> {
+    return this.http
+      .put<{ subscription: Subscription; tenant: Tenant }>(`/api/admin/tenants/${tenantId}/cycle`, { cycle })
+      .pipe(catchError(toMessage));
+  }
+
+  /** When the plan started (YYYY-MM-DD); the next renewal counts from it. */
+  setStart(tenantId: number, startsAt: string): Observable<{ subscription: Subscription; tenant: Tenant }> {
+    return this.http
+      .put<{ subscription: Subscription; tenant: Tenant }>(`/api/admin/tenants/${tenantId}/start`, { startsAt })
+      .pipe(catchError(toMessage));
+  }
+
   setValidity(tenantId: number, validUntil: string | null): Observable<{ subscription: Subscription; tenant: Tenant }> {
     return this.http
       .put<{ subscription: Subscription; tenant: Tenant }>(`/api/admin/tenants/${tenantId}/validity`, { validUntil })
