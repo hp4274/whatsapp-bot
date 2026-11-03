@@ -3765,8 +3765,9 @@ export function createApp({
             count: counts.new + asks.length,
             leadCount: counts.new,
             requestCount: asks.length,
-            leads: waiting.slice(0, 20).map((l) => ({ id: l.id, name: l.name, business: l.business, createdAt: l.createdAt })),
-            limitRequests: asks.slice(0, 20).map((r) => ({
+            // Up to 200 of each: the page counts what is new since the admin last read from their times.
+            leads: waiting.slice(0, 200).map((l) => ({ id: l.id, name: l.name, business: l.business, createdAt: l.createdAt })),
+            limitRequests: asks.slice(0, 200).map((r) => ({
                 id: r.id, tenantId: r.tenantId, tenantName: r.tenantName, createdAt: r.createdAt,
                 items: r.items.map(({ label, value, days }) => ({ label, value, days })),
             })),

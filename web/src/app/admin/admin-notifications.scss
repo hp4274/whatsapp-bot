@@ -54,22 +54,50 @@
   box-shadow: var(--shadow-lift);
   animation: s-pop 200ms var(--ease) both;
 }
+// Title and count on the left, the two actions on the right; the panel's head stays put while the list scrolls.
 header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
-  align-items: baseline;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 14px 16px 10px;
+  gap: 6px 8px;
+  padding: 12px 12px 10px 16px;
   border-bottom: 1px solid var(--border-color);
+  background: var(--surface-card);
   strong { font-size: 14.5px; font-weight: 600; color: var(--text-strong); }
 }
+.title { display: flex; align-items: baseline; gap: 8px; }
+.acts { display: flex; gap: 2px; }
+.act {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--primary-text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease);
+  .ti { font-size: 15px; }
+  &:hover:not(:disabled) { background: var(--primary-tint); }
+  &:disabled { color: var(--text-muted); opacity: 0.6; cursor: default; }
+}
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .muted { font-size: 12px; color: var(--text-muted); }
 section { padding: 8px 0; & + section { border-top: 1px solid var(--border-color); } }
 h5 { margin: 4px 16px 4px; font-size: 12px; font-weight: 500; color: var(--text-muted); }
 ul { margin: 0; padding: 0; list-style: none; }
 li button {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 10px;
   width: 100%;
   padding: 9px 16px;
@@ -81,6 +109,10 @@ li button {
   > .ti { margin-top: 2px; font-size: 17px; color: var(--primary-text); }
 }
 .text { display: grid; gap: 2px; min-width: 0; }
+// A new one: its name in full weight and a primary dot; read ones sit back.
+.dot { align-self: center; width: 8px; height: 8px; border-radius: 50%; background: var(--primary); }
+li:not(.new) b { font-weight: 400; color: var(--text); }
+li.new b { font-weight: 600; }
 b { font-size: 13.5px; font-weight: 500; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 small { font-size: 12px; color: var(--text-muted); overflow-wrap: anywhere; }
 .empty {
