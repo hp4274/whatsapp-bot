@@ -93,6 +93,7 @@ import { Ledger, amountOr400, totals } from './billing/ledger.js';
 import { PlatformMessages, createNotifier, renderText } from './platform/notify.js';
 import { DURATIONS, LimitRequestError, LimitRequests, REQUESTABLE } from './limits/requests.js';
 import { LeadError, Leads } from './leads.js';
+import { ReferralError, Referrals } from './referrals.js';
 import { leadAlertEmail, leadReceivedEmail, welcomeEmail } from './mail/emails.js';
 import { noMailer } from './mail/mailer.js';
 import { POLICY_FIELDS, PolicyError, PolicyStore, allowedAt, fillTables } from './policy/index.js';
@@ -2335,6 +2336,17 @@ export function createApp({
     const tenancy = new Tenancy(db);
     const leads = new Leads(db);
     const ledger = new Ledger(db);
+    const referrals = new Referrals(db);
+    /** Who brought a business, as the admin typed it (referrals.js setForTenant); audited and broadcast when it changes. */
+    const setReferrer = (req, tenantId, typed) => {
+        const { referrer, changed, previous, created } = referrals.setForTenant(tenantId, typed);
+        if (!changed) return referrer;
+        if (created) audit(req, 'referral.create', referrer.code, { name: referrer.name });
+        if (referrer) audit(req, 'referral.client', tenantId, { referrer: referrer.code });
+        else audit(req, 'referral.unlink', tenantId, { referrer: previous?.code ?? '' });
+        adminFeed.publish('referrals', null);
+        return referrer;
+    };
     const limitRequests = new LimitRequests(db.db);
     /**
      * One limit a business can ask more of, as it stands now: its own limits (null = no limit; messagesPerMonth
@@ -2562,7 +2574,8 @@ export function createApp({
         });
     };
     const fail = (res, err) => {
-        if (err instanceof TenancyError || err instanceof BillingError || err instanceof LeadError || err instanceof LimitRequestError) {
+        if (err instanceof TenancyError || err instanceof BillingError || err instanceof LeadError || err instanceof LimitRequestError
+            || err instanceof ReferralError) {
             return res.status(err.status).json({ errors: [err.message] });
         }
         throw err;
@@ -2597,7 +2610,7 @@ export function createApp({
         try {
             const body = req.body ?? {};
             if (body.website) return res.status(201).json({ ok: true });
-            const lead = leads.create({ ...body, ip: req.ip ?? '' });
+            const lead = leads.create({ ...body, ip: req.ip ?? '', referralCode: referrals.byCode(body.ref)?.code ?? '' });
             adminFeed.publish('leads', null);
             // "We got your request" from Wapzo's own number; a resubmitted request is a new message.
             notifier.event('lead_received', {
@@ -3281,6 +3294,7 @@ export function createApp({
                 note: req.body?.note ?? '', method: req.body?.method, at: req.body?.paidAt || null, userId: req.user?.id ?? null,
             });
             audit(req, 'tenant.paid', tenant.id, { amount: entry.amount, currency: entry.currency, method: entry.method });
+            if (referrals.earn(tenant.id, entry)) adminFeed.publish('referrals', null);
             const statement = ledger.statement(tenant.id);
             notifyTenant('payment_received', tenant.id, {
                 amount: inr(entry.amount, entry.currency), due: inr(statement.due, entry.currency),
@@ -3296,6 +3310,7 @@ export function createApp({
         try {
             const tenant = liveTenant(req.params.id);
             const entry = ledger.remove(tenant.id, req.params.entryId);
+            if (entry.kind === 'payment' && referrals.reverse(entry.id).length) adminFeed.publish('referrals', null);
             audit(req, 'tenant.ledger.remove', tenant.id, { kind: entry.kind, amount: entry.amount, currency: entry.currency });
             return res.json(ledger.statement(tenant.id));
         } catch (err) {
@@ -3387,7 +3402,9 @@ export function createApp({
 
     admin.post('/tenants', async (req, res) => {
         try {
-            return res.status(201).json(await createTenant(req, req.body ?? {}));
+            const created = await createTenant(req, req.body ?? {});
+            if (req.body?.referrer) setReferrer(req, created.tenant.id, req.body.referrer);
+            return res.status(201).json(created);
         } catch (err) {
             return fail(res, err);
         }
@@ -3534,6 +3551,12 @@ export function createApp({
                 owner: { name: lead.name, email: lead.email },
             });
             const converted = leads.markConverted(lead.id, created.tenant.id);
+            const referrer = lead.referralCode && referrals.byCode(lead.referralCode);
+            if (referrer) {
+                referrals.attach(created.tenant.id, referrer.id);
+                audit(req, 'referral.client', created.tenant.id, { referrer: referrer.code });
+                adminFeed.publish('referrals', null);
+            }
             adminFeed.publish('leads', null);
             return res.status(201).json({ tenant: created.tenant, lead: converted });
         } catch (err) {
@@ -3543,6 +3566,93 @@ export function createApp({
 
     /** The request a business was accepted from (Tenant settings' left column); null for one added by hand. */
     admin.get('/tenants/:id/lead', (req, res) => res.json({ lead: leads.forTenant(req.params.id) }));
+
+    // ---- referrals (referrals.js): marketers, the businesses they brought, and what they earned ----
+    // `:refId`, not `:id`: admin.param('id') would file the marketer's number as a tenant id.
+    const referralChanged = (req, action, target, detail) => {
+        audit(req, action, target, detail);
+        adminFeed.publish('referrals', null);
+    };
+    const referrerOr404 = (id) => {
+        const referrer = referrals.get(id);
+        if (!referrer) throw new ReferralError('marketer not found', 404);
+        return referrer;
+    };
+
+    admin.get('/referrals', (req, res) => res.json({ referrers: referrals.list() }));
+
+    admin.post('/referrals', (req, res) => {
+        try {
+            const referrer = referrals.create(req.body ?? {});
+            referralChanged(req, 'referral.create', referrer.code, { name: referrer.name });
+            return res.status(201).json({ referrer });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    admin.put('/referrals/:refId', (req, res) => {
+        try {
+            const referrer = referrals.update(req.params.refId, req.body ?? {});
+            referralChanged(req, 'referral.update', referrer.code, {
+                rate: `${referrer.commissionType} ${referrer.commissionValue}`, status: referrer.status,
+            });
+            return res.json({ referrer });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /** One marketer: the businesses they brought and every commission, newest first. */
+    admin.get('/referrals/:refId', (req, res) => {
+        try {
+            const referrer = referrerOr404(req.params.refId);
+            return res.json({ referrer, clients: referrals.clients(referrer.id), commissions: referrals.commissions(referrer.id) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /** Tie a business added by hand to the marketer who brought it. A business already tied to another is a 409. */
+    admin.post('/referrals/:refId/clients', (req, res) => {
+        try {
+            const referrer = referrerOr404(req.params.refId);
+            const tenant = liveTenant(req.body?.tenantId);
+            if (!referrals.attach(tenant.id, referrer.id)) {
+                return res.status(409).json({ errors: [`${tenant.name} was already brought by ${referrals.forTenant(tenant.id)?.name}.`] });
+            }
+            referralChanged(req, 'referral.client', tenant.id, { referrer: referrer.code });
+            return res.status(201).json({ clients: referrals.clients(referrer.id) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    admin.delete('/referrals/:refId/clients/:tenantId', (req, res) => {
+        try {
+            const referrer = referrerOr404(req.params.refId);
+            if (referrals.detach(req.params.tenantId, referrer.id)) {
+                referralChanged(req, 'referral.unlink', Number(req.params.tenantId), { referrer: referrer.code });
+            }
+            return res.json({ clients: referrals.clients(referrer.id) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /** "Paid": everything pending for the marketer, with the UPI or bank reference. */
+    admin.post('/referrals/:refId/payout', (req, res) => {
+        try {
+            const { amount, referrer } = referrals.payout(req.params.refId, { reference: req.body?.reference });
+            referralChanged(req, 'referral.payout', referrer.code, { amount, reference: String(req.body?.reference ?? '') });
+            return res.json({ amount, referrer });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /** The marketer who brought a business, for its settings; null for none. */
+    admin.get('/tenants/:id/referrer', (req, res) => res.json({ referrer: referrals.forTenant(req.params.id) }));
 
     /**
      * Switch a pending business on: the owner's password is set to the one the admin chose, the business becomes
@@ -3625,6 +3735,7 @@ export function createApp({
             }
             const ownerBefore = tenancy.ownerOf(before.id)?.email;
             const tenant = tenancy.updateDetails(before.id, body);
+            if (body.referrer !== undefined) setReferrer(req, before.id, body.referrer);
             if (body.ownerName !== undefined || email !== undefined) {
                 await tenancy.setOwner(before.id, { name: body.ownerName, email });
             }

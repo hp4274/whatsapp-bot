@@ -20,6 +20,8 @@ export interface Lead {
   readonly status: LeadStatus;
   /** Set once converted: the business it became. */
   readonly tenantId: number | null;
+  /** The marketer's code the request came with; '' for none. Accepting it ties the business to them. */
+  readonly referralCode: string;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

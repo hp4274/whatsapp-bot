@@ -30,6 +30,8 @@ const toLead = (row) => ({
     source: row.source,
     status: row.status,
     tenantId: row.tenant_id,
+    /** The marketer's code the request came with (referrals.js); '' for none. */
+    referralCode: row.referral_code ?? '',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
 });
@@ -40,7 +42,8 @@ export class Leads {
     }
 
     /** Validates what a stranger typed; the only trust boundary here. */
-    create({ name, business, email, phone, message, source, ip = '' } = {}) {
+    /** `referralCode` is already checked by the caller: an active marketer's code, or ''. */
+    create({ name, business, email, phone, message, source, ip = '', referralCode = '' } = {}) {
         const clean = {
             name: text(name, 120),
             business: text(business, 160),
@@ -59,14 +62,15 @@ export class Leads {
         const open = this.db.prepare("SELECT id FROM leads WHERE email = ? AND status IN ('new', 'hold')").get(clean.email);
         const now = utcNow();
         if (open) {
-            this.db.prepare(`UPDATE leads SET name = ?, business = ?, phone = ?, message = ?, source = ?, ip = ?, updated_at = ?
-                             WHERE id = ?`)
-                .run(clean.name, clean.business, clean.phone, clean.message, clean.source, String(ip), now, open.id);
+            this.db.prepare(`UPDATE leads SET name = ?, business = ?, phone = ?, message = ?, source = ?, ip = ?, updated_at = ?,
+                                 referral_code = CASE WHEN ? != '' THEN ? ELSE referral_code END WHERE id = ?`)
+                .run(clean.name, clean.business, clean.phone, clean.message, clean.source, String(ip), now,
+                    referralCode, referralCode, open.id);
             return this.get(open.id);
         }
-        const info = this.db.prepare(`INSERT INTO leads (name, business, email, phone, message, source, ip, created_at, updated_at)
-                                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-            .run(clean.name, clean.business, clean.email, clean.phone, clean.message, clean.source, String(ip), now, now);
+        const info = this.db.prepare(`INSERT INTO leads (name, business, email, phone, message, source, ip, referral_code, created_at, updated_at)
+                                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(clean.name, clean.business, clean.email, clean.phone, clean.message, clean.source, String(ip), referralCode, now, now);
         return this.get(Number(info.lastInsertRowid));
     }
 

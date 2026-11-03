@@ -61,7 +61,12 @@
               }
             </td>
             <td class="msg" [title]="lead.message">{{ lead.message || '—' }}</td>
-            <td><span class="sub">{{ sourceLabel(lead) }}</span></td>
+            <td>
+              <span class="sub">{{ sourceLabel(lead) }}</span>
+              @if (lead.referralCode) {
+                <span class="sub" title="Referred by this marketer's link">Referral {{ lead.referralCode }}</span>
+              }
+            </td>
             <td><span class="sub">{{ lead.createdAt | date: 'd MMM, h:mm a' }}</span></td>
             <td class="acts">
               <div class="acts-row">

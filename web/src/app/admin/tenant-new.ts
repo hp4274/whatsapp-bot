@@ -15,6 +15,7 @@ import { FormsModule } from '@angular/forms';
 import { TenancyApi } from '../core/api';
 import type { Tenant } from '../core/auth';
 import { PhoneInput } from '../core/phone-input';
+import { ReferrerInput } from './referrer-input';
 
 /** A business's ID as the server makes it from what was typed (tenancy.js cleanTenantInput). */
 export function slugFor(value: string): string {
@@ -42,7 +43,7 @@ const TABS: readonly { label: string; icon: string }[] = [
  */
 @Component({
   selector: 'app-tenant-new',
-  imports: [FormsModule, PhoneInput],
+  imports: [FormsModule, PhoneInput, ReferrerInput],
   templateUrl: './tenant-new.html',
   styleUrl: './tenant-new.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -65,6 +66,7 @@ export class TenantNew {
   protected readonly ownerName = signal('');
   protected readonly email = signal('');
   protected readonly phone = signal('');
+  protected readonly referrer = signal('');
   protected readonly busy = signal(false);
   protected readonly error = signal('');
 
@@ -94,6 +96,7 @@ export class TenantNew {
         slug: this.slug().trim() || undefined,
         status: 'pending',
         contactPhone: this.phone().trim(),
+        referrer: this.referrer().trim() || undefined,
         owner: { name: this.ownerName().trim(), email: this.email().trim() },
       })
       .subscribe({

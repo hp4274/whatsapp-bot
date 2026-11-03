@@ -1,0 +1,233 @@
+<div class="scrim" (click)="close()" aria-hidden="true"></div>
+<aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="ref-title">
+  <header class="drawer-head">
+    <div>
+      <p class="eyebrow-sm">{{ referrerId() === null ? 'New marketer' : 'Marketer' }}</p>
+      <h2 id="ref-title">{{ referrerId() === null ? 'Add marketer' : detail()?.referrer?.name || 'Marketer' }}</h2>
+    </div>
+    <button type="button" class="btn icon ghost" (click)="close()" aria-label="Close">
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
+  </header>
+
+  <div class="drawer-body">
+    @if (error()) {
+      <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}</p>
+    }
+    @if (notice()) {
+      <p class="s-banner tone-ok" role="status"><i class="ti ti-circle-check" aria-hidden="true"></i>{{ notice() }}</p>
+    }
+
+    <!-- Who they are and what they earn. -->
+    <form class="block" (submit)="save($event)">
+      <div class="grid">
+        <label class="s-field">
+          <span class="label">Name</span>
+          <input required maxlength="120" autocomplete="off" [value]="name()" (input)="name.set($any($event.target).value)" />
+        </label>
+        <div class="s-field">
+          <label class="label" for="ref-phone">Phone <span class="muted">optional</span></label>
+          <app-phone-input inputId="ref-phone" label="Phone" [(value)]="phone" />
+        </div>
+        <label class="s-field">
+          <span class="label">Email <span class="muted">optional</span></span>
+          <input type="email" maxlength="254" autocomplete="off" [value]="email()" (input)="email.set($any($event.target).value)" />
+        </label>
+        <label class="s-field">
+          <span class="label">Code</span>
+          <input
+            maxlength="20"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Made from the name"
+            pattern="[A-Za-z0-9][A-Za-z0-9\-]{2,19}"
+            title="3 to 20 letters, digits or dashes"
+            [value]="code()"
+            (input)="code.set($any($event.target).value.toUpperCase())"
+          />
+        </label>
+      </div>
+
+      <fieldset class="s-field rate">
+        <legend class="label">Commission on each payment</legend>
+        <div class="rate-row">
+          <div class="s-seg" role="group" aria-label="Commission type">
+            <button type="button" [attr.aria-pressed]="type() === 'percent'" (click)="type.set('percent')">Percentage</button>
+            <button type="button" [attr.aria-pressed]="type() === 'fixed'" (click)="type.set('fixed')">Fixed amount</button>
+          </div>
+          <span class="amount" [class.pre]="type() === 'fixed'">
+            @if (type() === 'fixed') {
+              <span class="unit" aria-hidden="true">₹</span>
+            }
+            <input
+              type="number"
+              required
+              [min]="type() === 'percent' ? 0.01 : 1"
+              [max]="type() === 'percent' ? 100 : 1000000000"
+              [step]="type() === 'percent' ? 0.01 : 1"
+              [attr.aria-label]="type() === 'percent' ? 'Percent of each payment' : 'Rupees a payment'"
+              [value]="value()"
+              (input)="value.set($any($event.target).valueAsNumber)"
+            />
+            @if (type() === 'percent') {
+              <span class="unit" aria-hidden="true">%</span>
+            }
+          </span>
+        </div>
+        @if (example()) {
+          <span class="hint">{{ example() }} A new rate counts from the next payment.</span>
+        }
+      </fieldset>
+
+      @if (referrerId() !== null) {
+        <label class="pause">
+          <button
+            type="button"
+            role="switch"
+            class="switch"
+            [attr.aria-checked]="paused()"
+            (click)="paused.set(!paused())"
+          >
+            <span class="thumb"></span>
+          </button>
+          <span>
+            Paused
+            <span class="hint">Earns nothing on new payments. What is already earned is still paid.</span>
+          </span>
+        </label>
+      }
+
+      <div class="actions">
+        <button class="btn primary" type="submit" [disabled]="busy()">
+          {{ referrerId() === null ? 'Add marketer' : 'Save changes' }}
+        </button>
+      </div>
+    </form>
+
+    @if (detail(); as d) {
+      <!-- The link they share. -->
+      <section class="block" aria-labelledby="ref-link">
+        <h3 id="ref-link">Referral link</h3>
+        <div class="copy-row">
+          <input readonly [value]="link()" aria-label="Referral link" (focus)="$any($event.target).select()" />
+          <button class="btn" type="button" (click)="copy()">
+            <i class="ti {{ copied() ? 'ti-check' : 'ti-copy' }}" aria-hidden="true"></i> {{ copied() ? 'Copied' : 'Copy' }}
+          </button>
+        </div>
+        <p class="hint">
+          Anyone who asks for an account within 30 days of opening it is tied to {{ d.referrer.name }} when you accept
+          the request.
+        </p>
+      </section>
+
+      <!-- What they are owed. -->
+      <section class="block owed" aria-labelledby="ref-owed">
+        <div class="owed-head">
+          <div>
+            <h3 id="ref-owed">To pay</h3>
+            <b [class.back]="d.referrer.pending < 0" [class.zero]="d.referrer.pending === 0">{{ money(d.referrer.pending) }}</b>
+          </div>
+          <span class="muted small">{{ money(d.referrer.paid) }} paid so far</span>
+        </div>
+        @if (d.referrer.pending > 0) {
+          <form class="copy-row" (submit)="$event.preventDefault(); confirming.set(true)">
+            <input
+              maxlength="120"
+              placeholder="UPI or bank reference (optional)"
+              aria-label="Payment reference"
+              [value]="reference()"
+              (input)="reference.set($any($event.target).value)"
+            />
+            <button class="btn primary" type="submit" [disabled]="busy()">Mark {{ money(d.referrer.pending) }} paid</button>
+          </form>
+        } @else if (d.referrer.pending < 0) {
+          <p class="hint">
+            A payment was removed after it was paid out: {{ money(-d.referrer.pending) }} comes off what they earn next.
+          </p>
+        }
+      </section>
+
+      <!-- Who they brought. -->
+      <section class="block" aria-labelledby="ref-clients">
+        <h3 id="ref-clients">Businesses <span class="muted">{{ d.clients.length }}</span></h3>
+        @if (d.clients.length) {
+          <ul class="rows">
+            @for (c of d.clients; track c.tenantId) {
+              <li>
+                <span class="who">
+                  <strong>{{ c.name }}</strong>
+                  <span class="muted small">Since {{ c.since | date: 'd MMM y' }}</span>
+                </span>
+                <button
+                  class="btn icon sm ghost"
+                  type="button"
+                  [disabled]="busy()"
+                  [attr.aria-label]="'Remove ' + c.name + ' from ' + d.referrer.name"
+                  title="Remove: later payments earn nothing"
+                  (click)="removeClient(c.tenantId)"
+                >
+                  <i class="ti ti-unlink" aria-hidden="true"></i>
+                </button>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="hint">None yet. Requests through the link land here once accepted, or add one by hand.</p>
+        }
+        <div class="copy-row">
+          <select aria-label="Business to add" [value]="pick()" (change)="pick.set($any($event.target).value)">
+            <option value="">Add a business they brought…</option>
+            @for (t of free(); track t.id) {
+              <option [value]="t.id">{{ t.name }}</option>
+            }
+          </select>
+          <button class="btn" type="button" [disabled]="!pick() || busy()" (click)="addClient()">Add</button>
+        </div>
+      </section>
+
+      <!-- Every payment earned on. -->
+      <section class="block" aria-labelledby="ref-earned">
+        <h3 id="ref-earned">Commissions</h3>
+        @if (d.commissions.length) {
+          <ul class="rows">
+            @for (m of d.commissions; track m.id) {
+              @let st = status(m.status);
+              <li [class.off]="m.status === 'reversed'">
+                <span class="who">
+                  <strong>{{ m.tenantName || 'A business' }}</strong>
+                  <span class="muted small">
+                    {{ m.createdAt | date: 'd MMM y' }}, {{ money(m.triggerAmount) }} payment at
+                    {{ rate(m.commissionType, m.commissionValue) }}
+                    @if (m.note) {
+                      <br />{{ m.note }}
+                    }
+                    @if (m.paidAt) {
+                      <br />Paid {{ m.paidAt | date: 'd MMM y' }}{{ m.payoutRef ? ', ref ' + m.payoutRef : '' }}
+                    }
+                  </span>
+                </span>
+                <span class="earned">
+                  <b>{{ money(m.amount) }}</b>
+                  <span class="s-pill {{ st.tone }}">{{ st.label }}</span>
+                </span>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="hint">Each payment you record for one of their businesses earns here.</p>
+        }
+      </section>
+    }
+  </div>
+</aside>
+
+@if (confirming() && detail(); as d) {
+  <app-confirm
+    [heading]="'Mark ' + money(d.referrer.pending) + ' as paid to ' + d.referrer.name + '?'"
+    text="Pay them first by UPI or bank transfer. This marks every commission waiting as paid."
+    action="Mark paid"
+    tone="primary"
+    (confirm)="pay()"
+    (cancel)="confirming.set(false)"
+  />
+}

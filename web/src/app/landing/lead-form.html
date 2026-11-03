@@ -11,12 +11,12 @@
     <div class="pair">
       <div class="f">
         <label [attr.for]="source() + '-name'">Your name</label>
-        <input [id]="source() + '-name'" name="name" autocomplete="name" required maxlength="120"
+        <input [id]="source() + '-name'" name="name" autocomplete="name" required maxlength="120" placeholder="e.g. Meera Shah"
           [ngModel]="name()" (ngModelChange)="name.set($event)" />
       </div>
       <div class="f">
         <label [attr.for]="source() + '-business'">Business name</label>
-        <input [id]="source() + '-business'" name="business" autocomplete="organization" required maxlength="160"
+        <input [id]="source() + '-business'" name="business" autocomplete="organization" required maxlength="160" placeholder="e.g. Clay Studio"
           [ngModel]="business()" (ngModelChange)="business.set($event)" />
       </div>
     </div>
@@ -24,12 +24,12 @@
       <div class="f">
         <label [attr.for]="source() + '-email'">Work email</label>
         <input [id]="source() + '-email'" name="email" type="email" autocomplete="email" required maxlength="254"
-          placeholder="name@company.com" [ngModel]="address()" (ngModelChange)="address.set($event)" />
+          placeholder="e.g. name@company.com" [ngModel]="address()" (ngModelChange)="address.set($event)" />
       </div>
       <!-- Required: we confirm the request and send updates on WhatsApp. -->
       <div class="f">
         <label [attr.for]="source() + '-phone'">WhatsApp number</label>
-        <app-phone-input [inputId]="source() + '-phone'" name="phone" [required]="true" [(value)]="phone" />
+        <app-phone-input [inputId]="source() + '-phone'" name="phone" [required]="true" placeholder="e.g. 98765 43210" [(value)]="phone" />
       </div>
     </div>
     <div class="f">
@@ -51,7 +51,7 @@
         {{ busy() ? 'Sending...' : 'Request access' }}
         <i class="ti ti-arrow-right" aria-hidden="true"></i>
       </button>
-      <p>We reply within one working day.</p>
+      <p><i class="ti ti-mail" aria-hidden="true"></i>We reply within one working day.</p>
     </div>
   </form>
 }

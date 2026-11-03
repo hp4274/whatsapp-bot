@@ -168,6 +168,12 @@ export const routes: Routes = [
     loadComponent: () => import('./admin/payments').then((m) => m.PaymentsView),
   },
   {
+    path: 'admin/referrals',
+    title: 'Referrals - Wapzo',
+    canActivate: [roleGuard('super_admin')],
+    loadComponent: () => import('./admin/referrals').then((m) => m.ReferralsView),
+  },
+  {
     path: 'admin/wapzo',
     title: 'Wapzo WhatsApp - Wapzo',
     canActivate: [roleGuard('super_admin')],

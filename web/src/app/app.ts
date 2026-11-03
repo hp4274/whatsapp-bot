@@ -22,6 +22,7 @@ import { SendIsland } from './core/send-island';
 import { AdminNotifications } from './admin/admin-notifications';
 import { AdminWaiting } from './admin/admin-waiting';
 import { Store, ThemeMode, isBare } from './core/store';
+import { rememberReferral } from './core/referral';
 
 type NavItem = {
   path: string;
@@ -168,6 +169,8 @@ export class App {
   );
 
   constructor() {
+    // A marketer's link can land on any page; the code waits for the visitor's request for an account.
+    rememberReferral(location.search);
     // A 402 means /me is stale: re-read it, so a renewal (which re-reads it too) can lift the banner.
     effect(() => {
       if (this.auth.blocked()) untracked(() => this.auth.refresh());
@@ -306,6 +309,7 @@ export class App {
     { path: '/admin/leads', label: 'Leads', icon: 'user-plus', count: 'leads' },
     { path: '/admin/plans', label: 'Plans & billing', icon: ICONS.plans },
     { path: '/admin/payments', label: 'Payments', icon: 'cash' },
+    { path: '/admin/referrals', label: 'Referrals', icon: 'affiliate' },
     { path: '/admin/wapzo', label: 'Wapzo WhatsApp', icon: 'brand-whatsapp' },
     { path: '/admin/usage', label: 'Usage', icon: ICONS.usage },
     { path: '/admin/health', label: 'Health', icon: ICONS.health },

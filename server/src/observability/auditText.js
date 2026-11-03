@@ -231,6 +231,11 @@ const RULES = {
     'wapzo.message': (c) => `${field(c.detail, 'enabled') === false ? 'Switched off' : 'Updated'} the Wapzo WhatsApp message ${quote(c.target)}`,
     'wapzo.test': (c) => `Sent a test message from the Wapzo WhatsApp number to ${c.target}`,
     'wapzo.broadcast': (c) => `Sent a message from the Wapzo WhatsApp number to ${c.target} ${c.target === '1' ? 'recipient' : 'recipients'}`,
+    'referral.create': (c) => `Added marketer ${field(c.detail, 'name') ?? ''} with code ${c.target}`,
+    'referral.update': (c) => `Changed marketer ${c.target}${field(c.detail, 'status') === 'paused' ? ' (paused)' : ''}`,
+    'referral.client': (c) => `Marked ${c.biz()} as brought by marketer ${field(c.detail, 'referrer') ?? ''}`,
+    'referral.unlink': (c) => [`Removed ${c.biz()} from marketer ${field(c.detail, 'referrer') ?? ''}`, 'warn'],
+    'referral.payout': (c) => `Paid marketer ${c.target} ${money(c.detail, field(c.detail, 'amount'))} in commission`,
     'tenant.paid': (c) => `Recorded a${{ upi: ' UPI', bank: ' bank transfer', cash: ' cash' }[field(c.detail, 'method')] ?? ''} payment of ${money(c.detail, field(c.detail, 'amount'))} from ${c.biz()}`,
     'tenant.ledger.remove': (c) => [`Removed a ${field(c.detail, 'kind') === 'payment' ? 'payment' : 'charge'} of ${money(c.detail, field(c.detail, 'amount'))} from ${c.biz()}'s payments`, 'warn'],
     'tenant.price': (c) => {

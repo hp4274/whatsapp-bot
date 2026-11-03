@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { TenancyApi, TenantDetails } from '../core/api';
 import type { Tenant } from '../core/auth';
 import { LeadsApi } from './leads-api';
+import { ReferralsApi } from './referrals-api';
+import { ReferrerInput } from './referrer-input';
 import { PhoneInput } from '../core/phone-input';
 
 /** Business details, in the order a form or invoice reads them (server tenancy.js PROFILE_FIELDS). */
@@ -33,7 +35,7 @@ export const PROFILE_FIELDS: readonly {
  */
 @Component({
   selector: 'app-tenant-details-edit',
-  imports: [FormsModule, PhoneInput],
+  imports: [FormsModule, PhoneInput, ReferrerInput],
   templateUrl: './tenant-details-edit.html',
   styleUrl: './tenant-details-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -41,13 +43,14 @@ export const PROFILE_FIELDS: readonly {
 export class TenantDetailsEdit implements OnInit {
   private readonly api = inject(TenancyApi);
   private readonly leadsApi = inject(LeadsApi);
+  private readonly referralsApi = inject(ReferralsApi);
 
   readonly tenant = input.required<Tenant>();
   /** Each save: the business as it is now (the form stays open; Done closes it). */
   readonly saved = output<Tenant>();
   readonly cancelled = output<void>();
 
-  protected readonly form = signal<Required<Omit<TenantDetails, 'profile'>>>({
+  protected readonly form = signal<Required<Omit<TenantDetails, 'profile' | 'referrer'>>>({
     name: '',
     slug: '',
     contactPhone: '',
@@ -59,6 +62,9 @@ export class TenantDetailsEdit implements OnInit {
   /** Business details being edited, all of them (blank = not given). */
   protected readonly profile = signal<Record<string, string>>({});
   protected readonly busy = signal(false);
+  /** Who brought the business, as typed; sent only once read, so a failed read never clears it. */
+  protected readonly referrer = signal('');
+  private referrerRead = false;
   protected readonly error = signal('');
 
   ngOnInit(): void {
@@ -72,6 +78,13 @@ export class TenantDetailsEdit implements OnInit {
       ownerEmail: '',
     });
     this.profile.set(Object.fromEntries(PROFILE_FIELDS.map((f) => [f.key, t.profile?.[f.key] ?? ''])));
+    this.referralsApi.forTenant(t.id).subscribe({
+      next: ({ referrer }) => {
+        this.referrer.set(referrer?.name ?? '');
+        this.referrerRead = true;
+      },
+      error: () => undefined,
+    });
     // The owner is not on the business row: read it so the form starts from what is saved.
     this.leadsApi.users(t.id).subscribe({
       next: ({ users }) => {
@@ -82,7 +95,7 @@ export class TenantDetailsEdit implements OnInit {
     });
   }
 
-  protected set<K extends keyof Omit<TenantDetails, 'profile'>>(key: K, value: Required<Omit<TenantDetails, 'profile'>>[K]): void {
+  protected set<K extends keyof Omit<TenantDetails, 'profile' | 'referrer'>>(key: K, value: Required<Omit<TenantDetails, 'profile' | 'referrer'>>[K]): void {
     this.form.update((f) => ({ ...f, [key]: value }));
   }
 
@@ -113,6 +126,7 @@ export class TenantDetailsEdit implements OnInit {
         contactPhone: f.contactPhone.trim(),
         profile: Object.fromEntries(Object.entries(this.profile()).map(([k, v]) => [k, v.trim()])),
         ownerName: f.ownerName.trim(),
+        ...(this.referrerRead ? { referrer: this.referrer().trim() } : {}),
         // An owner the form never loaded keeps their email.
         ...(f.ownerEmail.trim() ? { ownerEmail: f.ownerEmail.trim() } : { ownerEmail: undefined }),
       })

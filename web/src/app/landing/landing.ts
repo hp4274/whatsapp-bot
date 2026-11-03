@@ -205,7 +205,7 @@ const CONTACT_EMAIL = 'connection@zarklyx.com';
  * inbox and the rest follow. Signed-in users never see it (`landingGuard`).
  *
  * Colour follows 60-30-10 on the dashboard's tokens: the ground and cards are
- * the 60, the brand navy fields (hero, safety, close) the 30, the brand blue
+ * the 60, the brand navy fields (hero, the health and access cards, close) the 30, the brand blue
  * only on actions and live state the 10.
  *
  * Motion (the `motion` package) drives the scroll work: the reading bar, the
