@@ -7,7 +7,7 @@ export const PLAN_DAILY_CAPS = Object.freeze({ starter: 250, business: 500, ente
 
 export const CHANNEL_POLICY = Object.freeze([
     // ------------------------------------------------------------ limits --
-    { key: 'channels.maxNumbers', service: S, group: 'Numbers', type: 'int', default: 0, min: 0, max: 1000, unlimitedAt: 0,
+    { key: 'channels.maxNumbers', scopes: [], service: S, group: 'Numbers', type: 'int', default: 0, min: 0, max: 1000, unlimitedAt: 0,
       label: 'Maximum numbers', hint: 'How many WhatsApp numbers one business may connect. 0 = no limit.' },
     { key: 'channels.allowBaileys', service: S, group: 'Numbers', type: 'bool', default: true,
       label: 'Allow Baileys (QR login)', hint: 'Unofficial QR-login numbers. Higher ban risk.' },
@@ -19,15 +19,15 @@ export const CHANNEL_POLICY = Object.freeze([
       ],
       label: 'Sender rule', hint: 'Which number sends when a business has several.' },
 
-    { key: 'channels.dailyCap', service: S, group: 'Numbers', type: 'int', default: 250, min: 1, max: 100000,
+    { key: 'channels.dailyCap', scopes: ['global','plan'], service: S, group: 'Numbers', type: 'int', default: 250, min: 1, max: 100000,
       label: 'Daily limit per number', hint: 'QR numbers climb their sending levels up to this, never above. Applies to every number at once.' },
 
     // ---------------------------------------------- safety for new numbers --
-    { key: 'channels.minGapSeconds', service: S, group: 'Safety defaults for new numbers', type: 'int', default: 0, min: 0, max: 3600,
+    { key: 'channels.minGapSeconds', scopes: ['global','plan'], service: S, group: 'Safety defaults for new numbers', type: 'int', default: 0, min: 0, max: 3600,
       label: 'Minimum gap between messages (s)', hint: '0 = adaptive: the gap grows with the size of the send.' },
-    { key: 'channels.maxGapSeconds', service: S, group: 'Safety defaults for new numbers', type: 'int', default: 0, min: 0, max: 3600,
+    { key: 'channels.maxGapSeconds', scopes: ['global','plan'], service: S, group: 'Safety defaults for new numbers', type: 'int', default: 0, min: 0, max: 3600,
       label: 'Maximum gap between messages (s)', hint: '0 = adaptive.' },
-    { key: 'channels.retryLimit', service: S, group: 'Safety defaults for new numbers', type: 'int', default: 3, min: 0, max: 10,
+    { key: 'channels.retryLimit', scopes: ['global','plan'], service: S, group: 'Safety defaults for new numbers', type: 'int', default: 3, min: 0, max: 10,
       label: 'Retry limit', hint: 'Attempts after the first for a retryable failure.' },
 
     // --------------------------------------------------------- ban guard --

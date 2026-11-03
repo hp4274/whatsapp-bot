@@ -102,7 +102,10 @@ export class CampaignsListView {
   protected readonly error = signal('');
   /** Row id + action awaiting its second click. */
   protected readonly confirming = signal<{ id: number; action: RowAction } | null>(null);
-  protected readonly busy = signal<number | null>(null);
+  /** Rows with an action in flight; each row's buttons stay off until its own answer. */
+  protected readonly busy = signal<ReadonlySet<number>>(new Set());
+  /** Bumped per list request, so a slow older answer never overwrites a newer one. */
+  private loadSeq = 0;
 
   protected readonly counts = computed(() => {
     const out: Record<string, number> = { all: 0 };
@@ -417,9 +420,11 @@ export class CampaignsListView {
   }
 
   protected load(): void {
+    const seq = ++this.loadSeq;
     this.loading.set(true);
     this.api.list().subscribe({
       next: ({ campaigns }) => {
+        if (seq !== this.loadSeq) return;
         this.campaigns.set(
           [...campaigns].sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')),
         );
@@ -428,6 +433,7 @@ export class CampaignsListView {
         this.loaded.set(true);
       },
       error: (err: Error) => {
+        if (seq !== this.loadSeq) return;
         this.error.set(err.message);
         this.loading.set(false);
         this.loaded.set(true);
@@ -471,22 +477,36 @@ export class CampaignsListView {
     return !!c && c.id === id && c.action === action;
   }
 
+  protected isBusy(id: number): boolean {
+    return this.busy().has(id);
+  }
+
+  private setBusy(id: number, on: boolean): void {
+    this.busy.update((ids) => {
+      const next = new Set(ids);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
   protected act(c: Campaign, action: RowAction): void {
+    if (this.isBusy(c.id)) return;
     const destructive = action === 'cancel' || action === 'delete';
     if (destructive && !this.isConfirming(c.id, action)) {
       this.confirming.set({ id: c.id, action });
       return;
     }
     this.confirming.set(null);
-    this.busy.set(c.id);
+    this.setBusy(c.id, true);
     const done = {
       next: () => {
-        this.busy.set(null);
+        this.setBusy(c.id, false);
         this.store.setStatus(`Campaign "${c.name}": ${action} done`, 'primary');
         this.load();
       },
       error: (err: Error) => {
-        this.busy.set(null);
+        this.setBusy(c.id, false);
         this.error.set(err.message);
         this.store.setStatus(err.message, 'danger');
       },

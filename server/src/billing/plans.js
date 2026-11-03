@@ -149,7 +149,8 @@ export const DEFAULT_PLANS = Object.freeze({
         trialDays: 0,
         services: [...TENANT_SERVICES],
         tenantLimits: {
-            maxChannels: 0, maxUsers: 0, maxTemplates: 0, maxContactsPerCampaign: 0, maxMediaMb: 0,
+            // null = no limit (0 would be a cap of zero).
+            maxChannels: null, maxUsers: null, maxTemplates: null, maxContactsPerCampaign: null, maxMediaMb: null,
             allowWhatsappWeb: true,
         },
         // Unlimited across the board; the contract is the limit, not the code.

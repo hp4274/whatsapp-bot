@@ -238,7 +238,12 @@ export class CampaignDraft {
   private readonly store = inject(Store);
   private initialised = false;
   private defaultCc = '91';
-  /** Set once in init(), so a later sign-in switch never writes under the wrong key. */
+  /** Whose draft this is: autosave is kept per tenant and user. '' while signed out. */
+  private readonly owner = computed(() => {
+    const user = this.auth.user();
+    return user ? `wsender.campaignDraft.${this.auth.tenantId() ?? 0}.${user.id}` : '';
+  });
+  /** The owner init() loaded the draft for; autosave writes only here. */
   private storageKey = '';
   /** False until init() has read any earlier snapshot, so a fresh draft never overwrites it unseen. */
   private readonly armed = signal(false);
@@ -280,6 +285,8 @@ export class CampaignDraft {
   readonly contactFilter = signal<ContactFilter>({});
   /** How many contacts `contactFilter` matches; set by the audience step after it counts. */
   readonly contactsCount = signal<number | null>(null);
+  /** The contact book's custom field keys; a contacts audience fills them per contact. Set by the audience step. */
+  readonly contactFields = signal<string[]>([]);
   /** Numbers typed on top of any audience, one per line ("number, name"). */
   readonly extraNumbers = signal('');
   readonly extraList = computed(() => parseExtraNumbers(this.extraNumbers(), this.countryCode()));
@@ -356,6 +363,7 @@ export class CampaignDraft {
     countryCode: this.countryCode,
     autoClean: this.autoClean,
     dedupeDays: this.dedupeDays,
+    excludedRows: this.excludedRows,
     extraColumns: this.extraColumns,
     audienceFrom: this.audienceFrom,
     retarget: this.retarget,
@@ -397,6 +405,9 @@ export class CampaignDraft {
   /** Every placeholder the message may use. */
   readonly variables = computed(() => {
     const preview = this.preview();
+    if (this.source() === 'contacts') {
+      return ['name', 'phone', ...this.contactFields().filter((k) => k !== 'name' && k !== 'phone')];
+    }
     if (this.source() !== 'file') return ['name', 'phone'];
     if (!preview) {
       const first = this.savedAudience()?.[0];
@@ -483,8 +494,9 @@ export class CampaignDraft {
 
   readonly previewContext = computed(() => this.contextFor(this.previewContact()));
 
+  /** The version being edited, filled in for the previewed contact. */
   readonly rendered = computed(() =>
-    substitute(this.message(), this.previewContext(), this.fallbacks(), this.seed()),
+    substitute(this.activeMessage(), this.previewContext(), this.fallbacks(), this.seed()),
   );
 
   /** The free-form body as it is sent: the message plus the opt-out line when that is on. */
@@ -548,15 +560,24 @@ export class CampaignDraft {
     return this.optOutLine() ? withOptOut(text) : text;
   });
 
-  readonly unresolved = computed(() => this.rendered().missing);
-  readonly hasVariation = computed(() => hasVariation(this.message()));
+  /** Blank for the previewed contact; the stand-in sample says nothing about a contact field. */
+  readonly unresolved = computed(() => {
+    const known = this.validContacts().length ? [] : this.variables();
+    return this.rendered().missing.filter((k) => !known.includes(k));
+  });
+  /** Every version varies per recipient: the server checks each A/B body on its own. */
+  readonly hasVariation = computed(() => this.bodies().every((b) => hasVariation(b)));
+  /** Plain placeholders in any version that goes out. */
+  private readonly placeholderKeys = computed(() => [
+    ...new Set(this.bodies().flatMap((b) => plainPlaceholders(b))),
+  ]);
 
-  /** Contacts that would get at least one blank placeholder (after fallbacks). */
+  /** Contacts that could get at least one blank placeholder (after fallbacks), in any version. */
   readonly contactsMissing = computed(() => {
-    const keys = plainPlaceholders(this.message());
+    const keys = this.placeholderKeys();
     if (!keys.length) return 0;
     const list = this.validContacts();
-    if (!list.length) return this.unresolved().length ? this.estimatedSize() : 0;
+    if (!list.length) return this.unresolvedKeysAll().length ? this.estimatedSize() : 0;
     const fb = this.fallbacks();
     let count = 0;
     for (const contact of list) {
@@ -613,10 +634,16 @@ export class CampaignDraft {
 
   /** Keys that are blank for at least one contact. */
   readonly unresolvedKeysAll = computed(() => {
-    const keys = plainPlaceholders(this.message());
+    const keys = this.placeholderKeys();
     const fb = this.fallbacks();
-    const list = this.validContacts().length ? this.validContacts() : [this.previewContact()];
-    return keys.filter((k) => list.some((c) => blank(withFallbacks(this.rawContext(c), fb)[k])));
+    const real = this.validContacts();
+    const list = real.length ? real : [this.previewContact()];
+    // Without the real people (a contacts audience resolves on the server) the sample contact
+    // cannot say a contact field is empty; the server's preview names real gaps after saving.
+    const known = real.length ? [] : this.variables();
+    return keys.filter(
+      (k) => !known.includes(k) && list.some((c) => blank(withFallbacks(this.rawContext(c), fb)[k])),
+    );
   });
 
   /**
@@ -691,24 +718,46 @@ export class CampaignDraft {
         return;
       }
       const snapshot = this.snapshot();
-      const timer = setTimeout(() => this.write(snapshot), AUTOSAVE_MS);
+      const key = this.storageKey;
+      const timer = setTimeout(() => this.write(key, snapshot), AUTOSAVE_MS);
       onCleanup(() => clearTimeout(timer));
+    });
+    // Sign-out, another sign-in, or a super admin acting as another tenant: that is
+    // someone else's draft, so start again from theirs (no reload happens in between).
+    effect(() => {
+      this.owner();
+      untracked(() => {
+        if (this.initialised) this.init();
+      });
     });
   }
 
-  /** Load the tenant's default country code and any autosaved draft, once. */
+  /**
+   * Load the tenant's default country code and any autosaved draft for the
+   * signed-in user and tenant. A no-op until they change.
+   */
   init(): void {
-    if (this.initialised) return;
+    const key = this.owner();
+    if (this.initialised && key === this.storageKey) return;
+    if (this.initialised) {
+      // Disarmed first, so reset() leaves the previous owner's autosave alone.
+      this.armed.set(false);
+      this.saved.set(null);
+      this.optOutDefault = true;
+      this.defaultCc = '91';
+      this.reset();
+    }
     this.initialised = true;
-    const user = this.auth.user();
-    this.storageKey = `wsender.campaignDraft.${this.auth.tenantId() ?? 0}.${user?.id ?? 0}`;
-    const saved = this.read();
+    this.storageKey = key;
+    const saved = key ? this.read() : null;
     this.saved.set(saved);
-    this.armed.set(saved === null);
+    // Signed out: nothing to load, and nowhere to autosave.
+    this.armed.set(!!key && saved === null);
+    if (!key) return;
     // After the first campaign the box starts unticked. A saved draft or an edit keeps its own choice.
     this.campaignsApi.list().subscribe({
       next: ({ campaigns }) => {
-        if (!campaigns.length) return;
+        if (key !== this.storageKey || !campaigns.length) return;
         this.optOutDefault = false;
         if (!this.saved() && this.editingId() == null) this.optOutLine.set(false);
       },
@@ -716,6 +765,7 @@ export class CampaignDraft {
     });
     this.api.getConfig().subscribe({
       next: ({ config }) => {
+        if (key !== this.storageKey) return;
         const cc = String(config.defaultCountryCode ?? '').replace(/\D/g, '');
         if (cc) {
           this.defaultCc = cc;
@@ -881,6 +931,7 @@ export class CampaignDraft {
       id !== null ? this.campaignsApi.update(id, body) : this.campaignsApi.create(body);
     return request.pipe(
       tap(({ campaign }) => this.editingId.set(campaign.id)),
+      switchMap((res) => this.keepFileContacts().pipe(map(() => res))),
       switchMap(({ campaign }) => {
         // Rules only mean something with buttons; an edit may be clearing earlier ones.
         const rules = this.interactive() ? this.replyRules() : [];
@@ -896,6 +947,28 @@ export class CampaignDraft {
         );
       }),
     );
+  }
+
+  /**
+   * Put the uploaded file's people in the contact book, with the mapping and country code
+   * the campaign was saved with. The audience step's previews never save: they run again for
+   * every country code or column tried. Best effort - the campaign is saved either way.
+   */
+  private keepFileContacts(): Observable<unknown> {
+    const preview = this.preview();
+    if (this.source() !== 'file' || !preview) return of(null);
+    const { phone, name } = this.mapping();
+    return this.campaignsApi
+      .importAudit({
+        importId: preview.importId,
+        mapping: { phone, name: name || null },
+        countryCode: this.countryCode(),
+        autoClean: this.autoClean(),
+        dedupeDays: this.dedupeDays(),
+        skipDuplicates: this.onePerNumber(),
+        save: true,
+      })
+      .pipe(catchError(() => of(null)));
   }
 
   /** The segment record (name, live count) for an id; null when it no longer exists. */
@@ -1116,6 +1189,7 @@ export class CampaignDraft {
     const file = snap.file;
     if (file) {
       const extra = this.extraColumns();
+      const excluded = this.excludedRows();
       const reopen =
         file.storageId === null
           ? throwError(() => new Error('not kept'))
@@ -1125,6 +1199,7 @@ export class CampaignDraft {
                 this.adoptImport(preview);
                 this.mapping.set(file.mapping);
                 this.extraColumns.set(extra);
+                this.excludedRows.set(excluded);
                 // The audit (who is valid) is not kept and only the Who step runs it,
                 // so a later step would show an empty audience until it is opened.
                 this.step.set(1);
@@ -1214,9 +1289,10 @@ export class CampaignDraft {
     }
   }
 
-  private write(snapshot: DraftSnapshot): void {
+  private write(key: string, snapshot: DraftSnapshot): void {
+    if (!key) return;
     try {
-      localStorage.setItem(this.storageKey, JSON.stringify(snapshot));
+      localStorage.setItem(key, JSON.stringify(snapshot));
     } catch {
       // Quota or privacy mode: keep going without autosave.
     }

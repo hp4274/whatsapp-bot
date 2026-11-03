@@ -68,7 +68,7 @@ import { TicketStore } from './tickets/store.js';
 import { JobStore } from './scheduler/store.js';
 import { SchedulerWorker } from './scheduler/worker.js';
 import { TemplateError, TemplateStore, validate as validateTemplate } from './templates/store.js';
-import { needsReview, reviewBlock, spamScore, stricterCap, templateRuleProblem } from './templates/policy.js';
+import { MAX_UPLOAD_MB, needsReview, reviewBlock, spamScore, stricterCap, templateRuleProblem } from './templates/policy.js';
 import { getLibraryEntry, listLibrary } from './templates/library.js';
 import { registerTemplateAdmin } from './templates/admin.js';
 import { WorkflowEngine } from './workflows/engine.js';
@@ -84,15 +84,17 @@ import { createStorageRouter } from './storage/routes.js';
 import { StorageError, safeName, sha256Of, uploadInfo } from './storage/store.js';
 import { createBillingRouter } from './billing/routes.js';
 import { createCampaignRouter } from './campaigns/routes.js';
-import { dueCampaigns, finishedCampaigns, openCampaigns, recurringTenants, runningSpreadCampaigns } from './campaigns/store.js';
+import { busyText, dueCampaigns, finishedCampaigns, openCampaigns, recurringTenants, runningSpreadCampaigns } from './campaigns/store.js';
 import { LinkStore, followLink } from './links/store.js';
 import { DEFAULT_PLANS } from './billing/plans.js';
 import { PAYMENTS } from './billing/schema.js';
 import { BillingError, BillingStore } from './billing/store.js';
+import { Ledger, amountOr400, totals } from './billing/ledger.js';
+import { PlatformMessages, createNotifier } from './platform/notify.js';
 import { LeadError, Leads } from './leads.js';
 import { leadAlertEmail, leadReceivedEmail, welcomeEmail } from './mail/emails.js';
 import { noMailer } from './mail/mailer.js';
-import { POLICY_FIELDS, PolicyError, PolicyStore, fillTables } from './policy/index.js';
+import { POLICY_FIELDS, PolicyError, PolicyStore, allowedAt, fillTables } from './policy/index.js';
 import { attachCampaignPolicy, bulkKillReason, createCampaignOpsRouter, retentionSweep } from './policy/campaignOps.js';
 import { bindContext, logger, requestContext } from './observability/logger.js';
 import { createAdminFeed } from './observability/adminFeed.js';
@@ -113,7 +115,7 @@ import { checkImport, fileTypeError } from './security/filetype.js';
 import { securityHeaders } from './security/headers.js';
 import {
     CONSENT_TEXT, CONSENT_VERSION, NUMBER_SKIP_TEXT, NUMBER_SKIP_VERSION, SAFETY_EXIT_TEXT, SAFETY_EXIT_VERSION, ROLES, TENANT_SERVICES, Tenancy, TenancyError,
-    blockedWordIn, roleRank,
+    blockedWordIn, capOf, roleRank, tighterCap,
 } from './tenancy.js';
 import { sendingTables, skipStartLevel, startLevelFor, suggestStart } from './policy/levels.js';
 import { PACING_PRESETS, bulkWindowOpen } from './campaign/safety.js';
@@ -389,7 +391,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     const conversations = new ConversationStore(db);
     const tickets = new TicketStore(db);
     const knowledge = new KnowledgeStore(db);
-    const billing = new BillingStore(db, { overrides: () => deps.platformPolicy?.() ?? {} });
+    const billing = new BillingStore(db, { overrides: () => deps.platformPolicy?.() ?? {}, ownLimits: limits });
     const workflows = new WorkflowStore(db);
     const jobs = new JobStore(db);
     // The engine takes its collaborators injected, which is what keeps it
@@ -983,9 +985,15 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
                 skipDuplicates: req.body?.skipDuplicates !== false,
             });
             // Every valid number in the sheet goes into the contact book (upsert: re-uploading
-            // the same file updates, never duplicates).
-            const saved = contacts.importMany(valid, { source: 'import', normalized: true });
-            return res.json({ counts, issues, saved: { created: saved.created, updated: saved.updated },
+            // the same file updates, never duplicates) - but only when asked (`save: true`, sent
+            // once the campaign is saved). The composer audits again for every country code or
+            // column it tries, and those guesses must not land in the book.
+            const saved = req.body?.save === true
+                ? contacts.importMany(valid, { source: 'import', normalized: true })
+                : null;
+            // The route's own topic is `campaign`: open Contacts pages need telling too.
+            if (saved && (saved.created || saved.updated)) broadcast(state, { type: 'changed', topic: 'contacts' });
+            return res.json({ counts, issues, ...(saved && { saved: { created: saved.created, updated: saved.updated } }),
                 valid: valid.map(({ row, phone, name }) => ({ row, phone, name })) });
         } catch (err) {
             if (err instanceof RangeError) return res.status(400).json({ errors: [err.message] });
@@ -1299,8 +1307,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     // Platform template rules (templates/policy.js). Legacy limits.maxTemplates and
     // templates.maxTemplates both apply: the lower cap wins.
     const templateCapError = () => {
-        const cap = stricterCap(limits().maxTemplates, state.platformPolicy()['templates.maxTemplates']);
-        return cap && templates.list().length >= cap
+        const cap = tighterCap(limits().maxTemplates, state.platformPolicy()['templates.maxTemplates']);
+        return cap !== null && templates.list().length >= cap
             ? `Your plan allows ${cap} templates. Delete one or ask the platform admin to raise it.` : null;
     };
     const templateRuleFail = (res, draft) => {
@@ -1568,8 +1576,11 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         });
         if (errors.length) return res.status(400).json({ errors });
         if (!contacts.length) return res.status(400).json({ errors: ['no valid payment reminders'] });
+        const busy = state.campaigns?.busyWith(null);
+        if (busy) return res.status(409).json({ errors: [busyText(busy, 'send')] });
 
-        const result = manager.enqueueContacts(contacts, '{final_message}', { onePerNumber: true, reset: {} });
+        // A fresh run, but a reply or quick send still waiting is someone's message: it keeps its place.
+        const result = manager.enqueueContacts(contacts, '{final_message}', { onePerNumber: true, reset: { keepOneOff: true } });
         manager.start();
         return res.json(result);
     });
@@ -1579,8 +1590,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         if (!req.file) return res.status(400).json({ errors: ['no file uploaded'] });
         const badContent = mediaContentError(req.file);
         if (badContent) return res.status(400).json({ errors: [badContent] });
-        // Policy templates.maxMediaMb vs legacy limits.maxMediaMb: the lower wins.
-        const maxMb = stricterCap(state.platformPolicy()['templates.maxMediaMb'], limits().maxMediaMb);
+        // Policy templates.maxMediaMb vs the platform's fixed 10 MB (templates/policy.js): the lower wins.
+        const maxMb = stricterCap(state.platformPolicy()['templates.maxMediaMb'], MAX_UPLOAD_MB);
         if (maxMb && req.file.size > maxMb * 1024 * 1024) {
             return res.status(413).json({ errors: [`Files can be up to ${maxMb} MB on your plan.`] });
         }
@@ -1694,9 +1705,13 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         }
         const media = mediaId ? state.media.get(mediaId) : null;
         if (mediaId && !media) return res.status(404).json({ errors: ['media not found'] });
-        // `reset` lands after enqueueContacts' own refusals: a refused start keeps whatever is queued.
+        // The reset below would drop another run's waiting rows for good (left QUEUED in history): refuse instead.
+        const busy = state.campaigns?.busyWith(null);
+        if (busy) return res.status(409).json({ errors: [busyText(busy, 'send')] });
+        // `reset` lands after enqueueContacts' own refusals: a refused start keeps whatever is queued. Replies and
+        // quick sends still waiting keep their place.
         const result = manager.enqueueContacts(list, template, {
-            reset: {}, onePerNumber, media, interactive,
+            reset: { keepOneOff: true }, onePerNumber, media, interactive,
             // Bulk Campaigns v2: per-variable fallback text and the speed preset.
             fallbacks: req.body?.fallbacks ?? null, pacing: req.body?.pacing ?? 'balanced',
         });
@@ -1725,26 +1740,27 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         // Campaigns page shows the same paused / running / cancelled state as the engine.
         const id = Number(String(manager.campaignId ?? '').replace(/^camp-/, ''));
         const record = Number.isInteger(id) && id > 0 ? state.campaigns?.get(id) : null;
+        // A resume the engine turns down (a business cap, today's limit) is a 409 with its reason, not a 200 that
+        // leaves the run paused while the page reads "resumed".
+        const refused = () => res.status(409).json({
+            errors: [manager.resumeRefusal ?? `Daily limit of ${manager.quota.limit} reached - resume after midnight.`],
+            stats: manager.statsSnapshot(),
+        });
         if (record && ['running', 'paused'].includes(record.status)) {
             const store = state.campaigns;
             try {
                 if (action === 'stop') store.cancel(id);
                 else if (action === 'pause' && record.status === 'running') store.pause(id);
                 else if (action === 'resume' && record.status === 'paused') store.resume(id);
-                else manager[action]();
+                // A record still `running` while the engine holds it (a cap hold): the engine has the say.
+                else if (manager[action]() === false) return refused();
             } catch (err) {
                 if (!err.status) throw err;
                 return res.status(err.status).json({ errors: [err.message], stats: manager.statsSnapshot() });
             }
             return res.json({ stats: manager.statsSnapshot() });
         }
-        const accepted = manager[action]();
-        if (action === 'resume' && accepted === false) {
-            return res.status(409).json({
-                errors: [`Daily limit of ${manager.quota.limit} reached - resume after midnight.`],
-                stats: manager.statsSnapshot(),
-            });
-        }
+        if (manager[action]() === false && action === 'resume') return refused();
         return res.json({ stats: manager.statsSnapshot() });
     });
 
@@ -2077,7 +2093,7 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
     app.post('/channels', (req, res) => {
         const platform = deps.platformPolicy?.() ?? {};
         const cap = numberCap(deps.limits?.() ?? {}, platform);
-        if (cap && channels.list().length >= cap) return res.status(403).json({ errors: [capMessage(cap)] });
+        if (cap !== null && channels.list().length >= cap) return res.status(403).json({ errors: [capMessage(cap)] });
         const body = req.body ?? {};
         const blocked = providerBlocked(mergeConfig(DEFAULTS, body.settings).transport, deps.limits?.() ?? {}, platform);
         if (blocked) return res.status(403).json({ errors: [blocked] });
@@ -2317,6 +2333,67 @@ export function createApp({
 
     const tenancy = new Tenancy(db);
     const leads = new Leads(db);
+    const ledger = new Ledger(db);
+    // Wapzo's own WhatsApp number writing to clients (platform/notify.js); runtimeFor is defined further down.
+    const platformMessages = new PlatformMessages(db.db);
+    const notifier = createNotifier({ tenancy, runtimeFor: (id) => runtimeFor(id), templates: platformMessages });
+    app.locals.notifier = notifier;
+    const inr = (amount, currency = 'INR') => {
+        try {
+            return new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount);
+        } catch {
+            return `${currency} ${Number(amount).toLocaleString('en-IN')}`;
+        }
+    };
+    const day = (iso) => (iso ? new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+    /**
+     * A platform event about an active business, to its contact WhatsApp (else the number on the request it came
+     * from), addressed to its owner. Pending businesses are still being set up, so they hear nothing until activated.
+     */
+    const notifyTenant = (kind, tenantId, vars, key) => {
+        const tenant = tenancy.getTenant(tenantId);
+        if (tenant?.status !== 'active') return { sent: false, reason: 'Only active businesses get updates.' };
+        const owner = tenancy.ownerOf(tenant.id);
+        return notifier.event(kind, {
+            to: tenant.contactPhone || leads.forTenant(tenant.id)?.phone || '',
+            tenantId: tenant.id,
+            key,
+            vars: { name: owner?.name || tenant.name, business: tenant.name, email: owner?.email ?? '', ...vars },
+        });
+    };
+    /** Plan put on or renewed: what it is, what was charged and when it renews. */
+    const notifyPlan = (tenantId, subscription, renewed, charged) => notifyTenant(
+        renewed ? 'plan_renewed' : 'plan_started', tenantId, {
+            plan: subscription.plan.name,
+            amount: charged ? inr(charged, subscription.plan.currency) : '',
+            amount_text: charged ? ` (${inr(charged, subscription.plan.currency)})` : '',
+            date: day(subscription.validUntil ?? subscription.currentPeriodEnd),
+        }, `plan:${tenantId}:${subscription.startsAt}`);
+    /**
+     * "Ends in 3 days" and "ended" for every active business with an end date (or a trial). Run hourly; the key
+     * (business, end date, stage) sends each once, and an unlinked number simply sends it on a later run.
+     */
+    const notifyPlanEnds = (now = new Date()) => {
+        const sent = [];
+        for (const tenant of tenancy.listTenants()) {
+            if (tenant.status !== 'active') continue;
+            try {
+                const sub = new BillingStore(db.forTenant(tenant.id)).subscription();
+                const end = sub?.validUntil ?? (sub?.status === 'trialing' ? sub.trialEndsAt : null);
+                if (!end) continue;
+                const left = Math.ceil((Date.parse(end) - now.getTime()) / 864e5);
+                const stage = left <= 0 ? 'plan_expired' : left <= 3 ? 'plan_ending' : null;
+                if (!stage) continue;
+                const result = notifyTenant(stage, tenant.id, { plan: sub.plan.name, date: day(end), days: Math.max(0, left) },
+                    `${stage}:${tenant.id}:${end}`);
+                if (result.sent) sent.push({ tenantId: tenant.id, kind: stage });
+            } catch (err) {
+                logger.warn('plan end notice failed', { tenantId: tenant.id, error: err.message });
+            }
+        }
+        return sent;
+    };
+    app.locals.notifyPlanEnds = notifyPlanEnds;
     // Admin screens span every tenant: they listen here instead of polling (GET /api/admin/events).
     const adminFeed = createAdminFeed();
     tenancy.onAudit = ({ tenantId }) => adminFeed.publish('audit', tenantId);
@@ -2427,7 +2504,13 @@ export function createApp({
                 cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
                 graceEndsAt: sub.graceEndsAt,
                 payment: sub.payment,
+                startsAt: sub.startsAt,
+                validUntil: sub.validUntil,
+                topupMessages: sub.topupMessages,
+                customPrice: sub.customPrice,
             },
+            // What the business owes: plan and top-up charges less the payments recorded (Tenant settings > Payments).
+            balance: totals(ledger.entries(tenant.id)),
             users: tenancy.listUsers(tenant.id).length,
             channels,
             health: {
@@ -2489,6 +2572,10 @@ export function createApp({
             if (body.website) return res.status(201).json({ ok: true });
             const lead = leads.create({ ...body, ip: req.ip ?? '' });
             adminFeed.publish('leads', null);
+            // "We got your request" from Wapzo's own number; a resubmitted request is a new message.
+            notifier.event('lead_received', {
+                to: lead.phone, vars: { name: lead.name, business: lead.business }, key: `lead:${lead.id}:${lead.updatedAt}`,
+            });
             // Not awaited: the visitor's answer never waits on a mail server. The alert's link uses only the
             // configured address, never this request's Origin, which a stranger could set to anything.
             void mailer.send({ to: lead.email, ...leadReceivedEmail(lead) });
@@ -2539,7 +2626,9 @@ export function createApp({
         // The right password on a business the platform suspended: say so, and never count it towards a lockout.
         if (tenant && tenant.status !== 'active') {
             tenancy.audit({ tenantId: user.tenantId, userId: user.id, action: 'auth.login_refused', detail: { status: tenant.status, ip: req.ip } });
-            return res.status(403).json({ errors: ['This business account is suspended. Contact your provider.'] });
+            return res.status(403).json({ errors: [tenant.status === 'pending'
+                ? 'Your account is still being set up. We will email you when it is ready.'
+                : 'This business account is suspended. Contact your provider.'] });
         }
         // Only the account's own counter: clearing the address's too would let anyone with one account reset it
         // between guesses at other people's, so a spray from one address would never slow down.
@@ -2575,7 +2664,10 @@ export function createApp({
         if (write && startsWorkflow && tenant.controls.automationsEnabled === false) {
             return res.status(403).json({ error: 'tenant_blocked', message: 'Automations are disabled for this account.' });
         }
-        const billing = new BillingStore(db.forTenant(key.tenantId), { overrides: () => policyStore.resolve(key.tenantId).values });
+        const billing = new BillingStore(db.forTenant(key.tenantId), {
+            overrides: () => policyStore.resolve(key.tenantId).values,
+            ownLimits: () => tenancy.getTenant(key.tenantId)?.limits ?? {},
+        });
         if (billing.subscription()?.state === 'expired') {
             return res.status(402).json({ error: 'subscription_expired', message: 'The subscription has ended. Contact your provider to renew.' });
         }
@@ -2789,6 +2881,23 @@ export function createApp({
         if (!PAYMENTS.includes(payment)) throw new BillingError(`payment must be one of ${PAYMENTS.join(', ')}`);
         return payment;
     };
+    /**
+     * The plan's price (the list price, or the amount agreed on a plan without one) is owed the moment the plan is
+     * active: the business is activated (not pending), out of its trial, and paying (not free). Charged once a period,
+     * unpaid until payments cover it. Called wherever one of those can change: a plan put on or renewed, activation,
+     * marked paid, a price set.
+     */
+    const chargeIfActive = (req, tenantId, subscription = new BillingStore(db.forTenant(tenantId)).subscription(), renewed = false) => {
+        if (!subscription || subscription.state !== 'active' || subscription.payment === 'free') return 0;
+        if (tenancy.getTenant(tenantId)?.status !== 'active') return 0;
+        const amount = subscription.plan.price || subscription.customPrice;
+        if (!amount || ledger.planChargedSince(tenantId, subscription.startsAt)) return 0;
+        ledger.add(tenantId, {
+            kind: 'plan', amount, currency: subscription.plan.currency,
+            note: `${subscription.plan.name} plan${renewed ? ', renewed' : ''}`, userId: req.user?.id ?? null,
+        });
+        return amount;
+    };
     const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     /** Move a business's limits from `from` to `to`, keeping any an admin changed (no longer equal to `from`). */
     const followPlanLimits = (tenantId, from, to) => {
@@ -2800,8 +2909,15 @@ export function createApp({
 
     admin.get('/billing/plans', (req, res) => {
         const counts = subscriberCounts();
+        // Each plan's per-number day (the 'channels.dailyCap' rule at the plan's scope, else the platform's), so a
+        // plan picker can show messages a day beside messages a month. 0 or null = no daily cap.
+        const globalDay = policyStore.values('global')['channels.dailyCap'] ?? null;
         return res.json({
-            plans: catalogue().plans().map((plan) => ({ ...plan, subscribers: counts.get(plan.key) ?? 0 })),
+            plans: catalogue().plans().map((plan) => ({
+                ...plan,
+                subscribers: counts.get(plan.key) ?? 0,
+                dailyCap: policyStore.values(`plan:${plan.key}`)['channels.dailyCap'] ?? globalDay,
+            })),
             services: TENANT_SERVICES,
         });
     });
@@ -2816,6 +2932,69 @@ export function createApp({
                        WHERE s.plan_key = ? AND t.status != 'archived'`).all(plan.key)
             .forEach(({ id }) => followPlanLimits(id, before.tenantLimits ?? {}, plan.tenantLimits));
     };
+
+    /**
+     * Rules saved where they no longer belong (policy/index.js `scopes`) move to the one place each value lives now,
+     * then the old rule is deleted: plan quotas onto the plan, a business's numbers, templates, blocked words, day,
+     * gaps and retries onto its own limits and anti-ban. Caps keep the tighter value, so nothing loosens. Runs at
+     * start; with nothing left to move it is one query.
+     */
+    const foldMisplacedRules = () => {
+        const field = new Map(POLICY_FIELDS.map((f) => [f.key, f]));
+        const rows = db.db.prepare('SELECT scope, key, value FROM platform_policy').all()
+            .filter((r) => field.has(r.key) && !allowedAt(field.get(r.key), r.scope));
+        if (!rows.length) return;
+        const plans = () => catalogue().plans();
+        const tenantsOn = (planKey) => db.db.prepare(
+            "SELECT s.tenant_id AS id FROM subscriptions s JOIN tenants t ON t.id = s.tenant_id WHERE s.plan_key = ? AND t.status != 'archived'")
+            .all(planKey).map((r) => r.id);
+        const allTenants = () => tenancy.listTenants().map((t) => t.id);
+        const quota = { 'billing.messagesPerMonth': 'messagesPerMonth', 'billing.apiRequestsPerMonth': 'apiRequests', 'billing.storageMb': 'storageMb' };
+        const own = { 'channels.maxNumbers': 'maxChannels', 'templates.maxTemplates': 'maxTemplates' };
+        const tighterLimit = (id, key, cap) => tenancy.setLimits(id, { [key]: tighterCap(tenancy.getTenant(id)?.limits?.[key], cap) });
+        for (const { scope, key, value: raw } of rows) {
+            const value = JSON.parse(raw);
+            const tenantId = scope.startsWith('tenant:') ? Number(scope.slice(7)) : null;
+            const planKeys = scope === 'global' ? plans().map((p) => p.key) : scope.startsWith('plan:') ? [scope.slice(5)] : [];
+            try {
+                if (quota[key] && tenantId == null) {
+                    // A plan-level rule wins over the platform's for that plan, as it did when it was read.
+                    for (const k of planKeys.filter((k) => scope !== 'global' || !rows.some((r) => r.scope === `plan:${k}` && r.key === key))) {
+                        const plan = catalogue().getPlan(k);
+                        if (plan) catalogue().savePlan({ ...plan, limits: { ...plan.limits, [quota[key]]: Number(value) === 0 ? null : Number(value) } });
+                    }
+                } else if (key === 'billing.messagesPerMonth' && tenantId != null) {
+                    tenancy.setLimits(tenantId, { messagesPerMonth: Number(value) === 0 ? null : Number(value) });
+                } else if (own[key] && Number(value) > 0) {
+                    for (const k of planKeys) {
+                        const plan = catalogue().getPlan(k);
+                        if (plan) catalogue().savePlan({ ...plan, tenantLimits: { ...plan.tenantLimits, [own[key]]: tighterCap(plan.tenantLimits?.[own[key]], value) } });
+                    }
+                    const ids = tenantId != null ? [tenantId] : scope === 'global' ? allTenants() : planKeys.flatMap(tenantsOn);
+                    ids.forEach((id) => tighterLimit(id, own[key], value));
+                } else if (key === 'templates.blockedWords' && tenantId != null && Array.isArray(value) && value.length) {
+                    const words = String(tenancy.getTenant(tenantId)?.limits?.blockedWords ?? '');
+                    tenancy.setLimits(tenantId, { blockedWords: [words, ...value].filter(Boolean).join(', ') });
+                } else if (tenantId != null && key.startsWith('channels.')) {
+                    const safety = tenancy.getTenant(tenantId)?.safety ?? {};
+                    const n = Number(value);
+                    const patch = {
+                        'channels.dailyCap': { dailyLimit: safety.dailyLimit > 0 ? Math.min(safety.dailyLimit, n) : n },
+                        'channels.minGapSeconds': { minDelaySeconds: Math.max(Number(safety.minDelaySeconds) || 0, n) },
+                        'channels.maxGapSeconds': { maxDelaySeconds: Math.max(Number(safety.maxDelaySeconds) || 0, n) },
+                        'channels.retryLimit': { maxRetries: safety.maxRetries == null ? n : Math.min(safety.maxRetries, n) },
+                    }[key];
+                    if (patch) tenancy.setSafety(tenantId, patch);
+                }
+                db.db.prepare('DELETE FROM platform_policy WHERE scope = ? AND key = ?').run(scope, key);
+            } catch (err) {
+                // Kept where it was (no longer read there) rather than lost; the next start tries again.
+                logger.warn('could not move a rule to its new place', { scope, key, error: err.message });
+            }
+        }
+        logger.info('moved rules to their one place', { count: rows.length });
+    };
+    foldMisplacedRules();
 
     admin.put('/billing/plans/:key', (req, res) => {
         try {
@@ -2860,31 +3039,206 @@ export function createApp({
         try {
             const tenant = tenancy.getTenant(req.params.id);
             if (!tenant || tenant.status === 'archived') return res.status(404).json({ errors: ['tenant not found'] });
-            const plan = planOr404(req.body?.planKey, new BillingStore(db.forTenant(tenant.id)).subscription()?.planKey);
+            const before = new BillingStore(db.forTenant(tenant.id)).subscription();
+            const plan = planOr404(req.body?.planKey, before?.planKey);
             // A first assignment gets the plan's trial; a change or renewal is
             // paid-for, so no fresh trial unless the admin asks for one.
-            const hadOne = new BillingStore(db.forTenant(tenant.id)).subscription() !== null;
+            const hadOne = before !== null;
             const payment = paymentOr400(req.body?.payment);
+            // What this business pays on a plan with no list price (Enterprise, custom), checked before anything is written.
+            const raw = req.body?.amount;
+            const agreed = raw === undefined || raw === null || raw === '' ? null : amountOr400(raw);
+            if (agreed !== null && plan.price) throw new BillingError(`${plan.name} has a list price; an amount is only for plans without one.`);
             let subscription = applyPlan(tenant.id, plan, req.body?.trialDays ?? (hadOne ? 0 : plan.trialDays));
             if (payment) subscription = new BillingStore(db.forTenant(tenant.id)).setPayment(payment);
-            audit(req, 'tenant.subscription', tenant.id, { planKey: plan.key, state: subscription.state, payment });
+            if (agreed !== null) subscription = new BillingStore(db.forTenant(tenant.id)).setCustomPrice(agreed);
+            const charged = chargeIfActive(req, tenant.id, subscription, before?.planKey === plan.key);
+            audit(req, 'tenant.subscription', tenant.id, {
+                planKey: plan.key, state: subscription.state, payment, charged, currency: plan.currency,
+            });
+            notifyPlan(tenant.id, subscription, before?.planKey === plan.key, charged);
             return res.json({ subscription, tenant: tenantOverview(tenancy.getTenant(tenant.id)) });
         } catch (err) {
             return fail(res, err);
         }
     });
 
-    /** Paid, free or unpaid on its own: unlike the PUT above, it does not renew the plan or touch the period. */
+    /** Paid or free on its own: unlike the PUT above, it does not renew the plan, touch the period or charge. */
     admin.put('/tenants/:id/payment', (req, res) => {
         try {
             const payment = paymentOr400(req.body?.payment);
-            if (!payment) return res.status(400).json({ errors: ['Choose paid, free or unpaid.'] });
-            const subscription = new BillingStore(db.forTenant(Number(req.params.id))).setPayment(payment);
-            audit(req, 'tenant.payment', Number(req.params.id), { payment });
-            return res.json({ subscription });
+            if (!payment) return res.status(400).json({ errors: ['Choose paid or free.'] });
+            const id = Number(req.params.id);
+            const subscription = new BillingStore(db.forTenant(id)).setPayment(payment);
+            // Marked paid now: this period's plan price is owed at once, not from the next renewal.
+            const charged = payment === 'paid' ? chargeIfActive(req, id, subscription) : 0;
+            audit(req, 'tenant.payment', id, { payment, charged, currency: subscription.plan.currency });
+            const tenant = tenancy.getTenant(id);
+            return res.json({ subscription, ...(tenant ? { tenant: tenantOverview(tenant) } : {}) });
         } catch (err) {
             return fail(res, err);
         }
+    });
+
+    /** What a business pays on a plan with no list price (Enterprise, custom): `amount`, or null to remove it. */
+    admin.put('/tenants/:id/price', (req, res) => {
+        try {
+            const tenant = tenancy.getTenant(req.params.id);
+            if (!tenant || tenant.status === 'archived') return res.status(404).json({ errors: ['tenant not found'] });
+            const subscription = new BillingStore(db.forTenant(tenant.id)).setCustomPrice(req.body?.amount ?? null);
+            // A price set on a plan that had none: this period is charged now, once.
+            const charged = chargeIfActive(req, tenant.id, subscription);
+            audit(req, 'tenant.price', tenant.id, {
+                amount: subscription.customPrice, currency: subscription.plan.currency, interval: subscription.plan.interval, charged,
+            });
+            return res.json({ subscription, tenant: tenantOverview(tenancy.getTenant(tenant.id)) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /** The plan's end date (`validUntil`: a date, or null for none: it renews monthly). */
+    admin.put('/tenants/:id/validity', (req, res) => {
+        try {
+            const tenant = tenancy.getTenant(req.params.id);
+            if (!tenant || tenant.status === 'archived') return res.status(404).json({ errors: ['tenant not found'] });
+            const subscription = new BillingStore(db.forTenant(tenant.id)).setValidity(req.body?.validUntil ?? null);
+            audit(req, 'tenant.validity', tenant.id, { validUntil: subscription.validUntil });
+            return res.json({ subscription, tenant: tenantOverview(tenancy.getTenant(tenant.id)) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /** A top-up: more days of validity and/or more messages this month, on the plan the business is on. */
+    admin.post('/tenants/:id/topup', (req, res) => {
+        try {
+            const tenant = tenancy.getTenant(req.params.id);
+            if (!tenant || tenant.status === 'archived') return res.status(404).json({ errors: ['tenant not found'] });
+            const days = Number(req.body?.days ?? 0);
+            const messages = Number(req.body?.messages ?? 0);
+            // Its price, optional: charged (unpaid until paid) once the top-up is in.
+            const raw = req.body?.amount;
+            const amount = raw === undefined || raw === null || raw === '' || Number(raw) === 0 ? 0 : amountOr400(raw);
+            const subscription = new BillingStore(db.forTenant(tenant.id)).topUp({ days, messages });
+            if (amount) {
+                const parts = [days ? `${days} day${days === 1 ? '' : 's'}` : '', messages ? `${messages.toLocaleString('en-IN')} messages` : ''];
+                ledger.add(tenant.id, {
+                    kind: 'topup', amount, currency: subscription.plan.currency,
+                    note: `Top-up: ${parts.filter(Boolean).join(' and ')}`, userId: req.user?.id ?? null,
+                });
+            }
+            audit(req, 'tenant.topup', tenant.id, { days, messages, validUntil: subscription.validUntil, amount, currency: subscription.plan.currency });
+            notifyTenant('topup_added', tenant.id, {
+                topup: [days ? `${days} day${days === 1 ? '' : 's'}` : '', messages ? `${messages.toLocaleString('en-IN')} messages` : '']
+                    .filter(Boolean).join(' and '),
+                amount: amount ? inr(amount, subscription.plan.currency) : '',
+                amount_text: amount ? ` (${inr(amount, subscription.plan.currency)})` : '',
+                date: day(subscription.validUntil ?? subscription.currentPeriodEnd),
+            }, `topup:${tenant.id}:${Date.now()}`);
+            return res.json({ subscription, tenant: tenantOverview(tenancy.getTenant(tenant.id)) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    // ---- payments: what a business was charged (plan, top-ups), what it paid, and what is still due ----
+    const liveTenant = (id) => {
+        const tenant = tenancy.getTenant(id);
+        if (!tenant || tenant.status === 'archived') throw new BillingError('tenant not found', 404);
+        return tenant;
+    };
+    /** The price a business's plan bills at: the list price, else the amount agreed; null for none. */
+    const billedPrice = (sub) => (sub ? (sub.plan.price || sub.customPrice || null) : null);
+
+    admin.get('/tenants/:id/payments', (req, res) => {
+        try {
+            const tenant = liveTenant(req.params.id);
+            const sub = new BillingStore(db.forTenant(tenant.id)).subscription();
+            return res.json({
+                ...ledger.statement(tenant.id),
+                currency: sub?.plan.currency ?? 'INR',
+                interval: sub?.plan.interval ?? 'month',
+                planPrice: billedPrice(sub),
+                payment: sub?.payment ?? null,
+            });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /** "They paid": `amount`, an optional `note` (how, a reference) and `paidAt` (default now). */
+    admin.post('/tenants/:id/payments', (req, res) => {
+        try {
+            const tenant = liveTenant(req.params.id);
+            const sub = new BillingStore(db.forTenant(tenant.id)).subscription();
+            const entry = ledger.add(tenant.id, {
+                kind: 'payment', amount: req.body?.amount, currency: sub?.plan.currency ?? 'INR',
+                note: req.body?.note ?? '', method: req.body?.method, at: req.body?.paidAt || null, userId: req.user?.id ?? null,
+            });
+            audit(req, 'tenant.paid', tenant.id, { amount: entry.amount, currency: entry.currency, method: entry.method });
+            const statement = ledger.statement(tenant.id);
+            notifyTenant('payment_received', tenant.id, {
+                amount: inr(entry.amount, entry.currency), due: inr(statement.due, entry.currency),
+            }, `payment:${entry.id}`);
+            return res.status(201).json({ entry, ...statement });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /** A charge or payment entered by mistake. */
+    admin.delete('/tenants/:id/payments/:entryId', (req, res) => {
+        try {
+            const tenant = liveTenant(req.params.id);
+            const entry = ledger.remove(tenant.id, req.params.entryId);
+            audit(req, 'tenant.ledger.remove', tenant.id, { kind: entry.kind, amount: entry.amount, currency: entry.currency });
+            return res.json(ledger.statement(tenant.id));
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /** Every business's money at a glance (the Payments page): plan price, charged, paid, due, top-ups. */
+    admin.get('/payments', (req, res) => {
+        const sums = ledger.all();
+        const none = totals([]);
+        const rows = tenancy.listTenants().filter((t) => t.status !== 'archived').map((tenant) => {
+            const sub = new BillingStore(db.forTenant(tenant.id)).subscription();
+            return {
+                tenantId: tenant.id, name: tenant.name, slug: tenant.slug, status: tenant.status,
+                planKey: sub?.planKey ?? null, planName: sub?.plan.name ?? null, planPrice: billedPrice(sub),
+                currency: sub?.plan.currency ?? 'INR', interval: sub?.plan.interval ?? 'month', payment: sub?.payment ?? null,
+                state: sub?.state ?? null, validUntil: sub?.validUntil ?? null,
+                ...none, lastPaidAt: null, ...sums.get(tenant.id),
+            };
+        });
+        return res.json({ rows });
+    });
+
+    /**
+     * What the business has used against each limit, for Tenant settings > Limits (read only: limits change under
+     * Plan). Counted the way each limit is enforced, so the numbers here are the ones the business runs into.
+     * `limit` null = no limit; 0 = none allowed.
+     */
+    admin.get('/tenants/:id/usage', (req, res) => {
+        const tenant = tenancy.getTenant(req.params.id);
+        if (!tenant || tenant.status === 'archived') return res.status(404).json({ errors: ['tenant not found'] });
+        const scoped = db.forTenant(tenant.id);
+        const policy = policyStore.resolve(tenant.id).values;
+        const billing = new BillingStore(scoped, { overrides: () => policy, ownLimits: () => tenant.limits });
+        const usage = billing.usage();
+        const metric = (key) => usage.metrics.find((m) => m.metric === key) ?? { used: 0, limit: null };
+        const templateCount = db.db.prepare('SELECT COUNT(*) AS n FROM templates WHERE tenant_id = ?').get(tenant.id).n;
+        const rows = [
+            { key: 'numbers', label: 'WhatsApp numbers', used: new Channels(scoped).list().length, limit: numberCap(tenant.limits, policy) },
+            { key: 'users', label: 'Team members', used: tenancy.listUsers(tenant.id).filter((u) => !u.disabled).length, limit: capOf(tenant.limits.maxUsers) },
+            { key: 'templates', label: 'Templates', used: templateCount, limit: tighterCap(tenant.limits.maxTemplates, policy['templates.maxTemplates']) },
+            { key: 'messages', label: 'Messages this month', used: metric('messages').used, limit: metric('messages').limit },
+            { key: 'api_requests', label: 'API requests this month', used: metric('api_requests').used, limit: metric('api_requests').limit },
+            { key: 'storage_mb', label: 'Storage (MB)', used: metric('storage_mb').used, limit: metric('storage_mb').limit },
+        ];
+        return res.json({ period: usage.period, rows, uploadMb: MAX_UPLOAD_MB });
     });
 
     admin.delete('/tenants/:id/subscription', (req, res) => {
@@ -2899,7 +3253,18 @@ export function createApp({
     });
 
     /** A business and its owner, on a plan when one is named; shared by "New tenant" and converting a lead. */
-    const createTenant = async (req, body) => {
+    /** The cheapest plan still offered: where a pending business starts until the admin picks its plan. */
+    const firstPlanKey = () => catalogue().plans().filter((p) => p.active !== false).sort((a, b) => a.tier - b.tier)[0]?.key;
+
+    const createTenant = async (req, input) => {
+        // A pending business (Add tenant, or an accepted lead) starts on the first plan, paying, with a password nobody
+        // knows: the admin sets it up in Tenant settings and activating it sets the owner's real password.
+        const body = input.status === 'pending'
+            ? {
+                planKey: firstPlanKey(), payment: 'paid', ...input,
+                owner: { password: `${crypto.randomUUID()}${crypto.randomUUID()}`, ...input.owner },
+            }
+            : input;
         // Resolved before the tenant exists, so a bad key creates nothing.
         const plan = body.planKey ? planOr404(body.planKey) : null;
         const payment = paymentOr400(body.payment);
@@ -2909,6 +3274,7 @@ export function createApp({
             plan ? { ...body, services } : body);
         if (plan) applyPlan(created.id, plan, body.trialDays ?? plan.trialDays, services);
         if (plan && payment) new BillingStore(db.forTenant(created.id)).setPayment(payment);
+        if (plan) chargeIfActive(req, created.id);
         const tenant = tenancy.getTenant(created.id);
         req.tenantId = tenant.id; // the new business's own trail, not "Platform"
         audit(req, 'tenant.create', tenant.id, plan ? `${tenant.slug} on ${plan.key}` : tenant.slug);
@@ -2921,6 +3287,60 @@ export function createApp({
         } catch (err) {
             return fail(res, err);
         }
+    });
+
+    // ---- Wapzo's own WhatsApp number (platform/notify.js): linked and run like a business's, on a hidden tenant ----
+    const systemRuntime = () => {
+        const system = tenancy.systemTenant({ create: true });
+        return { system, runtime: runtimeFor(system.id) };
+    };
+
+    /** The page's data: which number, the messages it sends, and the last 50 it sent. */
+    admin.get('/wapzo', (req, res) => {
+        const { system, runtime } = systemRuntime();
+        const channel = runtime.channels.getDefault();
+        const log = db.db.prepare(
+            `SELECT message_id, recipient, message, status, error, campaign_id, created_at, sent_at FROM messages
+             WHERE tenant_id = ? AND direction = 'outbound' ORDER BY created_at DESC LIMIT 50`).all(system.id);
+        return res.json({
+            tenantId: system.id,
+            channelId: channel?.id ?? null,
+            transports: TRANSPORTS,
+            messages: platformMessages.list(),
+            log: log.map((m) => ({
+                id: m.message_id, to: m.recipient, text: m.message, status: m.status, error: m.error ?? null,
+                kind: String(m.campaign_id ?? '').replace(/^wapzo:/, '') || 'message', createdAt: m.created_at, sentAt: m.sent_at,
+            })),
+        });
+    });
+
+    /** One message's switch and/or text (an empty text goes back to the default). */
+    admin.put('/wapzo/messages/:kind', (req, res) => {
+        const saved = platformMessages.save(req.params.kind, req.body ?? {});
+        if (!saved) return res.status(404).json({ errors: ['unknown message'] });
+        audit(req, 'wapzo.message', saved.kind, { enabled: saved.enabled });
+        return res.json({ message: saved });
+    });
+
+    /** A test message to any number, to check the link end to end. */
+    admin.post('/wapzo/test', (req, res) => {
+        const text = String(req.body?.text ?? '').trim() || 'This is a test message from Wapzo.';
+        const result = notifier.send({ to: req.body?.to, text, key: `test:${Date.now()}`, kind: 'test' });
+        if (!result.sent) return res.status(409).json({ errors: [result.reason] });
+        audit(req, 'wapzo.test', result.recipient);
+        return res.json(result);
+    });
+
+    /**
+     * Everything else (connection, QR, config, level, safety) is the number's own API, as a business's Connection
+     * page uses it, addressed to the system tenant's number whatever tenant or number the browser last had open.
+     */
+    admin.use('/wapzo/api', (req, res, next) => {
+        const { system, runtime } = systemRuntime();
+        req.tenantId = system.id;
+        delete req.headers['x-channel-id'];
+        bindContext({ tenantId: system.id });
+        return runtime.router(req, res, next);
     });
 
     // ---- leads: account requests from the public site, converted into tenants here ----
@@ -2937,40 +3357,73 @@ export function createApp({
         }
     });
 
-    /** The business and owner come from the lead unless the admin edited them; a plan is required. */
+    /**
+     * Accept a lead: the business and its owner are added as a *pending* tenant on the first active plan (or the one
+     * named), with a password nobody knows. The admin sets it up in Tenant settings and activates it there, which sets
+     * the owner's password and emails it (POST /tenants/:id/activate). Pending tenants cannot sign in or send.
+     */
     admin.post('/leads/:leadId/convert', async (req, res) => {
         try {
             const lead = leads.get(req.params.leadId);
             if (!lead) return res.status(404).json({ errors: ['lead not found'] });
             if (lead.status === 'converted') return res.status(409).json({ errors: ['this lead is already a tenant'] });
-            const body = req.body ?? {};
-            if (!body.planKey) return res.status(400).json({ errors: ['Choose a plan.'] });
             const created = await createTenant(req, {
-                ...body,
-                name: body.name || lead.business,
-                owner: { name: lead.name, email: lead.email, ...body.owner },
+                name: lead.business,
+                slug: tenancy.freeSlug(lead.business),
+                status: 'pending',
+                contactPhone: lead.phone,
+                ...(req.body?.planKey ? { planKey: req.body.planKey } : {}),
+                owner: { name: lead.name, email: lead.email },
             });
             const converted = leads.markConverted(lead.id, created.tenant.id);
             adminFeed.publish('leads', null);
-            // The owner's sign-in details by email, unless the admin unticked it. Awaited, so the dialog can say
-            // whether it went; the mailer gives up within seconds and never throws.
+            return res.status(201).json({ tenant: created.tenant, lead: converted });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /** The request a business was accepted from (Tenant settings' left column); null for one added by hand. */
+    admin.get('/tenants/:id/lead', (req, res) => res.json({ lead: leads.forTenant(req.params.id) }));
+
+    /**
+     * Switch a pending business on: the owner's password is set to the one the admin chose, the business becomes
+     * active, and (unless unticked) the owner is emailed their sign-in. The response says whether the email went.
+     */
+    admin.post('/tenants/:id/activate', async (req, res) => {
+        try {
+            const tenant = tenancy.getTenant(req.params.id);
+            if (!tenant || tenant.status === 'archived') return res.status(404).json({ errors: ['tenant not found'] });
+            if (tenant.status !== 'pending') return res.status(409).json({ errors: ['Only a pending business is activated here.'] });
+            const owner = tenancy.listUsers(tenant.id).find((u) => u.role === 'owner');
+            if (!owner) return res.status(409).json({ errors: ['This business has no owner to sign in.'] });
+            const password = String(req.body?.password ?? '');
+            await tenancy.setPassword(tenant.id, owner.id, password);
+            const active = tenancy.setTenantStatus(tenant.id, 'active');
+            // The plan is live from now: a paying business out of trial owes its price at once.
+            const charged = chargeIfActive(req, tenant.id);
+            audit(req, 'tenant.activate', tenant.id, { slug: tenant.slug, charged });
+            const signIn = publicBaseUrl ?? req.get('origin') ?? null;
+            notifyTenant('account_activated', tenant.id, { link: signIn ? `${signIn}/login` : 'the Wapzo sign-in page' },
+                `activate:${tenant.id}`);
+            const overview = tenantOverview(active);
             let email = { sent: false, reason: 'Not sent.' };
-            if (body.sendWelcome !== false) {
+            if (req.body?.sendWelcome !== false) {
                 const base = publicBaseUrl ?? req.get('origin') ?? null;
                 email = await mailer.send({
-                    to: created.owner.email,
+                    to: owner.email,
                     ...welcomeEmail({
-                        name: created.owner.name,
-                        business: created.tenant.name,
-                        planName: created.tenant.subscription?.planName,
-                        email: created.owner.email,
-                        password: String(body.owner?.password ?? ''),
+                        name: owner.name,
+                        business: tenant.name,
+                        planName: overview.subscription?.planName,
+                        email: owner.email,
+                        password,
                         loginUrl: base && `${base}/login`,
                     }),
                 });
-                audit(req, 'lead.welcome_email', String(lead.id), { sent: email.sent });
+                audit(req, 'tenant.welcome_email', tenant.id, { sent: email.sent });
             }
-            return res.status(201).json({ ...created, lead: converted, email });
+            return res.json({ tenant: overview, owner: tenancy.getUser(owner.id), email });
         } catch (err) {
             return fail(res, err);
         }
@@ -2985,6 +3438,34 @@ export function createApp({
                 controls: tenant.controls,
             });
             return res.json({ tenant: tenantOverview(tenant) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /**
+     * Tenant settings > Edit: the business's name, ID, contact WhatsApp and Wapzo updates switch, and its owner's
+     * name and sign-in email. Each part is checked before the other is written, so a taken email changes nothing.
+     */
+    admin.put('/tenants/:id/details', async (req, res) => {
+        try {
+            const before = tenancy.getTenant(req.params.id);
+            if (!before || ['archived', 'system'].includes(before.status)) return res.status(404).json({ errors: ['tenant not found'] });
+            const body = req.body ?? {};
+            const email = body.ownerEmail === undefined ? undefined : String(body.ownerEmail).trim().toLowerCase();
+            const taken = email && db.db.prepare('SELECT tenant_id FROM users WHERE email = ?').get(email);
+            if (taken && Number(taken.tenant_id) !== before.id) {
+                return res.status(409).json({ errors: ['Another account already uses that email.'] });
+            }
+            const tenant = tenancy.updateDetails(before.id, body);
+            if (body.ownerName !== undefined || email !== undefined) {
+                await tenancy.setOwner(before.id, { name: body.ownerName, email });
+            }
+            audit(req, 'tenant.details', tenant.id, {
+                name: tenant.name, slug: tenant.slug, contactPhone: tenant.contactPhone, wapzoUpdates: tenant.wapzoUpdates,
+                ...(email !== undefined ? { ownerEmail: email } : {}),
+            });
+            return res.json({ tenant: tenantOverview(tenant), owner: tenancy.ownerOf(tenant.id) });
         } catch (err) {
             return fail(res, err);
         }
@@ -3149,7 +3630,12 @@ export function createApp({
         const connected = [...channels.values()]
             .map((channel) => rt.runtimeFor(channel).state.transport)
             .filter((transport) => transport?.isConnected?.());
-        if (!connected.length) return res.status(409).json({ errors: ['Connect a WhatsApp QR number first.'] });
+        // `code` lets the Accounts tab say "disconnected" plainly instead of showing an error.
+        if (!connected.length) {
+            return res.status(409).json(channels.size
+                ? { errors: ['The WhatsApp number is disconnected. Reconnect it by scanning its QR code, then fetch again.'], code: 'disconnected' }
+                : { errors: ['This business has no WhatsApp number yet.'], code: 'no_number' });
+        }
         const linked = connected.filter((transport) => transport.supportsContacts || transport.supportsGroups);
         if (!linked.length) {
             return res.status(409).json({ errors: ['This number is not a linked WhatsApp account.'] });
@@ -3412,9 +3898,9 @@ export function createApp({
         if (roleRank(role) >= roleRank(req.user.role) && req.user.role !== 'super_admin') {
             return res.status(403).json({ errors: ['You can only add users with a lower role than yours.'] });
         }
-        const cap = tenancy.getTenant(req.tenantId)?.limits.maxUsers;
+        const cap = capOf(tenancy.getTenant(req.tenantId)?.limits.maxUsers);
         // A disabled user cannot sign in, so it does not hold a seat: disabling someone frees room for their replacement.
-        if (cap && tenancy.listUsers(req.tenantId).filter((u) => !u.disabled).length >= cap) {
+        if (cap !== null && tenancy.listUsers(req.tenantId).filter((u) => !u.disabled).length >= cap) {
             return res.status(403).json({ errors: [`Your plan allows ${cap} team member${cap === 1 ? '' : 's'}.`] });
         }
         try {
@@ -3466,9 +3952,9 @@ export function createApp({
         const target = memberBelow(req, res);
         if (!target) return undefined;
         // Turning someone back on takes a seat again (disabled users hold none, see POST above).
-        const seats = tenancy.getTenant(req.tenantId)?.limits.maxUsers;
+        const seats = capOf(tenancy.getTenant(req.tenantId)?.limits.maxUsers);
         const active = tenancy.listUsers(req.tenantId).filter((u) => !u.disabled).length;
-        if (!req.body?.disabled && target.disabled && seats && active >= seats) {
+        if (!req.body?.disabled && target.disabled && seats !== null && active >= seats) {
             return res.status(403).json({ errors: [`Your plan allows ${seats} team member${seats === 1 ? '' : 's'}. Disable someone first.`] });
         }
         try {
@@ -3790,8 +4276,9 @@ export function createApp({
      */
     const reconnectAll = async () => {
         void opsAlerts.tick(); // the hourly "N alerts held back" summary
-        for (const tenant of tenancy.listTenants()) {
-            if (tenant.status !== 'active') continue;
+        // Wapzo's own number (platform/notify.js) stays up through restarts like a business's.
+        for (const tenant of [...tenancy.listTenants(), tenancy.systemTenant()].filter(Boolean)) {
+            if (tenant.status !== 'active' && tenant.status !== 'system') continue;
             try {
                 const runtime = runtimeFor(tenant.id);
                 for (const channel of runtime.channels.list()) {
@@ -3852,6 +4339,11 @@ export function createApp({
         const backupTimer = setInterval(backupCheck, 3_600_000);
         backupBoot.unref();
         backupTimer.unref();
+        // "Your plan ends in 3 days" / "ended": checked hourly; each message's key sends it once per end date.
+        const planEndsBoot = setTimeout(() => notifyPlanEnds(), 90_000);
+        const planEndsTimer = setInterval(() => notifyPlanEnds(), 3_600_000);
+        planEndsBoot.unref();
+        planEndsTimer.unref();
 
         // Outbound webhooks are durable jobs, not a second retry loop.
         const jobs = new JobStore(db);
@@ -3866,6 +4358,8 @@ export function createApp({
             clearTimeout(boot);
             clearInterval(backupTimer);
             clearTimeout(backupBoot);
+            clearInterval(planEndsTimer);
+            clearTimeout(planEndsBoot);
             await worker.shutdown();
         };
     }

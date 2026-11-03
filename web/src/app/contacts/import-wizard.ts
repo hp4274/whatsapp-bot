@@ -23,11 +23,16 @@ type Kind = 'phone' | 'name' | 'email' | 'tags' | 'consent' | 'custom' | 'ignore
  * What the list check says per problem, worst first. Numbers are only flagged, never looked up on
  * WhatsApp: checking a whole list there is a spam signal of its own.
  */
-const LIST_CHECKS: readonly { readonly kind: 'invalid' | 'duplicates' | 'landline' | 'foreign'; readonly text: string }[] = [
-  { kind: 'invalid', text: 'are not phone numbers and will be skipped' },
-  { kind: 'duplicates', text: 'appear more than once; each person is imported once' },
-  { kind: 'landline', text: "don't look like Indian mobile numbers (landlines or typos)" },
-  { kind: 'foreign', text: 'are outside your default country' },
+const LIST_CHECKS: readonly {
+  readonly kind: 'invalid' | 'duplicates' | 'landline' | 'foreign';
+  readonly text: string;
+  /** The same line for exactly one number. */
+  readonly one: string;
+}[] = [
+  { kind: 'invalid', text: 'are not phone numbers and will be skipped', one: 'is not a phone number and will be skipped' },
+  { kind: 'duplicates', text: 'appear more than once; each person is imported once', one: 'appears more than once; it is imported once' },
+  { kind: 'landline', text: "don't look like Indian mobile numbers (landlines or typos)", one: "doesn't look like an Indian mobile number (landline or typo)" },
+  { kind: 'foreign', text: 'are outside your default country', one: 'is outside your default country' },
 ];
 interface Column {
   kind: Kind;
@@ -66,7 +71,10 @@ export class ImportWizard {
 
   protected readonly steps = STEPS;
   protected readonly step = signal<Step>('upload');
+  /** The file `preview` was read from: set together, so the import always sends the file that was mapped. */
   protected readonly file = signal<File | null>(null);
+  /** The file being read for a preview, for the "Reading ..." line. */
+  protected readonly reading = signal('');
   protected readonly preview = signal<ImportPreview | null>(null);
   protected readonly columns = signal<Column[]>([]);
   protected readonly tags = signal<string[]>([]);
@@ -122,6 +130,7 @@ export class ImportWizard {
     if (!q) return null;
     const lines = LIST_CHECKS.filter((c) => q[c.kind] > 0).map((c) => ({
       ...c,
+      text: q[c.kind] === 1 ? c.one : c.text,
       n: q[c.kind],
       examples: q.examples[c.kind].join(', '),
     }));
@@ -141,6 +150,9 @@ export class ImportWizard {
       50,
     );
   });
+
+  /** Bumped per preview request, so only the last file picked or dropped is used. */
+  private uploadSeq = 0;
 
   protected readonly suggestions = computed(() =>
     this.knownTags()
@@ -173,21 +185,25 @@ export class ImportWizard {
       this.error.set('Choose a .csv or .xlsx file.');
       return;
     }
-    this.file.set(file);
+    const seq = ++this.uploadSeq;
+    this.reading.set(file.name);
     this.error.set('');
     this.busy.set(true);
     this.api.importPreview(file).subscribe({
       next: (preview) => {
+        if (seq !== this.uploadSeq) return;
         this.busy.set(false);
         if (!preview.rowCount) {
           this.error.set('That file has a header row but no contacts under it.');
           return;
         }
+        this.file.set(file);
         this.preview.set(preview);
         this.columns.set(preview.mapping.map(toColumn));
         this.go('map');
       },
       error: (err: Error) => {
+        if (seq !== this.uploadSeq) return;
         this.busy.set(false);
         this.error.set(err.message);
       },
@@ -245,7 +261,7 @@ export class ImportWizard {
   // ---------------------------------------------------------------- commit --
   protected commit() {
     const file = this.file();
-    if (!file || this.mappingError()) return;
+    if (!file || this.busy() || this.mappingError()) return;
     if (this.tagText().trim()) this.addTag();
     this.busy.set(true);
     this.error.set('');

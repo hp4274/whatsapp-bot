@@ -1202,11 +1202,22 @@ export class CampaignManager extends EventEmitter {
         return true;
     }
 
+    /**
+     * A wait cut short by a stop. Every such exit goes through here, because a stopped queue drops a putFront: a
+     * shutdown (a pause, a restart) leaves the row QUEUED for restoreRun; a reply or quick send is not the run's
+     * (stop() keeps the waiting ones), so it goes back in once the queue reopens; the run's own row is cancelled,
+     * never left QUEUED with nothing to send it.
+     */
+    #interrupted(item) {
+        if (this.shuttingDown) this.queue.putFront(item);
+        else if (QUOTA_EXEMPT.has(item.messageType)) this.#reopenWhenIdle([item], this.heldForLink);
+        else this.#finish(item, Status.CANCELLED, { error: this.stopReason });
+    }
+
     async #attempt(item) {
         for (;;) {
             if (this.#stopped()) {
-                if (this.shuttingDown) this.queue.putFront(item); // as below: a shutdown keeps the row queued
-                else this.#finish(item, Status.CANCELLED, { error: this.stopReason });
+                this.#interrupted(item);
                 return;
             }
             if (await this.#heldOutsideWindow(item)) return;
@@ -1216,15 +1227,13 @@ export class CampaignManager extends EventEmitter {
             if (this.#quotaBlocked(item)) return;
             if (this.#capBlocked(item)) return;
             if (!await this.#paceBeforeSend(item)) {
-                this.queue.putFront(item);   // stopped while pacing: keep the row queued
+                this.#interrupted(item);   // stopped while pacing
                 return;
             }
             if (levels && await this.#notOnWhatsapp(item)) return;
             // Rate limit sits between the queue and the transport.
             if (!await this.rateLimiter.acquire(() => this.#stopped())) {
-                // Shutting down (a pause, a restart): the row waits for the next start. An operator stop cancels it.
-                if (this.shuttingDown) this.queue.putFront(item);
-                else this.#finish(item, Status.CANCELLED, { error: this.stopReason });
+                this.#interrupted(item);
                 return;
             }
             // Enqueue checked opt-outs, but a STOP can land while this row waited its turn.
@@ -1327,7 +1336,7 @@ export class CampaignManager extends EventEmitter {
                     { attempt: item.attempt, error: 'Waiting for WhatsApp to reconnect' });
                 if (await this.#settleAfterReconnect()) continue;
                 if (this.#stopped()) {
-                    this.#finish(item, Status.CANCELLED, { error: this.stopReason });
+                    this.#interrupted(item);   // a restart while waiting for the line keeps the row for restoreRun
                     return;
                 }
                 item.attempt += 1;   // never came back: treat as an ordinary failure
@@ -1350,9 +1359,7 @@ export class CampaignManager extends EventEmitter {
                         attempt: item.attempt, error: errorText,
                     });
                     if (!await backOff(wait)) {
-                        // A restart mid-backoff keeps the row queued (restoreRun picks it up); a stop cancels it.
-                        if (this.shuttingDown) this.queue.putFront(item);
-                        else this.#finish(item, Status.CANCELLED, { error: this.stopReason });
+                        this.#interrupted(item);   // a restart mid-backoff keeps the row queued; a stop cancels it
                         return;
                     }
                     continue;
@@ -1380,7 +1387,7 @@ export class CampaignManager extends EventEmitter {
                     attempt: item.attempt, error: errorText,
                 });
                 if (!await interruptibleSleep(delay, () => this.#stopped())) {
-                    this.#finish(item, Status.CANCELLED, { error: this.stopReason });
+                    this.#interrupted(item);   // as the rate-limit wait: a restart must not cancel the retry
                     return;
                 }
                 continue; // same item, next attempt

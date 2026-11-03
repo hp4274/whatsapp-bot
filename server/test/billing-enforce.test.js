@@ -38,8 +38,11 @@ function fakeTransport() {
     };
 }
 
-/** A manager whose tenant is on `plan`, with policy values `policy`, wired as the runtime wires it. */
-function rig(policy = {}, plan = 'business') {
+/**
+ * A manager whose tenant is on `plan`, with policy values `policy` and its own limits `own` (tenancy.js; its
+ * messagesPerMonth is the business's monthly quota), wired as the runtime wires it.
+ */
+function rig(policy = {}, own = {}, plan = 'business') {
     const root = new Database(path.join(tmp, `m${n++}.db`));
     const db = root.forTenant(1).forChannel(1);
     const transport = fakeTransport();
@@ -47,13 +50,13 @@ function rig(policy = {}, plan = 'business') {
         { ...DEFAULTS, rateLimitPerSecond: 1000, pacingMode: 'fixed', maxRetries: 0, safetyEnabled: true, dailyLimit: 0 });
     manager.holdPollSeconds = 0.05;
     const values = { 'bulk.requireOptIn': false, ...policy };
-    const billing = new BillingStore(db, { overrides: () => values });
+    const billing = new BillingStore(db, { overrides: () => values, ownLimits: () => own });
     billing.subscribe(1, plan);
-    const state = { manager, db, billing, limits: () => ({}), channel: { timezone: 'UTC' } };
+    const state = { manager, db, billing, limits: () => own, channel: { timezone: 'UTC' } };
     attachCampaignPolicy(state, { platformPolicy: () => values });
     const events = [];
     manager.on('event', (e) => events.push(e));
-    return { db, manager, transport, billing, values, events };
+    return { db, manager, transport, billing, values, own, events };
 }
 const people = (count) => Array.from({ length: count }, (_, i) => ({ name: `P${i}`, phone: `9198100${String(i).padStart(5, '0')}` }));
 
@@ -97,8 +100,8 @@ describe('quota limits', () => {
 });
 
 describe('message quota', () => {
-    it('blocks new sends once the month is used up; an override of 0 means unlimited', async () => {
-        const { db, manager, values } = rig({ 'billing.messagesPerMonth': 1 });
+    it('blocks new sends once the month is used up; the business’s own null quota means unlimited', async () => {
+        const { db, manager, own } = rig({}, { messagesPerMonth: 1 });
         const channel = { id: 1, status: 'active', capabilities: ['transactional_messages'] };
         const service = new MessageService(db, manager, channel, {
             guard: (job) => manager.sendBlock?.(job.messageType) ?? manager.capBlock?.() ?? null,
@@ -106,7 +109,7 @@ describe('message quota', () => {
         db.insert({ messageId: 'used', recipient: '919810000001', message: 'x', status: 'SENT' });
         const send = (key) => service.send({ messageType: 'transactional', recipient: '919810000002', text: 'hi', idempotencyKey: key });
         assert.throws(() => send('a'), (err) => err.reason === 'tenant_blocked' && /monthly message cap of 1/.test(err.message));
-        values['billing.messagesPerMonth'] = 0;
+        own.messagesPerMonth = null;
         await wait(1100); // the cap is re-read once a second
         assert.ok(send('b').accepted);
     });
@@ -119,7 +122,7 @@ describe('message quota', () => {
     });
 
     it('a fan-out accepted under the old count stops at the quota when it goes out', async () => {
-        const { db, manager, transport } = rig({ 'billing.messagesPerMonth': 2 });
+        const { db, manager, transport } = rig({}, { messagesPerMonth: 2 });
         const channel = { id: 1, status: 'active', capabilities: ['transactional_messages'] };
         const service = new MessageService(db, manager, channel, {
             guard: (job) => manager.sendBlock?.(job.messageType) ?? manager.capBlock?.() ?? null,
@@ -134,7 +137,7 @@ describe('message quota', () => {
     });
 
     it('pauses a running campaign at the quota', async () => {
-        const { db, manager, transport, events } = rig({ 'bulk.monthlyCap': 50, 'billing.messagesPerMonth': 2 });
+        const { db, manager, transport, events } = rig({ 'bulk.monthlyCap': 50 }, { messagesPerMonth: 2 });
         manager.enqueueContacts(people(2), 'Hi {name}');
         // Another number of the same business uses one message mid-run.
         db.forChannel(9).insert({ messageId: 'other', recipient: '3', message: 'x', status: 'SENT' });
@@ -146,7 +149,7 @@ describe('message quota', () => {
     });
 
     it('re-checks a campaign row after the gap, so it cannot go one over', async () => {
-        const { db, manager, transport, events } = rig({ 'billing.messagesPerMonth': 1 });
+        const { db, manager, transport, events } = rig({}, { messagesPerMonth: 1 });
         manager.enqueueContacts(people(1), 'Hi {name}');
         // Another number of the business sends while this row waits out its gap (after the first check).
         const real = manager.bulkPolicy;
@@ -168,7 +171,7 @@ describe('message quota', () => {
     });
 
     it('says a quick send refused at the quota was not sent', () => {
-        const { db, manager } = rig({ 'billing.messagesPerMonth': 1 });
+        const { db, manager } = rig({}, { messagesPerMonth: 1 });
         db.insert({ messageId: 'used', recipient: '919810000001', message: 'x', status: 'SENT' });
         const text = manager.capBlock(true);
         assert.match(text, /^Not sent: .*monthly message cap of 1/);

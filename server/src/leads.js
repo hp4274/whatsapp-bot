@@ -8,7 +8,8 @@
 
 import { utcNow } from './protocol.js';
 
-export const LEAD_STATUSES = Object.freeze(['new', 'converted', 'dismissed']);
+/** 'hold': read, waiting on the business to confirm; still open (not a tenant, not dismissed). */
+export const LEAD_STATUSES = Object.freeze(['new', 'hold', 'converted', 'dismissed']);
 
 export class LeadError extends Error {
     constructor(message, status = 400) {
@@ -51,9 +52,11 @@ export class Leads {
         if (!clean.name) throw new LeadError('Tell us your name.');
         if (!clean.business) throw new LeadError('Tell us the business name.');
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean.email)) throw new LeadError('Enter a valid email address.');
-        if (clean.phone && !/^\+?[\d\s()-]{6,32}$/.test(clean.phone)) throw new LeadError('Enter a valid phone number.');
+        // Required: the request is confirmed, and the account's updates sent, on WhatsApp.
+        if (!clean.phone) throw new LeadError('Enter your WhatsApp number.');
+        if (!/^\+?[\d\s()-]{6,32}$/.test(clean.phone)) throw new LeadError('Enter a valid WhatsApp number.');
         // One open request per email: a second submit refreshes it instead of stacking duplicates.
-        const open = this.db.prepare("SELECT id FROM leads WHERE email = ? AND status = 'new'").get(clean.email);
+        const open = this.db.prepare("SELECT id FROM leads WHERE email = ? AND status IN ('new', 'hold')").get(clean.email);
         const now = utcNow();
         if (open) {
             this.db.prepare(`UPDATE leads SET name = ?, business = ?, phone = ?, message = ?, source = ?, ip = ?, updated_at = ?
@@ -82,14 +85,20 @@ export class Leads {
         return { leads: rows.map(toLead), counts };
     }
 
-    /** Dismiss or reopen. A converted lead stays converted: its tenant exists. */
+    /** Hold, dismiss or reopen. A converted lead stays converted: its tenant exists. */
     setStatus(id, status) {
         const lead = this.get(id);
         if (!lead) throw new LeadError('lead not found', 404);
-        if (status !== 'new' && status !== 'dismissed') throw new LeadError('status must be new or dismissed');
+        if (!['new', 'hold', 'dismissed'].includes(status)) throw new LeadError('status must be new, hold or dismissed');
         if (lead.status === 'converted') throw new LeadError('this lead is already a tenant', 409);
         this.db.prepare('UPDATE leads SET status = ?, updated_at = ? WHERE id = ?').run(status, utcNow(), lead.id);
         return this.get(lead.id);
+    }
+
+    /** The request a business was accepted from, for its Tenant settings; null for one made by hand. */
+    forTenant(tenantId) {
+        const row = this.db.prepare('SELECT * FROM leads WHERE tenant_id = ? ORDER BY id DESC').get(Number(tenantId));
+        return row ? toLead(row) : null;
     }
 
     markConverted(id, tenantId) {

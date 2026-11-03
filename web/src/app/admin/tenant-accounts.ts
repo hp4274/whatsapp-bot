@@ -73,6 +73,8 @@ export class TenantAccounts {
   protected readonly fetched = signal(false);
   /** Why the last fetch failed, usually "connect a WhatsApp number first". */
   protected readonly fetchError = signal('');
+  /** Why there is nothing to read: the number is disconnected, or there is none. Shown as a state, not an error. */
+  protected readonly offline = signal<'disconnected' | 'no_number' | null>(null);
   /** Confirmation line for the last saved bulk collection. */
   protected readonly collectionDone = signal('');
   protected readonly savingCollection = signal(false);
@@ -140,9 +142,16 @@ export class TenantAccounts {
     const id = this.tenantId();
     this.fetching.set(true);
     this.fetchError.set('');
+    this.offline.set(null);
     this.http
       .get<NumberDetails>(`/api/admin/tenants/${id}/contacts`)
-      .pipe(catchError(toMessage))
+      .pipe(
+        catchError((err: HttpErrorResponse) => {
+          const code = err.error?.code;
+          if (code === 'disconnected' || code === 'no_number') this.offline.set(code);
+          return toMessage(err);
+        }),
+      )
       .subscribe({
         next: (details) => {
           if (this.tenantId() !== id) return; // another business was opened meanwhile

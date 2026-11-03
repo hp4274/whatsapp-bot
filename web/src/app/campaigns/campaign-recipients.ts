@@ -80,7 +80,8 @@ export class CampaignRecipients {
   protected readonly filtered = computed(() => {
     const status = this.status();
     const q = this.search().trim().toLowerCase();
-    const digits = q.replace(/\D/g, '');
+    // Only a number-like query searches phones: "Person 5" must not match every phone with a 5.
+    const digits = /\p{L}/u.test(q) ? '' : q.replace(/\D/g, '');
     const number = this.number();
     return this.recipients().filter(
       (r) =>

@@ -16,6 +16,7 @@ import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { ContactStore } from '../src/contactStore.js';
 import { Database } from '../src/db.js';
 import { Status } from '../src/protocol.js';
+import { TransportSendError } from '../src/transports/base.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const waitFor = async (predicate, timeoutMs = 6000) => {
@@ -129,5 +130,30 @@ describe('a campaign across a restart', () => {
         } finally {
             await manager.shutdown();
         }
+    });
+
+    it('does not count failures a retry already re-sent when it restores the retry', async () => {
+        const people = ['919811300001', '919811300002', '919811300003'];
+        const failing = boot({ ...transport, sendMessage: async () => { throw new TransportSendError('refused', { retryable: false }); } });
+        const campaign = failing.store.create({
+            name: 'Retried', body: 'Hi {name}', status: 'draft',
+            audience: people.map((phone, i) => ({ name: `R${i}`, phone })),
+        });
+        failing.store.start(campaign.id);
+        assert.equal(await waitFor(() => failing.store.stats(campaign.id).campaign.status === 'done'), true);
+        assert.equal(failing.store.stats(campaign.id).stats.failed, 3);
+        await failing.manager.shutdown();
+
+        // The retry's first send never returns, like a process killed mid-send.
+        const retrying = boot({ ...transport, sendMessage: () => new Promise(() => {}) });
+        assert.equal(retrying.store.retryFailed(campaign.id).queued, 3);
+        await sleep(100);
+
+        const restarted = boot();
+        assert.equal(restarted.store.recover(campaign.id), true);
+        assert.equal(restarted.manager.stats.failed, 0, 'the re-sent failures are not failures');
+        assert.equal(restarted.manager.stats.total, 3, 'three people, not six rows');
+        assert.equal(await waitFor(() => restarted.store.stats(campaign.id).campaign.status === 'done'), true);
+        await restarted.manager.shutdown();
     });
 });

@@ -49,8 +49,15 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     pending_plan_key     TEXT,
     cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
     cancelled_at         TEXT,
-    -- How the business pays: 'paid' | 'free' | 'unpaid', set by the super admin. NULL = never recorded.
+    -- How the business pays: 'paid' (charged for its plan and top-ups) | 'free'. NULL = never recorded, billed as paid.
     payment              TEXT,
+    -- When the plan stops (then GRACE_DAYS of grace, then expired). NULL = no end date: it renews monthly.
+    valid_until          TEXT,
+    -- Extra messages bought for one period (YYYY-MM) on top of the plan's monthly quota.
+    topup_messages       INTEGER NOT NULL DEFAULT 0,
+    topup_period         TEXT,
+    -- What this business pays on a plan with no list price (Enterprise, custom), per the plan's interval. NULL = none agreed.
+    custom_price         INTEGER,
     created_at           TEXT NOT NULL,
     updated_at           TEXT NOT NULL
 );
@@ -65,6 +72,21 @@ CREATE TABLE IF NOT EXISTS usage_counters (
     UNIQUE (tenant_id, period, metric)
 );
 CREATE INDEX IF NOT EXISTS idx_usage_counters_period ON usage_counters(tenant_id, period);
+
+-- Charges (a plan put on or renewed, a top-up) and the payments the super admin records against them (ledger.js).
+CREATE TABLE IF NOT EXISTS billing_ledger (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id  INTEGER NOT NULL,
+    kind       TEXT NOT NULL,            -- 'plan' | 'topup' | 'payment'
+    amount     INTEGER NOT NULL,         -- whole units of currency, always above 0
+    currency   TEXT NOT NULL,
+    note       TEXT NOT NULL DEFAULT '',
+    method     TEXT NOT NULL DEFAULT '', -- a payment's: 'upi' | 'bank' | 'cash' (ledger.js PAYMENT_METHODS)
+    at         TEXT NOT NULL,            -- when it was charged or paid
+    created_by INTEGER,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_billing_ledger_tenant ON billing_ledger(tenant_id, at);
 `;
 
 /**
@@ -78,7 +100,15 @@ export function migratePlans(db) {
     if (!cols.includes('details')) db.exec("ALTER TABLE plans ADD COLUMN details TEXT NOT NULL DEFAULT '{}'");
     const subs = db.prepare('PRAGMA table_info(subscriptions)').all().map((c) => c.name);
     if (!subs.includes('payment')) db.exec('ALTER TABLE subscriptions ADD COLUMN payment TEXT');
+    if (!subs.includes('valid_until')) db.exec('ALTER TABLE subscriptions ADD COLUMN valid_until TEXT');
+    if (!subs.includes('topup_messages')) db.exec('ALTER TABLE subscriptions ADD COLUMN topup_messages INTEGER NOT NULL DEFAULT 0');
+    if (!subs.includes('topup_period')) db.exec('ALTER TABLE subscriptions ADD COLUMN topup_period TEXT');
+    if (!subs.includes('custom_price')) db.exec('ALTER TABLE subscriptions ADD COLUMN custom_price INTEGER');
+    const ledger = db.prepare('PRAGMA table_info(billing_ledger)').all().map((c) => c.name);
+    if (ledger.length && !ledger.includes('method')) db.exec("ALTER TABLE billing_ledger ADD COLUMN method TEXT NOT NULL DEFAULT ''");
+    // 'unpaid' is gone: what is owed is now the payments ledger's balance, so an unpaid business is a paying one.
+    db.exec("UPDATE subscriptions SET payment = 'paid' WHERE payment = 'unpaid'");
 }
 
-/** How a business pays, as the super admin records it. A note for the operator: the plan's state is what is enforced. */
-export const PAYMENTS = Object.freeze(['paid', 'free', 'unpaid']);
+/** How a business pays: 'paid' is charged for its plan and top-ups (ledger.js), 'free' is not. The plan's state is what is enforced. */
+export const PAYMENTS = Object.freeze(['paid', 'free']);

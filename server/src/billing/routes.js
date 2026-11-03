@@ -16,7 +16,7 @@
 import express from 'express';
 
 import { numberCap } from '../policy/channelOps.js';
-import { stricterCap } from '../templates/policy.js';
+import { tighterCap } from '../tenancy.js';
 import { BillingStore, periodOf } from './store.js';
 
 export function createBillingRouter({ db, state }) {
@@ -50,13 +50,14 @@ export function createBillingRouter({ db, state }) {
     router.get('/plan-usage', (req, res) => {
         const limits = state?.limits?.() ?? {};
         const row = (metric, used, cap) => {
-            const limit = cap ? Number(cap) : null;
+            // null = no limit; 0 = none allowed.
+            const limit = cap === null || cap === undefined ? null : Number(cap);
             return { metric, used, limit, remaining: limit === null ? null : Math.max(0, limit - used) };
         };
         const usage = billing.usage();
         const extra = [];
         if (state?.templates) {
-            const cap = stricterCap(limits.maxTemplates, state.platformPolicy?.()?.['templates.maxTemplates']);
+            const cap = tighterCap(limits.maxTemplates, state.platformPolicy?.()?.['templates.maxTemplates']);
             extra.push(row('templates', state.templates.list().length, cap));
         }
         // Team seats: a disabled user holds none (app.js team routes), which is what agents counts.

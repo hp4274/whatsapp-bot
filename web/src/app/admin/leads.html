@@ -64,12 +64,26 @@
             <td><span class="sub">{{ sourceLabel(lead) }}</span></td>
             <td><span class="sub">{{ lead.createdAt | date: 'd MMM, h:mm a' }}</span></td>
             <td class="acts">
+              <div class="acts-row">
               @switch (lead.status) {
                 @case ('new') {
                   <button class="btn sm" type="button" [disabled]="savingId() === lead.id" (click)="setStatus(lead, 'dismissed')">
                     Dismiss
                   </button>
-                  <button class="btn sm primary" type="button" [disabled]="savingId() === lead.id" (click)="openConvert(lead)">
+                  <button class="btn sm" type="button" [disabled]="savingId() === lead.id" (click)="setStatus(lead, 'hold')"
+                    title="Read, waiting on them to confirm">
+                    <i class="ti ti-player-pause" aria-hidden="true"></i> Hold
+                  </button>
+                  <button class="btn sm primary" type="button" [disabled]="savingId() === lead.id" (click)="accepting.set(lead)">
+                    Convert to tenant
+                  </button>
+                }
+                @case ('hold') {
+                  <span class="s-pill tone-warn">On hold</span>
+                  <button class="btn sm" type="button" [disabled]="savingId() === lead.id" (click)="setStatus(lead, 'dismissed')">
+                    Dismiss
+                  </button>
+                  <button class="btn sm primary" type="button" [disabled]="savingId() === lead.id" (click)="accepting.set(lead)">
                     Convert to tenant
                   </button>
                 }
@@ -84,6 +98,7 @@
                   <a class="btn sm" routerLink="/admin/tenants" [queryParams]="{ settings: lead.tenantId }">Open tenant</a>
                 }
               }
+              </div>
             </td>
           </tr>
         } @empty {
@@ -111,132 +126,16 @@
   <app-pager [total]="visible().length" [size]="pageSize" [(page)]="page" label="Lead pages" />
 </section>
 
-@if (target(); as lead) {
-  <dialog #convertDialog class="convert" aria-labelledby="convert-title" (close)="closed()">
-    @if (created(); as done) {
-      <div class="done" role="status">
-        <i class="ti ti-circle-check" aria-hidden="true"></i>
-        <h3 id="convert-title">{{ done.business }} is a tenant</h3>
-        @if (done.mail?.sent) {
-          <p>We emailed these sign-in details to {{ done.email }}. The password is shown only now.</p>
-        } @else {
-          @if (done.mail) {
-            <p class="s-banner tone-warn" role="status">
-              <i class="ti ti-mail-off" aria-hidden="true"></i>{{ done.mail.reason }} Send them yourself.
-            </p>
-          }
-          <p>Send the owner these sign-in details. The password is shown only now.</p>
-        }
-        <dl class="creds">
-          <dt>Email</dt>
-          <dd>{{ done.email }}</dd>
-          <dt>Password</dt>
-          <dd class="pw">{{ done.password }}</dd>
-        </dl>
-        <div class="row-end">
-          <button class="btn" type="button" (click)="copyCredentials()">
-            <i class="ti ti-{{ copied() ? 'check' : 'copy' }}" aria-hidden="true"></i>
-            {{ copied() ? 'Copied' : 'Copy sign-in details' }}
-          </button>
-          <a class="btn" routerLink="/admin/tenants" [queryParams]="{ settings: done.tenantId }">Open tenant</a>
-          <button class="btn primary" type="button" (click)="closeConvert()">Done</button>
-        </div>
-      </div>
-    } @else if (draft(); as d) {
-      <form (submit)="convert($event)">
-        <header>
-          <div>
-            <h3 id="convert-title">Convert {{ lead.business }}</h3>
-            <p>Creates the business, its owner account and its plan.</p>
-          </div>
-          <button class="btn sm icon ghost" type="button" aria-label="Close" (click)="closeConvert()">
-            <i class="ti ti-x" aria-hidden="true"></i>
-          </button>
-        </header>
 
-        <div class="grid">
-          <div class="f">
-            <label for="cv-name">Business name</label>
-            <input id="cv-name" name="name" required [ngModel]="d.name" (ngModelChange)="patch({ name: $event })" />
-          </div>
-          <div class="f">
-            <label for="cv-slug">Slug</label>
-            <input id="cv-slug" name="slug" required [ngModel]="d.slug" (ngModelChange)="patch({ slug: $event })" />
-          </div>
-          <div class="f">
-            <label for="cv-owner">Owner name</label>
-            <input id="cv-owner" name="ownerName" [ngModel]="d.owner.name" (ngModelChange)="patchOwner({ name: $event })" />
-          </div>
-          <div class="f">
-            <label for="cv-email">Owner email</label>
-            <input id="cv-email" name="email" type="email" required [ngModel]="d.owner.email" (ngModelChange)="patchOwner({ email: $event })" />
-          </div>
-          <div class="f wide">
-            <label for="cv-pass">Owner password <small>8+ characters, shown again after creating</small></label>
-            <div class="pw-row">
-              <input
-                id="cv-pass"
-                name="password"
-                required
-                minlength="8"
-                autocomplete="off"
-                [ngModel]="d.owner.password"
-                (ngModelChange)="patchOwner({ password: $event })"
-              />
-              <button class="btn" type="button" (click)="regenerate()">
-                <i class="ti ti-refresh" aria-hidden="true"></i> New
-              </button>
-            </div>
-          </div>
-        </div>
 
-        <fieldset>
-          <legend>Plan</legend>
-          <div class="options" role="radiogroup" aria-label="Plan">
-            @for (p of plans(); track p.key) {
-              <button class="opt" type="button" role="radio" [attr.aria-checked]="d.planKey === p.key" (click)="choosePlan(p)">
-                <strong>{{ p.name }}</strong>
-                <span>{{ formatPrice(p) }}</span>
-              </button>
-            } @empty {
-              <p class="sub">No active plans. Add one under Plans &amp; billing first.</p>
-            }
-          </div>
-        </fieldset>
-
-        <div class="grid">
-          <fieldset>
-            <legend>Payment</legend>
-            <div class="s-seg" role="radiogroup" aria-label="Payment">
-              @for (p of payments; track p.key) {
-                <button type="button" role="radio" [attr.aria-checked]="d.payment === p.key" (click)="setPayment(p.key)">
-                  {{ p.label }}
-                </button>
-              }
-            </div>
-          </fieldset>
-          <div class="f">
-            <label for="cv-trial">Trial days <small>0 starts the plan now</small></label>
-            <input id="cv-trial" name="trialDays" type="number" min="0" max="365" [ngModel]="d.trialDays" (ngModelChange)="patch({ trialDays: +$event || 0 })" />
-          </div>
-        </div>
-
-        <label class="check">
-          <input type="checkbox" name="sendWelcome" [ngModel]="d.sendWelcome" (ngModelChange)="patch({ sendWelcome: $event })" />
-          Email the sign-in details to {{ d.owner.email || 'the owner' }}
-        </label>
-
-        @if (convertError()) {
-          <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ convertError() }}</p>
-        }
-
-        <div class="row-end">
-          <button class="btn" type="button" (click)="closeConvert()">Cancel</button>
-          <button class="btn primary" type="submit" [disabled]="converting() || !d.planKey">
-            {{ converting() ? 'Creating...' : 'Create tenant' }}
-          </button>
-        </div>
-      </form>
-    }
-  </dialog>
+<!-- Accepting adds a pending business; it is set up and activated in Tenant settings, where this lands next. -->
+@if (accepting(); as lead) {
+  <app-confirm
+    [heading]="'Accept ' + lead.business + '?'"
+    text="It is added under Tenants as Pending, on the first plan. Set it up there and activate it to email the owner their sign-in."
+    action="Accept as tenant"
+    tone="primary"
+    (confirm)="accept(lead)"
+    (cancel)="accepting.set(null)"
+  />
 }

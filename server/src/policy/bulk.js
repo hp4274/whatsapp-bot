@@ -7,9 +7,9 @@ export const PLAN_SPEEDS = Object.freeze({ starter: 'safe', business: 'balanced'
 
 export const BULK_POLICY = Object.freeze([
     { key: 'bulk.dailyCap', service: S, group: 'Volume', type: 'int', default: 0, min: 0, max: 10000000, unlimitedAt: 0,
-      label: 'Daily message cap', hint: 'Across all numbers of one business. 0 = no limit.' },
+      label: 'Bulk messages a day, all numbers', hint: 'Bulk and campaign sends only, every number of the business together. The per-number day is under Anti-ban. 0 = no limit.' },
     { key: 'bulk.monthlyCap', service: S, group: 'Volume', type: 'int', default: 0, min: 0, max: 100000000, unlimitedAt: 0,
-      label: 'Monthly message cap', hint: '0 = no limit.' },
+      label: 'Bulk messages a month', hint: "Bulk and campaign sends only. The plan's monthly quota counts every message. 0 = no limit." },
     { key: 'bulk.maxRecipients', service: S, group: 'Volume', type: 'int', default: 0, min: 0, max: 1000000, unlimitedAt: 0,
       label: 'Maximum recipients per send', hint: '0 = no limit.' },
     { key: 'bulk.requireOptIn', service: S, group: 'Consent', type: 'bool', default: false,

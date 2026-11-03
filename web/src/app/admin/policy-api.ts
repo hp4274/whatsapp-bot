@@ -34,6 +34,11 @@ export interface PolicyField {
   readonly hint?: string;
   readonly type: 'int' | 'bool' | 'enum' | 'text' | 'list' | 'table';
   readonly default: PolicyValue;
+  /**
+   * Where it is set; omitted = everywhere. A value with its own home elsewhere (a plan's quotas, a business's own
+   * limits and anti-ban) is not offered as a rule there, so nothing shows two values.
+   */
+  readonly scopes?: readonly ('global' | 'plan' | 'tenant')[];
   readonly min?: number;
   readonly max?: number;
   readonly options?: readonly { readonly value: string; readonly label: string }[];

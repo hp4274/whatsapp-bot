@@ -41,6 +41,11 @@ import { CampaignStatusPill } from './status-pill';
 
 /** How often a finished campaign is re-read while Delivered / Read ticks may still be on their way. */
 const RECEIPT_POLL_MS = 10_000;
+/**
+ * A scheduled campaign may be days away and its start arrives as a live event; this slow poll is
+ * only the backstop for a dropped stream.
+ */
+const SCHEDULED_POLL_MS = 30_000;
 /** Phones that stay off or unread for longer than this are not worth a poll. */
 const RECEIPT_WINDOW_MS = 7 * 86_400_000;
 
@@ -233,12 +238,20 @@ export class CampaignDetailView {
   protected readonly relativeTime = (iso: string | null | undefined) =>
     relativeTime(iso, this.store.now());
 
+  /**
+   * The segment whose live count stands in for the audience, or null. Equal across reloads that
+   * change nothing here, so a poll does not fetch every segment again.
+   */
+  private readonly countedSegment = computed(() => {
+    const c = this.campaign();
+    const waiting = c?.status === 'draft' || c?.status === 'scheduled';
+    return waiting && !c?.audienceSize ? (c?.segmentId ?? null) : null;
+  });
+
   constructor() {
     effect(() => {
-      const c = this.campaign();
-      const segmentId = c?.segmentId ?? null;
-      const waiting = c?.status === 'draft' || c?.status === 'scheduled';
-      if (segmentId === null || c?.audienceSize || !waiting) {
+      const segmentId = this.countedSegment();
+      if (segmentId === null) {
         untracked(() => this.segmentCount.set(null));
         return;
       }
@@ -274,12 +287,16 @@ export class CampaignDetailView {
       wasOnline = online;
     });
     // SSE can drop silently (proxy resets, sleeping tabs), so poll as a backstop: fast while a run
-    // is live, and slowly once it is done for as long as Delivered / Read ticks can still arrive.
+    // is live, slowly while it waits for its start, and slowly once it is done for as long as
+    // Delivered / Read ticks can still arrive.
     const poll = setInterval(() => {
       if (this.loading()) return;
-      if (['running', 'paused', 'scheduled'].includes(this.status())) this.reload();
-      else if (this.receiptsPending() && document.visibilityState === 'visible'
-        && Date.now() - this.lastAsk >= RECEIPT_POLL_MS) this.reload();
+      const since = Date.now() - this.lastAsk;
+      const visible = document.visibilityState === 'visible';
+      if (['running', 'paused'].includes(this.status())) this.reload();
+      else if (this.status() === 'scheduled') {
+        if (visible && since >= SCHEDULED_POLL_MS) this.reload();
+      } else if (this.receiptsPending() && visible && since >= RECEIPT_POLL_MS) this.reload();
     }, 3000);
     inject(DestroyRef).onDestroy(() => clearInterval(poll));
   }
@@ -351,6 +368,8 @@ export class CampaignDetailView {
     call: () => Observable<T>,
     ok: string | ((res: T) => string),
   ) {
+    // A fast double click lands before the disabled state renders; the second would 409.
+    if (this.busy()) return;
     this.busy.set(label);
     call().subscribe({
       next: (res) => {
@@ -398,6 +417,7 @@ export class CampaignDetailView {
   }
 
   protected retry(): void {
+    if (this.busy()) return;
     this.busy.set('retry');
     this.api.retryFailed(this.numericId()).subscribe({
       next: ({ campaign, queued }) => {
@@ -422,6 +442,7 @@ export class CampaignDetailView {
   }
 
   protected exportCsv(): void {
+    if (this.busy()) return;
     this.busy.set('export');
     this.api.exportCsv(this.numericId()).subscribe({
       next: (blob) => {

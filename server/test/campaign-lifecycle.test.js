@@ -231,7 +231,7 @@ describe('campaign lifecycle on one number', () => {
             });
             const preview = await (await post(`/campaigns/${spun.id}/preview`)).json();
             assert.deepEqual(preview.missing, ['code']);
-            assert.match(preview.previews[0].preview, /^(Hi|Hello) there, (20|25)% off in your town, code {code}$/);
+            assert.match(preview.previews[0].preview, /^(Hi|Hello) there, (20|25)% off in your town, code$/);
         } finally {
             transport.held = false;
             server.close();

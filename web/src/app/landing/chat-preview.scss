@@ -2,6 +2,17 @@
 
 // Sits on the page ground, beside the inbox in the replies section.
 :host {
+  // WhatsApp's own light-theme colours: this preview draws WhatsApp, so it keeps them (as auto-replies/wa-preview does).
+  --wa-bar: #008069;
+  --wa-wall: #efeae2;
+  --wa-in: #ffffff;
+  --wa-out: #d9fdd3;
+  --wa-ink: #111b21;
+  --wa-meta: #667781;
+  --wa-tick: #53bdeb;
+  --wa-green: #00a884;
+  --wa-on-bar: #ffffff;
+  --wa-day: #ffffff;
   display: grid;
   justify-items: center;
   gap: 18px;
@@ -52,32 +63,39 @@
   background: var(--primary-hover);
 }
 
-// The phone: the app's own chat preview, on the card surface.
+// The phone: WhatsApp's chat screen in a rounded device frame.
 .phone {
   margin: 0;
   width: min(100%, 380px);
+  overflow: hidden;
   border-radius: 32px;
-  padding: 10px;
-  border: 1px solid var(--border-color);
-  background: var(--surface-card);
-  color: var(--text-color);
+  border: 8px solid var(--text-strong);
+  background: var(--wa-wall);
+  color: var(--wa-ink);
+  font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
 }
 
 .phone-top {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 10px 14px;
+  padding: 12px 14px;
+  background: var(--wa-bar);
+  color: var(--wa-on-bar);
+
+  > .ti {
+    font-size: 20px;
+  }
 
   .avatar {
     display: grid;
     flex: none;
     place-items: center;
-    width: 38px;
-    height: 38px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
-    background: var(--accent-soft);
-    color: var(--accent);
+    background: var(--wa-out);
+    color: var(--wa-bar);
     font-weight: 600;
   }
 
@@ -88,55 +106,61 @@
     line-height: 1.25;
 
     strong {
-      color: var(--text-strong);
-      font-size: 15px;
-      font-weight: 600;
+      font-size: 15.5px;
+      font-weight: 500;
     }
 
     small {
-      color: var(--hint);
-      font-size: 12px;
+      font-size: 12.5px;
+      opacity: 0.85;
     }
-  }
-
-  .auto {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    background: var(--primary-tint);
-    color: var(--primary-text);
-    font-size: 12px;
-    font-weight: 500;
   }
 }
 
 .thread {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  min-height: 380px;
+  gap: 3px;
+  min-height: 360px;
   margin: 0;
-  padding: 16px 12px;
+  padding: 10px 14px 12px;
   list-style: none;
-  border-radius: 24px;
-  background: var(--surface-sunken);
+}
+
+// "Today", as WhatsApp marks the day.
+.day {
+  align-self: center;
+  margin-bottom: 8px;
+
+  span {
+    display: block;
+    padding: 4px 10px;
+    border-radius: 7px;
+    background: var(--wa-day);
+    color: var(--wa-meta);
+    font-size: 12px;
+  }
 }
 
 .msg {
-  max-width: 84%;
-  padding: 9px 12px 6px;
-  border-radius: 16px;
-  font-size: 14px;
-  line-height: 1.45;
+  position: relative;
+  max-width: 82%;
+  padding: 6px 9px 7px;
+  border-radius: 7.5px;
+  font-size: 14.2px;
+  line-height: 1.4;
   animation: s-pop-in 420ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 650ms + 150ms);
+
+  // A new run from the other side starts a little lower, as in WhatsApp.
+  &.first {
+    margin-top: 8px;
+  }
 
   .text {
     display: block;
     white-space: pre-line;
-    color: var(--text-strong);
+    color: var(--wa-ink);
   }
 
   .meta {
@@ -144,26 +168,107 @@
     justify-content: flex-end;
     align-items: center;
     gap: 3px;
-    margin-top: 2px;
+    margin: -2px 0 -3px;
     font-size: 11px;
-    color: var(--hint);
+    color: var(--wa-meta);
 
     .ti {
-      font-size: 14px;
-      color: var(--primary-text);
+      font-size: 15px;
+      color: var(--wa-tick);
     }
   }
 
   &.in {
     align-self: flex-start;
-    background: var(--surface-card);
-    border-bottom-left-radius: 4px;
+    background: var(--wa-in);
   }
 
   &.out {
     align-self: flex-end;
-    background: var(--primary-tint);
-    border-bottom-right-radius: 4px;
+    background: var(--wa-out);
+  }
+
+  // The tail: a square corner and a small triangle in the bubble's own colour.
+  &.first.in {
+    border-top-left-radius: 0;
+
+    &::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -8px;
+      border-top: 0 solid transparent;
+      border-right: 8px solid var(--wa-in);
+      border-bottom: 10px solid transparent;
+    }
+  }
+
+  &.first.out {
+    border-top-right-radius: 0;
+
+    &::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: -8px;
+      border-left: 8px solid var(--wa-out);
+      border-bottom: 10px solid transparent;
+    }
+  }
+}
+
+// WhatsApp's message bar: a white field with emoji and attach, and the green mic.
+.composer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 10px;
+
+  .field {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 999px;
+    background: var(--wa-in);
+    color: var(--wa-meta);
+    font-size: 14.5px;
+
+    .ti:last-child {
+      margin-left: auto;
+    }
+
+    .ti {
+      font-size: 20px;
+    }
+  }
+
+  .mic {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background: var(--wa-green);
+    color: var(--wa-on-bar);
+    font-size: 20px;
+  }
+}
+
+// What the preview is showing off, under the device: Wapzo answered, not a person.
+.auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-family: var(--font-body);
+
+  .ti {
+    color: var(--primary-text);
   }
 }
 

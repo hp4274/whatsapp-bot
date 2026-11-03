@@ -572,39 +572,70 @@ p {
   font-weight: 500;
 }
 
+// WhatsApp's chat list, in its own light colours (as the chat preview beside it keeps them): round initials, a rule
+// under each row from the text on, green time and count on unread chats.
+.inbox {
+  --wa-ink: #111b21;
+  --wa-meta: #667781;
+  --wa-rule: #e9edef;
+  --wa-unread: #25d366;
+  --wa-unread-text: #1daa61;
+  --wa-avatar: #dfe5e7;
+  --wa-avatar-ink: #54656f;
+
+  ul {
+    gap: 0;
+  }
+}
+
 .inbox li {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border-radius: var(--radius-md);
-  font-size: 13.5px;
-
-  &.unread {
-    background: var(--surface-sunken);
-  }
+  gap: 14px;
+  padding: 0 4px;
+  font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
 
   .av {
-    width: 38px;
-    height: 38px;
-    background: var(--accent-soft);
-    color: var(--accent);
-    font-weight: 600;
+    width: 46px;
+    height: 46px;
+    background: var(--wa-avatar);
+    color: var(--wa-avatar-ink);
+    font-size: 17px;
+    font-weight: 500;
+  }
+
+  position: relative;
+
+  .line,
+  .side {
+    padding: 13px 0;
+  }
+
+  // One rule under the row, starting where the text does (avatar 46 + gap 14 + padding 4).
+  &:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: 64px;
+    right: 4px;
+    bottom: 0;
+    border-bottom: 1px solid var(--wa-rule);
   }
 
   .line {
     display: grid;
     flex: 1;
     min-width: 0;
+    gap: 2px;
 
     b {
-      font-weight: 600;
-      color: var(--text-strong);
+      font-size: 16px;
+      font-weight: 400;
+      color: var(--wa-ink);
     }
 
     small {
-      font-size: 13px;
-      color: var(--text-muted);
+      font-size: 14px;
+      color: var(--wa-meta);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -613,13 +644,20 @@ p {
 
   .side {
     display: grid;
+    align-self: stretch;
+    align-content: center;
     justify-items: end;
     gap: 4px;
 
     small {
       font-size: 12px;
-      color: var(--hint);
+      color: var(--wa-meta);
     }
+  }
+
+  &.unread .side small {
+    color: var(--wa-unread-text);
+    font-weight: 500;
   }
 
   .count {
@@ -629,49 +667,288 @@ p {
     height: 20px;
     padding: 0 6px;
     border-radius: 999px;
-    background: var(--primary-hover);
-    color: var(--on-primary);
-    font-size: 11.5px;
+    background: var(--wa-unread);
+    color: var(--on-fill);
+    font-size: 12px;
     font-weight: 600;
   }
 
   .who-tag {
-    font-size: 11.5px;
-    font-weight: 500;
-    color: var(--text-muted);
+    font-size: 12px;
+    color: var(--wa-meta);
   }
 }
 
-// ------------------------------------------------------------------- kit
-.kit {
+// ---------------------------------------------------------------- tints
+// One tint per card or group: `--tone` is its ink, the field mixes a little of it into the card.
+.tone-blue {
+  --tone: var(--primary-text);
+}
+.tone-green {
+  --tone: var(--success);
+}
+.tone-violet {
+  --tone: var(--accent);
+}
+.tone-yellow {
+  --tone: var(--warning);
+}
+.tone-pink {
+  --tone: var(--danger-text);
+}
+
+// ------------------------------------------------------- campaign tools
+.tools {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 40px 32px;
-  margin: clamp(80px, 9vw, 136px) 0 0;
+  gap: clamp(24px, 3vw, 40px);
+  margin: 0;
   padding: 0;
   list-style: none;
 
-  li {
-    display: grid;
-    align-content: start;
-    gap: 6px;
+  > li {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 28px;
+    border-radius: var(--radius-xl);
+    background: color-mix(in srgb, var(--tone) 8%, var(--surface-card));
+    transition: translate var(--base) var(--ease);
+
+    &:hover {
+      translate: 0 -4px;
+    }
+
+    > p {
+      margin: 8px 0 24px;
+      line-height: 1.55;
+    }
   }
 
-  .ti {
-    margin-bottom: 6px;
-    font-size: 26px;
-    color: var(--primary-text);
+  // Fragments sit at the foot of each card, so the six line up whatever the copy's length.
+  .tool-ui,
+  .bubbles {
+    margin-top: auto;
   }
 
   b {
-    font-size: 17px;
+    display: block;
     font-weight: 600;
     color: var(--text-strong);
   }
 
-  span {
-    line-height: 1.55;
+  small {
+    display: block;
+    font-size: 13.5px;
+    color: var(--text-muted);
   }
+
+  .grow {
+    flex: 1;
+    min-width: 0;
+
+    b,
+    &:not(:has(b)) {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .ti {
+    font-size: 18px;
+  }
+}
+
+.tool-ui {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  font-size: 14.5px;
+}
+
+.file,
+.warn-row,
+.picker,
+.person,
+.media {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.file-tile {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-md);
+  background: var(--success-soft);
+
+  .tools & .ti {
+    font-size: 32px;
+    color: var(--success);
+  }
+}
+
+.tools .ok {
+  font-size: 30px;
+  color: var(--success);
+}
+
+.warn-row {
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  font-weight: 500;
+}
+
+.chips {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.chip {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--success-soft);
+  color: var(--text-strong);
+  font-weight: 500;
+
+  .ti:first-child {
+    color: var(--success);
+  }
+
+  .ti:last-child {
+    font-size: 15px;
+    color: var(--text-muted);
+  }
+}
+
+.add,
+.retry-btn {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.add {
+  color: var(--text-muted);
+
+  .ti {
+    color: var(--primary-text);
+    font-size: 22px;
+  }
+}
+
+// A crop of the studio photo stands in for the attached poster.
+.thumb {
+  flex: none;
+  width: 88px;
+  height: 88px;
+  border-radius: var(--radius-md);
+  background: url('/assets/landing/clay-studio.jpg') 14% 100% / 400% auto no-repeat var(--surface-sunken);
+}
+
+.media b {
+  font-size: 15px;
+}
+
+.tools .pdf {
+  font-size: 34px;
+  color: var(--danger);
+}
+
+.picker {
+  padding: 14px 16px;
+  white-space: nowrap;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--text-strong);
+  font-weight: 500;
+
+  .ti:first-child {
+    color: var(--primary-text);
+    font-size: 22px;
+  }
+}
+
+.bubbles {
+  display: grid;
+  gap: 14px;
+}
+
+.bubble-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.tools .av,
+.contact .av {
+  width: 44px;
+  height: 44px;
+  background: color-mix(in srgb, var(--tone) 16%, var(--surface-card));
+  color: var(--tone);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.bubble {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 16px;
+  border-radius: 16px 16px 16px 4px;
+  background: var(--surface-card);
+  font-size: 15px;
+  color: var(--text-color);
+
+  &.out {
+    background: color-mix(in srgb, var(--success) 12%, var(--surface-card));
+  }
+
+  small {
+    margin-top: 4px;
+    text-align: right;
+    font-size: 12px;
+
+    .ti {
+      font-size: 15px;
+      color: var(--primary);
+      vertical-align: -3px;
+    }
+  }
+}
+
+.person {
+  padding-bottom: 12px;
+
+  & + .person {
+    padding-top: 0;
+  }
+
+  .pill.bad {
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: var(--danger-soft);
+    color: var(--danger-text);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+}
+
+.retry-btn {
+  justify-content: center;
+  min-height: 52px;
+  border-radius: var(--radius-md);
+  background: var(--primary);
+  color: var(--on-primary);
+  font-weight: 600;
 }
 
 // --------------------------------------------------------------- replies
@@ -698,21 +975,20 @@ p {
 .facilities {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: clamp(24px, 3vw, 40px);
+  gap: clamp(24px, 2.4vw, 32px);
 }
 
 .fac-group {
-  padding: 28px;
-  border-radius: var(--radius-xl);
-  background: var(--surface-card);
-  border: 1px solid var(--border-color);
+  min-width: 0;
 
-  h3 {
-    margin-bottom: 20px;
-    font-size: 17px;
+  > h3 {
+    margin: 32px 0 24px;
+    font-size: clamp(24px, 2.4vw, 32px);
+    line-height: 1.1;
+    letter-spacing: -0.035em;
   }
 
-  ul {
+  > ul {
     display: grid;
     gap: 20px;
     margin: 0;
@@ -722,22 +998,213 @@ p {
 
   li {
     display: grid;
-    grid-template-columns: 22px 1fr;
-    gap: 12px;
+    grid-template-columns: 40px 1fr;
+    gap: 14px;
+    align-items: start;
     font-size: 15px;
     line-height: 1.5;
-  }
 
-  .ti {
-    font-size: 20px;
-    color: var(--primary-text);
-    margin-top: 1px;
+    > .ti {
+      display: grid;
+      place-items: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--tone) 10%, var(--surface-card));
+      color: var(--tone);
+      font-size: 19px;
+    }
   }
 
   b {
     display: block;
     font-weight: 600;
     color: var(--text-strong);
+  }
+}
+
+// The picture over each group: a fragment of the app on the group's tint.
+.fac-visual {
+  display: grid;
+  place-items: center;
+  min-height: 384px;
+  padding: 28px;
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--tone) 12%, var(--surface-card));
+  font-size: 15px;
+  transition: translate var(--base) var(--ease);
+
+  .fac-group:hover & {
+    translate: 0 -4px;
+  }
+
+  b {
+    display: block;
+  }
+
+  small {
+    display: block;
+    font-size: 13.5px;
+    color: var(--text-muted);
+  }
+
+  .grow {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .ti {
+    font-size: 20px;
+  }
+}
+
+.numbers {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 340px);
+}
+
+.number {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+
+  .n-icon {
+    width: 48px;
+    height: 48px;
+    background: color-mix(in srgb, var(--tone) 14%, var(--surface-card));
+    color: var(--tone);
+    font-size: 22px;
+  }
+
+  .live-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--success);
+  }
+
+  > .ti {
+    color: var(--text-muted);
+  }
+}
+
+.contact {
+  width: min(100%, 380px);
+}
+
+.contact-head {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+
+  .av {
+    width: 64px;
+    height: 64px;
+    font-size: 22px;
+    --tone: var(--accent);
+  }
+
+  b {
+    font-size: 17px;
+  }
+
+  > .ti {
+    align-self: flex-start;
+    color: var(--text-muted);
+  }
+}
+
+.tabs {
+  display: flex;
+  gap: 24px;
+  margin: 20px 0 16px;
+  font-size: 14.5px;
+  color: var(--text-muted);
+  box-shadow: inset 0 -1px var(--border-color);
+
+  span {
+    padding-bottom: 10px;
+  }
+
+  .on {
+    color: var(--primary-text);
+    box-shadow: inset 0 -2px var(--primary);
+  }
+}
+
+.invoice {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+
+  b {
+    font-size: 15px;
+  }
+
+  small {
+    font-size: 13px;
+  }
+
+  .pill.ok {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    padding: 6px 12px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+
+    .ti {
+      font-size: 16px;
+    }
+  }
+}
+
+.flow {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  color: var(--text-strong);
+  font-weight: 600;
+
+  .node {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    min-width: 230px;
+    padding: 12px 18px 12px 12px;
+    border-radius: var(--radius-lg);
+    background: var(--surface-card);
+
+    .ti {
+      width: 44px;
+      height: 44px;
+      background: color-mix(in srgb, var(--tone) 14%, var(--surface-card));
+      color: var(--tone);
+    }
+  }
+
+  .link {
+    color: var(--text-muted);
+  }
+
+  .wait {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface-card) 70%, transparent);
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 500;
   }
 }
 
@@ -902,50 +1369,50 @@ p {
 }
 
 // --------------------------------------------------------- request access
-.access-grid {
+// One card: the photograph on the left, the wordmark, heading and form on the right.
+.access {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-  gap: clamp(32px, 6vw, 96px);
-  align-items: start;
-
-  .section-head {
-    margin-bottom: 0;
-  }
-}
-
-// What happens after sending, in order, so a real list.
-.next {
-  display: grid;
-  gap: 14px;
-  margin: 36px 0 0;
-  padding: 0;
-  list-style: none;
-
-  li {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    font-size: 16px;
-    color: var(--text-strong);
-  }
-
-  .ti {
-    display: grid;
-    place-items: center;
-    flex: none;
-    width: 40px;
-    height: 40px;
-    border-radius: 12px;
-    background: var(--surface-card);
-    color: var(--primary-text);
-    font-size: 19px;
-  }
-}
-
-.access-card {
-  padding: clamp(24px, 3.5vw, 40px);
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  overflow: hidden;
   border-radius: var(--radius-xl);
   background: var(--surface-card);
+}
+
+.access-photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 560px;
+  object-fit: cover;
+  // Anchored left so the Clay Studio notification in the photo stays whole.
+  object-position: 6% 50%;
+}
+
+.access-body {
+  align-self: center;
+  padding: clamp(28px, 5vw, 64px);
+}
+
+.access-word {
+  margin-bottom: 32px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--brand-word-ink);
+
+  span {
+    background: var(--brand-word-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+.access-lede {
+  margin: 20px 0 32px;
+  font-size: 18px;
+  line-height: 1.55;
+  color: var(--text-muted);
 }
 
 /* Pricing styles, hidden with the section (landing.html); restore both together.
@@ -1190,14 +1657,24 @@ p {
     position: static;
   }
 
-  .facilities,
-  .access-grid {
+  .facilities {
     grid-template-columns: minmax(0, 1fr);
     max-width: 560px;
     margin-inline: auto;
   }
 
-  .kit {
+  .access {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 640px;
+    margin-inline: auto;
+  }
+
+  .access-photo {
+    min-height: 0;
+    aspect-ratio: 4 / 3;
+  }
+
+  .tools {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1216,7 +1693,7 @@ p {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .kit {
+  .tools {
     grid-template-columns: minmax(0, 1fr);
   }
 

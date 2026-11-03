@@ -1,0 +1,119 @@
+@use '../school/school-shared' as s;
+
+@include s.banner;
+@include s.buttons;
+@include s.tones;
+@include s.chip;
+
+// The same rhythm as the other tabs: 12px inside a section, a hairline and 24px between sections.
+:host { @include s.fit-grid; display: grid; align-content: start; gap: var(--space-md); }
+section { @include s.fit-grid; display: grid; gap: var(--space-md); }
+section + section { margin-top: var(--space-md); padding-top: var(--space-xl); border-top: 1px solid var(--border-color); }
+h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); }
+.muted { color: var(--text-muted); }
+.compact { margin: 0; font-size: 12.5px; line-height: 1.55; }
+section > h4 + .compact, .section-head + .compact { margin-top: -6px; }
+.msg { flex: 1; min-width: 0; }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.field label small { font-weight: 400; }
+.quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+
+// Plan price, charged, paid, remaining: one hairline panel of four, remaining tinted by whether anything is owed.
+.money {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  > div { display: grid; align-content: start; gap: 4px; min-width: 0; padding: 12px 14px; }
+  > div + div { border-left: 1px solid var(--border-color); }
+  dt { font-size: 12px; color: var(--text-muted); }
+  dd {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.3px;
+    color: var(--text-strong);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+    small { display: block; font-size: 12px; font-weight: 400; color: var(--text-muted); letter-spacing: 0; }
+    &.ok { color: var(--success); }
+  }
+  > div > small { font-size: 11.5px; line-height: 1.4; color: var(--text-muted); }
+  .remaining {
+    background: color-mix(in srgb, var(--warning) 9%, transparent);
+    dd { color: var(--warning); }
+    &.settled { background: color-mix(in srgb, var(--success) 8%, transparent); dd { color: var(--success); } }
+  }
+  &.loading { min-height: 74px; background: var(--surface-sunken); }
+}
+
+// Paid by: three equal choices; the picked one in the brand tint, like the plan cards.
+.label { font-size: 13px; font-weight: 500; color: var(--text-strong); }
+.methods {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface-card);
+    color: var(--text-color);
+    font-size: 13px;
+    font-weight: 500;
+    transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+    .ti { font-size: 17px; color: var(--text-muted); }
+    &:hover { border-color: var(--border-hover); }
+    &[aria-checked='true'] {
+      border-color: var(--primary);
+      background: var(--primary-tint);
+      color: var(--text-strong);
+      .ti { color: var(--primary-text); }
+    }
+  }
+}
+
+.pay-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--space-md);
+  .wide { grid-column: 1 / -1; }
+  > .btn { justify-self: start; }
+}
+
+// Newest first: what, then kind and day; charges plain, payments in the success tone with a minus.
+.ledger {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  li {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 13px;
+    > .ti { font-size: 18px; color: var(--text-muted); }
+    > div { display: grid; gap: 2px; min-width: 0; }
+    .what { color: var(--text-strong); overflow-wrap: anywhere; }
+    .muted { font-size: 12px; }
+    b { font-weight: 600; color: var(--text-strong); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    &.in { > .ti, b { color: var(--success); } }
+  }
+  li:last-child { border-bottom: 0; }
+}
+
+@media (max-width: 560px) {
+  .money { grid-template-columns: repeat(2, minmax(0, 1fr)); > div:nth-child(3) { border-left: 0; } > div:nth-child(n + 3) { border-top: 1px solid var(--border-color); } }
+  .pay-form { grid-template-columns: minmax(0, 1fr); }
+}

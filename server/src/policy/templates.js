@@ -7,7 +7,7 @@
 const S = 'templates';
 
 export const TEMPLATE_POLICY = Object.freeze([
-    { key: 'templates.maxTemplates', service: S, group: 'Limits', type: 'int', default: 0, min: 0, max: 100000, unlimitedAt: 0,
+    { key: 'templates.maxTemplates', scopes: [], service: S, group: 'Limits', type: 'int', default: 0, min: 0, max: 100000, unlimitedAt: 0,
       label: 'Maximum templates', hint: '0 = no limit.' },
     { key: 'templates.requireApproval', service: S, group: 'Review', type: 'enum', default: 'off',
       options: [
@@ -16,7 +16,7 @@ export const TEMPLATE_POLICY = Object.freeze([
           { value: 'all', label: 'Review every template' },
       ],
       label: 'Approval queue', hint: 'A super admin approves a template before it can be sent.' },
-    { key: 'templates.blockedWords', service: S, group: 'Content rules', type: 'list', default: [],
+    { key: 'templates.blockedWords', scopes: ['global','plan'], service: S, group: 'Content rules', type: 'list', default: [],
       label: 'Blocked words', hint: 'One per line. A template containing one cannot be saved.' },
     { key: 'templates.blockedDomains', service: S, group: 'Content rules', type: 'list', default: [],
       label: 'Blocked link domains', hint: 'One per line, e.g. bit.ly. Subdomains are blocked too.' },

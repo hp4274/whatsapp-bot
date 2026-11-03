@@ -12,10 +12,10 @@
 
 import express from 'express';
 
-import { buildContacts, cleanCountryCode, withFallbacks } from '../campaign/importer.js';
+import { buildContacts, cleanCountryCode, renderMessage, withFallbacks } from '../campaign/importer.js';
 import { SafetyError } from '../campaign/safety.js';
 import { InteractiveError } from '../messaging/interactive.js';
-import { contactContext, personalize } from '../protocol.js';
+import { contactContext } from '../protocol.js';
 import { RECIPES, getRecipe, installRecipe } from '../recipes/index.js';
 import { CampaignError, CampaignStore, campaignKey } from './store.js';
 
@@ -164,6 +164,9 @@ export function createCampaignRouter({ db, state }) {
         return out;
     };
     const announce = (type, campaign) => state.broadcast?.({ type, campaign });
+    /** The engine's counters, only while they are this campaign's run: another run's would show as this one's. */
+    const engineStats = (campaign) => (state.manager?.campaignId === campaignKey(campaign.id)
+        ? state.manager.statsSnapshot() : null);
 
     // ------------------------------------------------- one campaign, several numbers --
     /**
@@ -325,8 +328,7 @@ export function createCampaignRouter({ db, state }) {
             const campaign = whole(own.campaign, shares);
             const stats = shares.length ? addUp([own.stats, ...shares.map(({ copy }) => copy.stats)]) : own.stats;
             // The live queue view only exists while this manager holds the run.
-            const live = own.campaign.status === 'running' || own.campaign.status === 'paused'
-                ? state.manager?.statsSnapshot() ?? null : null;
+            const live = ['running', 'paused'].includes(own.campaign.status) ? engineStats(own.campaign) : null;
             return res.json({ campaign, stats, live, campaignId: campaignKey(campaign.id) });
         } catch (err) {
             return fail(res, err);
@@ -344,12 +346,16 @@ export function createCampaignRouter({ db, state }) {
             const limit = Math.min(Number(req.body?.limit) || 3, 25);
             const recipients = campaigns.resolveAudience(campaign, { limit });
             const text = campaigns.messageText(campaign);
+            const fallbacks = campaign.options?.fallbacks ?? {};
             const previews = recipients.map((contact) => {
-                // The send fills blanks from the campaign's fallbacks, so the preview does too.
-                const context = withFallbacks(contactContext(contact), campaign.options?.fallbacks ?? {});
-                // Same source as the send: the campaign's own body (or A/B version A).
-                const rendered = { body: personalize(text, context), missing: missingIn(text, context) };
-                return { phone: contact.phone, name: contact.name, preview: rendered.body, missing: rendered.missing };
+                // Same source and rendering as the send (manager.enqueueContacts): the contact's own `message`
+                // column, else the campaign's body (or A/B version A), with fallbacks and unfilled blanks removed.
+                const own = String(contact.extra?.message ?? contact.extra?.custom_message ?? '').trim();
+                const body = own || text;
+                return {
+                    phone: contact.phone, name: contact.name, preview: renderMessage(body, contact, fallbacks),
+                    missing: missingIn(body, withFallbacks(contactContext(contact), fallbacks)),
+                };
             });
             return res.json({
                 previews,
@@ -508,7 +514,7 @@ export function createCampaignRouter({ db, state }) {
                     announce({ pause: 'campaignPaused', resume: 'campaignResumed', cancel: 'campaignCancelled' }[action], campaign);
                     if (action === 'cancel') state.broadcast?.({ type: 'historyDirty' });
                 }
-                return res.json({ campaign: whole(campaign), stats: state.manager?.statsSnapshot() ?? null });
+                return res.json({ campaign: whole(campaign), stats: engineStats(campaign) });
             }
             // The store refuses (409) without a transport and (404) when the
             // campaign's media is gone; it resolves the media itself.

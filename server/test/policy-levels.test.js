@@ -411,8 +411,11 @@ describe('the ladder to 1000 a day', () => {
         assert.equal(sendingTables(store.resolve(2).values).planDaily, 1000);
         assert.equal(quotaFor(TOP, store.resolve(1).values).limitOn(), 250);
         assert.equal(quotaFor(TOP, store.resolve(2).values).limitOn(), 1000);
-        store.set('tenant:2', { 'channels.dailyCap': 400 });
-        assert.equal(quotaFor(TOP, store.resolve(2).values).limitOn(), 400, 'a tenant override wins over the plan');
+        store.set('plan:enterprise', { 'channels.dailyCap': 400 });
+        assert.equal(quotaFor(TOP, store.resolve(2).values).limitOn(), 400, 'an admin plan value wins over the seed');
+        // A business's own day is its anti-ban safety (enforced dailyLimit), not a tenant-scope rule.
+        assert.throws(() => store.set('tenant:2', { 'channels.dailyCap': 300 }), /is not set here/);
+        assert.equal(quotaFor(TOP, store.resolve(2).values, { ...qr, dailyLimit: 300 }).limitOn(), 300, 'the business’s own day wins over the plan');
     });
 
     it('runs a levels table saved with the old row count as saved, held at its old top, and reports it', () => {

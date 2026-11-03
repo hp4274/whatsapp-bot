@@ -169,15 +169,96 @@
           </ul>
         </div>
       </article>
+    </div>
+  </section>
 
-      <ul class="kit" reveal="children">
-        @for (k of kit; track k.name) {
-          <li>
-            <i class="ti ti-{{ k.icon }}" aria-hidden="true"></i>
-            <b>{{ k.name }}</b>
-            <span>{{ k.text }}</span>
-          </li>
-        }
+  <!-- =========================== CAMPAIGN TOOLS =========================== -->
+  <!-- Everything a bulk send can carry, each on its own tint with a fragment of the app. -->
+  <section class="section" aria-labelledby="tools-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="tools-title">Build your next WhatsApp campaign</h2>
+        <p>Everything a bulk send can carry, from the list you upload to the people it missed.</p>
+      </div>
+
+      <ul class="tools" reveal="children">
+        <li class="tone-blue">
+          <h3>Import your contacts</h3>
+          <p>Excel or CSV; bad numbers and duplicates are caught before you send.</p>
+          <div class="frag tool-ui" data-ui aria-hidden="true">
+            <div class="file">
+              <span class="file-tile"><i class="ti ti-file-spreadsheet"></i></span>
+              <span class="grow"><b>customers.csv</b><small>2,480 contacts</small></span>
+              <i class="ti ti-circle-check-filled ok"></i>
+            </div>
+            <div class="warn-row">
+              <i class="ti ti-alert-circle"></i><span class="grow">3 duplicates found</span><i class="ti ti-chevron-right"></i>
+            </div>
+          </div>
+        </li>
+        <li class="tone-green">
+          <h3>Choose your audience</h3>
+          <p>Send to VIPs, one class or last month’s buyers, not everyone.</p>
+          <div class="frag tool-ui" data-ui aria-hidden="true">
+            <small class="ui-label">Audience</small>
+            <div class="chips">
+              <span class="chip"><i class="ti ti-users-group"></i>VIP customers<i class="ti ti-x"></i></span>
+              <span class="chip"><i class="ti ti-tag"></i>Recent buyers<i class="ti ti-x"></i></span>
+            </div>
+            <span class="add"><i class="ti ti-circle-plus"></i>Add group or tag</span>
+          </div>
+        </li>
+        <li class="tone-violet">
+          <h3>Attach media</h3>
+          <p>A poster, a price list or a fee schedule goes with the text.</p>
+          <div class="frag tool-ui media" data-ui aria-hidden="true">
+            <span class="thumb"></span>
+            <i class="ti ti-file-type-pdf pdf"></i>
+            <span class="grow"><b>Prices.pdf</b><small>2.4 MB</small></span>
+            <i class="ti ti-x"></i>
+          </div>
+        </li>
+        <li class="tone-yellow">
+          <h3>Schedule your send</h3>
+          <p>Write it tonight, let it go out at 10 tomorrow morning.</p>
+          <div class="frag tool-ui" data-ui aria-hidden="true">
+            <small class="ui-label">Send on</small>
+            <div class="picker">
+              <i class="ti ti-calendar-event"></i><span class="grow">Tomorrow · 10:00 AM IST</span><i class="ti ti-chevron-down"></i>
+            </div>
+          </div>
+        </li>
+        <li class="tone-pink">
+          <h3>Vary your message</h3>
+          <p>Rotate greetings and wording so no two messages are identical.</p>
+          <div class="bubbles" data-ui aria-hidden="true">
+            <div class="bubble-row">
+              <span class="av round">P</span>
+              <span class="bubble"><b>Hi Priya!</b>Here’s our new collection…<small>10:00 AM</small></span>
+            </div>
+            <div class="bubble-row">
+              <span class="av round">R</span>
+              <span class="bubble out"><b>Hello Rohan!</b>Sharing this month’s offers…<small>10:00 AM <i class="ti ti-checks"></i></small></span>
+            </div>
+          </div>
+        </li>
+        <li class="tone-blue">
+          <h3>Retry failed sends</h3>
+          <p>One click re-queues only the people it did not reach.</p>
+          <div class="frag tool-ui" data-ui aria-hidden="true">
+            <div class="person">
+              <span class="av round">RK</span>
+              <span class="grow"><b>Ravi Kumar</b><small>+91 98450 22109</small></span>
+              <span class="pill bad">Not sent</span>
+            </div>
+            <div class="person">
+              <span class="av round">IA</span>
+              <span class="grow"><b>Imran Ali</b><small>+91 97000 01234</small></span>
+              <span class="pill bad">Not sent</span>
+            </div>
+            <span class="retry-btn"><i class="ti ti-refresh"></i>Retry 3 failed</span>
+          </div>
+        </li>
       </ul>
     </div>
   </section>
@@ -283,17 +364,57 @@
   <section class="section" aria-labelledby="more-title">
     <div class="wrap">
       <div class="section-head">
-        <h2 id="more-title">And the rest of the toolkit</h2>
+        <h2 id="more-title">Your WhatsApp workspace, beyond campaigns</h2>
         <p>Switch on what your business needs; each one lives in the same dashboard.</p>
       </div>
       <div class="facilities" reveal="children">
         @for (group of facilities; track group.heading) {
           <div class="fac-group">
+            <div class="fac-visual tone-{{ group.tone }}" data-ui aria-hidden="true">
+              @switch (group.tone) {
+                @case ('blue') {
+                  <div class="numbers">
+                    @for (n of numbers; track n.name) {
+                      <div class="number">
+                        <span class="n-icon round tone-{{ n.tone }}"><i class="ti ti-{{ n.icon }}"></i></span>
+                        <span class="grow"><b>{{ n.name }}</b><small>{{ n.phone }}</small></span>
+                        <span class="live-dot"></span>
+                        <i class="ti ti-chevron-right"></i>
+                      </div>
+                    }
+                  </div>
+                }
+                @case ('green') {
+                  <div class="frag contact">
+                    <div class="contact-head">
+                      <span class="av round">PS</span>
+                      <span class="grow"><b>Priya Shah</b><small>+91 98200 11234</small></span>
+                      <i class="ti ti-dots"></i>
+                    </div>
+                    <div class="tabs"><span class="on">Messages</span><span>Invoices</span><span>Appointments</span></div>
+                    <div class="invoice">
+                      <i class="ti ti-file-invoice"></i>
+                      <span class="grow"><b>Invoice #1042</b><small>₹2,500 · 12 Oct</small></span>
+                      <span class="pill ok"><i class="ti ti-circle-check"></i>Paid</span>
+                    </div>
+                  </div>
+                }
+                @default {
+                  <div class="flow">
+                    <span class="node"><i class="ti ti-shopping-cart round tone-violet"></i>New order</span>
+                    <i class="ti ti-arrow-down link"></i>
+                    <span class="node"><i class="ti ti-brand-whatsapp round tone-green"></i>Send thanks</span>
+                    <span class="wait"><i class="ti ti-clock"></i>Wait 7 days</span>
+                    <span class="node"><i class="ti ti-star round tone-yellow"></i>Request review</span>
+                  </div>
+                }
+              }
+            </div>
             <h3>{{ group.heading }}</h3>
             <ul>
               @for (item of group.items; track item.name) {
                 <li>
-                  <i class="ti ti-{{ item.icon }}" aria-hidden="true"></i>
+                  <i class="ti ti-{{ item.icon }} tone-{{ group.tone }}" aria-hidden="true"></i>
                   <span><b>{{ item.name }}</b>{{ item.text }}</span>
                 </li>
               }
@@ -325,18 +446,22 @@
 
   <!-- =========================== REQUEST ACCESS =========================== -->
   <section class="section band" id="access" aria-labelledby="access-title">
-    <div class="wrap access-grid">
-      <div class="section-head" reveal>
-        <h2 id="access-title">Ask for your account</h2>
-        <p>Tell us about your business. We set up your workspace and email your sign-in details.</p>
-        <ol class="next">
-          <li><i class="ti ti-mail" aria-hidden="true"></i>We reply within one working day.</li>
-          <li><i class="ti ti-building-store" aria-hidden="true"></i>We create your workspace on the plan that fits.</li>
-          <li><i class="ti ti-qrcode" aria-hidden="true"></i>You scan one QR code and send your first campaign.</li>
-        </ol>
-      </div>
-      <div class="access-card" reveal>
-        <app-lead-form source="landing" />
+    <div class="wrap">
+      <div class="access" reveal>
+        <img
+          class="access-photo"
+          src="assets/landing/clay-studio.jpg"
+          alt="A potter in her studio smiling at a WhatsApp message from Clay Studio: her pottery class starts at 4 PM."
+          width="1000"
+          height="1071"
+          loading="lazy"
+        />
+        <div class="access-body">
+          <p class="access-word" aria-hidden="true">wap<span>zo</span></p>
+          <h2 id="access-title">Get your Wapzo workspace</h2>
+          <p class="access-lede">We’ll set up your account and email your sign-in details.</p>
+          <app-lead-form source="landing" />
+        </div>
       </div>
     </div>
   </section>

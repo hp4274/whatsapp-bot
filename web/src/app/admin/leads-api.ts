@@ -3,9 +3,10 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, catchError } from 'rxjs';
 
 import type { Tenant, User } from '../core/auth';
-import { Payment, toMessage } from './plans-api';
+import { toMessage } from './plans-api';
 
-export type LeadStatus = 'new' | 'converted' | 'dismissed';
+/** 'hold': read, waiting on the business to confirm; still open. */
+export type LeadStatus = 'new' | 'hold' | 'converted' | 'dismissed';
 
 /** An account request from the landing page or the sign-in dialog (server leads.js). */
 export interface Lead {
@@ -23,27 +24,14 @@ export interface Lead {
   readonly updatedAt: string;
 }
 
-/** What converting a lead sends; owner name and email default to the lead's on the server. */
-export interface LeadConversion {
-  name: string;
-  slug: string;
-  planKey: string;
-  trialDays: number;
-  payment: Payment;
-  owner: { name: string; email: string; password: string };
-  /** Email the owner their sign-in details (server mail/emails.js welcomeEmail). */
-  sendWelcome: boolean;
-}
-
-/** What converting returns; `email` says whether the welcome email went, and why not. */
-export interface ConvertResult {
+/** Activating a pending business: whether the welcome email went, and why not. */
+export interface ActivateResult {
   readonly tenant: Tenant;
   readonly owner: User;
-  readonly lead: Lead;
   readonly email: { readonly sent: boolean; readonly reason?: string };
 }
 
-/** Super admin: the account requests and turning one into a tenant. */
+/** Super admin: the account requests, accepting one as a pending business, and switching that business on. */
 @Injectable({ providedIn: 'root' })
 export class LeadsApi {
   private readonly http = inject(HttpClient);
@@ -54,15 +42,37 @@ export class LeadsApi {
       .pipe(catchError(toMessage));
   }
 
-  setStatus(id: number, status: 'new' | 'dismissed'): Observable<{ lead: Lead }> {
+  setStatus(id: number, status: 'new' | 'hold' | 'dismissed'): Observable<{ lead: Lead }> {
     return this.http
       .patch<{ lead: Lead }>(`/api/admin/leads/${id}`, { status })
       .pipe(catchError(toMessage));
   }
 
-  convert(id: number, body: LeadConversion): Observable<ConvertResult> {
+  /** Accept: the business and its owner become a pending tenant on the first active plan. */
+  convert(id: number): Observable<{ tenant: Tenant; lead: Lead }> {
     return this.http
-      .post<ConvertResult>(`/api/admin/leads/${id}/convert`, body)
+      .post<{ tenant: Tenant; lead: Lead }>(`/api/admin/leads/${id}/convert`, {})
+      .pipe(catchError(toMessage));
+  }
+
+  /** The request a business was accepted from; null for one added by hand. */
+  forTenant(tenantId: number): Observable<{ lead: Lead | null }> {
+    return this.http
+      .get<{ lead: Lead | null }>(`/api/admin/tenants/${tenantId}/lead`)
+      .pipe(catchError(toMessage));
+  }
+
+  /** The business's sign-ins, for the owner's email in Tenant settings' left column. */
+  users(tenantId: number): Observable<{ users: User[] }> {
+    return this.http
+      .get<{ users: User[] }>(`/api/admin/tenants/${tenantId}/users`)
+      .pipe(catchError(toMessage));
+  }
+
+  /** Switch a pending business on: sets the owner's password and emails it unless `sendWelcome` is false. */
+  activate(tenantId: number, body: { password: string; sendWelcome: boolean }): Observable<ActivateResult> {
+    return this.http
+      .post<ActivateResult>(`/api/admin/tenants/${tenantId}/activate`, body)
       .pipe(catchError(toMessage));
   }
 }

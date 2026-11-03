@@ -268,3 +268,6 @@
     }
   }
 }
+
+// A notice's text takes the rest of the row, so its icon stays beside it.
+.s-banner .msg { flex: 1; min-width: 0; }

@@ -178,7 +178,7 @@ describe('POST/GET /api/channels/:id/start', () => {
         await new Promise((resolve) => server.once('listening', resolve));
         base = `http://127.0.0.1:${server.address().port}`;
         tenant = app.locals.tenancy.createTenant('Start Shop', 'start-shop');
-        app.locals.policy.set(`tenant:${tenant.id}`, { 'channels.dailyCap': 250 });
+        app.locals.policy.set('global', { 'channels.dailyCap': 250 }); // no plan: the platform's day
         owner = sessionFor(app, { tenantId: tenant.id, role: 'owner' });
         const channels = new Channels(db.forTenant(tenant.id));
         plainId = channels.create({ displayName: 'Sandbox', settings: { transport: TRANSPORT_SANDBOX, autoConnect: false } }).id;

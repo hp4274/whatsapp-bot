@@ -1,0 +1,170 @@
+<header class="s-head">
+  <div>
+    <p class="eyebrow"><i class="ti ti-cash" aria-hidden="true"></i> Platform</p>
+    <h2>Payments</h2>
+    <p>
+      What each business was charged for its plan and top-ups, what it paid, and what is still unpaid. Record a payment
+      from the business's Payments tab.
+    </p>
+  </div>
+</header>
+
+@if (error()) {
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="msg">{{ error() }}</span>
+    <button class="btn sm" type="button" (click)="load()">Try again</button>
+  </p>
+}
+
+<section class="stats" aria-label="Totals">
+  <button
+    class="s-stat tone-warn"
+    type="button"
+    [attr.aria-pressed]="filter() === 'due'"
+    (click)="filter.set(filter() === 'due' ? 'all' : 'due')"
+  >
+    <small>Unpaid</small><b>{{ money(totals().due) }}</b>
+    <span class="note">{{ totals().owing }} {{ totals().owing === 1 ? 'business owes' : 'businesses owe' }}</span>
+  </button>
+  <button
+    class="s-stat tone-ok"
+    type="button"
+    [attr.aria-pressed]="filter() === 'paid'"
+    (click)="filter.set(filter() === 'paid' ? 'all' : 'paid')"
+  >
+    <small>Paid</small><b>{{ money(totals().paid) }}</b>
+    <span class="note">Recorded so far</span>
+  </button>
+  <div class="s-stat tone-mute">
+    <small>Charged</small><b>{{ money(totals().charged) }}</b>
+    <span class="note">Plans and top-ups</span>
+  </div>
+  <div class="s-stat tone-info">
+    <small>Top-ups</small><b>{{ money(totals().topups) }}</b>
+    <span class="note">Part of what was charged</span>
+  </div>
+</section>
+
+<section class="s-card">
+  <div class="toolbar">
+    <div class="s-seg" role="group" aria-label="Show">
+      @for (f of filters; track f.key) {
+        <button type="button" [attr.aria-pressed]="filter() === f.key" (click)="filter.set(f.key)">
+          {{ f.label }} <span class="n">{{ count(f.key) }}</span>
+        </button>
+      }
+    </div>
+    <label class="search">
+      <i class="ti ti-search" aria-hidden="true"></i>
+      <input
+        type="search"
+        placeholder="Search business or plan"
+        aria-label="Search payments"
+        [value]="query()"
+        (input)="query.set($any($event.target).value)"
+      />
+    </label>
+  </div>
+
+  <div class="s-table" [attr.aria-busy]="loading()">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Business</th>
+          <th scope="col">Plan</th>
+          <th scope="col" class="num">Plan price</th>
+          <th scope="col" class="num">Charged</th>
+          <th scope="col" class="num">Paid</th>
+          <th scope="col" class="num">Unpaid</th>
+          <th scope="col">Last payment</th>
+          <th scope="col"><span class="sr-only">Open</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (r of shown(); track r.tenantId; let i = $index) {
+          <tr [style.--i]="i">
+            <td>
+              <strong class="biz">{{ r.name }}</strong>
+              <span class="sub">
+                {{ r.slug }}
+                @if (r.status === 'pending') {
+                  &middot; pending
+                }
+              </span>
+            </td>
+            <td>
+              @if (r.planName) {
+                <span class="plan">
+                  {{ r.planName }}
+                  @if (r.payment === 'free') {
+                    <span class="s-pill tone-info">{{ r.topupCharged ? 'Hybrid' : 'Free' }}</span>
+                  }
+                </span>
+                @if (r.validUntil) {
+                  <span class="sub">Ends {{ r.validUntil | date: 'd MMM y' }}</span>
+                }
+              } @else {
+                <span class="sub">No plan</span>
+              }
+            </td>
+            <td class="num">
+              @if (r.planPrice) {
+                {{ money(r.planPrice, r.currency) }}<span class="sub">per {{ r.interval }}</span>
+              } @else {
+                <span class="sub">Not set</span>
+              }
+            </td>
+            <td class="num">
+              {{ money(r.charged, r.currency) }}
+              @if (r.topupCharged) {
+                <span class="sub">{{ money(r.topupCharged, r.currency) }} top-ups</span>
+              }
+            </td>
+            <td class="num" [class.paid]="r.paid > 0">{{ money(r.paid, r.currency) }}</td>
+            <td class="num">
+              @if (r.due) {
+                <strong class="due">{{ money(r.due, r.currency) }}</strong>
+              } @else if (r.charged) {
+                <span class="s-pill tone-ok">All paid</span>
+              } @else {
+                <span class="sub">—</span>
+              }
+            </td>
+            <td>
+              <span class="sub">{{ r.lastPaidAt ? (r.lastPaidAt | date: 'd MMM y') : 'None yet' }}</span>
+            </td>
+            <td class="acts">
+              <a
+                class="btn sm"
+                routerLink="/admin/tenants"
+                [queryParams]="{ settings: r.tenantId, tab: 'payments' }"
+                [attr.aria-label]="'Open payments of ' + r.name"
+                >Open</a
+              >
+            </td>
+          </tr>
+        } @empty {
+          @if (!loading()) {
+            <tr class="empty">
+              <td colspan="8">
+                <div class="s-empty">
+                  <i class="ti ti-cash" aria-hidden="true"></i>
+                  <strong>{{ rows().length ? 'No business matches' : 'No businesses yet' }}</strong>
+                  <p>
+                    {{
+                      rows().length
+                        ? 'Try another filter or clear the search.'
+                        : 'Businesses appear here with their plan, charges and payments once they are added.'
+                    }}
+                  </p>
+                </div>
+              </td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+  </div>
+  <app-pager [total]="visible().length" [size]="pageSize" [(page)]="page" label="Payment pages" />
+</section>

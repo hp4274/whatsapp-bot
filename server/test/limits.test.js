@@ -51,7 +51,9 @@ after(async () => {
 
 describe('plan limits', () => {
     it('defaults to no limit, and rejects nonsense', async () => {
-        assert.equal(normalizeLimits({}).maxChannels, 0);
+        assert.equal(normalizeLimits({}).maxChannels, null, 'no limit is null');
+        assert.equal(normalizeLimits({ maxChannels: '' }).maxChannels, null, 'a cleared box is no limit');
+        assert.equal(normalizeLimits({ maxChannels: 0 }).maxChannels, 0, '0 is a cap of zero');
         assert.throws(() => normalizeLimits({ maxChannels: -1 }, true), /maxChannels/);
         assert.equal(blockedWordIn({ blockedWords: 'casino, free crypto' }, 'Win at the Casino!'), 'casino');
         assert.equal(blockedWordIn({ blockedWords: 'casino' }, 'a casinos'), null, 'whole words only');

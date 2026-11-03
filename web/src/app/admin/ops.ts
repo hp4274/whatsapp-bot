@@ -447,12 +447,13 @@ export class AdminOpsView {
 
   /** Usage against a plan cap. A cap of 0 means no limit. */
   protected planMeters(p: PlanRow) {
-    const meter = (label: string, icon: string, used: number, cap: number) => ({
+    // cap null = no limit; 0 = none allowed, so any use is over it.
+    const meter = (label: string, icon: string, used: number, cap: number | null) => ({
       label,
       icon,
       used,
       cap,
-      pct: cap ? Math.min(100, Math.round((used / cap) * 100)) : 0,
+      pct: cap === null ? 0 : cap === 0 ? 100 : Math.min(100, Math.round((used / cap) * 100)),
     });
     return [
       meter('Numbers', 'device-mobile', p.usage.channels, p.limits.maxChannels),
@@ -465,8 +466,8 @@ export class AdminOpsView {
     return pct >= 100 ? 'bad' : pct >= 80 ? 'warn' : 'ok';
   }
 
-  protected capText(n: number, unit = ''): string {
-    return n ? `${n.toLocaleString()}${unit}` : 'No limit';
+  protected capText(n: number | null, unit = ''): string {
+    return n === null || n === undefined ? 'No limit' : `${n.toLocaleString()}${unit}`;
   }
 
   protected rate(part: number, whole: number): string {

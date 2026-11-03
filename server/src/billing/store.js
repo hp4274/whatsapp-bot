@@ -86,11 +86,16 @@ export class BillingStore {
      * @param {() => object} [options.overrides] the tenant's resolved platform policy values;
      *   a `billing.*` value there replaces the plan's limit (policy/billing.js)
      */
-    constructor(database, { now = () => new Date(), overrides = null } = {}) {
+    /**
+     * @param {() => object} [options.ownLimits] the tenant's own limits (tenancy.js); its `messagesPerMonth`, when
+     *   set, replaces the plan's monthly message quota (null = no limit).
+     */
+    constructor(database, { now = () => new Date(), overrides = null, ownLimits = null } = {}) {
         this.db = database.db;
         this.tenantId = database.tenantId;
         this.now = now;
         this.overrides = overrides;
+        this.ownLimits = ownLimits;
     }
 
     // ---------------------------------------------------------------- plans --
@@ -191,7 +196,11 @@ export class BillingStore {
         let state = row.status;
         if (row.status === 'cancelled' || (row.status === 'trialing' && row.trial_ends_at && row.trial_ends_at <= nowIso)) {
             state = grace && nowIso < grace ? 'grace' : 'expired';
+        } else if (row.valid_until && row.valid_until <= nowIso) {
+            // Past its end date: the same grace as a cancellation, then expired, until topped up or extended.
+            state = grace && nowIso < grace ? 'grace' : 'expired';
         }
+        const period = periodOf(this.now());
         return {
             tenantId: row.tenant_id,
             planKey: row.plan_key,
@@ -207,6 +216,11 @@ export class BillingStore {
             cancelledAt: row.cancelled_at,
             graceEndsAt: grace,
             payment: row.payment ?? null,
+            validUntil: row.valid_until ?? null,
+            // Only this period's top-up counts; last month's extra messages are spent.
+            topupMessages: row.topup_period === period ? Number(row.topup_messages) || 0 : 0,
+            // Only on a plan with no list price; a priced plan's own price is what is paid.
+            customPrice: plan.price ? null : (row.custom_price ?? null),
         };
     }
 
@@ -242,6 +256,65 @@ export class BillingStore {
         return this.subscription();
     }
 
+    /**
+     * The amount this business pays on a plan with no list price (Enterprise, a custom plan), in the plan's currency
+     * and interval; null removes it. Refused on a priced plan, whose price is the plan's.
+     */
+    setCustomPrice(amount) {
+        const row = this.require();
+        const plan = this.getPlan(row.plan_key);
+        if (plan?.price) throw new BillingError(`${plan.name} has a list price; an agreed amount is only for plans without one.`);
+        let value = null;
+        if (amount !== null && amount !== undefined && amount !== '') {
+            value = Number(amount);
+            if (!Number.isFinite(value) || value < 0 || value > 1e9) throw new BillingError('amount must be 0 or more');
+            value = Math.round(value);
+        }
+        this.patch({ custom_price: value });
+        return this.subscription();
+    }
+
+    /** The plan's end date, or null for none (it renews monthly). */
+    setValidity(validUntil) {
+        this.require();
+        let value = null;
+        if (validUntil !== null && validUntil !== undefined && validUntil !== '') {
+            // A bare date means the end of that day (UTC).
+            const text = String(validUntil);
+            const at = new Date(/^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T23:59:59.999Z` : text);
+            if (Number.isNaN(at.getTime())) throw new BillingError('validUntil must be a date');
+            value = at.toISOString();
+        }
+        this.patch({ valid_until: value });
+        return this.subscription();
+    }
+
+    /**
+     * A top-up: `days` more validity (from the end date, or from today when it has none or has passed) and
+     * `messages` more this month on top of the plan's quota. Either may be 0, not both.
+     */
+    topUp({ days: addDays = 0, messages: addMessages = 0 } = {}) {
+        const row = this.require();
+        const d = Number(addDays);
+        const m = Number(addMessages);
+        if (!Number.isInteger(d) || d < 0 || d > 3650) throw new BillingError('days must be a whole number from 0 to 3650');
+        if (!Number.isInteger(m) || m < 0 || m > 100000000) throw new BillingError('messages must be a whole number from 0');
+        if (!d && !m) throw new BillingError('Add days, messages or both.');
+        const now = this.now();
+        const fields = {};
+        if (d) {
+            const from = row.valid_until && new Date(row.valid_until) > now ? new Date(row.valid_until) : now;
+            fields.valid_until = new Date(from.getTime() + days(d)).toISOString();
+        }
+        if (m) {
+            const period = periodOf(now);
+            fields.topup_messages = (row.topup_period === period ? Number(row.topup_messages) || 0 : 0) + m;
+            fields.topup_period = period;
+        }
+        this.patch(fields);
+        return this.subscription();
+    }
+
     /** Default is at period end: they paid for the rest of the month. */
     cancel({ atPeriodEnd = true } = {}) {
         this.rollover(this.require());
@@ -259,7 +332,7 @@ export class BillingStore {
         if (!row) return null;
         const from = row.status === 'cancelled'
             ? (row.cancelled_at ?? row.current_period_end)
-            : (row.status === 'trialing' ? row.trial_ends_at : null);
+            : (row.status === 'trialing' ? row.trial_ends_at : (row.valid_until ?? null));
         return from ? new Date(new Date(from).getTime() + days(GRACE_DAYS)).toISOString() : null;
     }
 
@@ -361,7 +434,13 @@ export class BillingStore {
         if (!subscription) return null; // billing not in use for this tenant
         if (!METRIC_LIMITS[String(metric)]) return null;
         if (subscription.state === 'expired') return 0;
-        return billingLimit(String(metric), subscription.plan.limits, this.overrides?.() ?? {});
+        const own = metric === 'messages' ? this.ownLimits?.()?.messagesPerMonth : undefined;
+        // The business's own monthly quota, set under Plan > Limits, wins over the plan's and any policy override.
+        const base = own !== undefined
+            ? (own === null ? null : Number(own))
+            : billingLimit(String(metric), subscription.plan.limits, this.overrides?.() ?? {});
+        // A top-up raises a capped monthly message quota for this period; an uncapped one needs none.
+        return metric === 'messages' && base !== null ? base + subscription.topupMessages : base;
     }
 
     /**

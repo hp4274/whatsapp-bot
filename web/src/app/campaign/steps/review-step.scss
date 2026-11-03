@@ -14,6 +14,8 @@
 
   strong { font-size: 26px; font-weight: 500; letter-spacing: -1px; color: var(--text-strong); font-variant-numeric: tabular-nums; }
   .ti { align-self: center; font-size: 18px; color: var(--primary-text); }
+  // The attachment's file name can be one long word.
+  .muted { min-width: 0; overflow-wrap: anywhere; }
 }
 
 // What goes out, in one line, with the way back to change it.

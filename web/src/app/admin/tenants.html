@@ -1,5 +1,5 @@
 <!--
-  Tenant console: header, error banner, optional create form, then a search and
+  Tenant console: header, error banner, then a search and
   filter toolbar over the tenant cards (grid or list). Drawers and the delete
   dialog are rendered last so they stack above the page.
 -->
@@ -9,9 +9,8 @@
     <h2>Tenants</h2>
     <p>Every business on this platform, and the controls behind it.</p>
   </div>
-  <button class="btn primary" type="button" (click)="showForm.set(!showForm())">
-    <i class="ti ti-{{ showForm() ? 'x' : 'plus' }}" aria-hidden="true"></i>
-    {{ showForm() ? 'Cancel' : 'New tenant' }}
+  <button class="btn primary" type="button" (click)="adding.set(true)">
+    <i class="ti ti-plus" aria-hidden="true"></i> New tenant
   </button>
 </header>
 
@@ -21,203 +20,6 @@
     <span class="msg">{{ error() }}</span>
     <button class="btn sm" type="button" (click)="refresh()">Try again</button>
   </p>
-}
-
-@if (showForm()) {
-  <form class="card new" aria-labelledby="new-tenant-title" (submit)="create($event)" novalidate>
-    <h3 id="new-tenant-title">New tenant</h3>
-    <div class="grid">
-      <div class="field">
-        <label for="t-name">Business name</label>
-        <input
-          id="t-name"
-          name="name"
-          required
-          [ngModel]="draft().name"
-          (ngModelChange)="draft.set({ ...draft(), name: $event })"
-        />
-      </div>
-      <div class="field">
-        <label for="t-slug">Slug <small class="muted">optional</small></label>
-        <input
-          id="t-slug"
-          name="slug"
-          [ngModel]="draft().slug"
-          (ngModelChange)="draft.set({ ...draft(), slug: $event })"
-        />
-        @if (duplicateDraftSlug()) {
-          <small class="field-error">Already in use</small>
-        }
-      </div>
-      <div class="field">
-        <label for="t-owner">Owner name</label>
-        <input
-          id="t-owner"
-          name="ownerName"
-          [ngModel]="draft().ownerName"
-          (ngModelChange)="draft.set({ ...draft(), ownerName: $event })"
-        />
-      </div>
-      <div class="field">
-        <label for="t-email">Owner email</label>
-        <input
-          id="t-email"
-          name="email"
-          type="email"
-          required
-          [ngModel]="draft().email"
-          (ngModelChange)="draft.set({ ...draft(), email: $event })"
-        />
-      </div>
-      <div class="field">
-        <label for="t-pass">Owner password <small class="muted">8+ characters</small></label>
-        <div class="pw">
-          <input
-            id="t-pass"
-            name="password"
-            [type]="showPassword() ? 'text' : 'password'"
-            autocomplete="new-password"
-            required
-            [ngModel]="draft().password"
-            (ngModelChange)="draft.set({ ...draft(), password: $event })"
-          />
-          <button
-            class="btn sm icon"
-            type="button"
-            (click)="showPassword.set(!showPassword())"
-            [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'"
-            [attr.aria-pressed]="showPassword()"
-          >
-            <i class="ti ti-{{ showPassword() ? 'eye-off' : 'eye' }}" aria-hidden="true"></i>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div class="plan-pick">
-      <h4 id="plan-pick-title">Plan</h4>
-      <div class="plan-options" role="radiogroup" aria-labelledby="plan-pick-title">
-        @for (p of plans(); track p.key) {
-          <button
-            class="plan-option"
-            type="button"
-            role="radio"
-            [attr.aria-checked]="draft().planKey === p.key"
-            (click)="choosePlan(p)"
-          >
-            <span class="po-top">
-              <strong>{{ p.name }}</strong>
-              @if (p.trialDays) {
-                <span class="s-pill tone-info">{{ p.trialDays }}-day trial</span>
-              }
-            </span>
-            <span class="po-price">{{ formatPrice(p) }}</span>
-            <span class="muted">
-              {{ p.services.length }} services &middot;
-              {{ p.tenantLimits.maxChannels || 'Unlimited' }} number{{
-                p.tenantLimits.maxChannels === 1 ? '' : 's'
-              }}
-              &middot; {{ p.tenantLimits.maxUsers || 'Unlimited' }} seats
-            </span>
-          </button>
-        }
-        <button
-          class="plan-option manual"
-          type="button"
-          role="radio"
-          [attr.aria-checked]="draft().planKey === null"
-          (click)="choosePlan(null)"
-        >
-          <span class="po-top"><strong>No plan</strong></span>
-          <span class="muted">Pick services manually; never gated by billing.</span>
-        </button>
-      </div>
-
-      @if (draftPlan(); as plan) {
-        <div class="plan-services">
-          <h4 id="plan-services-title">
-            Services <span class="muted">{{ serviceSummary(draft().services) }}</span>
-          </h4>
-          <div class="chips" role="group" aria-labelledby="plan-services-title">
-            @for (service of services(); track service) {
-              <button
-                class="s-chip"
-                type="button"
-                [attr.aria-pressed]="draft().services.includes(service)"
-                (click)="toggleDraftService(service, !draft().services.includes(service))"
-              >
-                <i class="ti ti-{{ serviceIcon(service) }}" aria-hidden="true"></i
-                >{{ serviceLabel(service) }}
-              </button>
-            }
-          </div>
-          <p class="muted compact">
-            Starts with {{ plan.name }}'s services. Changing or renewing the plan later resets them.
-          </p>
-          <div class="field trial">
-            <label for="t-trial">Trial days <small class="muted">0 = start billing now</small></label>
-            <input
-              id="t-trial"
-              name="trialDays"
-              type="number"
-              min="0"
-              [ngModel]="draft().trialDays"
-              (ngModelChange)="draft.set({ ...draft(), trialDays: +$event || 0 })"
-            />
-          </div>
-          <div class="field trial">
-            <label for="t-payment">Payment</label>
-            <select
-              id="t-payment"
-              name="payment"
-              [ngModel]="draft().payment"
-              (ngModelChange)="draft.set({ ...draft(), payment: $event })"
-            >
-              @for (p of payments; track p.key) {
-                <option [value]="p.key">{{ p.label }}</option>
-              }
-            </select>
-          </div>
-        </div>
-      } @else {
-        <div class="service-picker">
-          <div>
-            <h4>Services</h4>
-            <p class="muted compact">{{ serviceSummary(draft().services) }}</p>
-          </div>
-          <button class="btn" type="button" (click)="openDraftServices()" [disabled]="busy()">
-            Services
-          </button>
-        </div>
-      }
-    </div>
-
-    <div class="control-band">
-      <div>
-        <h4>Operations</h4>
-        <div class="switches">
-          @for (control of controlKeys; track control) {
-            <label class="opt">
-              <button
-                type="button"
-                role="switch"
-                class="switch"
-                [attr.aria-checked]="draft().controls[control]"
-                (click)="toggleDraftControl(control, !draft().controls[control])"
-              >
-                <span class="thumb"></span>
-              </button>
-              <span>{{ controlLabel(control) }}</span>
-            </label>
-          }
-        </div>
-      </div>
-    </div>
-
-    <button class="btn primary" type="submit" [disabled]="busy() || duplicateDraftSlug()">
-      {{ busy() ? 'Creating...' : 'Create tenant' }}
-    </button>
-  </form>
 }
 
 <div class="toolbar">
@@ -240,6 +42,7 @@
     <option value="all">All status</option>
     <option value="active">Active</option>
     <option value="suspended">Suspended</option>
+    <option value="pending">Pending</option>
   </select>
   <div class="view-toggle" role="group" aria-label="Layout">
     <button
@@ -265,150 +68,214 @@
   </div>
 </div>
 
-<div class="tenants" [class.list]="listMode()" [attr.aria-busy]="loading()">
-  @if (loading()) {
-    @for (n of skeletonRows; track n) {
-      <div class="skeleton" style="height: 220px; border-radius: 24px"></div>
-    }
-  }
-  @if (listMode() && visible().length) {
-    <div class="list-head" aria-hidden="true">
-      <span>Business</span><span>Sent</span><span>Failed</span><span>Connected</span><span>Queued</span
-      ><span>Services</span><span></span>
+<!-- Accepted from leads and not yet switched on: listed first, apart from the businesses already running. -->
+@if (pendingShown().length || statusFilter() === 'pending') {
+  <section class="pending-block" aria-labelledby="pending-title">
+    <div class="block-head">
+      <h3 id="pending-title">Pending setup <span class="s-pill tone-info">{{ pendingShown().length }}</span></h3>
+      <p class="muted compact">Accepted from leads. Open one, set it up and activate it to send the owner their sign-in.</p>
     </div>
+    <div class="tenants" [class.list]="listMode()">
+      @if (listMode() && pendingShown().length) {
+        <div class="list-head" aria-hidden="true">
+          <span>Business</span><span>Sent</span><span>Failed</span><span>Connected</span><span>Queued</span
+          ><span>Services</span><span></span>
+        </div>
+      }
+      @for (tenant of pendingShown(); track tenant.id; let i = $index) {
+        <ng-container *ngTemplateOutlet="tenantCard; context: { $implicit: tenant, i: i }" />
+      } @empty {
+        <div class="s-empty">
+          <i class="ti ti-hourglass" aria-hidden="true"></i>
+          <strong>Nothing waiting</strong>
+          <p>Accept a request under Leads and it shows here until you activate it.</p>
+        </div>
+      }
+    </div>
+  </section>
+}
+
+@if (statusFilter() !== 'pending') {
+  @if (pendingShown().length) {
+    <h3 class="block-title">Tenants</h3>
   }
-  @for (tenant of shown(); track tenant.id; let i = $index) {
-    <article
-      class="tenant"
-      [class.suspended]="tenant.status === 'suspended'"
-      [class.acting]="actingId() === tenant.id"
-      [style.--i]="i < 12 ? i : 12"
-    >
-      <div class="top">
-        <span class="avatar" aria-hidden="true">{{ tenant.name.charAt(0) }}</span>
-        <div class="who">
-          <span class="mono muted">#{{ tenant.id }}</span>
-          <h3 [title]="tenant.name">{{ tenant.name }}</h3>
-          <p class="muted" [title]="tenant.slug">{{ tenant.slug }} &middot; {{ tenant.users }} user(s)</p>
-        </div>
-        @if (!listMode()) {
-          <ng-container *ngTemplateOutlet="moreMenu; context: { $implicit: tenant }" />
-        }
-        <!-- Status and plan on one row under the name, across to the card edge: every card has it, so cards line up. -->
-        <div class="tags">
-          <span
-            class="s-pill"
-            [class.tone-ok]="tenant.status === 'active'"
-            [class.tone-warn]="tenant.status === 'suspended'"
-            [class.tone-mute]="tenant.status === 'archived'"
-            >{{ sentence(tenant.status) }}</span
-          >
-          @if (tenant.subscription; as sub) {
-            <button
-              class="s-pill plan-badge {{ stateTone(sub.state) }}"
-              type="button"
-              (click)="openSettings(tenant, 'plan')"
-              [title]="sub.planName + ' - ' + sub.state + (sub.payment ? ', ' + sub.payment : '')"
-            >
-              <i class="ti ti-crown" aria-hidden="true"></i>{{ sub.planName }}
-              <!-- Payment rides in the plan pill, so every card keeps one tag row and the same height. -->
-              @if (paymentOf(sub.payment); as pay) {
-                <span class="pay">&middot; {{ pay.label }}</span>
-              }
-              <span class="sr-only">({{ sub.state }})</span>
-            </button>
-          }
-        </div>
+  <div class="tenants" [class.list]="listMode()" [attr.aria-busy]="loading()">
+    @if (loading()) {
+      @for (n of skeletonRows; track n) {
+        <div class="skeleton" style="height: 220px; border-radius: 24px"></div>
+      }
+    }
+    @if (listMode() && visible().length) {
+      <div class="list-head" aria-hidden="true">
+        <span>Business</span><span>Sent</span><span>Failed</span><span>Connected</span><span>Queued</span
+        ><span>Services</span><span></span>
       </div>
-
-      <div class="stats">
-        <div class="stat">
-          <i class="ti ti-send" aria-hidden="true"></i>
-          <strong>{{ tenant.health?.sent ?? 0 }}</strong
-          ><span [class.sr-only]="listMode()">Sent</span>
-        </div>
-        <div class="stat" [class.bad]="(tenant.health?.failed ?? 0) > 0">
-          <i class="ti ti-x" aria-hidden="true"></i>
-          <strong>{{ tenant.health?.failed ?? 0 }}</strong
-          ><span [class.sr-only]="listMode()">Failed</span>
-        </div>
-        <div class="stat">
-          <i class="ti ti-link" aria-hidden="true"></i>
-          <strong>{{ tenant.health?.connected ?? 0 }}</strong
-          ><span [class.sr-only]="listMode()">Connected</span>
-        </div>
-        <div class="stat">
-          <i class="ti ti-clock" aria-hidden="true"></i>
-          <strong>{{ tenant.health?.queued ?? 0 }}</strong
-          ><span [class.sr-only]="listMode()">Queued</span>
-        </div>
-      </div>
-
-      <button
-        class="services-row"
-        type="button"
-        (click)="openTenantServices(tenant)"
-        [disabled]="savingId() === tenant.id"
-      >
-        <i class="ti ti-apps" aria-hidden="true"></i>
-        <strong>Services</strong>
-        <span class="muted">{{ serviceSummary(tenant.services) }}</span>
-        <i class="ti ti-chevron-right chev" aria-hidden="true"></i>
-      </button>
-
-      @if (seedConfirmId() === tenant.id) {
-        <div class="seed-confirm" role="group" aria-label="Confirm demo data">
-          <i class="ti ti-sparkles" aria-hidden="true"></i>
+    }
+    @for (tenant of shown(); track tenant.id; let i = $index) {
+      <ng-container *ngTemplateOutlet="tenantCard; context: { $implicit: tenant, i: i }" />
+    } @empty {
+      @if (!loading()) {
+        <div class="s-empty">
+          <i class="ti ti-building" aria-hidden="true"></i>
+          <strong>{{ running() ? 'No tenant matches this filter' : 'No running tenants yet' }}</strong>
           <p>
-            Add sample contacts, records and content for the {{ tenant.services.length }} enabled
-            services? <span class="muted">Existing data stays; nothing is sent.</span>
+            {{
+              running()
+                ? 'Loosen the search or status filter.'
+                : 'Activate a pending one above, or create one with New tenant.'
+            }}
           </p>
-          <div class="seed-buttons">
-            <button
-              class="btn"
-              type="button"
-              (click)="seedConfirmId.set(null)"
-              [disabled]="seedingId() === tenant.id"
-            >
-              Cancel
-            </button>
-            <button
-              class="btn primary"
-              type="button"
-              (click)="seed(tenant)"
-              [disabled]="seedingId() === tenant.id"
-              [attr.aria-busy]="seedingId() === tenant.id"
-            >
-              @if (seedingId() === tenant.id) {
-                <span class="spinner" aria-hidden="true"></span> Filling...
-              } @else {
-                Fill now
-              }
-            </button>
-          </div>
         </div>
       }
-      @if (seedResult(); as result) {
-        @if (result.id === tenant.id) {
-          <p class="seed-result" [class.bad]="!result.ok" role="status">
-            <i
-              class="ti ti-{{ result.ok ? 'circle-check' : 'alert-circle' }}"
-              aria-hidden="true"
-            ></i>
-            <span>{{ result.text }}</span>
-            <button
-              class="icon-btn"
-              type="button"
-              aria-label="Dismiss"
-              (click)="seedResult.set(null)"
-            >
-              <i class="ti ti-x" aria-hidden="true"></i>
-            </button>
-          </p>
-        }
-      }
+    }
+  </div>
+  <app-pager [total]="visible().length" [size]="pageSize" [(page)]="page" label="Tenant pages" />
 
-      <div class="actions">
+  <!-- Under the list: plans ending in the next 7 days, each one click from its Plan tab. -->
+  <app-tenants-closing [tenants]="tenants()" [serialOf]="serialOf" (open)="openSettings($event, 'plan')" />
+}
+
+<!-- One card for both lists. -->
+<ng-template #tenantCard let-tenant let-i="i">
+  <article
+    class="tenant"
+    [class.suspended]="tenant.status === 'suspended'"
+    [class.acting]="actingId() === tenant.id"
+    [style.--i]="i < 12 ? i : 12"
+  >
+    <div class="top">
+      <span class="avatar" aria-hidden="true">{{ tenant.name.charAt(0) }}</span>
+      <div class="who">
+        <span class="mono muted">#{{ serial(tenant) }}</span>
+        <h3 [title]="tenant.name">{{ tenant.name }}</h3>
+        <p class="muted" [title]="tenant.slug">{{ tenant.slug }} &middot; {{ tenant.users }} user(s)</p>
+      </div>
+      @if (!listMode()) {
+        <ng-container *ngTemplateOutlet="moreMenu; context: { $implicit: tenant }" />
+      }
+      <!-- Status and plan on one row under the name, across to the card edge: every card has it, so cards line up. -->
+      <div class="tags">
+        <span
+          class="s-pill"
+          [class.tone-ok]="tenant.status === 'active'"
+          [class.tone-warn]="tenant.status === 'suspended'"
+          [class.tone-mute]="tenant.status === 'archived'"
+          [class.tone-info]="tenant.status === 'pending'"
+          >{{ sentence(tenant.status) }}</span
+        >
+        @if (tenant.subscription; as sub) {
+          <button
+            class="s-pill plan-badge {{ stateTone(sub.state) }}"
+            type="button"
+            (click)="openSettings(tenant, 'plan')"
+            [title]="sub.planName + ' - ' + sub.state + (sub.payment ? ', ' + sub.payment : '')"
+          >
+            <i class="ti ti-crown" aria-hidden="true"></i>{{ sub.planName }}
+            <!-- Payment rides in the plan pill, so every card keeps one tag row and the same height. -->
+            @if (billingOf(tenant); as pay) {
+              <span class="pay">&middot; {{ pay.label }}</span>
+            }
+            <span class="sr-only">({{ sub.state }})</span>
+          </button>
+        }
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <i class="ti ti-send" aria-hidden="true"></i>
+        <strong>{{ tenant.health?.sent ?? 0 }}</strong
+        ><span [class.sr-only]="listMode()">Sent</span>
+      </div>
+      <div class="stat" [class.bad]="(tenant.health?.failed ?? 0) > 0">
+        <i class="ti ti-x" aria-hidden="true"></i>
+        <strong>{{ tenant.health?.failed ?? 0 }}</strong
+        ><span [class.sr-only]="listMode()">Failed</span>
+      </div>
+      <div class="stat">
+        <i class="ti ti-link" aria-hidden="true"></i>
+        <strong>{{ tenant.health?.connected ?? 0 }}</strong
+        ><span [class.sr-only]="listMode()">Connected</span>
+      </div>
+      <div class="stat">
+        <i class="ti ti-clock" aria-hidden="true"></i>
+        <strong>{{ tenant.health?.queued ?? 0 }}</strong
+        ><span [class.sr-only]="listMode()">Queued</span>
+      </div>
+    </div>
+
+    <button
+      class="services-row"
+      type="button"
+      (click)="openTenantServices(tenant)"
+      [disabled]="savingId() === tenant.id"
+    >
+      <i class="ti ti-apps" aria-hidden="true"></i>
+      <strong>Services</strong>
+      <span class="muted">{{ serviceSummary(tenant.services) }}</span>
+      <i class="ti ti-chevron-right chev" aria-hidden="true"></i>
+    </button>
+
+    @if (seedConfirmId() === tenant.id) {
+      <div class="seed-confirm" role="group" aria-label="Confirm demo data">
+        <i class="ti ti-sparkles" aria-hidden="true"></i>
+        <p>
+          Add sample contacts, records and content for the {{ tenant.services.length }} enabled
+          services? <span class="muted">Existing data stays; nothing is sent.</span>
+        </p>
+        <div class="seed-buttons">
+          <button
+            class="btn"
+            type="button"
+            (click)="seedConfirmId.set(null)"
+            [disabled]="seedingId() === tenant.id"
+          >
+            Cancel
+          </button>
+          <button
+            class="btn primary"
+            type="button"
+            (click)="seed(tenant)"
+            [disabled]="seedingId() === tenant.id"
+            [attr.aria-busy]="seedingId() === tenant.id"
+          >
+            @if (seedingId() === tenant.id) {
+              <span class="spinner" aria-hidden="true"></span> Filling...
+            } @else {
+              Fill now
+            }
+          </button>
+        </div>
+      </div>
+    }
+    @if (seedResult(); as result) {
+      @if (result.id === tenant.id) {
+        <p class="seed-result" [class.bad]="!result.ok" role="status">
+          <i
+            class="ti ti-{{ result.ok ? 'circle-check' : 'alert-circle' }}"
+            aria-hidden="true"
+          ></i>
+          <span>{{ result.text }}</span>
+          <button
+            class="icon-btn"
+            type="button"
+            aria-label="Dismiss"
+            (click)="seedResult.set(null)"
+          >
+            <i class="ti ti-x" aria-hidden="true"></i>
+          </button>
+        </p>
+      }
+    }
+
+    <div class="actions">
+      @if (tenant.status === 'pending') {
+        <!-- Nothing to open yet: the next step is setting it up and activating it. -->
+        <button class="btn primary open" type="button" (click)="openSettings(tenant)">
+          <i class="ti ti-settings-check" aria-hidden="true"></i>
+          Set up and activate
+        </button>
+      } @else {
         <button
           class="btn primary open"
           type="button"
@@ -418,48 +285,33 @@
           <i class="ti ti-arrow-up-right" aria-hidden="true"></i>
           Open as tenant
         </button>
-        <button
-          class="btn square"
-          type="button"
-          (click)="openSettings(tenant)"
-          aria-label="Tenant settings"
-          title="Controls and sending safety"
-          [disabled]="savingId() === tenant.id"
-        >
-          <i class="ti ti-settings" aria-hidden="true"></i>
-        </button>
-        <button
-          class="btn square danger-ghost"
-          type="button"
-          (click)="askDelete(tenant)"
-          [disabled]="savingId() === tenant.id"
-          aria-label="Delete tenant"
-          title="Delete tenant"
-        >
-          <i class="ti ti-trash" aria-hidden="true"></i>
-        </button>
-        @if (listMode()) {
-          <ng-container *ngTemplateOutlet="moreMenu; context: { $implicit: tenant }" />
-        }
-      </div>
-    </article>
-  } @empty {
-    @if (!loading()) {
-      <div class="s-empty">
-        <i class="ti ti-building" aria-hidden="true"></i>
-        <strong>{{ tenants().length ? 'No tenant matches this filter' : 'No tenants yet' }}</strong>
-        <p>
-          {{
-            tenants().length
-              ? 'Loosen the search or status filter.'
-              : 'Create the first business with New tenant.'
-          }}
-        </p>
-      </div>
-    }
-  }
-</div>
-<app-pager [total]="visible().length" [size]="pageSize" [(page)]="page" label="Tenant pages" />
+      }
+      <button
+        class="btn square"
+        type="button"
+        (click)="openSettings(tenant)"
+        aria-label="Tenant settings"
+        title="Controls and sending safety"
+        [disabled]="savingId() === tenant.id"
+      >
+        <i class="ti ti-settings" aria-hidden="true"></i>
+      </button>
+      <button
+        class="btn square danger-ghost"
+        type="button"
+        (click)="askDelete(tenant)"
+        [disabled]="savingId() === tenant.id"
+        aria-label="Delete tenant"
+        title="Delete tenant"
+      >
+        <i class="ti ti-trash" aria-hidden="true"></i>
+      </button>
+      @if (listMode()) {
+        <ng-container *ngTemplateOutlet="moreMenu; context: { $implicit: tenant }" />
+      }
+    </div>
+  </article>
+</ng-template>
 
 <ng-template #moreMenu let-tenant>
   <div class="menu-wrap">
@@ -476,14 +328,21 @@
     @if (menuId() === tenant.id) {
       <div class="menu-backdrop" (click)="menuId.set(null)"></div>
       <div class="menu" role="menu">
-        <button
-          type="button"
-          role="menuitem"
-          (click)="toggleStatus(tenant)"
-          [disabled]="savingId() === tenant.id"
-        >
-          {{ tenant.status === 'active' ? 'Suspend tenant' : 'Activate tenant' }}
-        </button>
+        @if (tenant.status === 'pending') {
+          <!-- Activating sets the owner's password, so it happens in the settings drawer, not from here. -->
+          <button type="button" role="menuitem" (click)="menuId.set(null); openSettings(tenant)">
+            Set up and activate
+          </button>
+        } @else {
+          <button
+            type="button"
+            role="menuitem"
+            (click)="toggleStatus(tenant)"
+            [disabled]="savingId() === tenant.id"
+          >
+            {{ tenant.status === 'active' ? 'Suspend tenant' : 'Activate tenant' }}
+          </button>
+        }
         <button
           type="button"
           role="menuitem"
@@ -500,21 +359,19 @@
 <app-tenant-activity [logs]="logs()" />
 
 @if (serviceDrawer(); as drawer) {
-  <div class="drawer-backdrop" (click)="closeServiceDrawer()"></div>
+  <!-- Over the settings drawer (opened from its General tab), this one sits on top and settings slides aside. -->
+  <div class="drawer-backdrop" [class.over]="settingsTenant()" (click)="closeServiceDrawer()"></div>
   <aside
     class="service-drawer"
+    [class.over]="settingsTenant()"
     role="dialog"
     aria-modal="true"
     aria-labelledby="service-drawer-title"
   >
     <header>
       <div>
-        <span class="mono muted">{{
-          drawer.mode === 'tenant' ? '#' + drawer.tenant.id : 'NEW'
-        }}</span>
-        <h3 id="service-drawer-title">
-          {{ drawer.mode === 'tenant' ? drawer.tenant.name : draft().name || 'New tenant' }}
-        </h3>
+        <span class="mono muted">#{{ serial(drawer.tenant) }}</span>
+        <h3 id="service-drawer-title">{{ drawer.tenant.name }}</h3>
         <p class="muted compact">{{ serviceSummary(drawer.services) }}</p>
       </div>
       <button
@@ -579,9 +436,16 @@
   />
 }
 
+<!-- Add tenant: details first; continuing opens the settings drawer below to set it up and activate it. -->
+@if (adding()) {
+  <app-tenant-new [taken]="slugs()" (created)="added($event)" (closed)="adding.set(false)" />
+}
+
 @if (settingsTenant(); as tenant) {
   <app-tenant-settings
     [tenant]="tenant"
+    [number]="serial(tenant)"
+    [pushed]="serviceDrawer() !== null"
     [initialTab]="settingsTab()"
     [serviceCount]="services().length"
     (closed)="settingsTenant.set(null)"

@@ -334,6 +334,9 @@ function addTenantControlColumns(db) {
     if (!cols.includes('safety_exit')) db.exec('ALTER TABLE tenants ADD COLUMN safety_exit TEXT');
     // The number the round-robin sender rule picked last (Channels.pick), so rotation survives a restart.
     if (!cols.includes('last_sender_id')) db.exec('ALTER TABLE tenants ADD COLUMN last_sender_id INTEGER');
+    // The business's WhatsApp number for Wapzo's own messages (platform/notify.js), and whether it gets them.
+    if (!cols.includes('contact_phone')) db.exec("ALTER TABLE tenants ADD COLUMN contact_phone TEXT NOT NULL DEFAULT ''");
+    if (!cols.includes('wapzo_updates')) db.exec('ALTER TABLE tenants ADD COLUMN wapzo_updates INTEGER NOT NULL DEFAULT 1');
     // Session idle timeout (see Tenancy.resolveSession).
     if (!columnsOf(db, 'sessions').includes('last_seen_at')) db.exec('ALTER TABLE sessions ADD COLUMN last_seen_at TEXT');
     if (!columnsOf(db, 'whatsapp_channels').includes('number_since')) db.exec('ALTER TABLE whatsapp_channels ADD COLUMN number_since TEXT');
@@ -460,6 +463,45 @@ function once(db, name, fn) {
  * there is that copy, not a choice: it becomes 0 (no limit of its own, so the plan's day applies). Once, so a
  * 250 set afterwards stays.
  */
+/**
+ * Tenant and plan limits used 0 for "no limit"; now null is no limit and 0 is zero. Every stored 0 meant no limit,
+ * so it becomes null and nothing anyone can do changes.
+ */
+const LIMIT_NUMBER_KEYS = ['maxChannels', 'maxUsers', 'maxTemplates', 'maxContactsPerCampaign', 'maxMediaMb'];
+function nullUnlimitedLimits(db) {
+    const zeroToNull = (json) => {
+        let limits;
+        try {
+            limits = JSON.parse(json || '{}');
+        } catch {
+            return null;
+        }
+        if (!limits || typeof limits !== 'object') return null;
+        let changed = false;
+        for (const key of LIMIT_NUMBER_KEYS) {
+            if (limits[key] === 0) {
+                limits[key] = null;
+                changed = true;
+            }
+        }
+        return changed ? limits : null;
+    };
+    for (const row of db.prepare('SELECT id, limits FROM tenants').all()) {
+        const next = zeroToNull(row.limits);
+        if (next) db.prepare('UPDATE tenants SET limits = ? WHERE id = ?').run(JSON.stringify(next), row.id);
+    }
+    for (const row of db.prepare('SELECT key, details FROM plans').all()) {
+        let details;
+        try {
+            details = JSON.parse(row.details || '{}');
+        } catch {
+            continue;
+        }
+        const next = details?.tenantLimits && zeroToNull(JSON.stringify(details.tenantLimits));
+        if (next) db.prepare('UPDATE plans SET details = ? WHERE key = ?').run(JSON.stringify({ ...details, tenantLimits: next }), row.key);
+    }
+}
+
 function releaseQrDailyLimits(db) {
     const qr = [...new Set([...QR_TRANSPORTS, 'whatsapp_web'])];
     db.prepare(`UPDATE whatsapp_channels SET settings = json_set(settings, '$.dailyLimit', 0)
@@ -572,6 +614,11 @@ export class Database {
         if (old.length) finishLegacy(this.db, old);
         dropCloudChannels(this.db);
         once(this.db, 'qr-daily-limit-250-to-plan', () => releaseQrDailyLimits(this.db));
+        once(this.db, 'tenant-limits-null-unlimited', () => nullUnlimitedLimits(this.db));
+        // Businesses accepted from a lead before tenants had a contact number take the number the lead gave.
+        once(this.db, 'tenant-contact-phone-from-leads', () => this.db.exec(
+            `UPDATE tenants SET contact_phone = COALESCE((SELECT phone FROM leads WHERE leads.tenant_id = tenants.id
+                 AND phone != '' ORDER BY id DESC LIMIT 1), '') WHERE contact_phone = ''`));
         this.db.prepare(`INSERT OR IGNORE INTO tenants (id, name, slug, status, created_at)
                          VALUES (?, 'Default', 'default', 'active', ?)`).run(DEFAULT_TENANT_ID, utcNow());
         // The root handle is tenant 1, so single-tenant code and tests are unchanged.

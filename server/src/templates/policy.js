@@ -10,6 +10,9 @@ import { InteractiveError, normalizeInteractive } from '../messaging/interactive
 import { blockedWordIn } from '../tenancy.js';
 
 /** Legacy limit vs policy cap, 0 = unlimited on both: the stricter (lower non-zero) wins. */
+/** Every upload and template attachment, whatever the plan: a fixed platform ceiling. */
+export const MAX_UPLOAD_MB = 10;
+
 export function stricterCap(a, b) {
     const caps = [Number(a) || 0, Number(b) || 0].filter((n) => n > 0);
     return caps.length ? Math.min(...caps) : 0;
@@ -125,8 +128,8 @@ export function templateRuleProblem(draft, { policy = {}, limits = {}, media = (
         if (!allowed.includes(kind)) {
             return { rule: 'mediaTypes', message: `${kind[0].toUpperCase()}${kind.slice(1)} attachments are not allowed in templates on your plan.` };
         }
-        // Policy MB (always set) vs legacy maxMediaMb (0 = none): the lower wins.
-        const mb = stricterCap(policy['templates.maxMediaMb'], limits.maxMediaMb);
+        // Policy MB vs the platform's fixed 10 MB: the lower wins.
+        const mb = stricterCap(policy['templates.maxMediaMb'], MAX_UPLOAD_MB);
         if (mb && file.size > mb * 1024 * 1024) {
             return { rule: 'maxMediaMb', message: `Template attachments can be up to ${mb} MB on your plan.` };
         }
