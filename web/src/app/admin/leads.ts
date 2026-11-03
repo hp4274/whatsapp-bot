@@ -5,6 +5,7 @@ import { Router, RouterLink } from '@angular/router';
 import { ConfirmDialog } from '../core/confirm-dialog';
 import { Pager, pageOf } from '../core/pager';
 import { AdminFeed } from './admin-feed';
+import { AdminWaiting } from './admin-waiting';
 import { Lead, LeadStatus, LeadsApi } from './leads-api';
 
 type Tab = LeadStatus | 'all';
@@ -64,6 +65,8 @@ export class LeadsView {
   });
   protected readonly shown = computed(() => pageOf(this.visible(), this.page(), PAGE_SIZE));
 
+  private readonly waiting = inject(AdminWaiting);
+
   constructor() {
     this.load();
     // A visitor's request or another admin's action shows here at once.
@@ -75,6 +78,8 @@ export class LeadsView {
       next: ({ leads, counts }) => {
         this.leads.set(leads);
         this.counts.set(counts);
+        // Shown here is seen: the bell and the sidebar's Leads count drop.
+        this.waiting.seeLeads(leads.filter((l) => l.status === 'new'));
         this.loading.set(false);
         if (quiet) this.error.set('');
       },

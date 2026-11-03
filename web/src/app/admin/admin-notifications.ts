@@ -26,8 +26,11 @@ export class AdminNotifications {
   private readonly el = inject(ElementRef<HTMLElement>);
 
   protected readonly waiting = this.store.waiting;
+  protected readonly listed = this.store.listed;
   protected readonly open = signal(false);
-  protected readonly count = computed(() => this.waiting()?.count ?? 0);
+  /** The badge: what is new since the admin last read. */
+  protected readonly count = this.store.unread;
+  protected readonly shownCount = computed(() => this.listed().leads.length + this.listed().limitRequests.length);
 
   constructor() {
     this.load();
@@ -46,6 +49,19 @@ export class AdminNotifications {
 
   protected outside(event: MouseEvent) {
     if (this.open() && !this.el.nativeElement.contains(event.target as Node)) this.open.set(false);
+  }
+
+  protected isNew(createdAt: string, kind: 'lead' | 'request'): boolean {
+    return this.store.isNew(createdAt, kind);
+  }
+
+  protected markAllRead() {
+    this.store.markAllRead();
+  }
+
+  /** Off the list; each is still waiting on its own page (Leads, the business's General tab). */
+  protected clear() {
+    this.store.clear();
   }
 
   protected asks(items: Waiting['limitRequests'][number]['items']): string {

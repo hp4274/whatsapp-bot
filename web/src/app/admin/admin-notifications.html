@@ -4,7 +4,7 @@
   type="button"
   [attr.aria-expanded]="open()"
   aria-haspopup="true"
-  [attr.aria-label]="count() ? count() + ' waiting: account and limit requests' : 'Notifications, nothing waiting'"
+  [attr.aria-label]="count() ? count() + ' new: account and limit requests' : 'Notifications, nothing new'"
   (click)="toggle()"
 >
   <i class="ti ti-bell" aria-hidden="true"></i>
@@ -16,53 +16,69 @@
 @if (open()) {
   <div class="panel" role="dialog" aria-label="Notifications">
     <header>
-      <strong>Notifications</strong>
-      <span class="muted">{{ count() ? count() + ' waiting' : 'Nothing waiting' }}</span>
+      <div class="title">
+        <strong>Notifications</strong>
+        <span class="muted">{{ count() ? count() + ' new' : 'All read' }}</span>
+      </div>
+      @if (shownCount()) {
+        <div class="acts">
+          <button type="button" class="act" [disabled]="!count()" (click)="markAllRead()">
+            <i class="ti ti-checks" aria-hidden="true"></i> Mark all as read
+          </button>
+          <button type="button" class="act" (click)="clear()">
+            <i class="ti ti-clear-all" aria-hidden="true"></i> Clear
+          </button>
+        </div>
+      }
     </header>
 
-    @if (waiting(); as w) {
-      @if (w.leads.length) {
-        <section>
-          <h5>Account requests</h5>
-          <ul>
-            @for (l of w.leads; track l.id) {
-              <li>
-                <button type="button" (click)="openLeads()">
-                  <i class="ti ti-user-plus" aria-hidden="true"></i>
-                  <span class="text">
-                    <b>{{ l.business }}</b>
-                    <small>{{ l.name }} asked for an account &middot; {{ l.createdAt | date: 'd MMM, h:mm a' }}</small>
-                  </span>
-                </button>
-              </li>
-            }
-          </ul>
-        </section>
-      }
-      @if (w.limitRequests.length) {
-        <section>
-          <h5>Limit requests</h5>
-          <ul>
-            @for (r of w.limitRequests; track r.id) {
-              <li>
-                <button type="button" (click)="openRequest(r.tenantId)">
-                  <i class="ti ti-trending-up" aria-hidden="true"></i>
-                  <span class="text">
-                    <b>{{ r.tenantName }}</b>
-                    <small>{{ asks(r.items) }} &middot; {{ r.createdAt | date: 'd MMM, h:mm a' }}</small>
-                  </span>
-                </button>
-              </li>
-            }
-          </ul>
-        </section>
-      }
-      @if (!w.count) {
-        <p class="empty">
-          <i class="ti ti-bell-check" aria-hidden="true"></i>
-          New account and limit requests show here.
-        </p>
-      }
+    @if (listed().leads.length) {
+      <section>
+        <h5>Account requests</h5>
+        <ul>
+          @for (l of listed().leads; track l.id) {
+            <li [class.new]="isNew(l.createdAt, 'lead')">
+              <button type="button" (click)="openLeads()">
+                <i class="ti ti-user-plus" aria-hidden="true"></i>
+                <span class="text">
+                  <b>{{ l.business }}</b>
+                  <small>{{ l.name }} asked for an account, {{ l.createdAt | date: 'd MMM, h:mm a' }}</small>
+                </span>
+                @if (isNew(l.createdAt, 'lead')) {
+                  <span class="dot"><span class="sr-only">New</span></span>
+                }
+              </button>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+    @if (listed().limitRequests.length) {
+      <section>
+        <h5>Limit requests</h5>
+        <ul>
+          @for (r of listed().limitRequests; track r.id) {
+            <li [class.new]="isNew(r.createdAt, 'request')">
+              <button type="button" (click)="openRequest(r.tenantId)">
+                <i class="ti ti-trending-up" aria-hidden="true"></i>
+                <span class="text">
+                  <b>{{ r.tenantName }}</b>
+                  <small>{{ asks(r.items) }}, {{ r.createdAt | date: 'd MMM, h:mm a' }}</small>
+                </span>
+                @if (isNew(r.createdAt, 'request')) {
+                  <span class="dot"><span class="sr-only">New</span></span>
+                }
+              </button>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+    @if (waiting() && !shownCount()) {
+      <p class="empty">
+        <i class="ti ti-bell-check" aria-hidden="true"></i>
+        {{ waiting()!.count ? 'All caught up. Requests still waiting are on Leads and Tenants.' : 'New account and limit requests show here.' }}
+      </p>
     }
   </div>
 }
