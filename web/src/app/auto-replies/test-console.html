@@ -45,7 +45,7 @@
       <div class="two">
         <div class="field">
           <label for="tc-ph">Sender phone</label
-          ><input id="tc-ph" [value]="sender()" (input)="sender.set(v($event))" inputmode="tel" />
+          ><app-phone-input inputId="tc-ph" [(value)]="sender" />
         </div>
         <div class="field">
           <label for="tc-nm">Sender name</label

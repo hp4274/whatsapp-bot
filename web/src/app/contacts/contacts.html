@@ -120,15 +120,13 @@
     <div class="grid">
       <div class="field">
         <label for="n-phone">Phone</label>
-        <input
-          id="n-phone"
+        <app-phone-input
+          inputId="n-phone"
           name="phone"
-          required
-          inputmode="tel"
           autocomplete="off"
-          placeholder="+91 98123 45678"
-          [ngModel]="draft().phone"
-          (ngModelChange)="setDraft({ phone: $event })"
+          [required]="true"
+          [value]="draft().phone"
+          (valueChange)="setDraft({ phone: $event })"
         />
       </div>
       <div class="field">

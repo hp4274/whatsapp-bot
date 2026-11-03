@@ -31,6 +31,7 @@ import { PhonePreview } from './phone-preview';
 import { AudienceStep } from './steps/audience-step';
 import { MessageStep } from './steps/message-step';
 import { ReviewStep } from './steps/review-step';
+import { PhoneInput } from '../core/phone-input';
 
 /** The composer's rail, in plain words; the result screen after sending is not a step. */
 const STEPS: { n: ComposerStep; label: string; icon: string }[] = [
@@ -62,8 +63,7 @@ const FILTERS: RetargetFilter[] = ['failed', 'unread', 'noreply', 'replied', 'cl
     AudienceStep,
     MessageStep,
     ReviewStep,
-    InteractiveEditor,
-  ],
+    InteractiveEditor, PhoneInput],
   templateUrl: './campaign.html',
   styleUrl: './campaign.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -7,10 +7,11 @@
   </div>
   <span
     class="s-pill"
-    [class.tone-ok]="tenant().status === 'active'"
+    [class.tone-ok]="tenant().status === 'active' && !inactive()"
+    [class.tone-mute]="inactive()"
     [class.tone-warn]="tenant().status === 'suspended'"
     [class.tone-info]="pending()"
-    >{{ pending() ? 'Pending' : tenant().status === 'active' ? 'Active' : 'Suspended' }}</span
+    >{{ pending() ? 'Pending' : inactive() ? 'Inactive' : tenant().status === 'active' ? 'Active' : 'Suspended' }}</span
   >
 </section>
 

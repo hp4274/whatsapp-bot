@@ -17,6 +17,7 @@ import { Pager, pageOf } from '../../core/pager';
 import { Store } from '../../core/store';
 import { SchoolApi } from '../school-api';
 import type { ClassInfo, ImportResult, SchoolArea, SchoolMe, Student } from '../school-api';
+import { PhoneInput } from '../../core/phone-input';
 
 type Draft = Pick<
   Student,
@@ -62,7 +63,7 @@ const PAGE_SIZE = 20;
  */
 @Component({
   selector: 'school-students',
-  imports: [FormsModule, Pager],
+  imports: [FormsModule, Pager, PhoneInput],
   templateUrl: './students.html',
   styleUrl: './students.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

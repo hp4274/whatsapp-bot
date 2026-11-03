@@ -33,10 +33,25 @@
   text-decoration: none;
 }
 
+// Larger over the hero, back to its usual size once the bar frosts on scroll.
 .brand-mark {
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   object-fit: contain;
+  transition:
+    width 300ms var(--ease),
+    height 300ms var(--ease);
+
+  .solid & {
+    width: 34px;
+    height: 34px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-mark {
+    transition: none;
+  }
 }
 
 // "wap" is white over the navy hero and the wordmark's ink once frosted; "zo" keeps the logo's gradient.
@@ -114,17 +129,9 @@
   color: var(--brand-ink);
   transition: var(--fast) var(--ease);
 
-  .ti {
-    transition: translate var(--fast) var(--ease);
-  }
-
   &:hover {
     background: var(--primary-hover);
     color: var(--on-primary);
-
-    .ti {
-      translate: 3px 0;
-    }
   }
 
   &:active {
@@ -139,6 +146,31 @@
       background: var(--primary-hover);
       color: var(--on-primary);
     }
+  }
+}
+
+// Get access: the page's one ask, so the filled brand pill, set just before Sign in.
+.access {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  margin-left: 8px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: none;
+  background: var(--primary);
+  color: var(--on-primary);
+  transition: var(--fast) var(--ease);
+
+  &:hover {
+    background: var(--primary-hover);
+  }
+
+  &:active {
+    scale: 0.97;
   }
 }
 
@@ -233,6 +265,18 @@
 
   .bar {
     border-radius: 24px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .menu-access {
+    display: none;
+  }
+}
+
+@media (max-width: 479px) {
+  .access {
+    display: none;
   }
 }
 

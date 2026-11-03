@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { TenancyApi, TenantDetails } from '../core/api';
 import type { Tenant } from '../core/auth';
 import { LeadsApi } from './leads-api';
+import { PhoneInput } from '../core/phone-input';
 
 /** Business details, in the order a form or invoice reads them (server tenancy.js PROFILE_FIELDS). */
 export const PROFILE_FIELDS: readonly {
@@ -32,7 +33,7 @@ export const PROFILE_FIELDS: readonly {
  */
 @Component({
   selector: 'app-tenant-details-edit',
-  imports: [FormsModule],
+  imports: [FormsModule, PhoneInput],
   templateUrl: './tenant-details-edit.html',
   styleUrl: './tenant-details-edit.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

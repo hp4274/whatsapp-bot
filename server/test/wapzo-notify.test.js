@@ -134,4 +134,46 @@ describe('Wapzo WhatsApp number', () => {
         assert.equal(page.log[0].kind, 'plan_expired');
         assert.ok(page.log.some((m) => m.kind === 'test'));
     });
+
+    it('sends one message to many: all businesses, chosen ones or typed numbers, paced as bulk', async () => {
+        const asha = (await call(sup, 'GET', '/api/admin/tenants')).body.tenants.find((t) => t.name === 'Asha Sarees');
+        assert.equal((await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: 'all', text: '' })).status, 400);
+        assert.equal((await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: [], text: 'Hi' })).status, 400);
+        // All: Asha switched Wapzo updates off, so she is left out.
+        const all = await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: 'all', text: 'Hi {name}' });
+        assert.equal(all.status, 200, JSON.stringify(all.body));
+        assert.ok(!sent().some(([kind, to]) => kind === 'broadcast' && to === '919876522222'));
+        // Chosen by name, filled in per business; a typed number counted once however it is written.
+        const res = await call(sup, 'POST', '/api/admin/wapzo/broadcast', {
+            tenants: [asha.id], numbers: '98765 55555\n+91 98765 55555, abc', text: 'Hi {name} of {business}, we are live.',
+        });
+        assert.equal(res.status, 200, JSON.stringify(res.body));
+        assert.equal(res.body.queued, 2);
+        assert.deepEqual(res.body.skipped.map((s) => s.to), ['abc']);
+        const out = sent().filter(([kind]) => kind === 'broadcast').slice(-2);
+        assert.deepEqual(out.map(([, to]) => to), ['919876522222', '919876555555']);
+        assert.equal(out[0][2], 'Hi Asha of Asha Sarees, we are live.');
+        assert.equal(out[1][2], 'Hi of, we are live.', 'a typed number has no business to fill in');
+        const types = db.db.prepare("SELECT DISTINCT message_type FROM messages WHERE campaign_id = 'wapzo:broadcast'").all();
+        assert.deepEqual(types.map((r) => r.message_type), ['campaign']);
+    });
+
+    it('sends an image, alone or with text, to every business and typed numbers together', async () => {
+        const form = new FormData();
+        form.set('file', new Blob([Buffer.from('89504e470d0a1a0a0000', 'hex')], { type: 'image/png' }), 'offer.png');
+        const up = await fetch(`${base}/api/admin/wapzo/api/media/upload`, {
+            method: 'POST', headers: { authorization: `Bearer ${sup}` }, body: form,
+        });
+        assert.equal(up.status, 201);
+        const { mediaId } = await up.json();
+        assert.equal((await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: 'all', mediaId: 'med_nope' })).status, 404);
+        const before = sent().length;
+        const res = await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: 'all', numbers: ['98765 66666', '+971 50 123 4567'], mediaId });
+        assert.equal(res.status, 200, JSON.stringify(res.body));
+        const out = sent().slice(before);
+        assert.ok(out.some(([, to]) => to === '919876566666'), 'the typed number, beside every business');
+        assert.ok(out.some(([, to]) => to === '971501234567'), 'its own country code kept, not +91 put in front');
+        assert.equal(out.length, res.body.queued);
+        assert.ok(out.every(([kind, , text]) => kind === 'broadcast' && text === ''), 'the image alone');
+    });
 });

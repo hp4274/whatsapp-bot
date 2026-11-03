@@ -439,3 +439,7 @@ $list-cols: minmax(300px, 3fr) repeat(4, minmax(52px, 0.5fr)) minmax(116px, 1fr)
 .service-drawer.over { z-index: 73; }
 // No backdrop over settings: it stays scrollable and usable beside the services drawer.
 .drawer-backdrop.over { display: none; }
+
+// A card's waiting limit requests, beside its status: one click to answer them under General.
+.req-badge { border: 0; cursor: pointer; .ti { font-size: 12px; } &::before { display: none; } }
+.opt-list .soon { margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--surface-sunken); color: var(--text-muted); font-size: 11px; font-weight: 500; }

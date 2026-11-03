@@ -15,6 +15,7 @@ import { Channel, ChannelPatch, ChannelsApi } from '../core/api';
 import { NumberQuestions } from '../connection/number-questions';
 import { ChannelSettings } from './channel-settings';
 import { LIVE_LABEL, describeDays, liveState, transportMeta } from './channel-meta';
+import { PhoneInput } from '../core/phone-input';
 
 type Editing = 'name' | 'phone' | null;
 
@@ -29,7 +30,7 @@ const REDUCED =
  */
 @Component({
   selector: 'app-channel-card',
-  imports: [ChannelSettings, NumberQuestions],
+  imports: [ChannelSettings, NumberQuestions, PhoneInput],
   templateUrl: './channel-card.html',
   styleUrl: './channel-card.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -65,7 +66,8 @@ export class ChannelCard {
   protected readonly error = signal('');
   protected readonly editing = signal<Editing>(null);
   protected readonly draftValue = signal('');
-  private readonly editor = viewChild<ElementRef<HTMLInputElement>>('editor');
+  /** The name box, or the phone field (whose own box is inside it). */
+  private readonly editor = viewChild('editor', { read: ElementRef<HTMLElement> });
 
   protected readonly state = computed(() => liveState(this.channel()));
   protected readonly stateLabel = computed(() => LIVE_LABEL[this.state()]);
@@ -117,7 +119,8 @@ export class ChannelCard {
     this.editing.set(field);
     this.draftValue.set(field === 'name' ? this.channel().displayName : this.channel().phoneNumber);
     queueMicrotask(() => {
-      const el = this.editor()?.nativeElement;
+      const host = this.editor()?.nativeElement;
+      const el = host instanceof HTMLInputElement ? host : host?.querySelector('input');
       el?.focus();
       el?.select();
     });

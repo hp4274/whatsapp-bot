@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, catchError } from 'rxjs';
 
-import type { ConnectionState, MessageStatus, SafetyHealthView } from '../core/api';
+import type { ConnectionState, MessageStatus, SafetyHealthView, UploadedMedia } from '../core/api';
 import { toMessage } from './plans-api';
 
 /** One event Wapzo writes to a client about (server platform/notify.js PLATFORM_EVENTS), with its saved text. */
@@ -45,6 +45,12 @@ export interface WapzoConfig {
   readonly defaultCountryCode: string;
 }
 
+/** A message to many: how many were queued, and who was skipped and why. */
+export interface WapzoBroadcastResult {
+  readonly queued: number;
+  readonly skipped: readonly { readonly to: string; readonly reason: string }[];
+}
+
 export type WapzoTestResult = { readonly sent: true; readonly messageId: string; readonly recipient: string };
 
 /** The number's own API (as a business's Connection page uses it), routed to Wapzo's hidden tenant. */
@@ -68,6 +74,23 @@ export class WapzoApi {
 
   sendTest(to: string, text: string): Observable<WapzoTestResult> {
     return this.http.post<WapzoTestResult>('/api/admin/wapzo/test', { to, text }).pipe(catchError(toMessage));
+  }
+
+  /** `tenants`: 'all' (less archived and opted-out ones) or the ids picked; `numbers` as typed. */
+  broadcast(body: {
+    text: string;
+    tenants: 'all' | readonly number[];
+    numbers: readonly string[];
+    mediaId?: string | null;
+  }): Observable<WapzoBroadcastResult> {
+    return this.http.post<WapzoBroadcastResult>('/api/admin/wapzo/broadcast', body).pipe(catchError(toMessage));
+  }
+
+  /** An image stored as the Wapzo number's own, for a message to many. */
+  uploadImage(file: File): Observable<UploadedMedia> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http.post<UploadedMedia>(`${NUMBER}/media/upload`, form).pipe(catchError(toMessage));
   }
 
   connection(): Observable<ConnectionState> {

@@ -45,7 +45,7 @@ export function fanOut(source: Element, items: readonly Element[], delay = 0): v
  * after render, so without script or with reduced motion nothing is hidden.
  *
  * Motion leaves an inline `transform` behind, so do not put this on an element
- * whose CSS transform matters at rest (the tilt cards); wrap those instead.
+ * whose CSS transform matters at rest (e.g. a 3D tilt); wrap those instead.
  */
 @Directive({ selector: '[reveal]' })
 export class Reveal {

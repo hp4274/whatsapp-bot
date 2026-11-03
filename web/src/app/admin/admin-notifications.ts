@@ -1,21 +1,9 @@
-import { HttpClient } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, ElementRef, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { Router } from '@angular/router';
 
 import { AdminFeed } from './admin-feed';
-
-interface Waiting {
-  readonly count: number;
-  readonly leads: readonly { readonly id: number; readonly name: string; readonly business: string; readonly createdAt: string }[];
-  readonly limitRequests: readonly {
-    readonly id: number;
-    readonly tenantId: number;
-    readonly tenantName: string;
-    readonly createdAt: string;
-    readonly items: readonly { readonly label: string; readonly value: number; readonly days: number }[];
-  }[];
-}
+import { AdminWaiting, Waiting } from './admin-waiting';
 
 /**
  * The super admin's bell, in the top-right corner of every platform page: new account requests (leads) and limit
@@ -33,11 +21,11 @@ interface Waiting {
   },
 })
 export class AdminNotifications {
-  private readonly http = inject(HttpClient);
+  private readonly store = inject(AdminWaiting);
   private readonly router = inject(Router);
   private readonly el = inject(ElementRef<HTMLElement>);
 
-  protected readonly waiting = signal<Waiting | null>(null);
+  protected readonly waiting = this.store.waiting;
   protected readonly open = signal(false);
   protected readonly count = computed(() => this.waiting()?.count ?? 0);
 
@@ -48,10 +36,7 @@ export class AdminNotifications {
   }
 
   private load() {
-    this.http.get<Waiting>('/api/admin/notifications').subscribe({
-      next: (w) => this.waiting.set(w),
-      error: () => undefined, // the bell keeps what it showed
-    });
+    this.store.load();
   }
 
   protected toggle() {

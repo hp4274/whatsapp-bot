@@ -95,6 +95,11 @@ export class LimitRequests {
             .all(Number(tenantId)).map(toRequest);
     }
 
+    /** How many of one business's requests wait for an answer. */
+    pendingCount(tenantId) {
+        return this.db.prepare("SELECT COUNT(*) AS n FROM limit_requests WHERE tenant_id = ? AND status = 'pending'").get(Number(tenantId)).n;
+    }
+
     /** Every business's requests still waiting for an answer, oldest first (the admin's notifications). */
     pending() {
         return this.db.prepare(

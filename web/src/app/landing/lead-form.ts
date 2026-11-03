@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, input, linkedSignal, output
 import { FormsModule } from '@angular/forms';
 
 import { Api } from '../core/api';
+import { PhoneInput } from '../core/phone-input';
 
 /**
  * "Request access": accounts are issued by the platform, so this is how a business asks for one. It is
@@ -10,7 +11,7 @@ import { Api } from '../core/api';
  */
 @Component({
   selector: 'app-lead-form',
-  imports: [FormsModule],
+  imports: [FormsModule, PhoneInput],
   templateUrl: './lead-form.html',
   styleUrl: './lead-form.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

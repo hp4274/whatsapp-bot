@@ -16,6 +16,7 @@ import {
   formatPrice,
   billingOf,
   limitText,
+  planEnded,
   planStatus,
   money,
   paidPrice,
@@ -103,6 +104,8 @@ export class TenantSummary {
     return billing ? { key: billing, ...BILLINGS[billing] } : null;
   });
   protected readonly pending = computed(() => this.tenant().status === 'pending');
+  /** Active, but its plan has ended: it can do nothing until renewed. */
+  protected readonly inactive = computed(() => this.tenant().status === 'active' && planEnded(this.tenant().subscription));
 
   protected money(amount: number): string {
     return money(amount, this.plan()?.currency ?? 'INR');

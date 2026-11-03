@@ -13,13 +13,14 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } fro
 import { type Subscription, filter, map } from 'rxjs';
 
 import { type ChannelDetail, OpsApi } from './admin/ops-api';
-import { SERVICE_META } from './admin/service-meta';
+import { SERVICE_META, SOON_SERVICES } from './admin/service-meta';
 import { TenancyApi } from './core/api';
 import { Auth, Role, Tenant } from './core/auth';
 import { AccountDialog } from './core/account-dialog';
 import { ConfirmDialog } from './core/confirm-dialog';
 import { SendIsland } from './core/send-island';
 import { AdminNotifications } from './admin/admin-notifications';
+import { AdminWaiting } from './admin/admin-waiting';
 import { Store, ThemeMode, isBare } from './core/store';
 
 type NavItem = {
@@ -28,6 +29,10 @@ type NavItem = {
   icon: string;
   min?: Role;
   service?: string;
+  /** A service not open yet: shown with "Soon", not a link. */
+  soon?: boolean;
+  /** What waits there, counted on the right of the item (super admin): new leads, or limit requests. */
+  count?: 'leads' | 'requests';
 };
 
 /** One block of the sidebar, as the template renders it; an empty heading renders no label. */
@@ -126,6 +131,8 @@ function readCollapsed(): boolean {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '(document:keydown.escape)': 'closeNav()',
+    '(document:wheel)': 'keepNumber($event)',
+    '(document:keydown)': 'keepNumber($event)',
   },
 })
 export class App {
@@ -138,6 +145,9 @@ export class App {
 
   /** The tenant a super admin has opened, so the rail can show what that tenant sees. */
   private readonly acting = signal<Tenant | null>(null);
+
+  /** What waits on the super admin: the bell loads it; the sidebar shows its counts. */
+  protected readonly waiting = inject(AdminWaiting);
 
   /** A super admin looking at the whole platform rather than inside one tenant. */
   protected readonly platformView = computed(
@@ -292,8 +302,8 @@ export class App {
 
   /** The super admin's own pages, above the per-service settings on the platform view. */
   private readonly platformNav: readonly NavItem[] = [
-    { path: '/admin/tenants', label: 'Tenants', icon: ICONS.tenants },
-    { path: '/admin/leads', label: 'Leads', icon: 'user-plus' },
+    { path: '/admin/tenants', label: 'Tenants', icon: ICONS.tenants, count: 'requests' },
+    { path: '/admin/leads', label: 'Leads', icon: 'user-plus', count: 'leads' },
     { path: '/admin/plans', label: 'Plans & billing', icon: ICONS.plans },
     { path: '/admin/payments', label: 'Payments', icon: 'cash' },
     { path: '/admin/wapzo', label: 'Wapzo WhatsApp', icon: 'brand-whatsapp' },
@@ -321,7 +331,7 @@ export class App {
             .filter((key) => SERVICE_META[key])
             .map((key) => {
               const meta = SERVICE_META[key];
-              return { path: `/admin/services/${key}`, label: meta.label, icon: meta.icon };
+              return { path: `/admin/services/${key}`, label: meta.label, icon: meta.icon, soon: SOON_SERVICES.has(key) };
             }),
         })),
       ].filter((section) => section.items.length);
@@ -331,9 +341,33 @@ export class App {
       !(item.service && owned && !owned.includes(item.service)) &&
       (superAdmin || !item.min || this.auth.atLeast(item.min));
     return this.tenantNav
-      .map((section) => ({ heading: section.heading, items: section.items.filter(visible) }))
+      .map((section) => ({
+        heading: section.heading,
+        items: section.items.filter(visible).map((item) => ({ ...item, soon: !!item.service && SOON_SERVICES.has(item.service) })),
+      }))
       .filter((section) => section.items.length);
   });
+
+  /**
+   * A number box changes only by typing: the wheel scrolls the page instead of the value (the box lets go of focus),
+   * and the arrow keys do not step it. Every number box in the app, wherever it is.
+   */
+  protected keepNumber(event: Event): void {
+    const box = event.target;
+    if (!(box instanceof HTMLInputElement) || box.type !== 'number') return;
+    if (event.type === 'wheel') {
+      if (document.activeElement === box) box.blur();
+    } else if ((event as KeyboardEvent).key === 'ArrowUp' || (event as KeyboardEvent).key === 'ArrowDown') {
+      event.preventDefault();
+    }
+  }
+
+  /** The count on the right of a sidebar item: what waits there, or nothing. */
+  protected navCount(item: NavItem): number {
+    if (item.count === 'leads') return this.waiting.leads();
+    if (item.count === 'requests') return this.waiting.requests();
+    return 0;
+  }
 
   /** What the header calls the current workspace. */
   protected readonly workspace = computed(() => {

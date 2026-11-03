@@ -1,0 +1,168 @@
+<!-- One section: who on the left, the message and its preview on the right; stacks below 900px. -->
+<section class="s-card" aria-labelledby="bc-title">
+  <div class="head">
+    <div>
+      <h3 id="bc-title">Send a message</h3>
+      <p class="muted small">One message to many. It goes out paced like a bulk send, after any client updates waiting.</p>
+    </div>
+  </div>
+
+  @if (error()) {
+    <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}</p>
+  }
+  @if (result(); as r) {
+    <div class="s-banner {{ r.skipped.length ? 'tone-warn' : 'tone-ok' }}" role="status">
+      <i class="ti {{ r.skipped.length ? 'ti-alert-triangle' : 'ti-circle-check' }}" aria-hidden="true"></i>
+      <div>
+        <strong>Queued for {{ r.queued }}.</strong>
+        @if (r.skipped.length) {
+          Skipped {{ r.skipped.length }}:
+          @for (s of r.skipped; track $index) {
+            <span class="skip">{{ s.to }} ({{ s.reason }})</span>
+          }
+        }
+      </div>
+    </div>
+  }
+
+  <div class="split">
+    <div class="who">
+      <div class="s-seg" role="group" aria-label="Send to">
+        @for (a of audiences; track a.value) {
+          <button type="button" [attr.aria-pressed]="audience() === a.value" (click)="audience.set(a.value)">{{ a.label }}</button>
+        }
+      </div>
+
+      @switch (audience()) {
+        @case ('all') {
+          <p class="note">
+            <i class="ti ti-users" aria-hidden="true"></i>
+            <span>
+              <strong>{{ everyone().length }} businesses</strong>, to the WhatsApp number on file for each.
+              @if (optedOut()) {
+                {{ optedOut() }} switched Wapzo updates off and {{ optedOut() === 1 ? 'is' : 'are' }} left out.
+              }
+            </span>
+          </p>
+        }
+        @case ('choose') {
+          <div class="pick-bar">
+            <input
+              type="search"
+              placeholder="Search businesses"
+              aria-label="Search businesses"
+              [value]="search()"
+              (input)="search.set($any($event.target).value)"
+            />
+            <button class="btn sm ghost" type="button" [disabled]="!shown().length" (click)="toggleShown()">
+              {{ allShownPicked() ? 'Clear' : 'Select all' }}
+            </button>
+          </div>
+          <ul class="list" aria-label="Businesses">
+            @for (t of shown(); track t.id) {
+              @let st = state(t);
+              <li>
+                <label>
+                  <input type="checkbox" [checked]="picked().has(t.id)" (change)="toggle(t.id)" />
+                  <span class="name">
+                    <strong>{{ t.name }}</strong>
+                    <span class="muted small">{{ t.contactPhone || 'No number on file' }}</span>
+                  </span>
+                  <span class="s-pill {{ st.tone }}">{{ st.label }}</span>
+                </label>
+              </li>
+            } @empty {
+              <li class="muted small none">No business matches.</li>
+            }
+          </ul>
+        }
+      }
+
+      <!-- Any choice above can take extra numbers: people who are not a business here yet. -->
+      <label class="field">
+        <span>
+          {{ audience() === 'none' ? 'WhatsApp numbers' : 'Other numbers' }}
+          <span class="muted">{{ audience() === 'none' ? '' : 'optional, ' }}one per line or separated by commas</span>
+        </span>
+        <textarea
+          [rows]="audience() === 'none' ? 7 : 3"
+          placeholder="+91 98765 43210&#10;+971 50 123 4567"
+          [value]="numbers()"
+          (input)="numbers.set($any($event.target).value)"
+        ></textarea>
+      </label>
+      @if (typed().length) {
+        <p class="muted small">
+          {{ typed().length }} {{ typed().length === 1 ? 'number' : 'numbers' }}, each sent once. Without a country code they
+          are read as India (+91). {{ '{name}' }} and {{ '{business}' }} stay empty for them.
+        </p>
+      }
+    </div>
+
+    <form class="what" (submit)="$event.preventDefault(); confirming.set(true)">
+      <label class="field">
+        <span>Message</span>
+        <textarea
+          #box
+          rows="6"
+          maxlength="1000"
+          placeholder="Hi {name}, ..."
+          [value]="text()"
+          (input)="text.set($any($event.target).value)"
+        ></textarea>
+      </label>
+      <div class="foot">
+        <div class="vars" role="group" aria-label="Insert a word">
+          @for (w of words; track w) {
+            <button type="button" class="s-chip" (click)="insert(box, w)">{{ '{' + w + '}' }}</button>
+          }
+          <label class="s-chip attach">
+            <i class="ti ti-photo-plus" aria-hidden="true"></i>{{ image() ? 'Change image' : 'Add image' }}
+            <input type="file" accept="image/jpeg,image/png,image/webp" class="sr" (change)="attach($any($event.target))" />
+          </label>
+        </div>
+        <span class="muted small count">{{ text().length }}/1000</span>
+      </div>
+
+      @if (text().trim() || image()) {
+        <div class="preview" aria-live="polite">
+          <span class="muted small">{{ first() ? 'Preview for ' + first()!.name : 'Preview' }}</span>
+          <div class="bubble">
+            @if (image(); as img) {
+              <figure>
+                <img [src]="img.preview" [alt]="img.name" />
+                <button class="btn icon sm" type="button" aria-label="Remove the image" (click)="dropImage()">
+                  <i class="ti ti-x" aria-hidden="true"></i>
+                </button>
+                @if (!img.mediaId) {
+                  <figcaption class="small">Uploading…</figcaption>
+                }
+              </figure>
+            }
+            @if (preview()) {
+              <p>{{ preview() }}</p>
+            }
+          </div>
+        </div>
+      }
+
+      <div class="send">
+        <span class="muted small">{{ linked() ? 'Goes to ' + what() + '.' : 'Link the number first.' }}</span>
+        <button class="btn primary" type="submit" [disabled]="!ready()">
+          <i class="ti ti-send" aria-hidden="true"></i> {{ busy() ? 'Sending...' : 'Send to ' + what() }}
+        </button>
+      </div>
+    </form>
+  </div>
+</section>
+
+@if (confirming()) {
+  <app-confirm
+    [heading]="'Send to ' + what() + '?'"
+    text="It goes out from the Wapzo number, paced like a bulk send. A message on its way cannot be called back."
+    action="Send"
+    tone="primary"
+    (confirm)="send()"
+    (cancel)="confirming.set(false)"
+  />
+}

@@ -1,71 +1,141 @@
-<!-- Add tenant: the details first; continuing opens the same set-up-and-activate drawer as an accepted lead. -->
-<div class="scrim" (click)="close()"></div>
-<aside class="panel" role="dialog" aria-modal="true" aria-labelledby="new-title">
+<!--
+  Add tenant, in the Tenant settings drawer's own shape so the two read as one flow. Left: the business as it is
+  typed, then the details form, open. Right: the settings tabs, all shut until the business exists; creating it
+  swaps this drawer for the real settings drawer with those tabs live.
+-->
+<div class="backdrop" (click)="close()"></div>
+<aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="new-title">
   <header>
     <div>
       <h3 id="new-title">New tenant</h3>
-      <ol class="steps" aria-label="Steps">
-        <li class="on" aria-current="step"><span>1</span>Details</li>
-        <li><span>2</span>Set up and activate</li>
-      </ol>
+      <p class="muted compact">
+        Add the business first: its name, WhatsApp number and owner. Then set up its plan, payment and limits.
+      </p>
     </div>
     <button class="btn icon" type="button" (click)="close()" [disabled]="busy()" aria-label="Close">
       <i class="ti ti-x" aria-hidden="true"></i>
     </button>
   </header>
 
-  <form id="new-tenant" class="body" (submit)="submit($event)">
-    @if (error()) {
-      <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}</p>
-    }
+  <div class="split">
+    <div class="side">
+      <section class="who">
+        <span class="avatar" aria-hidden="true">
+          @if (initial(); as letter) {
+            {{ letter }}
+          } @else {
+            <i class="ti ti-plus"></i>
+          }
+        </span>
+        <div>
+          <h4>{{ name().trim() || 'New business' }}</h4>
+          <p class="sub">{{ id() ? 'ID ' + id() : 'Not added yet' }}</p>
+        </div>
+        <span class="s-pill tone-info">Pending</span>
+      </section>
 
-    <fieldset>
-      <legend>Business</legend>
-      <div class="field">
-        <label for="nt-name">Business name</label>
-        <input id="nt-name" name="name" required maxlength="160" autocomplete="organization" placeholder="Asha Sarees"
-          [ngModel]="name()" (ngModelChange)="name.set($event)" />
-      </div>
-      <div class="field">
-        <label for="nt-slug">ID <small class="muted">optional, made from the name</small></label>
-        <input id="nt-slug" name="slug" maxlength="80" [placeholder]="id() || 'asha-sarees'" [class.invalid]="idTaken()"
-          [attr.aria-describedby]="idTaken() ? 'nt-slug-err' : null" [ngModel]="slug()" (ngModelChange)="slug.set($event)" />
-        @if (idTaken()) {
-          <small id="nt-slug-err" class="err">Another business uses {{ id() }}. Choose another ID.</small>
+      <section>
+        <h5>Details</h5>
+        <form class="edit" (submit)="submit($event)">
+          @if (error()) {
+            <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}</p>
+          }
+
+          <fieldset>
+            <legend>Business</legend>
+            <div class="field">
+              <label for="nt-name">Business name</label>
+              <input
+                #nameBox
+                id="nt-name"
+                name="name"
+                required
+                maxlength="160"
+                autocomplete="organization"
+                placeholder="Asha Sarees"
+                [ngModel]="name()"
+                (ngModelChange)="name.set($event)"
+              />
+            </div>
+            <div class="field">
+              <label for="nt-phone">WhatsApp number <small class="muted">where Wapzo writes to them</small></label>
+              <app-phone-input inputId="nt-phone" name="phone" [required]="true" [(value)]="phone" />
+            </div>
+            <div class="field">
+              <label for="nt-slug">ID <small class="muted">optional, made from the name</small></label>
+              <input
+                id="nt-slug"
+                name="slug"
+                maxlength="80"
+                [placeholder]="id() || 'asha-sarees'"
+                [class.invalid]="idTaken()"
+                [attr.aria-invalid]="idTaken()"
+                [attr.aria-describedby]="idTaken() ? 'nt-slug-err' : null"
+                [ngModel]="slug()"
+                (ngModelChange)="slug.set($event)"
+              />
+              @if (idTaken()) {
+                <small id="nt-slug-err" class="err">Another business uses {{ id() }}. Choose another ID.</small>
+              }
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Owner</legend>
+            <div class="field">
+              <label for="nt-owner">Name</label>
+              <input
+                id="nt-owner"
+                name="ownerName"
+                maxlength="120"
+                autocomplete="name"
+                [ngModel]="ownerName()"
+                (ngModelChange)="ownerName.set($event)"
+              />
+            </div>
+            <div class="field">
+              <label for="nt-email">Sign-in email</label>
+              <input
+                id="nt-email"
+                name="email"
+                type="email"
+                required
+                maxlength="254"
+                autocomplete="email"
+                placeholder="owner@business.com"
+                [ngModel]="email()"
+                (ngModelChange)="email.set($event)"
+              />
+            </div>
+          </fieldset>
+
+          <div class="acts">
+            <span class="muted state">Added as pending on the first plan.</span>
+            <button class="btn primary" type="submit" [disabled]="busy() || idTaken()">
+              {{ busy() ? 'Creating...' : 'Create and continue' }}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <!-- The settings tabs, shown so the next step is in view, but shut: there is nothing to set until it exists. -->
+    <div class="pane">
+      <nav class="tabs" role="tablist" aria-label="Tenant settings">
+        @for (t of tabs; track t.label) {
+          <button type="button" role="tab" aria-selected="false" aria-disabled="true" tabindex="-1">
+            <i class="ti ti-{{ t.icon }}" aria-hidden="true"></i>{{ t.label }}
+          </button>
         }
-      </div>
-      <div class="field">
-        <label for="nt-phone">WhatsApp number <small class="muted">Wapzo sends account and plan updates here</small></label>
-        <input id="nt-phone" name="phone" type="tel" required maxlength="32" autocomplete="tel" placeholder="+91 98765 43210"
-          [ngModel]="phone()" (ngModelChange)="phone.set($event)" />
-      </div>
-    </fieldset>
+      </nav>
 
-    <fieldset>
-      <legend>Owner</legend>
-      <div class="field">
-        <label for="nt-owner">Name</label>
-        <input id="nt-owner" name="ownerName" maxlength="120" autocomplete="name" [ngModel]="ownerName()"
-          (ngModelChange)="ownerName.set($event)" />
+      <div class="body">
+        <div class="empty">
+          <i class="ti ti-arrow-left" aria-hidden="true"></i>
+          <strong>Start with the details</strong>
+          <p>Fill in the business on the left and create it. Its plan, payments, limits and rules open here next.</p>
+        </div>
       </div>
-      <div class="field">
-        <label for="nt-email">Sign-in email</label>
-        <input id="nt-email" name="email" type="email" required maxlength="254" autocomplete="email"
-          placeholder="owner@business.com" [ngModel]="email()" (ngModelChange)="email.set($event)" />
-      </div>
-    </fieldset>
-
-    <p class="note">
-      <i class="ti ti-info-circle" aria-hidden="true"></i>
-      It is added as pending on the first plan. Next you choose its plan, payment and limits, then activate it, which
-      sets the owner's password and emails it.
-    </p>
-  </form>
-
-  <footer>
-    <button class="btn" type="button" (click)="close()" [disabled]="busy()">Cancel</button>
-    <button class="btn primary" type="submit" form="new-tenant" [disabled]="busy() || idTaken()">
-      {{ busy() ? 'Adding...' : 'Continue to setup' }}
-    </button>
-  </footer>
+    </div>
+  </div>
 </aside>

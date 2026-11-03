@@ -31,7 +31,8 @@
     color: var(--text-muted);
   }
 
-  input {
+  input,
+  app-phone-input {
     min-height: 46px;
   }
 
@@ -96,15 +97,10 @@
 
   .ti {
     font-size: 19px;
-    transition: translate var(--fast) var(--ease);
   }
 
   &:hover:not(:disabled) {
     background: var(--primary-hover);
-
-    .ti {
-      translate: 3px 0;
-    }
   }
 
   &:active:not(:disabled) {

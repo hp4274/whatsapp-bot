@@ -1,4 +1,5 @@
-<!-- Number card (link, test, country code) on the left, the message texts on the right, the sent log under both.
+<!-- Number card (link, test, country code) on the left, the message texts on the right; then a message to many,
+     and the sent log under all of it.
      The two columns stack below 1000px. -->
 @let conn = connection();
 @let code = qr();
@@ -109,17 +110,10 @@
 
     <form class="block" (submit)="$event.preventDefault(); sendTest()">
       <h4>Send a test</h4>
-      <label class="field">
-        <span>WhatsApp number</span>
-        <input
-          type="tel"
-          inputmode="tel"
-          autocomplete="off"
-          placeholder="98765 43210"
-          [value]="testTo()"
-          (input)="testTo.set($any($event.target).value)"
-        />
-      </label>
+      <div class="field">
+        <label for="wz-test-to">WhatsApp number</label>
+        <app-phone-input inputId="wz-test-to" autocomplete="off" [(value)]="testTo" />
+      </div>
       <label class="field">
         <span>Text <span class="muted">(optional)</span></span>
         <input
@@ -216,6 +210,8 @@
     </div>
   </section>
 </div>
+
+<app-wapzo-broadcast [linked]="linked()" (sent)="reload(true)" />
 
 <section class="s-card" aria-labelledby="log-title">
   <h3 id="log-title">Recent messages</h3>

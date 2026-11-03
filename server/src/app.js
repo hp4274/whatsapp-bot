@@ -90,7 +90,7 @@ import { DEFAULT_PLANS } from './billing/plans.js';
 import { PAYMENTS } from './billing/schema.js';
 import { BillingError, BillingStore, cycleAmount } from './billing/store.js';
 import { Ledger, amountOr400, totals } from './billing/ledger.js';
-import { PlatformMessages, createNotifier } from './platform/notify.js';
+import { PlatformMessages, createNotifier, renderText } from './platform/notify.js';
 import { DURATIONS, LimitRequestError, LimitRequests, REQUESTABLE } from './limits/requests.js';
 import { LeadError, Leads } from './leads.js';
 import { leadAlertEmail, leadReceivedEmail, welcomeEmail } from './mail/emails.js';
@@ -2536,6 +2536,8 @@ export function createApp({
             },
             // What the business owes: plan and top-up charges less the payments recorded (Tenant settings > Payments).
             balance: totals(ledger.entries(tenant.id)),
+            // Limit increase requests waiting for an answer (its card and the sidebar show the count).
+            pendingRequests: limitRequests.pendingCount(tenant.id),
             users: tenancy.listUsers(tenant.id).length,
             channels,
             health: {
@@ -3434,6 +3436,60 @@ export function createApp({
     });
 
     /**
+     * One message from the Wapzo number to many: every business, the ones chosen, and/or typed numbers. Queued as
+     * campaign traffic, so it is paced like a bulk send and never holds up a client's update. {name} and {business}
+     * are filled per business. "All" leaves out archived businesses and those that switched Wapzo updates off.
+     */
+    admin.post('/wapzo/broadcast', (req, res) => {
+        const body = req.body ?? {};
+        const text = String(body.text ?? '').trim();
+        if (!text && !body.mediaId) return res.status(400).json({ errors: ['Write the message or add an image.'] });
+        if (text.length > 1000) return res.status(400).json({ errors: ['Keep the message under 1000 characters.'] });
+        const all = body.tenants === 'all';
+        const ids = all ? [] : (Array.isArray(body.tenants) ? body.tenants.map(Number).filter(Number.isInteger) : []);
+        const numbers = (Array.isArray(body.numbers) ? body.numbers : String(body.numbers ?? '').split(/[\n,;]+/))
+            .map((n) => String(n).trim()).filter(Boolean);
+        if (numbers.length > 500) return res.status(400).json({ errors: ['Send to 500 typed numbers at most.'] });
+        const tenants = all
+            ? tenancy.listTenants().filter((t) => t.status !== 'archived' && t.wapzoUpdates !== false)
+            : ids.map((id) => tenancy.getTenant(id)).filter((t) => t && t.status !== 'system');
+        if (!tenants.length && !numbers.length) return res.status(400).json({ errors: ['Choose who gets it.'] });
+        const state = notifier.systemState();
+        if (!state?.transport?.isConnected?.()) return res.status(409).json({ errors: ['The Wapzo WhatsApp number is not linked.'] });
+        // An image uploaded through the number's own API (/wapzo/api/media/upload), so it is the system tenant's.
+        const media = body.mediaId ? state.media.get(String(body.mediaId)) : null;
+        if (body.mediaId && !media) return res.status(404).json({ errors: ['The image was not found. Add it again.'] });
+
+        const batch = Date.now().toString(36);
+        const queued = [];
+        const skipped = [];
+        const seen = new Set();
+        // One message per number, however it was written (a business's number typed again, +91 or not).
+        const one = (to, label, vars) => {
+            let recipient;
+            try { recipient = normalizePhone(to, state.config.defaultCountryCode || '91'); } catch (err) {
+                skipped.push({ to: label, reason: err.message });
+                return;
+            }
+            if (seen.has(recipient)) return;
+            seen.add(recipient);
+            const result = notifier.send({
+                to: `+${recipient}`, text: renderText(text, vars), key: `broadcast:${batch}:${recipient}`, kind: 'broadcast', messageType: 'campaign', media,
+            });
+            if (result.sent) queued.push(label); else skipped.push({ to: label, reason: result.reason });
+        };
+        for (const tenant of tenants) {
+            const owner = tenancy.ownerOf(tenant.id);
+            const phone = tenant.contactPhone || leads.forTenant(tenant.id)?.phone || '';
+            if (!phone) { skipped.push({ to: tenant.name, reason: 'No WhatsApp number on file.' }); continue; }
+            one(phone, tenant.name, { name: owner?.name || tenant.name, business: tenant.name });
+        }
+        for (const number of numbers) one(number, number, {});
+        audit(req, 'wapzo.broadcast', String(queued.length), { queued: queued.length, skipped: skipped.length });
+        return res.json({ queued: queued.length, skipped });
+    });
+
+    /**
      * Everything else (connection, QR, config, level, safety) is the number's own API, as a business's Connection
      * page uses it, addressed to the system tenant's number whatever tenant or number the browser last had open.
      */
@@ -3596,6 +3652,8 @@ export function createApp({
         const asks = limitRequests.pending();
         return res.json({
             count: counts.new + asks.length,
+            leadCount: counts.new,
+            requestCount: asks.length,
             leads: waiting.slice(0, 20).map((l) => ({ id: l.id, name: l.name, business: l.business, createdAt: l.createdAt })),
             limitRequests: asks.slice(0, 20).map((r) => ({
                 id: r.id, tenantId: r.tenantId, tenantName: r.tenantName, createdAt: r.createdAt,

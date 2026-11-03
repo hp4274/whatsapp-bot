@@ -230,6 +230,7 @@ const RULES = {
     'tenant.details': (c) => `Changed the details of ${c.biz()}${field(c.detail, 'ownerEmail') ? ` (owner sign-in: ${field(c.detail, 'ownerEmail')})` : ''}`,
     'wapzo.message': (c) => `${field(c.detail, 'enabled') === false ? 'Switched off' : 'Updated'} the Wapzo WhatsApp message ${quote(c.target)}`,
     'wapzo.test': (c) => `Sent a test message from the Wapzo WhatsApp number to ${c.target}`,
+    'wapzo.broadcast': (c) => `Sent a message from the Wapzo WhatsApp number to ${c.target} ${c.target === '1' ? 'recipient' : 'recipients'}`,
     'tenant.paid': (c) => `Recorded a${{ upi: ' UPI', bank: ' bank transfer', cash: ' cash' }[field(c.detail, 'method')] ?? ''} payment of ${money(c.detail, field(c.detail, 'amount'))} from ${c.biz()}`,
     'tenant.ledger.remove': (c) => [`Removed a ${field(c.detail, 'kind') === 'payment' ? 'payment' : 'charge'} of ${money(c.detail, field(c.detail, 'amount'))} from ${c.biz()}'s payments`, 'warn'],
     'tenant.price': (c) => {

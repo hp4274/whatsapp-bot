@@ -1,4 +1,4 @@
-<!-- Logo on the left; section links and Sign in on the right. -->
+<!-- Logo on the left; section links, then Get access and Sign in on the right. -->
 <nav class="bar" [class.solid]="scrolled()" aria-label="Main">
   <a class="brand" href="#top" aria-label="Wapzo, back to top">
     <img class="brand-mark" src="assets/brand/logo.png" alt="" width="34" height="34" />
@@ -11,6 +11,7 @@
     }
   </div>
 
+  <a class="access" href="#access" [class.on]="active() === 'access'">Get access</a>
   <a class="signin" routerLink="/login">Sign in <i class="ti ti-arrow-right" aria-hidden="true"></i></a>
 
   <button
@@ -30,5 +31,7 @@
     @for (link of links; track link.id) {
       <a [href]="'#' + link.id" [class.on]="active() === link.id" (click)="menuOpen.set(false)">{{ link.label }}</a>
     }
+    <!-- The bar drops its Get access button on a phone; it stays reachable here. -->
+    <a class="menu-access" href="#access" [class.on]="active() === 'access'" (click)="menuOpen.set(false)">Get access</a>
   </div>
 }
