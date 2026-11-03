@@ -114,7 +114,8 @@ section[id] {
   object-position: 70% center;
   // Slides run right to left: each photo waits off the right edge, slides in, then leaves off the left.
   // Waiting has no transition, so the jump back from the left is never seen.
-  translate: 100% 0;
+  // 105%, not 100%: at 1.05 scale a photo is 2.5% wider each side, which would show at the right edge.
+  translate: 105% 0;
   scale: 1.05;
 
   // Each photo comes in slightly large and shrinks to its own size, so it settles showing the whole picture.

@@ -115,7 +115,7 @@ import { rateLimit } from './security/signature.js';
 import { checkImport, fileTypeError } from './security/filetype.js';
 import { securityHeaders } from './security/headers.js';
 import {
-    CONSENT_TEXT, CONSENT_VERSION, NUMBER_SKIP_TEXT, NUMBER_SKIP_VERSION, SAFETY_EXIT_TEXT, SAFETY_EXIT_VERSION, ROLES, TENANT_SERVICES, Tenancy, TenancyError,
+    CONSENT_TEXT, CONSENT_VERSION, NUMBER_SKIP_TEXT, NUMBER_SKIP_VERSION, SAFETY_EXIT_TEXT, SAFETY_EXIT_VERSION, ROLES, Tenancy, TenancyError, openServices,
     blockedWordIn, capOf, roleRank, tighterCap,
 } from './tenancy.js';
 import { sendingTables, skipStartLevel, startLevelFor, suggestStart } from './policy/levels.js';
@@ -2866,7 +2866,7 @@ export function createApp({
 
     admin.get('/tenants', (req, res) => res.json({
         tenants: tenancy.listTenants().map(tenantOverview),
-        services: TENANT_SERVICES,
+        services: openServices(),
     }));
 
     // Plans are platform-wide, so any tenant's handle reads the same catalogue.
@@ -2952,7 +2952,7 @@ export function createApp({
                 subscribers: counts.get(plan.key) ?? 0,
                 dailyCap: policyStore.values(`plan:${plan.key}`)['channels.dailyCap'] ?? globalDay,
             })),
-            services: TENANT_SERVICES,
+            services: openServices(),
         });
     });
 

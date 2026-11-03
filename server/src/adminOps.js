@@ -10,7 +10,7 @@ import { DEFAULTS } from './config.js';
 import { PolicyStore } from './policy/index.js';
 import { pinFromRow, startFromRow } from './policy/channelOps.js';
 import { applySendingPolicy } from './policy/levels.js';
-import { TENANT_SERVICES } from './tenancy.js';
+import { openServices } from './tenancy.js';
 import { auditVerb, describeAudit, parseDetail } from './observability/auditText.js';
 import { publishWarnings, recentLogs } from './observability/logBuffer.js';
 import { captureConsole, currentContext } from './observability/logger.js';
@@ -59,7 +59,7 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
         const users = countBy('SELECT tenant_id, COUNT(*) AS n FROM users WHERE tenant_id IS NOT NULL GROUP BY tenant_id');
         const templates = countBy('SELECT tenant_id, COUNT(*) AS n FROM templates GROUP BY tenant_id');
         return {
-            services: TENANT_SERVICES,
+            services: openServices(),
             tenants: tenancy.listTenants().map((t) => ({
                 tenantId: t.id,
                 name: t.name,

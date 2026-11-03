@@ -338,7 +338,8 @@ export class App {
     }
     const owned = superAdmin ? this.acting()?.services : this.auth.tenant()?.services;
     const visible = (item: NavItem) =>
-      !(item.service && owned && !owned.includes(item.service)) &&
+      // Coming-soon services are off for everyone, but still listed (as "Soon") so a business knows they are coming.
+      !(item.service && owned && !owned.includes(item.service) && !SOON_SERVICES.has(item.service)) &&
       (superAdmin || !item.min || this.auth.atLeast(item.min));
     return this.tenantNav
       .map((section) => ({
