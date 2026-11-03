@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 
 import { Api } from '../core/api';
 import { PhoneInput } from '../core/phone-input';
+import { referralCode } from '../core/referral';
 
 /**
  * "Request access": accounts are issued by the platform, so this is how a business asks for one. It is
@@ -55,6 +56,7 @@ export class LeadForm {
         message: this.message().trim(),
         source: this.source(),
         website: this.website(),
+        ref: referralCode(),
       })
       .subscribe({
         next: () => {

@@ -23,6 +23,10 @@
         (valueChange)="set('contactPhone', $event)"
       />
     </div>
+    <div class="field">
+      <label for="ed-referrer">Referred by</label>
+      <app-referrer-input inputId="ed-referrer" [(value)]="referrer" />
+    </div>
     <label class="opt">
       <span>Send Wapzo WhatsApp updates <small class="muted">account, plan and payment messages</small></span>
       <button

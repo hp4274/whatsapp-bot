@@ -53,6 +53,8 @@ export interface AccessRequest {
   message: string;
   source: 'landing' | 'login';
   website: string;
+  /** The marketer's code from a referral link (core/referral.ts); '' for none. */
+  ref?: string;
 }
 
 /** `POST /api/media/upload`; the optional fields come from Storage (see `ImportPreview`). */
@@ -765,6 +767,8 @@ export interface TenantDetails {
   ownerEmail?: string;
   /** Business details (legal name, GSTIN, address...): keys sent replace those; '' clears one. */
   profile?: Record<string, string>;
+  /** Who brought it: a marketer's name or code ('' = nobody); a new name adds the marketer. */
+  referrer?: string;
 }
 
 /** Tenant, user and platform-admin endpoints. Super-admin calls carry the acting tenant via `authInterceptor`. */
@@ -787,6 +791,8 @@ export class TenancyApi {
     slug?: string;
     status?: 'pending';
     contactPhone?: string;
+    /** Who brought it: a marketer's name or code; a new name adds the marketer (server referrals.js). */
+    referrer?: string;
     services?: string[];
     controls?: TenantControls;
     owner: { email: string; name?: string; password?: string };

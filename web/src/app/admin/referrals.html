@@ -1,0 +1,136 @@
+<header class="s-head">
+  <div>
+    <p class="eyebrow"><i class="ti ti-affiliate" aria-hidden="true"></i> Platform</p>
+    <h2>Referrals</h2>
+    <p>
+      Marketers who bring businesses to Wapzo. Each payment you record for a business they brought earns them a
+      commission at their rate that day.
+    </p>
+  </div>
+  <button class="btn primary" type="button" (click)="open.set('new')">
+    <i class="ti ti-user-plus" aria-hidden="true"></i> Add marketer
+  </button>
+</header>
+
+@if (error()) {
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="msg">{{ error() }}</span>
+    <button class="btn sm" type="button" (click)="load()">Try again</button>
+  </p>
+}
+
+<section class="stats" aria-label="Totals">
+  <div class="s-stat tone-warn">
+    <small>To pay</small><b>{{ money(totals().pending) }}</b>
+    <span class="note">{{ totals().owed }} {{ totals().owed === 1 ? 'marketer is' : 'marketers are' }} owed</span>
+  </div>
+  <div class="s-stat tone-ok">
+    <small>Paid out</small><b>{{ money(totals().paid) }}</b>
+    <span class="note">Commission paid so far</span>
+  </div>
+  <div class="s-stat tone-info">
+    <small>Businesses referred</small><b>{{ totals().clients }}</b>
+    <span class="note">Tied to a marketer</span>
+  </div>
+  <div class="s-stat tone-mute">
+    <small>Marketers</small><b>{{ rows().length }}</b>
+    <span class="note">{{ totals().active }} active</span>
+  </div>
+</section>
+
+<section class="s-card">
+  <label class="search">
+    <i class="ti ti-search" aria-hidden="true"></i>
+    <input
+      type="search"
+      placeholder="Search name, code, email or phone"
+      aria-label="Search marketers"
+      [value]="query()"
+      (input)="query.set($any($event.target).value)"
+    />
+  </label>
+
+  <div class="s-table" [attr.aria-busy]="loading()">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Marketer</th>
+          <th scope="col">Code</th>
+          <th scope="col">Commission</th>
+          <th scope="col" class="num">Businesses</th>
+          <th scope="col" class="num">To pay</th>
+          <th scope="col" class="num">Paid</th>
+          <th scope="col"><span class="sr-only">Open</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (r of visible(); track r.id; let i = $index) {
+          <tr [style.--i]="i">
+            <td>
+              <strong class="biz">
+                {{ r.name }}
+                @if (r.status === 'paused') {
+                  <span class="s-pill tone-mute">Paused</span>
+                }
+              </strong>
+              <span class="sub">{{ r.phone || r.email || 'No contact' }}</span>
+            </td>
+            <td>
+              <span class="code">
+                <code>{{ r.code }}</code>
+                <button
+                  class="btn icon sm ghost"
+                  type="button"
+                  [attr.aria-label]="'Copy the referral link of ' + r.name"
+                  [title]="copied() === r.code ? 'Link copied' : 'Copy referral link'"
+                  (click)="copy(r.code)"
+                >
+                  <i class="ti {{ copied() === r.code ? 'ti-check' : 'ti-copy' }}" aria-hidden="true"></i>
+                </button>
+              </span>
+            </td>
+            <td><span class="sub rate">{{ rate(r) }}</span></td>
+            <td class="num">{{ r.clients }}</td>
+            <td class="num">
+              @if (r.pending) {
+                <strong [class.due]="r.pending > 0" [class.back]="r.pending < 0">{{ money(r.pending) }}</strong>
+              } @else {
+                <span class="sub">—</span>
+              }
+            </td>
+            <td class="num" [class.paid]="r.paid > 0">{{ money(r.paid) }}</td>
+            <td class="acts">
+              <button class="btn sm" type="button" [attr.aria-label]="'Open ' + r.name" (click)="open.set(r.id)">Open</button>
+            </td>
+          </tr>
+        } @empty {
+          @if (!loading()) {
+            <tr class="empty">
+              <td colspan="7">
+                <div class="s-empty">
+                  <i class="ti ti-affiliate" aria-hidden="true"></i>
+                  <strong>{{ rows().length ? 'No marketer matches' : 'No marketers yet' }}</strong>
+                  <p>
+                    {{
+                      rows().length
+                        ? 'Try another search.'
+                        : 'Add a marketer to give them a referral link. Businesses that ask for an account through it are tied to them.'
+                    }}
+                  </p>
+                  @if (!rows().length) {
+                    <button class="btn primary sm" type="button" (click)="open.set('new')">Add marketer</button>
+                  }
+                </div>
+              </td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+@if (open(); as id) {
+  <app-referral-drawer [referrerId]="id === 'new' ? null : id" (saved)="open.set($event); load(true)" (closed)="open.set(null)" />
+}

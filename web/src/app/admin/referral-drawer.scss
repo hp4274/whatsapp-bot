@@ -1,0 +1,151 @@
+@use '../school/school-shared' as s;
+
+@include s.keyframes;
+@include s.drawer-keyframes;
+@include s.tones;
+@include s.pill;
+@include s.seg;
+@include s.field;
+@include s.banner;
+@include s.buttons;
+@include s.switch;
+
+// The records drawer's frame (records.scss): a fixed head over a scrolling body.
+.scrim { @include s.scrim; }
+.drawer {
+  @include s.drawer-panel(560px);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  @media (max-width: 520px) { padding: 0; }
+}
+.drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-xl);
+  border-bottom: 1px solid var(--border-color);
+  h2 { margin: 2px 0 0; font-size: 20px; font-weight: 500; letter-spacing: -0.5px; overflow-wrap: anywhere; }
+}
+.eyebrow-sm { margin: 0; font-size: 13px; font-weight: 500; color: var(--primary-text); }
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  align-content: start;
+  gap: var(--space-xl);
+  padding: var(--space-lg) var(--space-xl) var(--space-xl);
+}
+
+p { margin: 0; }
+.muted { color: var(--text-muted); font-weight: 400; }
+.small { font-size: 12.5px; }
+.hint { font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
+
+// Each part of the drawer, split by a hairline; headings small, the content carries the weight.
+.block {
+  display: grid;
+  gap: var(--space-md);
+  & + .block { padding-top: var(--space-xl); border-top: 1px solid var(--border-color); }
+}
+h3 { margin: 0; font-size: 14px; font-weight: 500; color: var(--text-strong); }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+  @media (max-width: 520px) { grid-template-columns: minmax(0, 1fr); }
+}
+
+.rate { margin: 0; padding: 0; border: 0; legend { padding: 0; } }
+.rate-row { display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center; }
+// The rate box: its unit inside, before a rupee amount, after a percentage.
+.amount {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 120px;
+  max-width: 180px;
+  input { width: 100%; padding-right: 30px; font-variant-numeric: tabular-nums; }
+  .unit { position: absolute; right: 12px; color: var(--text-muted); pointer-events: none; }
+  &.pre {
+    input { padding-left: 28px; padding-right: 12px; }
+    .unit { left: 12px; right: auto; }
+  }
+}
+
+.pause {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-strong);
+  cursor: pointer;
+  .hint { display: block; margin-top: 2px; font-weight: 400; }
+}
+
+.actions { display: flex; justify-content: flex-end; }
+
+.copy-row {
+  display: flex;
+  gap: var(--space-sm);
+  input, select { flex: 1; min-width: 0; }
+  input[readonly] { color: var(--text-strong); background: var(--surface-sunken); }
+  .btn { flex: none; }
+}
+
+.owed-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  b {
+    display: block;
+    margin-top: 4px;
+    font-size: 28px;
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: -1px;
+    font-variant-numeric: tabular-nums;
+    color: var(--warning);
+    &.back { color: var(--danger-text); }
+    &.zero { color: var(--text-strong); }
+  }
+}
+
+.rows {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding: 10px 14px;
+    & + li { border-top: 1px solid var(--border-color); }
+    &.off { opacity: 0.6; }
+  }
+}
+.who {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  strong { font-size: 13.5px; font-weight: 500; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+.earned {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  flex: none;
+  b { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-strong); }
+}

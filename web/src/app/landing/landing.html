@@ -151,22 +151,24 @@
 
   <!-- =========================== REQUEST ACCESS =========================== -->
   <section class="section band" id="access" aria-labelledby="access-title">
-    <div class="wrap">
-      <div class="access" reveal>
+    <div class="wrap access" reveal>
+      <!-- The customer's side: a navy card with the promise and the message arriving. -->
+      <figure class="access-art">
+        <p class="access-word" aria-hidden="true">wapzo</p>
+        <p class="access-claim">A reminder for every student.</p>
         <img
-          class="access-photo"
           src="assets/landing/clay-studio.jpg"
-          alt="A potter in her studio smiling at a WhatsApp message from Clay Studio: her pottery class starts at 4 PM."
+          alt="A potter in her studio smiling at a WhatsApp message from Clay Studio: Hi Meera, your pottery class starts at 4 PM."
           width="1000"
           height="1071"
           loading="lazy"
         />
-        <div class="access-body">
-          <p class="access-word" aria-hidden="true">wap<span>zo</span></p>
-          <h2 id="access-title">Get your Wapzo workspace</h2>
-          <p class="access-lede">We’ll set up your account and email your sign-in details.</p>
-          <app-lead-form source="landing" />
-        </div>
+      </figure>
+      <div class="access-body">
+        <p class="eyebrow">Workspace access</p>
+        <h2 id="access-title">Get started with Wapzo</h2>
+        <p class="access-lede">We’ll set up your workspace and email your sign-in details.</p>
+        <app-lead-form source="landing" />
       </div>
     </div>
   </section>
@@ -353,51 +355,56 @@
   </section>
 
   <!-- =============================== SAFETY =============================== -->
-  <section class="section field safety" id="safety" aria-labelledby="safety-title">
-    <div class="wrap safety-grid">
-      <div>
-        <h2 id="safety-title">Bulk sending that keeps your number safe</h2>
-        <p class="lede">
-          Numbers get blocked when they send like a machine. Wapzo sends like a careful person
-          and holds back when something looks wrong.
-        </p>
-        <ul class="guards" reveal="children">
-          <li>
-            <i class="ti ti-gauge" aria-hidden="true"></i>
-            <span><b>A daily limit that grows with your number.</b> A new number starts small; an established one sends more.</span>
-          </li>
-          <li>
-            <i class="ti ti-clock" aria-hidden="true"></i>
-            <span><b>Random gaps and rests.</b> No two messages leave at a machine’s even rhythm.</span>
-          </li>
-          <li>
-            <i class="ti ti-moon" aria-hidden="true"></i>
-            <span><b>Quiet hours.</b> Bulk sends wait overnight instead of waking your customers.</span>
-          </li>
-          <li>
-            <i class="ti ti-shield-check" aria-hidden="true"></i>
-            <span><b>Automatic pause.</b> A campaign stops when failures climb, before WhatsApp notices.</span>
-          </li>
-        </ul>
+  <section class="section band safety" id="safety" aria-labelledby="safety-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Sending controls</p>
+        <h2 id="safety-title">How Wapzo paces your campaigns</h2>
       </div>
 
-      <div reveal>
-        <div class="frag health" data-ui>
+      <!-- The live numbers on the left, the four controls behind them on the right. -->
+      <div class="safety-grid">
+        <div class="frag health" data-ui reveal>
           <div class="frag-head">
-            <strong>Sending health</strong>
+            <div>
+              <strong>Sending health</strong>
+              <span class="sub">Example campaign</span>
+            </div>
             <span class="pill ok"><span class="dot"></span>Healthy</span>
           </div>
-          <div class="gauge">
-            <span class="big" [countUp]="312">312</span><span class="of">of 500 today</span>
-          </div>
+          <span class="big" [countUp]="312">312</span>
+          <p class="of">of 500 messages sent today</p>
           <div class="bar" role="img" aria-label="312 of 500 messages sent today"><span style="width: 62%"></span></div>
           <dl class="rows">
-            <div><dt>Sending window</dt><dd>9:00 to 20:00</dd></div>
-            <div><dt>Gap between messages</dt><dd>8 to 22 seconds</dd></div>
+            <div><dt>Sending window</dt><dd>09:00–20:00 IST</dd></div>
+            <div><dt>Message interval</dt><dd>8–22 seconds</dd></div>
             <div><dt>Failed in the last hour</dt><dd>0.4%</dd></div>
-            <div><dt>Next rest</dt><dd>after 40 more</dd></div>
+            <div><dt>Next break</dt><dd>After 40 more messages</dd></div>
           </dl>
         </div>
+
+        <ul class="guards" reveal="children">
+          <li class="tone-blue">
+            <i class="ti ti-stack-2" aria-hidden="true"></i>
+            <h3>Daily limits</h3>
+            <p>New numbers start with a lower daily allowance.</p>
+          </li>
+          <li class="tone-blue">
+            <i class="ti ti-bolt" aria-hidden="true"></i>
+            <h3>Paced delivery</h3>
+            <p>Leave time between messages and take scheduled breaks.</p>
+          </li>
+          <li class="tone-violet">
+            <i class="ti ti-moon" aria-hidden="true"></i>
+            <h3>Quiet hours</h3>
+            <p>Hold overnight messages until the sending window opens.</p>
+          </li>
+          <li class="tone-green">
+            <i class="ti ti-player-pause" aria-hidden="true"></i>
+            <h3>Automatic pause</h3>
+            <p>Pause the campaign when failures rise.</p>
+          </li>
+        </ul>
       </div>
     </div>
   </section>

@@ -78,6 +78,10 @@
                 <small id="nt-slug-err" class="err">Another business uses {{ id() }}. Choose another ID.</small>
               }
             </div>
+            <div class="field">
+              <label for="nt-referrer">Referred by</label>
+              <app-referrer-input inputId="nt-referrer" [(value)]="referrer" />
+            </div>
           </fieldset>
 
           <fieldset>

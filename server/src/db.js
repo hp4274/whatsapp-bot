@@ -12,6 +12,7 @@ import { DB_PATH, QR_TRANSPORTS } from './config.js';
 // applied after the core schema, so a new feature never means editing the giant
 // template literal below - and two features can be built without colliding.
 import { MODULE_SCHEMAS } from './schema.js';
+import { migrateReferrals } from './referrals.js';
 import { migrateTemplates } from './templates/schema.js';
 import { migrateAutoReplies } from './autoreply/schema.js';
 import { migratePlans } from './billing/schema.js';
@@ -613,6 +614,7 @@ export class Database {
         migrateTemplates(this.db);
         migrateAutoReplies(this.db);
         migratePlans(this.db);
+        migrateReferrals(this.db);
         if (old.length) finishLegacy(this.db, old);
         dropCloudChannels(this.db);
         once(this.db, 'qr-daily-limit-250-to-plan', () => releaseQrDailyLimits(this.db));
