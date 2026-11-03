@@ -1,0 +1,160 @@
+<!-- Request more: one column of asks (limit, new limit, duration), a note, then earlier requests with their answers.
+     The footer's Send request submits the form by id. -->
+<div class="scrim" (click)="close()"></div>
+<aside class="panel" role="dialog" aria-modal="true" aria-labelledby="lr-title">
+  <header>
+    <div>
+      <h3 id="lr-title">Request more</h3>
+      <p class="lede">Ask for higher limits. You see the answer here and on your home page.</p>
+    </div>
+    <button #closeButton class="btn icon" type="button" (click)="close()" [disabled]="busy()" aria-label="Close">
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
+  </header>
+
+  <div class="body" [attr.aria-busy]="!state() && !loadError()">
+    @if (loadError(); as message) {
+      <p class="s-banner" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i>
+        Could not load your limits: {{ message }}
+        <button type="button" class="btn sm" (click)="load()">Try again</button>
+      </p>
+    } @else if (!state()) {
+      @for (n of [1, 2, 3]; track n) {
+        <span class="s-skel"></span>
+      }
+    } @else {
+      <form id="limit-request" (submit)="submit($event)">
+        @if (error(); as message) {
+          <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ message }}</p>
+        }
+
+        <ol class="asks">
+          @for (ask of asks(); track ask.id; let i = $index) {
+            <li class="ask">
+              @if (asks().length > 1) {
+                <button
+                  class="btn sm icon ghost remove"
+                  type="button"
+                  (click)="remove(ask.id)"
+                  [disabled]="busy()"
+                  [attr.aria-label]="'Remove limit ' + (i + 1)"
+                >
+                  <i class="ti ti-x" aria-hidden="true"></i>
+                </button>
+              }
+
+              <div class="field">
+                <label [for]="'lr-key-' + ask.id">Limit</label>
+                <select
+                  [id]="'lr-key-' + ask.id"
+                  [name]="'key-' + ask.id"
+                  required
+                  [disabled]="busy()"
+                  [attr.aria-describedby]="'lr-now-' + ask.id"
+                  [ngModel]="ask.key"
+                  (ngModelChange)="patch(ask.id, { key: $event })"
+                >
+                  @for (l of limits(); track l.key) {
+                    <option [value]="l.key" [disabled]="l.key !== ask.key && picked().has(l.key)">{{ l.label }}</option>
+                  }
+                </select>
+                @if (ask.key) {
+                  <small class="hint" [id]="'lr-now-' + ask.id">Now: {{ nowText().get(ask.key) }}</small>
+                }
+              </div>
+
+              <div class="field">
+                <label [for]="'lr-value-' + ask.id">New limit</label>
+                <input
+                  [id]="'lr-value-' + ask.id"
+                  [name]="'value-' + ask.id"
+                  type="number"
+                  inputmode="numeric"
+                  min="1"
+                  max="1000000000"
+                  step="1"
+                  required
+                  [disabled]="busy()"
+                  [ngModel]="ask.value"
+                  (ngModelChange)="patch(ask.id, { value: $event })"
+                />
+              </div>
+
+              <div class="field">
+                <label [for]="'lr-days-' + ask.id">Duration</label>
+                <select
+                  [id]="'lr-days-' + ask.id"
+                  [name]="'days-' + ask.id"
+                  required
+                  [disabled]="busy()"
+                  [ngModel]="ask.days"
+                  (ngModelChange)="patch(ask.id, { days: $event })"
+                >
+                  @for (d of durations(); track d) {
+                    <option [ngValue]="d">{{ durationLabel(d) }}</option>
+                  }
+                </select>
+              </div>
+            </li>
+          }
+        </ol>
+
+        <button class="btn sm add" type="button" (click)="add()" [disabled]="busy() || !canAdd()">
+          <i class="ti ti-plus" aria-hidden="true"></i>
+          Add another limit
+        </button>
+
+        <div class="field">
+          <label for="lr-note">Why do you need it? <small class="muted">optional</small></label>
+          <textarea
+            id="lr-note"
+            name="note"
+            rows="3"
+            maxlength="500"
+            placeholder="A sale next month, a new branch, more staff..."
+            [disabled]="busy()"
+            [ngModel]="note()"
+            (ngModelChange)="note.set($event)"
+          ></textarea>
+        </div>
+      </form>
+
+      <section class="earlier" aria-labelledby="lr-earlier">
+        <h4 id="lr-earlier">Earlier requests</h4>
+        @for (r of requests(); track r.id) {
+          <article class="req">
+            <div class="req-head">
+              <span class="s-pill {{ status[r.status].tone }}">{{ status[r.status].label }}</span>
+              <time class="muted" [attr.datetime]="r.createdAt">{{ r.createdAt | date: 'd MMM y' }}</time>
+            </div>
+            <ul>
+              @for (item of r.items; track item.key) {
+                <li>
+                  {{ askLine(item) }}
+                  @if (item.reverted) {
+                    <small class="muted">· ended</small>
+                  } @else if (item.expiresAt) {
+                    <small class="muted">· until {{ item.expiresAt | date: 'd MMM y' }}</small>
+                  }
+                </li>
+              }
+            </ul>
+            @if (r.reason) {
+              <p class="reason">{{ r.reason }}</p>
+            }
+          </article>
+        } @empty {
+          <p class="muted">No requests yet.</p>
+        }
+      </section>
+    }
+  </div>
+
+  <footer>
+    <button class="btn" type="button" (click)="close()" [disabled]="busy()">Cancel</button>
+    <button class="btn primary" type="submit" form="limit-request" [disabled]="busy() || !valid()">
+      {{ busy() ? 'Sending...' : 'Send request' }}
+    </button>
+  </footer>
+</aside>

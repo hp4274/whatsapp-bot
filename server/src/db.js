@@ -337,6 +337,8 @@ function addTenantControlColumns(db) {
     // The business's WhatsApp number for Wapzo's own messages (platform/notify.js), and whether it gets them.
     if (!cols.includes('contact_phone')) db.exec("ALTER TABLE tenants ADD COLUMN contact_phone TEXT NOT NULL DEFAULT ''");
     if (!cols.includes('wapzo_updates')) db.exec('ALTER TABLE tenants ADD COLUMN wapzo_updates INTEGER NOT NULL DEFAULT 1');
+    // The business on paper: legal name, GSTIN, PAN, address and so on (tenancy.js PROFILE_FIELDS), as JSON.
+    if (!cols.includes('profile')) db.exec("ALTER TABLE tenants ADD COLUMN profile TEXT NOT NULL DEFAULT '{}'");
     // Session idle timeout (see Tenancy.resolveSession).
     if (!columnsOf(db, 'sessions').includes('last_seen_at')) db.exec('ALTER TABLE sessions ADD COLUMN last_seen_at TEXT');
     if (!columnsOf(db, 'whatsapp_channels').includes('number_since')) db.exec('ALTER TABLE whatsapp_channels ADD COLUMN number_since TEXT');

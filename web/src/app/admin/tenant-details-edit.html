@@ -1,5 +1,5 @@
 <!-- Tenant settings > left column > Request / Details: the same lines as boxes, edited in place. -->
-<form class="edit" (submit)="submit($event)">
+<form #editForm class="edit" (submit)="$event.preventDefault()" (change)="autoSave(editForm)">
   @if (error()) {
     <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}</p>
   }
@@ -33,11 +33,30 @@
         role="switch"
         class="switch"
         [attr.aria-checked]="form().wapzoUpdates"
-        (click)="set('wapzoUpdates', !form().wapzoUpdates)"
+        (click)="set('wapzoUpdates', !form().wapzoUpdates); autoSave(editForm)"
       >
         <span class="thumb"></span>
       </button>
     </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Business details</legend>
+    <div class="pairs">
+      @for (f of profileFields; track f.key) {
+        <div class="field" [class.half]="f.half">
+          <label [for]="'ed-p-' + f.key">{{ f.label }}</label>
+          <input
+            [id]="'ed-p-' + f.key"
+            [name]="'p-' + f.key"
+            [attr.maxlength]="f.max"
+            [placeholder]="f.placeholder ?? ''"
+            [ngModel]="profile()[f.key]"
+            (ngModelChange)="setProfile(f.key, $event)"
+          />
+        </div>
+      }
+    </div>
   </fieldset>
 
   <fieldset>
@@ -60,7 +79,7 @@
   </fieldset>
 
   <div class="acts">
-    <button class="btn" type="button" (click)="cancelled.emit()" [disabled]="busy()">Cancel</button>
-    <button class="btn primary" type="submit" [disabled]="busy()">{{ busy() ? 'Saving...' : 'Save details' }}</button>
+    <span class="muted state" role="status">{{ busy() ? 'Saving...' : savedOnce() ? 'Saved' : 'Each box saves when you click away from it.' }}</span>
+    <button class="btn" type="button" (click)="cancelled.emit()" [disabled]="busy()">Done</button>
   </div>
 </form>

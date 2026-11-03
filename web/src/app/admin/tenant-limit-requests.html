@@ -1,0 +1,61 @@
+<!-- Tenant settings > General > Limit requests: waiting first, each with its asks and the answer. -->
+<div class="section-head">
+  <h4>Limit requests</h4>
+  @if (waiting()) {
+    <span class="s-pill tone-warn">{{ waiting() }} waiting</span>
+  }
+</div>
+<p class="muted compact">What this business asked more of, and for how long. Approving applies every ask at once.</p>
+
+@if (error()) {
+  <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}</p>
+}
+
+@if (requests() === null) {
+  <p class="muted compact">Loading...</p>
+} @else if (!sorted().length) {
+  <p class="muted compact">No requests yet. The business asks from its home page with Request more.</p>
+} @else {
+  <ol class="reqs">
+    @for (r of sorted(); track r.id) {
+      <li [class.waiting]="r.status === 'pending'">
+        <div class="req-top">
+          <span class="s-pill {{ status[r.status].tone }}">{{ status[r.status].label }}</span>
+          <span class="muted">{{ r.createdAt | date: 'd MMM y, h:mm a' }}</span>
+        </div>
+        <ul class="asks">
+          @for (a of r.items; track a.key) {
+            <li>
+              <span>{{ askText(a) }}</span>
+              @if (askAfter(a); as after) {
+                <small class="muted">{{ after }}</small>
+              }
+            </li>
+          }
+        </ul>
+        @if (r.note) {
+          <p class="note">"{{ r.note }}"</p>
+        }
+        @if (r.status === 'pending') {
+          <div class="field">
+            <label [for]="'lr-reason-' + r.id">Reason <small class="muted">optional, the business sees it</small></label>
+            <input
+              [id]="'lr-reason-' + r.id"
+              maxlength="500"
+              [value]="reasons()[r.id] ?? ''"
+              (input)="setReason(r.id, $any($event.target).value)"
+            />
+          </div>
+          <div class="acts">
+            <button class="btn" type="button" (click)="answer(r, false)" [disabled]="busyId() !== null">Decline</button>
+            <button class="btn primary" type="button" (click)="answer(r, true)" [disabled]="busyId() !== null">
+              <i class="ti ti-check" aria-hidden="true"></i> {{ busyId() === r.id ? 'Approving...' : 'Approve' }}
+            </button>
+          </div>
+        } @else if (r.reason) {
+          <p class="muted compact">Reason: {{ r.reason }}</p>
+        }
+      </li>
+    }
+  </ol>
+}

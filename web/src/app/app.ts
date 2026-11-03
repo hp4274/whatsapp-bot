@@ -19,6 +19,7 @@ import { Auth, Role, Tenant } from './core/auth';
 import { AccountDialog } from './core/account-dialog';
 import { ConfirmDialog } from './core/confirm-dialog';
 import { SendIsland } from './core/send-island';
+import { AdminNotifications } from './admin/admin-notifications';
 import { Store, ThemeMode, isBare } from './core/store';
 
 type NavItem = {
@@ -119,7 +120,7 @@ function readCollapsed(): boolean {
  */
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, SendIsland, AccountDialog, ConfirmDialog],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, SendIsland, AccountDialog, ConfirmDialog, AdminNotifications],
   templateUrl: './app.html',
   styleUrl: './app.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -139,7 +140,7 @@ export class App {
   private readonly acting = signal<Tenant | null>(null);
 
   /** A super admin looking at the whole platform rather than inside one tenant. */
-  private readonly platformView = computed(
+  protected readonly platformView = computed(
     () => this.auth.isSuperAdmin() && this.auth.actingTenantId() === null,
   );
 

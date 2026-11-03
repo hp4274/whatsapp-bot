@@ -5,7 +5,7 @@ import { FormsModule } from '@angular/forms';
 import type { SafetyPolicy, TenantLimits } from '../core/api';
 import type { Tenant, TenantControls, TenantSubscriptionSummary } from '../core/auth';
 import { Lead, LeadsApi } from './leads-api';
-import { TenantDetailsEdit } from './tenant-details-edit';
+import { PROFILE_FIELDS, TenantDetailsEdit } from './tenant-details-edit';
 import { sentenceCase } from './text';
 import {
   BILLINGS,
@@ -16,6 +16,7 @@ import {
   formatPrice,
   billingOf,
   limitText,
+  planStatus,
   money,
   paidPrice,
   stateTone,
@@ -78,6 +79,10 @@ export class TenantSummary {
   protected readonly owner = signal<{ readonly name: string; readonly email: string } | null>(null);
   /** The Request / Details lines are boxes being edited. */
   protected readonly editing = signal(false);
+  /** Business details (GSTIN, address...) shown under View more. */
+  protected readonly moreShown = signal(false);
+  protected readonly profileFields = PROFILE_FIELDS;
+  protected readonly profileCount = computed(() => Object.keys(this.tenant().profile ?? {}).length);
   protected readonly password = signal(newPassword());
   protected readonly sendWelcome = signal(true);
   protected readonly copied = signal(false);
@@ -89,6 +94,8 @@ export class TenantSummary {
   protected readonly paidPrice = paidPrice;
   protected readonly stateTone = stateTone;
   protected readonly sentence = sentenceCase;
+  /** Pending / Active / Ends <date> / Plan ended, as the Plan tab says it. */
+  protected readonly status = computed(() => planStatus(this.tenant().status, this.sub()));
   protected readonly when = subscriptionWhen;
   /** Paid, Free or Hybrid (free with charged top-ups), beside the plan's name. */
   protected readonly payment = computed(() => {
@@ -126,9 +133,8 @@ export class TenantSummary {
     });
   }
 
-  /** Saved in place: back to the lines, with the owner read again (their email may have changed). */
+  /** Saved in place (each box as it is left): the owner is read again, as their email may have changed. */
   protected saved(tenant: Tenant): void {
-    this.editing.set(false);
     this.loadOwner(tenant.id);
     this.detailsSaved.emit(tenant);
   }

@@ -38,6 +38,8 @@ export interface Tenant {
   contactPhone?: string;
   /** Whether Wapzo messages the business about its account and plan. */
   wapzoUpdates?: boolean;
+  /** The business on paper (server tenancy.js PROFILE_FIELDS); a missing key is not given. */
+  profile?: Readonly<Record<string, string>>;
   controls: TenantControls;
   /** Anti-ban overrides set by the platform admin; absent keys use the defaults. */
   safety?: Record<string, number | boolean | string>;

@@ -56,7 +56,9 @@
 
 @mixin enter {
   .s-enter {
-    animation: s-rise 380ms var(--ease) both;
+    // backwards, not both: a held `translate: 0px` after the end makes this a containing block, and any drawer
+    // (position: fixed) inside it would open within this card instead of over the page.
+    animation: s-rise 380ms var(--ease) backwards;
     animation-delay: calc(var(--i, 0) * 40ms);
   }
 }

@@ -131,12 +131,51 @@
   </div>
   <app-pager [total]="visible().length" [size]="pageSize" [(page)]="page" label="Tenant pages" />
 
-  <!-- Under the list: plans ending in the next 7 days, each one click from its Plan tab. -->
-  <app-tenants-closing [tenants]="tenants()" [serialOf]="serialOf" (open)="openSettings($event, 'plan')" />
+  <!-- Plans ending in the next 7 days, as cards like every other section; each says what ends and when. -->
+  @if (closingShown().length) {
+    <section class="pending-block" aria-labelledby="closing-title">
+      <div class="block-head">
+        <h3 id="closing-title">Closing soon <span class="s-pill tone-warn">{{ closingShown().length }}</span></h3>
+        <p class="muted compact">Plans ending in the next 7 days. Open one and renew, top up or extend it under Plan.</p>
+      </div>
+      <div class="tenants" [class.list]="listMode()">
+        @if (listMode()) {
+          <div class="list-head" aria-hidden="true">
+            <span>Business</span><span>Sent</span><span>Failed</span><span>Connected</span><span>Queued</span
+            ><span>Services</span><span></span>
+          </div>
+        }
+        @for (tenant of closingShown(); track tenant.id; let i = $index) {
+          <ng-container *ngTemplateOutlet="tenantCard; context: { $implicit: tenant, i: i, note: closingNote(tenant) }" />
+        }
+      </div>
+    </section>
+  }
+  <!-- Plans the admin ended (now, or at the period's end): out of the running list, still one click away. -->
+  @if (endedShown().length) {
+    <section class="pending-block" aria-labelledby="ended-title">
+      <div class="block-head">
+        <h3 id="ended-title">Plan ended <span class="s-pill tone-bad">{{ endedShown().length }}</span></h3>
+        <p class="muted compact">Ended, or ending at the end of their period. Open one and renew its plan to bring it back.</p>
+      </div>
+      <div class="tenants" [class.list]="listMode()">
+        @if (listMode()) {
+          <div class="list-head" aria-hidden="true">
+            <span>Business</span><span>Sent</span><span>Failed</span><span>Connected</span><span>Queued</span
+            ><span>Services</span><span></span>
+          </div>
+        }
+        @for (tenant of endedShown(); track tenant.id; let i = $index) {
+          <ng-container *ngTemplateOutlet="tenantCard; context: { $implicit: tenant, i: i }" />
+        }
+      </div>
+    </section>
+  }
+
 }
 
 <!-- One card for both lists. -->
-<ng-template #tenantCard let-tenant let-i="i">
+<ng-template #tenantCard let-tenant let-i="i" let-note="note">
   <article
     class="tenant"
     [class.suspended]="tenant.status === 'suspended'"
@@ -148,7 +187,11 @@
       <div class="who">
         <span class="mono muted">#{{ serial(tenant) }}</span>
         <h3 [title]="tenant.name">{{ tenant.name }}</h3>
-        <p class="muted" [title]="tenant.slug">{{ tenant.slug }} &middot; {{ tenant.users }} user(s)</p>
+        @if (note) {
+          <p class="ends">{{ note }}</p>
+        } @else {
+          <p class="muted" [title]="tenant.slug">{{ tenant.slug }} &middot; {{ tenant.users }} user(s)</p>
+        }
       </div>
       @if (!listMode()) {
         <ng-container *ngTemplateOutlet="moreMenu; context: { $implicit: tenant }" />

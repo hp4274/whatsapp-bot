@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 
 import { TenancyApi } from '../core/api';
@@ -18,11 +19,11 @@ import { Store } from '../core/store';
 import { AdminFeed } from './admin-feed';
 import type { AuditEntry } from './ops-api';
 import { OpsApi } from './ops-api';
-import { BILLINGS, billingOf, stateTone } from './plans-api';
+import { BILLINGS, billingOf, planEnded, stateTone } from './plans-api';
 import { serviceMeta } from './service-meta';
 import { TenantActivity } from './tenant-activity';
 import { TenantNew } from './tenant-new';
-import { TenantsClosing } from './tenants-closing';
+import { closingSoon } from './tenants-closing';
 import { SettingsTab, TenantSettings } from './tenant-settings';
 import { sentenceCase } from './text';
 
@@ -75,7 +76,7 @@ const VIEW_KEY = 'wsender.tenantView';
  */
 @Component({
   selector: 'app-admin-tenants',
-  imports: [ConfirmDialog, NgTemplateOutlet, Pager, TenantActivity, TenantNew, TenantSettings, TenantsClosing],
+  imports: [ConfirmDialog, NgTemplateOutlet, Pager, TenantActivity, TenantNew, TenantSettings],
   templateUrl: './tenants.html',
   styleUrl: './tenants.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -135,7 +136,44 @@ export class TenantsView {
     const status = this.statusFilter();
     return this.tenants().filter(
       (tenant) =>
-        tenant.status !== 'pending' && (status === 'all' || tenant.status === status) && this.matches(tenant),
+        tenant.status !== 'pending' &&
+        !planEnded(tenant.subscription) &&
+        !this.closing().has(tenant.id) &&
+        (status === 'all' || tenant.status === status) &&
+        this.matches(tenant),
+    );
+  });
+  /** Running businesses whose plan ends in the next 7 days, and the line each card says it with. */
+  private readonly closing = computed(() => {
+    const now = Date.now();
+    const out = new Map<number, { at: number; note: string }>();
+    for (const t of this.tenants()) {
+      if (t.status === 'pending' || planEnded(t.subscription)) continue;
+      const end = closingSoon(t.subscription, now);
+      if (end) out.set(t.id, end);
+    }
+    return out;
+  });
+  /** Closing soon, as its own section of cards: soonest first. */
+  protected readonly closingShown = computed(() => {
+    const status = this.statusFilter();
+    const closing = this.closing();
+    return this.tenants()
+      .filter((t) => closing.has(t.id) && (status === 'all' || t.status === status) && this.matches(t))
+      .sort((a, b) => closing.get(a.id)!.at - closing.get(b.id)!.at);
+  });
+  protected closingNote(tenant: Tenant): string {
+    return this.closing().get(tenant.id)?.note ?? '';
+  }
+  /** Under the running ones: businesses whose plan was ended, or is set to end at its period's end. */
+  protected readonly endedShown = computed(() => {
+    const status = this.statusFilter();
+    return this.tenants().filter(
+      (tenant) =>
+        tenant.status !== 'pending' &&
+        planEnded(tenant.subscription) &&
+        (status === 'all' || tenant.status === status) &&
+        this.matches(tenant),
     );
   });
   /** Accepted from leads, not yet activated: shown first under "Pending setup" (all or the Pending filter). */
@@ -168,16 +206,17 @@ export class TenantsView {
   constructor() {
     this.refresh();
     // /admin/tenants?settings=<id>[&tab=limits|safety|rules|accounts|plan|payments] (linked from the ops pages) opens that drawer.
-    const query = this.route.snapshot.queryParamMap;
-    const wanted = Number(query.get('settings'));
-    const tab = query.get('tab');
-    if (wanted) {
+    // Followed while the page is open too, so the notifications bell can open a business from here.
+    this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((query) => {
+      const wanted = Number(query.get('settings'));
+      const tab = query.get('tab');
+      if (!wanted) return;
       this.api.tenants().subscribe(({ tenants }) => {
         const tenant = tenants.find((t) => t.id === wanted);
         if (!tenant) return;
         this.openSettings(tenant, (['general', 'limits', 'safety', 'rules', 'accounts', 'plan', 'payments'] as const).find((t) => t === tab) ?? 'plan');
       });
-    }
+    });
     // Live: another admin's change, a number dropping or a campaign sending updates the cards and the activity.
     this.feed.watch(['tenants', 'channels', 'usage'], () => this.liveList());
     this.feed.watch(['audit'], () => this.loadActivity());

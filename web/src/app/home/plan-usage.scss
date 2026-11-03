@@ -4,6 +4,8 @@
 @include s.buttons;
 @include s.skeleton;
 @include s.banner;
+@include s.pill;
+@include s.tones;
 
 :host {
   display: block;
@@ -12,10 +14,29 @@
 .card-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 4px var(--space-md);
   margin-bottom: var(--space-md);
+}
+.head-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-md);
+}
+// The newest limit request, or the notice that one was just sent.
+.ask-line,
+.card-head + .s-banner {
+  margin: 0 0 var(--space-md);
+}
+.ask-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-color);
 }
 h3 {
   margin: 0;

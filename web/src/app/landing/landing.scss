@@ -121,16 +121,21 @@ section[id] {
   height: 100%;
   object-fit: cover;
   object-position: 70% center;
-  opacity: 0;
-  scale: 1.06;
-  transition:
-    opacity 1s var(--ease),
-    scale 8s linear;
+  // Slides run right to left: each photo waits off the right edge, slides in, then leaves off the left.
+  // Waiting has no transition, so the jump back from the left is never seen.
+  translate: 100% 0;
 
-  // The shown photo fades in and drifts slowly back to rest while it is up.
+  &.on,
+  &.out {
+    transition: translate 900ms var(--ease);
+  }
+
   &.on {
-    opacity: 1;
-    scale: 1;
+    translate: 0 0;
+  }
+
+  &.out {
+    translate: -100% 0;
   }
 }
 
@@ -246,27 +251,11 @@ h1 {
       background: var(--on-field);
     }
   }
-
-  .play {
-    width: 44px;
-    height: 44px;
-    margin-left: 8px;
-    border: 1px solid color-mix(in srgb, var(--on-field) 35%, transparent);
-    background: none;
-    color: var(--on-field);
-    font-size: 18px;
-    cursor: pointer;
-    transition: background var(--fast) var(--ease);
-
-    &:hover {
-      background: color-mix(in srgb, var(--on-field) 12%, transparent);
-    }
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hero-bg {
-    scale: 1;
+  .hero-bg.on,
+  .hero-bg.out {
     transition: none;
   }
 
