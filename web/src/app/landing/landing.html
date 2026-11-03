@@ -1,6 +1,6 @@
 <!--
   One scrolling page on the dashboard's tokens, ordered around bulk sending:
-  the hero is a campaign going out; how a send works; what a bulk send can
+  the hero is a slider of customers getting their message; how a send works; what a bulk send can
   carry; how it keeps the number safe; what happens when people reply; the
   rest of the toolkit; who it is for; the request-access form; questions; a navy close.
   Pricing is commented out below until it is shown again.
@@ -16,15 +16,38 @@
 
 <main id="main" tabindex="-1">
   <!-- ================================ HERO ================================ -->
-  <section class="hero field" id="top" aria-labelledby="hero-title">
+  <!-- A slider of real-looking moments: each photo has its own headline; the actions stay put. -->
+  <section
+    class="hero field"
+    id="top"
+    aria-labelledby="hero-title"
+    aria-roledescription="carousel"
+    (mouseenter)="hold = true"
+    (mouseleave)="hold = false"
+    (focusin)="hold = true"
+    (focusout)="hold = false"
+  >
+    @for (s of slides; track s.image; let i = $index) {
+      <img
+        class="hero-bg"
+        [class.on]="i === slide()"
+        [src]="'assets/landing/' + s.image"
+        alt=""
+        width="1672"
+        height="941"
+        [attr.loading]="i === 0 ? null : 'lazy'"
+        [attr.fetchpriority]="i === 0 ? 'high' : null"
+      />
+    }
+    <div class="hero-scrim" aria-hidden="true"></div>
+
     <div class="wrap hero-grid">
       <div class="hero-copy">
-        <h1 id="hero-title">Send bulk WhatsApp messages</h1>
-        <p class="hero-lede">
-          Reach every customer at once from the WhatsApp number you already use. Each message
-          carries the person’s name, goes out at a careful pace that protects your number, and
-          every reply lands in one shared inbox.
-        </p>
+        <!-- One pass per slide, so the new headline and line rise in fresh. -->
+        @for (s of [slides[slide()]]; track s.image) {
+          <h1 id="hero-title">{{ s.title }}</h1>
+          <p class="hero-lede">{{ s.lede }}</p>
+        }
         <div class="hero-actions">
           <a class="btn go" href="#access">
             Start sending <i class="ti ti-arrow-right" aria-hidden="true"></i>
@@ -36,47 +59,91 @@
           <li><i class="ti ti-check" aria-hidden="true"></i>14-day free trial</li>
           <li><i class="ti ti-check" aria-hidden="true"></i>Set up for you in a day</li>
         </ul>
-      </div>
 
-      <!-- The live thing: pick a campaign and watch it go out, one personalised message at a time. -->
-      <app-bulk-demo class="hero-demo" />
+        <div class="hero-dots" role="group" aria-label="Slides">
+          @for (s of slides; track s.image; let i = $index) {
+            <button
+              type="button"
+              class="dot"
+              [class.on]="i === slide()"
+              [attr.aria-label]="'Show slide ' + (i + 1) + ' of ' + slides.length + ': ' + s.who"
+              [attr.aria-current]="i === slide() ? 'true' : null"
+              (click)="slide.set(i)"
+            ></button>
+          }
+          <button
+            type="button"
+            class="play round"
+            [attr.aria-label]="playing() ? 'Pause slides' : 'Play slides'"
+            (click)="playing.set(!playing())"
+          >
+            <i class="ti" [class.ti-player-pause]="playing()" [class.ti-player-play]="!playing()" aria-hidden="true"></i>
+          </button>
+        </div>
+      </div>
     </div>
   </section>
 
   <!-- ============================ HOW IT WORKS ============================ -->
+  <!-- A bento: the claim with the phone, the one-to-one promise, then the three moves in order. -->
   <section class="section" id="how" aria-labelledby="how-title">
-    <div class="wrap">
-      <div class="section-head">
-        <h2 id="how-title">From a spreadsheet to a sent campaign</h2>
-        <p>No developer and no paperwork with Meta. Three moves, and the first campaign is on its way.</p>
+    <div class="wrap how" reveal="children">
+      <div class="how-intro tone-blue">
+        <div class="how-copy">
+          <p class="wordmark" aria-hidden="true">
+            <img src="assets/brand/logo.png" alt="" width="40" height="40" /><span>wap<span>zo</span></span>
+          </p>
+          <h2 id="how-title">From spreadsheet to WhatsApp campaign</h2>
+          <p>Connect your number, upload your contacts, and send a personal message to each one.</p>
+        </div>
+        <img
+          class="how-phone"
+          src="assets/landing/phone-chat.png"
+          alt="A WhatsApp chat with Priya Shah: “Hi Priya, our Diwali sale starts Friday!”, sent at 9:41 AM and read."
+          width="720"
+          height="753"
+          loading="lazy"
+        />
       </div>
 
-      <ol class="steps" reveal="children">
-        <li>
-          <div class="qr" data-ui aria-hidden="true">
-            @for (cell of qr; track $index) {
-              <span [class.on]="cell"></span>
-            }
+      <div class="how-chats tone-green">
+        <div class="chat-art" aria-hidden="true">
+          <span class="art-bubble back"><i></i><i></i><i></i></span>
+          <span class="art-bubble front"><i class="ti ti-checks"></i></span>
+        </div>
+        <h3>One campaign. Individual chats.</h3>
+      </div>
+
+      <ol class="steps">
+        <li class="tone-pink">
+          <div class="scan" data-ui aria-hidden="true">
+            <span class="corners"></span>
+            <div class="qr">
+              @for (cell of qr; track $index) {
+                <span [class.on]="cell"></span>
+              }
+            </div>
           </div>
-          <h3>Link your number</h3>
-          <p>Open WhatsApp on your phone and scan the code. Your number is connected and your chats stay on your phone as before.</p>
+          <h3><span class="step-no">01</span>Link your number</h3>
+          <p>Scan the QR code with WhatsApp.</p>
         </li>
-        <li>
+        <li class="tone-yellow">
           <div class="sheet" data-ui aria-hidden="true">
+            <span class="xls"><i class="ti ti-file-type-xls"></i></span>
             <span><b>Name</b><b>Phone</b><b>Group</b></span>
-            <span><i>Priya Shah</i><i>+91 98200 11234</i><i>VIP</i></span>
-            <span><i>Rohan Mehta</i><i>+91 99300 55821</i><i>Diwali</i></span>
+            <span><i>Priya Shah</i><i>+91 98200 11234</i><i><em class="tag tone-blue">VIP</em></i></span>
+            <span><i>Rohan Mehta</i><i>+91 99300 55821</i><i><em class="tag tone-violet">Diwali</em></i></span>
           </div>
-          <h3>Upload your list</h3>
-          <p>Drop in the Excel or CSV you already keep. Wapzo checks every number, removes duplicates and sorts people into groups.</p>
+          <h3><span class="step-no">02</span>Upload your list</h3>
+          <p>Import contacts from Excel or CSV.</p>
         </li>
-        <li>
-          <div class="sendbar" data-ui aria-hidden="true">
-            <span>Hi {{ '{' }}name{{ '}' }}, our Diwali sale starts Friday…</span>
-            <i class="ti ti-send round"></i>
+        <li class="tone-violet">
+          <div class="plane" data-ui aria-hidden="true">
+            <svg class="plane-art" viewBox="0 0 120 100"><path class="w1" d="M6 50 114 6 58 62Z" /><path class="w2" d="M114 6 86 94 58 62Z" /><path class="w3" d="M58 62l6 32 22-.5Z" /></svg>
+            <span class="plane-msg">Hi {{ '{' }}{{ '{' }}name{{ '}' }}{{ '}' }}, our Diwali sale starts Friday!</span>
           </div>
-          <h3>Write once, send to all</h3>
-          <p>One message with each person’s name in it, an image if you like, sent now or on a schedule to the groups you pick.</p>
+          <h3><span class="step-no">03</span>Write once, send to all</h3>
+          <p>Personalise each message and send now or later.</p>
         </li>
       </ol>
     </div>

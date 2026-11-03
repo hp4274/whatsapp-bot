@@ -5,6 +5,8 @@ import { FormsModule } from '@angular/forms';
 import type { SafetyPolicy, TenantLimits } from '../core/api';
 import type { Tenant, TenantControls, TenantSubscriptionSummary } from '../core/auth';
 import { Lead, LeadsApi } from './leads-api';
+import { TenantDetailsEdit } from './tenant-details-edit';
+import { sentenceCase } from './text';
 import {
   BILLINGS,
   PLAN_QUOTA_FIELDS,
@@ -44,7 +46,7 @@ export type Activation = {
  */
 @Component({
   selector: 'app-tenant-summary',
-  imports: [DatePipe, FormsModule],
+  imports: [DatePipe, FormsModule, TenantDetailsEdit],
   templateUrl: './tenant-summary.html',
   styleUrl: './tenant-summary.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -66,11 +68,16 @@ export class TenantSummary {
   readonly balance = input<NonNullable<Tenant['balance']> | null>(null);
   /** "Open" beside the balance: the drawer switches to its Payments tab. */
   readonly openPayments = output<void>();
+  /** Edit details saved here: the drawer shows the business as it is now. */
+  readonly detailsSaved = output<Tenant>();
   /** Switch the business on with this owner password; the drawer saves the right side first. */
   readonly activate = output<{ password: string; sendWelcome: boolean }>();
 
   protected readonly lead = signal<Lead | null>(null);
-  protected readonly ownerEmail = signal('');
+  /** The business's owner, read per business (the tenant row does not carry it). */
+  protected readonly owner = signal<{ readonly name: string; readonly email: string } | null>(null);
+  /** The Request / Details lines are boxes being edited. */
+  protected readonly editing = signal(false);
   protected readonly password = signal(newPassword());
   protected readonly sendWelcome = signal(true);
   protected readonly copied = signal(false);
@@ -81,6 +88,7 @@ export class TenantSummary {
   protected readonly formatPrice = formatPrice;
   protected readonly paidPrice = paidPrice;
   protected readonly stateTone = stateTone;
+  protected readonly sentence = sentenceCase;
   protected readonly when = subscriptionWhen;
   /** Paid, Free or Hybrid (free with charged top-ups), beside the plan's name. */
   protected readonly payment = computed(() => {
@@ -100,14 +108,29 @@ export class TenantSummary {
       const tenantId = id();
       untracked(() => {
         this.lead.set(null);
-        this.ownerEmail.set('');
+        this.owner.set(null);
+        this.editing.set(false);
         this.api.forTenant(tenantId).subscribe({ next: ({ lead }) => this.lead.set(lead), error: () => undefined });
-        this.api.users(tenantId).subscribe({
-          next: ({ users }) => this.ownerEmail.set(users.find((u) => u.role === 'owner')?.email ?? ''),
-          error: () => undefined,
-        });
+        this.loadOwner(tenantId);
       });
     });
+  }
+
+  private loadOwner(tenantId: number): void {
+    this.api.users(tenantId).subscribe({
+      next: ({ users }) => {
+        const owner = users.find((u) => u.role === 'owner');
+        this.owner.set(owner ? { name: owner.name ?? '', email: owner.email } : null);
+      },
+      error: () => undefined,
+    });
+  }
+
+  /** Saved in place: back to the lines, with the owner read again (their email may have changed). */
+  protected saved(tenant: Tenant): void {
+    this.editing.set(false);
+    this.loadOwner(tenant.id);
+    this.detailsSaved.emit(tenant);
   }
 
   /** A plan quota for reading: null is unlimited, 0 is none. */

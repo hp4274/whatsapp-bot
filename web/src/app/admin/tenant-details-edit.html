@@ -1,10 +1,5 @@
-<!-- Tenant settings > Edit: replaces the left column while open. -->
+<!-- Tenant settings > left column > Request / Details: the same lines as boxes, edited in place. -->
 <form class="edit" (submit)="submit($event)">
-  <header>
-    <h4>Edit details</h4>
-    <p class="sub">The business, how Wapzo reaches it, and who signs in first.</p>
-  </header>
-
   @if (error()) {
     <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}</p>
   }

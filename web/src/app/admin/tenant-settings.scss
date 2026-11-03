@@ -234,20 +234,11 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
 }
 
 /* Plan tab */
-.plan-now {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--primary-tint), var(--surface-card) 60%);
-  > .ti { font-size: 22px; color: var(--primary-text); }
-  div { display: grid; gap: 2px; font-size: 13px; }
-  strong { font-size: 16px; font-weight: 500; color: var(--text-strong); }
-  .warn-note { color: var(--warning); font-size: 12px; }
-}
+.warn-note { color: var(--warning); }
+// Billing: two labelled segmented choices, how often and whether it is charged, one per row.
+.bill-rows { display: grid; grid-template-columns: max-content max-content; align-items: center; gap: 10px 16px; }
+.bill-label { font-size: 13px; font-weight: 500; color: var(--text-strong); }
+.charge { color: var(--text-strong); font-weight: 600; }
 .plan-change { display: flex; gap: 8px; select, input { flex: 1; min-width: 0; } }
 .plan-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 // Billing: paid or free as a small segmented radio beside its heading.
@@ -350,26 +341,6 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
 // The services drawer opened beside this one: slide left so both show, services on the right.
 .drawer { transition: translate var(--base) var(--ease); }
 .drawer.pushed { translate: calc(-1 * min(420px, 100vw)) 0; }
-
-// Plan picker: one card per plan, the picked one in the brand tint, the current one tagged.
-.plan-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
-.plan-opt {
-  display: grid;
-  align-content: start;
-  gap: 4px;
-  padding: 12px 14px;
-  text-align: left;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--surface-card);
-  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
-  &:hover:not(:disabled) { border-color: var(--border-hover); }
-  &[aria-checked='true'] { border-color: var(--primary); background: var(--primary-tint); }
-  .po-name { display: flex; align-items: center; gap: 6px; font-weight: 500; color: var(--text-strong); }
-  .po-price { font-size: 12.5px; color: var(--text-muted); }
-  .po-current { justify-self: start; margin-top: 4px; }
-  .po-msgs { display: flex; gap: 5px; align-items: baseline; margin-top: 2px; font-size: 12px; line-height: 1.4; color: var(--text-color); .ti { font-size: 13px; color: var(--text-muted); } }
-}
 
 // "The plan's quota / day" under a message limit box.
 .follow { display: flex; align-items: center; gap: 8px; margin-top: 2px; font-size: 12.5px; font-weight: 400; color: var(--text-muted); }

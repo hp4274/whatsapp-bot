@@ -101,17 +101,52 @@ section[id] {
 
 // ------------------------------------------------------------------ hero
 // The panel starts 12px down and its top padding clears the floating bar over it (landing-nav).
+// The photos fill the panel; the copy sits on their plain wall at the left.
 .hero {
+  position: relative;
+  display: grid;
+  align-items: center;
+  min-height: min(880px, 94vh);
   margin-top: 12px;
   padding: calc(clamp(56px, 8vw, 104px) + 72px) 0 clamp(56px, 7vw, 96px);
   overflow: hidden;
+  isolation: isolate;
+}
+
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 70% center;
+  opacity: 0;
+  scale: 1.06;
+  transition:
+    opacity 1s var(--ease),
+    scale 8s linear;
+
+  // The shown photo fades in and drifts slowly back to rest while it is up.
+  &.on {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+// A neutral scrim under the text (left) and the bar (top); the people on the right stay clear.
+.hero-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--brand-ink) 72%, transparent) 0%, color-mix(in srgb, var(--brand-ink) 40%, transparent) 42%, transparent 62%),
+    linear-gradient(180deg, color-mix(in srgb, var(--brand-ink) 45%, transparent) 0%, transparent 22%);
 }
 
 .hero-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  gap: clamp(32px, 5vw, 80px);
-  align-items: center;
+  grid-template-columns: minmax(0, 620px);
 }
 
 h1 {
@@ -127,6 +162,23 @@ h1 {
   font-size: clamp(16px, 1.35vw, 19px);
   line-height: 1.55;
   color: var(--on-field-soft);
+}
+
+// A new slide's words rise in; Motion's first-load entrance runs on transform, this on translate.
+.hero-copy > h1,
+.hero-copy > .hero-lede {
+  animation: hero-in 700ms var(--ease) both;
+}
+
+.hero-copy > .hero-lede {
+  animation-delay: 80ms;
+}
+
+@keyframes hero-in {
+  from {
+    opacity: 0;
+    translate: 0 18px;
+  }
 }
 
 .hero-actions {
@@ -155,6 +207,72 @@ h1 {
   .ti {
     color: var(--primary);
     font-size: 16px;
+  }
+}
+
+// Slide controls: 44px targets, a short bar drawn inside each; the shown one is wider and solid.
+.hero-dots {
+  display: flex;
+  align-items: center;
+  margin: 40px 0 0 -12px;
+
+  .dot {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+
+    &::before {
+      content: '';
+      width: 24px;
+      height: 4px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--on-field) 40%, transparent);
+      transition:
+        width var(--base) var(--ease),
+        background var(--fast) var(--ease);
+    }
+
+    &:hover::before {
+      background: color-mix(in srgb, var(--on-field) 70%, transparent);
+    }
+
+    &.on::before {
+      width: 36px;
+      background: var(--on-field);
+    }
+  }
+
+  .play {
+    width: 44px;
+    height: 44px;
+    margin-left: 8px;
+    border: 1px solid color-mix(in srgb, var(--on-field) 35%, transparent);
+    background: none;
+    color: var(--on-field);
+    font-size: 18px;
+    cursor: pointer;
+    transition: background var(--fast) var(--ease);
+
+    &:hover {
+      background: color-mix(in srgb, var(--on-field) 12%, transparent);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-bg {
+    scale: 1;
+    transition: none;
+  }
+
+  .hero-copy > h1,
+  .hero-copy > .hero-lede {
+    animation: none;
   }
 }
 
@@ -213,46 +331,227 @@ p {
   margin: 0;
 }
 
-// --------------------------------------------------------------- steps
-.steps {
+// ---------------------------------------------------------- how it works
+// Bento: the intro spans two of three columns, the promise one; the three steps fill the row below.
+.how {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: clamp(24px, 4vw, 56px);
+  gap: 20px;
+}
+
+.how-intro,
+.how-chats,
+.steps > li {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--tone) 12%, var(--surface-card));
+}
+
+.how-intro {
+  grid-column: span 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+  align-items: center;
+  gap: 16px;
+  min-height: 440px;
+  padding: 0 0 0 clamp(28px, 4vw, 56px);
+
+  // Smaller than the page h2 so the claim keeps to two lines beside the phone.
+  h2 {
+    margin-top: 28px;
+    font-size: clamp(30px, 2.9vw, 42px);
+  }
+
+  .how-copy > p:last-child {
+    margin-top: 20px;
+    max-width: 30em;
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--text-muted);
+  }
+}
+
+// The cut-out stops mid-phone, so it sits on the card's bottom edge.
+.how-phone {
+  align-self: end;
+  justify-self: center;
+  display: block;
+  width: min(100%, 360px);
+  height: auto;
+  margin-top: 40px;
+  transition: translate var(--base) var(--ease);
+
+  .how-intro:hover & {
+    translate: 0 -6px;
+  }
+}
+
+.wordmark {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--brand-word-ink);
+
+  img {
+    width: 40px;
+    height: 40px;
+  }
+
+  span span {
+    background: var(--brand-word-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+.how-chats {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 28px;
+  padding: 28px;
+  text-align: center;
+
+  h3 {
+    max-width: 12em;
+    font-size: clamp(24px, 2.4vw, 32px);
+    line-height: 1.1;
+    letter-spacing: -0.035em;
+  }
+}
+
+// Two drawn speech bubbles: someone typing, and a read receipt.
+.chat-art {
+  position: relative;
+  width: 240px;
+  height: 170px;
+}
+
+.art-bubble {
+  position: absolute;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 32px;
+  background: var(--surface-card);
+
+  &.back {
+    top: 0;
+    left: 0;
+    width: 150px;
+    height: 96px;
+
+    i {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: color-mix(in srgb, var(--text-muted) 45%, var(--surface-card));
+    }
+  }
+
+  // The card's own tint as a ring separates it from the bubble behind, without a shadow.
+  &.front {
+    right: 0;
+    bottom: 0;
+    width: 150px;
+    height: 100px;
+    border: 6px solid color-mix(in srgb, var(--tone) 12%, var(--surface-card));
+
+    .ti {
+      font-size: 52px;
+      color: var(--primary);
+    }
+  }
+}
+
+.steps {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
   margin: 0;
   padding: 0;
   list-style: none;
 
-  li {
+  > li {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    align-content: start;
+    justify-items: center;
+    align-content: end;
+    gap: 8px;
+    padding: 32px 28px;
+    text-align: center;
+    transition: translate var(--base) var(--ease);
+
+    &:hover {
+      translate: 0 -4px;
+    }
+  }
+
+  h3 {
+    display: flex;
     gap: 14px;
+    align-items: baseline;
+    justify-content: center;
+    font-size: clamp(22px, 2vw, 26px);
+    letter-spacing: -0.03em;
   }
 
   p {
-    color: var(--text-color);
-    line-height: 1.6;
+    color: var(--text-muted);
   }
 
   [data-ui] {
-    height: 168px;
-    margin-bottom: 14px;
-    border-radius: var(--radius-xl);
-    background: var(--surface-card);
-    border: 1px solid var(--border-color);
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 220px;
+    margin-bottom: 16px;
+  }
+}
+
+// The steps really are a sequence, so their order is shown in the step's own colour.
+.step-no {
+  color: var(--tone);
+  font-weight: 600;
+}
+
+.scan {
+  position: relative;
+
+  .corners {
+    position: absolute;
+    inset: 50%;
+    width: 200px;
+    height: 200px;
+    translate: -50% -50%;
+    // Four corner brackets: one border, masked to its corners.
+    border: 6px solid var(--tone);
+    border-radius: 24px;
+    mask:
+      linear-gradient(#000 0 0) top left / 44px 44px no-repeat,
+      linear-gradient(#000 0 0) top right / 44px 44px no-repeat,
+      linear-gradient(#000 0 0) bottom left / 44px 44px no-repeat,
+      linear-gradient(#000 0 0) bottom right / 44px 44px no-repeat;
   }
 }
 
 .qr {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(9, 13px);
   grid-auto-rows: 13px;
-  gap: 3px;
-  place-content: center;
+  gap: 0;
+  padding: 18px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
 
   span {
-    border-radius: 3px;
-
     &.on {
       background: var(--text-strong);
     }
@@ -260,19 +559,34 @@ p {
 }
 
 .sheet {
-  display: grid;
+  position: relative;
   align-content: center;
-  gap: 6px;
-  padding: 0 18px;
-  font-size: 12.5px;
+  gap: 0;
+  padding: 0 4px;
+  font-size: 13px;
+  text-align: left;
 
-  span {
+  > span:not(.xls) {
     display: grid;
-    grid-template-columns: 1fr 1.3fr 0.6fr;
+    grid-template-columns: 1fr 1.25fr 0.7fr;
     gap: 8px;
-    padding: 8px 10px;
-    border-radius: 10px;
-    background: var(--surface-sunken);
+    align-items: center;
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--surface-card);
+
+    &:nth-child(2) {
+      border-radius: var(--radius-md) var(--radius-md) 0 0;
+      background: var(--surface-sunken);
+    }
+
+    &:last-child {
+      border-radius: 0 0 var(--radius-md) var(--radius-md);
+    }
+
+    & + span {
+      border-top: 1px solid var(--border-color);
+    }
   }
 
   b {
@@ -282,36 +596,66 @@ p {
 
   i {
     font-style: normal;
-    color: var(--text-muted);
+    color: var(--text-color);
+    white-space: nowrap;
+  }
+
+  .tag {
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--tone) 14%, var(--surface-card));
+    color: var(--tone);
+    font-style: normal;
+    font-weight: 500;
+  }
+
+  .xls {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    border-radius: var(--radius-md);
+    background: var(--surface-card);
+    .ti {
+      font-size: 32px;
+      color: var(--success);
+    }
   }
 }
 
-.sendbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 18px;
+.plane {
+  grid-template-columns: auto auto;
+  justify-content: center;
+  gap: 16px;
 
-  span {
-    flex: 1;
-    min-width: 0;
-    padding: 12px 16px;
-    border-radius: 999px;
-    background: var(--surface-sunken);
-    font-size: 13.5px;
-    color: var(--text-strong);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  .plane-art {
+    width: 110px;
+    height: auto;
 
-  .ti {
-    width: 44px;
-    height: 44px;
-    background: var(--primary);
-    color: var(--on-primary);
-    font-size: 20px;
+    .w1 {
+      fill: color-mix(in srgb, var(--tone) 55%, var(--surface-card));
+    }
+    .w2 {
+      fill: var(--tone);
+    }
+    .w3 {
+      fill: color-mix(in srgb, var(--tone) 75%, var(--brand-ink));
+    }
   }
+}
+
+.plane-msg {
+  max-width: 150px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) 4px;
+  background: var(--surface-card);
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: var(--text-color);
+  text-align: left;
 }
 
 // ------------------------------------------------------- feature showcase
@@ -1640,6 +1984,18 @@ p {
 
 // ------------------------------------------------------------- responsive
 @media (max-width: 1023px) {
+  .how {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .how-intro {
+    grid-column: auto;
+  }
+
+  .how .steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .hero-grid,
   .show,
   .safety-grid,
@@ -1689,8 +2045,39 @@ p {
     border-radius: 22px;
   }
 
+  // On a phone the photo is a band under the copy, cropped to the people, not a backdrop to read over.
+  .hero {
+    min-height: 0;
+    padding-bottom: 340px;
+  }
+
+  .hero-bg {
+    inset: auto 0 0;
+    height: 300px;
+    object-position: right center;
+  }
+
+  .hero-scrim {
+    display: none;
+  }
+
   .steps {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  // The phone drops under the copy and stays on the card's bottom edge.
+  .how-intro {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 28px 28px 0;
+
+    h2 {
+      margin-top: 20px;
+    }
+  }
+
+  .how-phone {
+    width: min(100%, 300px);
+    margin-top: 8px;
   }
 
   .tools {

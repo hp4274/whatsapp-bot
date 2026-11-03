@@ -209,6 +209,9 @@ const RULES = {
     },
     'tenant.subscription.cancel': (c) => [`Cancelled the subscription of ${c.biz()}${field(c.detail, 'immediate') ? ' immediately' : ' at the end of the period'}`, 'warn'],
     'tenant.payment': (c) => `Marked ${c.biz()} as ${field(c.detail, 'payment') ?? '?'}${Number(field(c.detail, 'charged') ?? 0) ? `, charged ${money(c.detail, field(c.detail, 'charged'))}` : ''}`,
+    'tenant.own_plan': (c) => `Gave ${c.biz()} its own plan${field(c.detail, 'from') ? `, made from ${field(c.detail, 'from')}` : ''}`,
+    'tenant.cycle': (c) => `Set ${c.biz()} to be billed ${{ month: 'monthly', quarter: 'quarterly', year: 'annually' }[field(c.detail, 'cycle')] ?? '?'}${Number(field(c.detail, 'charged') ?? 0) ? `, charged ${money(c.detail, field(c.detail, 'charged'))}` : ''}`,
+    'tenant.start': (c) => `Set the plan of ${c.biz()} to start on ${String(field(c.detail, 'startsAt') ?? '').slice(0, 10)}`,
     'tenant.validity': (c) => {
         const until = field(c.detail, 'validUntil');
         return until ? `Set the plan of ${c.biz()} to end on ${String(until).slice(0, 10)}` : `Removed the end date of ${c.biz()}'s plan`;

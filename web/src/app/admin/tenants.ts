@@ -298,7 +298,9 @@ export class TenantsView {
     return `${services.length} of ${this.services().length} enabled`;
   }
 
+  /** Choose services from Tenant settings: opens the drawer, or closes it when it is already open for this business. */
   protected openTenantServices(tenant: Tenant) {
+    if (this.serviceDrawer()?.tenant.id === tenant.id) return this.closeServiceDrawer();
     this.serviceDrawer.set({
       tenant,
       services: [...(tenant.services ?? this.services())],

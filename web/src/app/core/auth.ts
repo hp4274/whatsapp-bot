@@ -72,6 +72,8 @@ export interface TenantSubscriptionSummary {
   readonly validUntil?: string | null;
   readonly topupMessages?: number;
   readonly customPrice?: number | null;
+  readonly billingCycle?: 'month' | 'quarter' | 'year';
+  readonly renewsAt?: string;
 }
 
 /** Per-tenant kill switches the platform admin can flip. */

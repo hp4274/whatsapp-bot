@@ -4,20 +4,10 @@
 @include s.buttons;
 @include s.switch;
 
-// Takes the left column's place and scrolls like it.
-:host {
-  display: block;
-  min-width: 0;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: var(--space-xl);
-  animation: edit-in var(--base) var(--ease) both;
-}
+// In place of the Request / Details lines: no padding or scroll of its own, it opens where it is.
+:host { display: block; min-width: 0; animation: edit-in var(--base) var(--ease) both; }
 
 .edit { display: grid; gap: var(--space-lg); }
-h4 { margin: 0; font-size: 16px; font-weight: 500; color: var(--text-strong); }
-.sub { margin: 4px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--text-muted); }
 .muted { color: var(--text-muted); font-weight: 400; }
 
 fieldset {
@@ -28,7 +18,7 @@ fieldset {
   border: 0;
   & + fieldset { padding-top: var(--space-sm); }
 }
-legend { margin-bottom: var(--space-md); padding: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); }
+legend { margin-bottom: var(--space-sm); padding: 0; font-size: 12.5px; font-weight: 500; color: var(--text-muted); }
 
 .opt {
   display: flex;
