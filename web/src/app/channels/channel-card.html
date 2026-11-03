@@ -76,14 +76,11 @@
     @if (editing() === 'phone') {
       <form class="inline" (submit)="commitEdit($event)">
         <label class="sr" [for]="'phone-' + ch.id">Phone number</label>
-        <input
+        <app-phone-input
           #editor
-          [id]="'phone-' + ch.id"
           class="edit-phone"
-          inputmode="tel"
-          placeholder="+91 98765 43210"
-          [value]="draftValue()"
-          (input)="draftValue.set($any($event.target).value)"
+          [inputId]="'phone-' + ch.id"
+          [(value)]="draftValue"
           (keydown)="editKey($event)"
         />
         <button

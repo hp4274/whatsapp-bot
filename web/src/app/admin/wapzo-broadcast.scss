@@ -1,0 +1,130 @@
+@use '../school/school-shared' as s;
+
+@include s.tones;
+@include s.card;
+@include s.pill;
+@include s.chip;
+@include s.seg;
+@include s.banner;
+@include s.buttons;
+
+p { margin: 0; }
+.small { font-size: 12.5px; line-height: 1.5; }
+.head {
+  margin-bottom: var(--space-lg);
+  h3 { margin: 0 0 4px; font-size: 17px; font-weight: 500; color: var(--text-strong); }
+}
+.s-banner { margin-bottom: var(--space-lg); }
+.skip { display: inline-block; margin-right: 8px; }
+
+// Who on the left, a little narrower than the message it gets.
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: var(--space-xl);
+  align-items: start;
+  @media (max-width: 900px) { grid-template-columns: minmax(0, 1fr); }
+}
+.who, .what { display: grid; gap: var(--space-md); min-width: 0; }
+
+.note {
+  display: flex;
+  gap: 10px;
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-lg);
+  background: var(--surface-sunken);
+  font-size: 13.5px;
+  line-height: 1.55;
+  .ti { margin-top: 2px; font-size: 18px; color: var(--primary-text); }
+  strong { font-weight: 500; color: var(--text-strong); }
+}
+
+.pick-bar {
+  display: flex;
+  gap: var(--space-sm);
+  input { flex: 1; min-width: 0; }
+}
+
+// A short scrolling list: a long one would push the message out of view.
+.list {
+  display: grid;
+  max-height: 300px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+
+  label {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-md);
+    min-height: 44px;
+    padding: 6px 10px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    &:hover { background: var(--surface-sunken); }
+  }
+  input { width: 16px; height: 16px; margin: 0; accent-color: var(--primary); }
+  .none { padding: var(--space-md); }
+}
+.name {
+  display: grid;
+  min-width: 0;
+  strong, span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  strong { font-size: 13.5px; font-weight: 500; color: var(--text-strong); }
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  > span:first-child { font-size: 13px; font-weight: 500; color: var(--text-strong); }
+  textarea { resize: vertical; font-size: 13.5px; line-height: 1.55; }
+}
+
+.foot, .send {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+.vars {
+  display: flex;
+  gap: 4px;
+  .s-chip { padding: 3px 9px; font-family: var(--font-mono); font-size: 11.5px; }
+}
+.count { font-variant-numeric: tabular-nums; }
+
+.vars .attach { cursor: pointer; font-family: inherit; font-size: 12px; &:hover { color: var(--text-strong); } &:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; } }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+// What the first person reads, in a chat bubble's shape: the image on top, the text as its caption.
+.preview { display: grid; gap: 6px; }
+.bubble {
+  display: grid;
+  gap: 8px;
+  justify-self: start;
+  max-width: min(100%, 360px);
+  padding: 8px;
+  border-radius: 4px 14px 14px 14px;
+  background: var(--primary-tint);
+  p {
+    padding: 2px 6px 4px;
+    color: var(--text-strong);
+    font-size: 13.5px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+figure {
+  position: relative;
+  margin: 0;
+  img { display: block; width: 100%; max-height: 240px; object-fit: cover; border-radius: 10px; }
+  .btn { position: absolute; top: 6px; right: 6px; }
+  figcaption { position: absolute; left: 8px; bottom: 8px; padding: 2px 8px; border-radius: 999px; background: var(--surface-card); color: var(--text-muted); }
+}

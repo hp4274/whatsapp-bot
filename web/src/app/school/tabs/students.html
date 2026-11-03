@@ -336,17 +336,13 @@
       </div>
       <div class="s-field wide">
         <label for="sf-phone">Parent WhatsApp</label>
-        <input
-          id="sf-phone"
+        <app-phone-input
+          inputId="sf-phone"
           name="phone"
-          type="tel"
-          inputmode="tel"
-          placeholder="9876512001 or +919876512001"
-          [class.invalid]="e.parentPhone"
-          [attr.aria-invalid]="!!e.parentPhone"
-          aria-describedby="sf-phone-err"
-          [ngModel]="draft().parentPhone"
-          (ngModelChange)="patch('parentPhone', $event)"
+          describedBy="sf-phone-err"
+          [invalid]="!!e.parentPhone"
+          [value]="draft().parentPhone"
+          (valueChange)="patch('parentPhone', $event)"
         />
         @if (e.parentPhone) {
           <span class="err" id="sf-phone-err">{{ e.parentPhone }}</span>

@@ -11,6 +11,7 @@ import {
   TestResult,
 } from './auto-replies.api';
 import { PreviewTurn, WaPreview } from './wa-preview';
+import { PhoneInput } from '../core/phone-input';
 
 /** Human names for the engine's reply sources, shown on each simulated reply. */
 const SOURCE_LABEL: Record<TestReply['source'], string> = {
@@ -39,7 +40,7 @@ function localNow(): string {
  */
 @Component({
   selector: 'ar-test-console',
-  imports: [ArChips, WaPreview],
+  imports: [ArChips, WaPreview, PhoneInput],
   templateUrl: './test-console.html',
   styleUrl: './test-console.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -18,6 +18,7 @@ import { CampaignDraft } from '../draft';
 import { CampaignPolicy } from '../policy-api';
 import { ReplyRulesEditor } from '../interactive/reply-rules-editor';
 import { formatBytes, substitute } from '../wa-format';
+import { PhoneInput } from '../../core/phone-input';
 
 /** Media types WhatsApp accepts as an attachment; the server checks the same list. */
 const ALLOWED = [
@@ -52,8 +53,7 @@ const SPIN_SAMPLE = '{Hi|Hello|Hey}';
     FormsModule,
     InteractiveEditor,
     ReusePicker,
-    ReplyRulesEditor,
-  ],
+    ReplyRulesEditor, PhoneInput],
   templateUrl: './message-step.html',
   styleUrl: './message-step.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

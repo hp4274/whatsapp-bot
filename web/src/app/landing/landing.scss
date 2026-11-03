@@ -1,5 +1,3 @@
-@use '../school/school-shared' as s;
-
 // 60-30-10 on the dashboard tokens: ground and cards (60), the brand navy
 // fields (30), the brand blue on actions and live state only (10).
 :host {
@@ -16,7 +14,6 @@
   font-size: 16px;
 }
 
-@include s.tilt;
 
 ::selection {
   background: var(--primary-tint);
@@ -54,14 +51,6 @@ section[id] {
   padding: 0 24px;
   border-radius: 999px;
   font-size: 15px;
-
-  .ti {
-    transition: var(--fast) var(--ease);
-  }
-
-  &:hover .ti-arrow-right {
-    translate: 3px 0;
-  }
 }
 
 // Text-bearing blue fills use the deeper blue: white on the brand blue is 4.49:1, just under AA.
@@ -106,10 +95,12 @@ section[id] {
   position: relative;
   display: grid;
   align-items: center;
-  min-height: min(880px, 94vh);
+  // The panel takes the photos' own shape, so each shows whole, not cropped to fill a taller box.
+  aspect-ratio: 1672 / 941;
   margin-top: 12px;
   padding: calc(clamp(56px, 8vw, 104px) + 72px) 0 clamp(56px, 7vw, 96px);
-  overflow: hidden;
+  // clip, not hidden: a scroll container may shrink below its text, which cut off the dots at tablet widths.
+  overflow: clip;
   isolation: isolate;
 }
 
@@ -124,18 +115,26 @@ section[id] {
   // Slides run right to left: each photo waits off the right edge, slides in, then leaves off the left.
   // Waiting has no transition, so the jump back from the left is never seen.
   translate: 100% 0;
+  scale: 1.05;
 
-  &.on,
-  &.out {
-    transition: translate 900ms var(--ease);
-  }
-
+  // Each photo comes in slightly large and shrinks to its own size, so it settles showing the whole picture.
   &.on {
     translate: 0 0;
+    scale: 1;
+    transition:
+      translate 900ms var(--ease),
+      scale 4s var(--ease);
+
+    // The first photo is shown on load, with no change to transition from; this gives it one.
+    @starting-style {
+      scale: 1.05;
+    }
   }
 
   &.out {
     translate: -100% 0;
+    scale: 1;
+    transition: translate 900ms var(--ease);
   }
 }
 
@@ -154,7 +153,9 @@ section[id] {
   grid-template-columns: minmax(0, 620px);
 }
 
-h1 {
+h1,
+.hero-title {
+  margin: 0;
   font-size: clamp(40px, 4.7vw, 68px);
   line-height: 1;
   letter-spacing: -0.045em;
@@ -169,13 +170,27 @@ h1 {
   color: var(--on-field-soft);
 }
 
+// All slides' words share one cell; the hidden ones only hold its height (see the template).
+.hero-text {
+  display: grid;
+}
+
+.hero-sizer,
+.hero-live {
+  grid-area: 1 / 1;
+}
+
+.hero-sizer {
+  visibility: hidden;
+}
+
 // A new slide's words rise in; Motion's first-load entrance runs on transform, this on translate.
-.hero-copy > h1,
-.hero-copy > .hero-lede {
+.hero-live > h1,
+.hero-live > .hero-lede {
   animation: hero-in 700ms var(--ease) both;
 }
 
-.hero-copy > .hero-lede {
+.hero-live > .hero-lede {
   animation-delay: 80ms;
 }
 
@@ -256,11 +271,12 @@ h1 {
 @media (prefers-reduced-motion: reduce) {
   .hero-bg.on,
   .hero-bg.out {
+    scale: 1;
     transition: none;
   }
 
-  .hero-copy > h1,
-  .hero-copy > .hero-lede {
+  .hero-live > h1,
+  .hero-live > .hero-lede {
     animation: none;
   }
 }
@@ -344,7 +360,8 @@ p {
   align-items: center;
   gap: 16px;
   min-height: 440px;
-  padding: 0 0 0 clamp(28px, 4vw, 56px);
+  // Right padding keeps the phone off the card edge.
+  padding: 0 clamp(24px, 3vw, 40px) 0 clamp(28px, 4vw, 56px);
 
   // Smaller than the page h2 so the claim keeps to two lines beside the phone.
   h2 {
@@ -369,11 +386,6 @@ p {
   width: min(100%, 360px);
   height: auto;
   margin-top: 40px;
-  transition: translate var(--base) var(--ease);
-
-  .how-intro:hover & {
-    translate: 0 -6px;
-  }
 }
 
 .wordmark {
@@ -475,11 +487,6 @@ p {
     gap: 8px;
     padding: 32px 28px;
     text-align: center;
-    transition: translate var(--base) var(--ease);
-
-    &:hover {
-      translate: 0 -4px;
-    }
   }
 
   h3 {
@@ -708,11 +715,6 @@ p {
   border: 1px solid var(--border-color);
   background: var(--surface-card);
   color: var(--text-color);
-  transition: var(--base) var(--ease);
-
-  .show:hover & {
-    translate: 0 -4px;
-  }
 }
 
 .frag-head {
@@ -1046,11 +1048,6 @@ p {
     padding: 28px;
     border-radius: var(--radius-xl);
     background: color-mix(in srgb, var(--tone) 8%, var(--surface-card));
-    transition: translate var(--base) var(--ease);
-
-    &:hover {
-      translate: 0 -4px;
-    }
 
     > p {
       margin: 8px 0 24px;
@@ -1365,11 +1362,6 @@ p {
   border-radius: var(--radius-xl);
   background: color-mix(in srgb, var(--tone) 12%, var(--surface-card));
   font-size: 15px;
-  transition: translate var(--base) var(--ease);
-
-  .fac-group:hover & {
-    translate: 0 -4px;
-  }
 
   b {
     display: block;
@@ -1672,28 +1664,16 @@ p {
     &:last-child {
       border-bottom: 1px solid var(--border-color);
     }
-
-    &:hover {
-      h3 {
-        color: var(--primary-text);
-      }
-
-      .ti {
-        translate: 4px 0;
-      }
-    }
   }
 
   h3 {
     font-size: clamp(20px, 1.9vw, 26px);
-    transition: var(--fast) var(--ease);
   }
 
   .ti {
     align-self: start;
     font-size: 26px;
     color: var(--primary-text);
-    transition: var(--base) var(--ease);
   }
 
   p {
@@ -1766,11 +1746,6 @@ p {
   border-radius: var(--radius-xl);
   background: var(--surface-card);
   border: 1px solid var(--border-color);
-  transition: var(--base) var(--ease);
-
-  &:hover {
-    translate: 0 -4px;
-  }
 
   h3 {
     color: var(--ink);
@@ -2023,7 +1998,8 @@ p {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  h1 {
+  h1,
+  .hero-title {
     max-width: 14ch;
   }
 }
@@ -2034,16 +2010,17 @@ p {
     border-radius: 22px;
   }
 
-  // On a phone the photo is a band under the copy, cropped to the people, not a backdrop to read over.
+  // On a phone the photo is a band under the copy, shown whole, not a backdrop to read over.
+  // Its height is the panel width (screen less the 8px margins) at the photos' shape, plus a gap above.
   .hero {
-    min-height: 0;
-    padding-bottom: 340px;
+    aspect-ratio: auto;
+    padding-bottom: calc((100vw - 16px) * 941 / 1672 + 40px);
   }
 
   .hero-bg {
     inset: auto 0 0;
-    height: 300px;
-    object-position: right center;
+    height: auto;
+    aspect-ratio: 1672 / 941;
   }
 
   .hero-scrim {

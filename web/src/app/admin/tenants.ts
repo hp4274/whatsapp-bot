@@ -20,7 +20,7 @@ import { AdminFeed } from './admin-feed';
 import type { AuditEntry } from './ops-api';
 import { OpsApi } from './ops-api';
 import { BILLINGS, billingOf, planEnded, stateTone } from './plans-api';
-import { serviceMeta } from './service-meta';
+import { SOON_SERVICES, serviceMeta } from './service-meta';
 import { TenantActivity } from './tenant-activity';
 import { TenantNew } from './tenant-new';
 import { closingSoon } from './tenants-closing';
@@ -327,6 +327,20 @@ export class TenantsView {
 
   protected serviceLabel(service: string): string {
     return serviceMeta(service).label;
+  }
+
+  /** Not open yet: shown, but it cannot be switched. */
+  protected soon(service: string): boolean {
+    return SOON_SERVICES.has(service);
+  }
+
+  /** Pending, Suspended, Inactive (active but its plan ended) or Active, with its tone. */
+  protected statusOf(tenant: Tenant): { label: string; tone: string } {
+    if (tenant.status === 'pending') return { label: 'Pending', tone: 'tone-info' };
+    if (tenant.status === 'suspended') return { label: 'Suspended', tone: 'tone-warn' };
+    if (tenant.status === 'archived') return { label: 'Archived', tone: 'tone-mute' };
+    if (planEnded(tenant.subscription)) return { label: 'Inactive', tone: 'tone-mute' };
+    return { label: 'Active', tone: 'tone-ok' };
   }
 
   protected serviceIcon(service: string): string {

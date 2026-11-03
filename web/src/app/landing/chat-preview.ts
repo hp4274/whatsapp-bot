@@ -1,6 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, signal } from '@angular/core';
 
-import { Tilt } from '../school/tilt';
 import { SegThumb } from './motion';
 
 /** Who sent a line in the hero's chat preview: the customer, or the business's number. */
@@ -96,7 +95,7 @@ const SCENARIOS: readonly Scenario[] = [
  */
 @Component({
   selector: 'app-chat-preview',
-  imports: [Tilt, SegThumb],
+  imports: [SegThumb],
   templateUrl: './chat-preview.html',
   styleUrl: './chat-preview.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

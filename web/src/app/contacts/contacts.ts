@@ -36,6 +36,7 @@ import {
 import { ImportWizard } from './import-wizard';
 import { MergeDialog } from './merge-dialog';
 import { GroupsDialog } from './groups-dialog';
+import { PhoneInput } from '../core/phone-input';
 
 interface Draft {
   phone: string;
@@ -80,7 +81,7 @@ const VERB: Record<BulkAction, string> = {
  */
 @Component({
   selector: 'app-contacts',
-  imports: [FormsModule, Tilt, BulkBar, ContactDrawer, ImportWizard, MergeDialog, GroupsDialog],
+  imports: [FormsModule, Tilt, BulkBar, ContactDrawer, ImportWizard, MergeDialog, GroupsDialog, PhoneInput],
   templateUrl: './contacts.html',
   styleUrl: './contacts.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

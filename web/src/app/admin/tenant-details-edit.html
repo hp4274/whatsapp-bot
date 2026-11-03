@@ -16,14 +16,11 @@
     </div>
     <div class="field">
       <label for="ed-phone">WhatsApp number <small class="muted">where Wapzo writes to them</small></label>
-      <input
-        id="ed-phone"
+      <app-phone-input
+        inputId="ed-phone"
         name="contactPhone"
-        type="tel"
-        maxlength="32"
-        placeholder="+91 98765 43210"
-        [ngModel]="form().contactPhone"
-        (ngModelChange)="set('contactPhone', $event)"
+        [value]="form().contactPhone"
+        (valueChange)="set('contactPhone', $event)"
       />
     </div>
     <label class="opt">

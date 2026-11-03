@@ -39,11 +39,23 @@
 
     <div class="wrap hero-grid">
       <div class="hero-copy">
-        <!-- One pass per slide, so the new headline and line rise in fresh. -->
-        @for (s of [slides[slide()]]; track s.image) {
-          <h1 id="hero-title">{{ s.title }}</h1>
-          <p class="hero-lede">{{ s.lede }}</p>
-        }
+        <!-- Every slide's words sit hidden in one cell, so the block keeps the longest slide's height
+             and the buttons, ticks and dots below never move when the slide changes. -->
+        <div class="hero-text">
+          @for (s of slides; track s.image) {
+            <div class="hero-sizer" aria-hidden="true">
+              <p class="hero-title">{{ s.title }}</p>
+              <p class="hero-lede">{{ s.lede }}</p>
+            </div>
+          }
+          <!-- One pass per slide, so the new headline and line rise in fresh. -->
+          @for (s of [slides[slide()]]; track s.image) {
+            <div class="hero-live">
+              <h1 id="hero-title">{{ s.title }}</h1>
+              <p class="hero-lede">{{ s.lede }}</p>
+            </div>
+          }
+        </div>
         <div class="hero-actions">
           <a class="btn go" href="#access">
             Start sending <i class="ti ti-arrow-right" aria-hidden="true"></i>
@@ -89,7 +101,7 @@
           src="assets/landing/phone-chat.png"
           alt="A WhatsApp chat with Priya Shah: “Hi Priya, our Diwali sale starts Friday!”, sent at 9:41 AM and read."
           width="720"
-          height="753"
+          height="738"
           loading="lazy"
         />
       </div>
@@ -369,9 +381,8 @@
         </ul>
       </div>
 
-      <!-- Wrapped: reveal leaves an inline transform, which would pin the tilt. -->
       <div reveal>
-        <div class="frag health" data-ui [schoolTilt]="4">
+        <div class="frag health" data-ui>
           <div class="frag-head">
             <strong>Sending health</strong>
             <span class="pill ok"><span class="dot"></span>Healthy</span>

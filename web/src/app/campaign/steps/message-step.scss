@@ -145,7 +145,7 @@ label.field > span:first-child { font-size: 13px; font-weight: 500; color: var(-
   flex-wrap: wrap;
   gap: var(--space-sm);
 
-  input { flex: 1 1 180px; width: auto; }
+  app-phone-input { flex: 1 1 260px; }
 }
 
 .rules {

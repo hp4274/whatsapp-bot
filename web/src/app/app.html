@@ -72,24 +72,39 @@
       </div>
 
       <nav class="side-nav" aria-label="Sections">
-        @for (section of sections(); track section.heading) {
+        @for (section of sections(); track $index) {
           @if (section.heading) {
             <p class="nav-section">{{ section.heading }}</p>
           }
           @for (item of section.items; track item.path) {
-            <a
-              class="nav-link"
-              [routerLink]="item.path"
-              routerLinkActive="active"
-              ariaCurrentWhenActive="page"
-              [attr.title]="collapsed() ? item.label : null"
-            >
-              <span class="nav-bar" aria-hidden="true"></span>
-              <span class="nav-pill">
-                <i class="ti ti-{{ item.icon }}" aria-hidden="true"></i>
-                <span class="nav-label">{{ item.label }}</span>
+            @if (item.soon) {
+              <!-- Not open yet: listed so it is known, but not a link. -->
+              <span class="nav-link soon" aria-disabled="true" [attr.title]="item.label + ': coming soon'">
+                <span class="nav-bar" aria-hidden="true"></span>
+                <span class="nav-pill">
+                  <i class="ti ti-{{ item.icon }}" aria-hidden="true"></i>
+                  <span class="nav-label">{{ item.label }}</span>
+                  <span class="nav-soon">Soon</span>
+                </span>
               </span>
-            </a>
+            } @else {
+              <a
+                class="nav-link"
+                [routerLink]="item.path"
+                routerLinkActive="active"
+                ariaCurrentWhenActive="page"
+                [attr.title]="collapsed() ? item.label : null"
+              >
+                <span class="nav-bar" aria-hidden="true"></span>
+                <span class="nav-pill">
+                  <i class="ti ti-{{ item.icon }}" aria-hidden="true"></i>
+                  <span class="nav-label">{{ item.label }}</span>
+                  @if (navCount(item); as n) {
+                    <span class="nav-count" [attr.aria-label]="n + ' waiting'">{{ n > 99 ? '99+' : n }}</span>
+                  }
+                </span>
+              </a>
+            }
           }
         }
       </nav>

@@ -74,13 +74,11 @@
       </div>
       <div class="field">
         <label for="c-phone">Phone number <span class="opt">optional</span></label>
-        <input
-          id="c-phone"
+        <app-phone-input
+          inputId="c-phone"
           name="phoneNumber"
-          inputmode="tel"
-          placeholder="+91 98765 43210"
-          [ngModel]="draft().phoneNumber"
-          (ngModelChange)="setDraft('phoneNumber', $event)"
+          [value]="draft().phoneNumber"
+          (valueChange)="setDraft('phoneNumber', $event)"
         />
       </div>
       <div class="field">

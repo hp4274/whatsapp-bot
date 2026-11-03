@@ -1,5 +1,3 @@
-@use '../school/school-shared' as s;
-
 // Sits on the page ground, beside the inbox in the replies section.
 :host {
   // WhatsApp's own light-theme colours: this preview draws WhatsApp, so it keeps them (as auto-replies/wa-preview does).
@@ -18,7 +16,6 @@
   gap: 18px;
 }
 
-@include s.tilt;
 
 .picker {
   position: relative;

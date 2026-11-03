@@ -60,12 +60,7 @@
     <div class="grid">
       <div class="field">
         <label for="recipient">Recipient number</label>
-        <input
-          id="recipient"
-          [ngModel]="recipient()"
-          (ngModelChange)="recipient.set($event)"
-          placeholder="+919876543210"
-        />
+        <app-phone-input inputId="recipient" [(value)]="recipient" />
       </div>
       <div class="field">
         <label for="recipient-name">Recipient name</label>

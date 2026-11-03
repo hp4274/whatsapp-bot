@@ -308,15 +308,7 @@
     <label class="field" for="test-phone">
       <span>Send a test to my number</span>
       <div class="test-row">
-        <input
-          id="test-phone"
-          type="tel"
-          inputmode="tel"
-          placeholder="e.g. 919876543210"
-          [ngModel]="testPhone()"
-          (ngModelChange)="testPhone.set($event)"
-          (keydown.enter)="sendTest()"
-        />
+        <app-phone-input inputId="test-phone" [(value)]="testPhone" (keydown.enter)="sendTest()" />
         <button
           type="button"
           class="btn"

@@ -121,14 +121,14 @@ export function createNotifier({ tenancy, runtimeFor, templates }) {
     };
 
     /** One message from the Wapzo number. Returns what happened; never throws. */
-    const send = ({ to, text, key, kind = 'test' }) => {
+    const send = ({ to, text, key, kind = 'test', messageType = 'transactional', media = null }) => {
         try {
             if (!String(to ?? '').trim()) return { sent: false, reason: 'No WhatsApp number on file.' };
             const state = systemState();
             if (!state?.transport?.isConnected?.()) return { sent: false, reason: 'The Wapzo WhatsApp number is not linked.' };
             const recipient = normalizePhone(to, state.config.defaultCountryCode || '91');
             const outcome = state.messages.send({
-                messageType: 'transactional', recipient, text, idempotencyKey: key, campaignId: `wapzo:${kind}`,
+                messageType, recipient, text, media, idempotencyKey: key, campaignId: `wapzo:${kind}`,
             });
             if (outcome.accepted) state.manager.start();
             return outcome.accepted

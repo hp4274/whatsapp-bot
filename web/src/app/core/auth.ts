@@ -52,6 +52,8 @@ export interface Tenant {
   subscription?: TenantSubscriptionSummary | null;
   /** Admin list only: plan and top-up charges, payments and what is still due. */
   balance?: { readonly charged: number; readonly paid: number; readonly due: number; readonly topupCharged?: number };
+  /** Admin list only: limit increase requests waiting for an answer. */
+  pendingRequests?: number;
 }
 
 /** Flattened subscription the admin tenant list carries for each business. */

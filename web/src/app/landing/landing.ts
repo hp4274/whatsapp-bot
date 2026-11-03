@@ -11,7 +11,6 @@ import { RouterLink } from '@angular/router';
 import Lenis from 'lenis';
 import { animate, inView, scroll, stagger } from 'motion';
 
-import { Tilt } from '../school/tilt';
 import { ChatPreview } from './chat-preview';
 import { LandingNav } from './landing-nav';
 import { LeadForm } from './lead-form';
@@ -215,7 +214,7 @@ const CONTACT_EMAIL = 'connection@zarklyx.com';
  */
 @Component({
   selector: 'app-landing',
-  imports: [RouterLink, Reveal, FanOut, CountUp, Tilt, ChatPreview, LandingNav, LeadForm],
+  imports: [RouterLink, Reveal, FanOut, CountUp, ChatPreview, LandingNav, LeadForm],
   templateUrl: './landing.html',
   styleUrl: './landing.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -269,9 +268,9 @@ export class Landing {
         const bar = this.el.querySelector('.progress');
         if (bar) stops.push(scroll(animate(bar, { scaleX: [0, 1] }, { ease: 'linear' })));
         // The hero's first slide: the headline wipes up out of a mask, the rest rises after it.
-        const h1 = this.el.querySelector('h1');
+        const h1 = this.el.querySelector('#hero-title');
         if (h1) animate(h1, { clipPath: ['inset(-10% -4% 100% -4%)', 'inset(-10% -4% -12% -4%)'], y: [28, 0] }, { duration: 0.9, ease: EASE_OUT });
-        animate(this.el.querySelectorAll('.hero-copy > :not(h1)'), { opacity: [0, 1], y: [24, 0] }, { ...SPRING, delay: stagger(0.08, { startDelay: 0.25 }) });
+        animate(this.el.querySelectorAll('.hero-live > .hero-lede, .hero-copy > :not(.hero-text)'), { opacity: [0, 1], y: [24, 0] }, { ...SPRING, delay: stagger(0.08, { startDelay: 0.25 }) });
         // The footer's wordmark rises into place as the close scrolls into view.
         const giant = this.el.querySelector('.giant');
         if (giant) stops.push(scroll(animate(giant, { y: ['45%', '0%'] }, { ease: 'linear' }), { target: giant, offset: ['start end', 'end end'] }));

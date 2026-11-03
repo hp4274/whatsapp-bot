@@ -7,7 +7,6 @@ const LINKS: readonly { readonly id: string; readonly label: string }[] = [
   { id: 'safety', label: 'Safety' },
   { id: 'replies', label: 'Replies' },
   // { id: 'pricing', label: 'Pricing' }, // the pricing section is hidden for now (landing.html)
-  { id: 'access', label: 'Get access' },
   { id: 'faq', label: 'FAQ' },
 ];
 

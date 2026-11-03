@@ -27,3 +27,21 @@ export const SERVICE_META: Record<string, { label: string; icon: string; sends?:
 
 export const serviceMeta = (key: string) =>
   SERVICE_META[key] ?? { label: key.replace(/_/g, ' '), icon: 'components', sends: false };
+
+/** Services not open yet: listed and marked "Coming soon", but not reachable from the menus or switchable. */
+export const SOON_SERVICES: ReadonlySet<string> = new Set([
+  'school_whatsapp_bot',
+  'payment_reminders',
+  'workflows',
+  'faq',
+  'tickets',
+  'appointments',
+  'orders',
+  'leads',
+  'subscriptions',
+  'events',
+  'api',
+  'analytics',
+  'integrations',
+  'ai',
+]);

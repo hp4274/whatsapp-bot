@@ -6,6 +6,8 @@ import { ConfirmDialog } from '../core/confirm-dialog';
 import { AdminFeed } from './admin-feed';
 import { ChannelsOpsApi } from './channels-ops-api';
 import { WapzoApi, WapzoLogEntry, WapzoMessage } from './wapzo-api';
+import { WapzoBroadcast } from './wapzo-broadcast';
+import { PhoneInput } from '../core/phone-input';
 
 /** What every message about a business gets (server app.js notifyTenant). */
 const BUSINESS_VARS: readonly string[] = ['name', 'business', 'email'];
@@ -54,7 +56,7 @@ type Busy = 'link' | 'unlink' | 'country' | 'test' | 'start' | null;
  */
 @Component({
   selector: 'app-admin-wapzo',
-  imports: [ConfirmDialog, DatePipe],
+  imports: [ConfirmDialog, DatePipe, WapzoBroadcast, PhoneInput],
   templateUrl: './wapzo.html',
   styleUrl: './wapzo.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -112,7 +114,7 @@ export class Wapzo {
 
   /** Event label for the log, by kind. */
   private readonly labels = computed(
-    () => new Map<string, string>([['test', 'Test'], ...this.messages().map((m) => [m.kind, m.label] as [string, string])]),
+    () => new Map<string, string>([['test', 'Test'], ['broadcast', 'Sent to many'], ...this.messages().map((m) => [m.kind, m.label] as [string, string])]),
   );
 
   constructor() {

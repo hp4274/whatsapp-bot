@@ -198,14 +198,15 @@
       }
       <!-- Status and plan on one row under the name, across to the card edge: every card has it, so cards line up. -->
       <div class="tags">
-        <span
-          class="s-pill"
-          [class.tone-ok]="tenant.status === 'active'"
-          [class.tone-warn]="tenant.status === 'suspended'"
-          [class.tone-mute]="tenant.status === 'archived'"
-          [class.tone-info]="tenant.status === 'pending'"
-          >{{ sentence(tenant.status) }}</span
-        >
+        <!-- An active business whose plan ended can do nothing: it reads Inactive, not Active. -->
+        <span class="s-pill {{ statusOf(tenant).tone }}">{{ statusOf(tenant).label }}</span>
+        @if (tenant.pendingRequests) {
+          <button class="s-pill tone-warn req-badge" type="button" (click)="openSettings(tenant, 'general')"
+            [title]="'Limit requests waiting: open General to answer'">
+            <i class="ti ti-trending-up" aria-hidden="true"></i>{{ tenant.pendingRequests }}
+            {{ tenant.pendingRequests === 1 ? 'request' : 'requests' }}
+          </button>
+        }
         @if (tenant.subscription; as sub) {
           <button
             class="s-pill plan-badge {{ stateTone(sub.state) }}"
@@ -432,13 +433,18 @@
       <div class="opt-list">
         @for (service of services(); track service) {
           <label class="opt">
-            <span><i class="ti ti-{{ serviceIcon(service) }}" aria-hidden="true"></i>{{ serviceLabel(service) }}</span>
+            <span>
+              <i class="ti ti-{{ serviceIcon(service) }}" aria-hidden="true"></i>{{ serviceLabel(service) }}
+              @if (soon(service)) {
+                <small class="soon">Coming soon</small>
+              }
+            </span>
             <button
               type="button"
               role="switch"
               class="switch"
               [attr.aria-checked]="drawer.services.includes(service)"
-              [disabled]="serviceDrawerBusy()"
+              [disabled]="serviceDrawerBusy() || soon(service)"
               (click)="toggleDrawerService(service, !drawer.services.includes(service))"
             >
               <span class="thumb"></span>

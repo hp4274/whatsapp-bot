@@ -261,6 +261,18 @@ textarea {
   }
 }
 
+// Number boxes are typed into, never stepped: no spinner arrows (the wheel and arrow keys: app.ts keepNumber).
+input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+
+  &::-webkit-inner-spin-button,
+  &::-webkit-outer-spin-button {
+    margin: 0;
+    -webkit-appearance: none;
+  }
+}
+
 input[type='checkbox'],
 input[type='radio'] {
   width: auto;

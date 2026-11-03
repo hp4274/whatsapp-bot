@@ -17,6 +17,7 @@ import { Channel, ChannelsApi } from '../core/api';
 import { Store } from '../core/store';
 import { ChannelCard } from './channel-card';
 import { liveState, localZone, timeZones } from './channel-meta';
+import { PhoneInput } from '../core/phone-input';
 
 /** Only the active number streams live events; the rest are polled this often. */
 const POLL_MS = 30_000;
@@ -35,7 +36,7 @@ const emptyDraft = () => ({
  */
 @Component({
   selector: 'app-channels',
-  imports: [FormsModule, ChannelCard],
+  imports: [FormsModule, ChannelCard, PhoneInput],
   templateUrl: './channels.html',
   styleUrl: './channels.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
