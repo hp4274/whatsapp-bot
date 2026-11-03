@@ -1,0 +1,93 @@
+@use '../school/school-shared' as s;
+
+@include s.drawer-keyframes;
+@include s.banner;
+@include s.buttons;
+@include s.skeleton;
+@include s.pill;
+@include s.tones;
+
+.scrim { @include s.scrim; }
+
+// The Add tenant drawer's frame: a fixed header and footer around a scrolling body.
+.panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 71;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(520px, 100vw);
+  background: var(--surface-card);
+  border-left: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lift);
+  animation: s-drawer-in var(--base) var(--ease) both;
+}
+
+header,
+footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: 20px var(--space-xl);
+  border-bottom: 1px solid var(--border-color);
+  > .btn { flex: none; }
+}
+footer { justify-content: flex-end; align-items: center; padding-block: var(--space-lg); border-top: 1px solid var(--border-color); border-bottom: 0; }
+h3 { margin: 4px 0 6px; font-size: 20px; font-weight: 500; line-height: 1.2; letter-spacing: -0.4px; color: var(--text-strong); }
+.lede { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--text-muted); }
+
+.body {
+  display: grid;
+  align-content: start;
+  gap: var(--space-xl);
+  padding: var(--space-xl);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+form { display: grid; gap: var(--space-lg); min-width: 0; }
+.muted { color: var(--text-muted); font-weight: 400; }
+
+// One ask per block, its three controls stacked in one column.
+.asks { display: grid; gap: var(--space-md); margin: 0; padding: 0; list-style: none; }
+.ask {
+  position: relative;
+  display: grid;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--surface-sunken);
+  select, input { background: var(--surface-card); }
+}
+.remove { position: absolute; top: 8px; right: 8px; }
+.add { justify-self: start; }
+
+.earlier {
+  display: grid;
+  gap: var(--space-md);
+  padding-top: var(--space-xl);
+  border-top: 1px solid var(--border-color);
+  > .muted { margin: 0; font-size: 13px; }
+}
+h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); }
+.req {
+  display: grid;
+  gap: 8px;
+  padding: 14px var(--space-lg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--text-color); }
+}
+.req-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); }
+.req-head .muted { font-size: 12.5px; }
+// The platform admin's answer.
+.reason { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+
+@media (max-width: 520px) {
+  header, footer { padding-inline: var(--space-lg); }
+  .body { padding: var(--space-lg); }
+}

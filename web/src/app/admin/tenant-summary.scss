@@ -179,3 +179,20 @@ h5 {
 // Payments: the heading with its "Open", and what is still unpaid in the warning tone.
 .h5-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; h5 { margin: 0; } }
 .facts dd.due { color: var(--warning); font-weight: 500; }
+
+// View more / less under the details: a quiet text button, with how many business details wait behind it.
+.more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--primary-text);
+  font-size: 13px;
+  font-weight: 500;
+  &:hover { text-decoration: underline; }
+  .count { color: var(--text-muted); font-weight: 400; }
+}
+.facts dd.unset { color: var(--text-muted); }

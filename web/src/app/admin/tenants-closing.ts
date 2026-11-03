@@ -1,7 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
-import { DatePipe } from '@angular/common';
-
-import type { Tenant, TenantSubscriptionSummary } from '../core/auth';
+import type { TenantSubscriptionSummary } from '../core/auth';
 
 const DAY_MS = 24 * 3600 * 1000;
 /** How far ahead "closing soon" looks. */
@@ -25,61 +22,14 @@ export function nextEnd(sub: TenantSubscriptionSummary | null | undefined, now: 
 }
 
 /**
- * Under the tenant list: the businesses whose plan ends in the next 7 days (a trial, an end date, a cancellation,
- * or the grace after one), soonest first, each one click from its Plan tab to renew, top up or extend it.
+ * What ends within the next 7 days for a business, soonest first (a trial, an end date, an end of period, or the
+ * grace after one), with a line for its card: "Trial ends 10 Nov, in 3 days". Null when nothing does.
  */
-@Component({
-  selector: 'app-tenants-closing',
-  imports: [DatePipe],
-  template: `
-    @if (rows().length) {
-      <section class="closing" aria-labelledby="closing-title">
-        <div class="head">
-          <h3 id="closing-title">Closing soon <span class="s-pill tone-warn">{{ rows().length }}</span></h3>
-          <p>Plans ending in the next 7 days. Renew, top up or extend them under Plan.</p>
-        </div>
-        <ul>
-          @for (r of rows(); track r.tenant.id) {
-            <li [class.urgent]="r.days <= 1">
-              <span class="avatar" aria-hidden="true">{{ r.tenant.name.charAt(0) }}</span>
-              <span class="who">
-                <b>{{ r.tenant.name }}</b>
-                <small>#{{ serialOf()(r.tenant) }} &middot; {{ r.tenant.subscription?.planName }}</small>
-              </span>
-              <span class="when">
-                <b>{{ r.label }} {{ r.at | date: 'd MMM' }}</b>
-                <small>{{ r.days === 0 ? 'today' : r.days === 1 ? 'tomorrow' : 'in ' + r.days + ' days' }}</small>
-              </span>
-              <button class="btn sm" type="button" (click)="open.emit(r.tenant)">Open plan</button>
-            </li>
-          }
-        </ul>
-      </section>
-    }
-  `,
-  styleUrl: './tenants-closing.scss',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-})
-export class TenantsClosing {
-  readonly tenants = input.required<readonly Tenant[]>();
-  /** The list's own numbering (1, 2, 3...), so a business carries the same number here as on its card. */
-  readonly serialOf = input.required<(tenant: Tenant) => number>();
-  readonly open = output<Tenant>();
-
-  protected readonly rows = computed(() => {
-    const now = Date.now();
-    const until = now + WINDOW_DAYS * DAY_MS;
-    return this.tenants()
-      .filter((t) => t.status === 'active' || t.status === 'suspended')
-      .map((tenant) => ({ tenant, end: nextEnd(tenant.subscription, now) }))
-      .filter((r): r is { tenant: Tenant; end: { at: number; label: string } } => !!r.end && r.end.at <= until)
-      .sort((a, b) => a.end.at - b.end.at)
-      .map(({ tenant, end }) => ({
-        tenant,
-        at: end.at,
-        label: end.label,
-        // Whole days left, counted by calendar day, so "tomorrow" means tomorrow.
-        days: Math.round((new Date(end.at).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / DAY_MS),
-      }));
-  });
+export function closingSoon(sub: TenantSubscriptionSummary | null | undefined, now: number): { at: number; note: string } | null {
+  const end = nextEnd(sub, now);
+  if (!end || end.at > now + WINDOW_DAYS * DAY_MS) return null;
+  // Whole days left, counted by calendar day, so "tomorrow" means tomorrow.
+  const days = Math.round((new Date(end.at).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / DAY_MS);
+  const day = new Date(end.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return { at: end.at, note: `${end.label} ${day}, ${days === 0 ? 'today' : days === 1 ? 'tomorrow' : 'in ' + days + ' days'}` };
 }

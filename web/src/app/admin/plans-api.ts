@@ -292,6 +292,30 @@ export function subscriptionWhen(sub: TenantSubscriptionSummary | Subscription):
   return renews ? `Renews ${d(renews)}` : '';
 }
 
+/**
+ * One word for where a business's plan stands, the same everywhere: Pending while the business is being set up,
+ * Plan ended once the admin ended it (now, or when its period ran out) or it lapsed, Ends <date> while an end of
+ * period is waiting, and otherwise Active (a trial or a plan past its end date in grace is still running).
+ */
+export function planStatus(
+  tenantStatus: string,
+  sub: Pick<Subscription, 'state' | 'status' | 'cancelAtPeriodEnd' | 'currentPeriodEnd'> | null | undefined,
+): { readonly label: string; readonly tone: string } {
+  if (tenantStatus === 'pending') return { label: 'Pending', tone: 'tone-info' };
+  if (!sub) return { label: 'No plan', tone: 'tone-mute' };
+  if (sub.state === 'expired' || sub.status === 'cancelled') return { label: 'Plan ended', tone: 'tone-bad' };
+  if (sub.cancelAtPeriodEnd && sub.currentPeriodEnd) {
+    const day = new Date(sub.currentPeriodEnd).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    return { label: `Ends ${day}`, tone: 'tone-warn' };
+  }
+  return { label: 'Active', tone: 'tone-ok' };
+}
+
+/** A plan the admin ended, or set to end at its period's end: the Tenants page lists these under Plan ended. */
+export function planEnded(sub: Pick<Subscription, 'state' | 'status' | 'cancelAtPeriodEnd'> | null | undefined): boolean {
+  return !!sub && (sub.state === 'expired' || sub.status === 'cancelled' || sub.cancelAtPeriodEnd);
+}
+
 export function toMessage(error: HttpErrorResponse) {
   const errors = error.error?.errors;
   const message =

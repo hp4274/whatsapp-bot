@@ -553,6 +553,8 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
 
 // ------------------------------------------------------------ content panel
 .panel {
+  // Holds the notifications bell in its top-right corner, over the page as it scrolls.
+  position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -678,5 +680,18 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
     flex: none;
     font-size: 17px;
     line-height: 1.3;
+  }
+}
+
+// The bell: the panel's top-right corner, beside the page title row, out of the way of its buttons.
+.notify {
+  position: absolute;
+  top: 22px;
+  right: 28px;
+  z-index: 20;
+
+  @media (max-width: $lg - 1px) {
+    top: 10px;
+    right: 12px;
   }
 }

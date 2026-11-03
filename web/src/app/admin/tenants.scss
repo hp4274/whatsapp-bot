@@ -26,6 +26,8 @@
 .s-banner .msg { flex: 1; min-width: 0; }
 
 .compact { margin: 0; font-size: 12.5px; }
+// A closing-soon card says what ends and when where the ID line usually is.
+.ends { margin: 0; font-size: 12.5px; font-weight: 500; color: var(--warning); }
 .plan-badge { border: 0; cursor: pointer; .ti { font-size: 12px; } &::before { display: none; } }
 
 .opt {

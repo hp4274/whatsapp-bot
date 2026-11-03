@@ -22,20 +22,16 @@
     id="top"
     aria-labelledby="hero-title"
     aria-roledescription="carousel"
-    (mouseenter)="hold = true"
-    (mouseleave)="hold = false"
-    (focusin)="hold = true"
-    (focusout)="hold = false"
   >
     @for (s of slides; track s.image; let i = $index) {
       <img
         class="hero-bg"
         [class.on]="i === slide()"
+        [class.out]="i === prev()"
         [src]="'assets/landing/' + s.image"
         alt=""
         width="1672"
         height="941"
-        [attr.loading]="i === 0 ? null : 'lazy'"
         [attr.fetchpriority]="i === 0 ? 'high' : null"
       />
     }
@@ -68,17 +64,9 @@
               [class.on]="i === slide()"
               [attr.aria-label]="'Show slide ' + (i + 1) + ' of ' + slides.length + ': ' + s.who"
               [attr.aria-current]="i === slide() ? 'true' : null"
-              (click)="slide.set(i)"
+              (click)="go(i)"
             ></button>
           }
-          <button
-            type="button"
-            class="play round"
-            [attr.aria-label]="playing() ? 'Pause slides' : 'Play slides'"
-            (click)="playing.set(!playing())"
-          >
-            <i class="ti" [class.ti-player-pause]="playing()" [class.ti-player-play]="!playing()" aria-hidden="true"></i>
-          </button>
         </div>
       </div>
     </div>
@@ -146,6 +134,28 @@
           <p>Personalise each message and send now or later.</p>
         </li>
       </ol>
+    </div>
+  </section>
+
+  <!-- =========================== REQUEST ACCESS =========================== -->
+  <section class="section band" id="access" aria-labelledby="access-title">
+    <div class="wrap">
+      <div class="access" reveal>
+        <img
+          class="access-photo"
+          src="assets/landing/clay-studio.jpg"
+          alt="A potter in her studio smiling at a WhatsApp message from Clay Studio: her pottery class starts at 4 PM."
+          width="1000"
+          height="1071"
+          loading="lazy"
+        />
+        <div class="access-body">
+          <p class="access-word" aria-hidden="true">wap<span>zo</span></p>
+          <h2 id="access-title">Get your Wapzo workspace</h2>
+          <p class="access-lede">We’ll set up your account and email your sign-in details.</p>
+          <app-lead-form source="landing" />
+        </div>
+      </div>
     </div>
   </section>
 
@@ -508,28 +518,6 @@
           </li>
         }
       </ul>
-    </div>
-  </section>
-
-  <!-- =========================== REQUEST ACCESS =========================== -->
-  <section class="section band" id="access" aria-labelledby="access-title">
-    <div class="wrap">
-      <div class="access" reveal>
-        <img
-          class="access-photo"
-          src="assets/landing/clay-studio.jpg"
-          alt="A potter in her studio smiling at a WhatsApp message from Clay Studio: her pottery class starts at 4 PM."
-          width="1000"
-          height="1071"
-          loading="lazy"
-        />
-        <div class="access-body">
-          <p class="access-word" aria-hidden="true">wap<span>zo</span></p>
-          <h2 id="access-title">Get your Wapzo workspace</h2>
-          <p class="access-lede">We’ll set up your account and email your sign-in details.</p>
-          <app-lead-form source="landing" />
-        </div>
-      </div>
     </div>
   </section>
 

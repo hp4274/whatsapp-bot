@@ -1,0 +1,51 @@
+<!-- Tenant settings > General > Logs: this business's trail, filtered. -->
+<h4>Logs</h4>
+<p class="muted compact">Everything done in and to this business, newest first.</p>
+
+<div class="filters">
+  <label class="search">
+    <i class="ti ti-search" aria-hidden="true"></i>
+    <input type="search" placeholder="Search the logs" aria-label="Search the logs" [value]="q()" (input)="search($any($event.target).value)" />
+  </label>
+  <div class="seg" role="group" aria-label="Kind of change">
+    @for (v of verbs; track v.key) {
+      <button type="button" [attr.aria-pressed]="verb() === v.key" (click)="setVerb(v.key)">{{ v.label }}</button>
+    }
+  </div>
+  <div class="days">
+    <label>From <input type="date" [value]="from()" (input)="setDay('from', $any($event.target).value)" /></label>
+    <label>To <input type="date" [value]="to()" (input)="setDay('to', $any($event.target).value)" /></label>
+    @if (q() || verb() || from() || to()) {
+      <button class="btn sm" type="button" (click)="clear()">Clear</button>
+    }
+  </div>
+</div>
+
+@if (error()) {
+  <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}</p>
+}
+
+@if (logs(); as list) {
+  @if (list.length) {
+    <ol class="log" [attr.aria-busy]="loading()">
+      @for (e of list; track e.id) {
+        <li>
+          <span class="dot {{ e.severity }}" aria-hidden="true"></span>
+          <div>
+            <span class="what">{{ e.summary }}</span>
+            <span class="muted">{{ actor(e) }} &middot; {{ e.createdAt | date: 'd MMM y, h:mm a' }}</span>
+          </div>
+        </li>
+      }
+    </ol>
+    @if (next() !== null) {
+      <button class="btn sm more" type="button" (click)="more()" [disabled]="loading()">
+        {{ loading() ? 'Loading...' : 'Load more' }}
+      </button>
+    }
+  } @else {
+    <p class="muted compact">{{ q() || verb() || from() || to() ? 'Nothing matches these filters.' : 'Nothing logged yet.' }}</p>
+  }
+} @else {
+  <p class="muted compact">Loading...</p>
+}

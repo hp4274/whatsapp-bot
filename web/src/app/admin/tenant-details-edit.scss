@@ -35,7 +35,9 @@ legend { margin-bottom: var(--space-sm); padding: 0; font-size: 12.5px; font-wei
   > span { display: grid; gap: 2px; small { font-size: 12px; } }
 }
 
-.acts { display: flex; justify-content: flex-end; gap: 8px; }
+.acts { display: flex; align-items: center; justify-content: flex-end; gap: 12px; .state { margin-right: auto; font-size: 12.5px; } }
+// Short details two to a row, long ones (name, address) the full width.
+.pairs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); > .field:not(.half) { grid-column: 1 / -1; } }
 
 @keyframes edit-in {
   from { opacity: 0; translate: 0 6px; }

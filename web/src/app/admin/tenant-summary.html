@@ -50,7 +50,21 @@
         <dt>Asked</dt>
         <dd>{{ l.createdAt | date: 'd MMM y' }}, {{ l.source === 'login' ? 'sign-in page' : 'landing page' }}</dd>
       }
+      <!-- Business details (GSTIN, address...) fold under View more, so the column stays short. -->
+      @if (moreShown()) {
+        @for (f of profileFields; track f.key) {
+          <dt>{{ f.label }}</dt>
+          <dd [class.unset]="!tenant().profile?.[f.key]">{{ tenant().profile?.[f.key] || 'Not given' }}</dd>
+        }
+      }
     </dl>
+    <button class="more" type="button" [attr.aria-expanded]="moreShown()" (click)="moreShown.set(!moreShown())">
+      <i class="ti ti-chevron-{{ moreShown() ? 'up' : 'down' }}" aria-hidden="true"></i>
+      {{ moreShown() ? 'View less' : 'View more' }}
+      @if (!moreShown() && profileCount()) {
+        <span class="count">{{ profileCount() }} business details</span>
+      }
+    </button>
   }
 </section>
 
@@ -60,7 +74,7 @@
     <!-- "Business · Free": the plan stays the plan; how it is paid rides beside it. -->
     <div class="plan-line">
       <strong>{{ plan()?.name ?? s.planKey }}{{ payment() ? ' · ' + payment()!.label : '' }}</strong>
-      <span class="s-pill {{ s.state === 'trialing' ? 'tone-ok' : stateTone(s.state) }}">{{ s.state === 'trialing' ? 'Active' : sentence(s.state) }}</span>
+      <span class="s-pill {{ status().tone }}">{{ status().label }}</span>
     </div>
     <p class="sub">
       @if (plan(); as p) {

@@ -198,6 +198,11 @@
         </div>
       </header>
 
+      <!-- The super admin's bell: new account and limit requests, in the panel's top-right corner. -->
+      @if (platformView()) {
+        <app-admin-notifications class="notify" />
+      }
+
       <!-- The page. The only element that scrolls. -->
       <main class="page" id="main-content">
         @if (subscriptionEnded(); as blocked) {

@@ -763,6 +763,8 @@ export interface TenantDetails {
   wapzoUpdates?: boolean;
   ownerName?: string;
   ownerEmail?: string;
+  /** Business details (legal name, GSTIN, address...): keys sent replace those; '' clears one. */
+  profile?: Record<string, string>;
 }
 
 /** Tenant, user and platform-admin endpoints. Super-admin calls carry the acting tenant via `authInterceptor`. */

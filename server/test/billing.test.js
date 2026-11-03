@@ -316,7 +316,7 @@ describe('changing plan', () => {
 });
 
 describe('cancellation and grace', () => {
-    it('runs to the end of the paid period, then grace, then stops', () => {
+    it('runs to the end of the paid period, then stops: a cancelled plan gets no grace', () => {
         at('2027-04-02T10:00:00Z');
         A.subscribe(1, 'business');
         const cancelled = A.cancel();
@@ -324,20 +324,12 @@ describe('cancellation and grace', () => {
         assert.equal(cancelled.state, 'active');
         assert.equal(A.entitled('workflows'), true);
 
-        // Period over: cancelled, but inside the grace window.
+        // Period over: the admin ended it, so it has ended (grace is for a plan that ran out, not one stopped).
         at('2027-05-01T00:00:01Z');
-        const grace = A.subscription();
-        assert.equal(grace.status, 'cancelled');
-        assert.equal(grace.state, 'grace');
-        assert.equal(grace.cancelledAt, periodEnd('2027-04'));
-        assert.equal(grace.graceEndsAt, new Date(Date.parse(periodEnd('2027-04')) + GRACE_DAYS * 86400000).toISOString());
-        // Grace is the whole point: features keep working, so a failed renewal
-        // is a conversation rather than an outage.
-        assert.equal(A.entitled('workflows'), true);
-        assert.equal(A.check('messages', 10).allowed, true);
-
-        at('2027-05-20T00:00:00Z');
         const dead = A.subscription();
+        assert.equal(dead.status, 'cancelled');
+        assert.equal(dead.cancelledAt, periodEnd('2027-04'));
+        assert.equal(dead.graceEndsAt, periodEnd('2027-04'));
         assert.equal(dead.state, 'expired');
         assert.equal(A.entitled('workflows'), false);
         const check = A.check('messages', 1);
@@ -351,15 +343,14 @@ describe('cancellation and grace', () => {
         assert.equal(A.usage().period, '2027-05');
     });
 
-    it('cancels on the spot when asked, and grace runs from then', () => {
+    it('ends on the spot when asked', () => {
         at('2027-06-02T10:00:00Z');
         A.subscribe(1, 'business');
         const sub = A.cancel({ atPeriodEnd: false });
         assert.equal(sub.status, 'cancelled');
-        assert.equal(sub.state, 'grace');
+        assert.equal(sub.state, 'expired');
         assert.equal(sub.cancelledAt, '2027-06-02T10:00:00.000Z');
-        at('2027-06-12T10:00:00Z');
-        assert.equal(A.subscription().state, 'expired');
+        assert.equal(A.entitled('workflows'), false);
     });
 
     it('expires a trial that nobody converted, after grace', () => {

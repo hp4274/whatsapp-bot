@@ -46,7 +46,7 @@ const SLIDES: readonly { readonly image: string; readonly who: string; readonly 
 ];
 
 /** How long each hero slide stays up. */
-const SLIDE_MS = 7000;
+const SLIDE_MS = 4000;
 
 /** Everything beyond bulk sending, grouped the way the app's sidebar groups them; `tone` picks the tint and the picture. */
 const FACILITIES: readonly {
@@ -225,12 +225,10 @@ export class Landing {
   private readonly el = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
 
   protected readonly slides = SLIDES;
-  /** The hero slide on show. */
+  /** The hero slide on show, and the one sliding out to the left as it comes in. */
   protected readonly slide = signal(0);
-  /** Autoplay; off under reduced motion, and the pause button turns it off. */
-  protected readonly playing = signal(true);
-  /** Pointer or focus inside the hero: the slide holds while someone is reading or using it. */
-  protected hold = false;
+  protected readonly prev = signal(-1);
+  private timer?: ReturnType<typeof setInterval>;
   protected readonly facilities = FACILITIES;
   protected readonly numbers = NUMBERS;
   protected readonly audiences = AUDIENCES;
@@ -263,11 +261,9 @@ export class Landing {
           { margin: '-45% 0px -45% 0px' },
         ),
       );
-      if (still()) this.playing.set(false);
-      const timer = setInterval(() => {
-        if (this.playing() && !this.hold && !document.hidden) this.slide.update((i) => (i + 1) % SLIDES.length);
-      }, SLIDE_MS);
-      destroyRef.onDestroy(() => clearInterval(timer));
+      // Reduced motion keeps the slider still; the dots still switch it.
+      if (!still()) this.autoplay();
+      destroyRef.onDestroy(() => clearInterval(this.timer));
 
       if (!still()) {
         const bar = this.el.querySelector('.progress');
@@ -282,6 +278,19 @@ export class Landing {
       }
       destroyRef.onDestroy(() => stops.forEach((stop) => stop()));
     });
+  }
+
+  /** Shows hero slide `i`; a chosen slide gets its full time before the next one comes. */
+  protected go(i: number): void {
+    if (i === this.slide()) return;
+    this.prev.set(this.slide());
+    this.slide.set(i);
+    if (this.timer !== undefined) this.autoplay();
+  }
+
+  private autoplay(): void {
+    clearInterval(this.timer);
+    this.timer = setInterval(() => document.hidden || this.go((this.slide() + 1) % SLIDES.length), SLIDE_MS);
   }
 
   /**

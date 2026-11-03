@@ -26,6 +26,7 @@ import { SCHOOL_SCHEMA } from './school/settings.js';
 import { TICKETS_SCHEMA } from './tickets/schema.js';
 import { WORKFLOWS_SCHEMA } from './workflows/schema.js';
 import { PLATFORM_MESSAGES_SCHEMA } from './platform/notify.js';
+import { LIMIT_REQUESTS_SCHEMA } from './limits/requests.js';
 
 export const MODULE_SCHEMAS = [
     TEMPLATES_SCHEMA,
@@ -44,4 +45,5 @@ export const MODULE_SCHEMAS = [
     STORAGE_SCHEMA,
     LINKS_SCHEMA,
     PLATFORM_MESSAGES_SCHEMA,
+    LIMIT_REQUESTS_SCHEMA,
 ];

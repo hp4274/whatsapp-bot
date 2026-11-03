@@ -287,15 +287,16 @@ export class Tenancy {
      * A business's own details, from Tenant settings > Edit: name, ID (slug), contact WhatsApp and whether Wapzo
      * messages it there. Fields left out stay as they are.
      */
-    updateDetails(id, { name, slug, contactPhone, wapzoUpdates } = {}) {
+    updateDetails(id, { name, slug, contactPhone, wapzoUpdates, profile } = {}) {
         const before = this.getTenant(id);
         if (!before || ['archived', 'system'].includes(before.status)) throw new TenancyError('tenant not found', 404);
         const { cleanName, cleanSlug } = cleanTenantInput(name ?? before.name, slug ?? before.slug);
         const phone = contactPhone === undefined ? before.contactPhone : cleanContactPhone(contactPhone);
         const updates = wapzoUpdates === undefined ? before.wapzoUpdates : Boolean(wapzoUpdates);
+        const paper = profile === undefined ? before.profile : cleanProfile({ ...before.profile, ...profile });
         try {
-            this.db.prepare('UPDATE tenants SET name = ?, slug = ?, contact_phone = ?, wapzo_updates = ? WHERE id = ?')
-                .run(cleanName, cleanSlug, phone, updates ? 1 : 0, Number(id));
+            this.db.prepare('UPDATE tenants SET name = ?, slug = ?, contact_phone = ?, wapzo_updates = ?, profile = ? WHERE id = ?')
+                .run(cleanName, cleanSlug, phone, updates ? 1 : 0, JSON.stringify(paper), Number(id));
         } catch (err) {
             if (/UNIQUE/.test(err.message)) throw new TenancyError('Another business already uses that ID.', 409);
             throw err;
@@ -710,6 +711,35 @@ export class Tenancy {
     }
 }
 
+/**
+ * The business on paper, for invoices and records: each field a trimmed string ('' = not given). GSTIN and PAN are
+ * upper-cased and checked for their Indian shape; anything else is free text.
+ */
+export const PROFILE_FIELDS = Object.freeze({
+    legalName: { label: 'Legal name', max: 160 },
+    gstin: { label: 'GSTIN', max: 15, pattern: /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/, upper: true },
+    pan: { label: 'PAN', max: 10, pattern: /^[A-Z]{5}\d{4}[A-Z]$/, upper: true },
+    industry: { label: 'Industry', max: 80 },
+    website: { label: 'Website', max: 200 },
+    email: { label: 'Billing email', max: 254, pattern: /^[^@\s]+@[^@\s]+\.[^@\s]+$/ },
+    address: { label: 'Address', max: 300 },
+    city: { label: 'City', max: 80 },
+    state: { label: 'State', max: 80 },
+    pincode: { label: 'PIN code', max: 10, pattern: /^[A-Za-z0-9 -]{3,10}$/ },
+    country: { label: 'Country', max: 80 },
+});
+
+function cleanProfile(input = {}) {
+    const out = {};
+    for (const [key, spec] of Object.entries(PROFILE_FIELDS)) {
+        let value = String(input?.[key] ?? '').trim().slice(0, spec.max);
+        if (spec.upper) value = value.toUpperCase();
+        if (value && spec.pattern && !spec.pattern.test(value)) throw new TenancyError(`Enter a valid ${spec.label}.`);
+        if (value) out[key] = value;
+    }
+    return out;
+}
+
 /** A contact WhatsApp number as typed ('' for none); the same check as the public request form (leads.js). */
 function cleanContactPhone(value) {
     const phone = String(value ?? '').trim().slice(0, 32);
@@ -883,6 +913,7 @@ function toTenant(row) {
         safetyExit: parseJson(row.safety_exit, null),
         contactPhone: row.contact_phone ?? '',
         wapzoUpdates: row.wapzo_updates === undefined ? true : Boolean(row.wapzo_updates),
+        profile: parseJson(row.profile, {}) ?? {},
         createdAt: row.created_at,
     };
 }

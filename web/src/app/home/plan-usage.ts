@@ -1,9 +1,12 @@
-import { DecimalPipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { DatePipe, DecimalPipe } from '@angular/common';
+import { ChangeDetectionStrategy, Component, DestroyRef, type ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import { type PlanUsage, type PlanUsageMetric, TenancyApi, type TenantSubscriptionState } from '../core/api';
+import { Auth } from '../core/auth';
 import { Store } from '../core/store';
+import { LimitRequestDrawer } from './limit-request';
+import { type LimitRequest, LimitRequestsApi, REQUEST_STATUS } from './limit-requests-api';
 
 interface Row {
   readonly key: string;
@@ -31,6 +34,9 @@ const ROWS: readonly Row[] = [
 /** At or past this share of a limit, the bar turns to the warning tone. */
 const WARN_AT = 0.8;
 
+/** An answered request stays on the panel this long; a pending one until it is answered. */
+const ANSWER_SHOWN_MS = 14 * 864e5;
+
 /**
  * Every limit on the business's plan against what it has used, for every plan:
  * it reads `/api/plan-usage`, which (unlike /billing/*) the smallest plan can
@@ -39,7 +45,7 @@ const WARN_AT = 0.8;
  */
 @Component({
   selector: 'app-plan-usage',
-  imports: [DecimalPipe],
+  imports: [DatePipe, DecimalPipe, LimitRequestDrawer],
   templateUrl: './plan-usage.html',
   styleUrl: './plan-usage.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -48,6 +54,22 @@ export class PlanUsagePanel {
   private readonly api = inject(TenancyApi);
   private readonly destroyRef = inject(DestroyRef);
   private readonly store = inject(Store);
+  private readonly auth = inject(Auth);
+  private readonly asksApi = inject(LimitRequestsApi);
+
+  /** Owners and admins ask for more (the server 403s agents); a super admin sets limits directly instead. */
+  protected readonly canAsk = computed(() => this.auth.atLeast('admin') && !this.auth.isSuperAdmin());
+  protected readonly asking = signal(false);
+  protected readonly sentNotice = signal(false);
+  private readonly latestAsk = signal<LimitRequest | null>(null);
+  /** The newest request while it is pending or freshly answered, so the answer is seen without opening the drawer. */
+  protected readonly latest = computed(() => {
+    const r = this.latestAsk();
+    if (!r) return null;
+    const shown = r.status === 'pending' || Date.now() - Date.parse(r.decidedAt ?? '') < ANSWER_SHOWN_MS;
+    return shown ? { ...r, ...REQUEST_STATUS[r.status] } : null;
+  });
+  private readonly askButton = viewChild<ElementRef<HTMLButtonElement>>('askButton');
 
   protected readonly usage = signal<PlanUsage | null>(null);
   protected readonly subscription = signal<TenantSubscriptionState | null>(null);
@@ -96,6 +118,38 @@ export class PlanUsagePanel {
       () => this.load(),
       2000,
     );
+    if (this.canAsk()) {
+      this.loadLatestAsk();
+      // An admin's answer reaches open pages as `tenant` / `config`.
+      this.store.watch(['tenant', 'config'], () => this.loadLatestAsk(), 1000);
+    }
+  }
+
+  protected openAsk(): void {
+    this.sentNotice.set(false);
+    this.asking.set(true);
+  }
+
+  protected closeAsk(): void {
+    this.asking.set(false);
+    this.askButton()?.nativeElement.focus();
+  }
+
+  protected asked(request: LimitRequest): void {
+    this.latestAsk.set(request);
+    this.sentNotice.set(true);
+    this.closeAsk();
+  }
+
+  private loadLatestAsk(): void {
+    this.asksApi
+      .list()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: ({ requests }) => this.latestAsk.set(requests[0] ?? null),
+        // The status line is extra: without it the panel still shows the limits.
+        error: () => undefined,
+      });
   }
 
   protected load(): void {

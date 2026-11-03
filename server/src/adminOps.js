@@ -325,21 +325,14 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
             const list = String(query.actions).split(',').map((a) => a.trim()).filter(Boolean).slice(0, 20);
             if (list.length) { where.push(`action IN (${list.map(() => '?').join(', ')})`); args.push(...list); }
         }
-        if (query.q) {
-            where.push(`(action || ' ' || COALESCE(target, '') || ' ' || COALESCE(detail, '') || ' ' || COALESCE(user_email, '')
-                || ' ' || COALESCE(user_name, '') || ' ' || COALESCE(tenant_name, '') || ' ' || COALESCE(ip, '')) LIKE ? ESCAPE '\\'`);
-            args.push(`%${String(query.q).slice(0, 200).replace(/[\\%_]/g, '\\$&')}%`);
-        }
         const limit = Math.min(Math.max(Number(query.limit) || 200, 1), maxLimit);
-        const rows = raw.prepare(`
+        const select = (extra, extraArgs, take) => raw.prepare(`
             SELECT * FROM (SELECT a.*, u.email AS user_email, u.name AS user_name, u.role AS user_role,
                                   t.name AS tenant_name, ${VERB_SQL} AS verb
                            FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id LEFT JOIN tenants t ON t.id = a.tenant_id)
-            ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-            ORDER BY id DESC LIMIT ?`).all(...args, limit + 1);
-        const shown = rows.slice(0, limit);
-        const names = auditNames(shown);
-        const logs = shown.map((r) => {
+            ${[...where, ...extra].length ? `WHERE ${[...where, ...extra].join(' AND ')}` : ''}
+            ORDER BY id DESC LIMIT ?`).all(...args, ...extraArgs, take);
+        const toLog = (r, names) => {
             const detail = r.detail ?? '';
             const ip = r.ip ?? parseDetail(detail)?.ip ?? null;
             const text = describeAudit({ action: r.action, target: r.target, detail, tenantId: r.tenant_id, ip }, names);
@@ -351,8 +344,39 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
                 summary: text.summary, severity: text.severity, category: text.category,
                 ip: typeof ip === 'string' ? ip : null, requestId: r.request_id ?? null, createdAt: r.created_at,
             };
-        });
-        const page = { logs, nextBefore: rows.length > limit ? logs[logs.length - 1].id : null };
+        };
+        let logs;
+        let more;
+        if (!query.q) {
+            const rows = select([], [], limit + 1);
+            const shown = rows.slice(0, limit);
+            const names = auditNames(shown);
+            logs = shown.map((r) => toLog(r, names));
+            more = rows.length > limit;
+        } else {
+            // Words match the sentence the admin reads ("Approved more for..."), not only the raw record, so the
+            // search runs over described rows: newest first, in batches, until a page is full (at most 20,000 read).
+            const q = String(query.q).slice(0, 200).toLowerCase();
+            logs = [];
+            more = false;
+            let cursor = null;
+            for (let scanned = 0; scanned < 20000;) {
+                const batch = select(cursor ? ['id < ?'] : [], cursor ? [cursor] : [], 500);
+                if (!batch.length) break;
+                scanned += batch.length;
+                cursor = batch[batch.length - 1].id;
+                const names = auditNames(batch);
+                for (const r of batch) {
+                    const log = toLog(r, names);
+                    const text = `${log.summary} ${r.action} ${r.target ?? ''} ${r.detail ?? ''} ${log.userEmail} ${r.user_name ?? ''} ${r.tenant_name ?? ''} ${log.ip ?? ''}`;
+                    if (!text.toLowerCase().includes(q)) continue;
+                    if (logs.length === limit) { more = true; break; }
+                    logs.push(log);
+                }
+                if (more || batch.length < 500) break;
+            }
+        }
+        const page = { logs, nextBefore: more && logs.length ? logs[logs.length - 1].id : null };
         // Who appears in the log, for the user filter. First page only.
         if (!query.before) {
             page.users = raw.prepare(`SELECT DISTINCT u.id, u.email FROM audit_logs a

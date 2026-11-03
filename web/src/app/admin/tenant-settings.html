@@ -62,33 +62,25 @@
       }
     </nav>
 
-    <div class="settings-body">
+    <!-- No Save buttons: a box saves when you click away from it changed; selects, dates and ticks save at once. -->
+    <div class="settings-body" (change)="changed($event)">
       @if (error()) {
         <p class="s-banner" role="alert">
           <i class="ti ti-alert-circle" aria-hidden="true"></i>
           <span class="msg">{{ error() }}</span>
         </p>
       }
+      @if (planNotice() && tab() !== 'plan') {
+        <p class="s-banner tone-ok" role="status">
+          <i class="ti ti-circle-check" aria-hidden="true"></i>
+          <span class="msg">{{ planNotice() }}</span>
+        </p>
+      }
       @switch (tab()) {
         @case ('general') {
+          <!-- What the business asked more of: answered here, applied at once, back when its time is up. -->
           <section>
-            <h4>Operations</h4>
-            <div class="switches">
-              @for (control of controlKeys; track control) {
-                <label class="opt">
-                  <span>{{ controlLabel(control) }}</span>
-                  <button
-                    type="button"
-                    role="switch"
-                    class="switch"
-                    [attr.aria-checked]="s.controls[control]"
-                    (click)="setSettingsControl(control, !s.controls[control])"
-                  >
-                    <span class="thumb"></span>
-                  </button>
-                </label>
-              }
-            </div>
+            <app-tenant-limit-requests [tenantId]="s.tenant.id" (answered)="limitsAnswered($event)" />
           </section>
 
           <section>
@@ -107,7 +99,7 @@
                     role="switch"
                     class="switch"
                     [attr.aria-checked]="s.limits.allowCustomSafety"
-                    (click)="setLimit('allowCustomSafety', !s.limits.allowCustomSafety)"
+                    (click)="setLimit('allowCustomSafety', !s.limits.allowCustomSafety); autoSave()"
                   >
                     <span class="thumb"></span>
                   </button>
@@ -131,6 +123,10 @@
               ></textarea>
             </div>
           </section>
+
+          <section>
+            <app-tenant-logs [tenantId]="s.tenant.id" />
+          </section>
         }
 
         @case ('plan') {
@@ -147,22 +143,13 @@
               <!-- A business being set up creates its plan here; an active one just has its plan. Either way the first
                    thing saved below makes it its own plan if it is still on a shared one. -->
               <h4>{{ s.tenant.status === 'pending' && !ownPlan() ? 'Create plan' : 'Plan' }}</h4>
-              @if (sub(); as cur) {
-                <!-- A trial is a running plan: it reads Active; when the trial ends is under Dates. -->
-                <span class="s-pill {{ cur.state === 'trialing' ? 'tone-ok' : stateTone(cur.state) }}">{{
-                  cur.state === 'trialing' ? 'Active' : sentence(cur.state)
-                }}</span>
+              @if (sub() || s.tenant.status === 'pending') {
+                <!-- Pending while being set up, Active while running (trial too), Plan ended once ended. -->
+                <span class="s-pill {{ status().tone }}">{{ status().label }}</span>
               }
             </div>
-            @if (ownPlan()) {
+            @if (s.tenant.status !== 'pending') {
               @if (sub(); as cur) {
-                <p class="muted compact">
-                  {{ planLabel() }} &middot; {{ when(cur) }}. Set it up below: services, limits, billing, dates and
-                  top-ups are this business's alone.
-                  @if (cur.cancelAtPeriodEnd && cur.state !== 'expired') {
-                    <span class="warn-note">Cancels at the end of this period.</span>
-                  }
-                </p>
                 <div class="plan-actions">
                   <button class="btn" type="button" (click)="subscribe(cur.planKey)" [disabled]="saving()">
                     <i class="ti ti-refresh" aria-hidden="true"></i> Renew
@@ -217,7 +204,7 @@
               Leave a box blank for no limit; 0 allows none. Uploads are capped at {{ uploadMb() }} MB a
               file for every business.
             </p>
-            <div class="safety-fields">
+            <div class="safety-fields plan-limits">
               @for (f of limitFields; track f.key) {
                 <div class="field">
                   <label [for]="'pl-' + f.key">{{ f.label }}</label>
@@ -271,12 +258,8 @@
               }
             </div>
             <p class="muted compact">
-              Top-ups add to the monthly quota for this month. To send nothing at all, switch off Outbound sending
-              under General.
+              Top-ups add to the monthly quota for this month. Each box saves when you click away from it.
             </p>
-            <button class="btn primary save-limits" type="button" (click)="savePlanLimits()" [disabled]="saving()">
-              Save limits
-            </button>
           </section>
 
           @if (sub(); as cur) {
@@ -329,14 +312,6 @@
                         [value]="agreedAmount() ?? ''"
                         (input)="setAgreed($any($event.target).value)"
                       />
-                      <button
-                        class="btn"
-                        type="button"
-                        (click)="saveAgreed()"
-                        [disabled]="saving() || agreedAmount() === null || agreedAmount() === (cur.customPrice ?? null)"
-                      >
-                        Save price
-                      </button>
                     </div>
                   </div>
                 }
@@ -403,14 +378,6 @@
                 }
               </dl>
               <div class="plan-actions">
-                <button
-                  class="btn primary"
-                  type="button"
-                  (click)="saveDates()"
-                  [disabled]="saving() || !datesChanged()"
-                >
-                  Save dates
-                </button>
                 @if (cur.validUntil) {
                   <button class="btn" type="button" (click)="saveValidity(true)" [disabled]="saving()">
                     Remove end date
@@ -568,7 +535,7 @@
                     role="switch"
                     class="switch"
                     [attr.aria-checked]="safety.safetyEnabled"
-                    (click)="setSafetyValue('safetyEnabled', !safety.safetyEnabled)"
+                    (click)="setSafetyValue('safetyEnabled', !safety.safetyEnabled); autoSave()"
                   >
                     <span class="thumb"></span>
                   </button>
@@ -772,20 +739,6 @@
       }
     </div>
 
-    <!-- General and Anti-ban save together here; Plan saves each part itself and Limits only reads. -->
-    @if (tab() === 'general' || tab() === 'safety') {
-      <footer>
-        <button class="btn" type="button" (click)="reset()" [disabled]="saving()">Reset</button>
-        <button
-          class="btn primary"
-          type="button"
-          (click)="save()"
-          [disabled]="saving() || !s.safety"
-        >
-          {{ saving() ? 'Saving...' : 'Save settings' }}
-        </button>
-      </footer>
-    }
     </div>
     </div>
   </aside>

@@ -91,6 +91,7 @@ import { PAYMENTS } from './billing/schema.js';
 import { BillingError, BillingStore, cycleAmount } from './billing/store.js';
 import { Ledger, amountOr400, totals } from './billing/ledger.js';
 import { PlatformMessages, createNotifier } from './platform/notify.js';
+import { DURATIONS, LimitRequestError, LimitRequests, REQUESTABLE } from './limits/requests.js';
 import { LeadError, Leads } from './leads.js';
 import { leadAlertEmail, leadReceivedEmail, welcomeEmail } from './mail/emails.js';
 import { noMailer } from './mail/mailer.js';
@@ -2334,6 +2335,27 @@ export function createApp({
     const tenancy = new Tenancy(db);
     const leads = new Leads(db);
     const ledger = new Ledger(db);
+    const limitRequests = new LimitRequests(db.db);
+    /**
+     * One limit a business can ask more of, as it stands now: its own limits (null = no limit; messagesPerMonth
+     * missing = the plan's, kept as 'plan') or its anti-ban day (0 = the plan's).
+     */
+    const limitNow = (tenantId, key) => {
+        const tenant = tenancy.getTenant(tenantId);
+        if (key === 'dailyLimit') return Number(tenant?.safety?.dailyLimit) || 0;
+        const value = tenant?.limits?.[key];
+        return key === 'messagesPerMonth' && value === undefined ? 'plan' : (value ?? null);
+    };
+    const setLimitValue = (tenantId, key, value) => {
+        if (key === 'dailyLimit') tenancy.setSafety(tenantId, { dailyLimit: value || null });
+        else tenancy.setLimits(tenantId, { [key]: value });
+        runtimes.get(Number(tenantId))?.applyPolicy();
+    };
+    /** An approved increase whose time is up goes back, unless an admin set the limit to something else since. */
+    const revertLimit = (tenantId, item) => {
+        if (String(limitNow(tenantId, item.key)) === String(item.value)) setLimitValue(tenantId, item.key, item.previous);
+    };
+    app.locals.expireLimitRequests = (now) => limitRequests.expire(revertLimit, now);
     const CYCLE_WORD = { month: 'monthly', quarter: 'quarterly', year: 'annual' };
     // Wapzo's own WhatsApp number writing to clients (platform/notify.js); runtimeFor is defined further down.
     const platformMessages = new PlatformMessages(db.db);
@@ -2538,7 +2560,7 @@ export function createApp({
         });
     };
     const fail = (res, err) => {
-        if (err instanceof TenancyError || err instanceof BillingError || err instanceof LeadError) {
+        if (err instanceof TenancyError || err instanceof BillingError || err instanceof LeadError || err instanceof LimitRequestError) {
             return res.status(err.status).json({ errors: [err.message] });
         }
         throw err;
@@ -3480,6 +3502,14 @@ export function createApp({
             const password = String(req.body?.password ?? '');
             await tenancy.setPassword(tenant.id, owner.id, password);
             const active = tenancy.setTenantStatus(tenant.id, 'active');
+            // Its plan starts now, not when it was added: a trial gets its full length from today.
+            const plans = new BillingStore(db.forTenant(tenant.id));
+            const sub = plans.subscription();
+            if (sub) {
+                const trialMs = sub.status === 'trialing' && sub.trialEndsAt ? Date.parse(sub.trialEndsAt) - Date.parse(sub.startsAt) : 0;
+                const now = Date.now();
+                plans.subscribe(tenant.id, sub.planKey, { startsAt: new Date(now), trialEndsAt: trialMs > 0 ? new Date(now + trialMs) : null });
+            }
             // The plan is live from now: a paying business out of trial owes its price at once.
             const charged = chargeIfActive(req, tenant.id);
             audit(req, 'tenant.activate', tenant.id, { slug: tenant.slug, charged });
@@ -3537,15 +3567,63 @@ export function createApp({
             if (taken && Number(taken.tenant_id) !== before.id) {
                 return res.status(409).json({ errors: ['Another account already uses that email.'] });
             }
+            const ownerBefore = tenancy.ownerOf(before.id)?.email;
             const tenant = tenancy.updateDetails(before.id, body);
             if (body.ownerName !== undefined || email !== undefined) {
                 await tenancy.setOwner(before.id, { name: body.ownerName, email });
             }
             audit(req, 'tenant.details', tenant.id, {
                 name: tenant.name, slug: tenant.slug, contactPhone: tenant.contactPhone, wapzoUpdates: tenant.wapzoUpdates,
-                ...(email !== undefined ? { ownerEmail: email } : {}),
+                profile: tenant.profile,
+                // Only a changed sign-in is worth a line in the log.
+                ...(email !== undefined && email !== ownerBefore ? { ownerEmail: email } : {}),
             });
             return res.json({ tenant: tenantOverview(tenant), owner: tenancy.ownerOf(tenant.id) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /** A business's limit increase requests, newest first, for Tenant settings > General. */
+    admin.get('/tenants/:id/limit-requests', (req, res) => res.json({ requests: limitRequests.list(req.params.id) }));
+
+    /**
+     * The bell in the super admin's top-right corner: what is waiting on them. New account requests (leads not yet
+     * held, accepted or dismissed) and limit requests not yet answered; each goes away once acted on.
+     */
+    admin.get('/notifications', (req, res) => {
+        const { leads: waiting, counts } = leads.list({ status: 'new' });
+        const asks = limitRequests.pending();
+        return res.json({
+            count: counts.new + asks.length,
+            leads: waiting.slice(0, 20).map((l) => ({ id: l.id, name: l.name, business: l.business, createdAt: l.createdAt })),
+            limitRequests: asks.slice(0, 20).map((r) => ({
+                id: r.id, tenantId: r.tenantId, tenantName: r.tenantName, createdAt: r.createdAt,
+                items: r.items.map(({ label, value, days }) => ({ label, value, days })),
+            })),
+        });
+    });
+
+    /** Approve: every ask applies now and goes back when its time is up. Decline: nothing changes. `reason` optional. */
+    admin.post('/tenants/:id/limit-requests/:reqId/:answer', (req, res) => {
+        try {
+            const tenant = tenancy.getTenant(req.params.id);
+            if (!tenant || tenant.status === 'archived') return res.status(404).json({ errors: ['tenant not found'] });
+            const approve = req.params.answer === 'approve';
+            if (!approve && req.params.answer !== 'decline') return res.status(404).json({ errors: ['unknown answer'] });
+            const request = limitRequests.decide(tenant.id, req.params.reqId, approve, {
+                userId: req.user?.id ?? null,
+                reason: req.body?.reason ?? '',
+                apply: (item) => {
+                    const before = limitNow(tenant.id, item.key);
+                    setLimitValue(tenant.id, item.key, item.value);
+                    return before;
+                },
+            });
+            audit(req, approve ? 'limits.approve' : 'limits.decline', tenant.id, {
+                request: request.id, items: request.items.map(({ key, value, days }) => ({ key, value, days })),
+            });
+            return res.json({ request, tenant: tenantOverview(tenancy.getTenant(tenant.id)) });
         } catch (err) {
             return fail(res, err);
         }
@@ -4046,6 +4124,27 @@ export function createApp({
         }
     });
 
+    // ------------------------------------------- limit increase requests --
+    // A business asking for more of a limit for a while; the platform admin answers in Tenant settings > General.
+    const asks = express.Router();
+    asks.use(withTenant, requireRole('admin'));
+    app.use('/api/limit-requests', asks);
+    asks.get('/', (req, res) => res.json({
+        requests: limitRequests.list(req.tenantId),
+        limits: Object.entries(REQUESTABLE).map(([key, label]) => ({ key, label, now: limitNow(req.tenantId, key) })),
+        durations: DURATIONS,
+    }));
+    asks.post('/', (req, res) => {
+        try {
+            const request = limitRequests.create(req.tenantId, req.user.id, req.body ?? {});
+            audit(req, 'limits.request', String(request.id), { items: request.items.map(({ key, value, days }) => ({ key, value, days })) });
+            adminFeed.publish('tenants', req.tenantId);
+            return res.status(201).json({ request });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
     // ------------------------------------------- tenant-owned safety --
     // A business changing its own anti-ban limits: only when the platform admin
     // allows it, and only after someone accepted the risk (CONSENT_VERSION).
@@ -4421,7 +4520,10 @@ export function createApp({
         backupTimer.unref();
         // "Your plan ends in 3 days" / "ended": checked hourly; each message's key sends it once per end date.
         const planEndsBoot = setTimeout(() => notifyPlanEnds(), 90_000);
-        const planEndsTimer = setInterval(() => notifyPlanEnds(), 3_600_000);
+        const planEndsTimer = setInterval(() => {
+            notifyPlanEnds();
+            limitRequests.expire(revertLimit);
+        }, 3_600_000);
         planEndsBoot.unref();
         planEndsTimer.unref();
 

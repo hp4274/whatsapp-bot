@@ -1,0 +1,95 @@
+@use '../school/school-shared' as s;
+
+@include s.keyframes;
+
+:host { position: relative; display: inline-block; }
+
+// A round icon button with a count in the danger tone while anything waits.
+.bell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  background: var(--surface-card);
+  color: var(--text-strong);
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+  .ti { font-size: 19px; }
+  &:hover { border-color: var(--border-hover); background: var(--surface-sunken); }
+  &[aria-expanded='true'] { border-color: var(--primary); }
+}
+.badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: var(--on-fill);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--surface-card);
+}
+
+// The list drops from the bell's right edge, never past the screen.
+.panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  display: grid;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-lift);
+  animation: s-pop 200ms var(--ease) both;
+}
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border-color);
+  strong { font-size: 14.5px; font-weight: 600; color: var(--text-strong); }
+}
+.muted { font-size: 12px; color: var(--text-muted); }
+section { padding: 8px 0; & + section { border-top: 1px solid var(--border-color); } }
+h5 { margin: 4px 16px 4px; font-size: 12px; font-weight: 500; color: var(--text-muted); }
+ul { margin: 0; padding: 0; list-style: none; }
+li button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  width: 100%;
+  padding: 9px 16px;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: inherit;
+  &:hover, &:focus-visible { background: var(--surface-sunken); }
+  > .ti { margin-top: 2px; font-size: 17px; color: var(--primary-text); }
+}
+.text { display: grid; gap: 2px; min-width: 0; }
+b { font-size: 13.5px; font-weight: 500; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+small { font-size: 12px; color: var(--text-muted); overflow-wrap: anywhere; }
+.empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 18px 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+  .ti { font-size: 18px; }
+}

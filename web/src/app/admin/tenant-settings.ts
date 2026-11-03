@@ -11,7 +11,7 @@ import {
   untracked,
 } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Observable, concat, forkJoin, last, map, switchMap } from 'rxjs';
+import { Observable, concat, defer, forkJoin, last, map, switchMap } from 'rxjs';
 
 import { CustomSafetyState, SafetyPolicy, TenancyApi, TenantLimits } from '../core/api';
 import { Tenant, TenantControls, TenantSubscriptionSummary } from '../core/auth';
@@ -31,6 +31,7 @@ import {
   UsageRow,
   billingOf,
   cycleAmount,
+  planStatus,
   formatPrice,
   limitText,
   money,
@@ -41,6 +42,8 @@ import {
 import { POLICY_SERVICES } from './policy-api';
 import { PolicyEditor } from './policy-editor';
 import { TenantAccounts } from './tenant-accounts';
+import { TenantLimitRequests } from './tenant-limit-requests';
+import { TenantLogs } from './tenant-logs';
 import { TenantPayments } from './tenant-payments';
 import { AdminFeed } from './admin-feed';
 import { LeadsApi } from './leads-api';
@@ -70,18 +73,6 @@ const DEFAULT_CONTROLS: TenantControls = {
   sendingEnabled: true,
   campaignsEnabled: true,
   automationsEnabled: true,
-};
-
-const CONTROL_KEYS: readonly (keyof TenantControls)[] = [
-  'sendingEnabled',
-  'campaignsEnabled',
-  'automationsEnabled',
-];
-
-const CONTROL_LABELS: Record<keyof TenantControls, string> = {
-  sendingEnabled: 'Outbound sending',
-  campaignsEnabled: 'Campaign sending',
-  automationsEnabled: 'Automations',
 };
 
 /** null = no limit for every numeric limit; 0 allows none. */
@@ -150,7 +141,7 @@ const ACCESS_ACTIONS: readonly {
  */
 @Component({
   selector: 'app-tenant-settings',
-  imports: [DatePipe, DecimalPipe, PolicyEditor, TenantAccounts, TenantPayments, TenantSummary],
+  imports: [DatePipe, DecimalPipe, PolicyEditor, TenantAccounts, TenantLimitRequests, TenantLogs, TenantPayments, TenantSummary],
   templateUrl: './tenant-settings.html',
   styleUrl: './tenant-settings.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -192,7 +183,6 @@ export class TenantSettings {
     this.settings()?.tenant.status === 'pending' ? TABS.filter((t) => t.id !== 'accounts') : TABS,
   );
   protected readonly accessActions = ACCESS_ACTIONS;
-  protected readonly controlKeys = CONTROL_KEYS;
   protected readonly limitFields = TENANT_LIMIT_FIELDS;
   protected readonly limitText = limitText;
   protected readonly safetyGroups = SAFETY_GROUPS;
@@ -261,6 +251,8 @@ export class TenantSettings {
   protected readonly free = computed(() => this.sub()?.payment === 'free');
   /** Free, with top-ups that were charged: shown as Hybrid. */
   protected readonly hybrid = computed(() => this.free() && (this.balance()?.topupCharged ?? 0) > 0);
+  /** Pending / Active / Ends <date> / Plan ended: the one word the Plan section, left column and list all use. */
+  protected readonly status = computed(() => planStatus(this.settings()?.tenant.status ?? '', this.sub()));
   /** On a plan made for this business (Create plan): the sections below it are its own. */
   protected readonly ownPlan = computed(() => {
     const plan = this.currentPlan();
@@ -333,10 +325,6 @@ export class TenantSettings {
     if (!this.saving()) this.closed.emit();
   }
 
-  protected reset() {
-    this.load(this.tenant());
-  }
-
   /** Drop the tenant's own limits and take the permission back. Two clicks, no window.confirm. */
   protected revokeCustomSafety() {
     const cur = this.settings();
@@ -393,19 +381,55 @@ export class TenantSettings {
     });
   }
 
-  protected save() {
+  /**
+   * A box left changed: save the part it belongs to. General and Anti-ban save together (what changed of them);
+   * on Plan, the limits, the price or the dates. Other parts (top-up, payments, rules, logs) keep their own buttons.
+   */
+  protected changed(event: Event) {
+    const el = event.target as HTMLElement;
+    if (el.closest('app-tenant-logs, app-tenant-limit-requests, app-tenant-payments, app-policy-editor, app-tenant-accounts')) return;
+    const tab = this.tab();
+    if (tab === 'general' || tab === 'safety') return this.autoSave();
+    if (tab !== 'plan') return;
+    if (el.id === 'pl-agreed') {
+      if (this.agreedAmount() !== null && this.agreedAmount() !== (this.sub()?.customPrice ?? null)) this.saveAgreed();
+      return;
+    }
+    if (el.id === 'pl-start' || el.id === 'pl-end') {
+      if (this.datesChanged()) this.saveDates();
+      return;
+    }
+    if (el.closest('.plan-limits')) this.savePlanLimits();
+  }
+
+  /** Another change while one save runs is saved right after it, so nothing typed is lost. */
+  private saveAgain = false;
+
+  /** General and Anti-ban as they are now, saved quietly; the drawer stays open. */
+  protected autoSave() {
     const cur = this.settings();
     if (!cur) return;
+    if (this.saving()) {
+      this.saveAgain = true;
+      return;
+    }
     this.saving.set(true);
     this.error.set('');
     forkJoin(this.saveRequests(cur)).subscribe({
       next: () => {
         this.saving.set(false);
+        // What was saved is the new baseline, so the next save sends only what changes after it.
+        this.settings.update((s) => (s?.safety ? { ...s, safetyBase: s.safety } : s));
+        this.planNotice.set('Saved.');
         this.saved.emit();
-        this.closed.emit();
+        if (this.saveAgain) {
+          this.saveAgain = false;
+          this.autoSave();
+        }
       },
       error: (err: Error) => {
         this.saving.set(false);
+        this.saveAgain = false;
         this.error.set(err.message);
       },
     });
@@ -503,7 +527,12 @@ export class TenantSettings {
   protected subscribe(planKey: string) {
     const cur = this.settings();
     if (!cur || !planKey) return;
-    this.planAction(this.plansApi.subscribe(cur.tenant.id, planKey), 'Plan renewed: a new period started.', true);
+    // Deferred: a business still on a shared plan gets its own first, and that is the plan renewed.
+    this.planAction(
+      defer(() => this.plansApi.subscribe(cur.tenant.id, this.ownPlan() ? (this.sub()?.planKey ?? planKey) : planKey)),
+      'Plan renewed: a new period started.',
+      true,
+    );
   }
 
   /**
@@ -549,7 +578,21 @@ export class TenantSettings {
     const cur = this.settings();
     if (!cur) return;
     this.cancelAsk.set(false);
-    this.planAction(this.plansApi.cancel(cur.tenant.id, immediate), immediate ? 'Plan ended.' : 'Plan will end at the period end.');
+    this.planAction(
+      this.plansApi.cancel(cur.tenant.id, immediate),
+      immediate ? 'Plan ended. The business is listed under Plan ended.' : 'The plan ends at the end of this period.',
+    );
+  }
+
+  /**
+   * A limit request approved under General: the business's limits changed on the server, so the working copy is
+   * read again (unsaved edits on General give way to what was just granted).
+   */
+  protected limitsAnswered(tenant: Tenant) {
+    const cur = this.settings();
+    if (cur) this.load({ ...cur.tenant, ...tenant });
+    this.loadUsage(tenant.id);
+    this.saved.emit();
   }
 
   /** Billed monthly, quarterly or annually: the next charge is one such cycle. */
@@ -738,12 +781,6 @@ export class TenantSettings {
     return Object.keys(custom.overrides ?? {}).length;
   }
 
-  protected setSettingsControl(key: keyof TenantControls, checked: boolean) {
-    this.settings.update((cur) =>
-      cur ? { ...cur, controls: { ...cur.controls, [key]: checked } } : cur,
-    );
-  }
-
   protected setSafetyValue<K extends keyof SafetyPolicy>(key: K, value: SafetyPolicy[K]) {
     this.settings.update((cur) =>
       cur?.safety ? { ...cur, safety: { ...cur.safety, [key]: value } } : cur,
@@ -758,9 +795,5 @@ export class TenantSettings {
 
   protected setSafetyNumber(key: keyof SafetyPolicy, raw: string) {
     this.setSafetyValue(key, Number(raw) as never);
-  }
-
-  protected controlLabel(key: keyof TenantControls): string {
-    return CONTROL_LABELS[key];
   }
 }

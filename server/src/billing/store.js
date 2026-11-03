@@ -375,6 +375,9 @@ export class BillingStore {
      */
     graceEndsAt(row = this.row()) {
         if (!row) return null;
+        // Cancelled by the admin (end now, or at the period's end): ended then, no grace. Grace is for a plan that
+        // ran out (its trial or end date), not one that was stopped.
+        if (row.status === 'cancelled') return row.cancelled_at ?? row.current_period_end;
         const from = row.status === 'cancelled'
             ? (row.cancelled_at ?? row.current_period_end)
             : (row.status === 'trialing' ? row.trial_ends_at : (row.valid_until ?? null));

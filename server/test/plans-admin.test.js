@@ -166,20 +166,15 @@ describe('admin plans & subscriptions', () => {
         await call(sup, 'PUT', '/api/admin/billing/plans/starter', { tenantLimits: before.tenantLimits });
     });
 
-    it('cancels immediately into grace, and an expired business gets 402 but the super admin does not', async () => {
+    it('ends a plan at once, and an expired business gets 402 but the super admin does not', async () => {
         const { body: { tenant } } = await createTenant({ planKey: 'starter', trialDays: 0 });
         assert.equal(tenant.subscription.state, 'active');
         const ended = await call(sup, 'DELETE', `/api/admin/tenants/${tenant.id}/subscription?immediate=true`);
         assert.equal(ended.status, 200);
         assert.equal(ended.body.subscription.status, 'cancelled');
-        assert.equal(ended.body.subscription.state, 'grace');
+        assert.equal(ended.body.subscription.state, 'expired', 'ended now: no grace');
 
         const token = sessionFor(app, { tenantId: tenant.id, role: 'owner' });
-        assert.equal((await call(token, 'GET', '/api/contacts')).status, 200, 'grace still works');
-
-        // Push the cancellation past the grace window.
-        db.db.prepare('UPDATE subscriptions SET cancelled_at = ? WHERE tenant_id = ?')
-            .run(new Date(Date.now() - 30 * 86_400_000).toISOString(), tenant.id);
         // Writes stop; the business can still read its own data (docs/bulk.md §16).
         assert.equal((await call(token, 'GET', '/api/contacts')).status, 200, 'reads are not gated');
         const blocked = await call(token, 'POST', '/api/contacts', { phone: '919811100001', name: 'X' });

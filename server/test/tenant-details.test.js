@@ -86,6 +86,20 @@ describe('tenant details', () => {
         assert.match(log.summary, /Changed the details of .*rao@optic\.test/);
     });
 
+    it('keeps the business on paper: GSTIN and PAN checked and upper-cased, blanks dropped', async () => {
+        const url = `/api/admin/tenants/${id}/details`;
+        assert.equal((await call(sup, 'PUT', url, { profile: { gstin: '12345' } })).status, 400);
+        const ok = await call(sup, 'PUT', url, {
+            profile: { legalName: 'Kiran Eye Care Pvt Ltd', gstin: '27aapfu0939f1zv', pan: 'aapfu0939f', city: 'Pune', state: '' },
+        });
+        assert.equal(ok.status, 200, JSON.stringify(ok.body));
+        assert.deepEqual(ok.body.tenant.profile, { legalName: 'Kiran Eye Care Pvt Ltd', gstin: '27AAPFU0939F1ZV', pan: 'AAPFU0939F', city: 'Pune' });
+        // Only what is sent changes.
+        const more = await call(sup, 'PUT', url, { profile: { pincode: '411001' } });
+        assert.equal(more.body.tenant.profile.city, 'Pune');
+        assert.equal(more.body.tenant.profile.pincode, '411001');
+    });
+
     it('refuses an ID or owner email that another business has, changing nothing', async () => {
         const other = await call(sup, 'POST', '/api/admin/tenants', {
             name: 'Other Shop', status: 'pending', contactPhone: '+91 90000 22222', owner: { email: 'other@shop.test' },
