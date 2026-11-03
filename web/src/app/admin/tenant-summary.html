@@ -1,0 +1,184 @@
+<!-- Left column of Tenant settings: who, the request, the plan, the settings as they stand, and the sign-in. -->
+<section class="who">
+  <span class="avatar" aria-hidden="true">{{ tenant().name.charAt(0) }}</span>
+  <div>
+    <h4>{{ tenant().name }}</h4>
+    <p class="sub">ID {{ tenant().slug }}</p>
+  </div>
+  <span
+    class="s-pill"
+    [class.tone-ok]="tenant().status === 'active'"
+    [class.tone-warn]="tenant().status === 'suspended'"
+    [class.tone-info]="pending()"
+    >{{ pending() ? 'Pending' : tenant().status === 'active' ? 'Active' : 'Suspended' }}</span
+  >
+</section>
+
+@if (lead(); as l) {
+  <section>
+    <h5>Request</h5>
+    <dl class="facts">
+      <dt>Name</dt>
+      <dd>{{ l.name }}</dd>
+      <dt>Email</dt>
+      <dd><a [href]="'mailto:' + l.email">{{ l.email }}</a></dd>
+      @if (l.phone) {
+        <dt>WhatsApp</dt>
+        <dd>{{ l.phone }}</dd>
+      }
+      @if (l.message) {
+        <dt>Will send</dt>
+        <dd>{{ l.message }}</dd>
+      }
+      <dt>Asked</dt>
+      <dd>{{ l.createdAt | date: 'd MMM y' }}, {{ l.source === 'login' ? 'sign-in page' : 'landing page' }}</dd>
+    </dl>
+  </section>
+}
+
+<section>
+  <h5>Plan</h5>
+  @if (sub(); as s) {
+    <!-- "Business · Free": the plan stays the plan; how it is paid rides beside it. -->
+    <div class="plan-line">
+      <strong>{{ plan()?.name ?? s.planKey }}{{ payment() ? ' · ' + payment()!.label : '' }}</strong>
+      <span class="s-pill {{ stateTone(s.state) }}">{{ s.state }}</span>
+    </div>
+    <p class="sub">
+      @if (plan(); as p) {
+        {{ payment() && payment()!.key !== 'paid' ? 'Free plan, normally ' + paidPrice(p, s.customPrice) : paidPrice(p, s.customPrice) }} &middot;
+      }
+      {{ when(s) }}
+      @if (s.validUntil) {
+        &middot; ends {{ s.validUntil | date: 'd MMM y' }}
+      }
+    </p>
+    @if (plan(); as p) {
+      <dl class="facts grid">
+        <dt>Services</dt>
+        <dd>{{ tenant().services.length }} of {{ serviceCount() || p.services.length }}</dd>
+        @for (q of quotaFields; track q.key) {
+          <dt>{{ q.label }}</dt>
+          <dd>{{ quota(p.limits[q.key]) }}</dd>
+        }
+      </dl>
+    }
+  } @else {
+    <p class="sub">No plan: services and limits are set by hand. Choose one under Plan.</p>
+  }
+</section>
+
+@if (balance(); as b) {
+  <section>
+    <div class="h5-row">
+      <h5>Payments</h5>
+      <button class="btn sm" type="button" (click)="openPayments.emit()">Open</button>
+    </div>
+    <dl class="facts grid">
+      <dt>Charged</dt>
+      <dd>{{ money(b.charged) }}</dd>
+      <dt>Paid</dt>
+      <dd>{{ money(b.paid) }}</dd>
+      <dt>Remaining</dt>
+      <dd [class.due]="b.due > 0">{{ b.due ? money(b.due) + ' unpaid' : b.charged ? 'All paid' : money(0) }}</dd>
+    </dl>
+  </section>
+}
+
+<section>
+  <h5>Settings now</h5>
+  <dl class="facts grid">
+    <dt>Sending</dt>
+    <dd>{{ controls().sendingEnabled ? 'On' : 'Off' }}</dd>
+    <dt>Campaigns</dt>
+    <dd>{{ controls().campaignsEnabled ? 'On' : 'Off' }}</dd>
+    <dt>Automations</dt>
+    <dd>{{ controls().automationsEnabled ? 'On' : 'Off' }}</dd>
+    <dt>QR linking</dt>
+    <dd>{{ limits().allowWhatsappWeb ? 'Allowed' : 'Off' }}</dd>
+    @for (f of limitFields; track f.key) {
+      <dt>{{ f.label }}</dt>
+      <dd>{{ limit(limits()[f.key]) }}</dd>
+    }
+    <dt>Messages a month</dt>
+    <dd>
+      {{ limits().messagesPerMonth === undefined ? quota(plan()?.limits?.messagesPerMonth) + " (the plan's)" : limit(limits().messagesPerMonth) }}
+    </dd>
+    <dt>Messages a day</dt>
+    <dd>{{ safety() ? (safety()!.dailyLimit ? safety()!.dailyLimit.toLocaleString() : "The plan's") : '…' }}</dd>
+  </dl>
+  <p class="sub">Changes on the right show here as you make them; Save settings keeps them.</p>
+</section>
+
+<section>
+  <h5>Sign-in</h5>
+  @if (activation(); as done) {
+    <div class="done" role="status">
+      @if (done.mail?.sent) {
+        <p class="s-banner tone-ok">
+          <i class="ti ti-circle-check" aria-hidden="true"></i>Active. We emailed the sign-in to {{ done.email }}.
+        </p>
+      } @else {
+        <p class="s-banner tone-warn">
+          <i class="ti ti-mail-off" aria-hidden="true"></i>Active.
+          {{ done.mail ? done.mail.reason + ' ' : '' }}Send the sign-in yourself.
+        </p>
+      }
+      <dl class="facts creds">
+        <dt>Email</dt>
+        <dd>{{ done.email }}</dd>
+        <dt>Password</dt>
+        <dd class="pw">{{ done.password }}</dd>
+      </dl>
+      <p class="sub">The password is shown only now.</p>
+      <button class="btn" type="button" (click)="copy(done)">
+        <i class="ti ti-{{ copied() ? 'check' : 'copy' }}" aria-hidden="true"></i>
+        {{ copied() ? 'Copied' : 'Copy sign-in details' }}
+      </button>
+    </div>
+  } @else if (pending()) {
+    <form class="activate" (submit)="submit($event)">
+      <p class="sub">
+        Pending: the owner cannot sign in and nothing sends. Set it up on the right, then activate it.
+      </p>
+      <dl class="facts">
+        <dt>Owner</dt>
+        <dd>{{ ownerEmail() || '…' }}</dd>
+        <dt>WhatsApp</dt>
+        <dd>{{ tenant().contactPhone || 'Not set: add it under Edit details' }}</dd>
+      </dl>
+      <div class="f">
+        <label for="act-pass">Owner password <small>8+ characters</small></label>
+        <div class="pw-row">
+          <input
+            id="act-pass"
+            name="password"
+            required
+            minlength="8"
+            autocomplete="off"
+            [ngModel]="password()"
+            (ngModelChange)="password.set($event)"
+          />
+          <button class="btn" type="button" (click)="regenerate()">
+            <i class="ti ti-refresh" aria-hidden="true"></i> New
+          </button>
+        </div>
+      </div>
+      <label class="check">
+        <input type="checkbox" name="sendWelcome" [ngModel]="sendWelcome()" (ngModelChange)="sendWelcome.set($event)" />
+        Email the sign-in details to the owner
+      </label>
+      <button class="btn primary" type="submit" [disabled]="busy()">
+        {{ busy() ? 'Activating...' : 'Save and activate' }}
+      </button>
+    </form>
+  } @else {
+    <dl class="facts">
+      <dt>Owner</dt>
+      <dd>{{ ownerEmail() || '…' }}</dd>
+      <dt>WhatsApp</dt>
+      <dd>{{ tenant().contactPhone || 'Not set: add it under Edit details' }}</dd>
+    </dl>
+    <p class="sub">Reset a password under Accounts.</p>
+  }
+</section>

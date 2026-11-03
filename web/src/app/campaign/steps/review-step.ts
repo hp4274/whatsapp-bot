@@ -400,7 +400,11 @@ export class ReviewStep {
         ? 'this audience'
         : `${this.size().toLocaleString()} ${this.size() === 1 ? 'person' : 'people'}`;
     const s = this.current();
-    const took = s && this.perNumber() > 1 ? ` It will take about ${formatDuration(s.estimateSeconds.typical)}.` : '';
+    // No pacing (typical 0) has no duration worth stating: "about 0s" reads as broken.
+    const took =
+      s && this.perNumber() > 1 && s.estimateSeconds.typical >= 1
+        ? ` It will take about ${formatDuration(s.estimateSeconds.typical)}.`
+        : '';
     return `Send to ${who} now?${took}`;
   });
 
@@ -502,8 +506,8 @@ export class ReviewStep {
       const d = this.draft;
       this.spreadRetry();
       const active = d.spreadActive();
-      // Each shared number spreads its own share over the same days.
-      const count = Math.ceil(d.validContacts().length / (1 + this.sharedIds().length));
+      // Each shared number spreads its own share over the same days. The typed numbers go too.
+      const count = Math.ceil(d.fileAudience().length / (1 + this.sharedIds().length));
       const body = { count, from: d.spreadFrom(), to: d.spreadTo(), timezone: d.timezone() };
       const blocked = !active || count === 0 || this.spreadRangeIssue() !== '';
       untracked(() => {
@@ -530,9 +534,12 @@ export class ReviewStep {
         sub?.unsubscribe();
       });
     });
-    effect(() => {
+    // The pace changes once the plan loads, so it is tracked too; a newer ask cancels the older one.
+    effect((onCleanup) => {
       const size = this.perNumber();
-      untracked(() => this.loadSafety(size));
+      const preset = this.draft.pacing();
+      const sub = untracked(() => this.loadSafety(size, preset));
+      onCleanup(() => sub.unsubscribe());
     });
     /**
      * Warm vs new per number, debounced and cancelled like the spread check. Only an uploaded file gives the page
@@ -557,27 +564,24 @@ export class ReviewStep {
     });
   }
 
-  private loadSafety(size: number): void {
+  private loadSafety(size: number, preset: PacingPreset): Subscription {
     this.loadingSafety.set(true);
     // Only the estimate is shown. The server answers at the plan's speed (bulk.maxSpeed), as the run
     // will send, whatever preset is asked for here.
-    const preset = this.draft.pacing();
-    this.campaignsApi.safetyFor(size, preset).subscribe({
-      next: (r) => {
-        this.loadingSafety.set(false);
-        this.safety.set({ [preset]: r.safety });
-      },
-      error: () => {
+    return this.campaignsApi
+      .safetyFor(size, preset)
+      .pipe(
+        map((r) => r.safety),
         // Older servers ignore `pacing`; fall back to the plain preview.
-        this.api.safety(size).subscribe({
-          next: ({ safety }) => {
-            this.loadingSafety.set(false);
-            this.safety.set({ [this.draft.pacing()]: safety });
-          },
-          error: () => this.loadingSafety.set(false),
-        });
-      },
-    });
+        catchError(() => this.api.safety(size).pipe(map((r) => r.safety))),
+      )
+      .subscribe({
+        next: (safety) => {
+          this.loadingSafety.set(false);
+          this.safety.set({ [preset]: safety });
+        },
+        error: () => this.loadingSafety.set(false),
+      });
   }
 
   /** One click out of an infeasible range: stretch the end date to the server's minimum. */

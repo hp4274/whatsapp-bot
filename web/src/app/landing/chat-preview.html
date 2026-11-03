@@ -12,17 +12,26 @@
 </div>
 
 <figure class="phone" [schoolTilt]="5" data-ui>
+  <!-- WhatsApp's own chat screen: green bar, beige wallpaper, white and green bubbles, the message bar below. -->
   <div class="phone-top">
+    <i class="ti ti-arrow-left" aria-hidden="true"></i>
     <span class="avatar" aria-hidden="true">{{ scenario().contact.charAt(0) }}</span>
     <span class="who">
       <strong>{{ scenario().contact }}</strong>
-      <small>via your WhatsApp number</small>
+      <small>online</small>
     </span>
-    <span class="auto"><i class="ti ti-message-bolt" aria-hidden="true"></i>Auto-reply on</span>
+    <i class="ti ti-video" aria-hidden="true"></i>
+    <i class="ti ti-phone" aria-hidden="true"></i>
   </div>
   <ol class="thread" aria-live="polite">
-    @for (line of scenario().lines; track scenario().key + $index) {
-      <li class="msg {{ line.side }}" [style.--i]="$index">
+    <li class="day" aria-hidden="true"><span>Today</span></li>
+    @for (line of scenario().lines; track scenario().key + $index; let i = $index) {
+      <!-- The tail goes on the first bubble of a run from one side, as WhatsApp draws it. -->
+      <li
+        class="msg {{ line.side }}"
+        [class.first]="i === 0 || scenario().lines[i - 1].side !== line.side"
+        [style.--i]="i"
+      >
         <span class="text">{{ line.text }}</span>
         <span class="meta">
           {{ line.time }}
@@ -33,7 +42,12 @@
       </li>
     }
   </ol>
+  <div class="composer" aria-hidden="true">
+    <span class="field"><i class="ti ti-mood-smile"></i>Message<i class="ti ti-paperclip"></i></span>
+    <span class="mic"><i class="ti ti-microphone"></i></span>
+  </div>
   <figcaption class="sr-only">
     A sample conversation for a {{ scenario().label.toLowerCase() }}, answered by Wapzo.
   </figcaption>
 </figure>
+  <p class="auto"><i class="ti ti-message-bolt" aria-hidden="true"></i>Answered by Wapzo's auto-reply</p>

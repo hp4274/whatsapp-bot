@@ -1,0 +1,148 @@
+<!-- Tenant settings > Payments: the balance, "they paid", and the history. Paid/free and the plan price are under Plan. -->
+@if (error()) {
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="msg">{{ error() }}</span>
+  </p>
+}
+@if (notice()) {
+  <p class="s-banner tone-ok" role="status">
+    <i class="ti ti-circle-check" aria-hidden="true"></i>
+    <span class="msg">{{ notice() }}</span>
+  </p>
+}
+
+<section>
+  <h4>Balance</h4>
+  @if (statement(); as st) {
+    <dl class="money">
+      <div>
+        <dt>Plan price</dt>
+        <dd>
+          @if (st.planPrice) {
+            {{ money(st.planPrice) }}<small>per {{ st.interval }}</small>
+          } @else {
+            <span class="muted">Set under Plan</span>
+          }
+        </dd>
+      </div>
+      <div>
+        <dt>Charged</dt>
+        <dd>{{ money(st.charged) }}</dd>
+        @if (st.topupCharged) {
+          <small>{{ money(st.planCharged) }} plans, {{ money(st.topupCharged) }} top-ups</small>
+        }
+      </div>
+      <div>
+        <dt>Paid</dt>
+        <dd class="ok">{{ money(st.paid) }}</dd>
+      </div>
+      <div class="remaining" [class.settled]="!st.due">
+        <dt>Remaining</dt>
+        <dd>{{ money(st.due) }}</dd>
+        @if (st.charged) {
+          <small>{{ st.due ? 'Unpaid' : 'All paid' }}</small>
+        }
+      </div>
+    </dl>
+  } @else {
+    <div class="money loading" aria-busy="true"></div>
+  }
+</section>
+
+<section>
+  <h4>Record a payment</h4>
+  <p class="muted compact">Money received from this business. It comes off what is remaining.</p>
+  <form class="pay-form" (submit)="record($event)">
+    <div class="field">
+      <label for="pay-amount">Amount received <small class="muted">{{ currency() }}</small></label>
+      <input
+        id="pay-amount"
+        name="amount"
+        type="number"
+        min="1"
+        step="1"
+        required
+        placeholder="0"
+        [value]="amount() ?? ''"
+        (input)="setAmount($any($event.target).value)"
+      />
+      @if (statement()?.due; as due) {
+        <div class="quick">
+          <button type="button" class="s-chip" (click)="amount.set(due)">All remaining: {{ money(due) }}</button>
+        </div>
+      }
+    </div>
+    <div class="field">
+      <label for="pay-day">Paid on</label>
+      <input id="pay-day" name="paidOn" type="date" [value]="paidOn()" (input)="paidOn.set($any($event.target).value)" />
+    </div>
+    <!-- How it came in: one of three, picked like the Paid / Free switch. -->
+    <div class="field wide">
+      <span class="label" id="pay-method">Paid by</span>
+      <div class="methods" role="radiogroup" aria-labelledby="pay-method">
+        @for (m of methods; track m.key) {
+          <button type="button" role="radio" [attr.aria-checked]="method() === m.key" (click)="method.set(m.key)">
+            <i class="ti ti-{{ m.icon }}" aria-hidden="true"></i>{{ m.label }}
+          </button>
+        }
+      </div>
+    </div>
+    <div class="field wide">
+      <label for="pay-note">Note <small class="muted">optional</small></label>
+      <input
+        id="pay-note"
+        name="note"
+        maxlength="200"
+        [placeholder]="method() === 'cash' ? 'Who handed it over, a receipt number' : 'Transaction or reference number'"
+        [value]="note()"
+        (input)="note.set($any($event.target).value)"
+      />
+    </div>
+    <button class="btn primary" type="submit" [disabled]="busy() || !amount()">
+      <i class="ti ti-check" aria-hidden="true"></i> Mark as paid
+    </button>
+  </form>
+</section>
+
+<section>
+  <h4>Payment history</h4>
+  @if (statement(); as st) {
+    @if (st.entries.length) {
+      <ol class="ledger">
+        @for (e of shown(); track e.id) {
+          <li [class.in]="e.kind === 'payment'">
+            <i class="ti ti-{{ e.kind === 'payment' ? 'cash' : 'receipt' }}" aria-hidden="true"></i>
+            <div>
+              <span class="what">{{ e.note || kindLabel(e) }}</span>
+              <span class="muted">{{ entryMeta(e) }} &middot; {{ e.at | date: 'd MMM y' }}</span>
+            </div>
+            <b>{{ e.kind === 'payment' ? '−' : '' }}{{ money(e.amount) }}</b>
+            <button
+              class="btn icon sm"
+              type="button"
+              [disabled]="busy()"
+              [attr.aria-label]="'Remove ' + kindLabel(e).toLowerCase() + ' of ' + money(e.amount)"
+              (click)="removing.set(e)"
+            >
+              <i class="ti ti-trash" aria-hidden="true"></i>
+            </button>
+          </li>
+        }
+      </ol>
+      <app-pager [total]="st.entries.length" [size]="pageSize" [(page)]="page" label="Payment history pages" />
+    } @else {
+      <p class="muted compact">Nothing charged or paid yet.</p>
+    }
+  }
+</section>
+
+@if (removing(); as e) {
+  <app-confirm
+    [heading]="'Remove this ' + kindLabel(e).toLowerCase() + '?'"
+    [text]="money(e.amount) + (e.note ? ', ' + e.note : '') + '. Only for a line entered by mistake: the balance changes with it.'"
+    action="Remove"
+    (confirm)="remove(e)"
+    (cancel)="removing.set(null)"
+  />
+}

@@ -294,6 +294,8 @@ export class App {
     { path: '/admin/tenants', label: 'Tenants', icon: ICONS.tenants },
     { path: '/admin/leads', label: 'Leads', icon: 'user-plus' },
     { path: '/admin/plans', label: 'Plans & billing', icon: ICONS.plans },
+    { path: '/admin/payments', label: 'Payments', icon: 'cash' },
+    { path: '/admin/wapzo', label: 'Wapzo WhatsApp', icon: 'brand-whatsapp' },
     { path: '/admin/usage', label: 'Usage', icon: ICONS.usage },
     { path: '/admin/health', label: 'Health', icon: ICONS.health },
     { path: '/admin/number-collections', label: 'Number collections', icon: 'address-book' },

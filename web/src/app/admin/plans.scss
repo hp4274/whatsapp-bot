@@ -139,11 +139,9 @@
   background: transparent;
   color: var(--text-color);
   font-size: 13px;
-  opacity: 0.65;
-  filter: grayscale(0.6);
-  transition: opacity var(--fast) var(--ease), filter var(--fast) var(--ease);
-  &:hover { opacity: 1; filter: none; }
 }
+.disabled-note { margin: -4px 0 10px; font-size: 12.5px; }
+.plan-acts { display: inline-flex; gap: 6px; }
 
 /* Subscriptions --------------------------------------------------------- */
 .tiles {

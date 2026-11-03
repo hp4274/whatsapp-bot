@@ -25,80 +25,7 @@
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .s-banner .msg { flex: 1; min-width: 0; }
 
-/* New-tenant form -------------------------------------------------------- */
-.new {
-  display: grid;
-  gap: var(--space-lg);
-  padding: var(--space-xl);
-
-  h3 { font-size: 17px; font-weight: 500; }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: var(--space-lg);
-  }
-  button[type='submit'] { justify-self: start; }
-}
-
-.pw {
-  display: flex;
-  gap: 6px;
-  input { flex: 1; min-width: 0; }
-}
-
-.field-error { color: var(--danger-text); font-size: 12px; font-weight: 500; }
-
-h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(--text-strong); }
 .compact { margin: 0; font-size: 12.5px; }
-
-.service-picker {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  padding: var(--space-md) var(--space-lg);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  background: var(--surface-sunken);
-
-  h4 { margin: 0 0 3px; }
-  .btn { flex: 0 0 auto; }
-}
-
-/* Plan picker: selectable cards, the chosen one gets a green edge. */
-.plan-pick { display: grid; gap: var(--space-md); h4 { margin: 0; } }
-.plan-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr)); gap: 10px; }
-.plan-option {
-  display: grid;
-  gap: 4px;
-  align-content: start;
-  padding: 14px;
-  text-align: left;
-  font-size: 12.5px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  background: var(--surface-card);
-  color: var(--text-color);
-  transition: transform var(--fast) var(--ease), border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
-  &:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
-  &[aria-checked='true'] { border-color: var(--primary); background: var(--primary-tint); box-shadow: 0 0 0 3px var(--input-focus); }
-  &.manual { border-style: dashed; }
-  strong { font-size: 14px; font-weight: 500; color: var(--text-strong); }
-}
-.po-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.po-price { font-size: 18px; font-weight: 500; letter-spacing: -0.5px; color: var(--text-strong); }
-.plan-services {
-  display: grid;
-  gap: 8px;
-  padding: var(--space-md) var(--space-lg);
-  border-radius: var(--radius-lg);
-  background: var(--surface-sunken);
-  h4 { margin: 0; .muted { font-weight: 400; margin-left: 4px; } }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  /* the panel is already sunken, so hover lifts to the card surface instead */
-  .s-chip:not([aria-pressed='true']):hover { background: var(--surface-card); }
-  .trial { max-width: 220px; }
-}
 .plan-badge { border: 0; cursor: pointer; .ti { font-size: 12px; } &::before { display: none; } }
 
 .opt {
@@ -112,7 +39,6 @@ h4 { margin: 0 0 var(--space-sm); font-size: 13px; font-weight: 500; color: var(
   cursor: pointer;
 }
 
-.switches { display: grid; gap: 10px; }
 
 /* Toolbar ----------------------------------------------------------------- */
 .toolbar {
@@ -443,7 +369,7 @@ $list-cols: minmax(300px, 3fr) repeat(4, minmax(52px, 0.5fr)) minmax(116px, 1fr)
   bottom: 0;
   z-index: 71;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto minmax(0, 1fr) auto; // minmax: the list scrolls instead of growing past the drawer
   width: min(420px, 100vw);
   background: var(--surface-card);
   border-left: 1px solid var(--border-color);
@@ -463,7 +389,8 @@ $list-cols: minmax(300px, 3fr) repeat(4, minmax(52px, 0.5fr)) minmax(116px, 1fr)
   h3 { margin: 2px 0 3px; font-size: 20px; font-weight: 500; letter-spacing: -0.3px; }
 }
 
-.drawer-checks { display: grid; align-content: start; padding: var(--space-xl); overflow: auto; }
+// A block, not a grid: as a grid item the clipped list below would shrink to fit and never scroll.
+.drawer-checks { display: block; padding: var(--space-xl); overflow: auto; overscroll-behavior: contain; }
 
 // One hairline list, name left and switch right, like the tenant settings drawer.
 .opt-list {
@@ -496,9 +423,17 @@ $list-cols: minmax(300px, 3fr) repeat(4, minmax(52px, 0.5fr)) minmax(116px, 1fr)
   .search { flex-basis: 100%; }
   .tenants { grid-template-columns: 1fr; }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .service-picker { display: grid; align-items: start; .btn { justify-self: start; } }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .seed-confirm, .seed-result, .tenant, .service-drawer { animation: none; }
 }
+
+/* Pending setup: accepted leads, above the running businesses. */
+.pending-block { display: grid; gap: var(--space-md); }
+.block-head h3, .block-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: 500; color: var(--text-strong); }
+
+/* Services opened from Tenant settings: above it, with a clear backdrop (settings already dims the page). */
+.service-drawer.over { z-index: 73; }
+// No backdrop over settings: it stays scrollable and usable beside the services drawer.
+.drawer-backdrop.over { display: none; }

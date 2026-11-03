@@ -88,7 +88,7 @@ describe('admin and business saves', () => {
         await new Promise((resolve) => server.once('listening', resolve));
         base = `http://127.0.0.1:${server.address().port}`;
         tenant = app.locals.tenancy.createTenant('Card Shop', 'card-shop');
-        app.locals.policy.set(`tenant:${tenant.id}`, { 'channels.dailyCap': 500 });
+        app.locals.policy.set('global', { 'channels.dailyCap': 500 }); // no plan: the platform's day stands in for it
         sup = sessionFor(app, { role: 'super_admin' });
         owner = sessionFor(app, { tenantId: tenant.id, role: 'owner' });
         const channels = new Channels(db.forTenant(tenant.id));

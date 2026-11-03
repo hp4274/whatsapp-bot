@@ -411,7 +411,8 @@ describe('the routes', () => {
         const preview = await call('POST', `/campaigns/${created.body.campaign.id}/preview`, { limit: 2 });
         assert.equal(preview.status, 200);
         assert.equal(preview.body.previews.length, 2);
-        assert.equal(preview.body.previews[0].preview, 'Hi Asha, your code is {coupon}');
+        // As the send renders it: the blank goes, and `missing` names it.
+        assert.equal(preview.body.previews[0].preview, 'Hi Asha, your code is');
         assert.deepEqual(preview.body.missing, ['coupon']);
         assert.equal(preview.body.audience, 2);
     });

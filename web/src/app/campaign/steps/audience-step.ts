@@ -205,6 +205,10 @@ export class AudienceStep {
     const removed = new Set(this.draft.excludedRows());
     return (this.draft.audit()?.valid ?? []).filter((v) => !removed.has(v.row));
   });
+  /** Removed rows that would otherwise get it (a removed row a re-audit now skips is not counted). */
+  protected readonly removedCount = computed(
+    () => (this.draft.audit()?.valid.length ?? 0) - this.kept().length,
+  );
   protected readonly pages = computed(() => Math.max(1, Math.ceil(this.kept().length / this.perPage)));
   /** Clamped: removing the last row of the last page steps back a page. */
   protected readonly pageAt = computed(() => Math.min(this.page(), this.pages() - 1));
@@ -346,7 +350,8 @@ export class AudienceStep {
           this.auditing.set(false);
           this.error.set('');
           this.draft.audit.set(audit);
-          this.draft.excludedRows.set([]);
+          // Removals are by sheet row, so they survive a new country code or dedupe rule;
+          // only a new file (clearImport) puts them back.
           this.draft.previewIndex.set(0);
           this.page.set(0);
         },
@@ -373,7 +378,10 @@ export class AudienceStep {
     }
     if (source === 'contacts' && !this.knownTags().length) {
       this.contactsApi.list({}, 1).subscribe({
-        next: ({ tags }) => this.knownTags.set(tags.map((t) => t.tag)),
+        next: ({ tags, fieldKeys }) => {
+          this.knownTags.set(tags.map((t) => t.tag));
+          this.draft.contactFields.set(fieldKeys ?? []);
+        },
         error: () => undefined,
       });
     }

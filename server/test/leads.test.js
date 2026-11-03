@@ -57,6 +57,7 @@ describe('leads', () => {
     it('takes a request from the public form, validates it and keeps one open request per email', async () => {
         assert.equal((await call(null, 'POST', '/api/leads', { name: 'Asha', business: '', email: 'a@b.co' })).status, 400);
         assert.equal((await call(null, 'POST', '/api/leads', { name: 'Asha', business: 'Shop', email: 'nope' })).status, 400);
+        assert.throws(() => new Leads(db).create({ name: 'Asha', business: 'Shop', email: 'a@b.co' }), /WhatsApp number/, 'WhatsApp number is required');
         const lead = { name: 'Asha', business: 'Asha <Sarees>', email: 'Asha@Shop.test', phone: '+91 98765 43210', message: 'Hi' };
         outbox.length = 0;
         assert.equal((await call(null, 'POST', '/api/leads', lead)).status, 201);
@@ -88,67 +89,96 @@ describe('leads', () => {
         assert.equal(unknown.body.signup, true);
     });
 
-    it('converts a lead into a tenant on the chosen plan with its payment, once', async () => {
+
+    it('accepts a lead as a pending tenant that cannot sign in until activated', async () => {
         const [lead] = (await call(sup, 'GET', '/api/admin/leads')).body.leads;
         const url = `/api/admin/leads/${lead.id}/convert`;
-        assert.equal((await call(sup, 'POST', url, { slug: 'asha' })).status, 400, 'a plan is required');
-        assert.equal((await call(sup, 'POST', url, {
-            slug: 'asha', planKey: 'starter', payment: 'sometimes', owner: { password: 'password123' },
-        })).status, 400, 'an unknown payment creates nothing');
-        const res = await call(sup, 'POST', url, {
-            slug: 'asha', planKey: 'business', payment: 'free', trialDays: 0, owner: { password: 'password123' },
-        });
+        const res = await call(sup, 'POST', url, {});
         assert.equal(res.status, 201, JSON.stringify(res.body));
-        assert.equal(res.body.tenant.name, 'Asha <Sarees>');
-        // The owner gets their sign-in details by email.
-        assert.equal(res.body.email.sent, true);
+        const tenant = res.body.tenant;
+        assert.equal(tenant.name, 'Asha <Sarees>');
+        assert.equal(tenant.status, 'pending');
+        assert.equal(tenant.slug, 'asha-sarees');
+        assert.equal(tenant.subscription.planKey, 'starter', 'the first active plan until the admin picks one');
+        assert.equal(tenant.subscription.payment, 'paid');
+        assert.equal(tenant.contactPhone, '+91 98765 43210', "the lead's WhatsApp is the business's contact number");
+        assert.equal(res.body.lead.status, 'converted');
+        assert.equal(res.body.lead.tenantId, tenant.id);
+        assert.equal((await call(sup, 'POST', url, {})).status, 409, 'once');
+        assert.equal((await call(sup, 'PATCH', `/api/admin/leads/${lead.id}`, { status: 'dismissed' })).status, 409);
+        // Tenant settings shows the request it came from.
+        assert.equal((await call(sup, 'GET', `/api/admin/tenants/${tenant.id}/lead`)).body.lead.id, lead.id);
+
+        // While pending the plan is not live, so nothing is charged, whatever plans are tried.
+        await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/subscription`, { planKey: 'business' });
+        const bill = async () => (await call(sup, 'GET', `/api/admin/tenants/${tenant.id}/payments`)).body;
+        assert.deepEqual((await bill()).entries, []);
+
+        // Pending: the owner's sign-in is refused with a "being set up" answer, and nothing was emailed yet.
+        const mailsBefore = outbox.length;
+        const early = await call(null, 'POST', '/api/auth/login', { email: 'asha@shop.test', password: 'password123' });
+        assert.equal(early.status, 401, 'the password is still the random one');
+        const activateUrl = `/api/admin/tenants/${tenant.id}/activate`;
+        assert.equal((await call(sup, 'POST', activateUrl, { password: 'short' })).status, 400);
+        assert.equal((await call(sup, 'GET', '/api/admin/tenants')).body.tenants.find((t) => t.id === tenant.id).status, 'pending',
+            'a refused activation leaves it pending');
+
+        // Activate: the owner gets the chosen password by email and can sign in.
+        const on = await call(sup, 'POST', activateUrl, { password: 'password123' });
+        assert.equal(on.status, 200, JSON.stringify(on.body));
+        assert.equal(on.body.tenant.status, 'active');
+        // Live from now: the plan's price is charged at once.
+        assert.deepEqual((await bill()).entries.map((e) => [e.kind, e.amount]), [['plan', 2999]]);
+        assert.equal(on.body.email.sent, true);
+        assert.equal(outbox.length, mailsBefore + 1);
         const welcome = outbox.at(-1);
         assert.equal(welcome.to, 'asha@shop.test');
         assert.ok(welcome.html.includes('password123') && welcome.html.includes('https://app.wapzo.test/login'));
-        assert.equal(res.body.tenant.subscription.planKey, 'business');
-        assert.equal(res.body.tenant.subscription.payment, 'free');
-        assert.equal(res.body.owner.email, 'asha@shop.test');
-        assert.equal(res.body.lead.status, 'converted');
-        assert.equal(res.body.lead.tenantId, res.body.tenant.id);
-        assert.equal((await call(sup, 'POST', url, { planKey: 'business' })).status, 409);
-        assert.equal((await call(sup, 'PATCH', `/api/admin/leads/${lead.id}`, { status: 'dismissed' })).status, 409);
-
-        // The new owner signs in, and a wrong password on a real account is no "sign up" hint.
+        assert.equal((await call(sup, 'POST', activateUrl, { password: 'password123' })).status, 409, 'only a pending one');
         const ok = await call(null, 'POST', '/api/auth/login', { email: 'asha@shop.test', password: 'password123' });
         assert.equal(ok.status, 200);
         const wrong = await call(null, 'POST', '/api/auth/login', { email: 'asha@shop.test', password: 'wrong-one' });
         assert.equal(wrong.status, 401);
-        assert.equal(wrong.body.signup, undefined);
+        assert.equal(wrong.body.signup, undefined, 'a wrong password on a real account is no "sign up" hint');
 
         // Payment is changed with the plan, and kept when only the plan changes.
-        const tenantUrl = `/api/admin/tenants/${res.body.tenant.id}/subscription`;
+        const tenantUrl = `/api/admin/tenants/${tenant.id}/subscription`;
         const put = await call(sup, 'PUT', tenantUrl, { planKey: 'starter', payment: 'paid' });
         assert.equal(put.body.tenant.subscription.payment, 'paid');
         const again = await call(sup, 'PUT', tenantUrl, { planKey: 'business' });
         assert.equal(again.body.tenant.subscription.payment, 'paid');
         // Payment alone leaves the plan and its period as they were.
-        const paymentUrl = `/api/admin/tenants/${res.body.tenant.id}/payment`;
-        const alone = await call(sup, 'PUT', paymentUrl, { payment: 'unpaid' });
-        assert.equal(alone.body.subscription.payment, 'unpaid');
+        const paymentUrl = `/api/admin/tenants/${tenant.id}/payment`;
+        const alone = await call(sup, 'PUT', paymentUrl, { payment: 'free' });
+        assert.equal(alone.body.subscription.payment, 'free');
         assert.equal(alone.body.subscription.planKey, 'business');
         assert.equal(alone.body.subscription.startsAt, again.body.subscription.startsAt);
         assert.equal((await call(sup, 'PUT', paymentUrl, { payment: 'later' })).status, 400);
     });
 
-    it('dismisses and reopens a lead', async () => {
-        new Leads(db).create({ name: 'Ravi', business: 'Ravi Tutors', email: 'ravi@t.test' });
+    it('holds, dismisses and reopens a lead; a pending owner is told it is being set up', async () => {
+        new Leads(db).create({ name: 'Ravi', business: 'Ravi Tutors', email: 'ravi@t.test', phone: '98765 43210' });
         const lead = (await call(sup, 'GET', '/api/admin/leads?status=new')).body.leads[0];
         const patch = (status) => call(sup, 'PATCH', `/api/admin/leads/${lead.id}`, { status });
+        assert.equal((await patch('hold')).body.lead.status, 'hold');
+        assert.equal((await call(sup, 'GET', '/api/admin/leads')).body.counts.hold, 1);
+        // A second request from the same email while on hold refreshes it rather than adding another.
+        new Leads(db).create({ name: 'Ravi', business: 'Ravi Tutors', email: 'ravi@t.test', phone: '98765 43210', message: 'still keen' });
+        assert.equal((await call(sup, 'GET', '/api/admin/leads?status=hold')).body.leads[0].message, 'still keen');
         assert.equal((await patch('dismissed')).body.lead.status, 'dismissed');
-        assert.equal((await call(sup, 'GET', '/api/admin/leads?status=dismissed')).body.leads.length, 1);
         assert.equal((await patch('new')).body.lead.status, 'new');
-        // Unticking "email the sign-in details" sends nothing.
-        const before = outbox.length;
-        const quiet = await call(sup, 'POST', `/api/admin/leads/${lead.id}/convert`, {
-            slug: 'ravi', planKey: 'starter', sendWelcome: false, owner: { password: 'password123' },
-        });
-        assert.equal(quiet.status, 201);
-        assert.equal(quiet.body.email.sent, false);
-        assert.equal(outbox.length, before);
+        assert.equal((await patch('converted')).status, 400);
+
+        // Accepting while the slug is taken picks the next free one.
+        const res = await call(sup, 'POST', `/api/admin/leads/${lead.id}/convert`, { planKey: 'business' });
+        assert.equal(res.status, 201);
+        assert.equal(res.body.tenant.subscription.planKey, 'business');
+        await app.locals.tenancy.setPassword(res.body.tenant.id,
+            app.locals.tenancy.listUsers(res.body.tenant.id)[0].id, 'password123');
+        const refused = await call(null, 'POST', '/api/auth/login', { email: 'ravi@t.test', password: 'password123' });
+        assert.equal(refused.status, 403);
+        assert.match(refused.body.errors[0], /being set up/);
+        assert.equal(new Leads(db).forTenant(res.body.tenant.id).id, lead.id);
+        assert.equal(app.locals.tenancy.freeSlug('Ravi Tutors'), 'ravi-tutors-2');
     });
 });

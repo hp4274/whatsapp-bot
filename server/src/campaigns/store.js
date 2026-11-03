@@ -75,7 +75,6 @@ export class CampaignStore {
         ensureCampaignOptionsColumn(this.db);
         this.tenantId = database.tenantId;
         this.channelId = database.channelId ?? null;
-        this.counts = (campaignKey) => database.countsByStatus(campaignKey, database.channelId);
         this.contacts = contacts;
         this.templates = templates;
         this.manager = manager;
@@ -970,7 +969,8 @@ export class CampaignStore {
                 variant: row.variant ?? null, timezone: contactZone(contact.extra),
             });
         }
-        const byStatus = this.counts(key);
+        // As the campaign counts them: a failure a retry already re-sent is not a failure (nor a second person).
+        const { byStatus } = this.#snapshot(campaign);
         const open = OPEN_STATUSES.reduce((n, s) => n + (byStatus[s] ?? 0), 0);
         const failed = byStatus.FAILED ?? 0;
         const notOnWhatsapp = byStatus.NOT_ON_WHATSAPP ?? 0;
@@ -1020,13 +1020,21 @@ export class CampaignStore {
      * Quick sends and replies in the queue do not count: a new run keeps them (`keepOneOff`).
      */
     #busyWith(campaign) {
+        return this.busyWith(campaignKey(campaign.id));
+    }
+
+    /**
+     * As #busyWith, by run key; null `key` (a quick bulk send from app.js, which has no saved record) counts any run.
+     * A run without a record (an earlier quick send) reads paused or running from the queue.
+     */
+    busyWith(key = null) {
         const manager = this.manager;
-        if (!manager || manager.campaignId === campaignKey(campaign.id)) return null;
+        if (!manager || (key !== null && manager.campaignId === key)) return null;
         const waiting = manager.pendingByType?.()?.campaign ?? 0;
         const sending = manager.inFlight > 0 && manager.current?.messageType === 'campaign';
         if (!waiting && !sending) return null;
         const id = /^camp-(\d+)$/.exec(String(manager.campaignId ?? ''))?.[1];
-        return (id && this.get(id)) || { name: null, status: 'running' };
+        return (id && this.get(id)) || { name: null, status: manager.queue?.isPaused ? 'paused' : 'running' };
     }
 
     #media(campaign) {
@@ -1417,9 +1425,12 @@ function audienceIndex(audience) {
     return index;
 }
 /** Why a number already holding `other`'s run cannot take another now; `what` is the refused action. */
-function busyText(other, what = 'start') {
+export function busyText(other, what = 'start') {
     const name = other.name ? `«${other.name}»` : 'another bulk send';
-    const after = { start: 'or schedule this one for later', resume: 'then resume this one', retry: 'then retry this one' }[what];
+    const after = {
+        start: 'or schedule this one for later', resume: 'then resume this one', retry: 'then retry this one',
+        send: 'then send this one',
+    }[what];
     if (other.status === 'paused') {
         return `${name} is paused on this number with messages still waiting. Resume or cancel it first, ${after}.`;
     }

@@ -79,6 +79,8 @@ describe('classifyPhone', () => {
         ['abc123', {}, null, 'letters'],
         ['98765 43210x', { autoClean: true, countryCode: '91' }, '919876543210', null],
         ['+12345', {}, null, 'too_short'],
+        // The prefix must not lift a stub over the floor: +91 12345 is no Indian number.
+        ['12345', { countryCode: '91' }, null, 'too_short'],
         [`+${'1'.repeat(17)}`, {}, null, 'too_long'],
     ];
     for (const [raw, options, phone, reason] of cases) {
@@ -219,6 +221,20 @@ describe('import endpoints', () => {
         const on = await (await audit({ importId, mapping, countryCode: '91', dedupeDays: 7 })).json();
         assert.equal(on.counts.recent, 1);
         assert.equal(on.issues.find((i) => i.reason === 'recent').phone, '919876543211');
+    });
+
+    it('puts the file in the contact book only when asked, so trial country codes never land there', async () => {
+        const rt = app.locals.runtimeFor(1);
+        const { contacts } = rt.runtimeFor(rt.channels.getDefault()).state;
+        const { importId } = await (await preview(SCHOOL_CSV)).json();
+        const tried = await (await audit({ importId, mapping, countryCode: '1' })).json();
+        assert.equal(tried.saved, undefined);
+        assert.equal(contacts.getByPhone('19876543210'), null);
+
+        const kept = await (await audit({ importId, mapping, countryCode: '91', save: true })).json();
+        assert.equal(kept.saved.created + kept.saved.updated, 2);
+        assert.equal(contacts.getByPhone('919876543210')?.name, 'Shah, Aarav');
+        assert.equal(contacts.getByPhone('19876543210'), null);
     });
 
     it('404s an unknown import and 400s bad input', async () => {

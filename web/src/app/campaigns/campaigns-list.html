@@ -263,7 +263,7 @@
                   <button
                     type="button"
                     class="btn sm primary a-run"
-                    [disabled]="busy() === c.id"
+                    [disabled]="isBusy(c.id)"
                     (click)="act(c, 'start')"
                     [attr.aria-label]="'Start ' + c.name"
                   >
@@ -274,7 +274,7 @@
                   <button
                     type="button"
                     class="btn sm a-run"
-                    [disabled]="busy() === c.id"
+                    [disabled]="isBusy(c.id)"
                     (click)="act(c, 'pause')"
                     [attr.aria-label]="'Pause ' + c.name"
                   >
@@ -285,7 +285,7 @@
                   <button
                     type="button"
                     class="btn sm primary a-run"
-                    [disabled]="busy() === c.id"
+                    [disabled]="isBusy(c.id)"
                     (click)="act(c, 'resume')"
                     [attr.aria-label]="'Resume ' + c.name"
                   >
@@ -297,7 +297,7 @@
                     type="button"
                     class="btn sm a-stop"
                     [class.danger]="isConfirming(c.id, 'cancel')"
-                    [disabled]="busy() === c.id"
+                    [disabled]="isBusy(c.id)"
                     (click)="act(c, 'cancel')"
                     (blur)="isConfirming(c.id, 'cancel') && confirming.set(null)"
                     [attr.aria-label]="
@@ -315,7 +315,7 @@
                     [class.icon]="!isConfirming(c.id, 'delete')"
                     [class.danger]="isConfirming(c.id, 'delete')"
                     [attr.title]="isConfirming(c.id, 'delete') ? null : 'Delete'"
-                    [disabled]="busy() === c.id"
+                    [disabled]="isBusy(c.id)"
                     (click)="act(c, 'delete')"
                     (blur)="isConfirming(c.id, 'delete') && confirming.set(null)"
                     [attr.aria-label]="

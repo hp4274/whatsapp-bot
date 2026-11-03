@@ -29,7 +29,9 @@ import {
         <p id="confirm-desc">{{ text() }}</p>
         <div class="dialog-actions">
           <button #cancelBtn class="btn" type="button" (click)="cancel.emit()">Cancel</button>
-          <button class="btn danger-fill" type="button" (click)="confirm.emit()">{{ action() }}</button>
+          <button class="btn" [class.danger-fill]="tone() === 'danger'" [class.primary]="tone() === 'primary'" type="button" (click)="confirm.emit()">
+            {{ action() }}
+          </button>
         </div>
       </div>
     </div>
@@ -42,6 +44,8 @@ export class ConfirmDialog {
   readonly text = input.required<string>();
   /** The red button's words: what happens, e.g. "Delete tenant". */
   readonly action = input.required<string>();
+  /** Red for what removes or ends something; primary for a plain "yes, go ahead". */
+  readonly tone = input<'danger' | 'primary'>('danger');
   readonly confirm = output<void>();
   readonly cancel = output<void>();
 

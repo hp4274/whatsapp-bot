@@ -10,6 +10,7 @@
 /** The admin topic for a tenant-runtime event; null for events no admin screen shows. */
 export function adminTopics(event) {
     switch (event?.type) {
+        case 'qr':
         case 'connection':
         case 'connectionLost':
         case 'transportState':

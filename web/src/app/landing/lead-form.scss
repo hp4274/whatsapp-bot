@@ -63,21 +63,25 @@
 }
 
 .foot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 20px;
+  display: grid;
+  gap: 14px;
+  margin-top: 4px;
 
   p {
     margin: 0;
-    flex: 1 1 220px;
+    text-align: center;
     font-size: 13.5px;
     color: var(--text-muted);
   }
 }
 
-// The one action, in the brand blue (the 10 of 60-30-10), pill-shaped like the page's other actions.
+// The one action, in the brand blue (the 10 of 60-30-10), a full-width pill.
 .send {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
   min-height: 48px;
   padding: 0 28px;
   border: 0;
@@ -90,8 +94,17 @@
     background var(--fast) var(--ease),
     scale var(--fast) var(--ease);
 
+  .ti {
+    font-size: 19px;
+    transition: translate var(--fast) var(--ease);
+  }
+
   &:hover:not(:disabled) {
     background: var(--primary-hover);
+
+    .ti {
+      translate: 3px 0;
+    }
   }
 
   &:active:not(:disabled) {

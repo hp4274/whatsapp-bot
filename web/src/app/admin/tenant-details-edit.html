@@ -1,0 +1,71 @@
+<!-- Tenant settings > Edit: replaces the left column while open. -->
+<form class="edit" (submit)="submit($event)">
+  <header>
+    <h4>Edit details</h4>
+    <p class="sub">The business, how Wapzo reaches it, and who signs in first.</p>
+  </header>
+
+  @if (error()) {
+    <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}</p>
+  }
+
+  <fieldset>
+    <legend>Business</legend>
+    <div class="field">
+      <label for="ed-name">Business name</label>
+      <input id="ed-name" name="name" required maxlength="160" [ngModel]="form().name" (ngModelChange)="set('name', $event)" />
+    </div>
+    <div class="field">
+      <label for="ed-slug">ID <small class="muted">letters, numbers and dashes</small></label>
+      <input id="ed-slug" name="slug" required maxlength="80" [ngModel]="form().slug" (ngModelChange)="set('slug', $event)" />
+    </div>
+    <div class="field">
+      <label for="ed-phone">WhatsApp number <small class="muted">where Wapzo writes to them</small></label>
+      <input
+        id="ed-phone"
+        name="contactPhone"
+        type="tel"
+        maxlength="32"
+        placeholder="+91 98765 43210"
+        [ngModel]="form().contactPhone"
+        (ngModelChange)="set('contactPhone', $event)"
+      />
+    </div>
+    <label class="opt">
+      <span>Send Wapzo WhatsApp updates <small class="muted">account, plan and payment messages</small></span>
+      <button
+        type="button"
+        role="switch"
+        class="switch"
+        [attr.aria-checked]="form().wapzoUpdates"
+        (click)="set('wapzoUpdates', !form().wapzoUpdates)"
+      >
+        <span class="thumb"></span>
+      </button>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Owner</legend>
+    <div class="field">
+      <label for="ed-owner">Name</label>
+      <input id="ed-owner" name="ownerName" maxlength="120" [ngModel]="form().ownerName" (ngModelChange)="set('ownerName', $event)" />
+    </div>
+    <div class="field">
+      <label for="ed-email">Sign-in email</label>
+      <input
+        id="ed-email"
+        name="ownerEmail"
+        type="email"
+        maxlength="254"
+        [ngModel]="form().ownerEmail"
+        (ngModelChange)="set('ownerEmail', $event)"
+      />
+    </div>
+  </fieldset>
+
+  <div class="acts">
+    <button class="btn" type="button" (click)="cancelled.emit()" [disabled]="busy()">Cancel</button>
+    <button class="btn primary" type="submit" [disabled]="busy()">{{ busy() ? 'Saving...' : 'Save details' }}</button>
+  </div>
+</form>

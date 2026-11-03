@@ -26,9 +26,10 @@
         <input [id]="source() + '-email'" name="email" type="email" autocomplete="email" required maxlength="254"
           placeholder="name@company.com" [ngModel]="address()" (ngModelChange)="address.set($event)" />
       </div>
+      <!-- Required: we confirm the request and send updates on WhatsApp. -->
       <div class="f">
-        <label [attr.for]="source() + '-phone'">WhatsApp number <small>optional</small></label>
-        <input [id]="source() + '-phone'" name="phone" type="tel" autocomplete="tel" maxlength="32"
+        <label [attr.for]="source() + '-phone'">WhatsApp number</label>
+        <input [id]="source() + '-phone'" name="phone" type="tel" autocomplete="tel" required maxlength="32"
           placeholder="+91 98765 43210" [ngModel]="phone()" (ngModelChange)="phone.set($event)" />
       </div>
     </div>
@@ -49,8 +50,9 @@
     <div class="foot">
       <button class="send" type="submit" [disabled]="busy()">
         {{ busy() ? 'Sending...' : 'Request access' }}
+        <i class="ti ti-arrow-right" aria-hidden="true"></i>
       </button>
-      <p>A person reads every request. We reply by email within one working day.</p>
+      <p>We reply within one working day.</p>
     </div>
   </form>
 }

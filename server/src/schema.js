@@ -25,6 +25,7 @@ import { TEMPLATES_SCHEMA } from './templates/schema.js';
 import { SCHOOL_SCHEMA } from './school/settings.js';
 import { TICKETS_SCHEMA } from './tickets/schema.js';
 import { WORKFLOWS_SCHEMA } from './workflows/schema.js';
+import { PLATFORM_MESSAGES_SCHEMA } from './platform/notify.js';
 
 export const MODULE_SCHEMAS = [
     TEMPLATES_SCHEMA,
@@ -42,4 +43,5 @@ export const MODULE_SCHEMAS = [
     POLICY_SCHEMA,
     STORAGE_SCHEMA,
     LINKS_SCHEMA,
+    PLATFORM_MESSAGES_SCHEMA,
 ];

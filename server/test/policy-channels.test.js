@@ -75,8 +75,11 @@ describe('number cap and providers', () => {
         assert.equal(numberCap({ maxChannels: 1 }, { 'channels.maxNumbers': 4 }), 1);
     });
 
-    it('refuses a number past channels.maxNumbers', async () => {
-        policy(`tenant:${tenant.id}`, { 'channels.maxNumbers': 2 });
+    it('refuses a number past the business’s own maxChannels, its one number cap', async () => {
+        for (const scope of ['global', 'plan:starter', `tenant:${tenant.id}`]) {
+            assert.throws(() => policy(scope, { 'channels.maxNumbers': 2 }), /is not set here/, scope);
+        }
+        app.locals.tenancy.setLimits(tenant.id, { maxChannels: 2 });
         const second = await call(owner, 'POST', '/api/channels', { displayName: 'Second', settings: sandbox });
         assert.equal(second.status, 201);
         const third = await call(owner, 'POST', '/api/channels', { displayName: 'Third', settings: sandbox });
@@ -85,13 +88,13 @@ describe('number cap and providers', () => {
     });
 
     it('refuses connecting a number that a lowered cap left over the limit', async () => {
-        policy(`tenant:${tenant.id}`, { 'channels.maxNumbers': 1 });
+        app.locals.tenancy.setLimits(tenant.id, { maxChannels: 1 });
         const list = (await call(owner, 'GET', '/api/channels')).body.channels;
         const newest = list.at(-1);
         const res = await call(owner, 'POST', '/api/connection/connect', null, { 'x-channel-id': String(newest.id) });
         assert.equal(res.status, 403);
         assert.match(res.body.errors[0], /over the limit/);
-        policy(`tenant:${tenant.id}`, { 'channels.maxNumbers': null });
+        app.locals.tenancy.setLimits(tenant.id, { maxChannels: null });
     });
 
     it('refuses a provider the policy disallows, on create and on config', async () => {
@@ -122,12 +125,16 @@ describe('safety defaults for new numbers', () => {
         assert.equal(newNumberSafety(plan, { ...sandbox, dailyLimit: 3 }).dailyLimit, 3);
     });
 
-    it('a new number starts with the policy values; existing numbers keep theirs', async () => {
+    it('a new number starts with the policy values; existing numbers keep theirs', async (t) => {
         const before = rowOf(1).settings;
-        policy(`tenant:${tenant.id}`, {
+        const rules = {
             'channels.dailyCap': 100, 'channels.minGapSeconds': 6,
             'channels.maxGapSeconds': 20, 'channels.retryLimit': 1,
-        });
+        };
+        // Per business these are its own anti-ban safety (PUT /api/admin/tenants/:id/safety), not a rule.
+        assert.throws(() => policy(`tenant:${tenant.id}`, rules), /is not set here/);
+        policy('global', rules);
+        t.after(() => policy('global', Object.fromEntries(Object.keys(rules).map((k) => [k, null]))));
         const made = await call(owner, 'POST', '/api/channels', { displayName: 'Fresh', settings: sandbox });
         assert.equal(made.status, 201, JSON.stringify(made.body));
         const { settings } = made.body.channel;
@@ -257,7 +264,7 @@ describe('super admin number actions', () => {
         const full = await call(sup, 'POST', `/api/admin/numbers/${id}/move`, { tenantId: other.id });
         assert.equal(full.status, 409);
         assert.match(full.body.errors[0], /2 of 2/);
-        app.locals.tenancy.setLimits(other.id, { maxChannels: 0 });
+        app.locals.tenancy.setLimits(other.id, { maxChannels: null });
         const moved = await call(sup, 'POST', `/api/admin/numbers/${id}/move`, { tenantId: other.id });
         assert.equal(moved.status, 200, JSON.stringify(moved.body));
         assert.equal(rowOf(id).tenant_id, other.id);

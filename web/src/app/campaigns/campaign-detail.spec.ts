@@ -151,6 +151,15 @@ describe('CampaignDetailView freshness', () => {
     expect(calls).toHaveLength(2);
   });
 
+  it('polls a scheduled campaign only every ~30s, its start arriving as an event', () => {
+    const { calls } = setup();
+    calls[0].next(analytics(0, 0, { status: 'scheduled', finishedAt: '' }));
+    vi.advanceTimersByTime(27_000);
+    expect(calls).toHaveLength(1);
+    vi.advanceTimersByTime(3_000);
+    expect(calls).toHaveLength(2);
+  });
+
   it('reads again when the event stream comes back', () => {
     const { calls, streamOnline } = setup();
     calls[0].next(analytics(10, 2));

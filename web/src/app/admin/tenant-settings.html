@@ -1,29 +1,68 @@
-<!-- Platform admin's per-tenant settings drawer: General, Limits and Anti-ban tabs saved together; Plan, Rules and Accounts save themselves. -->
+<!--
+  Platform admin's per-tenant settings drawer. Left: the business at a glance (request, plan, settings as they stand,
+  sign-in; for a pending business, activating it), fed by this drawer's working copy so edits show there at once.
+  Right: the tabs. General, Limits and Anti-ban save together; Plan, Rules and Accounts save themselves.
+-->
 @if (settings(); as s) {
   <div class="backdrop" (click)="close()"></div>
-  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+  <aside class="drawer" [class.pushed]="pushed()" role="dialog" aria-modal="true" aria-labelledby="settings-title">
     <header>
       <div>
-        <span class="mono muted">#{{ s.tenant.id }}</span>
+        @if (number()) {
+          <span class="mono muted">#{{ number() }}</span>
+        }
         <h3 id="settings-title">{{ s.tenant.name }}</h3>
         <p class="muted compact">
           What this business may do, how much, and how fast. Only the platform admin can change
           these.
         </p>
       </div>
-      <button
-        class="btn icon"
-        type="button"
-        (click)="close()"
-        [disabled]="saving()"
-        aria-label="Close settings"
-      >
-        <i class="ti ti-x" aria-hidden="true"></i>
-      </button>
+      <div class="head-acts">
+        <button
+          class="btn"
+          type="button"
+          [attr.aria-pressed]="editing()"
+          (click)="editing.set(!editing())"
+          [disabled]="saving()"
+        >
+          <i class="ti ti-{{ editing() ? 'arrow-back-up' : 'pencil' }}" aria-hidden="true"></i>
+          {{ editing() ? 'Back to summary' : 'Edit details' }}
+        </button>
+        <button
+          class="btn icon"
+          type="button"
+          (click)="close()"
+          [disabled]="saving()"
+          aria-label="Close settings"
+        >
+          <i class="ti ti-x" aria-hidden="true"></i>
+        </button>
+      </div>
     </header>
 
+    <div class="split">
+    @if (editing()) {
+      <app-tenant-details-edit [tenant]="s.tenant" (saved)="detailsSaved($event)" (cancelled)="editing.set(false)" />
+    } @else {
+    <app-tenant-summary
+      [tenant]="s.tenant"
+      [sub]="sub()"
+      [plan]="currentPlan()"
+      [controls]="s.controls"
+      [limits]="s.limits"
+      [safety]="s.safety"
+      [serviceCount]="serviceCount()"
+      [busy]="saving()"
+      [activation]="activation()"
+      [balance]="balance()"
+      (openPayments)="tab.set('payments')"
+      (activate)="activate($event)"
+    />
+    }
+
+    <div class="pane">
     <nav class="tabs" role="tablist" aria-label="Tenant settings">
-      @for (t of tabs; track t.id) {
+      @for (t of tabs(); track t.id) {
         <button
           type="button"
           role="tab"
@@ -66,27 +105,6 @@
           </section>
 
           <section>
-            <h4>Connection types</h4>
-            <p class="muted compact">
-              Whether this business may link a WhatsApp number by scanning a QR code.
-            </p>
-            <div class="switches">
-              <label class="opt">
-                <span>WhatsApp QR (Baileys)</span>
-                <button
-                    type="button"
-                    role="switch"
-                    class="switch"
-                    [attr.aria-checked]="s.limits.allowWhatsappWeb"
-                    (click)="setLimit('allowWhatsappWeb', !s.limits.allowWhatsappWeb)"
-                  >
-                    <span class="thumb"></span>
-                  </button>
-              </label>
-            </div>
-          </section>
-
-          <section>
             <h4>Sending limits</h4>
             <p class="muted compact">
               Off: only you set this business's anti-ban limits. On: their owner or admins can
@@ -111,33 +129,41 @@
           </section>
 
           <section>
-            <h4>Services</h4>
+            <h4>Blocked words</h4>
             <p class="muted compact">
-              {{ s.tenant.services.length + ' of ' + serviceCount() + ' enabled' }}
+              Templates and campaigns containing any of these are refused. Separate with commas.
             </p>
-            <button class="btn" type="button" (click)="chooseServices.emit(s.tenant)">
-              Choose services
-            </button>
+            <div class="field">
+              <label for="l-words" class="sr-only">Blocked words</label>
+              <textarea
+                id="l-words"
+                rows="3"
+                placeholder="casino, lottery, crypto giveaway"
+                [value]="s.limits.blockedWords"
+                (input)="setLimit('blockedWords', $any($event.target).value)"
+              ></textarea>
+            </div>
           </section>
         }
 
         @case ('plan') {
+          @if (planNotice()) {
+            <p class="s-banner tone-ok" role="status">
+              <i class="ti ti-circle-check" aria-hidden="true"></i>
+              <span class="msg">{{ planNotice() }}</span>
+            </p>
+          }
+
           <section>
             <h4>Subscription</h4>
-            @if (planNotice()) {
-              <p class="s-banner tone-ok" role="status">
-                <i class="ti ti-circle-check" aria-hidden="true"></i>
-                <span class="msg">{{ planNotice() }}</span>
-              </p>
-            }
             @if (sub(); as cur) {
               <div class="plan-now">
                 <i class="ti ti-crown" aria-hidden="true"></i>
                 <div>
-                  <strong>{{ planName(cur.planKey) }}</strong>
+                  <strong>{{ planLabel() }}</strong>
                   <span class="muted">
                     @if (currentPlan(); as p) {
-                      {{ formatPrice(p) }} &middot;
+                      {{ cur.payment === 'free' ? 'Free, normally ' + paidPrice(p, cur.customPrice) : paidPrice(p, cur.customPrice) }} &middot;
                     }
                     {{ when(cur) }}
                   </span>
@@ -147,22 +173,42 @@
                 </div>
                 <span class="s-pill {{ stateTone(cur.state) }}">{{ sentence(cur.state) }}</span>
               </div>
-              <div class="payment">
-                <span id="pay-label">Payment</span>
-                <div class="pay-opts" role="radiogroup" aria-labelledby="pay-label">
-                  @for (p of payments; track p.key) {
-                    <button
-                      type="button"
-                      role="radio"
-                      [attr.aria-checked]="cur.payment === p.key"
-                      [disabled]="saving()"
-                      (click)="setPayment(p.key)"
-                    >
-                      {{ p.label }}
-                    </button>
-                  }
+
+              <dl class="plan-dates">
+                <div>
+                  <dt>Started</dt>
+                  <dd>{{ cur.startsAt ? (cur.startsAt | date: 'd MMM y') : '—' }}</dd>
                 </div>
-              </div>
+                @if (cur.trialEndsAt) {
+                  <div>
+                    <dt>Trial ends</dt>
+                    <dd>{{ cur.trialEndsAt | date: 'd MMM y' }}</dd>
+                  </div>
+                }
+                <div>
+                  <dt>{{ cur.cancelAtPeriodEnd ? 'Period ends' : 'Renews' }}</dt>
+                  <dd>{{ cur.currentPeriodEnd ? (cur.currentPeriodEnd | date: 'd MMM y') : '—' }}</dd>
+                </div>
+                <div>
+                  <dt>Ends on</dt>
+                  <dd>{{ cur.validUntil ? (cur.validUntil | date: 'd MMM y') : 'No end date' }}</dd>
+                </div>
+                @if (cur.topupMessages) {
+                  <div>
+                    <dt>Extra messages this month</dt>
+                    <dd>{{ cur.topupMessages | number }}</dd>
+                  </div>
+                }
+              </dl>
+              @if (balance(); as b) {
+                @if (b.charged) {
+                <button class="owed" type="button" [class.settled]="!b.due" (click)="tab.set('payments')">
+                  <i class="ti ti-{{ b.due ? 'receipt' : 'circle-check' }}" aria-hidden="true"></i>
+                  {{ b.due ? remainingText(b.due) : 'All paid' }}
+                  <span>Payments</span>
+                </button>
+                }
+              }
             } @else {
               <p class="muted compact">
                 No plan: services and limits are set by hand and billing never blocks this
@@ -171,43 +217,123 @@
             }
           </section>
 
+          <!-- Billing: whether this business is charged, and its price on a plan without a list price. -->
+          @if (sub(); as cur) {
+            <section>
+              <div class="section-head">
+                <h4 id="pay-label">Billing</h4>
+                <div class="pay-opts" role="radiogroup" aria-labelledby="pay-label">
+                  @for (p of payments; track p.key) {
+                    <button
+                      type="button"
+                      role="radio"
+                      [attr.aria-checked]="(cur.payment ?? 'paid') === p.key"
+                      [disabled]="saving()"
+                      (click)="setPayment(p.key)"
+                    >
+                      {{ p.label }}
+                    </button>
+                  }
+                </div>
+              </div>
+              <p class="muted compact">
+                {{
+                  hybrid()
+                    ? 'Hybrid: the plan is free, and its top-ups with a price are charged and stay unpaid until you record a payment under Payments.'
+                    : free()
+                      ? 'Free: the plan is not charged. A top-up with a price still is, which makes it Hybrid.'
+                      : 'Paid: the plan is charged as soon as it is active, and each top-up with a price when it is added. Both stay unpaid until you record a payment under Payments.'
+                }}
+              </p>
+              @if (currentPlan(); as p) {
+                @if (!p.price) {
+                  <div class="field">
+                    <label for="pl-agreed">
+                      {{ p.name }} price <small class="muted">{{ p.currency }} per {{ p.interval }}, for this business</small>
+                    </label>
+                    <div class="plan-change">
+                      <input
+                        id="pl-agreed"
+                        type="number"
+                        min="0"
+                        step="1"
+                        placeholder="Not set"
+                        [value]="agreedAmount() ?? ''"
+                        (input)="setAgreed($any($event.target).value)"
+                      />
+                      <button
+                        class="btn"
+                        type="button"
+                        (click)="saveAgreed()"
+                        [disabled]="saving() || agreedAmount() === null || agreedAmount() === (cur.customPrice ?? null)"
+                      >
+                        Save price
+                      </button>
+                    </div>
+                  </div>
+                }
+              }
+            </section>
+          }
+
           <section>
             <h4>{{ sub() ? 'Change plan' : 'Put on a plan' }}</h4>
             <p class="muted compact">
               Takes effect now and starts a new period. The plan's services and limits replace this
               business's current ones.
             </p>
-            <div class="plan-change">
-              <select
-                aria-label="Plan"
-                [value]="pickedPlan()"
-                (change)="pickedPlan.set($any($event.target).value)"
-                [disabled]="saving()"
-              >
-                <option value="" disabled>Pick a plan</option>
-                @for (p of plans(); track p.key) {
-                  @if (p.active) {
-                    <option [value]="p.key">{{ p.name }} &middot; {{ formatPrice(p) }}</option>
+            <!--
+              Cards, not a native select: a select redrawn under a live update can show another option than the
+              one stored. Each card says what the business would pay: "Starter · Free" while it is free.
+            -->
+            <div class="plan-options" role="radiogroup" aria-label="Plan">
+              @for (p of choosablePlans(); track p.key) {
+                <button
+                  type="button"
+                  role="radio"
+                  class="plan-opt"
+                  [attr.aria-checked]="pickedPlan() === p.key"
+                  [disabled]="saving()"
+                  (click)="pickedPlan.set(p.key)"
+                >
+                  <span class="po-name">{{ planTitle(p) }}</span>
+                  <span class="po-price">{{ planPrice(p) }}</span>
+                  <span class="po-msgs"><i class="ti ti-message" aria-hidden="true"></i>{{ planMessages(p) }}</span>
+                  @if (p.key === sub()?.planKey) {
+                    <span class="s-pill tone-info po-current">Current</span>
                   }
-                }
-              </select>
-              <button
-                class="btn primary"
-                type="button"
-                (click)="subscribe(pickedPlan())"
-                [disabled]="saving() || !pickedPlan() || pickedPlan() === sub()?.planKey"
-              >
-                Apply
-              </button>
+                </button>
+              }
             </div>
+            <!-- What choosing it costs: a plan with no list price takes the price typed here for this business. -->
+            @if (needsAmount() && pickedPlan() !== sub()?.planKey) {
+              <div class="field">
+                <label for="pl-amount">
+                  {{ pickedInfo()?.name }} price <small class="muted">{{ pickedInfo()?.currency }} per {{ pickedInfo()?.interval }}, for this business</small>
+                </label>
+                <input
+                  id="pl-amount"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="Amount to pay"
+                  [value]="planAmount() ?? ''"
+                  (input)="planAmount.set(topupNumber($any($event.target).value))"
+                />
+              </div>
+            }
+            <p class="muted compact">{{ chargeNote() }}</p>
+            <button
+              class="btn primary save-limits"
+              type="button"
+              (click)="subscribe(pickedPlan())"
+              [disabled]="saving() || !pickedPlan() || pickedPlan() === sub()?.planKey || (needsAmount() && !planAmount())"
+            >
+              {{ pickedPlan() && pickedPlan() !== sub()?.planKey ? 'Move to ' + planName(pickedPlan()) : 'Apply' }}
+            </button>
             @if (sub(); as cur) {
               <div class="plan-actions">
-                <button
-                  class="btn"
-                  type="button"
-                  (click)="subscribe(cur.planKey)"
-                  [disabled]="saving()"
-                >
+                <button class="btn" type="button" (click)="subscribe(cur.planKey)" [disabled]="saving()">
                   <i class="ti ti-refresh" aria-hidden="true"></i> Renew
                 </button>
                 @if (cur.state !== 'expired') {
@@ -220,12 +346,7 @@
                     >
                       End of period
                     </button>
-                    <button
-                      class="btn danger"
-                      type="button"
-                      (click)="cancelPlan(true)"
-                      [disabled]="saving()"
-                    >
+                    <button class="btn danger" type="button" (click)="cancelPlan(true)" [disabled]="saving()">
                       End now
                     </button>
                     <button class="btn" type="button" (click)="cancelAsk.set(false)">Keep</button>
@@ -243,68 +364,248 @@
               </div>
             }
           </section>
-        }
 
-        @case ('limits') {
           <section>
-            <h4>Limits and quotas</h4>
+            <h4>Services</h4>
             <p class="muted compact">
-              Set 0 for no limit. Each limit is checked where the business does the thing, and the
-              message they see names the limit.
+              {{ s.tenant.services.length + ' of ' + serviceCount() + ' enabled' }}. A plan change replaces them with the
+              plan's own.
             </p>
-            <div class="safety-fields">
-              @for (f of limitFields; track f.key) {
-                <div class="field">
-                  <label [for]="'l-' + f.key">{{ f.label }}</label>
-                  <div class="unit">
-                    <input
-                      [id]="'l-' + f.key"
-                      type="number"
-                      min="0"
-                      step="1"
-                      [value]="s.limits[f.key]"
-                      (input)="setLimitNumber(f.key, $any($event.target).value)"
-                    />
-                    <span class="muted">{{ f.unit }}</span>
-                  </div>
-                </div>
-              }
-              @if (s.safety; as safety) {
-                <div class="field">
-                  <label for="l-daily">Messages per day</label>
-                  <div class="unit">
-                    <input
-                      id="l-daily"
-                      type="number"
-                      min="0"
-                      step="1"
-                      [value]="safety.dailyLimit"
-                      (input)="setSafetyNumber('dailyLimit', $any($event.target).value)"
-                      aria-describedby="l-daily-hint"
-                    />
-                    <span class="muted">per number</span>
-                  </div>
-                  <span class="hint" id="l-daily-hint">0 = no limit of yours; each number keeps its plan's day</span>
-                </div>
-              }
+            <div class="plan-actions">
+              <button class="btn" type="button" (click)="chooseServices.emit(s.tenant)">
+                <i class="ti ti-apps" aria-hidden="true"></i> Choose services
+              </button>
             </div>
           </section>
 
           <section>
-            <h4>Blocked words</h4>
+            <h4>Limits</h4>
             <p class="muted compact">
-              Templates and campaigns containing any of these are refused. Separate with commas.
+              Leave a box blank for no limit; 0 allows none. Uploads are capped at {{ uploadMb() }} MB a
+              file for every business.
             </p>
-            <div class="field">
-              <label for="l-words" class="sr-only">Blocked words</label>
-              <textarea
-                id="l-words"
-                rows="3"
-                placeholder="casino, lottery, crypto giveaway"
-                [value]="s.limits.blockedWords"
-                (input)="setLimit('blockedWords', $any($event.target).value)"
-              ></textarea>
+            <div class="safety-fields">
+              @for (f of limitFields; track f.key) {
+                <div class="field">
+                  <label [for]="'pl-' + f.key">{{ f.label }}</label>
+                  <input
+                    [id]="'pl-' + f.key"
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="No limit"
+                    [value]="s.limits[f.key] ?? ''"
+                    (input)="setCap(f.key, $any($event.target).value)"
+                  />
+                </div>
+              }
+              <!-- Messages: each follows the plan until unticked; unticked, the box is this business's own. -->
+              <div class="field">
+                <label for="pl-month">Messages per month</label>
+                <input
+                  id="pl-month"
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="No limit"
+                  [disabled]="followMonth()"
+                  [value]="followMonth() ? (currentPlan()?.limits?.messagesPerMonth ?? '') : (s.limits.messagesPerMonth ?? '')"
+                  (input)="setMonth($any($event.target).value)"
+                />
+                <label class="follow">
+                  <input type="checkbox" [checked]="followMonth()" (change)="setMonthFollow($any($event.target).checked)" />
+                  The plan's quota
+                </label>
+              </div>
+              @if (s.safety; as safety) {
+                <div class="field">
+                  <label for="pl-day">Messages per day <small class="muted">per number</small></label>
+                  <input
+                    id="pl-day"
+                    type="number"
+                    min="1"
+                    step="1"
+                    [placeholder]="currentPlan()?.dailyCap ? '' + currentPlan()?.dailyCap : 'No daily cap'"
+                    [disabled]="followDay()"
+                    [value]="followDay() ? (currentPlan()?.dailyCap ?? '') : safety.dailyLimit"
+                    (input)="setDay($any($event.target).value)"
+                  />
+                  <label class="follow">
+                    <input type="checkbox" [checked]="followDay()" (change)="setDayFollow($any($event.target).checked)" />
+                    The plan's day
+                  </label>
+                </div>
+              }
             </div>
+            <p class="muted compact">
+              Top-ups add to the monthly quota for this month. To send nothing at all, switch off Outbound sending
+              under General.
+            </p>
+            <button class="btn primary save-limits" type="button" (click)="savePlanLimits()" [disabled]="saving()">
+              Save limits
+            </button>
+          </section>
+
+          @if (sub(); as cur) {
+            <section>
+              <h4>Top up</h4>
+              <p class="muted compact">
+                Days push the end date back (from today if it has none or has passed). Messages are added to
+                this month's quota only.
+              </p>
+              <div class="safety-fields">
+                <div class="field">
+                  <label for="tu-days">Extra days</label>
+                  <input
+                    id="tu-days"
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="0"
+                    [value]="topupDays() ?? ''"
+                    (input)="topupDays.set(topupNumber($any($event.target).value))"
+                  />
+                  <div class="quick">
+                    @for (d of topupDayChips; track d) {
+                      <button type="button" class="s-chip" (click)="topupDays.set((topupDays() ?? 0) + d)">+{{ d }}</button>
+                    }
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="tu-msgs">Extra messages this month</label>
+                  <input
+                    id="tu-msgs"
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="0"
+                    [value]="topupMessages() ?? ''"
+                    (input)="topupMessages.set(topupNumber($any($event.target).value))"
+                  />
+                  <div class="quick">
+                    @for (m of topupMessageChips; track m) {
+                      <button type="button" class="s-chip" (click)="topupMessages.set((topupMessages() ?? 0) + m)">
+                        +{{ m | number }}
+                      </button>
+                    }
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="tu-price">Price <small class="muted">{{ currentPlan()?.currency ?? 'INR' }}, optional</small></label>
+                  <input
+                    id="tu-price"
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="No charge"
+                    [value]="topupPrice() ?? ''"
+                    (input)="topupPrice.set(topupNumber($any($event.target).value))"
+                  />
+                </div>
+              </div>
+              @if (topupPrice()) {
+                <p class="muted compact">
+                  The price is charged under Payments and stays unpaid until you record a payment{{
+                    free() && !hybrid() ? '. The plan is free, so this makes it Hybrid' : ''
+                  }}.
+                </p>
+              }
+              <button
+                class="btn primary save-limits"
+                type="button"
+                (click)="applyTopUp()"
+                [disabled]="saving() || (!topupDays() && !topupMessages())"
+              >
+                Apply top-up
+              </button>
+            </section>
+
+            <section>
+              <h4>End date</h4>
+              <p class="muted compact">
+                After the end date the plan has 7 days of grace, then stops until it is extended or topped up.
+              </p>
+              <div class="plan-change">
+                <input type="date" aria-label="End date" [value]="endDate()" (input)="endDate.set($any($event.target).value)" />
+                <button
+                  class="btn primary"
+                  type="button"
+                  (click)="saveValidity()"
+                  [disabled]="saving() || !endDate() || endDate() === savedEndDay()"
+                >
+                  Save
+                </button>
+              </div>
+              @if (cur.validUntil) {
+                <div class="plan-actions">
+                  <button class="btn" type="button" (click)="saveValidity(true)" [disabled]="saving()">
+                    Remove end date
+                  </button>
+                </div>
+              }
+            </section>
+          }
+
+          <section>
+            <h4>Plan history</h4>
+            @if (history().length) {
+              <ol class="plan-log">
+                @for (entry of history(); track entry.id) {
+                  <li>
+                    <span class="what">{{ entry.summary }}</span>
+                    <span class="muted">{{ actorName(entry) }} &middot; {{ entry.createdAt | date: 'd MMM y, h:mm a' }}</span>
+                  </li>
+                }
+              </ol>
+            } @else {
+              <p class="muted compact">No plan changes yet.</p>
+            }
+          </section>
+        }
+
+        @case ('payments') {
+          <app-tenant-payments [tenantId]="s.tenant.id" [plan]="currentPlan()" (balance)="balance.set($event)" />
+        }
+
+        @case ('limits') {
+          <section>
+            <div class="section-head">
+              <h4>Usage this month</h4>
+              <button class="btn sm" type="button" (click)="tab.set('plan')">Change limits</button>
+            </div>
+            <p class="muted compact">
+              What this business has used against each limit. Limits are changed under Plan.
+            </p>
+            @if (usage(); as rows) {
+              <ul class="usage">
+                @for (row of rows; track row.key) {
+                  <li>
+                    <div class="usage-top">
+                      <span>{{ row.label }}</span>
+                      <b>
+                        {{ row.used | number }}
+                        <span class="muted">
+                          {{ row.limit === null ? '· no limit' : row.limit === 0 ? '· none allowed' : 'of ' + (row.limit | number) }}
+                        </span>
+                      </b>
+                    </div>
+                    <span
+                      class="bar {{ usageTone(row) }}"
+                      role="meter"
+                      [attr.aria-label]="row.label"
+                      aria-valuemin="0"
+                      [attr.aria-valuemax]="row.limit ?? null"
+                      [attr.aria-valuenow]="row.used"
+                    >
+                      <span [style.width.%]="row.limit === null ? 100 : usagePct(row)"></span>
+                    </span>
+                  </li>
+                }
+              </ul>
+              <p class="muted compact">Uploads: up to {{ uploadMb() }} MB a file, for every business.</p>
+            } @else {
+              <p class="muted">Loading usage...</p>
+            }
           </section>
         }
 
@@ -524,7 +825,8 @@
       }
     </div>
 
-    @if (tab() !== 'rules' && tab() !== 'accounts' && tab() !== 'plan') {
+    <!-- General and Anti-ban save together here; Plan saves each part itself and Limits only reads. -->
+    @if (tab() === 'general' || tab() === 'safety') {
       <footer>
         <button class="btn" type="button" (click)="reset()" [disabled]="saving()">Reset</button>
         <button
@@ -537,5 +839,7 @@
         </button>
       </footer>
     }
+    </div>
+    </div>
   </aside>
 }

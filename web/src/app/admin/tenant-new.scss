@@ -1,0 +1,94 @@
+@use '../school/school-shared' as s;
+
+@include s.drawer-keyframes;
+@include s.banner;
+@include s.buttons;
+
+.scrim { @include s.scrim; }
+
+// The settings drawer's look at a form's width: a fixed header and footer around a scrolling body.
+.panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 71;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(560px, 100vw);
+  background: var(--surface-card);
+  border-left: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lift);
+  animation: s-drawer-in var(--base) var(--ease) both;
+}
+
+header,
+footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: 20px var(--space-xl);
+  border-bottom: 1px solid var(--border-color);
+  > .btn { flex: none; }
+}
+footer { justify-content: flex-end; align-items: center; padding-block: var(--space-lg); border-top: 1px solid var(--border-color); border-bottom: 0; }
+h3 { margin: 4px 0 10px; font-size: 20px; font-weight: 500; line-height: 1.2; letter-spacing: -0.4px; color: var(--text-strong); }
+
+// Where this form sits in the two steps of adding a business.
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  li { display: inline-flex; align-items: center; gap: 7px; }
+  span {
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 1px solid var(--border-color);
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .on { color: var(--text-strong); font-weight: 500; span { border-color: var(--primary); background: var(--primary); color: var(--on-fill); } }
+}
+
+.body {
+  display: grid;
+  align-content: start;
+  gap: var(--space-xl);
+  padding: var(--space-xl);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+fieldset { display: grid; gap: var(--space-md); margin: 0; padding: 0; border: 0; min-width: 0; }
+legend { margin-bottom: var(--space-md); padding: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); }
+.muted { color: var(--text-muted); font-weight: 400; }
+.err { font-size: 12px; font-weight: 500; color: var(--danger-text); }
+input.invalid { border-color: var(--danger); }
+
+.note {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  .ti { flex: none; margin-top: 2px; font-size: 16px; color: var(--primary-text); }
+}
+
+@media (max-width: 520px) {
+  header, footer { padding-inline: var(--space-lg); }
+  .body { padding: var(--space-lg); }
+}

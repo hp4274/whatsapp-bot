@@ -31,8 +31,13 @@ export interface Tenant {
   id: number;
   name: string;
   slug: string;
-  status: 'active' | 'suspended' | 'archived';
+  /** 'pending': accepted from a lead, set up by the super admin, not yet activated (no sign-in, no sending). */
+  status: 'active' | 'suspended' | 'archived' | 'pending';
   services: string[];
+  /** The business's WhatsApp, where Wapzo's own number writes to it ('' for none). Admin list only. */
+  contactPhone?: string;
+  /** Whether Wapzo messages the business about its account and plan. */
+  wapzoUpdates?: boolean;
   controls: TenantControls;
   /** Anti-ban overrides set by the platform admin; absent keys use the defaults. */
   safety?: Record<string, number | boolean | string>;
@@ -43,6 +48,8 @@ export interface Tenant {
   users?: number;
   /** Plan the business is on; null = custom / legacy, never gated. On the admin list and on /api/auth/me (the shell reads its state). */
   subscription?: TenantSubscriptionSummary | null;
+  /** Admin list only: plan and top-up charges, payments and what is still due. */
+  balance?: { readonly charged: number; readonly paid: number; readonly due: number; readonly topupCharged?: number };
 }
 
 /** Flattened subscription the admin tenant list carries for each business. */
@@ -59,7 +66,12 @@ export interface TenantSubscriptionSummary {
   readonly cancelAtPeriodEnd: boolean;
   readonly graceEndsAt: string | null;
   /** The super admin's note of how the business pays; only on the admin list. */
-  readonly payment?: 'paid' | 'free' | 'unpaid' | null;
+  readonly payment?: 'paid' | 'free' | null;
+  /** Only on the admin list: when it started, its end date (null = none) and this month's extra messages. */
+  readonly startsAt?: string | null;
+  readonly validUntil?: string | null;
+  readonly topupMessages?: number;
+  readonly customPrice?: number | null;
 }
 
 /** Per-tenant kill switches the platform admin can flip. */

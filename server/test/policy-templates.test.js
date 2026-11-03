@@ -41,11 +41,12 @@ after(async () => {
 
 const policy = () => app.locals.policy;
 beforeEach(() => {
-    const reset = Object.fromEntries(['templates.maxTemplates', 'templates.requireApproval', 'templates.blockedWords',
+    const reset = Object.fromEntries(['templates.requireApproval',
         'templates.blockedDomains', 'templates.maxSpamScore', 'templates.buttonTypes', 'templates.maxButtons']
         .map((k) => [k, null]));
     policy().set('tenant:1', reset);
-    app.locals.tenancy.setLimits(1, { maxTemplates: 0, blockedWords: '' });
+    policy().set('global', { 'templates.blockedWords': null });
+    app.locals.tenancy.setLimits(1, { maxTemplates: null, blockedWords: '' });
 });
 
 async function call(method, url, body, token) {
@@ -90,9 +91,11 @@ describe('helpers', () => {
 });
 
 describe('save rules', () => {
-    it('refuses past the stricter of policy and legacy maxTemplates', async () => {
+    it('refuses past the business’s own maxTemplates, the only template cap', async () => {
         const have = (await call('GET', '/api/templates')).body.templates.length;
-        policy().set('tenant:1', { 'templates.maxTemplates': have + 2 });
+        for (const scope of ['global', 'plan:starter', 'tenant:1']) {
+            assert.throws(() => policy().set(scope, { 'templates.maxTemplates': have + 2 }), /is not set here/, scope);
+        }
         app.locals.tenancy.setLimits(1, { maxTemplates: have + 1 });
         assert.equal((await create()).status, 201);
         const refused = await create();
@@ -103,8 +106,9 @@ describe('save rules', () => {
         assert.equal(copy.status, 403, 'copying a starter counts too');
     });
 
-    it('merges policy and legacy blocked words', async () => {
-        policy().set('tenant:1', { 'templates.blockedWords': ['casino'] });
+    it('merges the platform list with the business’s own blocked words', async () => {
+        assert.throws(() => policy().set('tenant:1', { 'templates.blockedWords': ['casino'] }), /is not set here/);
+        policy().set('global', { 'templates.blockedWords': ['casino'] });
         app.locals.tenancy.setLimits(1, { blockedWords: 'loan' });
         const a = await create({ body: 'Visit our casino' });
         assert.equal(a.status, 400);

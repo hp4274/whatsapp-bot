@@ -18,13 +18,13 @@ export const BILLING_FIELDS = Object.freeze({
 });
 
 export const BILLING_POLICY = Object.freeze([
-    { key: 'billing.messagesPerMonth', service: S, group: G, type: 'int', default: null, nullLabel: 'Plan limit',
+    { key: 'billing.messagesPerMonth', scopes: [], service: S, group: G, type: 'int', default: null, nullLabel: 'Plan limit',
       min: 0, max: 100000000, unlimitedAt: 0,
       label: 'Messages per month', hint: 'Every message the business sends, per calendar month (UTC). 0 = no limit.' },
-    { key: 'billing.apiRequestsPerMonth', service: S, group: G, type: 'int', default: null, nullLabel: 'Plan limit',
+    { key: 'billing.apiRequestsPerMonth', scopes: ['tenant'], service: S, group: G, type: 'int', default: null, nullLabel: 'Plan limit',
       min: 0, max: 100000000, unlimitedAt: 0,
       label: 'API requests per month', hint: 'Calls to the public API. 0 = no limit.' },
-    { key: 'billing.storageMb', service: S, group: G, type: 'int', default: null, nullLabel: 'Plan limit',
+    { key: 'billing.storageMb', scopes: ['tenant'], service: S, group: G, type: 'int', default: null, nullLabel: 'Plan limit',
       min: 0, max: 10000000, unlimitedAt: 0,
       label: 'Storage (MB)', hint: 'Uploaded media and contact sheets together. 0 = no limit.' },
 ]);

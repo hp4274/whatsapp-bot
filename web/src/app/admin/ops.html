@@ -108,11 +108,11 @@
 
           <div class="meters">
             @for (m of planMeters(p); track m.label) {
-              <div class="gauge" [class]="'gauge ' + (m.cap ? tone(m.pct) : 'free')">
+              <div class="gauge" [class]="'gauge ' + (m.cap !== null ? tone(m.pct) : 'free')">
                 <span class="g-head"
                   ><i class="ti ti-{{ m.icon }}" aria-hidden="true"></i>{{ m.label }}
                   <b
-                    >{{ m.used }}<span class="muted"> / {{ m.cap || '∞' }}</span></b
+                    >{{ m.used }}<span class="muted"> / {{ m.cap ?? '∞' }}</span></b
                   ></span
                 >
                 <span
@@ -120,11 +120,11 @@
                   role="meter"
                   [attr.aria-label]="m.label"
                   aria-valuemin="0"
-                  [attr.aria-valuemax]="m.cap || null"
+                  [attr.aria-valuemax]="m.cap"
                   [attr.aria-valuenow]="m.used"
-                  [attr.aria-valuetext]="m.cap ? m.used + ' of ' + m.cap : m.used + ', no limit'"
+                  [attr.aria-valuetext]="m.cap !== null ? m.used + ' of ' + m.cap : m.used + ', no limit'"
                 >
-                  <span [style.width.%]="m.cap ? m.pct : 100"></span>
+                  <span [style.width.%]="m.cap !== null ? m.pct : 100"></span>
                 </span>
               </div>
             }
@@ -137,7 +137,7 @@
             </div>
             <div>
               <dt>Media size</dt>
-              <dd>{{ capText(p.limits.maxMediaMb, ' MB') }}</dd>
+              <dd>10 MB, every business</dd>
             </div>
             <div>
               <dt>Transports</dt>

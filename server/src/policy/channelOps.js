@@ -92,8 +92,10 @@ export function startFromRow(r) {
 
 /** Effective number cap: the stricter of the legacy tenant limit and the policy (null = none). */
 export function numberCap(limits = {}, policy = {}) {
-    const caps = [limits.maxChannels || null, limitOf(FIELD['channels.maxNumbers'], policy['channels.maxNumbers'] ?? 0)]
-        .filter((n) => n);
+    // The tenant limit: null = none, 0 = no numbers at all. The policy field: 0 = none.
+    const own = limits.maxChannels === null || limits.maxChannels === undefined ? null : Number(limits.maxChannels);
+    const caps = [own, limitOf(FIELD['channels.maxNumbers'], policy['channels.maxNumbers'] ?? 0) || null]
+        .filter((n) => n !== null && Number.isFinite(n));
     return caps.length ? Math.min(...caps) : null;
 }
 
@@ -114,7 +116,7 @@ export function providerBlocked(transport, limits = {}, policy = {}) {
 /** A number past the cap (by age, oldest first) may exist but not connect. */
 export function overCap(channelDb, channel, limits, policy) {
     const cap = numberCap(limits, policy);
-    if (!cap) return null;
+    if (cap === null) return null;
     const older = channelDb.db.prepare('SELECT COUNT(*) AS n FROM whatsapp_channels WHERE tenant_id = ? AND id < ?')
         .get(channel.tenantId, channel.id).n;
     return older >= cap ? `${capMessage(cap)} This number is over the limit, so it cannot connect.` : null;
@@ -508,7 +510,7 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
             const cap = numberCap(target.limits, targetPolicy);
             const targetChannels = new Channels(db.forTenant(target.id));
             const count = targetChannels.list().length;
-            if (cap && count >= cap) {
+            if (cap !== null && count >= cap) {
                 return res.status(409).json({ errors: [`${target.name} already has ${count} of ${cap} allowed WhatsApp numbers.`] });
             }
             const blocked = providerBlocked(row.provider, target.limits, targetPolicy);

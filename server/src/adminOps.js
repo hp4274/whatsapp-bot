@@ -320,6 +320,11 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
         if (Number(query.before) > 0) { where.push('id < ?'); args.push(Number(query.before)); }
         if (Number(query.after) > 0) { where.push('id > ?'); args.push(Number(query.after)); }
         if (query.requestId) { where.push('request_id = ?'); args.push(String(query.requestId).slice(0, 128)); }
+        // A few exact actions, e.g. a business's plan history (Tenant settings > Plan).
+        if (query.actions) {
+            const list = String(query.actions).split(',').map((a) => a.trim()).filter(Boolean).slice(0, 20);
+            if (list.length) { where.push(`action IN (${list.map(() => '?').join(', ')})`); args.push(...list); }
+        }
         if (query.q) {
             where.push(`(action || ' ' || COALESCE(target, '') || ' ' || COALESCE(detail, '') || ' ' || COALESCE(user_email, '')
                 || ' ' || COALESCE(user_name, '') || ' ' || COALESCE(tenant_name, '') || ' ' || COALESCE(ip, '')) LIKE ? ESCAPE '\\'`);

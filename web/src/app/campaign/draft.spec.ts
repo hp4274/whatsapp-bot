@@ -2,12 +2,19 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
 
-import { Api, type Campaign, CampaignsApi, ContactsApi } from '../core/api';
+import { Api, type Campaign, CampaignsApi, ContactsApi, type ImportPreview } from '../core/api';
 import { Auth } from '../core/auth';
 import { Store } from '../core/store';
 import { StorageApi } from '../storage/storage-api';
 import { TemplatesApi } from '../templates/templates-api';
-import { CampaignDraft, OPT_OUT_TEXT, parseExtraNumbers, withOptOut, withoutOptOut } from './draft';
+import {
+  CampaignDraft,
+  DEFAULT_MESSAGE,
+  OPT_OUT_TEXT,
+  parseExtraNumbers,
+  withOptOut,
+  withoutOptOut,
+} from './draft';
 
 const KEY = 'wsender.campaignDraft.3.5';
 
@@ -35,7 +42,12 @@ function campaign(over: Partial<Campaign> = {}): Campaign {
 }
 
 /** A fresh draft service over stub APIs; `transport` decides whether QR-number rules apply. */
-function setup(transport = 'baileys', existing: Campaign[] = []) {
+function setup(
+  transport = 'baileys',
+  existing: Campaign[] = [],
+  storage: Partial<StorageApi> = { use: () => of({}) as ReturnType<StorageApi['use']> },
+) {
+  const auth = { user: signal<{ id: number } | null>({ id: 5 }), tenantId: signal<number | null>(3) };
   const campaignsApi = {
     list: vi.fn(() => of({ campaigns: existing })),
     create: vi.fn((body) => of({ campaign: { ...campaign(), id: 11, name: body.name } })),
@@ -43,6 +55,7 @@ function setup(transport = 'baileys', existing: Campaign[] = []) {
     get: vi.fn((id: number) => of({ campaign: campaign({ id }) })),
     replyRules: vi.fn(() => of({ campaignId: 'camp-7', rules: [] })),
     saveReplyRules: vi.fn((_id: number, rules) => of({ campaignId: 'camp-11', rules })),
+    importAudit: vi.fn(() => of({ counts: {}, issues: [], valid: [] })),
   };
   TestBed.configureTestingModule({
     providers: [
@@ -50,8 +63,8 @@ function setup(transport = 'baileys', existing: Campaign[] = []) {
       { provide: CampaignsApi, useValue: campaignsApi },
       { provide: ContactsApi, useValue: { segments: () => of({ segments: [] }) } },
       { provide: TemplatesApi, useValue: { get: () => of({ template: { id: 1, body: 'x' } }) } },
-      { provide: StorageApi, useValue: { use: () => of({}) } },
-      { provide: Auth, useValue: { user: signal({ id: 5 }), tenantId: signal(3) } },
+      { provide: StorageApi, useValue: storage },
+      { provide: Auth, useValue: auth },
       {
         provide: Store,
         useValue: {
@@ -62,7 +75,7 @@ function setup(transport = 'baileys', existing: Campaign[] = []) {
       },
     ],
   });
-  return { draft: TestBed.inject(CampaignDraft), campaignsApi };
+  return { draft: TestBed.inject(CampaignDraft), campaignsApi, auth };
 }
 
 describe('opt-out line', () => {
@@ -147,6 +160,18 @@ describe('CampaignDraft.buildCreate (link tracking, A/B, repeat, hand-picked)', 
     expect(draft.buildCreate().options?.variants).toBeNull();
   });
 
+  it('checks every version for variation and blank placeholders, not only A', () => {
+    const { draft } = setup();
+    draft.message.set('Hi {name}');
+    draft.variantB.set('Hello all');
+    expect(draft.hasVariation()).toBe(false);
+    draft.variantB.set('Hello {city}');
+    expect(draft.hasVariation()).toBe(true);
+    draft.savedAudience.set([{ name: 'Asha', phone: '919876543210', extra: {} }]);
+    expect(draft.unresolvedKeysAll()).toEqual(['city']);
+    expect(draft.contactsMissing()).toBe(1);
+  });
+
   it('offers link tracking only when a version has a URL', () => {
     const { draft } = setup();
     draft.message.set('Hi {name}');
@@ -226,6 +251,28 @@ describe('CampaignDraft.save', () => {
     draft.save().subscribe();
     expect(campaignsApi.create).toHaveBeenCalledTimes(1);
     expect(campaignsApi.update).toHaveBeenCalledWith(11, expect.anything());
+  });
+
+  it("saves an uploaded file's people to the contact book with the final country code", () => {
+    const { draft, campaignsApi } = setup();
+    draft.adoptImport({
+      importId: 'imp-1',
+      filename: 'list.csv',
+      headers: ['phone'],
+      columns: [{ header: 'phone', slug: 'phone' }],
+      rows: [['9876543210']],
+      total: 1,
+      truncated: false,
+      guess: { phone: 'phone', name: null },
+    } as ImportPreview);
+    draft.countryCode.set('44');
+    let saved = false;
+    draft.save().subscribe(() => (saved = true));
+    expect(saved).toBe(true);
+    expect(campaignsApi.importAudit).toHaveBeenCalledTimes(1);
+    expect(campaignsApi.importAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ importId: 'imp-1', countryCode: '44', save: true }),
+    );
   });
 });
 
@@ -367,6 +414,70 @@ describe('CampaignDraft autosave', () => {
     draft.result.set({ campaign: campaign(), started: true });
     TestBed.tick();
     expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it('follows a sign-in or tenant switch, keeping each one apart', () => {
+    const { draft, auth } = setup();
+    draft.init();
+    draft.message.set('Tenant 3 text');
+    TestBed.tick();
+    vi.advanceTimersByTime(600);
+
+    // A super admin acts as another tenant: a blank draft, nothing of tenant 3's shown or overwritten.
+    auth.tenantId.set(4);
+    TestBed.tick();
+    expect(draft.message()).toBe(DEFAULT_MESSAGE);
+    expect(draft.savedDraft()).toBeNull();
+    draft.message.set('Tenant 4 text');
+    TestBed.tick();
+    vi.advanceTimersByTime(600);
+    expect(JSON.parse(localStorage.getItem('wsender.campaignDraft.4.5') ?? '{}').signals.message).toBe(
+      'Tenant 4 text',
+    );
+    expect(JSON.parse(localStorage.getItem(KEY) ?? '{}').signals.message).toBe('Tenant 3 text');
+
+    // Signed out: nothing kept in memory, nothing written.
+    auth.user.set(null);
+    TestBed.tick();
+    expect(draft.message()).toBe(DEFAULT_MESSAGE);
+
+    // Back as tenant 3: its draft is offered again.
+    auth.user.set({ id: 5 });
+    auth.tenantId.set(3);
+    TestBed.tick();
+    expect(draft.savedDraft()).not.toBeNull();
+    draft.restore().subscribe();
+    expect(draft.message()).toBe('Tenant 3 text');
+  });
+
+  it('keeps removed rows through autosave and restore', () => {
+    const preview = {
+      importId: 'imp-1',
+      filename: 'list.csv',
+      headers: ['phone'],
+      columns: [{ header: 'phone', slug: 'phone' }],
+      rows: [['9876543210'], ['9812345678']],
+      total: 2,
+      truncated: false,
+      guess: { phone: 'phone', name: null },
+      storageId: 2,
+    } as ImportPreview;
+    const first = setup().draft;
+    first.init();
+    first.adoptImport(preview);
+    first.excludedRows.set([1]);
+    TestBed.tick();
+    vi.advanceTimersByTime(600);
+    expect(JSON.parse(localStorage.getItem(KEY) ?? '{}').signals.excludedRows).toEqual([1]);
+
+    TestBed.resetTestingModule();
+    const second = setup('baileys', [], {
+      use: () => of({ preview }) as unknown as ReturnType<StorageApi['use']>,
+    }).draft;
+    second.init();
+    second.restore().subscribe();
+    expect(second.preview()?.importId).toBe('imp-1');
+    expect(second.excludedRows()).toEqual([1]);
   });
 
   it('survives storage that throws', () => {

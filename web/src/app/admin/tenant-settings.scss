@@ -6,6 +6,7 @@
 @include s.tones;
 @include s.pill;
 @include s.switch;
+@include s.chip;
 @include s.drawer-keyframes;
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
@@ -25,12 +26,26 @@
   bottom: 0;
   z-index: 71;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  width: min(560px, 100vw);
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(1100px, 100vw);
   background: var(--surface-card);
   border-left: 1px solid var(--border-color);
   box-shadow: var(--shadow-lift);
   animation: s-drawer-in var(--base) var(--ease) both;
+}
+
+// Left: the business at a glance (TenantSummary), scrolling on its own. Right: the tabs at 616px (seven with icons on one row),
+// with their own scrolling body and footer.
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 616px);
+  min-height: 0;
+}
+.pane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  border-left: 1px solid var(--border-color);
 }
 
 header,
@@ -44,6 +59,7 @@ footer {
 }
 footer { justify-content: flex-end; border-top: 1px solid var(--border-color); border-bottom: 0; }
 header { align-items: flex-start; padding-block: 20px; > div { min-width: 0; } > .btn { flex: none; } }
+.head-acts { display: flex; flex: none; gap: 8px; }
 h3 { margin: 4px 0 6px; font-size: 20px; font-weight: 500; line-height: 1.2; letter-spacing: -0.4px; }
 h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); }
 
@@ -53,7 +69,7 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
   align-self: start;
   gap: 2px;
   padding: 3px;
-  // Six tabs fit one row at the drawer's 560px; on a phone they wrap to a 3 x 2 grid (below), never off the edge.
+  // Seven tabs with icons fit one row at the pane's 616px; on a phone they wrap to a grid (below), never off the edge.
   margin: var(--space-lg) var(--space-xl) 0;
   border-radius: 12px;
   background: var(--surface-sunken);
@@ -63,18 +79,18 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
     flex: 1 0 auto;
     align-items: center;
     justify-content: center;
-    gap: 5px;
-    padding: 8px 8px;
+    gap: 4px;
+    padding: 8px 5px;
     border: 0;
     border-radius: 9px;
     background: transparent;
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: 12.5px;
     font-weight: 500;
     white-space: nowrap;
     transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+    .ti { font-size: 15px; }
 
-    .ti { font-size: 16px; }
     &:hover { color: var(--text-strong); }
     &.on { background: var(--surface-card); color: var(--text-strong); font-weight: 600; box-shadow: var(--shadow-sm); }
   }
@@ -94,6 +110,7 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
   section { @include s.fit-grid; display: grid; gap: var(--space-md); }
   section + section { margin-top: var(--space-xl); padding-top: var(--space-xl); border-top: 1px solid var(--border-color); }
   section > h4 + .compact { margin-top: -6px; line-height: 1.55; }
+  > .s-banner { margin-bottom: var(--space-lg); }
 }
 
 // Options read as one list: a single hairline card, label left and the switch right, rows split by hairlines.
@@ -193,6 +210,11 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
 .access-acts { display: inline-flex; gap: 6px; }
 .access-confirm { animation: s-pop 200ms var(--ease) both; }
 
+@media (max-width: 900px) {
+  .split { grid-template-columns: minmax(0, 1fr); overflow-y: auto; }
+  .pane { border-left: 0; border-top: 1px solid var(--border-color); }
+}
+
 @media (max-width: 760px) {
   .safety-fields { grid-template-columns: minmax(0, 1fr); }
 }
@@ -201,7 +223,7 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
   header, footer { padding-inline: var(--space-lg); }
   .tabs {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     margin-inline: var(--space-lg);
   }
   .settings-body { padding: var(--space-lg); }
@@ -226,20 +248,9 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
   strong { font-size: 16px; font-weight: 500; color: var(--text-strong); }
   .warn-note { color: var(--warning); font-size: 12px; }
 }
-.plan-change { display: flex; gap: 8px; select { flex: 1; } }
+.plan-change { display: flex; gap: 8px; select, input { flex: 1; min-width: 0; } }
 .plan-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-
-// Paid / free / unpaid: a small segmented radio under the current plan.
-.payment {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-strong);
-}
+// Billing: paid or free as a small segmented radio beside its heading.
 .pay-opts {
   display: inline-flex;
   gap: 2px;
@@ -255,6 +266,112 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
     font-size: 13px;
     font-weight: 500;
     &:hover:not(:disabled) { color: var(--text-strong); }
-    &[aria-checked='true'] { background: var(--surface-card); color: var(--text-strong); font-weight: 600; }
+    &[aria-checked='true'] { background: var(--surface-card); color: var(--text-strong); font-weight: 600; box-shadow: var(--shadow-sm); }
   }
 }
+
+// What is still unpaid, under the dates: one line that opens the Payments tab.
+.owed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warning) 9%, transparent);
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  .ti { font-size: 17px; color: var(--warning); }
+  span { margin-left: auto; color: var(--primary-text); font-weight: 500; }
+  &:hover span { text-decoration: underline; }
+  &.settled { border-color: var(--border-color); background: var(--surface-sunken); .ti { color: var(--success); } }
+}
+
+
+// Started / renews / ends, two to a row on the sunken panel.
+.plan-dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  dt { font-size: 12px; color: var(--text-muted); }
+  dd { margin: 2px 0 0; font-size: 13.5px; font-weight: 500; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+}
+.save-limits { justify-self: start; }
+.quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+
+// Plan history: newest first, one line of what and one of who and when.
+.plan-log {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  li { display: grid; gap: 2px; padding: 10px 0; border-bottom: 1px solid var(--border-color); font-size: 13px; }
+  li:last-child { border-bottom: 0; }
+  .what { color: var(--text-strong); }
+  .muted { font-size: 12px; }
+}
+
+// Limits tab: used against each limit; a full bar in the quiet tone when there is no limit.
+.usage {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  li { display: grid; gap: 6px; }
+}
+.usage-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13.5px;
+  color: var(--text-strong);
+  b { font-weight: 600; font-variant-numeric: tabular-nums; .muted { font-weight: 400; } }
+}
+.bar {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+  > span { display: block; height: 100%; border-radius: inherit; background: var(--success); transition: width var(--base) var(--ease); }
+  &.warn > span { background: var(--warning); }
+  &.bad > span { background: var(--danger); }
+  &.free > span { background: color-mix(in srgb, var(--text-muted) 25%, transparent); }
+}
+
+// The services drawer opened beside this one: slide left so both show, services on the right.
+.drawer { transition: translate var(--base) var(--ease); }
+.drawer.pushed { translate: calc(-1 * min(420px, 100vw)) 0; }
+
+// Plan picker: one card per plan, the picked one in the brand tint, the current one tagged.
+.plan-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.plan-opt {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 12px 14px;
+  text-align: left;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+  &:hover:not(:disabled) { border-color: var(--border-hover); }
+  &[aria-checked='true'] { border-color: var(--primary); background: var(--primary-tint); }
+  .po-name { display: flex; align-items: center; gap: 6px; font-weight: 500; color: var(--text-strong); }
+  .po-price { font-size: 12.5px; color: var(--text-muted); }
+  .po-current { justify-self: start; margin-top: 4px; }
+  .po-msgs { display: flex; gap: 5px; align-items: baseline; margin-top: 2px; font-size: 12px; line-height: 1.4; color: var(--text-color); .ti { font-size: 13px; color: var(--text-muted); } }
+}
+
+// "The plan's quota / day" under a message limit box.
+.follow { display: flex; align-items: center; gap: 8px; margin-top: 2px; font-size: 12.5px; font-weight: 400; color: var(--text-muted); }
+
+

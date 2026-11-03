@@ -1,0 +1,181 @@
+@use '../school/school-shared' as s;
+
+@include s.keyframes;
+@include s.tones;
+@include s.pill;
+@include s.banner;
+@include s.buttons;
+
+// A column that scrolls on its own beside the settings tabs; sections ruled apart like the drawer's.
+:host {
+  display: grid;
+  align-content: start;
+  gap: var(--space-xl);
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-xl);
+}
+
+section {
+  display: grid;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+section + section {
+  padding-top: var(--space-xl);
+  border-top: 1px solid var(--border-color);
+}
+
+h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-strong);
+}
+
+h5 {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--text-strong);
+}
+
+.sub {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.who {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+
+  h4,
+  .sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: var(--primary-tint);
+  color: var(--primary-text);
+  font-size: 19px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.plan-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+
+  strong {
+    font-weight: 500;
+    color: var(--text-strong);
+  }
+
+  .s-pill {
+    text-transform: capitalize;
+  }
+}
+
+// Label / value pairs; `.grid` puts two pairs on a row on the sunken panel.
+.facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 0;
+  font-size: 13px;
+
+  dt {
+    color: var(--text-muted);
+  }
+
+  dd {
+    margin: 0;
+    color: var(--text-strong);
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+  }
+
+  a {
+    color: var(--primary-text);
+  }
+
+  &.grid {
+    padding: 12px 14px;
+    border-radius: var(--radius-md);
+    background: var(--surface-sunken);
+  }
+
+  .pw {
+    font-family: var(--font-mono);
+  }
+}
+
+.activate,
+.done {
+  display: grid;
+  gap: var(--space-md);
+
+  .btn {
+    justify-self: start;
+  }
+}
+
+.f {
+  display: grid;
+  gap: 6px;
+
+  label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-strong);
+  }
+
+  small {
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+}
+
+.pw-row {
+  display: flex;
+  gap: 6px;
+
+  input {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-mono);
+  }
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  color: var(--text-color);
+}
+
+.creds {
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+// Payments: the heading with its "Open", and what is still unpaid in the warning tone.
+.h5-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; h5 { margin: 0; } }
+.facts dd.due { color: var(--warning); font-weight: 500; }

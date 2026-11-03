@@ -211,8 +211,11 @@ export class Tenancy {
         }
     }
 
-    async createTenantWithOwner({ name, slug, services, controls, owner = {} }) {
+    /** `status` 'pending': accepted from a lead, set up by the super admin, switched on by activating it. */
+    async createTenantWithOwner({ name, slug, services, controls, owner = {}, status = 'active', contactPhone = '' }) {
+        if (!['active', 'pending'].includes(status)) throw new TenancyError('status must be active or pending');
         const { cleanName, cleanSlug } = cleanTenantInput(name, slug);
+        const phone = cleanContactPhone(contactPhone);
         const cleanEmail = cleanUserEmail(owner.email);
         const cleanOwnerName = String(owner.name ?? '').trim();
         const password = String(owner.password ?? '');
@@ -225,13 +228,15 @@ export class Tenancy {
         try {
             this.db.exec('BEGIN');
             const tenantInfo = this.db.prepare(
-                `INSERT INTO tenants (name, slug, status, services, controls, created_at)
-                 VALUES (?, ?, 'active', ?, ?, ?)`)
+                `INSERT INTO tenants (name, slug, status, services, controls, contact_phone, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`)
                 .run(
                     cleanName,
                     cleanSlug,
+                    status,
                     JSON.stringify(normalizeTenantServices(services)),
                     JSON.stringify(normalizeTenantControls(controls)),
+                    phone,
                     utcNow(),
                 );
             const tenantId = Number(tenantInfo.lastInsertRowid);
@@ -257,11 +262,73 @@ export class Tenancy {
         return row ? toTenant(row) : null;
     }
 
+    /** Every business; never Wapzo's own system tenant (systemTenant), which is the platform, not a customer. */
     listTenants({ includeArchived = false } = {}) {
         const sql = includeArchived
-            ? 'SELECT * FROM tenants ORDER BY id'
-            : "SELECT * FROM tenants WHERE status != 'archived' ORDER BY id";
+            ? "SELECT * FROM tenants WHERE status != 'system' ORDER BY id"
+            : "SELECT * FROM tenants WHERE status NOT IN ('archived', 'system') ORDER BY id";
         return this.db.prepare(sql).all().map(toTenant);
+    }
+
+    /**
+     * The hidden tenant that holds Wapzo's own WhatsApp number (platform/notify.js), so the number links, sends and
+     * is guarded exactly like a business's. Made on first use (`create`), not at boot, so tenant ids stay as they were.
+     */
+    systemTenant({ create = false } = {}) {
+        const row = this.db.prepare("SELECT * FROM tenants WHERE status = 'system' ORDER BY id LIMIT 1").get();
+        if (row || !create) return row ? toTenant(row) : null;
+        const slug = this.freeSlug('wapzo-system');
+        this.db.prepare(`INSERT INTO tenants (name, slug, status, wapzo_updates, created_at)
+                         VALUES ('Wapzo', ?, 'system', 0, ?)`).run(slug, utcNow());
+        return this.systemTenant();
+    }
+
+    /**
+     * A business's own details, from Tenant settings > Edit: name, ID (slug), contact WhatsApp and whether Wapzo
+     * messages it there. Fields left out stay as they are.
+     */
+    updateDetails(id, { name, slug, contactPhone, wapzoUpdates } = {}) {
+        const before = this.getTenant(id);
+        if (!before || ['archived', 'system'].includes(before.status)) throw new TenancyError('tenant not found', 404);
+        const { cleanName, cleanSlug } = cleanTenantInput(name ?? before.name, slug ?? before.slug);
+        const phone = contactPhone === undefined ? before.contactPhone : cleanContactPhone(contactPhone);
+        const updates = wapzoUpdates === undefined ? before.wapzoUpdates : Boolean(wapzoUpdates);
+        try {
+            this.db.prepare('UPDATE tenants SET name = ?, slug = ?, contact_phone = ?, wapzo_updates = ? WHERE id = ?')
+                .run(cleanName, cleanSlug, phone, updates ? 1 : 0, Number(id));
+        } catch (err) {
+            if (/UNIQUE/.test(err.message)) throw new TenancyError('Another business already uses that ID.', 409);
+            throw err;
+        }
+        return this.getTenant(id);
+    }
+
+    /** The business's owner: the person who signs in first and gets the welcome email. */
+    ownerOf(tenantId) {
+        const row = this.db.prepare(`SELECT id FROM users WHERE tenant_id = ? AND role = 'owner'
+                                     AND email NOT LIKE '%#deleted-%' ORDER BY id LIMIT 1`).get(Number(tenantId));
+        return row ? this.getUser(row.id) : null;
+    }
+
+    /** Rename the owner and/or change their sign-in email (409 when another account has it). */
+    async setOwner(tenantId, { name, email } = {}) {
+        const owner = this.ownerOf(tenantId);
+        if (!owner) throw new TenancyError('this business has no owner account', 404);
+        if (email !== undefined && email !== null && String(email).trim().toLowerCase() !== owner.email) {
+            await this.setCredentials(tenantId, owner.id, { email });
+        }
+        if (name !== undefined && name !== null) {
+            this.db.prepare('UPDATE users SET name = ? WHERE id = ?').run(String(name).trim().slice(0, 120), owner.id);
+        }
+        return this.getUser(owner.id);
+    }
+
+    /** A slug no business uses yet: `base`, else base-2, base-3... For accepting a lead in one click. */
+    freeSlug(base) {
+        const clean = String(base ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'business';
+        let slug = clean;
+        for (let n = 2; this.db.prepare('SELECT 1 FROM tenants WHERE slug = ?').get(slug); n += 1) slug = `${clean}-${n}`;
+        return slug;
     }
 
     setTenantStatus(id, status) {
@@ -402,7 +469,14 @@ export class Tenancy {
         if (!before) throw new TenancyError('tenant not found', 404);
         if (before.status === 'archived') throw new TenancyError('tenant not found', 404);
         const status = patch.status ?? before.status;
-        if (!['active', 'suspended'].includes(status)) throw new TenancyError('status must be active or suspended');
+        // A pending business keeps its status through any other edit; only activating it (owner's password set,
+        // app.js POST /tenants/:id/activate) switches it on.
+        if (before.status === 'pending' && status !== 'pending') {
+            throw new TenancyError('Activate this business from its settings: that sets the owner\'s password.', 409);
+        }
+        if (status !== before.status && !['active', 'suspended'].includes(status)) {
+            throw new TenancyError('status must be active or suspended');
+        }
         const services = patch.services === undefined
             ? before.services
             : normalizeTenantServices(patch.services);
@@ -636,6 +710,13 @@ export class Tenancy {
     }
 }
 
+/** A contact WhatsApp number as typed ('' for none); the same check as the public request form (leads.js). */
+function cleanContactPhone(value) {
+    const phone = String(value ?? '').trim().slice(0, 32);
+    if (phone && !/^\+?[\d\s()-]{6,32}$/.test(phone)) throw new TenancyError('Enter a valid WhatsApp number.');
+    return phone;
+}
+
 function cleanTenantInput(name, slug) {
     const cleanName = String(name ?? '').trim();
     const cleanSlug = String(slug ?? cleanName).trim().toLowerCase()
@@ -669,9 +750,29 @@ export const LIMIT_SPEC = Object.freeze({
     allowWhatsappWeb: 'bool',
     blockedWords: 'text',
     allowCustomSafety: 'bool',
+    // The business's own monthly message quota. Absent = the plan's; null = no limit; a number = that many (0 = none).
+    // Not in DEFAULT_LIMITS, so "absent" survives; the value 'plan' removes it again.
+    messagesPerMonth: [0, 100000000],
 });
+/** A numeric tenant limit as a cap: null when there is none, else the number (0 is a cap of zero). */
+export function capOf(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+}
+
+/** The stricter of a tenant limit (null = none, 0 = zero) and a policy cap (0 or less = none). Null when neither caps. */
+export function tighterCap(limit, policyCap) {
+    const caps = [capOf(limit), Number(policyCap) > 0 ? Number(policyCap) : null].filter((n) => n !== null);
+    return caps.length ? Math.min(...caps) : null;
+}
+
+/**
+ * Numeric limits: null (blank in the editors) is no limit; 0 is zero, a real cap of none. Stored zeros that once
+ * meant "no limit" were turned into null when this changed (db.js 'tenant-limits-null-unlimited').
+ */
 export const DEFAULT_LIMITS = Object.freeze({
-    maxChannels: 0, maxUsers: 0, maxTemplates: 0, maxContactsPerCampaign: 0, maxMediaMb: 0,
+    maxChannels: null, maxUsers: null, maxTemplates: null, maxContactsPerCampaign: null, maxMediaMb: null,
     allowWhatsappWeb: true, blockedWords: '',
     // Off: only the platform admin sets anti-ban limits.
     allowCustomSafety: false,
@@ -681,7 +782,16 @@ export function normalizeLimits(input = {}, strict = false) {
     const out = { ...DEFAULT_LIMITS };
     for (const [key, spec] of Object.entries(LIMIT_SPEC)) {
         const value = input?.[key];
-        if (value === undefined || value === null) continue;
+        if (value === undefined) continue;
+        if (value === 'plan') {
+            delete out[key];
+            continue;
+        }
+        // A cleared box (null or '') is no limit; booleans and text keep their defaults for it.
+        if (value === null || value === '') {
+            if (Array.isArray(spec)) out[key] = null;
+            continue;
+        }
         if (spec === 'bool') out[key] = Boolean(value);
         else if (spec === 'text') out[key] = String(value).slice(0, 2000);
         else {
@@ -771,6 +881,8 @@ function toTenant(row) {
         limits: normalizeLimits(parseJson(row.limits, {})),
         customSafety: parseJson(row.custom_safety, {}),
         safetyExit: parseJson(row.safety_exit, null),
+        contactPhone: row.contact_phone ?? '',
+        wapzoUpdates: row.wapzo_updates === undefined ? true : Boolean(row.wapzo_updates),
         createdAt: row.created_at,
     };
 }

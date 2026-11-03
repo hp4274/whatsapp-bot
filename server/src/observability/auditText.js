@@ -39,6 +39,8 @@ const idOf = (target) => {
 };
 const text = (detail) => (typeof detail === 'string' ? detail : '');
 const field = (detail, key) => (detail && typeof detail === 'object' && !Array.isArray(detail) ? detail[key] : undefined);
+/** "INR 5,000": an amount with the currency the detail carries. */
+const money = (detail, amount) => `${field(detail, 'currency') ?? 'INR'} ${Number(amount ?? 0).toLocaleString('en-IN')}`;
 
 /** A policy value the way the editor shows it. */
 function showValue(value) {
@@ -201,8 +203,34 @@ const RULES = {
     'tenant.suspended': (c) => [`Suspended business ${c.biz()}`, 'warn'],
     'tenant.archived': (c) => [`Archived business ${c.biz()}`, 'danger'],
     'tenant.delete': (c) => [`Deleted business ${c.biz()}`, 'danger'],
-    'tenant.subscription': (c) => `Put ${c.biz()} on plan ${field(c.detail, 'planKey') ?? '?'} (${field(c.detail, 'state') ?? 'active'})`,
+    'tenant.subscription': (c) => {
+        const charged = Number(field(c.detail, 'charged') ?? 0);
+        return `Put ${c.biz()} on plan ${field(c.detail, 'planKey') ?? '?'} (${field(c.detail, 'state') ?? 'active'})${charged ? `, charged ${money(c.detail, charged)}` : ''}`;
+    },
     'tenant.subscription.cancel': (c) => [`Cancelled the subscription of ${c.biz()}${field(c.detail, 'immediate') ? ' immediately' : ' at the end of the period'}`, 'warn'],
+    'tenant.payment': (c) => `Marked ${c.biz()} as ${field(c.detail, 'payment') ?? '?'}${Number(field(c.detail, 'charged') ?? 0) ? `, charged ${money(c.detail, field(c.detail, 'charged'))}` : ''}`,
+    'tenant.validity': (c) => {
+        const until = field(c.detail, 'validUntil');
+        return until ? `Set the plan of ${c.biz()} to end on ${String(until).slice(0, 10)}` : `Removed the end date of ${c.biz()}'s plan`;
+    },
+    'tenant.topup': (c) => {
+        const days = Number(field(c.detail, 'days') ?? 0);
+        const messages = Number(field(c.detail, 'messages') ?? 0);
+        const parts = [days ? plural(days, 'day') : '', messages ? plural(messages, 'message') : ''].filter(Boolean);
+        const amount = Number(field(c.detail, 'amount') ?? 0);
+        return `Topped up ${c.biz()}: ${parts.join(' and ') || 'nothing'}${amount ? ` for ${money(c.detail, amount)}` : ''}`;
+    },
+    'tenant.activate': (c) => `Activated business ${c.biz()}`,
+    'tenant.details': (c) => `Changed the details of ${c.biz()}${field(c.detail, 'ownerEmail') ? ` (owner sign-in: ${field(c.detail, 'ownerEmail')})` : ''}`,
+    'wapzo.message': (c) => `${field(c.detail, 'enabled') === false ? 'Switched off' : 'Updated'} the Wapzo WhatsApp message ${quote(c.target)}`,
+    'wapzo.test': (c) => `Sent a test message from the Wapzo WhatsApp number to ${c.target}`,
+    'tenant.paid': (c) => `Recorded a${{ upi: ' UPI', bank: ' bank transfer', cash: ' cash' }[field(c.detail, 'method')] ?? ''} payment of ${money(c.detail, field(c.detail, 'amount'))} from ${c.biz()}`,
+    'tenant.ledger.remove': (c) => [`Removed a ${field(c.detail, 'kind') === 'payment' ? 'payment' : 'charge'} of ${money(c.detail, field(c.detail, 'amount'))} from ${c.biz()}'s payments`, 'warn'],
+    'tenant.price': (c) => {
+        const amount = field(c.detail, 'amount');
+        if (amount === null || amount === undefined) return `Removed the agreed amount of ${c.biz()}`;
+        return `Set the agreed amount of ${c.biz()} to ${field(c.detail, 'currency') ?? ''} ${Number(amount).toLocaleString('en-IN')}/${field(c.detail, 'interval') ?? 'month'}`;
+    },
     'tenant.school_provision': (c) => `Set up the school pack for ${c.biz()}: ${plural(field(c.detail, 'templates') ?? 0, 'template')}, ${plural(field(c.detail, 'workflows') ?? 0, 'workflow')}`,
     'tenant.seed': (c) => `Loaded demo data into ${c.biz()}`,
     'tenant.safety': (c) => `Changed the sending safety of ${c.biz()}`,

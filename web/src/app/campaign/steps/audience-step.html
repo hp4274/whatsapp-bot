@@ -300,8 +300,8 @@
             <details class="more">
               <summary>
                 See who gets it
-                @if (d.excludedRows().length) {
-                  <span class="muted">· {{ d.excludedRows().length }} removed</span>
+                @if (removedCount()) {
+                  <span class="muted">· {{ removedCount() }} removed</span>
                 }
               </summary>
               @if (kept().length) {
@@ -354,9 +354,9 @@
                     Next <i class="ti ti-chevron-right" aria-hidden="true"></i>
                   </button>
                 }
-                @if (d.excludedRows().length) {
+                @if (removedCount()) {
                   <button type="button" class="btn small" (click)="d.excludedRows.set([])">
-                    <i class="ti ti-arrow-back-up" aria-hidden="true"></i> Put back {{ d.excludedRows().length }} removed
+                    <i class="ti ti-arrow-back-up" aria-hidden="true"></i> Put back {{ removedCount() }} removed
                   </button>
                 }
               </div>
@@ -568,7 +568,10 @@
         <i class="ti ti-info-circle" aria-hidden="true"></i>
         <span
           >Only people you can message are sent to - opted-out contacts are always left out.
-          Variables available: {{ '{name}' }} and {{ '{phone}' }}.</span
+          Variables available:
+          @for (v of d.variables(); track v; let last = $last) {
+            {{ '{' + v + '}' }}{{ last ? '.' : ',' }}
+          }</span
         >
       </p>
     </section>

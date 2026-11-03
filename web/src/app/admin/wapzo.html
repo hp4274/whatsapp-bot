@@ -1,0 +1,268 @@
+<!-- Number card (link, test, country code) on the left, the message texts on the right, the sent log under both.
+     The two columns stack below 1000px. -->
+@let conn = connection();
+@let code = qr();
+
+<header class="s-head">
+  <div>
+    <p class="eyebrow"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i> Platform</p>
+    <h2>Wapzo WhatsApp</h2>
+    <p>Wapzo's own number. It messages your clients when they ask for an account, when their account is ready, and about their plan and payments.</p>
+  </div>
+</header>
+
+@if (error()) {
+  <div class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="msg">{{ error() }}</span>
+    <button class="btn sm" type="button" (click)="reload()">Try again</button>
+  </div>
+}
+@if (notice()) {
+  <p class="s-banner tone-ok" role="status">
+    <i class="ti ti-circle-check" aria-hidden="true"></i>
+    <span class="msg">{{ notice() }}</span>
+  </p>
+}
+
+<div class="cols">
+  <section class="s-card number" aria-labelledby="number-title" [attr.aria-busy]="!conn">
+    <div class="card-head">
+      <h3 id="number-title">Number</h3>
+      <span class="s-pill {{ linked() ? 'tone-ok' : linking() ? 'tone-warn' : 'tone-mute' }}">
+        {{ linked() ? 'Linked' : linking() ? 'Linking' : 'Not linked' }}
+      </span>
+    </div>
+
+    <div class="block" aria-live="polite">
+      @if (linked() && conn) {
+        <p class="account">
+          <i class="ti ti-device-mobile" aria-hidden="true"></i>
+          <strong>{{ conn.account ? phone(conn.account) : 'Linked' }}</strong>
+          @if (conn.name) {
+            <span class="muted">{{ conn.name }}</span>
+          }
+        </p>
+        @if (level(); as lv) {
+          <p class="muted small">
+            Sending level {{ lv.level }} of {{ lv.of }}, {{ lv.name }}.
+            @if (lv.resting.active) {
+              Resting{{ lv.resting.endsAt ? ' until ' + (lv.resting.endsAt | date: 'd MMM, h:mm a') : '' }}.
+            }
+          </p>
+        }
+        @if (canStartNow()) {
+          <div class="row">
+            <button class="btn sm" type="button" [disabled]="busy() !== null || channelId() === null" (click)="startNow()">
+              <i class="ti ti-player-play" aria-hidden="true"></i> Start sending now
+            </button>
+          </div>
+          <p class="muted small">A new number rests first and holds messages to people it never talked to. This ends that wait.</p>
+        }
+        <div class="row">
+          <button class="btn sm danger-ghost" type="button" [disabled]="busy() !== null" (click)="confirmUnlink.set(true)">
+            <i class="ti ti-plug-connected-x" aria-hidden="true"></i> Unlink
+          </button>
+        </div>
+      } @else if (code) {
+        <figure class="qr">
+          <img [src]="code" alt="QR code to link the Wapzo WhatsApp number" width="240" height="240" />
+          <figcaption>
+            Scan with WhatsApp &gt; Linked devices
+            @if (qrSecondsLeft(); as left) {
+              <!-- The block is a live region, so the ticking count is hidden from it. -->
+              <span class="timer" [class.low]="left <= 15" aria-hidden="true">
+                <i class="ti ti-clock-hour-4"></i> Expires in {{ left }}s
+              </span>
+            }
+          </figcaption>
+        </figure>
+        <div class="row">
+          <button class="btn sm" type="button" [disabled]="busy() === 'unlink'" (click)="unlink()">Cancel</button>
+        </div>
+      } @else if (linking()) {
+        <p class="muted"><span class="spinner" aria-hidden="true"></span> Getting a QR code…</p>
+        <div class="row">
+          <button class="btn sm" type="button" [disabled]="busy() === 'unlink'" (click)="unlink()">Cancel</button>
+        </div>
+      } @else {
+        @if (conn?.error || conn?.detail; as why) {
+          <p class="muted small">{{ why }}</p>
+        }
+        @if (sandbox()) {
+          <div class="s-seg" role="group" aria-label="How to link">
+            <button type="button" [attr.aria-pressed]="transport() === 'baileys'" (click)="transport.set('baileys')">WhatsApp</button>
+            <button type="button" [attr.aria-pressed]="transport() === 'sandbox'" (click)="transport.set('sandbox')">
+              Test mode (sandbox)
+            </button>
+          </div>
+        }
+        <div class="row">
+          <button class="btn primary" type="button" [disabled]="busy() !== null || !conn" (click)="link()">
+            <i class="ti ti-qrcode" aria-hidden="true"></i>
+            {{ transport() === 'sandbox' ? 'Start test mode' : 'Link with QR' }}
+          </button>
+        </div>
+        <p class="muted small">Use a number only Wapzo writes from. Keep the phone online.</p>
+      }
+    </div>
+
+    <form class="block" (submit)="$event.preventDefault(); sendTest()">
+      <h4>Send a test</h4>
+      <label class="field">
+        <span>WhatsApp number</span>
+        <input
+          type="tel"
+          inputmode="tel"
+          autocomplete="off"
+          placeholder="98765 43210"
+          [value]="testTo()"
+          (input)="testTo.set($any($event.target).value)"
+        />
+      </label>
+      <label class="field">
+        <span>Text <span class="muted">(optional)</span></span>
+        <input
+          type="text"
+          maxlength="1000"
+          placeholder="This is a test message from Wapzo."
+          [value]="testText()"
+          (input)="testText.set($any($event.target).value)"
+        />
+      </label>
+      <div class="row">
+        <button class="btn sm" type="submit" [disabled]="busy() !== null || !linked() || !testTo().trim()">
+          <i class="ti ti-send" aria-hidden="true"></i> Send test
+        </button>
+        @if (!linked()) {
+          <span class="muted small">Link the number first.</span>
+        }
+      </div>
+    </form>
+
+    <form class="block" (submit)="$event.preventDefault(); saveCountry()">
+      <label class="field">
+        <span>Default country code</span>
+        <span class="inline">
+          <input
+            class="cc"
+            type="text"
+            inputmode="numeric"
+            maxlength="4"
+            placeholder="91"
+            [value]="countryCode()"
+            (input)="countryCode.set($any($event.target).value)"
+          />
+          <button class="btn sm" type="submit" [disabled]="busy() !== null || !countryChanged() || !countryCode().trim()">
+            Save
+          </button>
+        </span>
+      </label>
+      <p class="muted small">Added to numbers written without one.</p>
+    </form>
+  </section>
+
+  <section class="s-card" aria-labelledby="messages-title" [attr.aria-busy]="loading()">
+    <h3 id="messages-title">Messages</h3>
+    @if (loading()) {
+      <div class="s-skel" style="width: 60%"></div>
+      <div class="s-skel" style="height: 64px"></div>
+      <div class="s-skel" style="width: 40%"></div>
+    }
+    <div class="messages">
+      @for (m of messages(); track m.kind) {
+        @let saving = savingKind() === m.kind;
+        <article class="event" [class.off]="!m.enabled">
+          <div class="event-head">
+            <div>
+              <strong [id]="'msg-' + m.kind">{{ m.label }}</strong>
+              <span class="muted small">{{ m.when }}</span>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              class="switch"
+              [attr.aria-checked]="m.enabled"
+              [attr.aria-labelledby]="'msg-' + m.kind"
+              [disabled]="saving"
+              (click)="toggle(m)"
+            >
+              <span class="thumb"></span>
+            </button>
+          </div>
+          <textarea
+            #box
+            rows="3"
+            maxlength="1000"
+            [attr.aria-labelledby]="'msg-' + m.kind"
+            [value]="draftOf(m)"
+            (input)="setDraft(m.kind, $any($event.target).value)"
+          ></textarea>
+          <div class="event-foot">
+            <div class="vars" role="group" [attr.aria-label]="'Insert a word into ' + m.label">
+              @for (v of variables(m.kind); track v) {
+                <button type="button" class="s-chip" (click)="insert(m, box, v)">{{ '{' + v + '}' }}</button>
+              }
+            </div>
+            <div class="row">
+              @if (draftOf(m).trim() !== m.defaultText) {
+                <button type="button" class="btn sm ghost" [disabled]="saving" (click)="resetText(m)">Reset to default</button>
+              }
+              <button type="button" class="btn sm primary" [disabled]="saving || !changed(m)" (click)="saveText(m)">Save</button>
+            </div>
+          </div>
+        </article>
+      }
+    </div>
+  </section>
+</div>
+
+<section class="s-card" aria-labelledby="log-title">
+  <h3 id="log-title">Recent messages</h3>
+  @if (log().length) {
+    <div class="s-table">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Time</th>
+            <th scope="col">To</th>
+            <th scope="col">Message</th>
+            <th scope="col">Status</th>
+            <th scope="col">Text</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (entry of log(); track entry.id; let i = $index) {
+            @let st = status(entry);
+            <tr [style.--i]="i">
+              <td class="muted">{{ entry.createdAt | date: 'd MMM, h:mm a' }}</td>
+              <td>{{ phone(entry.to) }}</td>
+              <td>{{ eventLabel(entry) }}</td>
+              <td>
+                <span class="s-pill {{ st.tone }}" [attr.title]="entry.error">{{ st.label }}</span>
+              </td>
+              <td class="text" [title]="entry.text">{{ entry.text }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  } @else if (!loading()) {
+    <div class="s-empty">
+      <i class="ti ti-message-2" aria-hidden="true"></i>
+      <strong>Nothing sent yet</strong>
+      <p>Messages from the Wapzo number appear here as they go out.</p>
+    </div>
+  }
+</section>
+
+@if (confirmUnlink()) {
+  <app-confirm
+    heading="Unlink the Wapzo number?"
+    text="Clients stop getting messages until you link it again with a new QR code. The saved session is deleted."
+    action="Unlink"
+    tone="danger"
+    (confirm)="unlink()"
+    (cancel)="confirmUnlink.set(false)"
+  />
+}

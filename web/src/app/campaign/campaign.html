@@ -299,7 +299,12 @@
         <a class="btn primary" [routerLink]="['/campaigns', r.campaign.id]"
           ><i class="ti ti-chart-line" aria-hidden="true"></i> Open campaign</a
         >
-        <button type="button" class="btn" (click)="duplicateSent(r.campaign.id)">
+        <button
+          type="button"
+          class="btn"
+          [disabled]="loadingCampaign()"
+          (click)="duplicateSent(r.campaign.id)"
+        >
           <i class="ti ti-copy" aria-hidden="true"></i> Duplicate
         </button>
         <button type="button" class="btn" (click)="startOver()">

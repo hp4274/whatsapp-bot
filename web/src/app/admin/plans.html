@@ -88,8 +88,8 @@
               <li>
                 <span>{{ f.label }}</span>
                 <b>
-                  @if (p.tenantLimits[f.key]) {
-                    {{ p.tenantLimits[f.key].toLocaleString() }}
+                  @if (p.tenantLimits[f.key] !== null) {
+                    {{ p.tenantLimits[f.key]?.toLocaleString() }}
                   } @else {
                     <i class="ti ti-infinity" aria-hidden="true"></i
                     ><span class="sr-only">No limit</span>
@@ -129,9 +129,20 @@
               ><i class="ti ti-users" aria-hidden="true"></i>{{ p.subscribers ?? 0 }}
               subscriber{{ p.subscribers === 1 ? '' : 's' }}</span
             >
-            <button class="btn sm" type="button" (click)="edit(p)">
-              <i class="ti ti-pencil" aria-hidden="true"></i> Edit
-            </button>
+            <span class="plan-acts">
+              <button
+                class="btn sm ghost"
+                type="button"
+                title="Hide it from every plan list; businesses on it keep it"
+                [disabled]="togglingKey() === p.key"
+                (click)="setEnabled(p, false)"
+              >
+                <i class="ti ti-eye-off" aria-hidden="true"></i> Disable
+              </button>
+              <button class="btn sm" type="button" (click)="edit(p)">
+                <i class="ti ti-pencil" aria-hidden="true"></i> Edit
+              </button>
+            </span>
           </footer>
         </article>
       } @empty {
@@ -146,14 +157,20 @@
 
   @if (archivedPlans().length) {
     <section class="archived" aria-labelledby="archived-title">
-      <h3 id="archived-title"><i class="ti ti-archive" aria-hidden="true"></i> Archived</h3>
+      <h3 id="archived-title"><i class="ti ti-eye-off" aria-hidden="true"></i> Disabled plans</h3>
+      <p class="muted disabled-note">Not offered anywhere. Businesses already on one keep it until moved.</p>
       <div class="archived-list">
         @for (p of archivedPlans(); track p.key) {
-          <button class="archived-item" type="button" (click)="edit(p)">
+          <div class="archived-item">
             <strong>{{ p.name }}</strong>
             <span class="muted">{{ formatPrice(p) }} &middot; {{ p.subscribers ?? 0 }} on it</span>
-            <i class="ti ti-pencil" aria-hidden="true"></i>
-          </button>
+            <button class="btn sm" type="button" [disabled]="togglingKey() === p.key" (click)="setEnabled(p, true)">
+              <i class="ti ti-eye" aria-hidden="true"></i> Enable
+            </button>
+            <button class="btn sm icon ghost" type="button" [attr.aria-label]="'Edit ' + p.name" (click)="edit(p)">
+              <i class="ti ti-pencil" aria-hidden="true"></i>
+            </button>
+          </div>
         }
       </div>
     </section>
@@ -161,9 +178,10 @@
 
   <!-- Quotas and security per plan: the policy editor's own scope strip picks platform default or a plan. -->
   <section class="quotas" aria-labelledby="quotas-title">
-    <h3 id="quotas-title"><i class="ti ti-shield-lock" aria-hidden="true"></i> Quotas &amp; security</h3>
+    <h3 id="quotas-title"><i class="ti ti-shield-lock" aria-hidden="true"></i> Security</h3>
     <p class="muted">
-      Leave a quota on Plan limit to use the limits set on the plan above. 0 means no limit.
+      Request rates, sign-out and API keys. Each plan's quotas (messages, API requests, storage, numbers, templates)
+      are set on the plan above, and a business's own limits in its settings.
     </p>
     <app-policy-editor service="account" />
   </section>
@@ -500,7 +518,7 @@
     </section>
 
     <section class="ed-section">
-      <h4>Limits <span class="muted">0 = no limit</span></h4>
+      <h4>Limits <span class="muted">blank = no limit, 0 = none</span></h4>
       <div class="ed-grid">
         @for (f of limitFields; track f.key) {
           <div class="s-field">
@@ -510,8 +528,9 @@
               type="number"
               min="0"
               step="1"
-              [value]="e.plan.tenantLimits[f.key]"
-              (input)="patchLimit(f.key, +$any($event.target).value)"
+              placeholder="No limit"
+              [value]="e.plan.tenantLimits[f.key] ?? ''"
+              (input)="patchCap(f.key, $any($event.target).value)"
             />
           </div>
         }
@@ -547,7 +566,7 @@
           </button>
         </label>
         <label class="opt">
-          <span>Active <small class="muted">(off = archived, existing subscribers keep it)</small></span>
+          <span>Enabled <small class="muted">(off = disabled: hidden from every plan list; businesses on it keep it)</small></span>
           <button
             type="button"
             role="switch"

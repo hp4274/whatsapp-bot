@@ -162,6 +162,18 @@ export const routes: Routes = [
     loadComponent: () => import('./admin/plans').then((m) => m.PlansView),
   },
   {
+    path: 'admin/payments',
+    title: 'Payments - Wapzo',
+    canActivate: [roleGuard('super_admin')],
+    loadComponent: () => import('./admin/payments').then((m) => m.PaymentsView),
+  },
+  {
+    path: 'admin/wapzo',
+    title: 'Wapzo WhatsApp - Wapzo',
+    canActivate: [roleGuard('super_admin')],
+    loadComponent: () => import('./admin/wapzo').then((m) => m.Wapzo),
+  },
+  {
     path: 'admin/usage',
     title: 'Usage - Wapzo',
     canActivate: [roleGuard('super_admin')],

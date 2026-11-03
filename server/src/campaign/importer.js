@@ -110,10 +110,15 @@ export function classifyPhone(raw, { countryCode = '', autoClean = false } = {})
     if (digits.startsWith('00')) digits = digits.slice(2);
     if (!international) {
         if (countryCode) {
-            // A number already starting with the code (longer than a national
-            // one) is not prefixed twice.
-            if (!(digits.startsWith(countryCode) && digits.length > 10)) {
-                digits = countryCode + digits.replace(/^0/, '');
+            // A number already starting with the code is not prefixed twice.
+            if (!hasCountryCode(digits, countryCode)) {
+                const national = digits.replace(/^0/, '');
+                // The code's own digits must not carry a stub over the 7-digit floor: 12345 is no Indian number.
+                const shortest = Math.min(...(NATIONAL_LENGTHS[countryCode] ?? [0]));
+                if (national.length < shortest) {
+                    return { phone: null, reason: 'too_short', detail: `${national.length} digits` };
+                }
+                digits = countryCode + national;
             }
         } else if (digits.startsWith('0') || digits.length <= 10) {
             // ponytail: no '+' and no default prefix - a 10-digit number is
@@ -130,6 +135,26 @@ export function classifyPhone(raw, { countryCode = '', autoClean = false } = {})
         if (!(err instanceof PhoneError)) throw err;
         return { phone: null, reason: 'invalid', detail: err.message };
     }
+}
+
+/**
+ * National number lengths (without the trunk 0) where a country uses only these, so "starts with the code" can be
+ * told from "is a national number" exactly: Singapore's 65 + 8 digits is 10 long, India's national mobile alone is
+ * 10 and may itself start with 91. Any other length, or a country not listed, keeps the old rule: longer than 10 digits.
+ */
+const NATIONAL_LENGTHS = Object.freeze({
+    1: [10], 7: [10], 20: [9, 10], 27: [9], 33: [9], 34: [9], 44: [9, 10], 52: [10], 61: [9], 63: [10],
+    65: [8], 66: [8, 9], 81: [9, 10], 86: [10, 11], 91: [10], 92: [10], 94: [9], 234: [10], 254: [9],
+    852: [8], 880: [10], 965: [8], 966: [9], 968: [8], 971: [8, 9], 973: [8], 974: [8],
+});
+
+/** Whether `digits` (no '+') already carries `countryCode` rather than being a national number. */
+function hasCountryCode(digits, countryCode) {
+    if (!digits.startsWith(countryCode)) return false;
+    const lengths = NATIONAL_LENGTHS[countryCode] ?? [];
+    if (lengths.includes(digits.length)) return false;
+    if (lengths.includes(digits.length - countryCode.length)) return true;
+    return digits.length > 10;
 }
 
 export const ISSUE_LABELS = Object.freeze({

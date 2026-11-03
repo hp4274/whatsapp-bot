@@ -8,42 +8,26 @@ import {
   signal,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 
 import { TenancyApi } from '../core/api';
-import { Auth, Tenant, TenantControls } from '../core/auth';
+import { Auth, Tenant } from '../core/auth';
 import { ConfirmDialog } from '../core/confirm-dialog';
 import { Pager, pageOf } from '../core/pager';
 import { Store } from '../core/store';
 import { AdminFeed } from './admin-feed';
 import type { AuditEntry } from './ops-api';
 import { OpsApi } from './ops-api';
-import { PAYMENTS, Payment, Plan, PlansApi, formatPrice, stateTone } from './plans-api';
+import { BILLINGS, billingOf, stateTone } from './plans-api';
 import { serviceMeta } from './service-meta';
 import { TenantActivity } from './tenant-activity';
+import { TenantNew } from './tenant-new';
+import { TenantsClosing } from './tenants-closing';
 import { SettingsTab, TenantSettings } from './tenant-settings';
 import { sentenceCase } from './text';
 
-/** The create-tenant form, kept as one signal so it survives the services drawer. */
-type TenantDraft = {
-  name: string;
-  slug: string;
-  email: string;
-  ownerName: string;
-  password: string;
-  services: string[];
-  controls: TenantControls;
-  /** null = no plan, services picked by hand. */
-  planKey: string | null;
-  trialDays: number;
-  /** How the business pays; only sent with a plan. */
-  payment: Payment;
-};
-
-/** `draft` edits the unsaved form's services; `tenant` saves straight to the server. */
-type ServiceDrawer =
-  { mode: 'draft'; services: string[] } | { mode: 'tenant'; tenant: Tenant; services: string[] };
+/** A business's services being chosen in the services drawer; saved straight to the server. */
+type ServiceDrawer = { tenant: Tenant; services: string[] };
 
 /** Fallback service list for when the server does not send its catalogue. */
 const DEFAULT_SERVICES: readonly string[] = [
@@ -70,19 +54,6 @@ const DEFAULT_SERVICES: readonly string[] = [
   'ai',
 ];
 
-/** New tenants start with everything on; the platform admin narrows from there. */
-const DEFAULT_CONTROLS: TenantControls = {
-  sendingEnabled: true,
-  campaignsEnabled: true,
-  automationsEnabled: true,
-};
-
-const CONTROL_LABELS: Record<keyof TenantControls, string> = {
-  sendingEnabled: 'Outbound sending',
-  campaignsEnabled: 'Campaign sending',
-  automationsEnabled: 'Automations',
-};
-
 /** Least time between two live reloads of the tenant list. */
 const LIVE_GAP_MS = 3000;
 
@@ -95,19 +66,6 @@ const PAGE_SIZE = 12;
 /** localStorage key remembering grid vs list. */
 const VIEW_KEY = 'wsender.tenantView';
 
-const emptyDraft = (): TenantDraft => ({
-  name: '',
-  slug: '',
-  email: '',
-  ownerName: '',
-  password: '',
-  services: [...DEFAULT_SERVICES],
-  controls: { ...DEFAULT_CONTROLS },
-  planKey: null,
-  trialDays: 0,
-  payment: 'unpaid',
-});
-
 /**
  * The super admin's tenant console: create, suspend, seed, delete, and open
  * the settings drawer (controls, limits, anti-ban safety) for any business.
@@ -117,14 +75,13 @@ const emptyDraft = (): TenantDraft => ({
  */
 @Component({
   selector: 'app-admin-tenants',
-  imports: [ConfirmDialog, FormsModule, NgTemplateOutlet, Pager, TenantActivity, TenantSettings],
+  imports: [ConfirmDialog, NgTemplateOutlet, Pager, TenantActivity, TenantNew, TenantSettings, TenantsClosing],
   templateUrl: './tenants.html',
   styleUrl: './tenants.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TenantsView {
   private readonly api = inject(TenancyApi);
-  private readonly plansApi = inject(PlansApi);
   private readonly auth = inject(Auth);
   private readonly store = inject(Store);
   private readonly router = inject(Router);
@@ -139,29 +96,22 @@ export class TenantsView {
   protected readonly skeletonRows = SKELETON_CARDS;
   protected readonly loading = signal(true);
   protected readonly error = signal('');
-  protected readonly busy = signal(false);
   protected readonly savingId = signal<number | null>(null);
-  protected readonly showForm = signal(false);
-  protected readonly showPassword = signal(false);
+  /** The Add tenant drawer (details first) is open. */
+  protected readonly adding = signal(false);
   protected readonly actingId = this.auth.actingTenantId;
 
   protected readonly services = signal<string[]>([...DEFAULT_SERVICES]);
-  protected readonly draft = signal<TenantDraft>(emptyDraft());
-  /** Active plans for the create form's picker; archived ones are never offered. */
-  protected readonly plans = signal<Plan[]>([]);
-  protected readonly draftPlan = computed(
-    () => this.plans().find((p) => p.key === this.draft().planKey) ?? null,
-  );
-  protected readonly formatPrice = formatPrice;
+  /** IDs in use, for Add tenant's "already in use" hint. */
+  protected readonly slugs = computed(() => this.tenants().map((t) => t.slug));
   protected readonly stateTone = stateTone;
-  protected readonly payments = PAYMENTS;
   protected readonly serviceDrawer = signal<ServiceDrawer | null>(null);
   protected readonly serviceDrawerBusy = computed(() => {
     const drawer = this.serviceDrawer();
-    return drawer?.mode === 'tenant' && this.savingId() === drawer.tenant.id;
+    return Boolean(drawer) && this.savingId() === drawer?.tenant.id;
   });
   protected readonly query = signal('');
-  protected readonly statusFilter = signal<'all' | 'active' | 'suspended'>('all');
+  protected readonly statusFilter = signal<'all' | 'active' | 'suspended' | 'pending'>('all');
   protected readonly view = signal<'grid' | 'list'>(readView());
   private readonly wideQuery = matchMedia('(min-width: 1101px)');
   private readonly wide = signal(this.wideQuery.matches);
@@ -170,21 +120,42 @@ export class TenantsView {
   protected readonly menuId = signal<number | null>(null);
   /** Tenant whose settings drawer is open, and the tab it opens on. */
   protected readonly settingsTenant = signal<Tenant | null>(null);
-  protected readonly settingsTab = signal<SettingsTab>('general');
+  protected readonly settingsTab = signal<SettingsTab>('plan');
   /** Tenant awaiting delete confirmation; null hides the dialog. */
   protected readonly deleteTarget = signal<Tenant | null>(null);
   protected readonly seedConfirmId = signal<number | null>(null);
   protected readonly seedingId = signal<number | null>(null);
   protected readonly seedResult = signal<{ id: number; ok: boolean; text: string } | null>(null);
-  protected readonly visible = computed(() => {
+  private readonly matches = (tenant: Tenant) => {
     const q = this.query().trim().toLowerCase();
+    return !q || `${tenant.name} ${tenant.slug}`.toLowerCase().includes(q);
+  };
+  /** Running businesses (active or suspended): the main, paged list. Pending ones have their own block above. */
+  protected readonly visible = computed(() => {
     const status = this.statusFilter();
     return this.tenants().filter(
       (tenant) =>
-        (status === 'all' || tenant.status === status) &&
-        (!q || `${tenant.name} ${tenant.slug}`.toLowerCase().includes(q)),
+        tenant.status !== 'pending' && (status === 'all' || tenant.status === status) && this.matches(tenant),
     );
   });
+  /** Accepted from leads, not yet activated: shown first under "Pending setup" (all or the Pending filter). */
+  protected readonly pendingShown = computed(() => {
+    const status = this.statusFilter();
+    if (status !== 'all' && status !== 'pending') return [];
+    return this.tenants().filter((tenant) => tenant.status === 'pending' && this.matches(tenant));
+  });
+  /** Whether any business is running, for the main list's empty message. */
+  protected readonly running = computed(() => this.tenants().some((t) => t.status !== 'pending'));
+  /**
+   * The number each card shows: its place in the list (1, 2, 3...), oldest first, not the database id, which has
+   * gaps where businesses were deleted.
+   */
+  private readonly serials = computed(() => new Map(this.tenants().map((t, i) => [t.id, i + 1])));
+  protected serial(tenant: Tenant): number {
+    return this.serials().get(tenant.id) ?? 0;
+  }
+  /** `serial` as a value, for the closing-soon list. */
+  protected readonly serialOf = (tenant: Tenant) => this.serial(tenant);
   protected readonly pageSize = PAGE_SIZE;
   /** Back to the first page when the search or status filter changes; a live reload keeps the page. */
   protected readonly page = linkedSignal(() => {
@@ -193,23 +164,10 @@ export class TenantsView {
     return 0;
   });
   protected readonly shown = computed(() => pageOf(this.visible(), this.page(), PAGE_SIZE));
-  protected readonly controlKeys: readonly (keyof TenantControls)[] = [
-    'sendingEnabled',
-    'campaignsEnabled',
-    'automationsEnabled',
-  ];
 
   constructor() {
     this.refresh();
-    this.plansApi.plans().subscribe({
-      next: ({ plans }) => {
-        this.plans.set(plans.filter((p) => p.active).sort((a, b) => a.tier - b.tier));
-        if (!this.showForm()) this.draft.set(this.freshDraft());
-      },
-      // No catalogue: the form simply falls back to picking services by hand.
-      error: () => this.plans.set([]),
-    });
-    // /admin/tenants?settings=<id>[&tab=limits|safety|rules|accounts|plan] (linked from the ops pages) opens that drawer.
+    // /admin/tenants?settings=<id>[&tab=limits|safety|rules|accounts|plan|payments] (linked from the ops pages) opens that drawer.
     const query = this.route.snapshot.queryParamMap;
     const wanted = Number(query.get('settings'));
     const tab = query.get('tab');
@@ -217,7 +175,7 @@ export class TenantsView {
       this.api.tenants().subscribe(({ tenants }) => {
         const tenant = tenants.find((t) => t.id === wanted);
         if (!tenant) return;
-        this.openSettings(tenant, (['limits', 'safety', 'rules', 'accounts', 'plan'] as const).find((t) => t === tab) ?? 'general');
+        this.openSettings(tenant, (['general', 'limits', 'safety', 'rules', 'accounts', 'plan', 'payments'] as const).find((t) => t === tab) ?? 'plan');
       });
     }
     // Live: another admin's change, a number dropping or a campaign sending updates the cards and the activity.
@@ -276,36 +234,11 @@ export class TenantsView {
     });
   }
 
-  protected create(event: Event) {
-    event.preventDefault();
-    if (this.duplicateDraftSlug()) {
-      this.error.set('A tenant with this slug already exists.');
-      return;
-    }
-    const d = this.draft();
-    this.busy.set(true);
-    this.error.set('');
-    this.api
-      .createTenant({
-        name: d.name.trim(),
-        slug: d.slug.trim() || undefined,
-        services: d.services,
-        controls: d.controls,
-        ...(d.planKey ? { planKey: d.planKey, trialDays: d.trialDays, payment: d.payment } : {}),
-        owner: { email: d.email.trim(), name: d.ownerName.trim(), password: d.password },
-      })
-      .subscribe({
-        next: () => {
-          this.busy.set(false);
-          this.showForm.set(false);
-          this.draft.set(this.freshDraft());
-          this.refresh();
-        },
-        error: (err: Error) => {
-          this.busy.set(false);
-          this.error.set(err.message);
-        },
-      });
+  /** Added as pending: straight on to step 2, its settings drawer, to set it up and activate it. */
+  protected added(tenant: Tenant) {
+    this.adding.set(false);
+    this.refresh();
+    this.openSettings(tenant, 'plan');
   }
 
   protected toggleStatus(tenant: Tenant) {
@@ -339,43 +272,18 @@ export class TenantsView {
   }
 
   protected setStatusFilter(value: string) {
-    this.statusFilter.set(value === 'active' || value === 'suspended' ? value : 'all');
+    this.statusFilter.set(value === 'active' || value === 'suspended' || value === 'pending' ? value : 'all');
   }
 
-  protected openSettings(tenant: Tenant, tab: SettingsTab = 'general') {
+  protected openSettings(tenant: Tenant, tab: SettingsTab = 'plan') {
     this.settingsTab.set(tab);
     this.settingsTenant.set(tenant);
   }
 
-  /** A blank form with the first active plan preselected. */
-  private freshDraft(): TenantDraft {
-    const draft = emptyDraft();
-    const first = this.plans()[0];
-    return first ? this.withPlan(draft, first) : draft;
-  }
-
-  private withPlan(draft: TenantDraft, plan: Plan | null): TenantDraft {
-    return plan
-      ? { ...draft, planKey: plan.key, services: [...plan.services], trialDays: plan.trialDays }
-      : { ...draft, planKey: null, services: [...this.services()], trialDays: 0 };
-  }
-
-  protected choosePlan(plan: Plan | null) {
-    this.draft.set(this.withPlan(this.draft(), plan));
-  }
-
-  protected toggleDraftService(service: string, checked: boolean) {
-    const current = this.draft();
-    this.draft.set({ ...current, services: toggleValue(current.services, service, checked) });
-  }
-
-  protected toggleDraftControl(key: keyof TenantControls, checked: boolean) {
-    const current = this.draft();
-    this.draft.set({ ...current, controls: { ...current.controls, [key]: checked } });
-  }
-
-  protected paymentOf(key: string | null | undefined) {
-    return PAYMENTS.find((p) => p.key === key) ?? null;
+  /** Paid, Free or Hybrid (free with charged top-ups), for the plan pill. */
+  protected billingOf(tenant: Tenant) {
+    const billing = billingOf(tenant.subscription?.payment, tenant.balance?.topupCharged ?? 0);
+    return billing ? BILLINGS[billing] : null;
   }
 
   protected serviceLabel(service: string): string {
@@ -386,21 +294,12 @@ export class TenantsView {
     return serviceMeta(service).icon;
   }
 
-  protected controlLabel(key: keyof TenantControls): string {
-    return CONTROL_LABELS[key];
-  }
-
   protected serviceSummary(services: string[]): string {
     return `${services.length} of ${this.services().length} enabled`;
   }
 
-  protected openDraftServices() {
-    this.serviceDrawer.set({ mode: 'draft', services: [...this.draft().services] });
-  }
-
   protected openTenantServices(tenant: Tenant) {
     this.serviceDrawer.set({
-      mode: 'tenant',
       tenant,
       services: [...(tenant.services ?? this.services())],
     });
@@ -419,19 +318,15 @@ export class TenantsView {
   protected saveServices() {
     const drawer = this.serviceDrawer();
     if (!drawer) return;
-    if (drawer.mode === 'draft') {
-      const current = this.draft();
-      this.draft.set({ ...current, services: [...drawer.services] });
-      this.serviceDrawer.set(null);
-      return;
-    }
-
     this.savingId.set(drawer.tenant.id);
     this.error.set('');
     this.api.updateTenant(drawer.tenant.id, { services: drawer.services }).subscribe({
       next: () => {
         this.savingId.set(null);
         this.serviceDrawer.set(null);
+        // Opened from Tenant settings: it shows the new services too, not the count it opened with.
+        const open = this.settingsTenant();
+        if (open?.id === drawer.tenant.id) this.settingsTenant.set({ ...open, services: [...drawer.services] });
         this.refresh();
       },
       error: (err: Error) => {
@@ -495,7 +390,7 @@ export class TenantsView {
         }
         this.savingId.set(null);
         const drawer = this.serviceDrawer();
-        if (drawer?.mode === 'tenant' && drawer.tenant.id === tenant.id) {
+        if (drawer?.tenant.id === tenant.id) {
           this.serviceDrawer.set(null);
         }
         this.refresh();
@@ -505,20 +400,6 @@ export class TenantsView {
         this.error.set(err.message);
       },
     });
-  }
-
-  protected duplicateDraftSlug(): boolean {
-    const draft = this.draft();
-    const slug = this.slugFor(draft.slug || draft.name);
-    return Boolean(slug && this.tenants().some((tenant) => tenant.slug === slug));
-  }
-
-  protected slugFor(value: string): string {
-    return String(value ?? '')
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
   }
 
   /** Enter a tenant's workspace: every later request carries its id. */

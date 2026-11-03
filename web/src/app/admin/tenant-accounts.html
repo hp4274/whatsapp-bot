@@ -108,7 +108,17 @@
       </p>
     }
 
-    @if (fetchError()) {
+    @if (offline() === 'disconnected') {
+      <p class="s-banner tone-warn" role="status">
+        <i class="ti ti-plug-connected-x" aria-hidden="true"></i>
+        <span class="msg"><strong>Number disconnected.</strong> Reconnect it by scanning its QR code, then fetch again.</span>
+      </p>
+    } @else if (offline() === 'no_number') {
+      <p class="s-banner tone-info" role="status">
+        <i class="ti ti-device-mobile-off" aria-hidden="true"></i>
+        <span class="msg">This business has no WhatsApp number yet.</span>
+      </p>
+    } @else if (fetchError()) {
       <p class="s-banner" role="alert">
         <i class="ti ti-alert-circle" aria-hidden="true"></i><span>{{ fetchError() }}</span>
       </p>

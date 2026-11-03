@@ -1,0 +1,71 @@
+<!-- Add tenant: the details first; continuing opens the same set-up-and-activate drawer as an accepted lead. -->
+<div class="scrim" (click)="close()"></div>
+<aside class="panel" role="dialog" aria-modal="true" aria-labelledby="new-title">
+  <header>
+    <div>
+      <h3 id="new-title">New tenant</h3>
+      <ol class="steps" aria-label="Steps">
+        <li class="on" aria-current="step"><span>1</span>Details</li>
+        <li><span>2</span>Set up and activate</li>
+      </ol>
+    </div>
+    <button class="btn icon" type="button" (click)="close()" [disabled]="busy()" aria-label="Close">
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
+  </header>
+
+  <form id="new-tenant" class="body" (submit)="submit($event)">
+    @if (error()) {
+      <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}</p>
+    }
+
+    <fieldset>
+      <legend>Business</legend>
+      <div class="field">
+        <label for="nt-name">Business name</label>
+        <input id="nt-name" name="name" required maxlength="160" autocomplete="organization" placeholder="Asha Sarees"
+          [ngModel]="name()" (ngModelChange)="name.set($event)" />
+      </div>
+      <div class="field">
+        <label for="nt-slug">ID <small class="muted">optional, made from the name</small></label>
+        <input id="nt-slug" name="slug" maxlength="80" [placeholder]="id() || 'asha-sarees'" [class.invalid]="idTaken()"
+          [attr.aria-describedby]="idTaken() ? 'nt-slug-err' : null" [ngModel]="slug()" (ngModelChange)="slug.set($event)" />
+        @if (idTaken()) {
+          <small id="nt-slug-err" class="err">Another business uses {{ id() }}. Choose another ID.</small>
+        }
+      </div>
+      <div class="field">
+        <label for="nt-phone">WhatsApp number <small class="muted">Wapzo sends account and plan updates here</small></label>
+        <input id="nt-phone" name="phone" type="tel" required maxlength="32" autocomplete="tel" placeholder="+91 98765 43210"
+          [ngModel]="phone()" (ngModelChange)="phone.set($event)" />
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Owner</legend>
+      <div class="field">
+        <label for="nt-owner">Name</label>
+        <input id="nt-owner" name="ownerName" maxlength="120" autocomplete="name" [ngModel]="ownerName()"
+          (ngModelChange)="ownerName.set($event)" />
+      </div>
+      <div class="field">
+        <label for="nt-email">Sign-in email</label>
+        <input id="nt-email" name="email" type="email" required maxlength="254" autocomplete="email"
+          placeholder="owner@business.com" [ngModel]="email()" (ngModelChange)="email.set($event)" />
+      </div>
+    </fieldset>
+
+    <p class="note">
+      <i class="ti ti-info-circle" aria-hidden="true"></i>
+      It is added as pending on the first plan. Next you choose its plan, payment and limits, then activate it, which
+      sets the owner's password and emails it.
+    </p>
+  </form>
+
+  <footer>
+    <button class="btn" type="button" (click)="close()" [disabled]="busy()">Cancel</button>
+    <button class="btn primary" type="submit" form="new-tenant" [disabled]="busy() || idTaken()">
+      {{ busy() ? 'Adding...' : 'Continue to setup' }}
+    </button>
+  </footer>
+</aside>

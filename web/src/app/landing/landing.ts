@@ -18,46 +18,47 @@ import { LandingNav } from './landing-nav';
 import { LeadForm } from './lead-form';
 import { CountUp, EASE_OUT, FanOut, Reveal, SPRING, still } from './motion';
 
-/** Everything a bulk send can carry, under the three showcased rows. */
-const BULK_KIT: readonly { readonly icon: string; readonly name: string; readonly text: string }[] = [
-  { icon: 'table-import', name: 'Import any list', text: 'Excel or CSV; bad numbers and duplicates are caught before you send.' },
-  { icon: 'users-group', name: 'Groups and tags', text: 'Send to VIPs, one class or last month’s buyers, not everyone.' },
-  { icon: 'photo', name: 'Images, PDFs and video', text: 'A poster, a price list or a fee schedule goes with the text.' },
-  { icon: 'calendar-time', name: 'Schedule it', text: 'Write it tonight, let it go out at 10 tomorrow morning.' },
-  { icon: 'arrows-shuffle', name: 'Message variations', text: 'Rotate greetings and wording so no two messages are identical.' },
-  { icon: 'refresh', name: 'Retry the failed', text: 'One click re-queues only the people it did not reach.' },
-];
-
-/** Everything beyond bulk sending, grouped the way the app's sidebar groups them. */
+/** Everything beyond bulk sending, grouped the way the app's sidebar groups them; `tone` picks the tint and the picture. */
 const FACILITIES: readonly {
   readonly heading: string;
+  readonly tone: 'blue' | 'green' | 'violet';
   readonly items: readonly { readonly icon: string; readonly name: string; readonly text: string }[];
 }[] = [
   {
     heading: 'Messaging',
+    tone: 'blue',
     items: [
-      { icon: 'device-mobile', name: 'Several numbers', text: 'Run sales, support and accounts on separate numbers from one login.' },
-      { icon: 'file-text', name: 'Templates', text: 'Save the messages you send every week and reuse them in a click.' },
-      { icon: 'school', name: 'School assistant', text: 'Fees, circulars and parent questions, ready made for schools.' },
+      { icon: 'device-mobile', name: 'Multiple numbers', text: 'Manage sales and support from one login.' },
+      { icon: 'file-text', name: 'Message templates', text: 'Save and reuse frequent replies.' },
+      { icon: 'school', name: 'School assistant', text: 'Handle fee notices and parent questions.' },
     ],
   },
   {
     heading: 'Customers',
+    tone: 'green',
     items: [
-      { icon: 'address-book', name: 'Contacts', text: 'One record per customer, with every message you have exchanged.' },
-      { icon: 'cash', name: 'Payment reminders', text: 'Polite, timed nudges for unpaid invoices, stopped once paid.' },
-      { icon: 'calendar-event', name: 'Appointments', text: 'Bookings with a reminder the day before.' },
+      { icon: 'user', name: 'Contacts', text: 'Keep each customer’s message history together.' },
+      { icon: 'credit-card', name: 'Payment reminders', text: 'Follow up on invoices until they’re paid.' },
+      { icon: 'calendar', name: 'Appointments', text: 'Remind customers the day before a booking.' },
     ],
   },
   {
-    heading: 'Platform',
+    heading: 'Team & integrations',
+    tone: 'violet',
     items: [
-      { icon: 'hierarchy-3', name: 'Workflows', text: 'A new order sends a thank-you, then a review request a week later.' },
-      { icon: 'api', name: 'API and webhooks', text: 'Send from your own software and hear about every reply.' },
-      { icon: 'users', name: 'Team roles', text: 'Agents answer chats, admins run campaigns, owners see everything.' },
+      { icon: 'hierarchy-3', name: 'Workflows', text: 'Automate thank-yous and follow-ups.' },
+      { icon: 'code', name: 'API & webhooks', text: 'Send messages and receive replies in your software.' },
+      { icon: 'users', name: 'Team roles', text: 'Set access for agents, admins and owners.' },
     ],
   },
 ];
+
+/** The Messaging picture: one login, several linked numbers. */
+const NUMBERS = [
+  { icon: 'shopping-bag', tone: 'green', name: 'Sales', phone: '+91 98200 45678' },
+  { icon: 'headset', tone: 'blue', name: 'Support', phone: '+91 98200 76543' },
+  { icon: 'file-invoice', tone: 'yellow', name: 'Accounts', phone: '+91 98200 10987' },
+] as const;
 
 /** Who it is for; the agency line is the multi-business tenancy the platform is built on. */
 const AUDIENCES: readonly { readonly icon: string; readonly name: string; readonly text: string }[] = [
@@ -193,8 +194,8 @@ const CONTACT_EMAIL = 'connection@zarklyx.com';
 export class Landing {
   private readonly el = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
 
-  protected readonly kit = BULK_KIT;
   protected readonly facilities = FACILITIES;
+  protected readonly numbers = NUMBERS;
   protected readonly audiences = AUDIENCES;
   protected readonly plans = PLANS;
   protected readonly faqs = FAQS;

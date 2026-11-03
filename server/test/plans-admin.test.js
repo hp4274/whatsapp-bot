@@ -69,12 +69,14 @@ describe('admin plans & subscriptions', () => {
         assert.equal(starter.active, true);
         assert.equal(starter.subscribers, 0);
         assert.equal(starter.tenantLimits.maxChannels, 1);
+        assert.equal(starter.dailyCap, 250, "the plan's per-number day, for the plan picker");
+        assert.equal(body.plans.find((p) => p.key === 'enterprise').dailyCap, 1000);
         assert.ok(starter.services.includes('inbox') && !starter.services.includes('faq'));
         const enterprise = body.plans[2];
         assert.equal(enterprise.price, 0);
         assert.equal(enterprise.trialDays, 0);
         assert.deepEqual(enterprise.services, [...TENANT_SERVICES]);
-        assert.equal(enterprise.tenantLimits.maxUsers, 0);
+        assert.equal(enterprise.tenantLimits.maxUsers, null, 'enterprise: no seat limit');
         const owner = sessionFor(app, { tenantId: 1, role: 'owner' });
         assert.equal((await call(owner, 'GET', '/api/admin/billing/plans')).status, 403);
     });
@@ -240,6 +242,8 @@ describe('admin plans & subscriptions', () => {
     });
 
     it('merges a partial plan edit instead of wiping the other limits', async () => {
+        // This file sends ~60 requests as one super admin, past the API throttle's burst (20/s, 40): let it refill.
+        await new Promise((resolve) => setTimeout(resolve, 1000));
         const { body: { tenant } } = await createTenant({ planKey: 'starter' });
         const before = (await call(sup, 'GET', '/api/admin/billing/plans')).body.plans.find((p) => p.key === 'starter');
         const edited = await call(sup, 'PUT', '/api/admin/billing/plans/starter',

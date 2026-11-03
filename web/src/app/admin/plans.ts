@@ -25,6 +25,7 @@ import {
   stateTone,
   subscriptionWhen,
 } from './plans-api';
+import { AdminFeed } from './admin-feed';
 import { PolicyEditor } from './policy-editor';
 import { serviceMeta } from './service-meta';
 import { sentenceCase } from './text';
@@ -45,12 +46,13 @@ const BLANK_PLAN: Plan = {
   interval: 'month',
   trialDays: 14,
   services: [],
+  // null = no limit; 0 would allow none.
   tenantLimits: {
-    maxChannels: 0,
-    maxUsers: 0,
-    maxTemplates: 0,
-    maxContactsPerCampaign: 0,
-    maxMediaMb: 0,
+    maxChannels: null,
+    maxUsers: null,
+    maxTemplates: null,
+    maxContactsPerCampaign: null,
+    maxMediaMb: null,
     allowWhatsappWeb: true,
   },
   // Unlimited until the admin sets one, as the server reads a missing quota.
@@ -110,6 +112,8 @@ export class PlansView {
   protected readonly busyId = signal<number | null>(null);
   protected readonly cancelAsk = signal<number | null>(null);
   protected readonly notice = signal('');
+  /** The plan being disabled or enabled from its card. */
+  protected readonly togglingKey = signal<string | null>(null);
 
   protected readonly activePlans = computed(() =>
     this.plans()
@@ -141,8 +145,10 @@ export class PlansView {
     const byCurrency = new Map<string, number>();
     for (const t of this.tenants()) {
       const s = t.subscription;
-      if (s?.state !== 'active' || !s.price) continue;
-      const monthly = s.interval === 'year' ? s.price / 12 : s.price;
+      // A plan with no list price counts the amount agreed with that business, when there is one.
+      const price = s?.price || s?.customPrice || 0;
+      if (s?.state !== 'active' || !price) continue;
+      const monthly = s.interval === 'year' ? price / 12 : price;
       byCurrency.set(s.currency, (byCurrency.get(s.currency) ?? 0) + monthly);
     }
     return [...byCurrency].map(([currency, amount]) => money(Math.round(amount), currency));
@@ -175,11 +181,16 @@ export class PlansView {
 
   constructor() {
     this.load();
+    // A plan, rule or subscription changed (here, in a business's settings or by another admin): show it at once.
+    inject(AdminFeed).watch(['billing', 'policy', 'tenants'], () => this.load(true));
   }
 
-  protected load() {
-    this.loading.set(true);
-    this.error.set('');
+  /** `quiet`: a live reload keeps the page as it is (no spinner, the picked rows stay). */
+  protected load(quiet = false) {
+    if (!quiet) {
+      this.loading.set(true);
+      this.error.set('');
+    }
     forkJoin([this.api.plans(), this.tenancy.tenants()])
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -187,7 +198,7 @@ export class PlansView {
           this.plans.set(plans);
           this.services.set(services);
           this.tenants.set(tenants);
-          this.picked.set({});
+          if (!quiet) this.picked.set({});
           this.loading.set(false);
         },
         error: (err: Error) => {
@@ -226,10 +237,17 @@ export class PlansView {
     this.patch({ [key]: Math.max(0, Number(raw) || 0) });
   }
 
-  protected patchLimit(key: keyof Plan['tenantLimits'], value: number | boolean) {
+  protected patchLimit(key: 'allowWhatsappWeb', value: boolean) {
     const e = this.editor();
     if (!e) return;
-    const v = typeof value === 'number' ? Math.max(0, Math.floor(value || 0)) : value;
+    this.patch({ tenantLimits: { ...e.plan.tenantLimits, [key]: value } });
+  }
+
+  /** Empty = no limit (null); a number, 0 included, is the cap. As patchQuota. */
+  protected patchCap(key: (typeof PLAN_LIMIT_FIELDS)[number]['key'], raw: string) {
+    const e = this.editor();
+    if (!e) return;
+    const v = raw.trim() === '' ? null : Math.max(0, Math.floor(Number(raw) || 0));
     this.patch({ tenantLimits: { ...e.plan.tenantLimits, [key]: v } });
   }
 
@@ -273,6 +291,26 @@ export class PlansView {
         error: (err: Error) => {
           this.saving.set(false);
           this.editorError.set(err.message);
+        },
+      });
+  }
+
+  /** Disabled: off every plan list (new tenants, Change plan, accepting a lead); businesses on it keep it. */
+  protected setEnabled(plan: Plan, enabled: boolean) {
+    this.togglingKey.set(plan.key);
+    this.error.set('');
+    const { subscribers: _subs, dailyCap: _day, ...rest } = plan;
+    this.api
+      .savePlan({ ...rest, active: enabled })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.togglingKey.set(null);
+          this.load();
+        },
+        error: (err: Error) => {
+          this.togglingKey.set(null);
+          this.error.set(err.message);
         },
       });
   }

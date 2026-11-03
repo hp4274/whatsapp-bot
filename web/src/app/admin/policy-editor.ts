@@ -21,6 +21,7 @@ import {
   PolicyValues,
   TenantPolicy,
 } from './policy-api';
+import { AdminFeed } from './admin-feed';
 import { PolicyTable, sameTable } from './policy-table';
 
 /** One field as it reads at the scope being edited. */
@@ -111,8 +112,10 @@ export class PolicyEditor {
     const draft = this.draft();
     const stored = this.storedAt(ov, scope);
     const out = new Map<string, PolicyRow[]>();
+    const kind = scope === 'global' ? 'global' : scope.startsWith('plan:') ? 'plan' : 'tenant';
     for (const field of ov.fields) {
       if (field.service !== this.service()) continue;
+      if (field.scopes && !field.scopes.includes(kind)) continue;
       const [inherited, inheritedFrom] = this.inheritedFor(ov, scope, field);
       const pending = field.key in draft;
       const own = pending ? draft[field.key] : stored[field.key];
@@ -136,10 +139,14 @@ export class PolicyEditor {
       untracked(() => this.load(id));
     });
     this.destroyRef.onDestroy(() => clearTimeout(this.flashTimer));
+    // A rule or plan saved anywhere shows here at once, unless this form has changes waiting to be saved.
+    inject(AdminFeed).watch(['policy', 'billing'], () => {
+      if (!this.dirtyCount()) this.load(this.tenantId(), true);
+    });
   }
 
-  protected load(id = this.tenantId()) {
-    this.loading.set(true);
+  protected load(id = this.tenantId(), quiet = false) {
+    if (!quiet) this.loading.set(true);
     this.error.set('');
     this.draft.set({});
     forkJoin([this.api.overview(), id == null ? of(null) : this.api.tenant(id)])

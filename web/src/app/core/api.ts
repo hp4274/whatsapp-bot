@@ -661,16 +661,19 @@ export interface SafetyPolicy {
 }
 
 /** Plan limits the platform admin sets per tenant. 0 means no limit. */
+/** Numeric limits: null = no limit, 0 = none allowed (server tenancy.js DEFAULT_LIMITS). */
 export interface TenantLimits {
-  maxChannels: number;
-  maxUsers: number;
-  maxTemplates: number;
-  maxContactsPerCampaign: number;
-  maxMediaMb: number;
+  maxChannels: number | null;
+  maxUsers: number | null;
+  maxTemplates: number | null;
+  maxContactsPerCampaign: number | null;
+  maxMediaMb: number | null;
   allowWhatsappWeb: boolean;
   blockedWords: string;
   /** The business may change its own sending limits after accepting the risk. */
   allowCustomSafety: boolean;
+  /** Its own monthly message quota: absent = the plan's, null = no limit, a number (0 = none). */
+  messagesPerMonth?: number | null;
 }
 
 /** A recorded acceptance of the sending-risk terms. Immutable on the server. */
@@ -752,6 +755,16 @@ export interface HealthStatus {
   [key: string]: unknown;
 }
 
+/** What Tenant settings > Edit changes; fields left out stay as they are. */
+export interface TenantDetails {
+  name?: string;
+  slug?: string;
+  contactPhone?: string;
+  wapzoUpdates?: boolean;
+  ownerName?: string;
+  ownerEmail?: string;
+}
+
 /** Tenant, user and platform-admin endpoints. Super-admin calls carry the acting tenant via `authInterceptor`. */
 @Injectable({ providedIn: 'root' })
 export class TenancyApi {
@@ -763,12 +776,18 @@ export class TenancyApi {
       .pipe(catchError(toMessage));
   }
 
+  /**
+   * Add a business. `status: 'pending'` (Add tenant) puts it on the first plan with a password nobody knows; it is set
+   * up and activated from Tenant settings, like an accepted lead.
+   */
   createTenant(body: {
     name: string;
     slug?: string;
+    status?: 'pending';
+    contactPhone?: string;
     services?: string[];
     controls?: TenantControls;
-    owner: { email: string; name?: string; password: string };
+    owner: { email: string; name?: string; password?: string };
     /** Subscribes the business; the plan's services win over `services`. */
     planKey?: string;
     trialDays?: number;
@@ -793,6 +812,13 @@ export class TenancyApi {
 
   setTenantStatus(id: number, status: Tenant['status']): Observable<{ tenant: Tenant }> {
     return this.updateTenant(id, { status });
+  }
+
+  /** Tenant settings > Edit: the business's name, ID, contact WhatsApp, Wapzo updates and its owner. */
+  updateDetails(id: number, body: TenantDetails): Observable<{ tenant: Tenant; owner: User | null }> {
+    return this.http
+      .put<{ tenant: Tenant; owner: User | null }>(`/api/admin/tenants/${id}/details`, body)
+      .pipe(catchError(toMessage));
   }
 
   safety(id: number): Observable<{ safety: SafetyPolicy; custom: CustomSafetyState }> {
@@ -830,7 +856,11 @@ export class TenancyApi {
       .pipe(catchError(toMessage));
   }
 
-  setLimits(id: number, patch: Partial<TenantLimits>): Observable<{ limits: TenantLimits }> {
+  /** `messagesPerMonth: 'plan'` goes back to the plan's monthly quota. */
+  setLimits(
+    id: number,
+    patch: Partial<Omit<TenantLimits, 'messagesPerMonth'>> & { messagesPerMonth?: number | null | 'plan' },
+  ): Observable<{ limits: TenantLimits }> {
     return this.http
       .put<{ limits: TenantLimits }>(`/api/admin/tenants/${id}/limits`, patch)
       .pipe(catchError(toMessage));
@@ -1453,6 +1483,8 @@ export interface ImportAuditOptions {
   autoClean?: boolean;
   /** Drop repeated numbers in the file (default true). */
   skipDuplicates?: boolean;
+  /** Also put the valid numbers in the contact book; sent once the campaign is saved, never per preview. */
+  save?: boolean;
 }
 
 export interface ImportIssue {

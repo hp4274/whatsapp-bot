@@ -12,7 +12,9 @@
  * field carries its label and hint.
  *
  * A field:
- *   { key, service, group, label, hint?, type, default, min?, max?, options?, unlimitedAt?, nullLabel?, columns?, validate?, check? }
+ *   { key, service, group, label, hint?, type, default, scopes?, min?, max?, options?, unlimitedAt?, nullLabel?, columns?, validate?, check? }
+ *   `scopes`: where it may be set ('global' | 'plan' | 'tenant'); omitted = everywhere. A value with a home elsewhere
+ *   (a plan's quotas, a business's own limits and anti-ban) is not a rule at that layer, so it never has two values.
  *   type: 'int' | 'bool' | 'enum' | 'text' | 'list' | 'table'
  *   - `int` with `unlimitedAt: 0` reads 0 as "no limit". An `int` may default to null,
  *     shown as `nullLabel` (e.g. "Plan limit").
@@ -56,6 +58,14 @@ export class PolicyError extends Error {
         super(message);
         this.status = status;
     }
+}
+
+/** 'global', 'plan' or 'tenant' for a scope string. */
+const scopeKind = (scope) => (scope === 'global' ? 'global' : scope.startsWith('plan:') ? 'plan' : 'tenant');
+
+/** Whether `field` may be set at `scope` (see `scopes` above). */
+export function allowedAt(field, scope) {
+    return !field.scopes || field.scopes.includes(scopeKind(scope));
 }
 
 /** `global`, `plan:<key>` or `tenant:<id>`; anything else is refused. */
@@ -179,11 +189,12 @@ export class PolicyStore {
         }
     }
 
-    /** The overrides stored at one scope, keyed by field key. Unknown keys are dropped. */
+    /** The overrides stored at one scope, keyed by field key. Unknown keys, and keys not set at this layer, are dropped. */
     values(scope) {
+        const s = parseScope(scope);
         const out = {};
-        for (const row of this.db.prepare('SELECT key, value FROM platform_policy WHERE scope = ?').all(parseScope(scope))) {
-            if (FIELD.has(row.key)) out[row.key] = JSON.parse(row.value);
+        for (const row of this.db.prepare('SELECT key, value FROM platform_policy WHERE scope = ?').all(s)) {
+            if (FIELD.has(row.key) && allowedAt(FIELD.get(row.key), s)) out[row.key] = JSON.parse(row.value);
         }
         return out;
     }
@@ -217,6 +228,7 @@ export class PolicyStore {
         const writes = Object.entries(patch ?? {}).map(([key, value]) => {
             const field = FIELD.get(key);
             if (!field) throw new PolicyError(`unknown policy field "${key}"`);
+            if (!allowedAt(field, s)) throw new PolicyError(`${field.label} is not set here: it is the plan's or the business's own setting.`);
             return [key, value === null ? null : cleanValue(field, value)];
         });
         // Cross-field rules, against this scope as it will be, over the layers beneath it.
