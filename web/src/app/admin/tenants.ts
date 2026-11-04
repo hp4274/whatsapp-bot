@@ -121,8 +121,9 @@ export class TenantsView {
   protected readonly view = signal<'grid' | 'list'>(readView());
   private readonly wideQuery = matchMedia('(min-width: 1101px)');
   private readonly wide = signal(this.wideQuery.matches);
-  /** The list's table needs the room: on a narrower screen, list view shows the cards. */
+  /** The list's table needs the room: on a narrower screen, list view shows compact rows instead. */
   protected readonly listMode = computed(() => this.view() === 'list' && this.wide());
+  protected readonly rowMode = computed(() => this.view() === 'list' && !this.wide());
   protected readonly menuId = signal<number | null>(null);
   /** Tenant whose settings drawer is open, and the tab it opens on. */
   protected readonly settingsTenant = signal<Tenant | null>(null);
