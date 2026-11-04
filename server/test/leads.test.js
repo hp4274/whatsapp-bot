@@ -144,6 +144,27 @@ describe('leads', () => {
         // Payment is changed with the plan, and kept when only the plan changes.
         const tenantUrl = `/api/admin/tenants/${tenant.id}/subscription`;
         const put = await call(sup, 'PUT', tenantUrl, { planKey: 'starter', payment: 'paid' });
+        // Account emails: the owner gets the plan confirmed and, below, a receipt; replies reach the team.
+        const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
+        await settle();
+        const confirmed = outbox.at(-1);
+        assert.equal(confirmed.to, 'asha@shop.test');
+        assert.equal(confirmed.subject, 'Your Starter plan is confirmed');
+        assert.equal(confirmed.replyTo, 'team@wapzo.test');
+        assert.ok(confirmed.html.includes('Asha &lt;Sarees&gt;') && confirmed.text.includes('Renews on:'));
+        const paid = await call(sup, 'POST', `/api/admin/tenants/${tenant.id}/payments`, { amount: 999, method: 'upi' });
+        assert.equal(paid.status, 201, JSON.stringify(paid.body));
+        await settle();
+        assert.ok(outbox.at(-1).subject.startsWith('Payment received:') && outbox.at(-1).html.includes('receipt'));
+        const ends = new Date(Date.now() + 10 * 864e5).toISOString();
+        assert.equal((await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/validity`, { validUntil: ends })).status, 200);
+        const sentBefore = outbox.length;
+        app.locals.notifyPlanEnds(new Date(Date.now() + 11 * 864e5));
+        await settle();
+        app.locals.notifyPlanEnds(new Date(Date.now() + 11 * 864e5));
+        await settle();
+        assert.equal(outbox.filter((m) => m.subject.endsWith('has ended')).length, 1, 'the hourly check emails once');
+        assert.equal(outbox.length, sentBefore + 1);
         assert.equal(put.body.tenant.subscription.payment, 'paid');
         const again = await call(sup, 'PUT', tenantUrl, { planKey: 'business' });
         assert.equal(again.body.tenant.subscription.payment, 'paid');

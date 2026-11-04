@@ -9,9 +9,11 @@
     <h2>Tenants</h2>
     <p>Every business on this platform, and the controls behind it.</p>
   </div>
-  <button class="btn primary" type="button" (click)="adding.set(true)">
-    <i class="ti ti-plus" aria-hidden="true"></i> New tenant
-  </button>
+  @if (canAdd()) {
+    <button class="btn primary" type="button" (click)="adding.set(true)">
+      <i class="ti ti-plus" aria-hidden="true"></i> New tenant
+    </button>
+  }
 </header>
 
 @if (error()) {
@@ -252,7 +254,7 @@
       class="services-row"
       type="button"
       (click)="openTenantServices(tenant)"
-      [disabled]="savingId() === tenant.id"
+      [disabled]="savingId() === tenant.id || !canEdit()"
     >
       <i class="ti ti-apps" aria-hidden="true"></i>
       <strong>Services</strong>
@@ -340,16 +342,18 @@
       >
         <i class="ti ti-settings" aria-hidden="true"></i>
       </button>
-      <button
-        class="btn square danger-ghost"
-        type="button"
-        (click)="askDelete(tenant)"
-        [disabled]="savingId() === tenant.id"
-        aria-label="Delete tenant"
-        title="Delete tenant"
-      >
-        <i class="ti ti-trash" aria-hidden="true"></i>
-      </button>
+      @if (canDelete()) {
+        <button
+          class="btn square danger-ghost"
+          type="button"
+          (click)="askDelete(tenant)"
+          [disabled]="savingId() === tenant.id"
+          aria-label="Delete tenant"
+          title="Delete tenant"
+        >
+          <i class="ti ti-trash" aria-hidden="true"></i>
+        </button>
+      }
       @if (listMode()) {
         <ng-container *ngTemplateOutlet="moreMenu; context: { $implicit: tenant }" />
       }
@@ -358,46 +362,49 @@
 </ng-template>
 
 <ng-template #moreMenu let-tenant>
-  <div class="menu-wrap">
-    <button
-      class="icon-btn"
-      type="button"
-      (click)="toggleMenu(tenant)"
-      aria-label="More actions"
-      aria-haspopup="menu"
-      [attr.aria-expanded]="menuId() === tenant.id"
-    >
-      <i class="ti ti-dots-vertical" aria-hidden="true"></i>
-    </button>
-    @if (menuId() === tenant.id) {
-      <div class="menu-backdrop" (click)="menuId.set(null)"></div>
-      <div class="menu" role="menu">
-        @if (tenant.status === 'pending') {
-          <!-- Activating sets the owner's password, so it happens in the settings drawer, not from here. -->
-          <button type="button" role="menuitem" (click)="menuId.set(null); openSettings(tenant)">
-            Set up and activate
-          </button>
-        } @else {
+  <!-- Suspend, activate and demo data all change the business. -->
+  @if (canEdit()) {
+    <div class="menu-wrap">
+      <button
+        class="icon-btn"
+        type="button"
+        (click)="toggleMenu(tenant)"
+        aria-label="More actions"
+        aria-haspopup="menu"
+        [attr.aria-expanded]="menuId() === tenant.id"
+      >
+        <i class="ti ti-dots-vertical" aria-hidden="true"></i>
+      </button>
+      @if (menuId() === tenant.id) {
+        <div class="menu-backdrop" (click)="menuId.set(null)"></div>
+        <div class="menu" role="menu">
+          @if (tenant.status === 'pending') {
+            <!-- Activating sets the owner's password, so it happens in the settings drawer, not from here. -->
+            <button type="button" role="menuitem" (click)="menuId.set(null); openSettings(tenant)">
+              Set up and activate
+            </button>
+          } @else {
+            <button
+              type="button"
+              role="menuitem"
+              (click)="toggleStatus(tenant)"
+              [disabled]="savingId() === tenant.id"
+            >
+              {{ tenant.status === 'active' ? 'Suspend tenant' : 'Activate tenant' }}
+            </button>
+          }
           <button
             type="button"
             role="menuitem"
-            (click)="toggleStatus(tenant)"
-            [disabled]="savingId() === tenant.id"
+            (click)="askSeed(tenant)"
+            [disabled]="seedingId() === tenant.id"
           >
-            {{ tenant.status === 'active' ? 'Suspend tenant' : 'Activate tenant' }}
+            Fill with demo data
           </button>
-        }
-        <button
-          type="button"
-          role="menuitem"
-          (click)="askSeed(tenant)"
-          [disabled]="seedingId() === tenant.id"
-        >
-          Fill with demo data
-        </button>
-      </div>
-    }
-  </div>
+        </div>
+      }
+    </div>
+  }
 </ng-template>
 
 <app-tenant-activity [logs]="logs()" />

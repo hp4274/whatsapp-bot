@@ -94,7 +94,8 @@ import { PlatformMessages, createNotifier, renderText } from './platform/notify.
 import { DURATIONS, LimitRequestError, LimitRequests, REQUESTABLE } from './limits/requests.js';
 import { LeadError, Leads } from './leads.js';
 import { ReferralError, Referrals } from './referrals.js';
-import { leadAlertEmail, leadReceivedEmail, welcomeEmail } from './mail/emails.js';
+import { AdminRoleError, AdminRoles, SECTION_ACTIONS, isRead, staffMayOpen } from './adminRoles.js';
+import { accountEmail, leadAlertEmail, leadReceivedEmail, staffWelcomeEmail, welcomeEmail } from './mail/emails.js';
 import { noMailer } from './mail/mailer.js';
 import { POLICY_FIELDS, PolicyError, PolicyStore, allowedAt, fillTables } from './policy/index.js';
 import { attachCampaignPolicy, bulkKillReason, createCampaignOpsRouter, retentionSweep } from './policy/campaignOps.js';
@@ -2337,6 +2338,7 @@ export function createApp({
     const leads = new Leads(db);
     const ledger = new Ledger(db);
     const referrals = new Referrals(db);
+    const adminRoles = new AdminRoles(db);
     /** Who brought a business, as the admin typed it (referrals.js setForTenant); audited and broadcast when it changes. */
     const setReferrer = (req, tenantId, typed) => {
         const { referrer, changed, previous, created } = referrals.setForTenant(tenantId, typed);
@@ -2389,12 +2391,22 @@ export function createApp({
         const tenant = tenancy.getTenant(tenantId);
         if (tenant?.status !== 'active') return { sent: false, reason: 'Only active businesses get updates.' };
         const owner = tenancy.ownerOf(tenant.id);
+        const all = { name: owner?.name || tenant.name, business: tenant.name, email: owner?.email ?? '', today: day(new Date().toISOString()), ...vars };
+        // The owner's copy by email: account mail, so it goes whatever the WhatsApp switches say. Replies reach the team.
+        const mail = owner?.email && accountEmail(kind, all, publicBaseUrl);
+        if (mail) void mailOnce(`mail:${key}`, { to: owner.email, replyTo: mailer.notifyTo ?? undefined, ...mail });
         return notifier.event(kind, {
             to: tenant.contactPhone || leads.forTenant(tenant.id)?.phone || '',
             tenantId: tenant.id,
             key,
-            vars: { name: owner?.name || tenant.name, business: tenant.name, email: owner?.email ?? '', ...vars },
+            vars: all,
         });
+    };
+    /** One email per key, ever: recorded once it is sent, so a failed one is tried again by the next run. */
+    const mailOnce = async (key, mail) => {
+        if (!mailer.configured || db.db.prepare('SELECT 1 FROM sent_mail WHERE key = ?').get(key)) return;
+        const result = await mailer.send(mail);
+        if (result.sent) db.db.prepare('INSERT OR IGNORE INTO sent_mail (key, sent_at) VALUES (?, ?)').run(key, new Date().toISOString());
     };
     /** Plan put on or renewed: what it is, what was charged and when it renews. */
     const notifyPlan = (tenantId, subscription, renewed, charged) => notifyTenant(
@@ -2402,6 +2414,7 @@ export function createApp({
             plan: subscription.plan.name,
             amount: charged ? inr(charged, subscription.plan.currency) : '',
             amount_text: charged ? ` (${inr(charged, subscription.plan.currency)})` : '',
+            billing: CYCLE_WORD[subscription.billingCycle ?? subscription.plan.interval] ?? '',
             date: day(subscription.validUntil ?? subscription.currentPeriodEnd),
         }, `plan:${tenantId}:${subscription.startsAt}`);
     /**
@@ -2575,7 +2588,7 @@ export function createApp({
     };
     const fail = (res, err) => {
         if (err instanceof TenancyError || err instanceof BillingError || err instanceof LeadError || err instanceof LimitRequestError
-            || err instanceof ReferralError) {
+            || err instanceof ReferralError || err instanceof AdminRoleError) {
             return res.status(err.status).json({ errors: [err.message] });
         }
         throw err;
@@ -2737,6 +2750,8 @@ export function createApp({
             : (req.path === '/events' || req.path === '/admin/events' ? req.query.token : null);
         const user = tenancy.resolveSession(token);
         if (!user) return res.status(401).json({ errors: ['Sign in to continue.'] });
+        // Staff (adminRoles.js) carry what their role may do, per section; a full super admin carries nothing.
+        if (user.role === 'super_admin' && user.adminRoleId) user.access = adminRoles.permissionsOf(user.adminRoleId);
         req.user = user;
         req.token = token;
         return next();
@@ -2796,6 +2811,11 @@ export function createApp({
     const withTenant = (req, res, next) => {
         let id = req.user.tenantId;
         if (req.user.role === 'super_admin') {
+            // Inside a business's workspace: Tenants view to look, Tenants edit to change anything.
+            const need = req.method === 'GET' || req.method === 'HEAD' ? 'view' : 'edit';
+            if (req.user.access && !req.user.access.tenants?.includes(need)) {
+                return res.status(403).json({ errors: [need === 'view' ? 'Your role does not open businesses.' : 'Your role cannot change businesses.'] });
+            }
             id = Number(req.get('x-tenant-id') || req.query.tenant);
             if (!Number.isInteger(id) || !tenancy.getTenant(id)) {
                 return res.status(400).json({ errors: ['Choose a tenant (X-Tenant-Id).'] });
@@ -2846,7 +2866,8 @@ export function createApp({
             const user = await tenancy.setCredentials(req.user.tenantId, req.user.id, { email, password }, req.token);
             tenancy.audit({ tenantId: req.user.tenantId, userId: req.user.id, action: 'user.credentials', target: String(user.id),
                 detail: { email: user.email !== req.user.email, password: Boolean(password) } });
-            return res.json({ user });
+            // A staff member keeps their role's rights in the answer, or the page would think them a full admin.
+            return res.json({ user: { ...user, access: req.user.access } });
         } catch (err) {
             return fail(res, err);
         }
@@ -2855,6 +2876,9 @@ export function createApp({
     // ---------------------------------------------------- super admin --
     const admin = express.Router();
     admin.use(requireRole('super_admin'));
+    // Staff do only what their role allows, page by page; Settings (staff, roles) is full super admins' alone.
+    admin.use((req, res, next) => (!req.user.access || staffMayOpen(req.user.access, req.method, req.path) ? next()
+        : res.status(403).json({ errors: [isRead(req.method) ? 'Your role does not open this page.' : 'Your role cannot do this.'] })));
     // Platform actions on a tenant land in that tenant's audit trail, not under "no tenant".
     admin.param('id', (req, res, next, id) => {
         if (Number.isInteger(Number(id))) req.tenantId = Number(id);
@@ -3297,7 +3321,7 @@ export function createApp({
             if (referrals.earn(tenant.id, entry)) adminFeed.publish('referrals', null);
             const statement = ledger.statement(tenant.id);
             notifyTenant('payment_received', tenant.id, {
-                amount: inr(entry.amount, entry.currency), due: inr(statement.due, entry.currency),
+                amount: inr(entry.amount, entry.currency), due: inr(statement.due, entry.currency), today: day(entry.at),
             }, `payment:${entry.id}`);
             return res.status(201).json({ entry, ...statement });
         } catch (err) {
@@ -3658,6 +3682,66 @@ export function createApp({
      * Switch a pending business on: the owner's password is set to the one the admin chose, the business becomes
      * active, and (unless unticked) the owner is emailed their sign-in. The response says whether the email went.
      */
+    // ---- Settings: staff roles (adminRoles.js) and the staff who hold them; full super admins only (the gate above) ----
+    // `:roleId` / `:userId`, not `:id`: admin.param('id') would file them as tenant ids. Every answer is the whole page.
+    const staffView = () => ({ roles: adminRoles.list(), staff: tenancy.listPlatformUsers(), sections: SECTION_ACTIONS });
+    const roleIdOf = (id) => {
+        if (!adminRoles.get(id)) throw new AdminRoleError('choose a role');
+        return Number(id);
+    };
+    /** A staff member, never a full super admin: those are not managed here. */
+    const staffOr404 = (id) => {
+        const user = tenancy.getUser(id);
+        if (!user || user.tenantId !== null || !user.adminRoleId || user.email.includes('#deleted-')) {
+            throw new AdminRoleError('staff member not found', 404);
+        }
+        return user;
+    };
+    const staffRoute = (action, run) => async (req, res) => {
+        try {
+            const [target, detail, extra] = await run(req);
+            audit(req, action, String(target), detail);
+            return res.json({ ...staffView(), ...extra });
+        } catch (err) {
+            return fail(res, err);
+        }
+    };
+
+    admin.get('/staff', (req, res) => res.json(staffView()));
+    admin.post('/roles', staffRoute('admin_role.create', (req) => {
+        const role = adminRoles.create(req.body ?? {});
+        return [role.name, { pages: Object.keys(role.permissions).join(', ') }];
+    }));
+    admin.put('/roles/:roleId', staffRoute('admin_role.update', (req) => {
+        const role = adminRoles.update(req.params.roleId, req.body ?? {});
+        return [role.name, { pages: Object.keys(role.permissions).join(', ') }];
+    }));
+    admin.delete('/roles/:roleId', staffRoute('admin_role.delete', (req) => [adminRoles.remove(req.params.roleId).name, '']));
+    admin.post('/staff', staffRoute('staff.create', async (req) => {
+        const { name = '', email, password, roleId } = req.body ?? {};
+        const user = await tenancy.createUser({ email, name, password, role: 'super_admin', adminRoleId: roleIdOf(roleId) });
+        const roleName = adminRoles.get(user.adminRoleId).name;
+        // Their sign-in by email; the page still shows it once, for when the email does not arrive.
+        const base = publicBaseUrl ?? req.get('origin') ?? null;
+        const mail = await mailer.send({
+            to: user.email,
+            ...staffWelcomeEmail({ name: user.name, roleName, email: user.email, password, loginUrl: base && `${base}/login` }),
+        });
+        return [user.email, { role: roleName }, { mail }];
+    }));
+    admin.put('/staff/:userId', staffRoute('staff.update', async (req) => {
+        const target = staffOr404(req.params.userId);
+        const { name, email, password, roleId } = req.body ?? {};
+        tenancy.setStaff(target.id, { name, adminRoleId: roleIdOf(roleId ?? target.adminRoleId) });
+        if ((email && email !== target.email) || password) await tenancy.setCredentials(null, target.id, { email, password });
+        return [target.email, { role: adminRoles.get(roleId ?? target.adminRoleId).name, password: Boolean(password) }];
+    }));
+    admin.delete('/staff/:userId', staffRoute('staff.remove', (req) => {
+        const target = staffOr404(req.params.userId);
+        tenancy.removeUser(null, target.id);
+        return [target.email, ''];
+    }));
+
     admin.post('/tenants/:id/activate', async (req, res) => {
         try {
             const tenant = tenancy.getTenant(req.params.id);

@@ -136,15 +136,18 @@
                 <i class="ti ti-door-exit" aria-hidden="true"></i>
               </button>
             }
-            <button
-              type="button"
-              class="icon-btn"
-              aria-label="Your sign-in: email and password"
-              title="Email and password"
-              (click)="accountOpen.set(true)"
-            >
-              <i class="ti ti-user-cog" aria-hidden="true"></i>
-            </button>
+            <!-- A full super admin changes their sign-in in Settings > Roles & staff; everyone else has only this. -->
+            @if (!auth.isFullAdmin()) {
+              <button
+                type="button"
+                class="icon-btn"
+                aria-label="Your sign-in: email and password"
+                title="Email and password"
+                (click)="accountOpen.set(true)"
+              >
+                <i class="ti ti-user-cog" aria-hidden="true"></i>
+              </button>
+            }
             <button
               type="button"
               class="icon-btn theme-cycle"

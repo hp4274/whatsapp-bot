@@ -1,0 +1,290 @@
+@use '../school/school-shared' as s;
+
+@include s.keyframes;
+@include s.drawer-keyframes;
+@include s.tones;
+@include s.head;
+@include s.card;
+@include s.pill;
+@include s.table;
+@include s.field;
+@include s.empty;
+@include s.banner;
+@include s.buttons;
+
+:host {
+  @include s.fit-grid;
+  display: grid;
+  gap: var(--space-xl);
+  align-content: start;
+}
+
+p { margin: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.sub { display: block; font-size: 12.5px; color: var(--text-muted); font-weight: 400; }
+.muted { color: var(--text-muted); font-weight: 400; }
+.mono { font-family: var(--mono); font-size: 12.5px; color: var(--text-strong); }
+.hint { font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
+.s-banner .msg { flex: 1; min-width: 0; }
+.signin .msg { line-height: 1.6; overflow-wrap: anywhere; }
+
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+  h3 { margin: 0 0 2px; font-size: 17px; font-weight: 500; color: var(--text-strong); }
+  .btn { flex: none; }
+}
+
+/* The access strip: the sidebar's platform pages as tiles, lit where the role has them. ----------------------- */
+.strip {
+  display: grid;
+  grid-template-columns: repeat(12, 24px);
+  gap: 3px;
+}
+.tile {
+  display: grid;
+  place-items: center;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--surface-sunken);
+  color: color-mix(in srgb, var(--hint) 55%, transparent);
+  font-size: 13px;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+  &.on { background: var(--primary-tint); color: var(--primary-text); }
+  // Every action on the page, not just some: drawn solid.
+  &.full { background: var(--primary); color: var(--on-fill); }
+}
+.strip.big {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 4px;
+  .tile { height: 34px; border-radius: 9px; font-size: 16px; }
+}
+
+/* Roles list ------------------------------------------------------------------------------------------------- */
+.roles {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+
+  li { animation: s-rise 400ms var(--ease) both; animation-delay: calc(min(var(--i, 0), 20) * 30ms); }
+  li + li { border-top: 1px solid var(--border-color); }
+  .s-empty .btn { margin-top: var(--space-md); }
+}
+.role {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-lg);
+  width: 100%;
+  padding: 14px 16px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  transition: background var(--fast) var(--ease);
+  &:hover { background: var(--surface-sunken); .tile:not(.on) { background: var(--surface-card); } }
+  .chev { color: var(--text-muted); }
+}
+.role-name {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 500; color: var(--text-strong); }
+}
+
+/* Staff table ------------------------------------------------------------------------------------------------ */
+.person { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: var(--primary-tint);
+  color: var(--primary-text);
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.who {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  strong { font-size: 13.5px; font-weight: 500; color: var(--text-strong); }
+  .you { display: inline; margin-left: 4px; }
+}
+.s-table td.acts { text-align: right; .btn + .btn { margin-left: 4px; } }
+
+/* Drawers (the referral drawer's frame) ---------------------------------------------------------------------- */
+.scrim { @include s.scrim; }
+.drawer {
+  @include s.drawer-panel(560px);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  @media (max-width: 520px) { padding: 0; }
+}
+.drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-xl);
+  border-bottom: 1px solid var(--border-color);
+  h2 { margin: 2px 0 0; font-size: 20px; font-weight: 500; letter-spacing: -0.5px; overflow-wrap: anywhere; }
+}
+.eyebrow-sm { margin: 0; font-size: 13px; font-weight: 500; color: var(--primary-text); }
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  align-content: start;
+  gap: var(--space-xl);
+  padding: var(--space-lg) var(--space-xl) var(--space-xl);
+}
+.drawer-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-xl);
+  border-top: 1px solid var(--border-color);
+  .grow { flex: 1; }
+}
+@media (max-width: 520px) {
+  .drawer-head, .drawer-foot { padding-inline: var(--space-lg); }
+  .drawer-body { padding-inline: var(--space-lg); }
+}
+
+.label-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-md); }
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary-text);
+  font-size: 12.5px;
+  font-weight: 500;
+  &:hover { text-decoration: underline; }
+}
+
+// One hairline list, name left and switch right, like the services drawer.
+.opt-list {
+  display: grid;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  min-height: 56px;
+  padding: 10px 14px;
+  transition: background var(--fast) var(--ease);
+  &:hover { background: var(--surface-sunken); }
+  &.off .opt-text { opacity: 0.6; }
+  & + .opt { border-top: 1px solid var(--border-color); }
+  strong { display: block; font-size: 13.5px; font-weight: 500; color: var(--text-strong); }
+}
+.opt-text {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 12px;
+  min-width: 180px; // the hint wraps inside before the toggles drop to their own line
+  > .ti { flex: none; font-size: 18px; color: var(--text-muted); }
+}
+
+// Four small toggles per page: View, Add, Change, Delete.
+.acts-pick {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+// A phone: under the page name, from its left edge, so a long row of choices reads in order.
+@media (max-width: 520px) { .acts-pick { justify-content: flex-start; margin-left: 30px; } }
+.ro { margin-left: 6px; font-size: 12px; color: var(--text-muted); }
+// What the chosen rights mean, under the row: the toggles stay short, the words stay visible (no hover on a phone).
+.can {
+  flex-basis: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding-left: 30px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--primary-text);
+  .ti { margin-top: 2px; font-size: 14px; }
+}
+.act {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--surface-card);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+  &:hover { border-color: var(--border-hover); color: var(--text-strong); }
+  &[aria-pressed='true'] { border-color: var(--primary); background: var(--primary-tint); color: var(--primary-text); }
+}
+
+.pw-row {
+  display: flex;
+  gap: 6px;
+  input { flex: 1; min-width: 0; font-family: var(--mono); }
+  .btn { flex: none; }
+}
+
+fieldset.s-field { margin: 0; padding: 0; border: 0; legend { padding: 0; margin-bottom: 7px; } }
+.role-pick { display: grid; gap: var(--space-sm); }
+.pick {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+  &:hover { border-color: var(--border-hover); }
+  &.on { border-color: var(--primary); background: color-mix(in srgb, var(--primary-tint) 45%, transparent); }
+  input { margin: 0; accent-color: var(--primary); }
+}
+
+// Below a tablet the strip drops under the name, so names keep their room.
+@media (max-width: 760px) {
+  .role { grid-template-columns: minmax(0, 1fr) auto; }
+  .role .strip { grid-column: 1; grid-row: 2; }
+  .role .chev { grid-row: 1 / 3; grid-column: 2; }
+  .pick { grid-template-columns: auto minmax(0, 1fr); }
+  .pick .strip { grid-column: 2; }
+  .strip:not(.big) { grid-template-columns: repeat(12, minmax(0, 24px)); }
+}
+// A phone: the role rides under the email, so Edit and Remove stay in view without scrolling the table.
+@media (max-width: 560px) {
+  .s-table th:nth-child(2), .s-table td:nth-child(2) { display: none; }
+  .who .role-inline { display: block; margin-top: 4px; }
+  .s-table td { white-space: normal; }
+  .s-table td.acts { white-space: nowrap; .sub { display: none; } }
+  .who { strong, .sub { overflow-wrap: anywhere; } }
+}
+.role-inline { display: none; }

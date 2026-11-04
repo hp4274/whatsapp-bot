@@ -1,0 +1,313 @@
+<header class="s-head">
+  <div>
+    <p class="eyebrow"><i class="ti ti-settings" aria-hidden="true"></i> Settings</p>
+    <h2>Roles &amp; staff</h2>
+    <p>
+      Give your team their own sign-in. Each person gets a role, and a role opens only the platform pages you choose.
+      A change applies at once, even on pages they have open.
+    </p>
+  </div>
+</header>
+
+@if (error()) {
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="msg">{{ error() }}</span>
+    <button class="btn sm" type="button" (click)="load()">Try again</button>
+  </p>
+}
+
+@if (added(); as a) {
+  <div class="s-banner tone-ok signin" role="status">
+    <i class="ti ti-circle-check" aria-hidden="true"></i>
+    <div class="msg">
+      <strong>{{ a.isNew ? 'Added ' + a.name + '.' : 'New password for ' + a.name + '.' }}</strong>
+      {{ a.mailed ? 'We emailed them their sign-in:' : 'Send them their sign-in:' }}
+      <span class="mono">{{ a.email }}</span> · <span class="mono">{{ a.password }}</span>.
+      The password is shown only now.
+    </div>
+    <button class="btn sm" type="button" (click)="copy(a)">
+      <i class="ti ti-{{ copied() ? 'check' : 'copy' }}" aria-hidden="true"></i> {{ copied() ? 'Copied' : 'Copy' }}
+    </button>
+    <button class="btn icon sm ghost" type="button" aria-label="Dismiss" (click)="added.set(null)">
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
+  </div>
+}
+
+<!-- Roles: each shows what it opens as a strip of the sidebar's pages, lit where it has them. -->
+<section class="s-card" aria-labelledby="roles-title">
+  <div class="card-head">
+    <div>
+      <h3 id="roles-title">Roles</h3>
+      <p class="sub">What a role opens, in sidebar order.</p>
+    </div>
+    <button class="btn primary sm" type="button" (click)="openRole(null)">
+      <i class="ti ti-plus" aria-hidden="true"></i> New role
+    </button>
+  </div>
+
+  <ul class="roles" [attr.aria-busy]="!page()">
+    @for (r of roles(); track r.id; let i = $index) {
+      <li [style.--i]="i">
+        <button class="role" type="button" (click)="openRole(r)" [attr.aria-label]="'Edit role ' + r.name">
+          <span class="role-name">
+            <strong>{{ r.name }}</strong>
+            <span class="sub">{{ r.staff }} {{ r.staff === 1 ? 'person' : 'people' }} · {{ pageCount(r) }} of {{ sections.length }} pages</span>
+          </span>
+          <span class="strip" aria-hidden="true">
+            @for (s of sections; track s.key) {
+              <span class="tile" [class.on]="opens(r, s.key)" [class.full]="full(r, s.key)"
+                [title]="s.label + (opens(r, s.key) ? ': ' + rights(r, s.key) : ': no access')"><i class="ti ti-{{ s.icon }}"></i></span>
+            }
+          </span>
+          <i class="ti ti-chevron-right chev" aria-hidden="true"></i>
+        </button>
+      </li>
+    } @empty {
+      @if (page()) {
+        <li class="s-empty">
+          <i class="ti ti-user-shield" aria-hidden="true"></i>
+          <strong>No roles yet</strong>
+          <p>Make a role such as Support or Accounts, choose its pages, then add the people who hold it.</p>
+          <button class="btn primary sm" type="button" (click)="openRole(null)">New role</button>
+        </li>
+      }
+    }
+  </ul>
+</section>
+
+<section class="s-card" aria-labelledby="staff-title">
+  <div class="card-head">
+    <div>
+      <h3 id="staff-title">Staff</h3>
+      <p class="sub">Everyone who signs in to the platform.</p>
+    </div>
+    <button class="btn primary sm" type="button" (click)="openPerson(null)" [disabled]="!roles().length"
+      [title]="roles().length ? '' : 'Make a role first'">
+      <i class="ti ti-user-plus" aria-hidden="true"></i> Add staff
+    </button>
+  </div>
+
+  <div class="s-table">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Person</th>
+          <th scope="col">Role</th>
+          <th scope="col"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (u of people(); track u.id; let i = $index) {
+          <tr [style.--i]="i">
+            <td>
+              <span class="person">
+                <span class="avatar" aria-hidden="true">{{ (u.name || u.email).charAt(0) }}</span>
+                <span class="who">
+                  <strong>{{ u.name || u.email }}@if (u.id === auth.user()?.id) { <span class="sub you">(you)</span> }</strong>
+                  <span class="sub">{{ u.email }}</span>
+                  <span class="role-inline"><span class="s-pill {{ u.adminRoleId ? 'tone-mute' : 'tone-info' }}">{{ u.adminRoleId ? roleName(u) : 'Full access' }}</span></span>
+                </span>
+              </span>
+            </td>
+            <td>
+              @if (u.adminRoleId) {
+                <span class="s-pill tone-mute">{{ roleName(u) }}</span>
+              } @else {
+                <span class="s-pill tone-info">Full access</span>
+              }
+            </td>
+            <td class="acts">
+              @if (u.adminRoleId) {
+                <button class="btn sm" type="button" (click)="openPerson(u)" [attr.aria-label]="'Edit ' + (u.name || u.email)">Edit</button>
+                <button class="btn icon sm ghost" type="button" (click)="removing.set(u)" [attr.aria-label]="'Remove ' + (u.name || u.email)">
+                  <i class="ti ti-trash" aria-hidden="true"></i>
+                </button>
+              } @else if (u.id === auth.user()?.id) {
+                <button class="btn sm" type="button" (click)="editingSelf.set(true)">
+                  <i class="ti ti-key" aria-hidden="true"></i> Email &amp; password
+                </button>
+              } @else {
+                <span class="sub">Opens everything</span>
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Role drawer: its name, and per page what it may do; the strip on top shows the role as the list will. -->
+@if (role(); as d) {
+  <div class="scrim" (click)="closeDrawers()" aria-hidden="true"></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="role-title">
+    <header class="drawer-head">
+      <div>
+        <p class="eyebrow-sm">{{ d.id === null ? 'New role' : 'Role' }}</p>
+        <h2 id="role-title">{{ d.name || (d.id === null ? 'New role' : 'Role') }}</h2>
+      </div>
+      <button type="button" class="btn icon ghost" (click)="closeDrawers()" aria-label="Close">
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
+    </header>
+
+    <form class="drawer-body" id="role-form" (submit)="saveRole($event)">
+      @if (drawerError()) {
+        <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ drawerError() }}</p>
+      }
+      <label class="s-field">
+        <span class="label">Name</span>
+        <input required maxlength="60" autocomplete="off" placeholder="Support" [value]="d.name"
+          (input)="role.set({ ...d, name: $any($event.target).value })" />
+      </label>
+
+      <div class="s-field">
+        <div class="label-row">
+          <span class="label">What it can do <span class="muted">{{ pageCount(d) }} of {{ sections.length }} pages</span></span>
+          <button class="link" type="button" (click)="setAll(!everything())">{{ everything() ? 'Clear all' : 'Allow everything' }}</button>
+        </div>
+        <span class="strip big" aria-hidden="true">
+          @for (s of sections; track s.key) {
+            <span #tile class="tile" [class.on]="opens(d, s.key)" [class.full]="full(d, s.key)"><i class="ti ti-{{ s.icon }}"></i></span>
+          }
+        </span>
+        <div class="opt-list">
+          @for (s of sections; track s.key) {
+            <div class="opt" [class.off]="!opens(d, s.key)">
+              <span class="opt-text">
+                <i class="ti ti-{{ s.icon }}" aria-hidden="true"></i>
+                <span><strong>{{ s.label }}</strong><span class="sub">{{ s.hint }}</span></span>
+              </span>
+              <span class="acts-pick" role="group" [attr.aria-label]="'What the role can do in ' + s.label">
+                @for (a of s.actions; track a.key) {
+                  <button type="button" class="act" [attr.aria-pressed]="allows(d, s.key, a.key)" [title]="a.hint"
+                    (click)="toggleAction(s.key, a.key)">
+                    {{ a.label }}
+                  </button>
+                }
+                @if (s.actions.length === 1) {
+                  <span class="ro">Read-only page</span>
+                }
+              </span>
+              @if (canDo(d, s.key); as can) {
+                <p class="can"><i class="ti ti-check" aria-hidden="true"></i>{{ can }}</p>
+              }
+            </div>
+          }
+        </div>
+        <span class="hint">Each page offers only what it really does, and the line under it says what the role can do there. Any choice brings View with it. Settings stays yours: no role opens it.</span>
+      </div>
+    </form>
+
+    <footer class="drawer-foot">
+      @if (d.id !== null) {
+        <button class="btn danger-ghost" type="button" [disabled]="busy() || d.staff > 0"
+          [title]="d.staff ? 'Give its people another role first' : ''" (click)="deletingRole.set(true)">
+          <i class="ti ti-trash" aria-hidden="true"></i> Delete role
+        </button>
+      }
+      <span class="grow"></span>
+      <button class="btn" type="button" (click)="closeDrawers()">Cancel</button>
+      <button class="btn primary" type="submit" form="role-form" [disabled]="busy()">
+        {{ busy() ? 'Saving...' : d.id === null ? 'Add role' : 'Save role' }}
+      </button>
+    </footer>
+  </aside>
+}
+
+<!-- Staff drawer: who they are, how they sign in, and their role. -->
+@if (person(); as p) {
+  <div class="scrim" (click)="closeDrawers()" aria-hidden="true"></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="staff-drawer-title">
+    <header class="drawer-head">
+      <div>
+        <p class="eyebrow-sm">{{ p.id === null ? 'New staff member' : 'Staff member' }}</p>
+        <h2 id="staff-drawer-title">{{ p.id === null ? 'Add staff' : p.name || p.email }}</h2>
+      </div>
+      <button type="button" class="btn icon ghost" (click)="closeDrawers()" aria-label="Close">
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
+    </header>
+
+    <form class="drawer-body" id="staff-form" (submit)="savePerson($event)">
+      @if (drawerError()) {
+        <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ drawerError() }}</p>
+      }
+      <label class="s-field">
+        <span class="label">Name</span>
+        <input maxlength="120" autocomplete="off" [value]="p.name" (input)="patchPerson({ name: $any($event.target).value })" />
+      </label>
+      <label class="s-field">
+        <span class="label">Email</span>
+        <input type="email" required maxlength="254" autocomplete="off" [value]="p.email"
+          (input)="patchPerson({ email: $any($event.target).value })" />
+      </label>
+      <div class="s-field">
+        <label class="label" for="staff-pass">
+          Password <span class="muted">{{ p.id === null ? '8+ characters' : 'leave empty to keep theirs' }}</span>
+        </label>
+        <div class="pw-row">
+          <input id="staff-pass" minlength="8" autocomplete="off" [required]="p.id === null" [value]="p.password"
+            (input)="patchPerson({ password: $any($event.target).value })" />
+          <button class="btn" type="button" (click)="patchPerson({ password: newPassword() })">
+            <i class="ti ti-refresh" aria-hidden="true"></i> New
+          </button>
+        </div>
+      </div>
+
+      <fieldset class="s-field">
+        <legend class="label">Role</legend>
+        <div class="role-pick">
+          @for (r of roles(); track r.id) {
+            <label class="pick" [class.on]="p.roleId === r.id">
+              <input type="radio" name="role" [checked]="p.roleId === r.id" (change)="patchPerson({ roleId: r.id })" />
+              <span class="role-name">
+                <strong>{{ r.name }}</strong>
+                <span class="sub">{{ pageCount(r) }} of {{ sections.length }} pages</span>
+              </span>
+              <span class="strip" aria-hidden="true">
+                @for (s of sections; track s.key) {
+                  <span class="tile" [class.on]="opens(r, s.key)" [class.full]="full(r, s.key)"><i class="ti ti-{{ s.icon }}"></i></span>
+                }
+              </span>
+            </label>
+          }
+        </div>
+      </fieldset>
+    </form>
+
+    <footer class="drawer-foot">
+      <span class="grow"></span>
+      <button class="btn" type="button" (click)="closeDrawers()">Cancel</button>
+      <button class="btn primary" type="submit" form="staff-form" [disabled]="busy()">
+        {{ busy() ? 'Saving...' : p.id === null ? 'Add staff' : 'Save' }}
+      </button>
+    </footer>
+  </aside>
+}
+
+@if (removing(); as u) {
+  <app-confirm
+    [heading]="'Remove ' + (u.name || u.email) + '?'"
+    text="They are signed out now and cannot sign in again. Their past actions stay in the audit log."
+    action="Remove"
+    (confirm)="remove(u)"
+    (cancel)="removing.set(null)"
+  />
+}
+
+@if (deletingRole() && role(); as d) {
+  <app-confirm
+    [heading]="'Delete the role ' + d.name + '?'"
+    text="Nobody holds it, so nothing else changes."
+    action="Delete role"
+    (confirm)="deleteRole()"
+    (cancel)="deletingRole.set(false)"
+  />
+}
+
+@if (editingSelf()) {
+  <app-account-dialog (closed)="editingSelf.set(false); load()" />
+}

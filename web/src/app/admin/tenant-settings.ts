@@ -14,7 +14,7 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { Observable, concat, defer, forkJoin, last, map, switchMap } from 'rxjs';
 
 import { CustomSafetyState, SafetyPolicy, TenancyApi, TenantLimits } from '../core/api';
-import { Tenant, TenantControls, TenantSubscriptionSummary } from '../core/auth';
+import { Auth, Tenant, TenantControls, TenantSubscriptionSummary } from '../core/auth';
 import { SAFETY_GROUPS } from '../core/safety-fields';
 import {
   BILLINGS,
@@ -150,6 +150,9 @@ export class TenantSettings {
   private readonly api = inject(TenancyApi);
   private readonly plansApi = inject(PlansApi);
   private readonly leadsApi = inject(LeadsApi);
+  /** A staff role without Tenants > Change sees the settings but cannot touch them (the server refuses too). */
+  private readonly auth = inject(Auth);
+  protected readonly readOnly = computed(() => !this.auth.can('tenants', 'edit'));
 
   readonly tenant = input.required<Tenant>();
   readonly initialTab = input<SettingsTab>('plan');

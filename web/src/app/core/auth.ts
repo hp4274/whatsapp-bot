@@ -12,6 +12,8 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 import { Observable, catchError, map, of, retry, tap, throwError, timer } from 'rxjs';
 
+import { ADMIN_SECTIONS, type AdminAction, type AdminSection, type Permissions } from '../admin/admin-sections';
+
 /** Lowest to highest privilege; `ROLE_RANK` is the ladder. */
 export type Role = 'agent' | 'admin' | 'owner' | 'super_admin';
 /** Position on the ladder is the privilege level, so comparisons use `indexOf`. */
@@ -25,6 +27,10 @@ export interface User {
   role: Role;
   disabled: boolean;
   createdAt: string;
+  /** Platform staff: their role (Settings > Roles & staff); null or absent for a full super admin. */
+  adminRoleId?: number | null;
+  /** Platform staff only: what their role may do, per admin page. Absent = everything. */
+  access?: Permissions;
 }
 
 export interface Tenant {
@@ -141,6 +147,20 @@ export class Auth {
   readonly blocked = signal<string | null>(null);
 
   readonly isSuperAdmin = computed(() => this.user()?.role === 'super_admin');
+  /** A super admin with no staff role: the only one who opens Settings. */
+  readonly isFullAdmin = computed(() => this.isSuperAdmin() && !this.user()?.access);
+
+  /** Whether this admin may `action` on `section` ('settings' is the full admin's alone). */
+  can(section: AdminSection | 'settings', action: AdminAction = 'view'): boolean {
+    if (!this.isSuperAdmin()) return false;
+    const access = this.user()?.access;
+    return !access || (section !== 'settings' && Boolean(access[section]?.includes(action)));
+  }
+
+  /** Where a platform admin starts: the first section their role opens; null for a role that opens nothing. */
+  readonly adminHome = computed(
+    () => ADMIN_SECTIONS.find((s) => this.can(s.key))?.path ?? (this.can('settings') ? '/admin/settings' : null),
+  );
   readonly tenantId = computed(() =>
     this.isSuperAdmin() ? this.actingTenantId() : (this.user()?.tenantId ?? null),
   );
@@ -305,17 +325,26 @@ export const roleGuard =
     return auth.atLeast(min) ? true : router.createUrlTree(['/home']);
   };
 
+/** An admin page a staff role may not open sends them to their first one. */
+export const sectionGuard =
+  (section: AdminSection | 'settings'): CanActivateFn =>
+  () => {
+    const auth = inject(Auth);
+    const home = auth.adminHome();
+    return auth.can(section) || (home ? inject(Router).createUrlTree([home]) : false);
+  };
+
 /**
  * Home is a tenant's overview. A super admin on the platform view has no
- * tenant to summarise, so they land on the tenant list instead.
+ * tenant to summarise, so they land on their first admin page instead (Tenants, for a full admin).
  */
 export const homeGuard: CanActivateFn = () => {
   const auth = inject(Auth);
   const router = inject(Router);
   if (!auth.user()) return router.createUrlTree(['/login']);
-  return auth.isSuperAdmin() && auth.actingTenantId() === null
-    ? router.createUrlTree(['/admin/tenants'])
-    : true;
+  if (!auth.isSuperAdmin() || auth.actingTenantId() !== null) return true;
+  const home = auth.adminHome();
+  return home ? router.createUrlTree([home]) : false;
 };
 
 /** The public landing page is for visitors; a signed-in user goes straight to their dashboard. */
