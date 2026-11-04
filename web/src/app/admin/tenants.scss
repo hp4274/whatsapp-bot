@@ -359,6 +359,66 @@ $list-cols: minmax(300px, 3fr) repeat(4, minmax(52px, 0.5fr)) minmax(116px, 1fr)
   .actions { grid-template-columns: repeat(4, auto); }
 }
 
+/* Rows: list view below 1101px (rowMode in tenants.ts), where the table has no room. --------- */
+// Denser than a card: the figures run inline on one line. Tablet puts the actions beside the name,
+// a phone stacks them (see the 640px query below).
+.tenants.rows {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-sm);
+
+  .tenant {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-md) var(--space-lg);
+    padding: 14px 16px;
+    border-radius: var(--radius-lg);
+  }
+
+  .top { grid-area: 1 / 1; }
+  .actions { grid-area: 1 / 2; }
+  .stats { grid-area: 2 / 1; }
+  .services-row { grid-area: 2 / 2; }
+  .seed-confirm, .seed-result { grid-column: 1 / -1; }
+
+  .avatar { width: 40px; height: 40px; border-radius: 12px; font-size: 17px; }
+
+  .stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px var(--space-lg);
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+  .stat {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0;
+    background: none;
+    .ti { font-size: 14px; margin: 0; }
+    strong { font-size: 14px; letter-spacing: 0; }
+  }
+
+  .services-row { width: auto; padding: 4px 0; border-block: 0; }
+}
+
+// Tablet: 300px cards so the grid gets two columns, not one stretched card per row.
+@media (max-width: 1100px) {
+  .tenants:not(.rows) { grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .tenants.rows {
+    .tenant { grid-template-columns: minmax(0, 1fr); }
+    .top, .actions, .stats, .services-row { grid-area: auto; }
+    .services-row { padding-block: 10px; border-top: 1px solid var(--border-color); }
+    // The words name each figure; without the icons all four fit on one line.
+    .stats { justify-content: space-between; gap: 4px 10px; }
+    .stat .ti { display: none; }
+  }
+}
+
 .mono { font-family: var(--mono); font-size: 12px; }
 
 /* Drawers and the delete dialog --------------------------------------------- */

@@ -75,7 +75,7 @@
       <h3 id="pending-title">Pending setup <span class="s-pill tone-info">{{ pendingShown().length }}</span></h3>
       <p class="muted compact">Accepted from leads. Open one, set it up and activate it to send the owner their sign-in.</p>
     </div>
-    <div class="tenants" [class.list]="listMode()">
+    <div class="tenants" [class.list]="listMode()" [class.rows]="rowMode()">
       @if (listMode() && pendingShown().length) {
         <div class="list-head" aria-hidden="true">
           <span>Business</span><span>Sent</span><span>Failed</span><span>Connected</span><span>Queued</span
@@ -99,7 +99,7 @@
   @if (pendingShown().length) {
     <h3 class="block-title">Tenants</h3>
   }
-  <div class="tenants" [class.list]="listMode()" [attr.aria-busy]="loading()">
+  <div class="tenants" [class.list]="listMode()" [class.rows]="rowMode()" [attr.aria-busy]="loading()">
     @if (loading()) {
       @for (n of skeletonRows; track n) {
         <div class="skeleton" style="height: 220px; border-radius: 24px"></div>
@@ -138,7 +138,7 @@
         <h3 id="closing-title">Closing soon <span class="s-pill tone-warn">{{ closingShown().length }}</span></h3>
         <p class="muted compact">Plans ending in the next 7 days. Open one and renew, top up or extend it under Plan.</p>
       </div>
-      <div class="tenants" [class.list]="listMode()">
+      <div class="tenants" [class.list]="listMode()" [class.rows]="rowMode()">
         @if (listMode()) {
           <div class="list-head" aria-hidden="true">
             <span>Business</span><span>Sent</span><span>Failed</span><span>Connected</span><span>Queued</span
@@ -158,7 +158,7 @@
         <h3 id="ended-title">Plan ended <span class="s-pill tone-bad">{{ endedShown().length }}</span></h3>
         <p class="muted compact">Ended, or ending at the end of their period. Open one and renew its plan to bring it back.</p>
       </div>
-      <div class="tenants" [class.list]="listMode()">
+      <div class="tenants" [class.list]="listMode()" [class.rows]="rowMode()">
         @if (listMode()) {
           <div class="list-head" aria-hidden="true">
             <span>Business</span><span>Sent</span><span>Failed</span><span>Connected</span><span>Queued</span

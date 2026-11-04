@@ -4,7 +4,9 @@ import { FormsModule } from '@angular/forms';
 
 import type { SafetyPolicy, TenantLimits } from '../core/api';
 import type { Tenant, TenantControls, TenantSubscriptionSummary } from '../core/auth';
+import { AdminFeed } from './admin-feed';
 import { Lead, LeadsApi } from './leads-api';
+import { Referrer, ReferralsApi } from './referrals-api';
 import { PROFILE_FIELDS, TenantDetailsEdit } from './tenant-details-edit';
 import { sentenceCase } from './text';
 import {
@@ -55,6 +57,7 @@ export type Activation = {
 })
 export class TenantSummary {
   private readonly api = inject(LeadsApi);
+  private readonly referralsApi = inject(ReferralsApi);
 
   readonly tenant = input.required<Tenant>();
   readonly sub = input<TenantSubscriptionSummary | Subscription | null>(null);
@@ -78,6 +81,8 @@ export class TenantSummary {
   protected readonly lead = signal<Lead | null>(null);
   /** The business's owner, read per business (the tenant row does not carry it). */
   protected readonly owner = signal<{ readonly name: string; readonly email: string } | null>(null);
+  /** The marketer who brought it (changed under Edit details); undefined while it is read. */
+  protected readonly referrer = signal<Referrer | null | undefined>(undefined);
   /** The Request / Details lines are boxes being edited. */
   protected readonly editing = signal(false);
   /** Business details (GSTIN, address...) shown under View more. */
@@ -122,8 +127,16 @@ export class TenantSummary {
         this.editing.set(false);
         this.api.forTenant(tenantId).subscribe({ next: ({ lead }) => this.lead.set(lead), error: () => undefined });
         this.loadOwner(tenantId);
+        this.referrer.set(undefined);
+        this.loadReferrer(tenantId);
       });
     });
+    // Changed here, in Referrals or by another admin: the line follows at once.
+    inject(AdminFeed).watch(['referrals'], () => this.loadReferrer(this.tenant().id));
+  }
+
+  private loadReferrer(tenantId: number): void {
+    this.referralsApi.forTenant(tenantId).subscribe({ next: ({ referrer }) => this.referrer.set(referrer), error: () => undefined });
   }
 
   private loadOwner(tenantId: number): void {

@@ -43,6 +43,14 @@
       <dd>{{ tenant().contactPhone || 'Not set' }}</dd>
       <dt>Updates</dt>
       <dd>{{ tenant().wapzoUpdates === false ? 'No Wapzo WhatsApp updates' : 'Wapzo WhatsApp updates on' }}</dd>
+      <dt>Referred by</dt>
+      <dd [class.unset]="referrer() === null">
+        @if (referrer(); as r) {
+          {{ r.name }} <span class="sub">· {{ r.code }}{{ r.status === 'paused' ? ', paused' : '' }}</span>
+        } @else {
+          {{ referrer() === null ? 'Nobody' : '…' }}
+        }
+      </dd>
       @if (lead(); as l) {
         @if (l.message) {
           <dt>Will send</dt>
