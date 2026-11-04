@@ -2749,7 +2749,7 @@ export function createApp({
         const header = req.get('authorization') ?? '';
         // EventSource cannot set headers, so the stream alone takes ?token=.
         const token = header.startsWith('Bearer ') ? header.slice(7)
-            : (req.path === '/events' || req.path === '/admin/events' ? req.query.token : null);
+            : (req.path === '/events' || req.path === '/admin/events' || req.path === '/admin/wapzo/api/events' ? req.query.token : null);
         const user = tenancy.resolveSession(token);
         if (!user) return res.status(401).json({ errors: ['Sign in to continue.'] });
         // Staff (adminRoles.js) carry what their role may do, per section; a full super admin carries nothing.

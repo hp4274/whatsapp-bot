@@ -3,15 +3,18 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  booleanAttribute,
   computed,
   effect,
   inject,
+  input,
   signal,
   untracked,
   viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { WuzieFeed } from '../admin/wuzie-feed';
 import { Api, CampaignsApi, type Campaign, type MessageRecord, type QueuedNext } from './api';
 import { Store } from './store';
 
@@ -33,7 +36,8 @@ const RECENT_COUNT = 5;
  * so nobody loses it mid-read (WCAG 2.2.1, adjustable timing).
  *
  * Mounted once by the shell rather than by the campaign page, so it survives
- * navigation. The template stays inline: it is the one component file this
+ * navigation. With `wuzie` it follows Wuzie's own number instead (WuzieFeed): the
+ * platform view mounts that one, so a message Wuzie sends shows here too. The template stays inline: it is the one component file this
  * folder owns, and the card is small.
  */
 @Component({
@@ -49,7 +53,7 @@ const RECENT_COUNT = 5;
         [class.bad]="phase() === 'stopped'"
         role="status"
         aria-live="polite"
-        aria-label="Bulk message progress"
+        [attr.aria-label]="wuzie() ? 'Wuzie WhatsApp sending' : 'Bulk message progress'"
         (mouseenter)="hold(true)"
         (mouseleave)="hold(false)"
         (focusin)="hold(true)"
@@ -89,7 +93,7 @@ const RECENT_COUNT = 5;
             @if (current(); as c) {
               <p class="line">
                 <span class="cname">{{ c.name }}</span>
-                <a class="link" [routerLink]="['/campaigns', c.id]">Details</a>
+                <a class="link" [routerLink]="wuzie() ? '/admin/wapzo' : ['/campaigns', c.id]">Details</a>
               </p>
             }
             <p class="line">
@@ -263,7 +267,7 @@ const RECENT_COUNT = 5;
       display: block;
       height: 100%;
       border-radius: inherit;
-      background: linear-gradient(90deg, var(--primary), var(--accent));
+      background: var(--brand-gradient); /* the logo's peach-to-orange */
       transition: width 400ms var(--ease);
     }
     .bad .bar span {
@@ -445,7 +449,10 @@ const RECENT_COUNT = 5;
   `,
 })
 export class SendIsland {
+  /** Follow Wuzie's own number (the platform view) rather than the business's (Store). */
+  readonly wuzie = input(false, { transform: booleanAttribute });
   private readonly store = inject(Store);
+  private readonly feed = inject(WuzieFeed);
   private readonly api = inject(Api);
   private readonly campaignsApi = inject(CampaignsApi);
   private readonly destroyRef = inject(DestroyRef);
@@ -480,7 +487,10 @@ export class SendIsland {
   private sawLive = false;
   private recentTimer: ReturnType<typeof setTimeout> | undefined;
 
-  protected readonly stats = this.store.stats.asReadonly();
+  protected readonly stats = computed(() => (this.wuzie() ? this.feed.stats() : this.store.stats()));
+  private readonly pacing = computed(() => (this.wuzie() ? this.feed.pacing() : this.store.pacing()));
+  private readonly pacingLeft = computed(() => (this.wuzie() ? this.feed.pacingLeft() : this.store.pacingLeft()));
+  private readonly historyRevision = computed(() => (this.wuzie() ? this.feed.historyRevision() : this.store.historyRevision()));
   protected readonly open = signal(true);
   protected readonly error = signal('');
   /** A finished run the user closed; a new run (more total, or less processed) reopens it. */
@@ -489,6 +499,13 @@ export class SendIsland {
   private readonly islandRef = viewChild<ElementRef<HTMLElement>>('island');
 
   constructor() {
+    // Wuzie's stream is opened for this island alone, and closed with it.
+    effect((onCleanup) => {
+      if (!this.wuzie()) return;
+      untracked(() => this.feed.start());
+      onCleanup(() => this.feed.stop());
+    });
+
     // The card floats over the page's bottom-right corner: while it shows, the page keeps that much room at its
     // end (app.scss .page reads --island-space), so the last rows and buttons can always scroll clear of it.
     effect((onCleanup) => {
@@ -525,6 +542,8 @@ export class SendIsland {
     });
     effect(() => {
       if (!liveTotal()) return;
+      // Wuzie's number has no campaign pages: its sends are its account messages and broadcasts.
+      if (this.wuzie()) return this.current.set({ id: 0, name: 'Wuzie WhatsApp' });
       untracked(() => {
         this.campaignsApi.list().subscribe({
           next: ({ campaigns }) =>
@@ -538,7 +557,7 @@ export class SendIsland {
 
     // Every send bumps historyRevision; coalesce a burst into one small fetch.
     effect(() => {
-      this.store.historyRevision();
+      this.historyRevision();
       if (!this.visible()) return;
       clearTimeout(this.recentTimer);
       this.recentTimer = setTimeout(() => this.loadRecent(), 400);
@@ -570,7 +589,10 @@ export class SendIsland {
   }
 
   /** Whole-number progress for the bar and its `aria-valuenow`. */
-  protected readonly percent = computed(() => Math.round(this.store.progress() * 100));
+  protected readonly percent = computed(() => {
+    const { total, processed } = this.stats();
+    return total > 0 ? Math.round(Math.min(1, processed / total) * 100) : 0;
+  });
 
   /** Where the run is, derived from the server's counters rather than tracked here. */
   protected readonly phase = computed<'sending' | 'paused' | 'done' | 'stopped'>(() => {
@@ -596,13 +618,13 @@ export class SendIsland {
     const s = this.stats();
     switch (this.phase()) {
       case 'done':
-        return s.failed ? `Finished, ${s.failed} failed` : `Sent ${s.successful} messages`;
+        return s.failed ? `Finished, ${s.failed} failed` : `Sent ${s.successful} ${s.successful === 1 ? 'message' : 'messages'}`;
       case 'stopped':
         return 'Sending stopped';
       case 'paused':
         return 'Sending paused';
       default:
-        return `Sending ${s.total} messages`;
+        return `Sending ${s.total} ${s.total === 1 ? 'message' : 'messages'}`;
     }
   });
 
@@ -617,8 +639,8 @@ export class SendIsland {
   );
 
   protected readonly note = computed(() => {
-    const pacing = this.store.pacing();
-    const left = this.store.pacingLeft();
+    const pacing = this.pacing();
+    const left = this.pacingLeft();
     if (this.phase() === 'sending' && pacing && left) {
       return `${pacing.resting ? 'Resting between batches' : 'Spacing messages'}, next in ${left}s`;
     }
@@ -653,12 +675,16 @@ export class SendIsland {
   private loadRecent(): void {
     // One HTTP call that completes on its own; failures just keep the last list.
     if (this.phase() === 'sending' || this.phase() === 'paused') {
-      this.api.queueNext(RECENT_COUNT).subscribe({
+      (this.wuzie() ? this.feed.queueNext(RECENT_COUNT) : this.api.queueNext(RECENT_COUNT)).subscribe({
         next: ({ next }) => this.upNext.set(next),
         error: () => undefined,
       });
     } else {
       this.upNext.set([]);
+    }
+    if (this.wuzie()) {
+      this.feed.recent(RECENT_COUNT).subscribe({ next: (records) => this.recent.set(records), error: () => undefined });
+      return;
     }
     this.api.history({ limit: RECENT_COUNT }).subscribe({
       next: (res) => {
@@ -690,8 +716,8 @@ export class SendIsland {
   protected act(action: 'pause' | 'resume' | 'stop'): void {
     this.error.set('');
     // One HTTP call that completes on its own; nothing to tear down.
-    this.api.campaignAction(action).subscribe({
-      next: ({ stats }) => this.store.stats.set(stats),
+    (this.wuzie() ? this.feed.action(action) : this.api.campaignAction(action)).subscribe({
+      next: ({ stats }) => (this.wuzie() ? this.feed.stats : this.store.stats).set(stats),
       error: (err: Error) => this.error.set(err.message),
     });
   }
