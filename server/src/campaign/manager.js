@@ -66,12 +66,12 @@ export const DEAD_MAN_MS = 6 * 3_600_000;
 /** A message stuck at 48h counts as a block only while the number delivered at least this share then. */
 const BLOCK_MIN_DELIVERED = 0.95;
 /**
- * Wuzie's own number (`platformLane`): its account messages (transactional: "we got your request", a receipt, "plan
- * ends soon") are one-to-one and expected, so they skip the bulk warm-up (level gaps, new-chat budget, the rest after
- * linking) and go within seconds. Safety stays: a short human gap and typing, a rest every so often, hour and day
- * caps over everything the number sends, the WhatsApp-account lookup, opt-outs, and the 475 restriction hold.
+ * Wuzie's own number (`platformLane`) is the platform's system number: everything it sends (account messages and
+ * broadcasts) skips every limit of ours (warm-up levels, budgets, caps, rests, quiet hours, sending window, STOP-rate
+ * pause) and goes with only a short random gap and the usual "typing...". What stays is not a limit: opt-outs, the
+ * no-WhatsApp lookup (a typo is never sent to) and WhatsApp's own restriction, which refuses strangers anyway.
  */
-export const PLATFORM_LANE = Object.freeze({ gap: [4, 9], restEvery: 20, rest: [60, 120], perHour: 60, perDay: 400 });
+export const PLATFORM_LANE = Object.freeze({ gap: [2, 5] });
 /** WhatsApp said rate-overlimit (429): the next try waits at least this long (seconds). */
 const RATE_LIMIT_WAIT = [90, 120];
 export const NOT_ON_WHATSAPP_TEXT = FRIENDLY[ErrorCode.INVALID_RECIPIENT];
@@ -139,10 +139,8 @@ export class CampaignManager extends EventEmitter {
         this.policyWindowOpen = null;  // () => false outside the platform's sending hours
         this.stopReason = 'Stopped by operator';
         this.resumeRefusal = null;     // why a policy hold cannot be resumed yet
-        // Set by the channel runtime on Wuzie's own number: its transactional messages take PLATFORM_LANE.
+        // Set by the channel runtime on Wuzie's own number: everything it sends takes PLATFORM_LANE (no limits, small gaps).
         this.platformLane = false;
-        this.laneLimits = PLATFORM_LANE;
-        this.laneSent = 0;
         // Set by the channel runtime when PUBLIC_BASE_URL is known: a links/store.js LinkStore.
         this.links = null;
         this.current = null;
@@ -805,7 +803,7 @@ export class CampaignManager extends EventEmitter {
         if (this.quota.qr && this.transport?.realDelivery && !String(item.recipient).includes('@') && this.#restricted()
             && !(item.wrote ??= Boolean(this.db.wroteIn?.(digits(item.recipient))))) return false;
         if (item.messageType !== 'campaign' && this.sendBlock?.(item.messageType)) return false;
-        if (this.#onLane(item)) return this.#laneRoom();
+        if (this.#onLane(item)) return true;
         const held = HELD.has(item.messageType);
         // Every held type on a QR number; elsewhere campaigns only, so a school's early notice is not held till 9.
         const daytime = item.messageType === 'campaign' || (held && this.#onLevels());
@@ -823,28 +821,14 @@ export class CampaignManager extends EventEmitter {
         return budgets.newChats.left > 0 || !(item.cold ??= this.#cold(item));
     }
 
-    /** An account message on Wuzie's own number (PLATFORM_LANE). */
+    /** Anything Wuzie's own number sends (PLATFORM_LANE). */
     #onLane(item) {
-        return this.platformLane && item?.messageType === 'transactional';
+        return this.platformLane && Boolean(item);
     }
 
-    /** Room under the lane's caps, counted over everything this number sent in the last hour and day (re-read every 2s). */
-    #laneRoom() {
-        const now = Date.now();
-        if (!this.laneCount || now - this.laneCount.at > 2000) {
-            const until = isoAgo(-1000);
-            this.laneCount = { at: now, hour: this.db.countSentBetween(isoAgo(3_600_000), until), day: this.db.countSentBetween(isoAgo(86_400_000), until) };
-        }
-        return this.laneCount.hour < this.laneLimits.perHour && this.laneCount.day < this.laneLimits.perDay;
-    }
-
-    /** A few seconds like a person, a longer rest every `restEvery` sends; counted from the number's last action. */
+    /** A few seconds, like a person; counted from the number's last action. */
     #laneGap() {
-        const { gap, restEvery, rest } = this.laneLimits;
-        this.laneSent += 1;
-        const resting = this.laneSent % restEvery === 0;
-        const seconds = resting ? between(...rest) : between(...gap);
-        return { seconds: Math.max(0, seconds - (Date.now() - (this.lastActionAt || 0)) / 1000), resting };
+        return { seconds: Math.max(0, between(...PLATFORM_LANE.gap) - (Date.now() - (this.lastActionAt || 0)) / 1000), resting: false };
     }
 
     /** Nobody here: never sent to, never wrote in. A group (jid) is not a stranger. */
@@ -1093,7 +1077,7 @@ export class CampaignManager extends EventEmitter {
      * STOP_PAUSE.minDelivered: the message is unwelcome. The block-rate pause sees this a week late; this, within hours.
      */
     checkStopRate() {
-        if (!this.campaignId || !this.config.safetyEnabled || this.queue.isPaused || this.queue.isStopped || !this.db.campaignStopRate) return false;
+        if (this.platformLane || !this.campaignId || !this.config.safetyEnabled || this.queue.isPaused || this.queue.isStopped || !this.db.campaignStopRate) return false;
         if (this.quota.qr && this.quota.allowance().level.brakesOff) return false;
         const { delivered, stopped } = this.db.campaignStopRate(this.campaignId);
         if (delivered < STOP_PAUSE.minDelivered || stopped * 100 <= delivered * STOP_PAUSE.percent) return false;
@@ -1122,7 +1106,7 @@ export class CampaignManager extends EventEmitter {
         // Safety left: a QR number still stops at its plan's day (DailyQuota.remaining).
         if (!(this.config.safetyEnabled || this.quota.qr) || !this.transport?.realDelivery) return false;
         // A reply to someone who wrote in is not bulk: it counts toward the day, but never holds the queue.
-        if (QUOTA_EXEMPT.has(item.messageType)) return false;
+        if (QUOTA_EXEMPT.has(item.messageType) || this.platformLane) return false;
         if (!this.quota.exhausted()) return false;
         // An operator's pause pressed during the gap stays theirs: marking it a quota pause would let
         // #pastQuotaPause resume a run its owner paused.
@@ -1158,7 +1142,7 @@ export class CampaignManager extends EventEmitter {
      * Like the daily quota it PAUSES: the rest stays queued, with the reason.
      */
     #capBlocked(item) {
-        if (item.messageType !== 'campaign' || !this.transport?.realDelivery) return false;
+        if (item.messageType !== 'campaign' || !this.transport?.realDelivery || this.platformLane) return false;
         const cap = this.bulkPolicy?.()?.capRemaining?.();
         if (!cap || cap.left > 0) return false;
         const operatorPaused = this.queue.isPaused;
@@ -1197,7 +1181,7 @@ export class CampaignManager extends EventEmitter {
      * Returns true when the item was held.
      */
     async #heldOutsideWindow(item) {
-        const held = item.messageType === 'campaign' && this.#bulkHeld();
+        const held = item.messageType === 'campaign' && !this.platformLane && this.#bulkHeld();
         if (held !== this.holding) {
             this.holding = Boolean(held);
             if (held) this.emit('event', { type: 'pacing', seconds: 0, resting: true, reason: 'quiet hours - bulk sending resumes when the window opens' });
@@ -1331,8 +1315,6 @@ export class CampaignManager extends EventEmitter {
                     error: SUCCESS_STATUSES.includes(result.status) ? null : result.detail,
                     parts: result.parts,
                 });
-                // The lane's caps count this send before the next pick, not after the 2s cache.
-                if (this.#onLane(item)) this.laneCount = null;
                 this.#finish(item, result.status, { providerId: result.providerId, counted: true });
                 // A receipt that landed before provider_id was written found no row and is gone;
                 // the transport still remembers it (two ticks must not stay one).

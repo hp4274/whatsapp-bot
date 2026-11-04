@@ -689,45 +689,39 @@ describe('super admin: skip quiet time', () => {
     });
 });
 
-describe("Wuzie's own number: the account-message lane", () => {
-    it('sends account messages to new people at once on a resting number; bulk still waits', async () => {
+describe("Wuzie's own number: no limits, small gaps", () => {
+    it('sends account messages and broadcasts to new people at once, even on a resting number', async () => {
         const db = freshDb();
         const transport = new FakeLive();
         const manager = new CampaignManager(db, transport, qr({ linkedAt: ago(HOUR) }));
         manager.platformLane = true;
         try {
-            assert.equal(manager.quota.allowance().level.level, 0, 'resting after linking: no new chats at all');
-            manager.enqueueContacts(people(['919811111111']), 'Hi {name}', { campaignId: 'broadcast' });
+            assert.equal(manager.quota.allowance().level.level, 0, 'resting after linking: a business number would send nothing new');
+            manager.enqueueContacts(people(['919811111111', '919811111112']), 'Hi {name}', { campaignId: 'broadcast' });
             manager.enqueueJob({ recipient: '919800000001', text: 'We got your request', messageType: 'transactional' });
-            manager.enqueueJob({ recipient: '919800000002', text: 'Payment received', messageType: 'transactional' });
             manager.start();
-            assert.ok(await until(() => transport.sent.length === 2));
-            await sleep(300);
-            assert.deepEqual(transport.sent.map((s) => s.to).sort(), ['919800000001', '919800000002']);
-            assert.equal(manager.queue.pending, 1, 'the broadcast keeps to the bulk warm-up');
+            assert.ok(await until(() => transport.sent.length === 3));
+            assert.equal(manager.queue.pending, 0);
+            assert.equal(manager.pausedByQuota, false);
         } finally {
             await manager.shutdown();
             db.close();
         }
     });
 
-    it('holds past its hour cap instead of failing, and looks every new number up first', async () => {
+    it('still looks a new number up first: a typo is never sent to', async () => {
         const db = freshDb();
         const transport = new FakeLive();
         transport.supportsRegistrationCheck = true;
         transport.unregistered.add('919800000009');
         const manager = new CampaignManager(db, transport, qr({ linkedAt: ago(HOUR) }));
         manager.platformLane = true;
-        manager.laneLimits = { gap: [0, 0], restEvery: 20, rest: [0, 0], perHour: 2, perDay: 400 };
         try {
             const typo = manager.enqueueJob({ recipient: '919800000009', text: 'Hi', messageType: 'transactional' });
-            for (const n of [1, 2, 3]) manager.enqueueJob({ recipient: `91980000000${n}`, text: `Note ${n}`, messageType: 'transactional' });
+            manager.enqueueJob({ recipient: '919800000001', text: 'Hi', messageType: 'transactional' });
             manager.start();
-            assert.ok(await until(() => transport.sent.length === 2));
-            await sleep(2500); // past the 2s count cache
-            assert.equal(transport.sent.length, 2, 'two an hour, the third waits');
-            assert.equal(manager.queue.pending, 1);
-            assert.equal(db.db.prepare('SELECT status FROM messages WHERE message_id = ?').get(typo).status, Status.NOT_ON_WHATSAPP, 'a number with no WhatsApp is never sent to');
+            assert.ok(await until(() => transport.sent.length === 1));
+            assert.ok(await until(() => db.db.prepare('SELECT status FROM messages WHERE message_id = ?').get(typo).status === Status.NOT_ON_WHATSAPP));
             assert.ok(!transport.sent.some((s) => s.to === '919800000009'));
         } finally {
             await manager.shutdown();
