@@ -101,6 +101,10 @@ export class TenantsView {
   /** The Add tenant drawer (details first) is open. */
   protected readonly adding = signal(false);
   protected readonly actingId = this.auth.actingTenantId;
+  /** A staff role's Tenants rights (Settings > Roles & staff); a full super admin has them all. */
+  protected readonly canAdd = computed(() => this.auth.can('tenants', 'add'));
+  protected readonly canEdit = computed(() => this.auth.can('tenants', 'edit'));
+  protected readonly canDelete = computed(() => this.auth.can('tenants', 'delete'));
 
   protected readonly services = signal<string[]>([...DEFAULT_SERVICES]);
   /** The drawer's list: what a business can have (the server's), then what is coming soon, shown switched off. */

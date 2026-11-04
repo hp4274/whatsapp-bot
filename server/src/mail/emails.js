@@ -47,6 +47,10 @@ function button(label, url) {
       </table>`;
 }
 
+/** The plain-text twin of a line of email HTML: tags dropped, escapes undone. */
+const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+
 const para = (html) => `<p style="margin:0 0 16px;font:16px/1.6 ${FONT};color:${C.text};">${html}</p>`;
 
 /** Steps in order, so a real numbered list. */
@@ -177,6 +181,115 @@ export function welcomeEmail({ name, business, planName, email, password, loginU
             ...(loginUrl ? [`Sign in: ${loginUrl}`] : []),
             '',
             'After you sign in, change the password: open the account button at the bottom of the sidebar.',
+        ].join('\n'),
+    };
+}
+
+/**
+ * What each account event says by email (the same events Wapzo's WhatsApp number sends, platform/notify.js), in
+ * the owner's words: what happened, the facts to keep, and how to reply. Account-ready and request-received have
+ * their own emails above, so they are not here. `vars` are notifyTenant's: name, business, plan, amount, date...
+ */
+const cap = (word) => (word ? word.charAt(0).toUpperCase() + word.slice(1) : word);
+
+const ACCOUNT_EMAILS = {
+    plan_started: (v) => ({
+        subject: `Your ${v.plan} plan is confirmed`,
+        heading: 'Your plan is confirmed',
+        intro: `<strong>${esc(v.business)}</strong> is now on the <strong>${esc(v.plan)}</strong> plan. Keep these details for your records.`,
+        rows: [['Plan', v.plan], ['Business', v.business], ['Amount', v.amount], ['Billing', cap(v.billing)], ['Renews on', v.date]],
+        footnote: 'You get this email because your business uses Wapzo.',
+    }),
+    plan_renewed: (v) => ({
+        subject: `Your ${v.plan} plan is renewed`,
+        heading: 'Plan renewed',
+        intro: `Thank you for staying with us. The <strong>${esc(v.plan)}</strong> plan for <strong>${esc(v.business)}</strong> is renewed.`,
+        rows: [['Plan', v.plan], ['Amount', v.amount], ['Billing', cap(v.billing)], ['Next renewal', v.date]],
+        footnote: 'You get this email because your business uses Wapzo.',
+    }),
+    topup_added: (v) => ({
+        subject: `We added ${v.topup} to ${v.business}`,
+        heading: 'Top-up added',
+        intro: `We added <strong>${esc(v.topup)}</strong> to <strong>${esc(v.business)}</strong>.`,
+        rows: [['Added', v.topup], ['Amount', v.amount], ['Plan runs until', v.date]],
+        footnote: 'You get this email because your business uses Wapzo.',
+    }),
+    payment_received: (v) => ({
+        subject: `Payment received: ${v.amount}`,
+        heading: 'Payment received',
+        intro: `Thank you. We received <strong>${esc(v.amount)}</strong> for <strong>${esc(v.business)}</strong>.`,
+        rows: [['Amount', v.amount], ['Business', v.business], ['Received on', v.today], ['Still due', v.due]],
+        footnote: 'Keep this email as your receipt.',
+    }),
+    plan_ending: (v) => ({
+        subject: `Your ${v.plan} plan ends on ${v.date}`,
+        heading: `${v.days} ${v.days === 1 ? 'day' : 'days'} left on your plan`,
+        intro: `The <strong>${esc(v.plan)}</strong> plan for <strong>${esc(v.business)}</strong> ends on <strong>${esc(v.date)}</strong>. Reply to this email to renew, and nothing stops.`,
+        rows: [['Plan', v.plan], ['Ends on', v.date]],
+        footnote: 'Reply to this email and it reaches the Wapzo team.',
+    }),
+    plan_expired: (v) => ({
+        subject: `Your ${v.plan} plan has ended`,
+        heading: 'Your plan has ended',
+        intro: `The <strong>${esc(v.plan)}</strong> plan for <strong>${esc(v.business)}</strong> ended on <strong>${esc(v.date)}</strong>. You can still sign in and see everything; sending pauses after 7 days of grace. Reply to this email to renew.`,
+        rows: [['Plan', v.plan], ['Ended on', v.date]],
+        footnote: 'Reply to this email and it reaches the Wapzo team.',
+    }),
+};
+
+/** The email for one account event, or null for an event that has none. */
+export function accountEmail(kind, vars, appUrl) {
+    const make = ACCOUNT_EMAILS[kind];
+    if (!make) return null;
+    const first = String(vars.name ?? '').trim().split(/\s+/)[0] || 'there';
+    const { subject, heading, intro, rows, footnote } = make(vars);
+    return {
+        subject,
+        html: layout({
+            preheader: subject,
+            heading,
+            body: `
+              ${para(`Hi ${esc(first)},`)}
+              ${para(intro)}
+              ${details(rows)}
+              ${button('Open Wapzo', appUrl && `${appUrl}/login`)}`,
+            footnote,
+        }),
+        text: [
+            `Hi ${first},`,
+            '',
+            plain(intro),
+            '',
+            ...rows.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`),
+            ...(appUrl ? ['', `Open Wapzo: ${appUrl}/login`] : []),
+        ].join('\n'),
+    };
+}
+
+/** To a new member of the platform staff (Settings > Roles & staff): their sign-in and what their role opens. */
+export function staffWelcomeEmail({ name, roleName, email, password, loginUrl }) {
+    const first = String(name ?? '').trim().split(/\s+/)[0] || 'there';
+    return {
+        subject: 'Your Wapzo staff sign-in',
+        html: layout({
+            preheader: `You can now sign in to Wapzo as ${roleName}.`,
+            heading: `Welcome to the team, ${first}`,
+            body: `
+              ${para(`You can now sign in to the Wapzo platform as <strong>${esc(roleName)}</strong>. Your role decides which pages you see.`)}
+              ${details([['Email', email], ['Password', password], ['Role', roleName]], { mono: ['Password'] })}
+              ${para('Ask the platform admin if you need a page your role does not open.')}
+              ${button('Sign in', loginUrl)}`,
+            footnote: 'Keep this email private: it holds your password.',
+        }),
+        text: [
+            `Welcome to the team, ${first}`,
+            '',
+            `You can now sign in to the Wapzo platform as ${roleName}.`,
+            '',
+            `Email: ${email}`,
+            `Password: ${password}`,
+            `Role: ${roleName}`,
+            ...(loginUrl ? [`Sign in: ${loginUrl}`] : []),
         ].join('\n'),
     };
 }

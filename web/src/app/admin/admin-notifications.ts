@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, ElementRef, computed, inject, signa
 import { DatePipe } from '@angular/common';
 import { Router } from '@angular/router';
 
+import { Auth } from '../core/auth';
 import { AdminFeed } from './admin-feed';
 import { AdminWaiting, Waiting } from './admin-waiting';
 
@@ -36,6 +37,9 @@ export class AdminNotifications {
     this.load();
     // A visitor asking for an account, or a business asking for more, rings at once.
     inject(AdminFeed).watch(['leads', 'tenants'], () => this.load());
+    // Here because the bell is on every platform page: a staff role changed in Settings reaches its holder at once.
+    const auth = inject(Auth);
+    inject(AdminFeed).watch(['staff', 'roles'], () => auth.refresh());
   }
 
   private load() {

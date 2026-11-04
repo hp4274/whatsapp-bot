@@ -345,4 +345,5 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
 // "The plan's quota / day" under a message limit box.
 .follow { display: flex; align-items: center; gap: 8px; margin-top: 2px; font-size: 12.5px; font-weight: 400; color: var(--text-muted); }
 
-
+// Only a switch: the box itself is not drawn, so the layout is the one without it.
+.locked { display: contents; }

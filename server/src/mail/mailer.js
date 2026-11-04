@@ -13,6 +13,14 @@ import nodemailer from 'nodemailer';
 
 import { logger } from '../observability/logger.js';
 
+/** Account emails already sent, by event key (app.js mailOnce): the hourly "ends soon" check emails each one once. */
+export const SENT_MAIL_SCHEMA = `
+CREATE TABLE IF NOT EXISTS sent_mail (
+    key      TEXT PRIMARY KEY,
+    sent_at  TEXT NOT NULL
+);
+`;
+
 const NOT_CONFIGURED = Object.freeze({ sent: false, reason: 'Email is not set up on this server.' });
 
 /** The no-op mailer: what createApp uses unless index.js hands it a real one. */

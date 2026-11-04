@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 
-import { authGuard, homeGuard, landingGuard, roleGuard } from './core/auth';
+import { authGuard, homeGuard, landingGuard, roleGuard, sectionGuard } from './core/auth';
 
 export const routes: Routes = [
   {
@@ -146,78 +146,84 @@ export const routes: Routes = [
   {
     path: 'admin/tenants',
     title: 'Tenants - Wapzo',
-    canActivate: [roleGuard('super_admin')],
+    canActivate: [roleGuard('super_admin'), sectionGuard('tenants')],
     loadComponent: () => import('./admin/tenants').then((m) => m.TenantsView),
   },
   {
     path: 'admin/leads',
     title: 'Leads - Wapzo',
-    canActivate: [roleGuard('super_admin')],
+    canActivate: [roleGuard('super_admin'), sectionGuard('leads')],
     loadComponent: () => import('./admin/leads').then((m) => m.LeadsView),
   },
   {
     path: 'admin/plans',
     title: 'Plans & billing - Wapzo',
-    canActivate: [roleGuard('super_admin')],
+    canActivate: [roleGuard('super_admin'), sectionGuard('plans')],
     loadComponent: () => import('./admin/plans').then((m) => m.PlansView),
   },
   {
     path: 'admin/payments',
     title: 'Payments - Wapzo',
-    canActivate: [roleGuard('super_admin')],
+    canActivate: [roleGuard('super_admin'), sectionGuard('payments')],
     loadComponent: () => import('./admin/payments').then((m) => m.PaymentsView),
   },
   {
     path: 'admin/referrals',
     title: 'Referrals - Wapzo',
-    canActivate: [roleGuard('super_admin')],
+    canActivate: [roleGuard('super_admin'), sectionGuard('referrals')],
     loadComponent: () => import('./admin/referrals').then((m) => m.ReferralsView),
   },
   {
     path: 'admin/wapzo',
     title: 'Wapzo WhatsApp - Wapzo',
-    canActivate: [roleGuard('super_admin')],
+    canActivate: [roleGuard('super_admin'), sectionGuard('wapzo')],
     loadComponent: () => import('./admin/wapzo').then((m) => m.Wapzo),
   },
   {
     path: 'admin/usage',
     title: 'Usage - Wapzo',
-    canActivate: [roleGuard('super_admin')],
+    canActivate: [roleGuard('super_admin'), sectionGuard('usage')],
     data: { kind: 'usage' },
     loadComponent: () => import('./admin/ops').then((m) => m.AdminOpsView),
   },
   {
     path: 'admin/health',
     title: 'Health - Wapzo',
-    canActivate: [roleGuard('super_admin')],
+    canActivate: [roleGuard('super_admin'), sectionGuard('health')],
     data: { kind: 'health' },
     loadComponent: () => import('./admin/ops').then((m) => m.AdminOpsView),
   },
   {
     path: 'admin/audit-logs',
     title: 'Audit Logs - Wapzo',
-    canActivate: [roleGuard('super_admin')],
+    canActivate: [roleGuard('super_admin'), sectionGuard('audit')],
     data: { kind: 'audit' },
     loadComponent: () => import('./admin/ops').then((m) => m.AdminOpsView),
   },
   {
     path: 'admin/channels',
     title: 'Channels - Wapzo',
-    canActivate: [roleGuard('super_admin')],
+    canActivate: [roleGuard('super_admin'), sectionGuard('channels')],
     data: { kind: 'channels' },
     loadComponent: () => import('./admin/ops').then((m) => m.AdminOpsView),
   },
   {
     path: 'admin/number-collections',
     title: 'Number collections - Wapzo',
-    canActivate: [roleGuard('super_admin')],
+    canActivate: [roleGuard('super_admin'), sectionGuard('number_collections')],
     loadComponent: () => import('./admin/number-collections').then((m) => m.NumberCollectionsView),
   },
   {
     path: 'admin/services/:service',
     title: 'Service settings - Wapzo',
-    canActivate: [roleGuard('super_admin')],
+    canActivate: [roleGuard('super_admin'), sectionGuard('services')],
     loadComponent: () => import('./admin/service').then((m) => m.ServiceView),
+  },
+  {
+    path: 'admin/settings',
+    title: 'Roles & staff - Wapzo',
+    canActivate: [roleGuard('super_admin'), sectionGuard('settings')],
+    loadComponent: () => import('./admin/settings').then((m) => m.SettingsView),
   },
   { path: '**', redirectTo: 'home' },
 ];

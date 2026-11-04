@@ -21,6 +21,7 @@ import { ConfirmDialog } from './core/confirm-dialog';
 import { SendIsland } from './core/send-island';
 import { AdminNotifications } from './admin/admin-notifications';
 import { AdminWaiting } from './admin/admin-waiting';
+import { type AdminSection, sectionOfUrl } from './admin/admin-sections';
 import { Store, ThemeMode, isBare } from './core/store';
 import { rememberReferral } from './core/referral';
 
@@ -34,6 +35,8 @@ type NavItem = {
   soon?: boolean;
   /** What waits there, counted on the right of the item (super admin): new leads, or limit requests. */
   count?: 'leads' | 'requests';
+  /** Platform pages: the staff-role section that opens it (Auth.can). */
+  section?: AdminSection | 'settings';
 };
 
 /** One block of the sidebar, as the template renders it; an empty heading renders no label. */
@@ -155,6 +158,11 @@ export class App {
     () => this.auth.isSuperAdmin() && this.auth.actingTenantId() === null,
   );
 
+  /** The fleet poll reads Health: a staff role without it would only collect 403s. */
+  private readonly fleetAllowed = computed(
+    () => this.auth.can('health') || this.auth.can('channels') || this.auth.can('services'),
+  );
+
   /** Every channel on the platform; null until the first load lands, 'error' if it failed. */
   private readonly fleet = signal<readonly ChannelDetail[] | 'error' | null>(null);
 
@@ -189,7 +197,7 @@ export class App {
     // computed above flips only on a real view change, which keeps the timer from
     // restarting whenever the user object is refreshed.
     effect((onCleanup) => {
-      if (!this.platformView()) {
+      if (!this.platformView() || !this.fleetAllowed()) {
         this.fleet.set(null);
         return;
       }
@@ -221,6 +229,16 @@ export class App {
       this.tenancy.tenants().subscribe({
         next: ({ tenants }) => this.acting.set(tenants.find((t) => t.id === id) ?? null),
         error: () => this.acting.set(null),
+      });
+    });
+
+    // A staff role changed while its page is open (AdminNotifications re-reads /me): off a page it no longer opens.
+    effect(() => {
+      if (!this.platformView() || !this.auth.user()) return;
+      const home = this.auth.adminHome();
+      untracked(() => {
+        const section = sectionOfUrl(this.router.url);
+        if (section && !this.auth.can(section) && home) this.router.navigateByUrl(home);
       });
     });
 
@@ -305,17 +323,22 @@ export class App {
 
   /** The super admin's own pages, above the per-service settings on the platform view. */
   private readonly platformNav: readonly NavItem[] = [
-    { path: '/admin/tenants', label: 'Tenants', icon: ICONS.tenants, count: 'requests' },
-    { path: '/admin/leads', label: 'Leads', icon: 'user-plus', count: 'leads' },
-    { path: '/admin/plans', label: 'Plans & billing', icon: ICONS.plans },
-    { path: '/admin/payments', label: 'Payments', icon: 'cash' },
-    { path: '/admin/referrals', label: 'Referrals', icon: 'affiliate' },
-    { path: '/admin/wapzo', label: 'Wapzo WhatsApp', icon: 'brand-whatsapp' },
-    { path: '/admin/usage', label: 'Usage', icon: ICONS.usage },
-    { path: '/admin/health', label: 'Health', icon: ICONS.health },
-    { path: '/admin/number-collections', label: 'Number collections', icon: 'address-book' },
-    { path: '/admin/audit-logs', label: 'Audit logs', icon: ICONS.audit },
-    { path: '/admin/channels', label: 'Channels', icon: ICONS.channels },
+    { path: '/admin/tenants', label: 'Tenants', icon: ICONS.tenants, count: 'requests', section: 'tenants' },
+    { path: '/admin/leads', label: 'Leads', icon: 'user-plus', count: 'leads', section: 'leads' },
+    { path: '/admin/plans', label: 'Plans & billing', icon: ICONS.plans, section: 'plans' },
+    { path: '/admin/payments', label: 'Payments', icon: 'cash', section: 'payments' },
+    { path: '/admin/referrals', label: 'Referrals', icon: 'affiliate', section: 'referrals' },
+    { path: '/admin/wapzo', label: 'Wapzo WhatsApp', icon: 'brand-whatsapp', section: 'wapzo' },
+    { path: '/admin/usage', label: 'Usage', icon: ICONS.usage, section: 'usage' },
+    { path: '/admin/health', label: 'Health', icon: ICONS.health, section: 'health' },
+    { path: '/admin/number-collections', label: 'Number collections', icon: 'address-book', section: 'number_collections' },
+    { path: '/admin/audit-logs', label: 'Audit logs', icon: ICONS.audit, section: 'audit' },
+    { path: '/admin/channels', label: 'Channels', icon: ICONS.channels, section: 'channels' },
+  ];
+
+  /** The platform's own setup, at the foot of the sidebar: who works on it and what each of them opens. */
+  private readonly settingsNav: readonly NavItem[] = [
+    { path: '/admin/settings', label: 'Roles & staff', icon: 'user-shield', section: 'settings' },
   ];
 
   /**
@@ -327,9 +350,11 @@ export class App {
     if (!this.auth.user()) return [];
     const superAdmin = this.auth.isSuperAdmin();
     if (this.platformView()) {
+      // A staff role sees the pages it opens; Settings is the full admin's alone.
+      const can = (item: NavItem) => !item.section || this.auth.can(item.section);
       return [
-        { heading: 'Platform', items: this.platformNav },
-        ...SERVICE_GROUPS.map((group) => ({
+        { heading: 'Platform', items: this.platformNav.filter(can) },
+        ...(this.auth.can('services') ? SERVICE_GROUPS : []).map((group) => ({
           heading: group.heading,
           items: group.services
             .filter((key) => SERVICE_META[key])
@@ -338,6 +363,7 @@ export class App {
               return { path: `/admin/services/${key}`, label: meta.label, icon: meta.icon, soon: SOON_SERVICES.has(key) };
             }),
         })),
+        { heading: 'Settings', items: this.settingsNav.filter(can) },
       ].filter((section) => section.items.length);
     }
     const owned = superAdmin ? this.acting()?.services : this.auth.tenant()?.services;
@@ -407,6 +433,7 @@ export class App {
     const connection = this.store.connection();
     if (!this.auth.user()) return 'Signed out';
     if (this.platformView()) {
+      if (!this.fleetAllowed()) return 'Platform staff';
       const health = this.fleetHealth();
       if (health === null) return 'Checking connections...';
       if (health === 'error') return 'Connection health unavailable';
@@ -438,6 +465,7 @@ export class App {
 
   /** The role as people say it: `super_admin` reads "Super admin". */
   protected readonly roleLabel = computed(() => {
+    if (this.auth.user()?.access) return 'Staff';
     const role = this.auth.user()?.role ?? '';
     const words = role.replace(/_/g, ' ');
     return words.charAt(0).toUpperCase() + words.slice(1);

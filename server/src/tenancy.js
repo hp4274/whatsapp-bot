@@ -494,7 +494,7 @@ export class Tenancy {
     }
 
     // -------------------------------------------------------------- users --
-    async createUser({ tenantId = null, email, name = '', password, role }) {
+    async createUser({ tenantId = null, email, name = '', password, role, adminRoleId = null }) {
         const cleanEmail = cleanUserEmail(email);
         if (String(password ?? '').length < 8) throw new TenancyError('password must be at least 8 characters');
         if (!ROLES.includes(role)) throw new TenancyError(`role must be one of ${ROLES.join(', ')}`);
@@ -505,9 +505,9 @@ export class Tenancy {
         const hash = await hashPassword(password);
         try {
             const info = this.db.prepare(
-                `INSERT INTO users (tenant_id, email, name, password_hash, role, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?)`)
-                .run(tenantId, cleanEmail, String(name).trim(), hash, role, utcNow());
+                `INSERT INTO users (tenant_id, email, name, password_hash, role, created_at, admin_role_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`)
+                .run(tenantId, cleanEmail, String(name).trim(), hash, role, utcNow(), role === 'super_admin' ? adminRoleId : null);
             return this.getUser(Number(info.lastInsertRowid));
         } catch (err) {
             if (/UNIQUE/.test(err.message)) throw new TenancyError('that email is already registered', 409);
@@ -537,6 +537,22 @@ export class Tenancy {
     listUsers(tenantId) {
         return this.db.prepare("SELECT * FROM users WHERE tenant_id = ? AND email NOT LIKE '%#deleted-%' ORDER BY id")
             .all(Number(tenantId)).map(toUser);
+    }
+
+    /** Platform users: full super admins (no staff role) and staff, oldest first. */
+    listPlatformUsers() {
+        return this.db.prepare("SELECT * FROM users WHERE tenant_id IS NULL AND email NOT LIKE '%#deleted-%' ORDER BY id")
+            .all().map(toUser);
+    }
+
+    /** A staff member's name and role (adminRoles.js). Only staff: a full super admin is never turned into one here. */
+    setStaff(userId, { name, adminRoleId }) {
+        const info = this.db.prepare(
+            `UPDATE users SET name = COALESCE(?, name), admin_role_id = ?
+             WHERE id = ? AND tenant_id IS NULL AND admin_role_id IS NOT NULL AND email NOT LIKE '%#deleted-%'`)
+            .run(name == null ? null : String(name).trim().slice(0, 120), Number(adminRoleId), Number(userId));
+        if (!info.changes) throw new TenancyError('staff member not found', 404);
+        return this.getUser(userId);
     }
 
     /**
@@ -575,7 +591,7 @@ export class Tenancy {
     removeUser(tenantId, userId) {
         const info = this.db.prepare(
             `UPDATE users SET email = email || '#deleted-' || id, disabled = 1
-             WHERE id = ? AND tenant_id = ? AND email NOT LIKE '%#deleted-%'`).run(Number(userId), Number(tenantId));
+             WHERE id = ? AND tenant_id IS ? AND email NOT LIKE '%#deleted-%'`).run(Number(userId), tenantId == null ? null : Number(tenantId));
         if (!info.changes) throw new TenancyError('user not found', 404);
         this.revokeSessions(userId);
     }
@@ -952,6 +968,6 @@ function toConsent(row) {
 function toUser(row) {
     return {
         id: row.id, tenantId: row.tenant_id, email: row.email, name: row.name,
-        role: row.role, disabled: Boolean(row.disabled), createdAt: row.created_at,
+        role: row.role, disabled: Boolean(row.disabled), createdAt: row.created_at, adminRoleId: row.admin_role_id ?? null,
     };
 }

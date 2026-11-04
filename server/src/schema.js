@@ -28,6 +28,8 @@ import { WORKFLOWS_SCHEMA } from './workflows/schema.js';
 import { PLATFORM_MESSAGES_SCHEMA } from './platform/notify.js';
 import { LIMIT_REQUESTS_SCHEMA } from './limits/requests.js';
 import { REFERRALS_SCHEMA } from './referrals.js';
+import { ADMIN_ROLES_SCHEMA } from './adminRoles.js';
+import { SENT_MAIL_SCHEMA } from './mail/mailer.js';
 
 export const MODULE_SCHEMAS = [
     TEMPLATES_SCHEMA,
@@ -48,4 +50,6 @@ export const MODULE_SCHEMAS = [
     PLATFORM_MESSAGES_SCHEMA,
     LIMIT_REQUESTS_SCHEMA,
     REFERRALS_SCHEMA,
+    ADMIN_ROLES_SCHEMA,
+    SENT_MAIL_SCHEMA,
 ];

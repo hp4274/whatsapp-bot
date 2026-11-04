@@ -340,6 +340,8 @@ function addTenantControlColumns(db) {
     if (!cols.includes('wapzo_updates')) db.exec('ALTER TABLE tenants ADD COLUMN wapzo_updates INTEGER NOT NULL DEFAULT 1');
     // The business on paper: legal name, GSTIN, PAN, address and so on (tenancy.js PROFILE_FIELDS), as JSON.
     if (!cols.includes('profile')) db.exec("ALTER TABLE tenants ADD COLUMN profile TEXT NOT NULL DEFAULT '{}'");
+    // A platform user's staff role (adminRoles.js); null is a full super admin.
+    if (!columnsOf(db, 'users').includes('admin_role_id')) db.exec('ALTER TABLE users ADD COLUMN admin_role_id INTEGER');
     // Session idle timeout (see Tenancy.resolveSession).
     if (!columnsOf(db, 'sessions').includes('last_seen_at')) db.exec('ALTER TABLE sessions ADD COLUMN last_seen_at TEXT');
     if (!columnsOf(db, 'whatsapp_channels').includes('number_since')) db.exec('ALTER TABLE whatsapp_channels ADD COLUMN number_since TEXT');

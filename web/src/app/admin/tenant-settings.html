@@ -31,6 +31,8 @@
     </header>
 
     <div class="split">
+    <!-- A disabled fieldset turns off every control inside, down through the child components. -->
+    <fieldset class="locked" [disabled]="readOnly()">
     <app-tenant-summary
       [tenant]="s.tenant"
       [sub]="sub()"
@@ -46,6 +48,7 @@
       (activate)="activate($event)"
       (detailsSaved)="detailsSaved($event)"
     />
+    </fieldset>
 
     <div class="pane">
     <nav class="tabs" role="tablist" aria-label="Tenant settings">
@@ -64,6 +67,13 @@
 
     <!-- No Save buttons: a box saves when you click away from it changed; selects, dates and ticks save at once. -->
     <div class="settings-body" (change)="changed($event)">
+      @if (readOnly()) {
+        <p class="s-banner tone-info" role="status">
+          <i class="ti ti-lock" aria-hidden="true"></i>
+          <span class="msg">Your role can look at this business but not change it.</span>
+        </p>
+      }
+      <fieldset class="locked" [disabled]="readOnly()">
       @if (error()) {
         <p class="s-banner" role="alert">
           <i class="ti ti-alert-circle" aria-hidden="true"></i>
@@ -737,6 +747,7 @@
           </section>
         }
       }
+      </fieldset>
     </div>
 
     </div>
