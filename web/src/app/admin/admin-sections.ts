@@ -108,13 +108,13 @@ export const ADMIN_SECTIONS: readonly AdminSectionMeta[] = [
   },
   {
     key: 'wapzo',
-    label: 'Wapzo WhatsApp',
+    label: 'Wuzie WhatsApp',
     icon: 'brand-whatsapp',
     path: '/admin/wapzo',
-    hint: 'Messages from Wapzo’s own number',
+    hint: 'Messages from Wuzie’s own number',
     actions: [
       view('See the messages and the number'),
-      { key: 'edit', label: 'Change', hint: 'Change the messages and Wapzo’s number' },
+      { key: 'edit', label: 'Change', hint: 'Change the messages and Wuzie’s number' },
       { key: 'send', label: 'Send', hint: 'Send test and broadcast messages' },
     ],
   },

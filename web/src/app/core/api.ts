@@ -822,7 +822,7 @@ export class TenancyApi {
     return this.updateTenant(id, { status });
   }
 
-  /** Tenant settings > Edit: the business's name, ID, contact WhatsApp, Wapzo updates and its owner. */
+  /** Tenant settings > Edit: the business's name, ID, contact WhatsApp, Wuzie updates and its owner. */
   updateDetails(id: number, body: TenantDetails): Observable<{ tenant: Tenant; owner: User | null }> {
     return this.http
       .put<{ tenant: Tenant; owner: User | null }>(`/api/admin/tenants/${id}/details`, body)

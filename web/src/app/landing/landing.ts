@@ -164,7 +164,7 @@ const FAQS: readonly { readonly q: string; readonly a: string }[] = [
   },
   {
     q: 'Will my number get banned?',
-    a: 'No tool can promise that. Wapzo lowers the risk: it caps how much a number sends a day, leaves random gaps between messages, holds bulk sends in your quiet hours and pauses a campaign when too many messages fail.',
+    a: 'No tool can promise that. Wuzie lowers the risk: it caps how much a number sends a day, leaves random gaps between messages, holds bulk sends in your quiet hours and pauses a campaign when too many messages fail.',
   },
   {
     q: 'Do I need the WhatsApp Business API?',
@@ -204,7 +204,7 @@ const QR: readonly number[] = [
 const CONTACT_EMAIL = 'connection@zarklyx.com';
 
 /**
- * The public front page for a visitor from search: Wapzo is bulk WhatsApp
+ * The public front page for a visitor from search: Wuzie is bulk WhatsApp
  * messaging first, so the hero shows customers getting their message, and the replies,
  * inbox and the rest follow. Signed-in users never see it (`landingGuard`).
  *
@@ -314,7 +314,7 @@ export class Landing {
   /** A mailto with the subject and a short brief filled in, so the request arrives answerable. */
   protected mail(subject: string): string {
     const body =
-      'Hi Wapzo team,\n\nBusiness name:\nWhat we do:\nWhatsApp numbers we would link:\nRoughly how many contacts:\n\nThanks';
+      'Hi Wuzie team,\n\nBusiness name:\nWhat we do:\nWhatsApp numbers we would link:\nRoughly how many contacts:\n\nThanks';
     return `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
 }

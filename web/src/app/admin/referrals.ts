@@ -6,7 +6,7 @@ import { ReferralDrawer } from './referral-drawer';
 import { Referrer, ReferralsApi, rateText, referralLink } from './referrals-api';
 
 /**
- * Marketers who bring businesses to Wapzo, and the commission they earn on what those businesses pay. The table is
+ * Marketers who bring businesses to Wuzie, and the commission they earn on what those businesses pay. The table is
  * who is owed what; a row opens the marketer's drawer (details, link, businesses, commissions, pay).
  */
 @Component({

@@ -5,7 +5,7 @@ import { Observable, catchError } from 'rxjs';
 import type { ConnectionState, MessageStatus, SafetyHealthView, UploadedMedia } from '../core/api';
 import { toMessage } from './plans-api';
 
-/** One event Wapzo writes to a client about (server platform/notify.js PLATFORM_EVENTS), with its saved text. */
+/** One event Wuzie writes to a client about (server platform/notify.js PLATFORM_EVENTS), with its saved text. */
 export interface WapzoMessage {
   readonly kind: string;
   readonly label: string;
@@ -16,7 +16,7 @@ export interface WapzoMessage {
   readonly text: string;
 }
 
-/** A message the Wapzo number sent; `kind` is the event, or 'test'. */
+/** A message the Wuzie number sent; `kind` is the event, or 'test'. */
 export interface WapzoLogEntry {
   readonly id: string;
   readonly to: string;
@@ -53,10 +53,10 @@ export interface WapzoBroadcastResult {
 
 export type WapzoTestResult = { readonly sent: true; readonly messageId: string; readonly recipient: string };
 
-/** The number's own API (as a business's Connection page uses it), routed to Wapzo's hidden tenant. */
+/** The number's own API (as a business's Connection page uses it), routed to Wuzie's hidden tenant. */
 const NUMBER = '/api/admin/wapzo/api';
 
-/** Super admin: Wapzo's own WhatsApp number, the messages it sends clients, and what it sent. */
+/** Super admin: Wuzie's own WhatsApp number, the messages it sends clients, and what it sent. */
 @Injectable({ providedIn: 'root' })
 export class WapzoApi {
   private readonly http = inject(HttpClient);
@@ -86,7 +86,7 @@ export class WapzoApi {
     return this.http.post<WapzoBroadcastResult>('/api/admin/wapzo/broadcast', body).pipe(catchError(toMessage));
   }
 
-  /** An image stored as the Wapzo number's own, for a message to many. */
+  /** An image stored as the Wuzie number's own, for a message to many. */
   uploadImage(file: File): Observable<UploadedMedia> {
     const form = new FormData();
     form.append('file', file);

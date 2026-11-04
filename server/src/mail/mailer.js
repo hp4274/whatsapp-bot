@@ -3,7 +3,7 @@
  * (.env, never the code), and with none set the mailer is a no-op, so tests and local runs send nothing:
  *
  *   SMTP_HOST, SMTP_PORT (465 = TLS from the start, 587 = STARTTLS), SMTP_USER, SMTP_PASSWORD,
- *   SMTP_FROM (optional, default "Wapzo <SMTP_USER>"), LEADS_NOTIFY_EMAIL (optional, default SMTP_USER).
+ *   SMTP_FROM (optional, default "Wuzie <SMTP_USER>"), LEADS_NOTIFY_EMAIL (optional, default SMTP_USER).
  *
  * `send` never throws: a mail that fails is logged and reported back as { sent: false, reason }, because no
  * email is worth failing the request that triggered it.
@@ -45,7 +45,7 @@ export function createMailer(env = process.env) {
         greetingTimeout: 10_000,
         socketTimeout: 20_000,
     });
-    const from = env.SMTP_FROM?.trim() || `Wapzo <${user}>`;
+    const from = env.SMTP_FROM?.trim() || `Wuzie <${user}>`;
     return {
         configured: true,
         notifyTo: env.LEADS_NOTIFY_EMAIL?.trim() || user,

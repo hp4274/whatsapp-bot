@@ -55,7 +55,7 @@ p { margin: 0; }
   transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
   &.on { background: var(--primary-tint); color: var(--primary-text); }
   // Every action on the page, not just some: drawn solid.
-  &.full { background: var(--primary); color: var(--on-fill); }
+  &.full { background: var(--primary); color: var(--on-primary); }
 }
 .strip.big {
   grid-template-columns: repeat(12, minmax(0, 1fr));

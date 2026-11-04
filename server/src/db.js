@@ -335,7 +335,7 @@ function addTenantControlColumns(db) {
     if (!cols.includes('safety_exit')) db.exec('ALTER TABLE tenants ADD COLUMN safety_exit TEXT');
     // The number the round-robin sender rule picked last (Channels.pick), so rotation survives a restart.
     if (!cols.includes('last_sender_id')) db.exec('ALTER TABLE tenants ADD COLUMN last_sender_id INTEGER');
-    // The business's WhatsApp number for Wapzo's own messages (platform/notify.js), and whether it gets them.
+    // The business's WhatsApp number for Wuzie's own messages (platform/notify.js), and whether it gets them.
     if (!cols.includes('contact_phone')) db.exec("ALTER TABLE tenants ADD COLUMN contact_phone TEXT NOT NULL DEFAULT ''");
     if (!cols.includes('wapzo_updates')) db.exec('ALTER TABLE tenants ADD COLUMN wapzo_updates INTEGER NOT NULL DEFAULT 1');
     // The business on paper: legal name, GSTIN, PAN, address and so on (tenancy.js PROFILE_FIELDS), as JSON.
@@ -625,6 +625,10 @@ export class Database {
         once(this.db, 'tenant-contact-phone-from-leads', () => this.db.exec(
             `UPDATE tenants SET contact_phone = COALESCE((SELECT phone FROM leads WHERE leads.tenant_id = tenants.id
                  AND phone != '' ORDER BY id DESC LIMIT 1), '') WHERE contact_phone = ''`));
+        // The brand became Wuzie: message texts an admin saved still said the old name.
+        once(this.db, 'brand-wuzie', () => this.db.exec(
+            `UPDATE platform_messages SET text = REPLACE(text, 'Wapzo', 'Wuzie') WHERE text LIKE '%Wapzo%';
+             UPDATE tenants SET name = 'Wuzie' WHERE status = 'system' AND name = 'Wapzo';`));
         this.db.prepare(`INSERT OR IGNORE INTO tenants (id, name, slug, status, created_at)
                          VALUES (?, 'Default', 'default', 'active', ?)`).run(DEFAULT_TENANT_ID, utcNow());
         // The root handle is tenant 1, so single-tenant code and tests are unchanged.

@@ -2371,7 +2371,7 @@ export function createApp({
     };
     app.locals.expireLimitRequests = (now) => limitRequests.expire(revertLimit, now);
     const CYCLE_WORD = { month: 'monthly', quarter: 'quarterly', year: 'annual' };
-    // Wapzo's own WhatsApp number writing to clients (platform/notify.js); runtimeFor is defined further down.
+    // Wuzie's own WhatsApp number writing to clients (platform/notify.js); runtimeFor is defined further down.
     const platformMessages = new PlatformMessages(db.db);
     const notifier = createNotifier({ tenancy, runtimeFor: (id) => runtimeFor(id), templates: platformMessages });
     app.locals.notifier = notifier;
@@ -2625,7 +2625,7 @@ export function createApp({
             if (body.website) return res.status(201).json({ ok: true });
             const lead = leads.create({ ...body, ip: req.ip ?? '', referralCode: referrals.byCode(body.ref)?.code ?? '' });
             adminFeed.publish('leads', null);
-            // "We got your request" from Wapzo's own number; a resubmitted request is a new message.
+            // "We got your request" from Wuzie's own number; a resubmitted request is a new message.
             notifier.event('lead_received', {
                 to: lead.phone, vars: { name: lead.name, business: lead.business }, key: `lead:${lead.id}:${lead.updatedAt}`,
             });
@@ -3434,7 +3434,7 @@ export function createApp({
         }
     });
 
-    // ---- Wapzo's own WhatsApp number (platform/notify.js): linked and run like a business's, on a hidden tenant ----
+    // ---- Wuzie's own WhatsApp number (platform/notify.js): linked and run like a business's, on a hidden tenant ----
     const systemRuntime = () => {
         const system = tenancy.systemTenant({ create: true });
         return { system, runtime: runtimeFor(system.id) };
@@ -3469,7 +3469,7 @@ export function createApp({
 
     /** A test message to any number, to check the link end to end. */
     admin.post('/wapzo/test', (req, res) => {
-        const text = String(req.body?.text ?? '').trim() || 'This is a test message from Wapzo.';
+        const text = String(req.body?.text ?? '').trim() || 'This is a test message from Wuzie.';
         const result = notifier.send({ to: req.body?.to, text, key: `test:${Date.now()}`, kind: 'test' });
         if (!result.sent) return res.status(409).json({ errors: [result.reason] });
         audit(req, 'wapzo.test', result.recipient);
@@ -3477,9 +3477,9 @@ export function createApp({
     });
 
     /**
-     * One message from the Wapzo number to many: every business, the ones chosen, and/or typed numbers. Queued as
+     * One message from the Wuzie number to many: every business, the ones chosen, and/or typed numbers. Queued as
      * campaign traffic, so it is paced like a bulk send and never holds up a client's update. {name} and {business}
-     * are filled per business. "All" leaves out archived businesses and those that switched Wapzo updates off.
+     * are filled per business. "All" leaves out archived businesses and those that switched Wuzie updates off.
      */
     admin.post('/wapzo/broadcast', (req, res) => {
         const body = req.body ?? {};
@@ -3496,7 +3496,7 @@ export function createApp({
             : ids.map((id) => tenancy.getTenant(id)).filter((t) => t && t.status !== 'system');
         if (!tenants.length && !numbers.length) return res.status(400).json({ errors: ['Choose who gets it.'] });
         const state = notifier.systemState();
-        if (!state?.transport?.isConnected?.()) return res.status(409).json({ errors: ['The Wapzo WhatsApp number is not linked.'] });
+        if (!state?.transport?.isConnected?.()) return res.status(409).json({ errors: ['The Wuzie WhatsApp number is not linked.'] });
         // An image uploaded through the number's own API (/wapzo/api/media/upload), so it is the system tenant's.
         const media = body.mediaId ? state.media.get(String(body.mediaId)) : null;
         if (body.mediaId && !media) return res.status(404).json({ errors: ['The image was not found. Add it again.'] });
@@ -3764,7 +3764,7 @@ export function createApp({
             const charged = chargeIfActive(req, tenant.id);
             audit(req, 'tenant.activate', tenant.id, { slug: tenant.slug, charged });
             const signIn = publicBaseUrl ?? req.get('origin') ?? null;
-            notifyTenant('account_activated', tenant.id, { link: signIn ? `${signIn}/login` : 'the Wapzo sign-in page' },
+            notifyTenant('account_activated', tenant.id, { link: signIn ? `${signIn}/login` : 'the Wuzie sign-in page' },
                 `activate:${tenant.id}`);
             const overview = tenantOverview(active);
             let email = { sent: false, reason: 'Not sent.' };
@@ -3804,7 +3804,7 @@ export function createApp({
     });
 
     /**
-     * Tenant settings > Edit: the business's name, ID, contact WhatsApp and Wapzo updates switch, and its owner's
+     * Tenant settings > Edit: the business's name, ID, contact WhatsApp and Wuzie updates switch, and its owner's
      * name and sign-in email. Each part is checked before the other is written, so a taken email changes nothing.
      */
     admin.put('/tenants/:id/details', async (req, res) => {
@@ -4709,7 +4709,7 @@ export function createApp({
      */
     const reconnectAll = async () => {
         void opsAlerts.tick(); // the hourly "N alerts held back" summary
-        // Wapzo's own number (platform/notify.js) stays up through restarts like a business's.
+        // Wuzie's own number (platform/notify.js) stays up through restarts like a business's.
         for (const tenant of [...tenancy.listTenants(), tenancy.systemTenant()].filter(Boolean)) {
             if (tenant.status !== 'active' && tenant.status !== 'system') continue;
             try {

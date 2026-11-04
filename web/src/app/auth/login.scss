@@ -292,7 +292,7 @@ h1 {
   margin-bottom: 28px;
 }
 
-// The Wapzo chat-bubble mark: it carries its own gradient, so no tile behind it.
+// The Wuzie chat-bubble mark: it carries its own gradient, so no tile behind it.
 .brand-mark {
   width: 34px;
   height: 34px;
@@ -300,19 +300,12 @@ h1 {
 }
 
 .brand-word {
-  // Lowercase and heavy, like the logo: "wap" in ink, "zo" in the blue-to-violet gradient.
-  font-size: 20px;
-  font-weight: 800;
-  letter-spacing: -0.5px;
+  // "wuzie" as the logo sets it: lowercase, one ink, a medium weight with tight spacing.
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.6px;
   white-space: nowrap;
   color: var(--brand-word-ink);
-
-  span {
-    background: var(--brand-word-gradient);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
 }
 
 .head {

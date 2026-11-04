@@ -1,4 +1,4 @@
-/** Wapzo's own WhatsApp number: linked on a hidden tenant, writing to clients on platform events. */
+/** Wuzie's own WhatsApp number: linked on a hidden tenant, writing to clients on platform events. */
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -28,7 +28,7 @@ const call = async (token, method, url, body) => {
     });
     return { status: res.status, body: await res.json() };
 };
-/** What the Wapzo number queued or sent, as [kind, recipient, text], oldest first. */
+/** What the Wuzie number queued or sent, as [kind, recipient, text], oldest first. */
 const sent = () => db.db.prepare(
     "SELECT campaign_id, recipient, message FROM messages WHERE tenant_id = ? AND direction = 'outbound' ORDER BY rowid")
     .all(systemId).map((m) => [m.campaign_id.replace('wapzo:', ''), m.recipient, m.message]);
@@ -50,7 +50,7 @@ after(async () => {
     fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-describe('Wapzo WhatsApp number', () => {
+describe('Wuzie WhatsApp number', () => {
     it('fills a message and tidies what an empty value leaves', () => {
         assert.equal(renderText('Hi {name}, on {plan}{amount_text}.', { name: 'Asha', plan: 'Starter' }), 'Hi Asha, on Starter.');
     });
@@ -84,7 +84,7 @@ describe('Wapzo WhatsApp number', () => {
         const [kind, to, text] = sent().at(-1);
         assert.equal(kind, 'lead_received');
         assert.equal(to, '919876522222');
-        assert.match(text, /^Hi Asha, thanks for asking for a Wapzo account for Asha Sarees\./);
+        assert.match(text, /^Hi Asha, thanks for asking for a Wuzie account for Asha Sarees\./);
         const off = await call(sup, 'PUT', '/api/admin/wapzo/messages/lead_received', { enabled: false });
         assert.equal(off.body.message.enabled, false);
         await call(null, 'POST', '/api/leads', { name: 'Ravi', business: 'Ravi Tutors', email: 'ravi@t.test', phone: '98765 33333' });
@@ -139,7 +139,7 @@ describe('Wapzo WhatsApp number', () => {
         const asha = (await call(sup, 'GET', '/api/admin/tenants')).body.tenants.find((t) => t.name === 'Asha Sarees');
         assert.equal((await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: 'all', text: '' })).status, 400);
         assert.equal((await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: [], text: 'Hi' })).status, 400);
-        // All: Asha switched Wapzo updates off, so she is left out.
+        // All: Asha switched Wuzie updates off, so she is left out.
         const all = await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: 'all', text: 'Hi {name}' });
         assert.equal(all.status, 200, JSON.stringify(all.body));
         assert.ok(!sent().some(([kind, to]) => kind === 'broadcast' && to === '919876522222'));

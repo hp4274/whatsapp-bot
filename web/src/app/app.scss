@@ -85,7 +85,7 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
   text-decoration: none;
 }
 
-// The Wapzo chat-bubble mark (public/assets/brand/logo.png): it carries its own gradient, so no tile behind it.
+// The Wuzie chat-bubble mark (public/assets/brand/logo.svg): it carries its own gradient, so no tile behind it.
 .brand-mark {
   flex-shrink: 0;
   width: 30px;
@@ -99,19 +99,12 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .brand-word {
-  // Lowercase and heavy, like the logo: "wap" in ink, "zo" in the blue-to-violet gradient.
-  font-size: 18px;
-  font-weight: 800;
-  letter-spacing: -0.5px;
+  // "wuzie" as the logo sets it: lowercase, one ink, a medium weight with tight spacing.
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.6px;
   white-space: nowrap;
   color: var(--brand-word-ink);
-
-  span {
-    background: var(--brand-word-gradient);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
 }
 
 %icon-button {
@@ -341,7 +334,7 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
   border-radius: 50%;
   font-size: 12px;
   font-weight: 600;
-  color: var(--on-fill);
+  color: var(--on-primary); // the ink: white is 2.8:1 on the orange
   background: var(--brand-gradient);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--on-fill) 25%, transparent);
 }
