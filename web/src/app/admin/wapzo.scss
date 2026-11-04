@@ -31,6 +31,15 @@
   line-height: 1.5;
 }
 
+// How fast account messages go, under the Messages heading.
+.lane {
+  display: flex;
+  gap: 6px;
+  max-width: 70ch;
+  margin: -6px 0 var(--space-md);
+  .ti { flex: none; margin-top: 2px; color: var(--primary-text); }
+}
+
 p {
   margin: 0;
 }

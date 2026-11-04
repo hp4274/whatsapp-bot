@@ -77,6 +77,8 @@ describe('Wuzie WhatsApp number', () => {
         assert.deepEqual(sent().at(-1), ['test', '919876500000', 'Checking the link']);
         // Not a business: never in the tenant list.
         assert.ok(!(await call(sup, 'GET', '/api/admin/tenants')).body.tenants.some((t) => t.id === systemId));
+        // Its account messages take the fast lane (manager PLATFORM_LANE); businesses keep the default, off.
+        assert.equal(app.locals.notifier.systemState().manager.platformLane, true);
     });
 
     it('thanks a visitor for their request; a switched-off message is not sent', async () => {
