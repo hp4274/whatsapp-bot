@@ -65,6 +65,13 @@ const HEALTH_SCAN_MS = 600_000;
 export const DEAD_MAN_MS = 6 * 3_600_000;
 /** A message stuck at 48h counts as a block only while the number delivered at least this share then. */
 const BLOCK_MIN_DELIVERED = 0.95;
+/**
+ * Wuzie's own number (`platformLane`): its account messages (transactional: "we got your request", a receipt, "plan
+ * ends soon") are one-to-one and expected, so they skip the bulk warm-up (level gaps, new-chat budget, the rest after
+ * linking) and go within seconds. Safety stays: a short human gap and typing, a rest every so often, hour and day
+ * caps over everything the number sends, the WhatsApp-account lookup, opt-outs, and the 475 restriction hold.
+ */
+export const PLATFORM_LANE = Object.freeze({ gap: [4, 9], restEvery: 20, rest: [60, 120], perHour: 60, perDay: 400 });
 /** WhatsApp said rate-overlimit (429): the next try waits at least this long (seconds). */
 const RATE_LIMIT_WAIT = [90, 120];
 export const NOT_ON_WHATSAPP_TEXT = FRIENDLY[ErrorCode.INVALID_RECIPIENT];
@@ -132,6 +139,10 @@ export class CampaignManager extends EventEmitter {
         this.policyWindowOpen = null;  // () => false outside the platform's sending hours
         this.stopReason = 'Stopped by operator';
         this.resumeRefusal = null;     // why a policy hold cannot be resumed yet
+        // Set by the channel runtime on Wuzie's own number: its transactional messages take PLATFORM_LANE.
+        this.platformLane = false;
+        this.laneLimits = PLATFORM_LANE;
+        this.laneSent = 0;
         // Set by the channel runtime when PUBLIC_BASE_URL is known: a links/store.js LinkStore.
         this.links = null;
         this.current = null;
@@ -794,6 +805,7 @@ export class CampaignManager extends EventEmitter {
         if (this.quota.qr && this.transport?.realDelivery && !String(item.recipient).includes('@') && this.#restricted()
             && !(item.wrote ??= Boolean(this.db.wroteIn?.(digits(item.recipient))))) return false;
         if (item.messageType !== 'campaign' && this.sendBlock?.(item.messageType)) return false;
+        if (this.#onLane(item)) return this.#laneRoom();
         const held = HELD.has(item.messageType);
         // Every held type on a QR number; elsewhere campaigns only, so a school's early notice is not held till 9.
         const daytime = item.messageType === 'campaign' || (held && this.#onLevels());
@@ -809,6 +821,30 @@ export class CampaignManager extends EventEmitter {
         // Lazily, here: restored, recovered and retried items are covered too.
         // shortcut: `cold` is read once; someone who writes in after that still waits for a new chat. Re-read it if that matters.
         return budgets.newChats.left > 0 || !(item.cold ??= this.#cold(item));
+    }
+
+    /** An account message on Wuzie's own number (PLATFORM_LANE). */
+    #onLane(item) {
+        return this.platformLane && item?.messageType === 'transactional';
+    }
+
+    /** Room under the lane's caps, counted over everything this number sent in the last hour and day (re-read every 2s). */
+    #laneRoom() {
+        const now = Date.now();
+        if (!this.laneCount || now - this.laneCount.at > 2000) {
+            const until = isoAgo(-1000);
+            this.laneCount = { at: now, hour: this.db.countSentBetween(isoAgo(3_600_000), until), day: this.db.countSentBetween(isoAgo(86_400_000), until) };
+        }
+        return this.laneCount.hour < this.laneLimits.perHour && this.laneCount.day < this.laneLimits.perDay;
+    }
+
+    /** A few seconds like a person, a longer rest every `restEvery` sends; counted from the number's last action. */
+    #laneGap() {
+        const { gap, restEvery, rest } = this.laneLimits;
+        this.laneSent += 1;
+        const resting = this.laneSent % restEvery === 0;
+        const seconds = resting ? between(...rest) : between(...gap);
+        return { seconds: Math.max(0, seconds - (Date.now() - (this.lastActionAt || 0)) / 1000), resting };
     }
 
     /** Nobody here: never sent to, never wrote in. A group (jid) is not a stranger. */
@@ -880,6 +916,7 @@ export class CampaignManager extends EventEmitter {
      * and one send after a quiet spell still goes straight away.
      */
     #nextGap(item) {
+        if (this.#onLane(item)) return this.#laneGap();
         const levels = this.#onLevels();
         // A level moves mid-run (a brake, a level-up): its pace follows on every send.
         if (levels) this.pace = this.#paceFor(this.pace.batchSize, this.pacePreset);
@@ -1186,7 +1223,8 @@ export class CampaignManager extends EventEmitter {
         if (!this.transport?.supportsRegistrationCheck || !checkable(item)) return false;
         if (this.#onLevels()) {
             item.cold ??= this.#cold(item);
-            if (!item.cold || !this.quota.allowance().lookups) return false;
+            // The lane always looks a stranger up first: a client's typo must not become a message to nobody.
+            if (!item.cold || (!this.#onLane(item) && !this.quota.allowance().lookups)) return false;
             if (this.#registered(item.recipient) === undefined) {
                 await this.checkRegistered([item.recipient]);
                 this.lastActionAt = Date.now();
@@ -1293,6 +1331,8 @@ export class CampaignManager extends EventEmitter {
                     error: SUCCESS_STATUSES.includes(result.status) ? null : result.detail,
                     parts: result.parts,
                 });
+                // The lane's caps count this send before the next pick, not after the 2s cache.
+                if (this.#onLane(item)) this.laneCount = null;
                 this.#finish(item, result.status, { providerId: result.providerId, counted: true });
                 // A receipt that landed before provider_id was written found no row and is gone;
                 // the transport still remembers it (two ticks must not stay one).

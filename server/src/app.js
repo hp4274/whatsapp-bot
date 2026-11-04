@@ -363,6 +363,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     });
 
     const manager = new CampaignManager(db, new NullTransport(), config);
+    // Wuzie's own number: its account messages skip the bulk warm-up and go within seconds (manager PLATFORM_LANE).
+    manager.platformLane = db.tenantId != null && deps.tenancy?.systemTenant()?.id === db.tenantId;
     // Ops alerts (observability/alerts.js), tagged with this number. Never throws into the caller.
     const opsAlert = (alert) => {
         void Promise.resolve(deps.opsAlert?.({
