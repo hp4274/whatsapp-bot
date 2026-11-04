@@ -95,10 +95,11 @@ section[id] {
   position: relative;
   display: grid;
   align-items: center;
-  // The panel takes the photos' own shape, so each shows whole, not cropped to fill a taller box.
-  aspect-ratio: 1672 / 941;
+  // A capped band, not the photos' full 16:9: at 1920 that filled the whole screen. The photos crop
+  // from the bottom (see .hero-bg), so the message cards along their top stay in.
+  min-height: clamp(640px, 44vw, 960px);
   margin-top: 12px;
-  padding: calc(clamp(56px, 8vw, 104px) + 72px) 0 clamp(56px, 7vw, 96px);
+  padding: calc(clamp(40px, 5vw, 64px) + 72px) 0 clamp(48px, 5vw, 72px);
   // clip, not hidden: a scroll container may shrink below its text, which cut off the dots at tablet widths.
   overflow: clip;
   isolation: isolate;
@@ -111,7 +112,7 @@ section[id] {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 70% center;
+  object-position: 70% top;
   // Slides run right to left: each photo waits off the right edge, slides in, then leaves off the left.
   // Waiting has no transition, so the jump back from the left is never seen.
   // 105%, not 100%: at 1.05 scale a photo is 2.5% wider each side, which would show at the right edge.
@@ -154,6 +155,15 @@ section[id] {
   grid-template-columns: minmax(0, 620px);
 }
 
+// The photos are composed with a plain wall on their left third, so on desktop the copy keeps to the
+// panel's left edge; centred in the 1280 column it slid into the message cards on wide screens.
+@media (min-width: 1024px) {
+  .hero-grid {
+    max-width: none;
+    padding-inline: clamp(48px, 8vw, 116px);
+  }
+}
+
 h1,
 .hero-title {
   margin: 0;
@@ -164,7 +174,7 @@ h1,
 }
 
 .hero-lede {
-  margin: 32px 0 0;
+  margin: 24px 0 0;
   max-width: 34em;
   font-size: clamp(16px, 1.35vw, 19px);
   line-height: 1.55;
@@ -206,14 +216,14 @@ h1,
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  margin-top: 36px;
+  margin-top: 32px;
 }
 
 .hero-facts {
   display: flex;
   flex-wrap: wrap;
   gap: 10px 24px;
-  margin: 32px 0 0;
+  margin: 24px 0 0;
   padding: 0;
   list-style: none;
   font-size: 14px;
@@ -232,10 +242,18 @@ h1,
 }
 
 // Slide controls: 44px targets, a short bar drawn inside each; the shown one is wider and solid.
+// They sit on the photo's bottom edge (.hero is the containing block), on a dim pill so they read on light photos.
 .hero-dots {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  translate: -50% 0;
   display: flex;
   align-items: center;
-  margin: 40px 0 0 -12px;
+  padding-inline: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand-ink) 45%, transparent);
+  backdrop-filter: blur(6px);
 
   .dot {
     display: grid;
@@ -1418,8 +1436,10 @@ p {
   }
 }
 
+// min-width 0: the tab row's one line made the card 3px wider than a 360px screen.
 .contact {
   width: min(100%, 380px);
+  min-width: 0;
 }
 
 .contact-head {
@@ -1451,8 +1471,11 @@ p {
   font-size: 14.5px;
   color: var(--text-muted);
   box-shadow: inset 0 -1px var(--border-color);
+  // On narrow cards the last tab runs off the edge, as a scrolling tab bar would.
+  overflow: hidden;
 
   span {
+    flex: none;
     padding-bottom: 10px;
   }
 
@@ -1707,12 +1730,16 @@ p {
 }
 
 // --------------------------------------------------------- request access
-// A navy card with the promise and the photo on the left; the heading and form open on the page at the right.
+// A box in the band colour: the navy card with the promise and photo on the left, the heading and form on the right.
 .access {
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
   gap: clamp(32px, 5vw, 72px);
   align-items: center;
+  // Tight round the navy card, roomier on the form side.
+  padding: clamp(12px, 2vw, 24px) clamp(20px, 4vw, 56px) clamp(12px, 2vw, 24px) clamp(12px, 2vw, 24px);
+  border-radius: calc(var(--radius-xl) + 8px);
+  background: var(--surface-band);
 }
 
 .access-art {
@@ -2028,6 +2055,13 @@ p.eyebrow,
   .access {
     grid-template-columns: minmax(0, 1fr);
     max-width: 640px;
+    margin-inline: auto;
+    padding: clamp(12px, 2vw, 24px) clamp(12px, 2vw, 24px) clamp(24px, 4vw, 40px);
+  }
+
+  // Stacked, the form lines up with the navy card's inner edge.
+  .access-body {
+    padding-inline: clamp(12px, 2vw, 16px);
   }
 
   .tools {
@@ -2038,25 +2072,55 @@ p.eyebrow,
   .hero-title {
     max-width: 14ch;
   }
+
+  // One column puts the copy over the people, so the scrim reaches further across.
+  .hero-scrim {
+    background:
+      linear-gradient(90deg, color-mix(in srgb, var(--brand-ink) 80%, transparent) 0%, color-mix(in srgb, var(--brand-ink) 55%, transparent) 55%, transparent 90%),
+      linear-gradient(180deg, color-mix(in srgb, var(--brand-ink) 55%, transparent) 0%, transparent 25%);
+  }
 }
 
 @media (max-width: 767px) {
+  // Inline only: a `margin` shorthand here also wiped the hero's top and the footer's bottom gap.
   .field {
-    margin: 0 8px;
+    margin-inline: 8px;
     border-radius: 22px;
   }
 
-  // On a phone the photo is a band under the copy, shown whole, not a backdrop to read over.
-  // Its height is the panel width (screen less the 8px margins) at the photos' shape, plus a gap above.
+  // On a phone the photo is a 3:4 portrait (landing.ts `mobile`) at the panel's foot, full width.
+  // Its top 30% (plain wall in each cut) fades into the navy under the copy; the rest sits below it.
   .hero {
-    aspect-ratio: auto;
-    padding-bottom: calc((100vw - 16px) * 941 / 1672 + 40px);
+    min-height: 0;
+    padding-bottom: calc((100vw - 16px) * 4 / 3 * 0.7);
+  }
+
+  h1,
+  .hero-title {
+    max-width: none;
+    font-size: clamp(32px, 9vw, 40px);
+  }
+
+  .hero-lede {
+    margin-top: 16px;
+  }
+
+  .hero-actions {
+    gap: 10px;
+    margin-top: 24px;
+  }
+
+  .hero-facts {
+    gap: 8px 16px;
+    margin-top: 20px;
+    font-size: 13px;
   }
 
   .hero-bg {
     inset: auto 0 0;
     height: auto;
-    aspect-ratio: 1672 / 941;
+    aspect-ratio: 3 / 4;
+    mask-image: linear-gradient(transparent, black 30%);
   }
 
   .hero-scrim {
@@ -2099,8 +2163,10 @@ p.eyebrow,
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  // Narrower pills sit side by side from ~380px; below that they stack.
   .hero-actions .btn {
     flex: 1 1 auto;
+    padding-inline: 16px;
   }
 }
 

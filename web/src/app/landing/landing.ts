@@ -16,22 +16,26 @@ import { LandingNav } from './landing-nav';
 import { LeadForm } from './lead-form';
 import { CountUp, EASE_OUT, FanOut, Reveal, SPRING, still } from './motion';
 
-/** The hero's slides: a photo of customers getting a message, with its own headline and line. */
-const SLIDES: readonly { readonly image: string; readonly who: string; readonly title: string; readonly lede: string }[] = [
+/** The hero's slides: a photo of customers getting a message, with its own headline and line.
+ *  `mobile` is a portrait cut of the same scene for phones; without one the wide photo is cropped. */
+const SLIDES: readonly { readonly image: string; readonly mobile?: string; readonly who: string; readonly title: string; readonly lede: string }[] = [
   {
     image: 'hero-shop.jpg',
+    mobile: 'hero-shop-m.jpg',
     who: 'a clothes shop',
     title: 'Send bulk WhatsApp messages',
     lede: 'Reach every customer at once from the WhatsApp number you already use. Each message carries the person’s name, goes out at a careful pace that protects your number, and every reply lands in one shared inbox.',
   },
   {
     image: 'hero-studio.jpg',
+    mobile: 'hero-studio-m.jpg',
     who: 'a pottery studio',
     title: 'Remind every class at once',
     lede: 'Class times, changes and fee reminders reach every student by name, from the number they already know, and their replies come back to one inbox.',
   },
   {
     image: 'hero-music.jpg',
+    mobile: 'hero-music-m.jpg',
     who: 'a music club',
     title: 'Fill every seat on Saturday',
     lede: 'Announce the line-up to your whole list with the poster and a booking link. Each message greets them by name and goes out at a pace that keeps your number safe.',

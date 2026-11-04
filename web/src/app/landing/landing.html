@@ -23,17 +23,23 @@
     aria-labelledby="hero-title"
     aria-roledescription="carousel"
   >
+    <!-- Phones get the portrait cut (same breakpoint as the 767px rules in landing.scss). -->
     @for (s of slides; track s.image; let i = $index) {
-      <img
-        class="hero-bg"
-        [class.on]="i === slide()"
-        [class.out]="i === prev()"
-        [src]="'assets/landing/' + s.image"
-        alt=""
-        width="1672"
-        height="941"
-        [attr.fetchpriority]="i === 0 ? 'high' : null"
-      />
+      <picture>
+        @if (s.mobile) {
+          <source media="(max-width: 767px)" [attr.srcset]="'assets/landing/' + s.mobile" width="810" height="1080" />
+        }
+        <img
+          class="hero-bg"
+          [class.on]="i === slide()"
+          [class.out]="i === prev()"
+          [src]="'assets/landing/' + s.image"
+          alt=""
+          width="1672"
+          height="941"
+          [attr.fetchpriority]="i === 0 ? 'high' : null"
+        />
+      </picture>
     }
     <div class="hero-scrim" aria-hidden="true"></div>
 
@@ -150,25 +156,28 @@
   </section>
 
   <!-- =========================== REQUEST ACCESS =========================== -->
-  <section class="section band" id="access" aria-labelledby="access-title">
-    <div class="wrap access" reveal>
-      <!-- The customer's side: a navy card with the promise and the message arriving. -->
-      <figure class="access-art">
-        <p class="access-word" aria-hidden="true">wapzo</p>
-        <p class="access-claim">A reminder for every student.</p>
-        <img
-          src="assets/landing/clay-studio.jpg"
-          alt="A potter in her studio smiling at a WhatsApp message from Clay Studio: Hi Meera, your pottery class starts at 4 PM."
-          width="1000"
-          height="1071"
-          loading="lazy"
-        />
-      </figure>
-      <div class="access-body">
-        <p class="eyebrow">Workspace access</p>
-        <h2 id="access-title">Get started with Wapzo</h2>
-        <p class="access-lede">We’ll set up your workspace and email your sign-in details.</p>
-        <app-lead-form source="landing" />
+  <!-- Plain section; the band colour sits on a rounded box inside the page width. -->
+  <section class="section" id="access" aria-labelledby="access-title">
+    <div class="wrap">
+      <div class="access" reveal>
+        <!-- The customer's side: a navy card with the promise and the message arriving. -->
+        <figure class="access-art">
+          <p class="access-word" aria-hidden="true">wapzo</p>
+          <p class="access-claim">A reminder for every student.</p>
+          <img
+            src="assets/landing/clay-studio.jpg"
+            alt="A potter in her studio smiling at a WhatsApp message from Clay Studio: Hi Meera, your pottery class starts at 4 PM."
+            width="1000"
+            height="1071"
+            loading="lazy"
+          />
+        </figure>
+        <div class="access-body">
+          <p class="eyebrow">Workspace access</p>
+          <h2 id="access-title">Get started with Wapzo</h2>
+          <p class="access-lede">We’ll set up your workspace and email your sign-in details.</p>
+          <app-lead-form source="landing" />
+        </div>
       </div>
     </div>
   </section>
