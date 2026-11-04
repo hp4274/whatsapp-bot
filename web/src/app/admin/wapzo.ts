@@ -1,10 +1,9 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 
-import type { ConnectionState, MessageStatus, SendingLevel } from '../core/api';
+import type { ConnectionState, MessageStatus } from '../core/api';
 import { ConfirmDialog } from '../core/confirm-dialog';
 import { AdminFeed } from './admin-feed';
-import { ChannelsOpsApi } from './channels-ops-api';
 import { WapzoApi, WapzoLogEntry, WapzoMessage } from './wapzo-api';
 import { WapzoBroadcast } from './wapzo-broadcast';
 import { PhoneInput } from '../core/phone-input';
@@ -47,7 +46,7 @@ const STATUS: Readonly<Record<MessageStatus, { readonly label: string; readonly 
 /** The QR code is fetched again this often while linking; the admin feed does not carry each new code. */
 const POLL_MS = 2000;
 
-type Busy = 'link' | 'unlink' | 'country' | 'test' | 'start' | null;
+type Busy = 'link' | 'unlink' | 'country' | 'test' | null;
 
 /**
  * Wuzie's own WhatsApp number: it writes to clients when they ask for an account, when it is ready, and about
@@ -63,7 +62,6 @@ type Busy = 'link' | 'unlink' | 'country' | 'test' | 'start' | null;
 })
 export class Wuzie {
   private readonly api = inject(WapzoApi);
-  private readonly ops = inject(ChannelsOpsApi);
 
   protected readonly loading = signal(true);
   protected readonly error = signal('');
@@ -73,12 +71,10 @@ export class Wuzie {
   protected readonly savingKind = signal<string | null>(null);
   protected readonly confirmUnlink = signal(false);
 
-  protected readonly channelId = signal<number | null>(null);
   protected readonly transports = signal<readonly string[]>(['baileys']);
   protected readonly messages = signal<readonly WapzoMessage[]>([]);
   protected readonly log = signal<readonly WapzoLogEntry[]>([]);
   protected readonly connection = signal<ConnectionState | null>(null);
-  protected readonly level = signal<SendingLevel | null>(null);
 
   /** Unsaved edits by kind: a live reload refreshes the saved texts but never wipes what the admin is typing. */
   protected readonly drafts = signal<Readonly<Record<string, string>>>({});
@@ -109,8 +105,6 @@ export class Wuzie {
     return Number.isNaN(ends) ? null : Math.max(0, Math.ceil((ends - this.now()) / 1000));
   });
   protected readonly sandbox = computed(() => this.transports().includes('sandbox'));
-  /** The button only shows while the rest may still hold messages; unknown level = offer it. */
-  protected readonly canStartNow = computed(() => this.linked() && this.level()?.resting.active !== false);
 
   /** Event label for the log, by kind. */
   private readonly labels = computed(
@@ -138,7 +132,6 @@ export class Wuzie {
     if (!quiet) this.error.set('');
     this.api.overview().subscribe({
       next: (data) => {
-        this.channelId.set(data.channelId);
         this.transports.set(data.transports);
         this.messages.set(data.messages);
         this.log.set(data.log);
@@ -150,7 +143,6 @@ export class Wuzie {
       },
     });
     this.loadConnection();
-    this.loadLevel();
   }
 
   private loadConfig(): void {
@@ -173,17 +165,8 @@ export class Wuzie {
         this.polling = false;
         this.connection.set(state);
         if (state.connecting || state.qr || state.connected) this.starting.set(false);
-        if (state.connected && !this.level()) this.loadLevel();
       },
       error: () => (this.polling = false),
-    });
-  }
-
-  /** Optional: an unlinked number has no level, and the page works without one. */
-  private loadLevel(): void {
-    this.api.health().subscribe({
-      next: ({ safety }) => this.level.set(safety.level ?? null),
-      error: () => this.level.set(null),
     });
   }
 
@@ -213,25 +196,7 @@ export class Wuzie {
         this.busy.set(null);
         this.starting.set(false);
         this.connection.set(state);
-        this.level.set(null);
         this.notice.set('The number is unlinked. Link it again with a new QR code.');
-      },
-      error: (err: Error) => this.fail(err),
-    });
-  }
-
-  /** Ends only the wait after linking; a ban's rest still applies, which the answer reports. */
-  protected startNow(): void {
-    const id = this.channelId();
-    if (id === null) return;
-    this.start('start');
-    this.ops.endLinkWait(id).subscribe({
-      next: ({ resting }) => {
-        this.busy.set(null);
-        this.notice.set(
-          resting ? 'The wait after linking is over, but the number still rests after a ban.' : 'The number can send to anyone now.',
-        );
-        this.loadLevel();
       },
       error: (err: Error) => this.fail(err),
     });

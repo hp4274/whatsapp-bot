@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, catchError } from 'rxjs';
 
-import type { ConnectionState, MessageStatus, SafetyHealthView, UploadedMedia } from '../core/api';
+import type { ConnectionState, MessageStatus, UploadedMedia } from '../core/api';
 import { toMessage } from './plans-api';
 
 /** One event Wuzie writes to a client about (server platform/notify.js PLATFORM_EVENTS), with its saved text. */
@@ -114,8 +114,4 @@ export class WapzoApi {
     return this.http.put<{ config: WapzoConfig }>(`${NUMBER}/config`, update).pipe(catchError(toMessage));
   }
 
-  /** The sending level (and its rest after linking) lives on `safety.level` for a QR number. */
-  health(): Observable<SafetyHealthView> {
-    return this.http.get<SafetyHealthView>(`${NUMBER}/safety/health`).pipe(catchError(toMessage));
-  }
 }

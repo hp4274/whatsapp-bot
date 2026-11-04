@@ -44,23 +44,7 @@
             <span class="muted">{{ conn.name }}</span>
           }
         </p>
-        @if (level(); as lv) {
-          <p class="muted small">
-            Sending level {{ lv.level }} of {{ lv.of }}, {{ lv.name }}.
-            @if (lv.resting.active) {
-              Resting{{ lv.resting.endsAt ? ' until ' + (lv.resting.endsAt | date: 'd MMM, h:mm a') : '' }}.
-            }
-            The level paces broadcasts only; account messages go out within seconds.
-          </p>
-        }
-        @if (canStartNow()) {
-          <div class="row">
-            <button class="btn sm" type="button" [disabled]="busy() !== null || channelId() === null" (click)="startNow()">
-              <i class="ti ti-player-play" aria-hidden="true"></i> Start sending now
-            </button>
-          </div>
-          <p class="muted small">A new number rests first and holds broadcasts to people it never talked to. This ends that wait. Account messages already go out.</p>
-        }
+        <p class="muted small">The system number: no sending limits, only a short pause between messages.</p>
         <div class="row">
           <button class="btn sm danger-ghost" type="button" [disabled]="busy() !== null" (click)="confirmUnlink.set(true)">
             <i class="ti ti-plug-connected-x" aria-hidden="true"></i> Unlink
@@ -161,8 +145,8 @@
     <h3 id="messages-title">Messages</h3>
     <p class="muted small lane">
       <i class="ti ti-bolt" aria-hidden="true"></i>
-      Each goes out within seconds of its event, a few seconds apart like a person typing, up to 60 an hour and 400 a
-      day. A number with no WhatsApp is checked and skipped, and nothing goes to someone who opted out.
+      Each goes out as soon as its event happens, 2 to 5 seconds apart like a person typing. A number with no WhatsApp
+      is checked and skipped, and nothing goes to someone who opted out.
     </p>
     @if (loading()) {
       <div class="s-skel" style="width: 60%"></div>
