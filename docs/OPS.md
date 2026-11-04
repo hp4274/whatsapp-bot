@@ -11,7 +11,7 @@ Set these in `.env` (never in code); with `SMTP_HOST`, `SMTP_USER` or `SMTP_PASS
 | `SMTP_HOST` | The mail server, e.g. `smtp.hostinger.com`. |
 | `SMTP_PORT` | `465` (TLS from the start, the default) or `587` (STARTTLS). |
 | `SMTP_USER`, `SMTP_PASSWORD` | The mailbox that sends. Quote a password that has `#` or spaces. |
-| `SMTP_FROM` | The sender line, default `Wapzo <SMTP_USER>`. |
+| `SMTP_FROM` | The sender line, default `Wuzie <SMTP_USER>`. |
 | `LEADS_NOTIFY_EMAIL` | Where account-request alerts go, default `SMTP_USER`. |
 | `PUBLIC_BASE_URL` | Needed for the "Open leads" button in the alert; the welcome email falls back to the admin's own address. |
 

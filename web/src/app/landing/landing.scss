@@ -53,14 +53,14 @@ section[id] {
   font-size: 15px;
 }
 
-// Text-bearing blue fills use the deeper blue: white on the brand blue is 4.49:1, just under AA.
+// The brand orange with the ink on it (6.8:1); white would be 2.8:1.
 .btn.go {
   border-color: transparent;
-  background: var(--primary-hover);
+  background: var(--primary);
   color: var(--on-primary);
 
   &:hover {
-    background: color-mix(in srgb, var(--primary) 70%, var(--brand-ink));
+    background: var(--primary-hover);
   }
 }
 
@@ -411,21 +411,14 @@ p {
   display: flex;
   gap: 10px;
   align-items: center;
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: -0.5px;
+  font-size: 23px;
+  font-weight: 600;
+  letter-spacing: -0.6px;
   color: var(--brand-word-ink);
 
   img {
     width: 40px;
     height: 40px;
-  }
-
-  span span {
-    background: var(--brand-word-gradient);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
   }
 }
 

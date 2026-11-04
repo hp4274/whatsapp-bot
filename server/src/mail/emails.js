@@ -1,6 +1,6 @@
 /**
- * The emails Wapzo sends, on one layout that matches the app: the brand navy band with the wordmark, a white
- * card on the light ground, and the brand blue only on the one action (the dashboard's 60-30-10).
+ * The emails Wuzie sends, on one layout that matches the app: the logo's black band with the wordmark, a white
+ * card on the light ground, and the logo's orange only on the one action (the dashboard's 60-30-10).
  *
  * Email clients are not browsers: tables for layout, inline styles, no web fonts, no images (often blocked, and
  * the wordmark is text anyway), light colours forced so a dark-mode client does not invert the brand. Every email
@@ -10,8 +10,8 @@
 const C = {
     ground: '#f7f7f9',
     card: '#ffffff',
-    navy: '#121c35',
-    blue: '#2f6bff',
+    band: '#111111',
+    orange: '#ed7e25',
     ink: '#0d0d11',
     text: '#1a1a20',
     muted: '#64646f',
@@ -41,8 +41,8 @@ function button(label, url) {
     if (!url) return '';
     return `
       <table role="presentation" cellpadding="0" cellspacing="0" style="margin:28px 0 8px;">
-        <tr><td style="border-radius:999px;background:${C.blue};">
-          <a href="${esc(url)}" style="display:inline-block;padding:14px 28px;font:600 15px/1 ${FONT};color:#ffffff;text-decoration:none;border-radius:999px;">${esc(label)}</a>
+        <tr><td style="border-radius:999px;background:${C.orange};">
+          <a href="${esc(url)}" style="display:inline-block;padding:14px 28px;font:600 15px/1 ${FONT};color:${C.ink};text-decoration:none;border-radius:999px;">${esc(label)}</a>
         </td></tr>
       </table>`;
 }
@@ -78,15 +78,15 @@ function layout({ preheader, heading, body, footnote }) {
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.ground};">
   <tr><td align="center" style="padding:32px 16px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">
-      <tr><td style="background:${C.navy};border-radius:20px 20px 0 0;padding:22px 32px;">
-        <span style="font:800 24px/1 ${FONT};letter-spacing:-0.5px;color:#ffffff;">wap</span><span style="font:800 24px/1 ${FONT};letter-spacing:-0.5px;color:${C.blue};">zo</span>
+      <tr><td style="background:${C.band};border-radius:20px 20px 0 0;padding:22px 32px;">
+        <span style="display:inline-block;width:12px;height:12px;margin-right:9px;border-radius:4px 4px 4px 1px;background:${C.orange};"></span><span style="font:600 24px/1 ${FONT};letter-spacing:-0.6px;color:#ffffff;">wuzie</span>
       </td></tr>
       <tr><td style="background:${C.card};border-radius:0 0 20px 20px;padding:36px 32px 32px;">
         <h1 style="margin:0 0 20px;font:600 24px/1.3 ${FONT};letter-spacing:-0.3px;color:${C.ink};">${esc(heading)}</h1>
         ${body}
       </td></tr>
       <tr><td style="padding:20px 32px 0;font:13px/1.6 ${FONT};color:${C.muted};">
-        ${footnote ? `${footnote}<br>` : ''}Wapzo: bulk WhatsApp messaging from your own number.
+        ${footnote ? `${footnote}<br>` : ''}Wuzie: bulk WhatsApp messaging from your own number.
       </td></tr>
     </table>
   </td></tr>
@@ -99,7 +99,7 @@ function layout({ preheader, heading, body, footnote }) {
 export function leadReceivedEmail(lead) {
     const first = String(lead.name).trim().split(/\s+/)[0] || 'there';
     return {
-        subject: 'We got your request for Wapzo',
+        subject: 'We got your request for Wuzie',
         html: layout({
             preheader: `We will email your sign-in details for ${lead.business} within one working day.`,
             heading: `Thanks, ${first}`,
@@ -111,7 +111,7 @@ export function leadReceivedEmail(lead) {
                   'We email you your sign-in details.',
                   'You scan one QR code to link your WhatsApp number and send your first campaign.',
               ])}`,
-            footnote: 'You get this email because this address asked for a Wapzo account. Not you? Ignore it and nothing happens.',
+            footnote: 'You get this email because this address asked for a Wuzie account. Not you? Ignore it and nothing happens.',
         }),
         text: [
             `Thanks, ${first}`,
@@ -160,10 +160,10 @@ export function leadAlertEmail(lead, leadsUrl) {
 export function welcomeEmail({ name, business, planName, email, password, loginUrl }) {
     const first = String(name ?? '').trim().split(/\s+/)[0] || 'there';
     return {
-        subject: 'Your Wapzo account is ready',
+        subject: 'Your Wuzie account is ready',
         html: layout({
-            preheader: `Sign in to ${business} on Wapzo.`,
-            heading: `Welcome to Wapzo, ${first}`,
+            preheader: `Sign in to ${business} on Wuzie.`,
+            heading: `Welcome to Wuzie, ${first}`,
             body: `
               ${para(`Your workspace for <strong>${esc(business)}</strong> is ready${planName ? ` on the <strong>${esc(planName)}</strong> plan` : ''}. Here is how to sign in:`)}
               ${details([['Email', email], ['Password', password]], { mono: ['Password'] })}
@@ -172,7 +172,7 @@ export function welcomeEmail({ name, business, planName, email, password, loginU
             footnote: 'Keep this email private: it holds your password until you change it.',
         }),
         text: [
-            `Welcome to Wapzo, ${first}`,
+            `Welcome to Wuzie, ${first}`,
             '',
             `Your workspace for ${business} is ready${planName ? ` on the ${planName} plan` : ''}.`,
             '',
@@ -186,7 +186,7 @@ export function welcomeEmail({ name, business, planName, email, password, loginU
 }
 
 /**
- * What each account event says by email (the same events Wapzo's WhatsApp number sends, platform/notify.js), in
+ * What each account event says by email (the same events Wuzie's WhatsApp number sends, platform/notify.js), in
  * the owner's words: what happened, the facts to keep, and how to reply. Account-ready and request-received have
  * their own emails above, so they are not here. `vars` are notifyTenant's: name, business, plan, amount, date...
  */
@@ -198,21 +198,21 @@ const ACCOUNT_EMAILS = {
         heading: 'Your plan is confirmed',
         intro: `<strong>${esc(v.business)}</strong> is now on the <strong>${esc(v.plan)}</strong> plan. Keep these details for your records.`,
         rows: [['Plan', v.plan], ['Business', v.business], ['Amount', v.amount], ['Billing', cap(v.billing)], ['Renews on', v.date]],
-        footnote: 'You get this email because your business uses Wapzo.',
+        footnote: 'You get this email because your business uses Wuzie.',
     }),
     plan_renewed: (v) => ({
         subject: `Your ${v.plan} plan is renewed`,
         heading: 'Plan renewed',
         intro: `Thank you for staying with us. The <strong>${esc(v.plan)}</strong> plan for <strong>${esc(v.business)}</strong> is renewed.`,
         rows: [['Plan', v.plan], ['Amount', v.amount], ['Billing', cap(v.billing)], ['Next renewal', v.date]],
-        footnote: 'You get this email because your business uses Wapzo.',
+        footnote: 'You get this email because your business uses Wuzie.',
     }),
     topup_added: (v) => ({
         subject: `We added ${v.topup} to ${v.business}`,
         heading: 'Top-up added',
         intro: `We added <strong>${esc(v.topup)}</strong> to <strong>${esc(v.business)}</strong>.`,
         rows: [['Added', v.topup], ['Amount', v.amount], ['Plan runs until', v.date]],
-        footnote: 'You get this email because your business uses Wapzo.',
+        footnote: 'You get this email because your business uses Wuzie.',
     }),
     payment_received: (v) => ({
         subject: `Payment received: ${v.amount}`,
@@ -226,14 +226,14 @@ const ACCOUNT_EMAILS = {
         heading: `${v.days} ${v.days === 1 ? 'day' : 'days'} left on your plan`,
         intro: `The <strong>${esc(v.plan)}</strong> plan for <strong>${esc(v.business)}</strong> ends on <strong>${esc(v.date)}</strong>. Reply to this email to renew, and nothing stops.`,
         rows: [['Plan', v.plan], ['Ends on', v.date]],
-        footnote: 'Reply to this email and it reaches the Wapzo team.',
+        footnote: 'Reply to this email and it reaches the Wuzie team.',
     }),
     plan_expired: (v) => ({
         subject: `Your ${v.plan} plan has ended`,
         heading: 'Your plan has ended',
         intro: `The <strong>${esc(v.plan)}</strong> plan for <strong>${esc(v.business)}</strong> ended on <strong>${esc(v.date)}</strong>. You can still sign in and see everything; sending pauses after 7 days of grace. Reply to this email to renew.`,
         rows: [['Plan', v.plan], ['Ended on', v.date]],
-        footnote: 'Reply to this email and it reaches the Wapzo team.',
+        footnote: 'Reply to this email and it reaches the Wuzie team.',
     }),
 };
 
@@ -252,7 +252,7 @@ export function accountEmail(kind, vars, appUrl) {
               ${para(`Hi ${esc(first)},`)}
               ${para(intro)}
               ${details(rows)}
-              ${button('Open Wapzo', appUrl && `${appUrl}/login`)}`,
+              ${button('Open Wuzie', appUrl && `${appUrl}/login`)}`,
             footnote,
         }),
         text: [
@@ -261,7 +261,7 @@ export function accountEmail(kind, vars, appUrl) {
             plain(intro),
             '',
             ...rows.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`),
-            ...(appUrl ? ['', `Open Wapzo: ${appUrl}/login`] : []),
+            ...(appUrl ? ['', `Open Wuzie: ${appUrl}/login`] : []),
         ].join('\n'),
     };
 }
@@ -270,12 +270,12 @@ export function accountEmail(kind, vars, appUrl) {
 export function staffWelcomeEmail({ name, roleName, email, password, loginUrl }) {
     const first = String(name ?? '').trim().split(/\s+/)[0] || 'there';
     return {
-        subject: 'Your Wapzo staff sign-in',
+        subject: 'Your Wuzie staff sign-in',
         html: layout({
-            preheader: `You can now sign in to Wapzo as ${roleName}.`,
+            preheader: `You can now sign in to Wuzie as ${roleName}.`,
             heading: `Welcome to the team, ${first}`,
             body: `
-              ${para(`You can now sign in to the Wapzo platform as <strong>${esc(roleName)}</strong>. Your role decides which pages you see.`)}
+              ${para(`You can now sign in to the Wuzie platform as <strong>${esc(roleName)}</strong>. Your role decides which pages you see.`)}
               ${details([['Email', email], ['Password', password], ['Role', roleName]], { mono: ['Password'] })}
               ${para('Ask the platform admin if you need a page your role does not open.')}
               ${button('Sign in', loginUrl)}`,
@@ -284,7 +284,7 @@ export function staffWelcomeEmail({ name, roleName, email, password, loginUrl })
         text: [
             `Welcome to the team, ${first}`,
             '',
-            `You can now sign in to the Wapzo platform as ${roleName}.`,
+            `You can now sign in to the Wuzie platform as ${roleName}.`,
             '',
             `Email: ${email}`,
             `Password: ${password}`,

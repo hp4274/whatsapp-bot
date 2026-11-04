@@ -42,7 +42,7 @@
       <dt>WhatsApp</dt>
       <dd>{{ tenant().contactPhone || 'Not set' }}</dd>
       <dt>Updates</dt>
-      <dd>{{ tenant().wapzoUpdates === false ? 'No Wapzo WhatsApp updates' : 'Wapzo WhatsApp updates on' }}</dd>
+      <dd>{{ tenant().wapzoUpdates === false ? 'No Wuzie WhatsApp updates' : 'Wuzie WhatsApp updates on' }}</dd>
       <dt>Referred by</dt>
       <dd [class.unset]="referrer() === null">
         @if (referrer(); as r) {

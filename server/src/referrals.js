@@ -1,5 +1,5 @@
 /**
- * Referrals: marketers who bring businesses to Wapzo and earn a commission on what those businesses pay.
+ * Referrals: marketers who bring businesses to Wuzie and earn a commission on what those businesses pay.
  *
  * A marketer has a code (RAVI-42) and a link (/?ref=RAVI-42). A request sent from that link carries the code; when
  * the lead is accepted, the new business is tied to the marketer (one marketer per business: the first one wins).

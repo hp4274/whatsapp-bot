@@ -40,7 +40,7 @@
             <span>
               <strong>{{ everyone().length }} businesses</strong>, to the WhatsApp number on file for each.
               @if (optedOut()) {
-                {{ optedOut() }} switched Wapzo updates off and {{ optedOut() === 1 ? 'is' : 'are' }} left out.
+                {{ optedOut() }} switched Wuzie updates off and {{ optedOut() === 1 ? 'is' : 'are' }} left out.
               }
             </span>
           </p>
@@ -159,7 +159,7 @@
 @if (confirming()) {
   <app-confirm
     [heading]="'Send to ' + what() + '?'"
-    text="It goes out from the Wapzo number, paced like a bulk send. A message on its way cannot be called back."
+    text="It goes out from the Wuzie number, paced like a bulk send. A message on its way cannot be called back."
     action="Send"
     tone="primary"
     (confirm)="send()"

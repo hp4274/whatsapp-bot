@@ -1,4 +1,4 @@
-/** Add tenant (pending, details first) and Tenant settings > Edit: name, ID, contact WhatsApp, owner, Wapzo updates. */
+/** Add tenant (pending, details first) and Tenant settings > Edit: name, ID, contact WhatsApp, owner, Wuzie updates. */
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -65,7 +65,7 @@ describe('tenant details', () => {
         })).status, 400);
     });
 
-    it('edits the name, ID, contact number, Wapzo updates and the owner', async () => {
+    it('edits the name, ID, contact number, Wuzie updates and the owner', async () => {
         const url = `/api/admin/tenants/${id}/details`;
         const res = await call(sup, 'PUT', url, {
             name: 'Kiran Eye Care', slug: 'Kiran Eye Care', contactPhone: '98765 43210', wapzoUpdates: false,
@@ -126,7 +126,7 @@ describe('tenant details', () => {
         assert.equal((await bill()).charged, 25000, 'a new price is charged from the next period');
     });
 
-    it("keeps Wapzo's own system tenant out of every business list", async () => {
+    it("keeps Wuzie's own system tenant out of every business list", async () => {
         const system = app.locals.tenancy.systemTenant({ create: true });
         assert.equal(system.status, 'system');
         assert.equal(app.locals.tenancy.systemTenant({ create: true }).id, system.id, 'made once');

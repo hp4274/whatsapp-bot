@@ -40,9 +40,9 @@ export interface Tenant {
   /** 'pending': accepted from a lead, set up by the super admin, not yet activated (no sign-in, no sending). */
   status: 'active' | 'suspended' | 'archived' | 'pending';
   services: string[];
-  /** The business's WhatsApp, where Wapzo's own number writes to it ('' for none). Admin list only. */
+  /** The business's WhatsApp, where Wuzie's own number writes to it ('' for none). Admin list only. */
   contactPhone?: string;
-  /** Whether Wapzo messages the business about its account and plan. */
+  /** Whether Wuzie messages the business about its account and plan. */
   wapzoUpdates?: boolean;
   /** The business on paper (server tenancy.js PROFILE_FIELDS); a missing key is not given. */
   profile?: Readonly<Record<string, string>>;

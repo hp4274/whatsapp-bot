@@ -50,7 +50,7 @@ const POLL_MS = 2000;
 type Busy = 'link' | 'unlink' | 'country' | 'test' | 'start' | null;
 
 /**
- * Wapzo's own WhatsApp number: it writes to clients when they ask for an account, when it is ready, and about
+ * Wuzie's own WhatsApp number: it writes to clients when they ask for an account, when it is ready, and about
  * their plan and payments. It is linked and run like a business's number, on a hidden tenant, through the same
  * API (`/api/admin/wapzo/api`); this page adds the texts it sends and a log of what went out.
  */
@@ -61,7 +61,7 @@ type Busy = 'link' | 'unlink' | 'country' | 'test' | 'start' | null;
   styleUrl: './wapzo.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class Wapzo {
+export class Wuzie {
   private readonly api = inject(WapzoApi);
   private readonly ops = inject(ChannelsOpsApi);
 

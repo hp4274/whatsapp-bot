@@ -26,7 +26,7 @@ interface Attachment {
 const WORDS: readonly string[] = ['name', 'business'];
 
 /**
- * One message from the Wapzo number to many people: every business, the ones picked, or numbers typed in. It
+ * One message from the Wuzie number to many people: every business, the ones picked, or numbers typed in. It
  * queues as bulk traffic on the server, so it goes out paced like a bulk send.
  */
 @Component({
@@ -62,7 +62,7 @@ export class WapzoBroadcast {
 
   /** Archived businesses get nothing. */
   private readonly live = computed(() => this.tenants().filter((t) => t.status !== 'archived'));
-  /** "All" leaves out those that switched Wapzo updates off, as the server does. */
+  /** "All" leaves out those that switched Wuzie updates off, as the server does. */
   protected readonly everyone = computed(() => this.live().filter((t) => t.wapzoUpdates !== false));
   protected readonly optedOut = computed(() => this.live().length - this.everyone().length);
   protected readonly shown = computed(() => {

@@ -54,23 +54,16 @@
   }
 }
 
-// "wap" is white over the navy hero and the wordmark's ink once frosted; "zo" keeps the logo's gradient.
+// White over the dark hero, the wordmark's ink once the bar frosts.
 .brand-word {
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: -0.5px;
+  font-size: 23px;
+  font-weight: 600;
+  letter-spacing: -0.6px;
   color: var(--on-fill);
   transition: color 300ms var(--ease);
 
   .solid & {
     color: var(--brand-word-ink);
-  }
-
-  span {
-    background: var(--brand-word-gradient);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
   }
 }
 

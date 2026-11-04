@@ -30,7 +30,7 @@ export const PROFILE_FIELDS: readonly {
 ];
 
 /**
- * Tenant settings > Edit, in the drawer's left column: the business's name, ID, contact WhatsApp and whether Wapzo
+ * Tenant settings > Edit, in the drawer's left column: the business's name, ID, contact WhatsApp and whether Wuzie
  * messages it, and its owner's name and sign-in email. Saved together; a refused email or ID changes nothing.
  */
 @Component({

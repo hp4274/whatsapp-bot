@@ -328,7 +328,7 @@ export class App {
     { path: '/admin/plans', label: 'Plans & billing', icon: ICONS.plans, section: 'plans' },
     { path: '/admin/payments', label: 'Payments', icon: 'cash', section: 'payments' },
     { path: '/admin/referrals', label: 'Referrals', icon: 'affiliate', section: 'referrals' },
-    { path: '/admin/wapzo', label: 'Wapzo WhatsApp', icon: 'brand-whatsapp', section: 'wapzo' },
+    { path: '/admin/wapzo', label: 'Wuzie WhatsApp', icon: 'brand-whatsapp', section: 'wapzo' },
     { path: '/admin/usage', label: 'Usage', icon: ICONS.usage, section: 'usage' },
     { path: '/admin/health', label: 'Health', icon: ICONS.health, section: 'health' },
     { path: '/admin/number-collections', label: 'Number collections', icon: 'address-book', section: 'number_collections' },
@@ -403,8 +403,8 @@ export class App {
   /** What the header calls the current workspace. */
   protected readonly workspace = computed(() => {
     const user = this.auth.user();
-    if (!user) return 'Wapzo';
-    if (user.role !== 'super_admin') return this.auth.tenant()?.name ?? 'Wapzo';
+    if (!user) return 'Wuzie';
+    if (user.role !== 'super_admin') return this.auth.tenant()?.name ?? 'Wuzie';
     const acting = this.auth.actingTenantId();
     return acting === null ? 'Platform admin' : (this.acting()?.name ?? `Tenant ${acting}`);
   });

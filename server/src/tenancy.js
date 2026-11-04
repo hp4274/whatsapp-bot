@@ -262,7 +262,7 @@ export class Tenancy {
         return row ? toTenant(row) : null;
     }
 
-    /** Every business; never Wapzo's own system tenant (systemTenant), which is the platform, not a customer. */
+    /** Every business; never Wuzie's own system tenant (systemTenant), which is the platform, not a customer. */
     listTenants({ includeArchived = false } = {}) {
         const sql = includeArchived
             ? "SELECT * FROM tenants WHERE status != 'system' ORDER BY id"
@@ -271,7 +271,7 @@ export class Tenancy {
     }
 
     /**
-     * The hidden tenant that holds Wapzo's own WhatsApp number (platform/notify.js), so the number links, sends and
+     * The hidden tenant that holds Wuzie's own WhatsApp number (platform/notify.js), so the number links, sends and
      * is guarded exactly like a business's. Made on first use (`create`), not at boot, so tenant ids stay as they were.
      */
     systemTenant({ create = false } = {}) {
@@ -279,12 +279,12 @@ export class Tenancy {
         if (row || !create) return row ? toTenant(row) : null;
         const slug = this.freeSlug('wapzo-system');
         this.db.prepare(`INSERT INTO tenants (name, slug, status, wapzo_updates, created_at)
-                         VALUES ('Wapzo', ?, 'system', 0, ?)`).run(slug, utcNow());
+                         VALUES ('Wuzie', ?, 'system', 0, ?)`).run(slug, utcNow());
         return this.systemTenant();
     }
 
     /**
-     * A business's own details, from Tenant settings > Edit: name, ID (slug), contact WhatsApp and whether Wapzo
+     * A business's own details, from Tenant settings > Edit: name, ID (slug), contact WhatsApp and whether Wuzie
      * messages it there. Fields left out stay as they are.
      */
     updateDetails(id, { name, slug, contactPhone, wapzoUpdates, profile } = {}) {

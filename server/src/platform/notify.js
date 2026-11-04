@@ -1,10 +1,10 @@
 /**
- * Wapzo's own WhatsApp number: the platform messaging its clients ("we got your request", "your plan was renewed",
+ * Wuzie's own WhatsApp number: the platform messaging its clients ("we got your request", "your plan was renewed",
  * "your plan ends in 3 days"). The number is linked by QR like any business's, on a hidden system tenant
  * (Tenancy.systemTenant), so linking, sending, warm-up levels and the ban guard are the ones every number has.
  *
  * Nothing here ever throws into the caller: a platform event (a lead, a payment) must never fail because the
- * Wapzo number is unlinked or a client gave a bad number. Each message has an idempotency key, so a retried request
+ * Wuzie number is unlinked or a client gave a bad number. Each message has an idempotency key, so a retried request
  * or a second daily check sends it once.
  */
 
@@ -12,7 +12,7 @@ import { PhoneError, normalizePhone } from '../protocol.js';
 import { MessageJobError } from '../messaging/job.js';
 
 export const PLATFORM_MESSAGES_SCHEMA = `
--- The text and on/off switch of each message Wapzo's own number sends (platform/notify.js); no row = the default.
+-- The text and on/off switch of each message Wuzie's own number sends (platform/notify.js); no row = the default.
 CREATE TABLE IF NOT EXISTS platform_messages (
     kind       TEXT PRIMARY KEY,
     enabled    INTEGER NOT NULL DEFAULT 1,
@@ -21,15 +21,15 @@ CREATE TABLE IF NOT EXISTS platform_messages (
 );
 `;
 
-/** Every event Wapzo writes to a client about, in the order the admin page lists them, with its default text. */
+/** Every event Wuzie writes to a client about, in the order the admin page lists them, with its default text. */
 export const PLATFORM_EVENTS = Object.freeze([
     {
         kind: 'lead_received', label: 'Request received', when: 'Someone sends the "Ask for your account" form.',
-        text: 'Hi {name}, thanks for asking for a Wapzo account for {business}. We will set it up and write to you within one working day.',
+        text: 'Hi {name}, thanks for asking for a Wuzie account for {business}. We will set it up and write to you within one working day.',
     },
     {
         kind: 'account_activated', label: 'Account ready', when: 'You activate a business.',
-        text: 'Hi {name}, your Wapzo account for {business} is ready. Sign in with {email} at {link}. The password is in your email.',
+        text: 'Hi {name}, your Wuzie account for {business} is ready. Sign in with {email} at {link}. The password is in your email.',
     },
     {
         kind: 'plan_started', label: 'Plan started', when: 'A business is put on a new plan.',
@@ -120,12 +120,12 @@ export function createNotifier({ tenancy, runtimeFor, templates }) {
         return channel ? runtime.runtimeFor(channel).state : null;
     };
 
-    /** One message from the Wapzo number. Returns what happened; never throws. */
+    /** One message from the Wuzie number. Returns what happened; never throws. */
     const send = ({ to, text, key, kind = 'test', messageType = 'transactional', media = null }) => {
         try {
             if (!String(to ?? '').trim()) return { sent: false, reason: 'No WhatsApp number on file.' };
             const state = systemState();
-            if (!state?.transport?.isConnected?.()) return { sent: false, reason: 'The Wapzo WhatsApp number is not linked.' };
+            if (!state?.transport?.isConnected?.()) return { sent: false, reason: 'The Wuzie WhatsApp number is not linked.' };
             const recipient = normalizePhone(to, state.config.defaultCountryCode || '91');
             const outcome = state.messages.send({
                 messageType, recipient, text, media, idempotencyKey: key, campaignId: `wapzo:${kind}`,
@@ -143,13 +143,13 @@ export function createNotifier({ tenancy, runtimeFor, templates }) {
 
     /**
      * A platform event for a client: the event's text, filled in, if it is switched on and (for a business) the
-     * business still wants Wapzo's updates.
+     * business still wants Wuzie's updates.
      */
     const event = (kind, { to, vars = {}, tenantId = null, key }) => {
         const message = templates.get(kind);
         if (!message?.enabled) return { sent: false, reason: 'This message is switched off.' };
         if (tenantId != null && tenancy.getTenant(tenantId)?.wapzoUpdates === false) {
-            return { sent: false, reason: 'This business does not get Wapzo updates.' };
+            return { sent: false, reason: 'This business does not get Wuzie updates.' };
         }
         return send({ to, text: renderText(message.text, vars), key, kind });
     };

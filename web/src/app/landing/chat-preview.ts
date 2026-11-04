@@ -89,7 +89,7 @@ const SCENARIOS: readonly Scenario[] = [
 ];
 
 /**
- * The landing hero's live thing: pick a kind of business and watch Wapzo answer
+ * The landing hero's live thing: pick a kind of business and watch Wuzie answer
  * one of its customers. Each switch re-keys the thread, so the messages play in
  * again one by one.
  */

@@ -7,8 +7,8 @@
 <header class="s-head">
   <div>
     <p class="eyebrow"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i> Platform</p>
-    <h2>Wapzo WhatsApp</h2>
-    <p>Wapzo's own number. It messages your clients when they ask for an account, when their account is ready, and about their plan and payments.</p>
+    <h2>Wuzie WhatsApp</h2>
+    <p>Wuzie's own number. It messages your clients when they ask for an account, when their account is ready, and about their plan and payments.</p>
   </div>
 </header>
 
@@ -67,7 +67,7 @@
         </div>
       } @else if (code) {
         <figure class="qr">
-          <img [src]="code" alt="QR code to link the Wapzo WhatsApp number" width="240" height="240" />
+          <img [src]="code" alt="QR code to link the Wuzie WhatsApp number" width="240" height="240" />
           <figcaption>
             Scan with WhatsApp &gt; Linked devices
             @if (qrSecondsLeft(); as left) {
@@ -104,7 +104,7 @@
             {{ transport() === 'sandbox' ? 'Start test mode' : 'Link with QR' }}
           </button>
         </div>
-        <p class="muted small">Use a number only Wapzo writes from. Keep the phone online.</p>
+        <p class="muted small">Use a number only Wuzie writes from. Keep the phone online.</p>
       }
     </div>
 
@@ -119,7 +119,7 @@
         <input
           type="text"
           maxlength="1000"
-          placeholder="This is a test message from Wapzo."
+          placeholder="This is a test message from Wuzie."
           [value]="testText()"
           (input)="testText.set($any($event.target).value)"
         />
@@ -247,14 +247,14 @@
     <div class="s-empty">
       <i class="ti ti-message-2" aria-hidden="true"></i>
       <strong>Nothing sent yet</strong>
-      <p>Messages from the Wapzo number appear here as they go out.</p>
+      <p>Messages from the Wuzie number appear here as they go out.</p>
     </div>
   }
 </section>
 
 @if (confirmUnlink()) {
   <app-confirm
-    heading="Unlink the Wapzo number?"
+    heading="Unlink the Wuzie number?"
     text="Clients stop getting messages until you link it again with a new QR code. The saved session is deleted."
     action="Unlink"
     tone="danger"
