@@ -29,7 +29,7 @@ export interface ServerEvent {
 }
 
 /** What the dashboard shows before the first stats arrive. */
-const EMPTY_STATS: CampaignStats = {
+export const EMPTY_STATS: CampaignStats = {
   total: 0,
   successful: 0,
   failed: 0,
