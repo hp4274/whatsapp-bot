@@ -1,0 +1,169 @@
+<!-- What failed, and Try again for that same step; then what stops the number sending; then the link itself:
+     steps and a phone holding the QR, or who the number is linked as. -->
+@let connection = store.connection();
+@let live = connection.connected;
+@let qr = store.qr();
+@let connecting = store.connecting();
+
+@if (errors().length) {
+  <div class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <div class="errors">
+      @for (error of errors(); track error) {
+        <p>{{ error }}</p>
+      }
+    </div>
+    <button type="button" class="btn sm" (click)="retry()" [disabled]="busy()">
+      <i class="ti ti-refresh" aria-hidden="true"></i>Try again
+    </button>
+  </div>
+}
+
+@if (stop(); as kind) {
+  <section class="stopped" role="alert" aria-labelledby="stopped-title">
+    <header class="stopped-head">
+      <span class="badge bad"><i class="ti {{ kind === 'ban' ? 'ti-ban' : 'ti-hand-stop' }}" aria-hidden="true"></i></span>
+      <div>
+        <h3 id="stopped-title">{{
+          kind === 'ban' ? 'WhatsApp banned this number'
+            : kind === 'ban_guard' ? guardTitle()
+            : 'Our team paused this number'
+        }}</h3>
+        @if (connection.paused?.at; as at) {
+          <p class="muted">{{ at | date: 'medium' }}</p>
+        }
+      </div>
+    </header>
+    @if (stopReason()) {
+      <p class="reason">{{ stopReason() }}</p>
+    }
+    @if (kind === 'ban') {
+      <p class="fine muted">
+        WhatsApp does not say why. The figures below are this app's own records.
+        <!-- A button, not a #fragment link: the router would read the fragment as a navigation. -->
+        <button type="button" class="text-link" (click)="recover.emit()">See how to ask for a review <i class="ti ti-arrow-down" aria-hidden="true"></i></button>
+      </p>
+      <div class="link-actions">
+        <button type="button" class="btn" (click)="disconnect('unlink')" [disabled]="disconnecting()">
+          @if (disconnecting()) {
+            <span class="spinner"></span>Unlinking…
+          } @else {
+            <i class="ti ti-plug-connected-x" aria-hidden="true"></i>Unlink and link another number
+          }
+        </button>
+      </div>
+    } @else if (kind === 'ban_guard') {
+      <div class="link-actions">
+        <button type="button" class="btn danger" (click)="resume()" [disabled]="resuming()">
+          @if (resuming()) {
+            <span class="spinner"></span>Starting again…
+          } @else {
+            <i class="ti ti-player-play" aria-hidden="true"></i>{{ resumeConfirm() ? 'Click again to confirm' : 'Start sending again' }}
+          }
+        </button>
+        @if (resumeConfirm()) {
+          <button type="button" class="btn" (click)="resumeConfirm.set(false)">Cancel</button>
+        }
+      </div>
+      <p class="fine muted">Sending again before the cause is fixed can get the number banned for good.</p>
+    } @else {
+      <p class="fine muted">Contact support to turn it back on.</p>
+    }
+  </section>
+}
+
+<section class="link" [class.live]="live" aria-labelledby="link-title" aria-live="polite">
+  <div class="link-copy">
+    @if (live) {
+      <span class="badge ok"><i class="ti ti-circle-check" aria-hidden="true"></i></span>
+      <h3 id="link-title">Linked{{ connection.name ? ' as ' + connection.name : '' }}</h3>
+      <p class="muted">
+        {{ connection.account ? accountLabel(connection.account) + ' · ' : '' }}Ready to send. It stays linked on its own.
+      </p>
+
+      <div class="link-actions">
+        <button type="button" class="btn danger" (click)="disconnect('unlink')" [disabled]="disconnecting()">
+          @if (disconnecting()) {
+            <span class="spinner"></span>Unlinking…
+          } @else {
+            <i class="ti ti-plug-connected-x" aria-hidden="true"></i>Unlink number
+          }
+        </button>
+      </div>
+      <p class="fine muted">
+        Unlinking signs this number out.{{ store.qrNumber() ? ' To use it again, scan a new QR code.' : '' }}
+      </p>
+    } @else {
+      <h3 id="link-title">{{ qr ? 'Scan the code with your phone' : 'Link your WhatsApp number' }}</h3>
+      <ol class="steps">
+        @for (step of steps; track step.title; let i = $index) {
+          <li [class.on]="stepIndex() === i" [class.done]="stepIndex() > i">
+            <span class="num">
+              @if (stepIndex() > i) {
+                <i class="ti ti-check" aria-hidden="true"></i>
+              } @else {
+                {{ i + 1 }}
+              }
+            </span>
+            <span>
+              <strong>{{ step.title }}</strong>
+              <small class="muted">{{ step.text }}</small>
+            </span>
+          </li>
+        }
+      </ol>
+      <div class="link-actions">
+        @if (qr || connecting) {
+          <button type="button" class="btn" (click)="disconnect('cancel')" [disabled]="disconnecting()">
+            @if (disconnecting()) {
+              <span class="spinner"></span>Cancelling…
+            } @else {
+              Cancel
+            }
+          </button>
+        } @else if (!stop()) {
+          <!-- Disabled until the settings arrive: a click before then used to do nothing at all. -->
+          <button type="button" class="btn primary big" (click)="connect()" [disabled]="!config() || busy()">
+            @if (!config()) {
+              <span class="spinner" aria-hidden="true"></span>Getting ready…
+            } @else {
+              <i class="ti ti-qrcode" aria-hidden="true"></i>{{ qrExpired() ? 'Get a new code' : 'Link WhatsApp' }}
+            }
+          </button>
+        }
+      </div>
+      <p class="fine muted">No WhatsApp Business account needed. Keep your phone on and online.</p>
+    }
+  </div>
+
+  <!-- Linked, the phone has nothing left to show: the panel shrinks to who the number is linked as. -->
+  @if (!live) {
+  <div class="phone" [class.has-qr]="!!qr || connecting">
+    <div class="screen">
+      @if (qr) {
+        <img [src]="qr" alt="QR code to link WhatsApp" width="220" height="220" />
+        @if (qrSecondsLeft(); as left) {
+          <!-- The section is a live region, so the ticking text is hidden from it and read only at 15s and 5s. -->
+          <span class="qr-timer" [class.low]="left <= 15" aria-hidden="true">
+            <i class="ti ti-clock-hour-4"></i>Code expires in {{ left }}s
+          </span>
+          @if (left === 15 || left === 5) {
+            <span class="sr-only">Code expires in {{ left }} seconds</span>
+          }
+        } @else if (qrSecondsLeft() === 0) {
+          <span class="qr-timer low">Getting a new code…</span>
+        }
+      } @else if (qrExpired()) {
+        <i class="ti ti-qrcode-off idle-mark" aria-hidden="true"></i>
+        <span role="alert">The code ran out of time. Get a new one.</span>
+      } @else if (connecting) {
+        <span class="spinner"></span>
+        <span>Getting your code…</span>
+      } @else {
+        <i class="ti ti-scan idle-mark" aria-hidden="true"></i>
+        <span>Your QR code appears here</span>
+      }
+    </div>
+  </div>
+  }
+</section>

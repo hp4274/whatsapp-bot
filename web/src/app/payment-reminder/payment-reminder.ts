@@ -79,7 +79,7 @@ export class PaymentReminderView {
 
   protected send(): void {
     if (!this.connected()) {
-      this.notice.set('Connect a transport on the Connection page first.');
+      this.notice.set('Link your WhatsApp number on the WhatsApp page first.');
       return;
     }
     if (!this.reminders().length) {

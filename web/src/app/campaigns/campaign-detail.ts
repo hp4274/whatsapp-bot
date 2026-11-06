@@ -226,11 +226,6 @@ export class CampaignDetailView {
     return dayKey(new Date(c.scheduledAt), zone) > dayKey(new Date(this.store.now()), zone);
   });
 
-  protected readonly restLeft = computed(() => {
-    const min = Math.ceil(this.store.quietLeft() / 60);
-    return min >= 60 ? `${Math.floor(min / 60)}h ${min % 60}m` : `${min}m`;
-  });
-
   protected readonly localTime = localTime;
   protected readonly count = count;
   protected readonly pct = pct;
@@ -315,6 +310,13 @@ export class CampaignDetailView {
   /** Tab shown or window focused; both events fire together, so the second is ignored. */
   protected onSeen(): void {
     if (document.visibilityState !== 'visible' || this.loading() || Date.now() - this.lastAsk < 1000) return;
+    this.reload();
+  }
+
+  /** The banner's Try again: with nothing on screen yet, the skeleton shows while it asks. */
+  protected tryAgain(): void {
+    this.error.set('');
+    if (!this.campaign()) this.loading.set(true);
     this.reload();
   }
 
@@ -412,7 +414,7 @@ export class CampaignDetailView {
     this.run(
       'cancel',
       () => this.api.action(this.numericId(), 'cancel'),
-      'Pending messages cancelled.',
+      'Campaign stopped. Messages not sent yet were cancelled.',
     );
   }
 

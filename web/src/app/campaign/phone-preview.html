@@ -40,8 +40,8 @@
       type="button"
       class="ib"
       (click)="shuffle.emit()"
-      aria-label="Shuffle spintax variants"
-      title="Shuffle variants"
+      aria-label="Show other word choices"
+      title="Show other word choices"
     >
       <i class="ti ti-arrows-shuffle" aria-hidden="true"></i>
     </button>
@@ -62,7 +62,7 @@
   @if (missing().length) {
     <span class="miss-pill" role="status">
       <i class="ti ti-alert-circle" aria-hidden="true"></i>
-      {{ missing().length }} unresolved placeholder{{ missing().length === 1 ? '' : 's' }}
+      {{ missing().length }} blank {{ missing().length === 1 ? 'field' : 'fields' }} for this contact
     </span>
   }
 </div>

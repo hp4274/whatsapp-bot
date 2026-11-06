@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { Subject, take } from 'rxjs';
 
 import { ContactsApi, type ImportPreview } from '../core/api';
-import { ImportWizard } from './import-wizard';
+import { ImportWizard, plainReason } from './import-wizard';
 
 function preview(filename: string): ImportPreview {
   return {
@@ -53,5 +53,15 @@ describe('ImportWizard', () => {
 
     wizard.commit();
     expect(importMapped).toHaveBeenCalledWith(b, ['phone'], []);
+  });
+});
+
+describe('plainReason', () => {
+  it('words the server phone errors for a business owner', () => {
+    expect(plainReason('Row 4: not a valid E.164 number: notaphone1 -> 1')).toBe(
+      'Row 4: "notaphone1" is not a valid phone number',
+    );
+    expect(plainReason('Row 5: missing phone number')).toBe('Row 5: no phone number');
+    expect(plainReason('Row 6: something else')).toBe('Row 6: something else');
   });
 });

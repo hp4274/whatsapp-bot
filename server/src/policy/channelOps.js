@@ -108,7 +108,7 @@ export const capMessage = (cap) => `Your plan allows ${cap} WhatsApp number${cap
 export function providerBlocked(transport, limits = {}, policy = {}) {
     if (QR_TRANSPORTS.includes(transport)) {
         if (limits.allowWhatsappWeb === false) return 'WhatsApp QR login is not enabled for your plan.';
-        if (policy['channels.allowBaileys'] === false) return 'QR-login (Baileys) numbers are not allowed on your plan.';
+        if (policy['channels.allowBaileys'] === false) return 'WhatsApp (QR) numbers are not allowed on your plan.';
     }
     return null;
 }

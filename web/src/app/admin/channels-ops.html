@@ -273,7 +273,7 @@
         <h3 id="dlg-title">Force disconnect {{ label(p.row) }}?</h3>
         <p>
           This logs the number out of WhatsApp and stops it reconnecting on its own. A QR-login number has to
-          scan a new code; {{ p.row.tenantName }} reconnects it from their Connection page.
+          scan a new code; {{ p.row.tenantName }} links it again from their WhatsApp page.
         </p>
       } @else if (p.kind === 'level' && p.row.level; as lv) {
         <span class="badge" [class.tone-bad]="aboveEarned()" [class.tone-info]="!aboveEarned()">

@@ -15,9 +15,18 @@ import {
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
+import { statusLabel } from '../campaigns/campaign-format';
 import { Contact2, ContactsApi, OptInProof, TimelineEntry } from '../core/api';
 import { Store } from '../core/store';
-import { absoluteTime, displayPhone, hue, initials, relativeTime, splitTags } from './contact-util';
+import {
+  absoluteTime,
+  displayPhone,
+  hue,
+  initials,
+  isEmail,
+  relativeTime,
+  splitTags,
+} from './contact-util';
 
 interface FieldRow {
   key: string;
@@ -31,6 +40,19 @@ const OPT_IN_HOW: Readonly<Record<string, string>> = {
   api: 'via the API',
   merge: 'via a merge',
   workflow: 'by a workflow',
+};
+
+/** What sent an outbound message (the server's message type), in the words the rest of the app uses. */
+const SENT_BY: Readonly<Record<string, string>> = {
+  campaign: 'Campaign message',
+  auto_reply: 'Automatic reply',
+  transactional: 'Message from your team',
+  reminder: 'Reminder',
+  workflow: 'Automation message',
+  workflow_step: 'Automation message',
+  broadcast: 'Announcement',
+  emergency: 'Urgent alert',
+  test: 'Test message',
 };
 
 /**
@@ -64,6 +86,10 @@ export class ContactDrawer {
   protected readonly contact = signal<Contact2 | null>(null);
   protected readonly timeline = signal<TimelineEntry[] | null>(null);
   protected readonly error = signal('');
+  /** What "Try again" on the error banner repeats: the failed save, or the load. */
+  private retryFn: (() => void) | null = null;
+  protected readonly timelineError = signal('');
+  protected readonly emailError = signal('');
   protected readonly saving = signal(false);
 
   protected readonly editing = signal(false);
@@ -128,14 +154,32 @@ export class ContactDrawer {
         if (!this.editing()) this.profile.set({ name: contact.name, email: contact.email });
         this.error.set('');
       },
-      error: (err: Error) => this.error.set(err.message),
+      error: (err: Error) => {
+        if (id !== this.contactId()) return;
+        this.retryFn = () => this.load(id, resetFields);
+        this.error.set(err.message);
+      },
     });
+    this.loadTimeline(id);
+  }
+
+  protected loadTimeline(id = this.contactId()) {
+    this.timelineError.set('');
     this.api.timeline(id).subscribe({
       next: ({ timeline }) => {
         if (id === this.contactId()) this.timeline.set(timeline);
       },
-      error: () => this.timeline.set([]),
+      // An empty list here would read "No messages yet", which is not what happened.
+      error: (err: Error) => {
+        if (id === this.contactId()) this.timelineError.set(err.message);
+      },
     });
+  }
+
+  protected retry() {
+    const again = this.retryFn ?? (() => this.load(this.contactId(), false));
+    this.error.set('');
+    again();
   }
 
   protected close() {
@@ -158,8 +202,9 @@ export class ContactDrawer {
     this.changed.emit();
   }
 
-  private fail(err: Error) {
+  private fail(err: Error, again: () => void) {
     this.saving.set(false);
+    this.retryFn = again;
     this.error.set(err.message);
   }
 
@@ -168,6 +213,7 @@ export class ContactDrawer {
     const c = this.contact();
     if (!c) return;
     this.profile.set({ name: c.name, email: c.email });
+    this.emailError.set('');
     this.editing.set(true);
   }
 
@@ -175,14 +221,19 @@ export class ContactDrawer {
     event.preventDefault();
     const c = this.contact();
     if (!c) return;
-    this.saving.set(true);
     const { name, email } = this.profile();
+    if (!isEmail(email)) {
+      this.emailError.set('That email address does not look right. Fix it, or leave it empty.');
+      return;
+    }
+    this.emailError.set('');
+    this.saving.set(true);
     this.api.update(c.id, { name: name.trim(), email: email.trim() }).subscribe({
       next: ({ contact }) => {
         this.editing.set(false);
         this.done(contact);
       },
-      error: (e: Error) => this.fail(e),
+      error: (e: Error) => this.fail(e, () => this.saveProfile(new Event('submit'))),
     });
   }
 
@@ -206,18 +257,24 @@ export class ContactDrawer {
     this.tagText.set('');
     if (!c || !tags.length) return;
     this.saving.set(true);
-    this.api
-      .tag(c.id, tags)
-      .subscribe({ next: ({ contact }) => this.done(contact), error: (e: Error) => this.fail(e) });
+    this.api.tag(c.id, tags).subscribe({
+      next: ({ contact }) => this.done(contact),
+      error: (e: Error) =>
+        this.fail(e, () => {
+          this.tagText.set(tags.join(', '));
+          this.addTags();
+        }),
+    });
   }
 
   protected removeTag(tag: string) {
     const c = this.contact();
     if (!c) return;
     this.saving.set(true);
-    this.api
-      .tag(c.id, [], [tag])
-      .subscribe({ next: ({ contact }) => this.done(contact), error: (e: Error) => this.fail(e) });
+    this.api.tag(c.id, [], [tag]).subscribe({
+      next: ({ contact }) => this.done(contact),
+      error: (e: Error) => this.fail(e, () => this.removeTag(tag)),
+    });
   }
 
   protected tagKey(event: KeyboardEvent) {
@@ -262,7 +319,7 @@ export class ContactDrawer {
         this.fields.set(toRows(contact.customFields));
         this.done(contact);
       },
-      error: (e: Error) => this.fail(e),
+      error: (e: Error) => this.fail(e, () => this.saveFields()),
     });
   }
 
@@ -285,7 +342,7 @@ export class ContactDrawer {
         this.consentStep.set('');
         this.done(contact);
       },
-      error: (e: Error) => this.fail(e),
+      error: (e: Error) => this.fail(e, () => this.confirmConsent()),
     });
   }
 
@@ -304,7 +361,7 @@ export class ContactDrawer {
         this.saving.set(false);
         this.deleted.emit(c.id);
       },
-      error: (e: Error) => this.fail(e),
+      error: (e: Error) => this.fail(e, () => this.remove()),
     });
   }
 
@@ -320,13 +377,11 @@ export class ContactDrawer {
   protected label(e: TimelineEntry) {
     if (e.kind === 'button_click') return 'Tapped a button';
     if (e.direction === 'inbound') return e.kind === 'media' ? 'Sent media' : 'Replied';
-    return e.kind === 'campaign' ? 'Campaign message' : `${e.kind.replace(/_/g, ' ')} message`;
+    return SENT_BY[e.kind] ?? 'Sent message';
   }
 
-  /** Sentence case for a status code ("SANDBOX" → "Sandbox"); pills no longer title-case their text. */
-  protected statusLabel(status: string) {
-    return status.charAt(0) + status.slice(1).toLowerCase();
-  }
+  /** The same delivery words as campaigns and history ("Test send", "Not on WhatsApp"). */
+  protected readonly statusLabel = statusLabel;
 
   protected statusTone(status: string | null) {
     if (!status) return 'tone-mute';

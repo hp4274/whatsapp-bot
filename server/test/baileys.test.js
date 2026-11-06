@@ -10,6 +10,7 @@ import { it } from 'node:test';
 import { CampaignManager } from '../src/campaign/manager.js';
 import { DEFAULTS } from '../src/config.js';
 import { Database } from '../src/db.js';
+import { applySendingPolicy } from '../src/policy/levels.js';
 import { Status } from '../src/protocol.js';
 import { BaileysTransport, extractContent, mediaCache, ownDeviceCopy, quietLogger, toJid } from '../src/transports/baileys.js';
 
@@ -240,7 +241,8 @@ it('a carousel campaign on a QR number counts each part against the day', async 
     const { transport, sock } = makeTransport();
     await transport.connect();
     const manager = new CampaignManager(db, transport, { ...DEFAULTS, transport: 'baileys', safetyEnabled: false, rateLimitPerSecond: 1000, pacingMode: 'fixed' });
-    // No override: sending.carouselImages is on by default, so one image per card, which every device shows.
+    // The admin turned sending.carouselImages on (off by default): one image per card, which every device shows.
+    applySendingPolicy(manager.quota, { 'sending.carouselImages': true });
     const card = (n) => {
         const filePath = path.join(tmp, `c${n}.png`);
         fs.writeFileSync(filePath, png().buffer);
@@ -407,7 +409,7 @@ it('maps receipts to DELIVERED/READ/FAILED and ignores pending', async () => {
         ['A', Status.SENT, null],
         ['A', Status.DELIVERED, null],
         ['B', Status.READ, null],
-        ['C', Status.FAILED, 'Baileys reported a send failure'],
+        ['C', Status.FAILED, 'WhatsApp reported a send failure'],
         ['D', Status.DELIVERED, null],
         ['D', Status.READ, null],
     ]);

@@ -21,6 +21,7 @@ import {
   RetargetFilter,
   Segment,
 } from '../../core/api';
+import { Auth } from '../../core/auth';
 import { spacedPhone, splitTags } from '../../contacts/contact-util';
 import { ReusePicker } from '../../storage/reuse-picker';
 import type { StorageUse } from '../../storage/storage-api';
@@ -40,6 +41,9 @@ const REASONS: Record<ImportIssueReason, string> = {
   recent: 'Messaged recently',
 };
 
+/** What a file column is used as in the column editor. */
+type ColumnRole = 'phone' | 'name' | 'var';
+
 /**
  * Where recipients can come from; the order is the order of the choice cards.
  * Typed numbers are not a source of their own: they can be added to any of these.
@@ -52,18 +56,18 @@ const SOURCES: {
   text: string;
 }[] = [
   {
-    id: 'contacts',
-    value: 'contacts',
-    icon: 'users-group',
-    title: 'Your contacts',
-    text: 'A saved segment, or everyone with certain tags',
-  },
-  {
     id: 'upload',
     value: 'file',
     icon: 'file-upload',
     title: 'Upload a file',
     text: 'CSV or Excel - every column becomes a variable',
+  },
+  {
+    id: 'contacts',
+    value: 'contacts',
+    icon: 'users-group',
+    title: 'Your contacts',
+    text: 'A saved segment, or everyone with certain tags',
   },
   {
     id: 'retarget',
@@ -78,7 +82,7 @@ const SOURCES: {
 const FILTERS: { value: RetargetFilter; label: string; hint: string }[] = [
   { value: 'failed', label: 'Message failed', hint: 'The message never arrived' },
   { value: 'unread', label: "Didn't read it", hint: 'Sent or delivered, no blue ticks' },
-  { value: 'noreply', label: "Didn't reply", hint: 'Read it, but said nothing' },
+  { value: 'noreply', label: "Didn't reply", hint: 'Got it (read or not), but never replied' },
   { value: 'replied', label: 'Replied', hint: 'Wrote back after the campaign started' },
   { value: 'clicked', label: 'Tapped a button', hint: 'Chose a specific reply option' },
   { value: 'clickedLink', label: 'Tapped a link', hint: 'Tapped a tracked link in the message' },
@@ -109,6 +113,9 @@ export class AudienceStep {
   private readonly destroyRef = inject(DestroyRef);
   /** Re-targeting is a follow-up campaign, which a plan can switch off. */
   protected readonly policy = inject(CampaignPolicy);
+  private readonly auth = inject(Auth);
+  /** Reusing a stored sheet is admin-only on the server, so agents do not get the picker. */
+  protected readonly isAdmin = computed(() => this.auth.atLeast('admin'));
 
   protected readonly sources = SOURCES;
   protected readonly filters = FILTERS;
@@ -127,6 +134,10 @@ export class AudienceStep {
   protected readonly notTagsText = signal('');
   protected readonly knownTags = signal<string[]>([]);
   protected readonly counting = signal(false);
+  /** A failed live count, shown in place of "0 contacts match" (which would be untrue). */
+  protected readonly countError = signal('');
+  /** A failed number check of the file, shown on the check card with its own Try again. */
+  protected readonly auditError = signal('');
   protected readonly error = signal('');
   protected readonly copied = signal<string | null>(null);
   protected readonly campaigns = signal<Campaign[] | null>(null);
@@ -137,26 +148,30 @@ export class AudienceStep {
 
   protected readonly ccValid = computed(() => /^\d{1,4}$/.test(this.draft.countryCode()));
   protected readonly columns = computed(() => this.draft.preview()?.columns ?? []);
-  /** Every column that is not the phone or the name, with a sample value. */
-  protected readonly varColumns = computed(() => {
+  /**
+   * Every file column as the column editor shows it: what it is used as, a sample from the first row, whether it
+   * goes with the campaign, and the variable it fills in the message ({phone} and {name} for those two).
+   */
+  protected readonly colRows = computed(() => {
     const preview = this.draft.preview();
     if (!preview) return [];
     const { phone, name } = this.draft.mapping();
+    const dropped = new Set(this.draft.droppedColumns());
     const first = preview.rows[0] ?? [];
-    const out = preview.columns
-      .map((c, i) => ({ ...c, sample: String(first[i] ?? '') }))
-      .filter((c) => c.slug !== phone && c.slug !== name);
-    const nameAt = preview.columns.findIndex((c) => c.slug === name);
-    return [
-      {
-        header: 'Name column',
-        slug: 'name',
-        sample: nameAt >= 0 ? String(first[nameAt] ?? '') : '',
-      },
-      ...out,
-      ...this.draft.extraColumns().map((c) => ({ header: 'Added column', slug: c.slug, sample: c.value })),
-    ];
+    return preview.columns.map((c, index) => {
+      const role: ColumnRole = c.slug === phone ? 'phone' : c.slug === name ? 'name' : 'var';
+      return {
+        ...c,
+        index,
+        role,
+        sample: String(first[index] ?? ''),
+        kept: role !== 'var' || !dropped.has(c.slug),
+        variable: role === 'var' ? c.slug : role,
+      };
+    });
   });
+  /** Kept variable columns, shown beside name and number in "See who gets it". */
+  protected readonly shownVars = computed(() => this.colRows().filter((c) => c.role === 'var' && c.kept));
 
   protected readonly newCol = signal('');
   protected readonly newValue = signal('');
@@ -278,6 +293,7 @@ export class AudienceStep {
       untracked(() => {
         if (this.countTimer) clearTimeout(this.countTimer);
         ++this.countSeq;
+        this.countError.set('');
         // Up to 5,000 ids would not fit in a query string, and the list is the count anyway.
         if (source === 'contacts' && segmentId === null && filter.ids?.length) {
           this.counting.set(false);
@@ -320,9 +336,26 @@ export class AudienceStep {
         if (seq !== this.countSeq) return;
         this.counting.set(false);
         this.draft.contactsCount.set(null);
-        this.error.set(err.message);
+        this.countError.set(err.message);
       },
     });
+  }
+
+  /** The count's Try again: same filter, a fresh sequence so an older answer cannot land. */
+  protected recount(): void {
+    ++this.countSeq;
+    this.countError.set('');
+    this.counting.set(true);
+    this.runCount(this.draft.contactFilter());
+  }
+
+  /** The number check's Try again, with the draft's current mapping and rules. */
+  protected reaudit(): void {
+    const d = this.draft;
+    const preview = d.preview();
+    const mapping = d.mapping();
+    if (!preview || !mapping.phone || !this.ccValid()) return;
+    this.runAudit(preview.importId, mapping, d.countryCode(), d.autoClean(), d.dedupeDays(), d.onePerNumber());
   }
 
   private runAudit(
@@ -335,6 +368,7 @@ export class AudienceStep {
   ): void {
     const seq = ++this.auditSeq;
     this.auditing.set(true);
+    this.auditError.set('');
     this.campaignsApi
       .importAudit({
         importId,
@@ -358,7 +392,7 @@ export class AudienceStep {
         error: (err: Error) => {
           if (seq !== this.auditSeq) return;
           this.auditing.set(false);
-          this.error.set(err.message);
+          this.auditError.set(err.message);
         },
       });
   }
@@ -419,6 +453,7 @@ export class AudienceStep {
     this.draft.clearImport();
     this.duplicateOf.set(null);
     this.error.set('');
+    this.auditError.set('');
   }
 
   /** "Change": drop the hand-picked ids so the usual segment / tag picker comes back. */
@@ -499,8 +534,28 @@ export class AudienceStep {
       this.error.set('We could not tell which column holds the phone number - pick it below.');
   }
 
-  protected setMapping(key: 'phone' | 'name', value: string): void {
-    this.draft.mapping.update((m) => ({ ...m, [key]: value }));
+  /** One column per role: making a column the phone (or name) frees the one that was. */
+  protected setRole(slug: string, role: ColumnRole): void {
+    this.draft.mapping.update((m) => ({
+      phone: role === 'phone' ? slug : m.phone === slug ? '' : m.phone,
+      name: role === 'name' ? slug : m.name === slug ? '' : m.name,
+    }));
+    if (role !== 'var') this.setKept(slug, true);
+  }
+
+  /** Leave a column out, or take it back. The name column left out stops being the name. */
+  protected setKept(slug: string, kept: boolean): void {
+    if (!kept && this.draft.mapping().name === slug) this.draft.mapping.update((m) => ({ ...m, name: '' }));
+    this.draft.droppedColumns.update((d) => [...d.filter((s) => s !== slug), ...(kept ? [] : [slug])]);
+  }
+
+  /** A cell of the uploaded file, for the recipients table. */
+  protected cell(row: number, index: number): string {
+    return String(this.draft.preview()?.rows[row]?.[index] ?? '');
+  }
+
+  protected isChecked(event: Event): boolean {
+    return (event.target as HTMLInputElement).checked;
   }
 
   protected setCountry(value: string): void {

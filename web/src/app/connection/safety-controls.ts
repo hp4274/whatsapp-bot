@@ -12,6 +12,7 @@ import { DatePipe } from '@angular/common';
 import { Api, CustomSafetyView, SafetyPolicy } from '../core/api';
 import { SAFETY_GROUPS, SafetyField, safetyRisk } from '../core/safety-fields';
 import { Store } from '../core/store';
+import { plainError } from '../channels/channel-meta';
 
 /**
  * Policy keys this drawer does not offer: a QR number's own level sets them (SafetyField.qrIgnored),
@@ -47,6 +48,9 @@ export class SafetyControls {
   readonly exited = output<boolean>();
 
   protected readonly view = signal<CustomSafetyView | null>(null);
+  protected readonly loading = signal(true);
+  /** The settings could not be read for a reason other than the role: said, with Try again. */
+  protected readonly loadError = signal('');
   protected readonly open = signal(false);
   protected readonly busy = signal(false);
   protected readonly error = signal('');
@@ -78,6 +82,8 @@ export class SafetyControls {
     );
   });
   protected readonly riskCount = computed(() => Object.keys(this.risks()).length);
+  /** Number fields left empty: invalid, and never saved as 0 (which reads as "no limit" or "never"). */
+  protected readonly blanks = signal<ReadonlySet<keyof SafetyPolicy>>(new Set());
   /** The drawer is the leave-safety warning, not the limits editor. */
   protected readonly leaving = signal(false);
   protected readonly needsConsent = computed(() => !this.view()?.consent);
@@ -93,10 +99,19 @@ export class SafetyControls {
     this.store.watch(['config', 'tenant'], () => this.load(), 1000);
   }
 
-  private load(): void {
+  protected load(): void {
+    this.loadError.set('');
     this.api.customSafety().subscribe({
-      next: (view) => this.show(view),
-      error: () => this.view.set(null), // agents (403) and older servers: read-only note
+      next: (view) => {
+        this.loading.set(false);
+        this.show(view);
+      },
+      error: (err: Error) => {
+        this.loading.set(false);
+        this.view.set(null);
+        // A role refusal (server requireRole) is the read-only note, not an error; anything else can be retried.
+        this.loadError.set(/permission/i.test(err.message) ? '' : plainError(err.message));
+      },
     });
   }
 
@@ -120,6 +135,7 @@ export class SafetyControls {
     this.fullName.set('');
     this.confirmation.set('');
     this.draft.set({ ...view.policy });
+    this.blanks.set(new Set());
     this.open.set(true);
     setTimeout(() => this.host.nativeElement.querySelector<HTMLElement>('.sc-drawer h3')?.focus());
   }
@@ -201,6 +217,15 @@ export class SafetyControls {
   }
 
   protected setNumber(key: keyof SafetyPolicy, raw: string): void {
+    const next = new Set(this.blanks());
+    if (raw.trim() === '') {
+      // Keep the last value in the draft; Save stays off until the field holds a number again.
+      next.add(key);
+      this.blanks.set(next);
+      return;
+    }
+    next.delete(key);
+    this.blanks.set(next);
     this.setValue(key, Number(raw) as never);
   }
 
@@ -224,7 +249,7 @@ export class SafetyControls {
   protected save(): void {
     const view = this.view();
     const draft = this.draft();
-    if (!view || !draft) return;
+    if (!view || !draft || this.blanks().size) return;
     // Only what differs from the platform, plus anything already overridden.
     const patch = Object.fromEntries(
       (Object.keys(draft) as (keyof SafetyPolicy)[])

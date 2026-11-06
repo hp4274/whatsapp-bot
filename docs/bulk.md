@@ -381,6 +381,6 @@ There is at most 1 alert per kind per number per hour and 30 an hour across the 
 | Kill switch, campaign caps, tenant controls | `server/src/policy/campaignOps.js`, `server/src/policy/bulk.js` |
 | Connection handling | `server/src/transports/baileys.js` |
 | Opt-out keywords | `server/src/autoreply/optout.js` |
-| Questions popup, number card | `web/src/app/connection/number-questions.*`, `web/src/app/channels/channel-card.*` |
+| WhatsApp page, questions popup, number card | `web/src/app/whatsapp/whatsapp.*`, `web/src/app/connection/number-questions.*`, `web/src/app/channels/channel-card.*` |
 | Admin number view | `web/src/app/admin/channels-ops.*` |
 | Operations, keys, backups, alerts | `docs/OPS.md` |

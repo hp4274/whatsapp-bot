@@ -93,11 +93,11 @@ Messages arrive as a normal chat from your number, with your name and profile ph
 | An image, video or document | The file with your text as its caption |
 | A link | A tappable link |
 | Buttons or a list | A numbered menu in the text ("Reply 1 for prices, 2 for timings"); people reply with the number |
-| A carousel | One photo per card, each with the card's text and options as its caption. 4 or more photos in a row are grouped by WhatsApp into a grid, and any photo opens a swipe viewer |
+| A carousel | WhatsApp's swipe carousel. If Wuzie has switched your account to photos: one photo per card, each with the card's text and options as its caption |
 
 **Why buttons become a menu.** Real WhatsApp buttons from a QR-linked number don't show on many iPhones, on WhatsApp Web or on the desktop app, and they raise the ban risk. A numbered menu shows on every device and works the same way.
 
-**Why a carousel arrives as photos.** WhatsApp's business-style swipe carousel from a QR-linked number shows on WhatsApp Web, but Android phones and iPhones don't display it, and iPhones also hid photos grouped into an album by the system. So each card goes as a plain photo with its text and options as the caption: that shows on Android, iPhone, iPad, Mac and WhatsApp Web. WhatsApp groups 4 or more photos in a row into a grid by itself, and tapping any photo opens a swipe viewer.
+**Carousel or photos.** WhatsApp's business-style swipe carousel from a QR-linked number shows on WhatsApp Web, but Android phones and iPhones may not display it. If your customers don't see your carousels, ask Wuzie to send them as photos: each card then goes as a plain photo with its text and options as the caption, which shows on Android, iPhone, iPad, Mac and WhatsApp Web. WhatsApp groups 4 or more photos in a row into a grid by itself, and tapping any photo opens a swipe viewer.
 
 ## Plans and limits
 
@@ -162,4 +162,4 @@ You can, but a separate number for the business is safer: if it's ever banned, y
 Yes. You can pick the groups your number is in, and their members are added as contacts. The same levels and brakes apply to them.
 
 **Why does my carousel arrive as separate photos?**
-Plain photos are the one format every device shows, and people can still swipe through them. See [What your customers see](#what-your-customers-see).
+Wuzie switched your account to photos, the one format every device shows, and people can still swipe through them. See [What your customers see](#what-your-customers-see).

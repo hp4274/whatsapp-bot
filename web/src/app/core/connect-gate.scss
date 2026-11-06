@@ -1,0 +1,60 @@
+@use '../school/school-shared' as s;
+
+@include s.keyframes;
+@include s.buttons;
+
+// The same card as the number questions' dialogs (connection/number-questions.scss .dlg), above the shell.
+.gate {
+  width: min(460px, calc(100vw - 32px));
+  padding: var(--space-xl);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-lift);
+  color: var(--text-color);
+  animation: s-pop 280ms var(--ease) both;
+
+  &::backdrop {
+    background: var(--overlay);
+    backdrop-filter: blur(4px);
+  }
+
+  h2 {
+    margin: 16px 0 8px;
+    font-size: 19px;
+    font-weight: 500;
+    color: var(--text-strong);
+  }
+
+  p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text-muted);
+  }
+}
+
+.badge {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--primary-tint);
+  color: var(--primary-text);
+  font-size: 26px;
+}
+
+.acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-xl);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gate {
+    animation: none;
+  }
+}

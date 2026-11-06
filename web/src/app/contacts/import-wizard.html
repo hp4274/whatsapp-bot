@@ -84,10 +84,22 @@
             updated, never duplicated.
           </li>
           <li>
-            <i class="ti ti-circle-check" aria-hidden="true"></i> Extra columns become custom fields
-            you can use in templates.
+            <i class="ti ti-circle-check" aria-hidden="true"></i> Other columns are kept as extra
+            details you can fill into your messages.
           </li>
         </ul>
+        <details class="advanced">
+          <summary>More options</summary>
+          <div class="advanced-body">
+            <p class="muted">
+              Already talk to customers in WhatsApp groups? Add the members of the groups your
+              connected number is in.
+            </p>
+            <button class="btn" type="button" (click)="fromGroups.emit()">
+              <i class="ti ti-users-group" aria-hidden="true"></i> From WhatsApp groups
+            </button>
+          </div>
+        </details>
       }
 
       @case ('map') {
@@ -115,8 +127,8 @@
                     <option value="name">Name</option>
                     <option value="email">Email</option>
                     <option value="tags">Tags (comma separated)</option>
-                    <option value="consent">Opt-in consent (any answer but "no")</option>
-                    <option value="custom">Custom field</option>
+                    <option value="consent">Said yes to messages (any answer except "no")</option>
+                    <option value="custom">Extra detail</option>
                     <option value="ignore">Don't import</option>
                   </select>
                   @if (columns()[i].kind === 'custom') {
@@ -124,7 +136,7 @@
                       class="mono"
                       list="iw-keys"
                       maxlength="60"
-                      [attr.aria-label]="'Custom field name for ' + (h || 'column ' + (i + 1))"
+                      [attr.aria-label]="'Name of the extra detail for ' + (h || 'column ' + (i + 1))"
                       [ngModel]="columns()[i].key"
                       (ngModelChange)="setKey(i, $event)"
                     />
@@ -166,7 +178,20 @@
           }
           @if (listCheck(); as q) {
             <div class="check" role="status" aria-label="List check">
-              @if (q.lines.length) {
+              @if (q.mostlyBad) {
+                <ul>
+                  <li>
+                    <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+                    <span
+                      >Fewer than half of the first rows in this column look like phone numbers.
+                      <small
+                        >Check you picked the right column. Rows without a valid number are
+                        skipped.</small
+                      ></span
+                    >
+                  </li>
+                </ul>
+              } @else if (q.lines.length) {
                 <ul>
                   @for (l of q.lines; track l.kind) {
                     <li>
@@ -270,6 +295,9 @@
                 <summary>
                   Show the {{ invalid() }} skipped row{{ invalid() === 1 ? '' : 's' }}
                 </summary>
+                @if (invalid() > problemsShown) {
+                  <p class="muted">Showing the first {{ problemsShown }} of {{ invalid() }}.</p>
+                }
                 <ul>
                   @for (p of problems(); track $index) {
                     <li>{{ p }}</li>

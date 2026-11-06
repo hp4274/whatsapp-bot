@@ -68,6 +68,20 @@ describe('parseSheet / columns / guessMapping', () => {
         assert.deepEqual(sheet.rows, [['Asha', '919876543210', 'Pune']]);
         assert.deepEqual(guessMapping(sheet.columns, sheet.rows), { phone: 'mobile', name: 'customer' });
     });
+
+    it('finds the header row under a title row, as report-style sheets have', async () => {
+        const book = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([
+            ['PURPLE TEAM · Jignesh Patel · 4 passes'],
+            ['Form No.', 'Participant Name', 'Mobile', 'City'],
+            ['HK-0234', 'RACHIT PATEL', '8954123674', 'Anand'],
+            ['HK-0235', 'DIVYA PATEL', '8142581565', 'Anand'],
+        ]), 'Sheet1');
+        const sheet = await parseSheet('team.xlsx', XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }));
+        assert.deepEqual(sheet.headers, ['Form No.', 'Participant Name', 'Mobile', 'City']);
+        assert.equal(sheet.rows.length, 2);
+        assert.deepEqual(guessMapping(sheet.columns, sheet.rows), { phone: 'mobile', name: 'participant_name' });
+    });
 });
 
 describe('classifyPhone', () => {

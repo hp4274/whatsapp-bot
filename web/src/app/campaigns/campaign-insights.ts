@@ -175,25 +175,32 @@ export class CampaignInsights {
       .map((f) => ({ ...f, width: percent(f.count, max) }));
   });
 
+  /**
+   * Counted from the recipient rows with the server's own retarget rules (campaigns/store.js
+   * #retargetAudience), not from the funnel: "sent" there includes sandbox rows and read people,
+   * so "No reply 5" could open a follow-up the server then called empty. The server also leaves out
+   * opted-out people, which these rows do not say, so a count can still be a little high.
+   */
   protected readonly retargets = computed(() => {
-    const f = this.analytics().funnel;
+    const rows = this.analytics().recipients;
+    const where = (keep: (r: (typeof rows)[number]) => boolean) => rows.filter(keep).length;
     const out = [
       {
         filter: 'unread',
         label: 'Not read',
         icon: 'mail-exclamation',
-        count: Math.max(0, f.sent - f.read),
+        count: where((r) => r.status === 'SENT' || r.status === 'DELIVERED'),
       },
       {
         filter: 'noreply',
         label: 'No reply',
         icon: 'message-off',
-        count: Math.max(0, f.sent - f.replied),
+        count: where((r) => ['SENT', 'DELIVERED', 'READ'].includes(r.status) && !r.replied),
       },
-      { filter: 'failed', label: 'Failed', icon: 'refresh-alert', count: f.failed },
+      { filter: 'failed', label: 'Failed', icon: 'refresh-alert', count: where((r) => r.status === 'FAILED') },
     ];
     if (this.showLinks()) {
-      out.push({ filter: 'clickedLink', label: 'Clicked a link', icon: 'click', count: f.clickedLink ?? 0 });
+      out.push({ filter: 'clickedLink', label: 'Clicked a link', icon: 'click', count: where((r) => !!r.clickedLink) });
     }
     return out;
   });

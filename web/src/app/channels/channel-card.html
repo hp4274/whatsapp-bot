@@ -1,7 +1,11 @@
+<!--
+  One number. Expanded: name, the projected link card, today's meter and allowance, sending hours, hints.
+  Compact: name, status, today's meter, the one action that applies. Both end in the Advanced fold.
+-->
 @let ch = channel();
-@if (active()) {
+@if (active() && multi()) {
   <div class="ribbon">
-    <i class="ti ti-current-location" aria-hidden="true"></i> Working on this number
+    <i class="ti ti-current-location" aria-hidden="true"></i> Selected number
   </div>
 }
 
@@ -11,25 +15,28 @@
     {{ stateLabel() }}
   </span>
   <div class="badges">
-    @if (recommended()) {
+    @if (sending()) {
+      <span class="badge sending"><i class="ti ti-send" aria-hidden="true"></i>Sending now</span>
+    }
+    @if (multi() && recommended()) {
       <span class="badge recommended" title="Best number to send on now: connected, healthiest, most of today left">
         <i class="ti ti-thumb-up" aria-hidden="true"></i>Recommended
       </span>
     }
+    <!-- A paused number is not scored: its old score would read as a healthy number that is sending. -->
     @if (quality(); as q) {
-      <span
-        class="badge score {{ scoreTone() }}"
-        title="Health score out of 100: lower when messages fail, people opt out or today's cap is used up"
-      >
-        <i class="ti ti-activity-heartbeat" aria-hidden="true"></i>Health {{ q.score }}
-      </span>
+      @if (ch.status === 'active') {
+        <span
+          class="badge score {{ scoreTone() }}"
+          title="Health score out of 100: lower when messages fail, people opt out or today's limit is used up"
+        >
+          <i class="ti ti-activity-heartbeat" aria-hidden="true"></i>Health {{ q.score }}/100
+        </span>
+      }
     }
-    <span class="badge transport" [title]="transport().hint || transport().label">
-      <i class="ti ti-{{ transport().icon }}" aria-hidden="true"></i>{{ transport().short }}
-    </span>
-    @if (ch.isDefault) {
-      <span class="badge default" title="Used when a request does not name a number">
-        <i class="ti ti-star" aria-hidden="true"></i>Default
+    @if (multi() && ch.isDefault) {
+      <span class="badge default" title="Used when nothing picks a number">
+        <i class="ti ti-star" aria-hidden="true"></i>Main number
       </span>
     }
   </div>
@@ -42,7 +49,7 @@
   <div class="names">
     @if (editing() === 'name') {
       <form class="inline" (submit)="commitEdit($event)">
-        <label class="sr" [for]="'name-' + ch.id">Label</label>
+        <label class="sr" [for]="'name-' + ch.id">Name</label>
         <input
           #editor
           [id]="'name-' + ch.id"
@@ -52,7 +59,7 @@
           (input)="draftValue.set($any($event.target).value)"
           (keydown)="editKey($event)"
         />
-        <button class="icon-btn ok" type="submit" [disabled]="busy()" aria-label="Save label">
+        <button class="icon-btn ok" type="submit" [disabled]="busy()" aria-label="Save name">
           <i class="ti ti-check" aria-hidden="true"></i>
         </button>
         <button class="icon-btn" type="button" (click)="cancelEdit()" aria-label="Cancel">
@@ -97,7 +104,7 @@
       </form>
     } @else {
       <p class="phone">
-        <span class="mono">{{ ch.phoneNumber || 'No number set' }}</span>
+        <span class="mono">{{ ch.phoneNumber || 'Phone number not added' }}</span>
         <button
           class="icon-btn pencil"
           type="button"
@@ -108,13 +115,19 @@
         </button>
       </p>
     }
-    @if (ch.health?.account) {
-      <p class="account">
-        <i class="ti ti-shield-check" aria-hidden="true"></i>{{ ch.health.account }}
-      </p>
-    }
   </div>
 </div>
+
+@if (error()) {
+  <p class="alert" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}
+  </p>
+}
+
+@if (expanded()) {
+  <!-- The link card for this number: steps and QR, or who it is linked as. -->
+  <ng-content />
+}
 
 @if (usage(); as u) {
   <section class="meter" [attr.data-tone]="meterTone()" aria-label="Today's sends">
@@ -136,23 +149,16 @@
         aria-valuemin="0"
         [attr.aria-valuemax]="u.todayLimit"
         [attr.aria-valuenow]="u.sentToday"
-        [attr.aria-label]="u.sentToday + ' of ' + u.todayLimit + ' daily sends used'"
+        [attr.aria-label]="u.sentToday + ' of ' + u.todayLimit + ' messages today'"
       >
         <span class="fill" [style.--p]="usedShare()"></span>
       </div>
     }
+    <!-- The one place the daily allowance is said; the ban protection card below no longer repeats it. -->
     <p class="meter-foot" [class.held]="u.asked === false || !!u.blocked">
       @if (u.asked === false) {
         <span><i class="ti ti-help-circle" aria-hidden="true"></i>Answer 2 questions to start sending</span>
-        <button
-          type="button"
-          class="btn sm answer"
-          (click)="asking.set(!asking())"
-          [attr.aria-expanded]="asking()"
-          [attr.aria-controls]="'questions-' + ch.id"
-        >
-          {{ asking() ? 'Close' : 'Answer' }}
-        </button>
+        <button type="button" class="btn sm answer" (click)="ask.emit()">Answer 2 questions</button>
       } @else if (u.blocked) {
         <span><i class="ti ti-hand-stop" aria-hidden="true"></i>{{ u.blocked }}</span>
       } @else if (u.todayLimit === null) {
@@ -167,80 +173,61 @@
   </section>
 }
 
-@if (asking()) {
-  <div class="questions" [id]="'questions-' + ch.id">
-    <app-number-questions [channelId]="ch.id" (done)="changed.emit()" />
-    @if (usage()?.asked !== false) {
-      <button type="button" class="btn sm close" (click)="asking.set(false)">Done</button>
+@if (expanded()) {
+  <p class="window" [class.closed]="ch.businessHours && !ch.health?.withinSendingWindow">
+    <i class="ti ti-clock" aria-hidden="true"></i>
+    <span>Sending hours: {{ windowText() }}</span>
+    @if (ch.businessHours) {
+      <span class="tz">{{ ch.timezone.split('_').join(' ') }}</span>
+      <span class="now-chip">{{ ch.health?.withinSendingWindow ? 'Can send now' : 'Outside sending hours' }}</span>
+    }
+  </p>
+
+  @if (hints().length) {
+    <ul class="hints" aria-label="How this number is doing">
+      @for (h of hints(); track h.code) {
+        <li [attr.data-level]="h.level">
+          <i class="ti ti-{{ hintIcon[h.level] }}" aria-hidden="true"></i>{{ h.message }}
+        </li>
+      }
+    </ul>
+  }
+}
+
+<!-- The server's own words are for support; the business gets what to do about it. -->
+@if (ch.health?.error && state() !== 'connected' && ch.status === 'active') {
+  <p class="alert" [title]="ch.health.error">
+    <i class="ti ti-link-off" aria-hidden="true"></i>Lost connection to WhatsApp. Link it again with a QR code.
+  </p>
+}
+
+@if (!expanded()) {
+  <div class="actions">
+    @if (needsConnect()) {
+      <button class="btn primary cta" type="button" (click)="connect.emit()" [disabled]="linkBusy()">
+        <i class="ti ti-{{ transport().qr ? 'qrcode' : 'link' }}" aria-hidden="true"></i>
+        {{ transport().qr ? 'Link with QR code' : 'Link number' }}
+      </button>
+    } @else if (!active()) {
+      <button class="btn" type="button" (click)="use.emit()" [disabled]="ch.status !== 'active'">
+        <i class="ti ti-click" aria-hidden="true"></i> Use this number
+      </button>
     }
   </div>
 }
 
-<p class="window" [class.closed]="ch.businessHours && !ch.health?.withinSendingWindow">
-  <i class="ti ti-clock" aria-hidden="true"></i>
-  <span>{{ windowText() }}</span>
-  <span class="tz">{{ ch.timezone }}</span>
-  @if (ch.businessHours) {
-    <span class="now-chip">{{ ch.health?.withinSendingWindow ? 'Open now' : 'Closed now' }}</span>
-  }
-</p>
-
-@if (hints().length) {
-  <ul class="hints" aria-label="Quality hints">
-    @for (h of hints(); track h.code) {
-      <li [attr.data-level]="h.level">
-        <i class="ti ti-{{ hintIcon[h.level] }}" aria-hidden="true"></i>{{ h.message }}
-      </li>
-    }
-  </ul>
-}
-
-@if (ch.health?.error && state() !== 'connected') {
-  <p class="alert"><i class="ti ti-link-off" aria-hidden="true"></i>{{ ch.health.error }}</p>
-}
-@if (error()) {
-  <p class="alert" role="alert">
-    <i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}
-  </p>
-}
-
-<div class="actions">
-  @if (needsConnect()) {
-    <button class="btn primary cta" type="button" (click)="connect.emit()">
-      <i class="ti ti-{{ transport().qr ? 'scan' : 'link' }}" aria-hidden="true"></i>
-      {{ transport().qr ? 'Scan QR' : 'Connect' }}
-    </button>
-  } @else if (!active()) {
-    <button class="btn" type="button" (click)="use.emit()" [disabled]="ch.status !== 'active'">
-      <i class="ti ti-click" aria-hidden="true"></i> Work on this
-    </button>
-  } @else {
-    <button class="btn" type="button" (click)="connect.emit()">
-      <i class="ti ti-plug-connected" aria-hidden="true"></i> Connection
-    </button>
-  }
-  <button
-    class="btn"
-    type="button"
-    (click)="toggleOpen()"
-    [attr.aria-expanded]="open()"
-    [attr.aria-controls]="'drawer-' + ch.id"
-  >
-    <i class="ti ti-adjustments-horizontal chev" aria-hidden="true"></i>
-    {{ open() ? 'Close' : 'Settings' }}
-  </button>
-</div>
-
-@if (open()) {
-  <div class="drawer" [id]="'drawer-' + ch.id">
+<details class="advanced">
+  <summary>Advanced</summary>
+  <div class="advanced-body">
     <app-channel-settings
       [channel]="ch"
       [capabilities]="capabilities()"
       [canDelete]="canDelete()"
+      [multi]="multi()"
       [busy]="busy()"
       (patch)="save($event)"
       (makeDefault)="makeDefault()"
       (remove)="remove()"
     />
   </div>
-}
+</details>

@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "installedAt": "2026-11-05T10:20:07.948Z",
+  "files": {
+    "D:\\Work\\whatsapp-bot\\.claude\\settings.json": {
+      "plugins": [
+        "ruflo-mods@ruflo",
+        "ruflo-swarm@ruflo",
+        "ruflo-console@ruflo"
+      ],
+      "marketplace": true,
+      "env": true,
+      "claudeInstalled": [
+        "ruflo-swarm@ruflo"
+      ]
+    }
+  }
+}

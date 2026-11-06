@@ -71,9 +71,14 @@
         Conversations appear here automatically the moment a customer messages your WhatsApp number.
         Make sure your number is connected first.
       </p>
-      <a class="btn primary" routerLink="/connection"
-        ><i class="ti ti-link" aria-hidden="true"></i>Check connection</a
-      >
+      <!-- The WhatsApp page is admin-only; an agent following the link would just bounce to Home. -->
+      @if (canEditContact()) {
+        <a class="btn primary" routerLink="/whatsapp"
+          ><i class="ti ti-link" aria-hidden="true"></i>Check connection</a
+        >
+      } @else {
+        <p>If nothing arrives, ask an admin to check the WhatsApp number.</p>
+      }
     </div>
   } @else {
     <div class="ib-panes card" [class.has-sel]="selectedId() !== null">

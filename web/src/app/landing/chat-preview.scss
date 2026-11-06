@@ -1,4 +1,4 @@
-// Sits on the page ground, beside the inbox in the replies section.
+// The feature list on the left; the phone and its description on the right.
 :host {
   // WhatsApp's own light-theme colours: this preview draws WhatsApp, so it keeps them (as auto-replies/wa-preview does).
   --wa-bar: #008069;
@@ -12,58 +12,176 @@
   --wa-on-bar: #ffffff;
   --wa-day: #ffffff;
   display: grid;
-  justify-items: center;
-  gap: 18px;
+  grid-template-columns: 272px minmax(0, 1fr);
+  gap: clamp(32px, 4vw, 64px);
+  align-items: start;
 }
 
+.rail {
+  display: grid;
+  gap: 28px;
+}
 
-.picker {
-  position: relative;
-  isolation: isolate;
-  display: inline-flex;
-  padding: 4px;
+.group {
+  display: grid;
   gap: 2px;
-  border-radius: 999px;
-  background: var(--surface-sunken);
 
-  button {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 38px;
-    padding: 0 16px;
-    border: 0;
-    border-radius: 999px;
-    background: transparent;
+  h3 {
+    margin: 0 0 8px;
+    padding: 0 12px;
+    color: var(--text-strong);
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-color);
+  font-size: 15px;
+  font-weight: 500;
+  text-align: left;
+  transition:
+    background var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+
+  .ti {
+    flex: none;
     color: var(--text-muted);
-    font-size: 14px;
-    font-weight: 500;
-    transition: var(--fast) var(--ease);
+    font-size: 19px;
+  }
 
-    &:hover {
-      color: var(--text-strong);
-    }
+  &:hover {
+    background: var(--surface-sunken);
+  }
 
-    &[aria-pressed='true'] {
-      color: var(--on-primary);
+  &:focus-visible {
+    outline: 2px solid var(--primary-text);
+    outline-offset: -2px;
+  }
+
+  &[aria-pressed='true'] {
+    background: var(--primary-tint);
+    color: var(--text-strong);
+
+    .ti {
+      color: var(--primary-text);
     }
   }
 }
 
-// Slides under the chosen option (SegThumb); the deeper blue keeps white labels above 4.5:1.
-.thumb {
-  position: absolute;
-  inset: 4px auto 4px 0;
-  z-index: -1;
-  width: 0;
+.soon {
+  flex: none;
+  margin-left: auto;
+  padding: 2px 8px;
   border-radius: 999px;
-  background: var(--primary-hover);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+// Stays in view while the list scrolls past, so a pick further down still shows its chat.
+.stage {
+  position: sticky;
+  top: 100px;
+  display: grid;
+  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+  gap: clamp(32px, 4vw, 56px);
+  align-items: center;
+}
+
+.about {
+  min-width: 0;
+
+  h3 {
+    margin: 16px 0 12px;
+    font-size: clamp(26px, 2.6vw, 34px);
+    line-height: 1.1;
+    letter-spacing: -0.035em;
+  }
+
+  p {
+    margin: 0;
+    font-size: 17px;
+    line-height: 1.6;
+  }
+
+  ul {
+    display: grid;
+    gap: 10px;
+    margin: 20px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  li {
+    display: flex;
+    gap: 10px;
+    color: var(--text-strong);
+    font-weight: 500;
+    line-height: 1.4;
+  }
+
+  li .ti {
+    flex: none;
+    margin-top: 2px;
+    color: var(--primary-text);
+    font-size: 18px;
+  }
+}
+
+.status {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+
+  &.ready {
+    background: var(--success-soft);
+    color: var(--text-strong);
+  }
+}
+
+// The landing page's action pill (.btn.go there; its styles stop at this component's edge).
+.cta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 46px;
+  margin-top: 28px;
+  padding: 0 24px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+
+  &:hover {
+    background: var(--primary-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-text);
+    outline-offset: 2px;
+  }
 }
 
 // The phone: WhatsApp's chat screen in a rounded device frame.
 .phone {
   margin: 0;
-  width: min(100%, 380px);
+  width: 100%;
   overflow: hidden;
   border-radius: 32px;
   border: 8px solid var(--text-strong);
@@ -118,7 +236,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  min-height: 360px;
+  min-height: 372px;
   margin: 0;
   padding: 10px 14px 12px;
   list-style: none;
@@ -254,21 +372,6 @@
   }
 }
 
-// What the preview is showing off, under the device: Wuzie answered, not a person.
-.auto {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 13px;
-  font-family: var(--font-body);
-
-  .ti {
-    color: var(--primary-text);
-  }
-}
-
 @keyframes s-pop-in {
   from {
     opacity: 0;
@@ -283,14 +386,68 @@
   }
 }
 
-@media (max-width: 767px) {
-  .picker button {
-    padding: 0 12px;
+// Too narrow for the phone beside its words: the words go on top.
+@media (max-width: 1239px) {
+  .stage {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+
+  .about {
+    order: -1;
+    justify-self: stretch;
+  }
+
+  .phone {
+    max-width: 360px;
+  }
+}
+
+// The list becomes a row to swipe above the chat; each item's Soon tag stands in for the group headings.
+@media (max-width: 1023px) {
+  :host {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rail {
+    display: flex;
+    gap: 8px;
+    margin-inline: calc(var(--gutter) * -1);
+    padding: 2px var(--gutter);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .group {
+    display: contents;
+
+    h3 {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+  }
+
+  .row {
+    flex: none;
+    gap: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+  }
+
+  .soon {
+    margin-left: 0;
+  }
+
+  .stage {
+    position: static;
   }
 }
 
 @media (pointer: coarse) {
-  .picker button {
+  .row {
     min-height: 44px;
   }
 }

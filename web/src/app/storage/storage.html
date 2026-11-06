@@ -153,7 +153,7 @@
                 <i class="ti ti-calendar" aria-hidden="true"></i>
                 Uploaded {{ date(f.createdAt) }}
               </li>
-              <li [title]="'Last used ' + date(f.lastUsedAt)">
+              <li [title]="f.uses > 0 && f.lastUsedAt ? 'Last used ' + date(f.lastUsedAt) : ''">
                 <i class="ti ti-repeat" aria-hidden="true"></i>
                 @if (f.uses > 0) {
                   Used {{ f.uses }}&times;

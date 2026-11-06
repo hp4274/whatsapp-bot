@@ -106,7 +106,8 @@
         </p>
       }
 
-      @if (!d.savedAudience()) {
+      <!-- Reusing a stored file is admin-only on the server (403 for agents). -->
+      @if (!d.savedAudience() && isAdmin()) {
         <app-reuse-picker
           kind="sheet"
           [activeId]="preview?.storageId"
@@ -116,35 +117,75 @@
       }
 
       @if (preview) {
-        <div class="map">
-          <div class="field">
-            <label for="map-phone">Phone number column</label>
-            <select
-              id="map-phone"
-              [ngModel]="d.mapping().phone"
-              (ngModelChange)="setMapping('phone', $event)"
-            >
-              <option value="">Choose...</option>
-              @for (c of columns(); track c.slug) {
-                <option [value]="c.slug">{{ c.header }}</option>
-              }
-            </select>
+        <div class="colmap">
+          <div class="colmap-head">
+            <h4 id="colmap-title">Columns in your file</h4>
+            <p class="muted">
+              Choose the phone number and name columns. Every other column you keep becomes a variable you
+              can put in your message. Untick a column to leave it out.
+            </p>
           </div>
-          <div class="field">
-            <label for="map-name">Name column</label>
-            <select
-              id="map-name"
-              [ngModel]="d.mapping().name"
-              (ngModelChange)="setMapping('name', $event)"
-            >
-              <option value="">No name column</option>
-              @for (c of columns(); track c.slug) {
-                @if (c.slug !== d.mapping().phone) {
-                  <option [value]="c.slug">{{ c.header }}</option>
+          <div class="issues" role="region" aria-labelledby="colmap-title" tabindex="0">
+            <table>
+              <thead>
+                <tr>
+                  <th>Keep</th>
+                  <th>Column</th>
+                  <th>Example</th>
+                  <th>Use as</th>
+                  <th>In your message</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (c of colRows(); track c.slug) {
+                  <tr [class.off]="!c.kept">
+                    <td class="keep">
+                      <input
+                        type="checkbox"
+                        [checked]="c.kept"
+                        [disabled]="c.role === 'phone'"
+                        (change)="setKept(c.slug, isChecked($event))"
+                        [attr.aria-label]="'Keep the ' + c.header + ' column'"
+                      />
+                    </td>
+                    <td class="col-name">{{ c.header }}</td>
+                    <td class="sample">{{ c.sample || '—' }}</td>
+                    <td>
+                      <select
+                        [ngModel]="c.role"
+                        (ngModelChange)="setRole(c.slug, $event)"
+                        [attr.aria-label]="'Use the ' + c.header + ' column as'"
+                      >
+                        <option value="phone">Phone number</option>
+                        <option value="name">Name</option>
+                        <option value="var">Variable</option>
+                      </select>
+                    </td>
+                    <td>
+                      @if (c.kept) {
+                        <button
+                          type="button"
+                          class="vchip"
+                          (click)="copy(c.variable)"
+                          [attr.aria-label]="'Copy {' + c.variable + '}'"
+                        >
+                          {{ copied() === c.variable ? 'Copied' : '{' + c.variable + '}' }}
+                        </button>
+                      } @else {
+                        <span class="muted">Left out</span>
+                      }
+                    </td>
+                  </tr>
                 }
-              }
-            </select>
+              </tbody>
+            </table>
           </div>
+          @if (!d.mapping().phone) {
+            <p class="hint bad" role="alert">Choose which column holds the phone number.</p>
+          }
+        </div>
+
+        <div class="map">
           <div class="field">
             <label for="map-cc">Country code</label>
             <div class="cc" [class.bad]="!ccValid()">
@@ -260,28 +301,20 @@
 
           </div>
         </details>
-
-        <div class="cols">
-          <p class="muted">Use any column in your message - click to copy:</p>
-          <div class="chips">
-            @for (c of varColumns(); track c.slug) {
-              <button
-                type="button"
-                class="vchip"
-                (click)="copy(c.slug)"
-                [title]="c.sample ? 'e.g. ' + c.sample : c.header"
-                [attr.aria-label]="'Copy {' + c.slug + '} (' + c.header + ')'"
-              >
-                {{ copied() === c.slug ? 'Copied' : '{' + c.slug + '}' }}
-              </button>
-            }
-          </div>
-        </div>
       }
     </section>
 
     @if (preview && d.mapping().phone) {
       <section class="card panel enter" aria-live="polite">
+        @if (auditError(); as e) {
+          <div class="error" role="alert">
+            <i class="ti ti-alert-circle" aria-hidden="true"></i>
+            <span>Could not check the numbers: {{ e }}</span>
+            <button type="button" class="btn small" [disabled]="auditing()" (click)="reaudit()">
+              <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+            </button>
+          </div>
+        }
         @if (audit) {
           <div class="summary">
             <i class="ti ti-circle-check ok" aria-hidden="true"></i>
@@ -312,6 +345,9 @@
                         <th>Row</th>
                         <th>Name</th>
                         <th>Number</th>
+                        @for (k of shownVars(); track k.slug) {
+                          <th>{{ k.header }}</th>
+                        }
                         <th><span class="sr-only">Remove</span></th>
                       </tr>
                     </thead>
@@ -321,6 +357,9 @@
                           <td class="mono">{{ v.row + 2 }}</td>
                           <td>{{ v.name || '—' }}</td>
                           <td class="mono">{{ spacedPhone(v.phone) }}</td>
+                          @for (k of shownVars(); track k.slug) {
+                            <td>{{ cell(v.row, k.index) || '—' }}</td>
+                          }
                           <td class="acts">
                             <button
                               type="button"
@@ -401,7 +440,7 @@
 
         } @else if (auditing()) {
           <p class="muted"><span class="spinner"></span> Checking numbers...</p>
-        } @else {
+        } @else if (!auditError()) {
           <p class="muted">Pick the phone number column and a country code.</p>
         }
       </section>
@@ -556,6 +595,14 @@
       <div class="summary" aria-live="polite">
         @if (!d.audienceReady()) {
           <p class="muted">Pick a segment, or type at least one tag.</p>
+        } @else if (d.segmentId() === null && countError(); as e) {
+          <div class="error" role="alert">
+            <i class="ti ti-alert-circle" aria-hidden="true"></i>
+            <span>Could not count the contacts: {{ e }}</span>
+            <button type="button" class="btn small" (click)="recount()">
+              <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+            </button>
+          </div>
         } @else if (d.segmentId() === null && counting()) {
           <span class="spinner" aria-label="Counting"></span>
           <span class="muted">Counting contacts...</span>

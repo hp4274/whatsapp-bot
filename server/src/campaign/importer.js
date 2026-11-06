@@ -8,7 +8,7 @@
  * mapping into the explicit audience list a campaign row stores.
  */
 
-import { normalizeHeader, parseCsv } from '../contacts.js';
+import { normalizeHeader, parseTable } from '../contacts.js';
 import { PhoneError, contactContext, normalizePhone, personalize } from '../protocol.js';
 
 export const MAX_ROWS = 50_000;
@@ -30,21 +30,8 @@ export function cleanCountryCode(value) {
  * @returns {Promise<{ headers: string[], columns: {header:string, slug:string}[], rows: string[][], total: number, truncated: boolean }>}
  */
 export async function parseSheet(filename, buffer) {
-    let table;
-    if (/\.xlsx?$|\.xlsm$/i.test(filename)) {
-        const XLSX = await import('xlsx');
-        const book = XLSX.read(buffer, { type: 'buffer' });
-        const sheet = book.Sheets[book.SheetNames[0]];
-        table = sheet ? XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false }) : [];
-    } else {
-        table = parseCsv(buffer.toString('utf8'));
-    }
-    table = table.map((row) => (Array.isArray(row) ? row : []).map((cell) => String(cell ?? '').trim()));
-    const headers = (table[0] ?? []).map((h) => h.trim());
-    while (headers.length && !headers.at(-1)) headers.pop();
-    const body = table.slice(1)
-        .map((row) => headers.map((_, i) => row[i] ?? ''))
-        .filter((row) => row.some(Boolean));
+    // The contacts importer's parser, so both find the header row the same way (contacts.js headerRow).
+    const { headers, rows: body } = await parseTable(filename, buffer);
     return {
         headers,
         columns: uniqueColumns(headers),

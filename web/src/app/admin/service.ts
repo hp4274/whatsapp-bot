@@ -137,6 +137,7 @@ export class ServiceView {
   protected cap(tenant: Tenant): string {
     const own = Number(tenant.safety?.['dailyLimit'] ?? 0);
     if (own > 0) return `${own} a day`;
+    if (tenant.limits?.ownDailyLimit) return 'no daily limit';
     return tenant.subscription ? `${tenant.subscription.planName} plan's day` : "the plan's day";
   }
 

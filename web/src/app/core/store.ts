@@ -75,9 +75,6 @@ export class Store {
   readonly pacing = signal<{ seconds: number; resting: boolean; until: number } | null>(null);
   /** Wall clock, ticking every second while the stream is open: countdowns read it instead of timers of their own. */
   readonly now = signal(Date.now());
-  private readonly quietUntil = signal(0);
-  /** Server clock minus this browser's (ms), measured when safety last arrived; 0 until then. */
-  private readonly clockSkew = signal(0);
   readonly statusLine = signal('Ready.');
   readonly statusTone = signal<'muted' | 'primary' | 'warning' | 'danger'>('muted');
   readonly connecting = signal(false);
@@ -99,16 +96,6 @@ export class Store {
     return wait ? Math.max(0, Math.ceil((wait.until - this.now()) / 1000)) : 0;
   });
 
-  /** Seconds left of the open quiet window; 0 outside it. */
-  readonly quietLeft = computed(() => Math.max(0, Math.ceil((this.quietUntil() - this.now()) / 1000)));
-
-  /**
-   * `now` in the server's frame (ms epoch). The quiet windows are the server's instants, so the
-   * "now" pin is measured against its clock: a browser clock that runs fast or slow cannot put the
-   * pin in a window it is not in.
-   */
-  readonly serverNow = computed(() => this.now() + this.clockSkew());
-
   /** 0 to 1 share of the current campaign already processed. */
   readonly progress = computed(() => {
     const { total, processed } = this.stats();
@@ -118,12 +105,13 @@ export class Store {
   private readonly listeners = new Set<(topic: string) => void>();
   private source: EventSource | null = null;
   private clock: ReturnType<typeof setInterval> | null = null;
-  private newDay: ReturnType<typeof setTimeout> | null = null;
   /** Whether this session's stream has said hello before, so the next hello is a reconnect. */
   private everOpened = false;
   private reopen: ReturnType<typeof setTimeout> | null = null;
   /** Refused reopens in a row; each waits longer, so a stream the server keeps refusing does not spin. */
   private refusals = 0;
+  /** The stream was closed because the page went into the back/forward cache. */
+  private resumeOnShow = false;
 
   constructor() {
     this.applyTheme(this.theme());
@@ -134,6 +122,19 @@ export class Store {
     // A 401 clears the token without going through sign-out: close the stream it was using.
     effect(() => {
       if (!this.auth.token()) untracked(() => this.stop());
+    });
+    // A page kept in the back/forward cache keeps its stream open, so a few reloads use up the browser's six
+    // connections to this host and the next page hangs blank. Close it on the way out and reopen it on return;
+    // that hello counts as a reconnect, so pages reload whatever they missed.
+    addEventListener('pagehide', (event) => {
+      if (!event.persisted || !this.source) return;
+      this.dispose();
+      this.resumeOnShow = true;
+    });
+    addEventListener('pageshow', (event) => {
+      if (!event.persisted || !this.resumeOnShow) return;
+      this.resumeOnShow = false;
+      this.zone.run(() => this.start());
     });
   }
 
@@ -164,13 +165,19 @@ export class Store {
     });
   }
 
-  /** Switch the number every later request acts on, and re-open the stream. */
+  /**
+   * Switch the number every later request acts on, and re-open the stream. Open pages show the old number's
+   * data (or, after a stale pick, the 404s it caused), so every watcher reloads once against the new one.
+   */
   useChannel(channelId: number | null) {
     if (this.channelId() === channelId) return;
     this.auth.useChannel(channelId);
     const live = Boolean(this.source);
     this.stop();
+    // The new stream's hello is not a reconnect: the reload below is the one each page gets for the switch.
+    this.everOpened = false;
     if (live) this.start();
+    this.notify('*');
   }
 
   /**
@@ -187,8 +194,6 @@ export class Store {
     this.stats.set(EMPTY_STATS);
     this.safety.set(null);
     this.pacing.set(null);
-    this.quietUntil.set(0);
-    this.clockSkew.set(0);
     this.connection.set(EMPTY_CONNECTION);
     this.setStatus('Ready.');
   }
@@ -457,8 +462,6 @@ export class Store {
     this.reopen = null;
     clearInterval(this.clock ?? undefined);
     this.clock = null;
-    clearTimeout(this.newDay ?? undefined);
-    this.newDay = null;
   }
 
   /** Fold engine stats in, and turn the seconds the server reports into deadlines the countdowns can run down. */
@@ -466,16 +469,6 @@ export class Store {
     this.stats.set(stats);
     if (stats.safety) {
       this.safety.set(stats.safety);
-      const { quiet } = stats.safety;
-      this.quietUntil.set(quiet?.active ? Date.now() + quiet.leftSeconds * 1000 : 0);
-      // Includes the request's latency, a fraction of a second: fine for a pin on a 24h bar.
-      this.clockSkew.set(quiet ? quiet.nowAt - Date.now() : 0);
-      // Tomorrow has different windows: ask again once midnight (channel time) has passed.
-      clearTimeout(this.newDay ?? undefined);
-      const untilMidnight = quiet ? ((1440 - quiet.nowMinute) * 60 + 2) * 1000 : NaN;
-      this.newDay = Number.isFinite(untilMidnight)
-        ? setTimeout(() => this.refreshStats(), untilMidnight)
-        : null;
     }
     const wait = stats.safety?.waitingSeconds ?? 0;
     // A page opened mid-wait never saw the `pacing` event: build the wait from the stats.

@@ -19,6 +19,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 
 import { Api, CampaignsApi, RetargetFilter, type UploadedMedia } from '../core/api';
+import { Auth } from '../core/auth';
 import { focusInPage } from '../core/scroll';
 import { Store } from '../core/store';
 import { TemplatesApi } from '../templates/templates-api';
@@ -83,6 +84,9 @@ export class CampaignView implements OnInit {
     | undefined;
   private readonly destroyRef = inject(DestroyRef);
   protected readonly store = inject(Store);
+  private readonly auth = inject(Auth);
+  /** Only admins may open the WhatsApp page; an agent is told to ask one instead. */
+  protected readonly isAdmin = computed(() => this.auth.atLeast('admin'));
   protected readonly draft = inject(CampaignDraft);
   protected readonly policy = inject(CampaignPolicy);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -115,7 +119,7 @@ export class CampaignView implements OnInit {
   // Quick single message
   protected readonly recipient = signal('');
   protected readonly recipientName = signal('');
-  protected readonly message = signal('Hello {name}, your order has been confirmed.');
+  protected readonly message = signal('');
   protected readonly busy = signal(false);
   protected readonly file = signal<UploadedMedia | null>(null);
   protected readonly uploading = signal(false);
@@ -211,6 +215,9 @@ export class CampaignView implements OnInit {
       this.edit(),
     ];
     if (linked.some(Boolean)) this.draft.discardSaved();
+    // Storage's "Use in campaign" primes the sheet before navigating here: that is a new
+    // intent too, and Continue on the banner would silently swap it for the old draft.
+    else if (this.draft.preview() && this.draft.savedDraft()) this.draft.discardSaved();
     const editId = Number(this.edit());
     const duplicateId = Number(this.duplicate());
     if (editId || duplicateId) {
@@ -263,22 +270,11 @@ export class CampaignView implements OnInit {
   private prefillTemplate(id: number): void {
     this.templatesApi.get(id).subscribe({
       next: ({ template }) => {
-        const t = template as typeof template & {
-          mediaId?: string | null;
-          interactive?: InteractiveDraft | null;
-        };
+        const t = template;
         this.draft.message.set(t.body ?? '');
         this.draft.templateId.set(t.id ?? id);
         if (t.interactive) this.draft.interactive.set(t.interactive);
-        if (t.mediaId) {
-          this.draft.setAttachment({
-            mediaId: t.mediaId,
-            filename: 'Template attachment',
-            mimetype: '',
-            size: 0,
-            previewUrl: '',
-          });
-        }
+        this.draft.useTemplateMedia(t.headerMediaId);
         this.store.setStatus(`Loaded template "${t.name}"`, 'primary');
       },
       error: (err: Error) => this.notice.set(`Could not load the template: ${err.message}`),
@@ -407,18 +403,22 @@ export class CampaignView implements OnInit {
 
   protected sendSingle(): void {
     if (!this.connected()) {
-      this.notice.set('Connect a transport on the Connection page first.');
+      this.notice.set(
+        this.isAdmin()
+          ? 'Link your WhatsApp number on the WhatsApp page first.'
+          : 'No WhatsApp number is linked yet. Ask an admin to link one.',
+      );
       return;
     }
     this.busy.set(true);
     const extras = { mediaId: this.file()?.mediaId ?? null, interactive: this.buttons() };
     this.api.sendMessage(this.recipient(), this.message(), this.recipientName(), extras).subscribe({
-      next: ({ messageId, recipient }) => {
+      next: ({ recipient }) => {
         this.busy.set(false);
         this.notice.set('');
         this.file.set(null);
         this.buttons.set(null);
-        this.store.setStatus(`Queued ${messageId.slice(0, 8)} -> +${recipient}`, 'primary');
+        this.store.setStatus(`Message queued for +${recipient}`, 'primary');
       },
       error: (err: Error) => {
         this.busy.set(false);

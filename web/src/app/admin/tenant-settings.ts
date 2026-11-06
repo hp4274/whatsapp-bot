@@ -666,23 +666,27 @@ export class TenantSettings {
   protected savePlanLimits() {
     const cur = this.settings();
     if (!cur) return;
-    const { maxChannels, maxUsers, maxTemplates, messagesPerMonth } = cur.limits;
-    const requests: Observable<unknown>[] = [
-      this.api.setLimits(cur.tenant.id, {
-        maxChannels,
-        maxUsers,
-        maxTemplates,
-        // Absent in the working copy = follow the plan, which the server is told as 'plan'.
-        messagesPerMonth: messagesPerMonth === undefined ? 'plan' : messagesPerMonth,
-      }),
-    ];
-    // The per-number day is the anti-ban daily limit: 0 here = the plan's day, sent as a reset (null).
+    const { maxChannels, maxUsers, maxTemplates, messagesPerMonth, ownDailyLimit } = cur.limits;
+    const requests: Observable<unknown>[] = [];
+    const limits = this.api.setLimits(cur.tenant.id, {
+      maxChannels,
+      maxUsers,
+      maxTemplates,
+      // Absent in the working copy = follow the plan, which the server is told as 'plan'.
+      messagesPerMonth: messagesPerMonth === undefined ? 'plan' : messagesPerMonth,
+      ownDailyLimit: ownDailyLimit === true,
+    });
+    // The per-number day is the anti-ban daily limit, sent as a reset (null) when 0: the plan's day, or with
+    // ownDailyLimit no limit at all.
     const day = cur.safety?.dailyLimit ?? null;
     if (day !== null && day !== cur.safetyBase?.dailyLimit) {
       requests.push(this.api.setSafety(cur.tenant.id, { dailyLimit: day || null } as unknown as Partial<SafetyPolicy>));
     }
+    // The day first, then the limits: a refused day must not leave ownDailyLimit on with no day behind it.
+    requests.push(limits);
     this.planAction(
-      forkJoin(requests).pipe(
+      concat(...requests).pipe(
+        last(),
         map(() => {
           // Saved: the day becomes the baseline, so Anti-ban's Save does not send it again.
           this.settings.update((s) => (s?.safety && s.safetyBase ? { ...s, safetyBase: { ...s.safetyBase, dailyLimit: s.safety.dailyLimit } } : s));
@@ -695,8 +699,11 @@ export class TenantSettings {
 
   /** Messages a month: following the plan (no own quota), or this business's own. */
   protected readonly followMonth = computed(() => this.settings()?.limits.messagesPerMonth === undefined);
-  /** Messages a day per number: 0 is "no ceiling of its own", i.e. the plan's day. */
-  protected readonly followDay = computed(() => !this.settings()?.safety?.dailyLimit);
+  /**
+   * Messages a day per number: the plan's day, unless the business has its own (which replaces it; an empty box is
+   * no limit). A day saved before ownDailyLimit existed still shows as its own.
+   */
+  protected readonly followDay = computed(() => !this.settings()?.limits.ownDailyLimit && !this.settings()?.safety?.dailyLimit);
 
   protected setMonthFollow(follow: boolean) {
     this.settings.update((cur) => {
@@ -713,12 +720,15 @@ export class TenantSettings {
     this.setLimit('messagesPerMonth', raw.trim() === '' ? null : Math.max(0, Math.floor(Number(raw) || 0)));
   }
 
+  /** Leaving the plan's day starts from it, so the box is never empty by surprise (empty = no limit). */
   protected setDayFollow(follow: boolean) {
+    this.setLimit('ownDailyLimit', !follow);
     this.setSafetyValue('dailyLimit', (follow ? 0 : this.currentPlan()?.dailyCap || 250) as never);
   }
 
-  /** At least 1 a day: to send nothing, switch off Outbound sending under General. An empty box is the plan's day. */
+  /** At least 1 a day: to send nothing, switch off Outbound sending under General. An empty box is no limit. */
   protected setDay(raw: string) {
+    this.setLimit('ownDailyLimit', true);
     this.setSafetyValue('dailyLimit', (raw.trim() === '' ? 0 : Math.max(1, Math.floor(Number(raw) || 1))) as never);
   }
 

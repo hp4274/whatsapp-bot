@@ -77,7 +77,6 @@ describe('table policy fields', () => {
         assert.throws(() => cleanValue(levels, copy(LEVELS).slice(1)), /exactly 12 rows/);
         bad((r) => { r[2].dailyLimit = -1; }, /between/);
         bad((r) => { r[2].name = ' '; }, /required/);
-        bad((r) => { r[2].quietHours = [8, 6]; }, /from is above to/);
         bad((r) => { r[2].minSeconds = 500; }, /min gap is above max gap/);
         bad((r) => { r[5].need.delivered = 10; }, /must not be below level 4/);
     });
@@ -316,9 +315,9 @@ describe('the ladder to 1000 a day', () => {
     it('a full day of levels 9-11 fits the 12-hour recipient daytime', () => {
         const daytime = (BRAKES.daytimeTo - BRAKES.daytimeFrom) * 3600;
         for (const row of LEVELS.slice(9)) {
-            // Typical gaps and rests, the average day multiplier (0.8-1.3), and every quiet window in the day.
+            // Typical gaps and rests, and the average day multiplier (0.8-1.3).
             const pace = paceFor(row.dailyLimit, {}, 'balanced', row);
-            const busy = estimateSeconds(row.dailyLimit, pace).typical * 1.05 + row.quietHours[1] * 3600;
+            const busy = estimateSeconds(row.dailyLimit, pace).typical * 1.05;
             assert.ok(busy <= daytime, `level ${row.level}: ${Math.round(busy / 360) / 10}h`);
             assert.ok(row.dailyLimit / row.perHour <= 12, `level ${row.level}: the hourly budget fits`);
             assert.ok(row.perHour <= 100 && row.maxSeconds <= 50, `level ${row.level}: no faster than ~100 an hour`);

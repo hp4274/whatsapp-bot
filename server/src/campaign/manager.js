@@ -30,7 +30,7 @@ import { capReachedText } from '../policy/campaignOps.js';
 import { logger, runDetached } from '../observability/logger.js';
 import {
     BLOCK_SUSPECT_AFTER_SECONDS, HALTING_BRAKES, HALT_HOURS, HELD_TYPES, MEDIA_GAP_FACTOR,
-    contactZone, contentError, dayPlan, deliveryBrakes, inQuiet, isDaytimeFor, quietExtraSeconds, quietStatus, shuffle, typingMs,
+    contactZone, contentError, dayPlan, deliveryBrakes, isDaytimeFor, shuffle, typingMs,
 } from './humanize.js';
 import { dayKey } from './spread.js';
 
@@ -127,9 +127,9 @@ export class CampaignManager extends EventEmitter {
         // Last send attempt or lookup (ms epoch). A QR number's gap counts from it, or the db's last send.
         this.lastActionAt = 0;
         // Set by the channel runtime: () => true while bulk may go out now
-        // (sending window + quiet hours). Bulk outside it waits, it does not fail.
+        // (the sending window). Bulk outside it waits, it does not fail.
         this.bulkWindowOpen = null;
-        // Set by the channel runtime: () => the channel's IANA timezone (rest windows follow its clock).
+        // Set by the channel runtime: () => the channel's IANA timezone (the day's rhythm follows its clock).
         this.timezone = null;
         this.holding = false;
         // Platform policy hooks, set by policy/campaignOps.js attachCampaignPolicy.
@@ -186,16 +186,11 @@ export class CampaignManager extends EventEmitter {
     /** Today's rhythm for this number (null when the tier system is off). */
     #dayPlan() {
         const tier = this.quota.tier();
-        return tier ? this.#planFor(new Date(), tier) : null;
+        return tier ? this.#planFor(new Date()) : null;
     }
 
-    /** A super admin let this tenant send through quiet time (policy sending.skipQuietTime). */
-    #skipQuiet() {
-        return this.quota.tables?.().skipQuiet === true;
-    }
-
-    #planFor(at, tier = this.quota.tier()) {
-        return dayPlan(this.seed, tier, at, this.timezone?.() || null);
+    #planFor(at) {
+        return dayPlan(this.seed, at, this.timezone?.() || null);
     }
 
     /** Change the speed preset of the current run (live): recomputes the gap range. */
@@ -314,10 +309,7 @@ export class CampaignManager extends EventEmitter {
     safetyStatus(batchSize = this.pace.batchSize, preset = this.pacePreset) {
         // The plan's speed wins over the one asked for, as it does for the run itself (enqueueContacts, setPace).
         const pace = this.#paceFor(batchSize, this.bulkPolicy?.()?.maxSpeed ?? pickPreset(preset));
-        // Only windows that hold bulk (#resting): none after leaving safety or with quiet time skipped.
-        const plan = this.#quietApplies() ? this.#dayPlan() : null;
         return {
-            quiet: plan ? quietStatus(plan) : null,
             ...this.quota.status(),
             pacingMode: this.#fixedPace() ? 'fixed' : 'adaptive',
             pacing: pace.preset,
@@ -336,7 +328,7 @@ export class CampaignManager extends EventEmitter {
     }
 
     /**
-     * Send estimate with the nightly rest it would run into added in; `quietSeconds` says how much.
+     * Send estimate.
      * `days` / `finishesOn` (local YYYY-MM-DD): today's budget, then the daily limit at today's level
      * (never a level-up). Null when there is no daily cap.
      */
@@ -349,12 +341,7 @@ export class CampaignManager extends EventEmitter {
             days,
             finishesOn: days ? dayKey(new Date(Date.now() + (days - 1) * 86_400_000), this.timezone?.() || null) : null,
         };
-        const tier = this.quota.tier();
-        if (!tier || !this.transport?.realDelivery || !this.config.safetyEnabled || this.config.humanTiming === false || this.#skipQuiet() || est.typical <= 0) {
-            return { ...est, quietSeconds: 0, ...finish };
-        }
-        const quietSeconds = quietExtraSeconds((at) => this.#planFor(at, tier), est.typical);
-        return { min: est.min + quietSeconds, max: est.max + quietSeconds, typical: est.typical + quietSeconds, quietSeconds, ...finish };
+        return { ...est, ...finish };
     }
 
     #emitStats() {
@@ -836,18 +823,6 @@ export class CampaignManager extends EventEmitter {
         return !String(item.recipient).includes('@') && Boolean(this.db.isCold?.(digits(item.recipient)));
     }
 
-    /** Whether today's rest windows hold bulk at all: safety on, human timing on, quiet time not skipped. */
-    #quietApplies() {
-        return Boolean(this.config.safetyEnabled) && this.config.humanTiming !== false && !this.#skipQuiet();
-    }
-
-    /** Our own rest window for today (bulk only; replies are never held). */
-    #resting() {
-        if (!this.#quietApplies()) return false;
-        const plan = this.#dayPlan();
-        return Boolean(plan && inQuiet(plan));
-    }
-
     #stopped() {
         // Kill switch: a bulk run stops mid-wait, not after its next long pause.
         if (!this.queue.isStopped && this.current?.messageType === 'campaign') {
@@ -1127,7 +1102,7 @@ export class CampaignManager extends EventEmitter {
             return `Today's plan limit of ${status.limit} is used. Sending continues automatically at ${clockAt(status.resetsAt, zone)}.`;
         }
         if (status.asked === false) {
-            return 'Answer 2 questions about this number on the Connection page to start sending. Sending continues by itself once they are answered.';
+            return 'Answer 2 questions about this number on the WhatsApp page to start sending. Sending continues by itself once they are answered.';
         }
         if (status.level?.resting.active) {
             return `This number is resting after being linked. Bulk sending starts automatically at ${clockAt(status.level.resting.endsAt, zone)}.`;
@@ -1168,15 +1143,15 @@ export class CampaignManager extends EventEmitter {
         }
     }
 
-    /** Bulk is held now: outside the sending window, the platform's sending hours or a rest. */
+    /** Bulk is held now: outside the sending window or the platform's sending hours. */
     #bulkHeld() {
         // The platform's sending hours apply whatever the tenant's own safety switch says.
         return Boolean(this.transport?.realDelivery) && ((this.config.safetyEnabled && this.bulkWindowOpen?.() === false)
-            || this.policyWindowOpen?.() === false || this.#resting());
+            || this.policyWindowOpen?.() === false);
     }
 
     /**
-     * Bulk outside the sending window / quiet hours goes back in the queue (by
+     * Bulk outside the sending window goes back in the queue (by
      * priority, so replies still overtake it) and the worker naps briefly.
      * Returns true when the item was held.
      */
@@ -1184,7 +1159,7 @@ export class CampaignManager extends EventEmitter {
         const held = item.messageType === 'campaign' && !this.platformLane && this.#bulkHeld();
         if (held !== this.holding) {
             this.holding = Boolean(held);
-            if (held) this.emit('event', { type: 'pacing', seconds: 0, resting: true, reason: 'quiet hours - bulk sending resumes when the window opens' });
+            if (held) this.emit('event', { type: 'pacing', seconds: 0, resting: true, reason: 'outside sending hours - bulk sending resumes when the window opens' });
             this.#emitStats();
         }
         if (!held) return false;
@@ -1303,9 +1278,9 @@ export class CampaignManager extends EventEmitter {
                 const registered = this.#registered(item.recipient) === true || (levels && item.cold === false);
                 const result = await this.transport.sendMessage(item.recipient, item.message,
                     { media: item.media, interactive: item.interactive, ...(typing ? { typingMs: typing } : {}), ...(registered ? { registered } : {}),
-                        // A carousel goes as one image per card (every device shows it) unless the admin turned
-                        // sending.carouselImages off: the swipe carousel, which phones do not show from a QR number.
-                        ...(item.interactive?.type === 'carousel' ? { nativeCarousel: this.quota.tables?.().carouselImages === false } : {}) });
+                        // A carousel goes as WhatsApp's swipe carousel unless the admin turned sending.carouselImages
+                        // on: one image per card, which every device shows (phones do not show the swipe one from QR).
+                        ...(item.interactive?.type === 'carousel' ? { nativeCarousel: this.quota.tables?.().carouselImages !== true } : {}) });
                 this.lastActionAt = Date.now();
                 // A carousel goes out as several WhatsApp messages (`parts`); the rests and the budgets count each.
                 if (this.transport?.realDelivery) this.sentInRun += result.parts ?? 1;

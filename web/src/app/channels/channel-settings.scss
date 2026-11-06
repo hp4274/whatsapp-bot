@@ -186,3 +186,11 @@
   font-size: 12.5px;
   color: var(--text-muted);
 }
+
+/* Every message type switched off: the number would refuse everything, so it is said out loud. */
+.sub.warn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--warning);
+}

@@ -49,10 +49,17 @@
   </div>
   }
 
-  <p class="qr-hint">
-    <i class="ti ti-list-numbers" aria-hidden="true"></i>QR-linked numbers send this as a numbered
-    text menu, so it shows on every phone, WhatsApp Web and Desktop.
-  </p>
+  <!-- WhatsApp shows tap buttons only from its paid Business API, never from a QR-linked number;
+       links (call-to-action) stay tappable, so the note is only for replies and menus. -->
+  @if (qrNumber() && (draft.type === 'buttons' || draft.type === 'list')) {
+    <p class="note" role="note">
+      <i class="ti ti-list-numbers" aria-hidden="true"></i>
+      <span
+        ><strong>Sent as a numbered menu.</strong> Customers see your options as 1, 2, 3 and reply
+        with a number. The preview shows what they get.</span
+      >
+    </p>
+  }
 
   @switch (draft.type) {
     @case ('buttons') {
@@ -73,9 +80,12 @@
                 (input)="updateButton(i, { title: text($event) })"
               />
             </div>
+            <!-- The reply code only matters to people wiring replies into their own system. -->
+            <details class="advanced code">
+              <summary>Reply code{{ b.payload ? ': ' + b.payload : '' }}</summary>
             <div class="field">
               <label [for]="uid + '-bp' + i"
-                >Payload <span class="muted">({{ b.id }})</span></label
+                >Code sent back when tapped <span class="muted">(optional)</span></label
               >
               <div class="with-var">
                 <input
@@ -88,7 +98,7 @@
                   <select
                     #bv
                     class="var"
-                    [attr.aria-label]="'Insert variable into button ' + (i + 1) + ' payload'"
+                    [attr.aria-label]="'Insert variable into button ' + (i + 1) + ' reply code'"
                     (change)="insertButtonVar(bv, i)"
                   >
                     <option value="">{{ '{x}' }}</option>
@@ -99,6 +109,7 @@
                 }
               </div>
             </div>
+            </details>
             <button
               type="button"
               class="icon"
@@ -127,7 +138,7 @@
           <div class="item cta enter">
             <span class="num" aria-hidden="true">{{ i + 1 }}</span>
             <div class="field">
-              <label [for]="uid + '-ck' + i">Kind</label>
+              <label [for]="uid + '-ck' + i">Button does</label>
               <select
                 [id]="uid + '-ck' + i"
                 [value]="c.kind"
@@ -177,7 +188,7 @@
               </div>
               @if (c.kind === 'url') {
                 <span class="hint"
-                  >A dynamic suffix works, e.g. https://shop.com/track/{{ '{order_id}' }}</span
+                  >You can add a contact field to the link, e.g. https://shop.com/track/{{ '{order_id}' }}</span
                 >
               }
             </div>
@@ -474,9 +485,11 @@
                     (input)="updateRow(si, ri, { description: text($event) })"
                   />
                 </div>
+                <details class="advanced code">
+                  <summary>Reply code{{ r.payload ? ': ' + r.payload : '' }}</summary>
                 <div class="field">
                   <label [for]="uid + '-rp' + si + '-' + ri"
-                    >Payload <span class="muted">({{ r.id }})</span></label
+                    >Code sent back when picked <span class="muted">(optional)</span></label
                   >
                   <div class="with-var">
                     <input
@@ -489,7 +502,7 @@
                       <select
                         #rv
                         class="var"
-                        [attr.aria-label]="'Insert variable into option ' + (ri + 1) + ' payload'"
+                        [attr.aria-label]="'Insert variable into option ' + (ri + 1) + ' reply code'"
                         (change)="insertRowVar(rv, si, ri)"
                       >
                         <option value="">{{ '{x}' }}</option>
@@ -500,6 +513,7 @@
                     }
                   </div>
                 </div>
+                </details>
                 <button
                   type="button"
                   class="icon"

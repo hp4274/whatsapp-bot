@@ -37,8 +37,8 @@ export class CampaignPolicy {
   readonly allowScheduling = computed(() => this.values()['campaigns.allowScheduling'] !== false);
   readonly allowFollowUps = computed(() => this.values()['campaigns.allowFollowUps'] !== false);
   readonly allowInteractive = computed(() => this.values()['campaigns.allowInteractive'] !== false);
-  /** One image per card (sending.carouselImages, on unless the admin turned it off): every device shows it. */
-  readonly carouselImages = computed(() => this.values()['sending.carouselImages'] !== false);
+  /** One image per card (sending.carouselImages, off unless the admin turned it on), as the server sends it. */
+  readonly carouselImages = computed(() => this.values()['sending.carouselImages'] === true);
 
   /** Loads once per session; the rules change rarely and the server is the real gate. */
   load(): void {

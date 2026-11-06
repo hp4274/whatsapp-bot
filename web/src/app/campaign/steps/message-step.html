@@ -58,7 +58,7 @@
         }
         Save
       </button>
-      <button type="button" class="btn" (click)="savingName.set(null)">Cancel</button>
+      <button type="button" class="btn" (click)="savingName.set(null); saveError.set('')">Cancel</button>
     }
   </div>
   @if (savedNote()) {
@@ -71,6 +71,15 @@
       <i class="ti ti-alert-circle" aria-hidden="true"></i>
       <span>{{ savedError() }}</span>
       <button type="button" class="btn small" (click)="loadSaved()">
+        <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+      </button>
+    </div>
+  }
+  @if (saveError()) {
+    <div class="error" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i>
+      <span>{{ saveError() }}</span>
+      <button type="button" class="btn small" [disabled]="saving()" (click)="saveAsTemplate()">
         <i class="ti ti-refresh" aria-hidden="true"></i> Try again
       </button>
     </div>
@@ -112,19 +121,6 @@
           <i class="ti ti-{{ f.icon }}" aria-hidden="true"></i>
         </button>
       }
-      <span class="sep" aria-hidden="true"></span>
-      <button type="button" class="tb wide" (click)="insertSpin()" title="Insert a choice of words, like {Hi|Hello}">
-        <i class="ti ti-arrows-shuffle" aria-hidden="true"></i> Word choices
-      </button>
-      <button
-        type="button"
-        class="tb"
-        (click)="spinHelp.set(!spinHelp())"
-        [attr.aria-expanded]="spinHelp()"
-        aria-label="What are word choices?"
-      >
-        <i class="ti ti-help-circle" aria-hidden="true"></i>
-      </button>
       <span class="count" [class.over]="d.activeMessage().length > 1024"
         >{{ d.activeMessage().length }} / 1024</span
       >
@@ -158,18 +154,6 @@
     </div>
   </div>
 
-  @if (spinHelp()) {
-    <p class="banner info enter">
-      <i class="ti ti-bulb" aria-hidden="true"></i>
-      <span
-        >Write options inside curly brackets, like <code>{{ '{Hi|Hello|Hey}' }}</code>. Each person
-        gets one of them, so the messages are not all identical. Use
-        <code>{{ '{name|there}' }}</code> to say "there" when someone has no name. Press Shuffle on
-        the preview to see other versions.</span
-      >
-    </p>
-  }
-
   <label class="check">
     <input type="checkbox" [ngModel]="d.optOutLine()" (ngModelChange)="d.optOutLine.set($event)" />
     Add opt-out line ("Reply STOP to stop messages")
@@ -181,39 +165,58 @@
     </p>
   }
 
-  <label class="check">
-    <input
-      type="checkbox"
-      [ngModel]="d.variantB() !== null"
-      (ngModelChange)="setAb($event)"
-    />
-    Test two versions (A/B)
-  </label>
-  @if (d.variantB() !== null) {
-    <p class="note">
-      Version A is the message above. Recipients are split evenly between the versions, and the
-      results are compared once it has been sent.
-    </p>
-  }
+  <!-- Word choices, the A/B test and link tracking: rarely needed, so folded away. Opens by
+       itself when the draft already uses one, so nothing chosen is ever hidden. -->
+  <details class="advanced" [open]="advancedOpen">
+    <summary>More options</summary>
+    <div class="advanced-body">
+      <div class="spin">
+        <button type="button" class="btn small" (click)="insertSpin()">
+          <i class="ti ti-arrows-shuffle" aria-hidden="true"></i> Insert word choices
+        </button>
+        <p class="note">
+          Write options inside curly brackets, like <code>{{ '{Hi|Hello|Hey}' }}</code>. Each person
+          gets one of them, so the messages are not all identical. Use
+          <code>{{ '{name|there}' }}</code> to say "there" when someone has no name. Press Shuffle on
+          the preview to see other versions.
+        </p>
+      </div>
 
-  @if (d.hasLink() && !d.qrNumber()) {
-    <label class="check" [class.off]="!policy.linkTracking()">
-      <input
-        type="checkbox"
-        [disabled]="!policy.linkTracking()"
-        [ngModel]="d.trackLinks() && policy.linkTracking()"
-        (ngModelChange)="d.trackLinks.set($event)"
-      />
-      Track link clicks
-    </label>
-    <p class="note">
-      {{
-        policy.linkTracking()
-          ? 'Links are swapped for tracked ones, so you can see who tapped.'
-          : "Link tracking isn't set up on this server"
-      }}
-    </p>
-  }
+      <label class="check">
+        <input
+          type="checkbox"
+          [ngModel]="d.variantB() !== null"
+          (ngModelChange)="setAb($event)"
+        />
+        Test two versions (A/B)
+      </label>
+      @if (d.variantB() !== null) {
+        <p class="note">
+          Version A is the message above. Recipients are split evenly between the versions, and the
+          results are compared once it has been sent.
+        </p>
+      }
+
+      @if (d.hasLink() && !d.qrNumber()) {
+        <label class="check" [class.off]="!policy.linkTracking()">
+          <input
+            type="checkbox"
+            [disabled]="!policy.linkTracking()"
+            [ngModel]="d.trackLinks() && policy.linkTracking()"
+            (ngModelChange)="d.trackLinks.set($event)"
+          />
+          Track link clicks
+        </label>
+        <p class="note">
+          {{
+            policy.linkTracking()
+              ? 'Links are swapped for tracked ones, so you can see who tapped.'
+              : "Link tracking isn't available yet."
+          }}
+        </p>
+      }
+    </div>
+  </details>
 
   @if (d.estimatedSize() > d.varyAbove() && !d.hasVariation()) {
     <p class="banner" [class.danger]="d.qrNumber()" role="status">
@@ -291,12 +294,15 @@
     </p>
   }
 
-  <app-reuse-picker
-    kind="media"
-    [activeId]="file?.storageId"
-    [disabled]="uploading()"
-    (used)="onReused($event)"
-  />
+  <!-- Reusing a stored file is admin-only on the server (403 for agents). -->
+  @if (isAdmin()) {
+    <app-reuse-picker
+      kind="media"
+      [activeId]="file?.storageId"
+      [disabled]="uploading()"
+      (used)="onReused($event)"
+    />
+  }
 
   @if (error()) {
     <p class="error" role="alert">
@@ -356,14 +362,16 @@
       [carousel]="true"
     />
     @if (d.interactive()) {
-      <div class="rules">
-        <h4>Auto-reply when someone taps a button</h4>
-        <app-reply-rules-editor
-          [interactive]="d.interactive()"
-          [variables]="d.variables()"
-          [(rules)]="d.replyRules"
-        />
-      </div>
+      <details class="advanced rules" [open]="rulesOpen">
+        <summary>Auto-reply when someone taps a button</summary>
+        <div class="advanced-body">
+          <app-reply-rules-editor
+            [interactive]="d.interactive()"
+            [variables]="d.variables()"
+            [(rules)]="d.replyRules"
+          />
+        </div>
+      </details>
     }
   </details>
 }

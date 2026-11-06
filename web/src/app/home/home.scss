@@ -29,36 +29,12 @@ h3 {
   color: var(--text-strong);
 }
 
-// Number status: icon, words, pill and (when offline) the one way to fix it.
-.conn {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-lg);
-}
-
-.conn-icon {
+// Number questions: the form brings its own heading; Done sits under the outcome.
+.ask {
   display: grid;
-  place-items: center;
-  flex: none;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-md);
-  font-size: 22px;
-  background: color-mix(in srgb, var(--warning) 12%, transparent);
-  color: var(--warning);
+  gap: var(--space-md);
 
-  &.is-live {
-    background: color-mix(in srgb, var(--success) 12%, transparent);
-    color: var(--success);
-  }
-}
-
-.conn-text {
-  flex: 1 1 220px;
-  min-width: 0;
-
-  p { margin: 4px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--text-muted); }
+  > .btn { justify-self: start; }
 }
 
 .stats {

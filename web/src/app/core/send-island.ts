@@ -16,6 +16,7 @@ import { RouterLink } from '@angular/router';
 
 import { WuzieFeed } from '../admin/wuzie-feed';
 import { Api, CampaignsApi, type Campaign, type MessageRecord, type QueuedNext } from './api';
+import { Auth } from './auth';
 import { Store } from './store';
 
 /** How long a finished run stays on screen before the card closes itself. */
@@ -97,7 +98,7 @@ const RECENT_COUNT = 5;
               </p>
             }
             <p class="line">
-              <span>{{ stats().processed }} of {{ stats().total }} processed</span>
+              <span>{{ stats().processed }} of {{ stats().total }} done</span>
               <b>{{ percent() }}%</b>
             </p>
             <ul class="counts">
@@ -144,7 +145,7 @@ const RECENT_COUNT = 5;
             @if (closesIn() !== null) {
               <p class="note">Closes in {{ closesIn() }}s · hover to keep it open</p>
             }
-            @if (phase() === 'sending' || phase() === 'paused') {
+            @if ((phase() === 'sending' || phase() === 'paused') && canControl()) {
               <div class="actions">
                 @if (phase() === 'sending') {
                   <button type="button" class="b" (click)="act('pause')">Pause</button>
@@ -456,6 +457,13 @@ export class SendIsland {
   private readonly api = inject(Api);
   private readonly campaignsApi = inject(CampaignsApi);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly auth = inject(Auth);
+
+  /**
+   * Pause, Resume and Stop are admin writes on the server (an agent gets 403), so an agent
+   * watches the run without buttons that can only fail.
+   */
+  protected readonly canControl = computed(() => this.auth.atLeast('admin'));
 
   /** Newest messages first, refreshed as the server reports sends. */
   protected readonly recent = signal<MessageRecord[]>([]);

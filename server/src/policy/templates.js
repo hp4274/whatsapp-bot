@@ -12,7 +12,7 @@ export const TEMPLATE_POLICY = Object.freeze([
     { key: 'templates.requireApproval', service: S, group: 'Review', type: 'enum', default: 'off',
       options: [
           { value: 'off', label: 'No review' },
-          { value: 'baileys', label: 'Review templates used on Baileys numbers' },
+          { value: 'baileys', label: 'Review templates used on WhatsApp (QR) numbers' },
           { value: 'all', label: 'Review every template' },
       ],
       label: 'Approval queue', hint: 'A super admin approves a template before it can be sent.' },

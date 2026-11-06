@@ -1,7 +1,7 @@
 <section class="block" [attr.aria-labelledby]="'cap-h-' + channel().id">
   <header class="block-head">
     <h4 [id]="'cap-h-' + channel().id">
-      <i class="ti ti-adjustments-horizontal" aria-hidden="true"></i> Allowed traffic
+      <i class="ti ti-adjustments-horizontal" aria-hidden="true"></i> What this number can send
       <span class="count">{{ enabledCount() }}/{{ capabilities().length }}</span>
     </h4>
     <div class="bulk">
@@ -11,9 +11,12 @@
       </button>
     </div>
   </header>
-  <p class="sub">
-    Messages of a type that is switched off are refused on this number instead of slipping out.
-  </p>
+  <p class="sub">Message types switched off here are never sent from this number.</p>
+  @if (capabilities().length && !enabledCount()) {
+    <p class="sub warn" role="status">
+      <i class="ti ti-alert-triangle" aria-hidden="true"></i> Everything is off, so this number sends nothing.
+    </p>
+  }
   <ul class="switches">
     @for (capability of capabilities(); track capability) {
       @let on = channel().capabilities.includes(capability);
@@ -43,7 +46,7 @@
 <section class="block" [attr.aria-labelledby]="'win-h-' + channel().id">
   <header class="block-head">
     <h4 [id]="'win-h-' + channel().id">
-      <i class="ti ti-clock" aria-hidden="true"></i> Sending window
+      <i class="ti ti-clock" aria-hidden="true"></i> Sending hours
     </h4>
   </header>
   <app-send-window [channel]="channel()" [busy]="busy()" (save)="patch.emit($event)" />
@@ -55,18 +58,23 @@
   </header>
 
   <div class="manage">
-    @if (!channel().isDefault) {
+    @if (multi() && !channel().isDefault) {
       <button class="btn small" type="button" (click)="makeDefault.emit()" [disabled]="busy()">
-        <i class="ti ti-star" aria-hidden="true"></i> Make default
+        <i class="ti ti-star" aria-hidden="true"></i> Make main number
       </button>
     }
 
     @if (confirming() === 'disable') {
-      <div class="confirm" role="group" aria-label="Confirm disable">
-        <span>Stop all sending from this number now?</span>
-        <button class="btn small" type="button" (click)="confirming.set(null)">Keep on</button>
+      <!-- Pausing logs the number out on the server, so resuming means a new scan: say so before it happens. -->
+      <div class="confirm" role="group" aria-label="Confirm pause">
+        <span
+          >Pausing stops all sending from this number and unlinks it. To resume, you scan a new QR code.{{
+            canDelete() ? '' : ' It is your only number, so nothing sends until then.'
+          }}</span
+        >
+        <button class="btn small" type="button" (click)="confirming.set(null)">Keep sending</button>
         <button class="btn small danger" type="button" (click)="toggleStatus()" [disabled]="busy()">
-          Disable
+          Pause number
         </button>
       </div>
     } @else {
@@ -75,7 +83,7 @@
           class="ti ti-{{ channel().status === 'active' ? 'player-pause' : 'player-play' }}"
           aria-hidden="true"
         ></i>
-        {{ channel().status === 'active' ? 'Disable' : 'Enable' }}
+        {{ channel().status === 'active' ? 'Pause number' : 'Resume number' }}
       </button>
     }
 
@@ -84,7 +92,7 @@
         <div class="confirm danger-zone" role="group" aria-label="Confirm delete">
           <span
             >Delete <strong>{{ channel().displayName }}</strong
-            >? Its settings and link are removed; history stays.</span
+            >? Its settings and link are removed; its message history stays.</span
           >
           <button class="btn small" type="button" (click)="confirming.set(null)">Cancel</button>
           <button

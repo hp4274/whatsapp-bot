@@ -249,7 +249,7 @@ describe('POST/GET /api/channels/:id/start', () => {
         assert.equal(audits('channel.start_skip').length, 1);
         assert.deepEqual(app.locals.channelOps.startOf(skipId).answers, { skipped: true });
         assert.equal(app.locals.tenancy.currentConsent(tenant.id), null, 'a skip is not the custom-safety consent');
-        assert.deepEqual((await card(skipId)).usage, { todayLimit: 250, sentToday: 0, planLimit: 250, growing: false, asked: true });
+        assert.deepEqual((await card(skipId)).usage, { todayLimit: 250, sentToday: 0, planLimit: 250, growing: false, asked: true, skipped: true });
     });
 
     it('a just-linked new number shows the day it starts at, and when', async () => {
@@ -290,6 +290,41 @@ describe('POST/GET /api/channels/:id/start', () => {
         const { channels: rows } = (await call(sup, 'GET', '/api/admin/health-detail')).body;
         assert.equal(rows.find((c) => c.id === offId).level.asked, true);
         assert.equal(rows.find((c) => c.id === freshId).level.asked, true);
+    });
+
+    it("a business's own day replaces the plan's: a number above it, or none at all", async () => {
+        const sup = sessionFor(app, { role: 'super_admin' });
+        const channels = new Channels(db.forTenant(tenant.id));
+        const offId = channels.create({ displayName: 'QR own day', settings: { transport: TRANSPORT_BAILEYS, autoConnect: false, safetyEnabled: false } }).id;
+        assert.equal((await card(offId)).usage.todayLimit, 250, "the plan's day");
+        const set = await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/limits`, { ownDailyLimit: true });
+        assert.equal(set.body.limits.ownDailyLimit, true);
+        assert.equal((await card(offId)).usage.todayLimit, null, 'no limit');
+        await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/limits`, { ownDailyLimit: false });
+        assert.equal((await card(offId)).usage.todayLimit, 250, "back to the plan's");
+    });
+
+    it("a business's own day is the day from day one: no warm-up, no growth cap, no new-link wait", async () => {
+        const sup = sessionFor(app, { role: 'super_admin' });
+        const day = await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/safety`, { dailyLimit: 250000 });
+        assert.equal(day.status, 200, JSON.stringify(day.body));
+        await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/limits`, { ownDailyLimit: true });
+        const { usage } = await card(freshId); // safety on, level 2 (35 a day), just linked
+        assert.deepEqual([usage.todayLimit, usage.planLimit, usage.growing, usage.blocked], [250000, 250000, false, undefined]);
+        await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/limits`, { ownDailyLimit: false });
+        await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/safety`, { dailyLimit: null });
+        assert.equal((await card(freshId)).usage.todayLimit, 35, 'back to the warm-up');
+    });
+
+    it('skipped questions can be answered later, but not skipped twice', async () => {
+        assert.equal((await card(skipId)).usage.skipped, true);
+        assert.equal((await call(owner, 'GET', `/api/channels/${skipId}/start`)).body.skipped, true);
+        assert.equal((await call(owner, 'POST', `/api/channels/${skipId}/start`, { skip: true, accept: true })).status, 409);
+        const res = await call(owner, 'POST', `/api/channels/${skipId}/start`, { age: 0, usage: 1 });
+        assert.equal(res.status, 200, JSON.stringify(res.body));
+        assert.deepEqual(app.locals.channelOps.startOf(skipId).answers, { age: 0, usage: 1 });
+        assert.equal((await card(skipId)).usage.skipped, undefined);
+        assert.equal((await call(owner, 'POST', `/api/channels/${skipId}/start`, { age: 1, usage: 1 })).status, 409, 'answered now');
     });
 });
 

@@ -3,7 +3,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/hp4274/whatsapp-bot/main/scripts/setup-vps.sh | sudo bash -s -- bot.example.com admin@example.com
 # Args: [domain] [admin email]. With a domain (its DNS A record pointing here) Caddy gets HTTPS on its own;
 # without one the app is served over plain HTTP on port 80. A private repo: set REPO_URL with a token in it.
-# Safe to run again: it pulls, rebuilds and restarts, and never touches an existing .env.
+# Safe to run again: it pulls, rebuilds and restarts, and keeps an existing .env (run again with a domain, it
+# only swaps a PUBLIC_BASE_URL that is still the server's IP for https://<domain>).
 # Later updates: sudo -u whatsapp bash /var/www/whatsapp-bot/scripts/deploy.sh
 set -euo pipefail
 
@@ -62,6 +63,11 @@ WHATSAPP_ENCRYPTION_KEY=$(openssl rand -hex 32)
 EOF
     chown "$APP_USER:$APP_USER" "$APP_DIR/.env"
     chmod 600 "$APP_DIR/.env"
+  fi
+  # A domain added after a first run without one: links must show the domain, not the IP that run wrote.
+  if [ -n "$DOMAIN" ] && grep -Eq '^PUBLIC_BASE_URL=https?://[0-9.]+(:[0-9]+)?/?$' "$APP_DIR/.env"; then
+    echo "==> PUBLIC_BASE_URL -> https://$DOMAIN"
+    sed -i "s|^PUBLIC_BASE_URL=.*|PUBLIC_BASE_URL=https://$DOMAIN|" "$APP_DIR/.env"
   fi
 
   echo "==> Install, build, start"

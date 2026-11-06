@@ -1,17 +1,21 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, output, signal } from '@angular/core';
+import type { WritableSignal } from '@angular/core';
 
 import { TenancyApi } from '../core/api';
 import type { Tenant } from '../core/auth';
 import { ConfirmDialog } from '../core/confirm-dialog';
+import { AdminFeed } from './admin-feed';
+import { Lead, LeadsApi } from './leads-api';
 import { planEnded } from './plans-api';
 import { WapzoApi, WapzoBroadcastResult } from './wapzo-api';
 
-/** Which businesses get it; typed numbers can be added to any of them. */
-type Audience = 'all' | 'choose' | 'none';
+/** Which businesses or leads get it; typed numbers can be added to any of them. */
+type Audience = 'all' | 'choose' | 'leads' | 'none';
 
 const AUDIENCES: readonly { value: Audience; label: string }[] = [
   { value: 'all', label: 'All businesses' },
   { value: 'choose', label: 'Choose businesses' },
+  { value: 'leads', label: 'Leads' },
   { value: 'none', label: 'Only numbers' },
 ];
 
@@ -20,6 +24,15 @@ interface Attachment {
   readonly name: string;
   readonly preview: string;
   readonly mediaId: string | null;
+}
+
+/** One line in the pick list: a business or an open lead. */
+interface Row {
+  readonly id: number;
+  readonly name: string;
+  readonly sub: string;
+  readonly label: string;
+  readonly tone: string;
 }
 
 /** The words a message to many fills in, per business (server app.js /wapzo/broadcast). */
@@ -39,6 +52,7 @@ const WORDS: readonly string[] = ['name', 'business'];
 export class WapzoBroadcast {
   private readonly api = inject(WapzoApi);
   private readonly tenancy = inject(TenancyApi);
+  private readonly leadsApi = inject(LeadsApi);
 
   /** Sending needs the number linked. */
   readonly linked = input(false);
@@ -50,6 +64,10 @@ export class WapzoBroadcast {
   protected readonly audience = signal<Audience>('all');
   protected readonly tenants = signal<readonly Tenant[]>([]);
   protected readonly picked = signal<ReadonlySet<number>>(new Set());
+  protected readonly leads = signal<readonly Lead[]>([]);
+  protected readonly pickedLeads = signal<ReadonlySet<number>>(new Set());
+  /** Shown in the Leads tab only: an admin without leads access can still send to businesses. */
+  protected readonly leadsError = signal('');
   protected readonly search = signal('');
   protected readonly numbers = signal('');
   protected readonly text = signal('');
@@ -65,10 +83,36 @@ export class WapzoBroadcast {
   /** "All" leaves out those that switched Wuzie updates off, as the server does. */
   protected readonly everyone = computed(() => this.live().filter((t) => t.wapzoUpdates !== false));
   protected readonly optedOut = computed(() => this.live().length - this.everyone().length);
-  protected readonly shown = computed(() => {
+  /** Only requests still waiting on us: new or on hold. Converted ones are businesses; dismissed ones said no. */
+  protected readonly openLeads = computed(() => this.leads().filter((l) => l.status === 'new' || l.status === 'hold'));
+  /** Picked leads that are still open: one converted or dismissed meanwhile drops out. */
+  private readonly chosenLeads = computed(() => this.openLeads().filter((l) => this.pickedLeads().has(l.id)));
+  /** The list in view for the open tab, businesses or open leads, narrowed by the search. */
+  protected readonly shown = computed<readonly Row[]>(() => {
     const q = this.search().trim().toLowerCase();
-    return q ? this.live().filter((t) => `${t.name} ${t.slug} ${t.contactPhone ?? ''}`.toLowerCase().includes(q)) : this.live();
+    const rows: readonly (Row & { readonly find: string })[] =
+      this.audience() === 'leads'
+        ? this.openLeads().map((l) => ({
+            id: l.id,
+            name: l.business || l.name,
+            sub: [l.name, l.phone].filter(Boolean).join(', ') || 'No number given',
+            label: l.status === 'hold' ? 'On hold' : 'New',
+            tone: l.status === 'hold' ? 'tone-warn' : 'tone-info',
+            find: `${l.business} ${l.name} ${l.email} ${l.phone}`,
+          }))
+        : this.live().map((t) => ({
+            id: t.id,
+            name: t.name,
+            sub: t.contactPhone || 'No number on file',
+            ...this.state(t),
+            find: `${t.name} ${t.slug} ${t.contactPhone ?? ''}`,
+          }));
+    return q ? rows.filter((r) => r.find.toLowerCase().includes(q)) : rows;
   });
+  /** The picks the open tab adds to and clears. */
+  protected readonly pick = computed<WritableSignal<ReadonlySet<number>>>(() =>
+    this.audience() === 'leads' ? this.pickedLeads : this.picked,
+  );
   /** Each number once, however it was written (its last ten digits), as the server counts them. */
   protected readonly typed = computed(() => {
     const seen = new Map<string, string>();
@@ -83,24 +127,28 @@ export class WapzoBroadcast {
     const who = this.audience();
     return who === 'all' ? this.everyone().length : who === 'choose' ? this.picked().size : 0;
   });
-  protected readonly count = computed(() => this.businesses() + this.typed().length);
+  protected readonly leadCount = computed(() => (this.audience() === 'leads' ? this.chosenLeads().length : 0));
+  protected readonly count = computed(() => this.businesses() + this.leadCount() + this.typed().length);
   /** "5 businesses and 2 numbers", leaving out a part that is zero. */
   protected readonly what = computed(() => {
     const b = this.businesses();
+    const l = this.leadCount();
     const n = this.typed().length;
     const parts = [
       b ? `${b} ${b === 1 ? 'business' : 'businesses'}` : '',
+      l ? `${l} ${l === 1 ? 'lead' : 'leads'}` : '',
       n ? `${n} ${n === 1 ? 'number' : 'numbers'}` : '',
     ].filter(Boolean);
     return parts.join(' and ') || 'nobody yet';
   });
-  /** The first business, whose message the preview shows. */
+  /** The business name in the first message, which the preview shows. */
   protected readonly first = computed(() => {
     const who = this.audience();
-    return who === 'all' ? this.everyone()[0] : who === 'choose' ? this.live().find((t) => this.picked().has(t.id)) : undefined;
+    if (who === 'leads') return this.chosenLeads()[0]?.business;
+    return (who === 'all' ? this.everyone()[0] : who === 'choose' ? this.live().find((t) => this.picked().has(t.id)) : undefined)?.name;
   });
   /** As near as the page can fill it: the owner's name is not in the list, so {name} stays for the server to fill. */
-  protected readonly preview = computed(() => this.text().replace(/\{business\}/g, this.first()?.name ?? '{business}').trim());
+  protected readonly preview = computed(() => this.text().replace(/\{business\}/g, this.first() || '{business}').trim());
   protected readonly ready = computed(
     () => this.linked() && !this.busy() && !this.uploading() && (!!this.text().trim() || !!this.image()) && this.count() > 0,
   );
@@ -111,21 +159,34 @@ export class WapzoBroadcast {
       next: ({ tenants }) => this.tenants.set(tenants),
       error: (err: Error) => this.error.set(err.message),
     });
+    this.loadLeads();
+    // A lead accepted, held or dismissed elsewhere moves in or out of the Leads list at once.
+    inject(AdminFeed).watch(['leads'], () => this.loadLeads());
+  }
+
+  private loadLeads(): void {
+    this.leadsApi.list().subscribe({
+      next: ({ leads }) => {
+        this.leads.set(leads);
+        this.leadsError.set('');
+      },
+      error: (err: Error) => this.leadsError.set(err.message),
+    });
   }
 
   protected toggle(id: number): void {
-    this.picked.update((set) => {
+    this.pick().update((set) => {
       const next = new Set(set);
       if (!next.delete(id)) next.add(id);
       return next;
     });
   }
 
-  /** Select every business in view, or clear them if all are already picked. */
+  /** Select every row in view, or clear them if all are already picked. */
   protected toggleShown(): void {
-    const ids = this.shown().map((t) => t.id);
-    const all = ids.every((id) => this.picked().has(id));
-    this.picked.update((set) => {
+    const ids = this.shown().map((r) => r.id);
+    const all = ids.every((id) => this.pick()().has(id));
+    this.pick().update((set) => {
       const next = new Set(set);
       for (const id of ids) {
         if (all) next.delete(id);
@@ -137,10 +198,10 @@ export class WapzoBroadcast {
 
   protected allShownPicked(): boolean {
     const shown = this.shown();
-    return shown.length > 0 && shown.every((t) => this.picked().has(t.id));
+    return shown.length > 0 && shown.every((r) => this.pick()().has(r.id));
   }
 
-  protected state(tenant: Tenant): { label: string; tone: string } {
+  private state(tenant: Tenant): { label: string; tone: string } {
     if (tenant.status === 'pending') return { label: 'Pending', tone: 'tone-info' };
     if (tenant.status === 'suspended') return { label: 'Suspended', tone: 'tone-warn' };
     if (planEnded(tenant.subscription)) return { label: 'Inactive', tone: 'tone-mute' };
@@ -198,6 +259,7 @@ export class WapzoBroadcast {
       .broadcast({
         text: this.text().trim(),
         tenants: who === 'all' ? 'all' : who === 'choose' ? [...this.picked()] : [],
+        leads: who === 'leads' ? this.chosenLeads().map((l) => l.id) : [],
         numbers: this.typed(),
         mediaId: this.image()?.mediaId ?? null,
       })

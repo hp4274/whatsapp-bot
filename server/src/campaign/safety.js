@@ -45,14 +45,14 @@ export const DEFAULT_SENDING = Object.freeze({
     blockPausePercent: BLOCK_PAUSE_PERCENT,
     blockPauseMinSent: BLOCK_PAUSE_MIN_SENT,
     qrVaryAbove: QR_VARY_ABOVE,
-    /** Super admin only (sending.skipQuietTime): bulk ignores the daily rest windows and quiet hours. */
-    skipQuiet: false,
     /** Super admin only (sending.skipLinkWait): no wait after a fresh link; a ban still rests the number. */
     skipLinkWait: false,
     /** Super admin only (sending.skipGrowthCap): a day may go straight to the level's day, without the 35% climb. */
     skipGrowth: false,
     /** Super admin (sending.carouselImages): a carousel goes as one image per card, which every device shows; false = swipe carousel. */
-    carouselImages: true,
+    carouselImages: false,
+    /** The business's own day replaces the plan's (tenant limits.ownDailyLimit): no warm-up, no growth cap. */
+    ownDay: false,
 });
 
 /** A safety rule refused the request. `status` is what the HTTP layer answers. */
@@ -92,21 +92,9 @@ export function variationError(template, contacts, config = {}) {
 /** QR numbers: the policy's variation threshold, never above `ceiling` (0 = unset = `ceiling`). */
 export const qrVaryAbove = (config = {}, ceiling = QR_VARY_ABOVE) => Math.min(Number(config.requireVariationAbove) || ceiling, ceiling);
 
-/**
- * Is bulk traffic allowed right now? The channel's own sending window, and the
- * platform's quiet hours (`quietHoursStart`..`quietHoursEnd`, channel timezone,
- * may wrap midnight; equal = off). Both reuse `withinSendingWindow`.
- */
-export function bulkWindowOpen(channel, config = {}, at = new Date()) {
-    if (channel && !withinSendingWindow(channel, at)) return false;
-    const start = Math.floor(Number(config.quietHoursStart) || 0);
-    const end = Math.floor(Number(config.quietHoursEnd) || 0);
-    if (start === end) return true;
-    const window = (from, to) => withinSendingWindow({
-        timezone: channel?.timezone || 'UTC', businessHours: { start: `${from}:00`, end: `${to}:00` },
-    }, at);
-    // 21 -> 9 is quiet overnight, so 9..21 is open; 1 -> 6 is quiet inside one day.
-    return start > end ? window(end, start) : !window(start, end);
+/** Is bulk traffic allowed right now? The channel's own sending window. */
+export function bulkWindowOpen(channel, at = new Date()) {
+    return !channel || withinSendingWindow(channel, at);
 }
 
 export const SAFETY_DEFAULTS = Object.freeze({
@@ -261,17 +249,19 @@ export function growthFrom(ledger = {}, { startDaily = LEVELS[1].dailyLimit, flo
  */
 export function allowanceFrom(lv, ledger, config = {}, {
     resetsAt = null, levels = LEVELS, planDaily = null, held = false, startDaily = levels[1].dailyLimit, skipGrowth = false,
+    ownDay = false,
 } = {}) {
     const has = (code) => lv.brakes.some((b) => b.code === code);
     const half = (n) => (has('reply_rate') && n > 0 ? Math.max(1, Math.floor(n / 2)) : n);
     const ceiling = dayCeiling(config, planDaily);
     const planRow = levels[Math.max(1, lv.level)];
     // An admin cap of level 0 stops the number; level 0 otherwise borrows level 1's day (the rest after linking).
-    const perDay = lv.capped && lv.level === 0 ? 0 : half(Math.min(planRow.dailyLimit, ceiling));
+    // ownDay (the business's own day, set by the super admin): that day from day one, not the level's.
+    const perDay = lv.capped && lv.level === 0 ? 0 : half(ownDay ? ceiling : Math.min(planRow.dailyLimit, ceiling));
     const closing = lv.brakes.filter((b) => CLOSES_NEW_CHATS.includes(b.code));
     const growth = growthFrom(ledger, { startDaily, floor: levels[1].dailyLimit });
-    const bulkLimit = lv.level && !held && !lv.brakes.some((b) => HALTING_BRAKES.includes(b.code)) ? Math.min(perDay, skipGrowth ? Infinity : growth.cap) : 0;
-    const chatLimit = closing.length ? 0 : half(lv.row.newChats);
+    const bulkLimit = lv.level && !held && !lv.brakes.some((b) => HALTING_BRAKES.includes(b.code)) ? Math.min(perDay, skipGrowth || ownDay ? Infinity : growth.cap) : 0;
+    const chatLimit = closing.length ? 0 : ownDay ? perDay : half(lv.row.newChats);
     const hourLimit = half(lv.row.perHour);
     const chatsLeft = Math.max(0, chatLimit - ledger.newChatsToday);
     // When new chats open again: the last brake that shut them lifts (a rate brake has no end time, so tomorrow
@@ -357,23 +347,25 @@ export class DailyQuota {
             const { levels } = tables;
             // A ban or a different number after the pin was set voids it (the ledger's anchor is the later
             // of the two): the number starts again from its history.
-            const pin = this.levelPin();
+            // The business's own day (sending.ownDay): no warm-up, the number runs at the top level at once.
+            const own = tables.ownDay === true;
+            const pin = own ? { level: levels.length - 1, at: new Date(0).toISOString() } : this.levelPin();
             // A malformed pin (negative, fractional, a string) is no pin; levelFor clamps one above the top.
-            const pinVoid = !Number.isInteger(pin?.level) || pin.level < 0
-                || Date.parse(ledger.anchor ?? ledger.lastBanAt ?? '') > (Date.parse(pin.at ?? '') || 0);
+            const pinVoid = !own && (!Number.isInteger(pin?.level) || pin.level < 0
+                || Date.parse(ledger.anchor ?? ledger.lastBanAt ?? '') > (Date.parse(pin.at ?? '') || 0));
             // The questions' start level, voided the same way: a ban or a new number asks them again.
             const answered = this.levelStart?.() ?? null;
             const startVoid = !Number.isInteger(answered?.level) || answered.level < 1
                 || Date.parse(ledger.anchor ?? ledger.lastBanAt ?? '') > (Date.parse(answered.at ?? '') || 0);
-            const held = Boolean(this.levelStart) && startVoid;
+            const held = !own && Boolean(this.levelStart) && startVoid;
             // The day ceiling caps the level (and so a pin), not only the count: see ceilingLevel.
             // The business's 2nd ban in 30 days (db.tenantBanHold): each number stays at the level it had reached.
             const banHold = this.qr ? this.db.tenantBanHold?.(now) ?? null : null;
-            const caps = [tables.maxLevel, ceilingLevel(levels, dayCeiling(this.config, tables.planDaily)), banHold ? state?.level : null]
+            const caps = [tables.maxLevel, own ? null : ceilingLevel(levels, dayCeiling(this.config, tables.planDaily)), banHold ? state?.level : null]
                 .filter((c) => c != null);
             const lv = levelFor(ledger, {
                 // A super admin can skip the wait after a fresh link (sending.skipLinkWait); a ban still rests it.
-                linkedAt: tables.skipLinkWait ? '' : this.config.linkedAt, now, dayStart: start,
+                linkedAt: tables.skipLinkWait || own ? '' : this.config.linkedAt, now, dayStart: start,
                 levels, brakes: tables.brakes, cap: caps.length ? Math.min(...caps) : null, pin: pinVoid ? null : pin.level,
                 start: startVoid ? null : answered.level, startedAt: startVoid ? '' : answered.at, state,
                 startSkipped: !startVoid && answered.answers?.skipped === true,
@@ -389,9 +381,9 @@ export class DailyQuota {
             this.allowanceCache = {
                 at: t,
                 value: {
-                    ...allowanceFrom(lv, ledger, this.config, { resetsAt, levels, planDaily: tables.planDaily, held, startDaily, skipGrowth: tables.skipGrowth }),
+                    ...allowanceFrom(lv, ledger, this.config, { resetsAt, levels, planDaily: tables.planDaily, held, startDaily, skipGrowth: tables.skipGrowth, ownDay: own }),
                     // The most a day can reach: the plan, the number's own limit and the top allowed level.
-                    ceiling: Math.min(dayCeiling(this.config, tables.planDaily), levels[Math.min(levels.length - 1, tables.maxLevel ?? Infinity)].dailyLimit),
+                    ceiling: own ? dayCeiling(this.config, tables.planDaily) : Math.min(dayCeiling(this.config, tables.planDaily), levels[Math.min(levels.length - 1, tables.maxLevel ?? Infinity)].dailyLimit),
                     // Unanswered questions hold bulk (null while nothing is asked).
                     asked: this.levelStart ? !held : null,
                     row: lv.row,
@@ -459,7 +451,9 @@ export class DailyQuota {
 
     /** Left sending safety: the plan's per-number day and what is left of it (no plan: no cap). */
     #planDay(now) {
-        const limit = Number(this.tables().planDaily) > 0 ? Number(this.tables().planDaily) : 0;
+        // The business's own day (ownDay clears the plan's) applies with safety off too.
+        const limit = Number(this.tables().planDaily) > 0 ? Number(this.tables().planDaily)
+            : this.tables().ownDay ? Math.max(0, Number(this.config.dailyLimit) || 0) : 0;
         return { limit, left: limit ? Math.max(0, limit - this.usedToday(now)) : Infinity };
     }
 
@@ -477,6 +471,7 @@ export class DailyQuota {
         if (!this.config.safetyEnabled) return 0;
         if (!this.qr) return this.limitOn(now);
         const a = this.allowance(now);
+        if (this.tables().ownDay) return Number.isFinite(a.perDay) ? a.perDay : 0;
         return Math.min(a.perDay, a.growth.cap);
     }
 

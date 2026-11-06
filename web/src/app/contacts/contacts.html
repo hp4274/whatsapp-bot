@@ -27,9 +27,6 @@
       <button class="btn" type="button" (click)="importOpen.set(true)">
         <i class="ti ti-file-upload" aria-hidden="true"></i> Import
       </button>
-      <button class="btn" type="button" (click)="groupsOpen.set(true)">
-        <i class="ti ti-users-group" aria-hidden="true"></i> From WhatsApp groups
-      </button>
       <button
         class="btn primary"
         type="button"
@@ -48,7 +45,9 @@
   @if (overall(); as o) {
     <div class="s-stat tone-info s-enter" style="--i: 0" schoolTilt="4">
       <small>In the book</small><b>{{ o.total.toLocaleString() }}</b>
-      <span class="muted">{{ tags().length }} tags &middot; {{ fieldKeys().length }} fields</span>
+      <span class="muted"
+        >{{ tags().length }} tags &middot; {{ fieldKeys().length }} extra details</span
+      >
     </div>
     <button
       type="button"
@@ -70,15 +69,23 @@
       (click)="setConsent(consent() === 'opted_out' ? '' : 'opted_out')"
     >
       <small>Opted out</small><b>{{ o.optedOut.toLocaleString() }}</b>
-      <span class="muted">never messaged</span>
+      <span class="muted">won't get your messages</span>
     </button>
     <div class="s-stat tone-warn s-enter" style="--i: 3" schoolTilt="4">
       <small>Segments</small><b>{{ segments().length }}</b>
       <span class="muted">saved audiences</span>
     </div>
+  } @else if (metaError()) {
+    <div class="s-banner stats-error" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i>
+      <span>Couldn't load the totals: {{ metaError() }}</span>
+      <button class="btn sm" type="button" (click)="loadMeta()">
+        <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+      </button>
+    </div>
   } @else {
     @for (k of [0, 1, 2, 3]; track k) {
-      <div class="s-stat" aria-hidden="true">
+      <div class="s-stat" aria-busy="true" aria-label="Loading totals">
         <div class="s-skel" style="width: 45%"></div>
         <div class="s-skel" style="height: 28px; width: 35%"></div>
       </div>
@@ -158,19 +165,25 @@
         />
       </div>
     </div>
-    <div class="field">
-      <label for="n-fields"
-        >Custom fields <small class="muted">one key=value per line</small></label
-      >
-      <textarea
-        id="n-fields"
-        name="fields"
-        rows="3"
-        placeholder="patient_id=P-104&#10;doctor=Mehta"
-        [ngModel]="draft().fields"
-        (ngModelChange)="setDraft({ fields: $event })"
-      ></textarea>
-    </div>
+    <details class="advanced">
+      <summary>More options</summary>
+      <div class="advanced-body">
+        <div class="field">
+          <label for="n-fields"
+            >Extra details
+            <small class="muted">one per line, like doctor=Mehta</small></label
+          >
+          <textarea
+            id="n-fields"
+            name="fields"
+            rows="3"
+            placeholder="patient_id=P-104&#10;doctor=Mehta"
+            [ngModel]="draft().fields"
+            (ngModelChange)="setDraft({ fields: $event })"
+          ></textarea>
+        </div>
+      </div>
+    </details>
     @if (formError()) {
       <p class="s-banner" role="alert">
         <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ formError() }}
@@ -401,7 +414,7 @@
           <i class="ti ti-address-book" aria-hidden="true"></i>
           <strong>Your contact book is empty</strong>
           <p>
-            Import a spreadsheet of customers, or add someone by hand. Tags and custom fields are
+            Import a spreadsheet of customers, or add someone by hand. Tags and extra details are
             yours to define.
           </p>
           @if (canWrite()) {
@@ -622,6 +635,7 @@
     [knownTags]="tags()"
     (closed)="importOpen.set(false)"
     (imported)="onImported()"
+    (fromGroups)="importOpen.set(false); groupsOpen.set(true)"
   />
 }
 
@@ -632,7 +646,7 @@
 @if (mergeOpen()) {
   <app-merge-dialog
     [initial]="dupes()"
-    (closed)="mergeOpen.set(false)"
+    (closed)="onMergeClosed()"
     (merged)="onMerged($event)"
   />
 }

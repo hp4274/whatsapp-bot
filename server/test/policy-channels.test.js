@@ -101,10 +101,10 @@ describe('number cap and providers', () => {
         policy(`tenant:${tenant.id}`, { 'channels.allowBaileys': false });
         const qr = await call(owner, 'POST', '/api/channels', { displayName: 'QR', settings: { transport: 'baileys' } });
         assert.equal(qr.status, 403);
-        assert.match(qr.body.errors[0], /Baileys/);
+        assert.match(qr.body.errors[0], /WhatsApp \(QR\) numbers are not allowed/);
         const cfg = await call(owner, 'PUT', '/api/config', { transport: 'baileys' });
         assert.equal(cfg.status, 403);
-        assert.match(cfg.body.errors[0], /Baileys/);
+        assert.match(cfg.body.errors[0], /WhatsApp \(QR\) numbers are not allowed/);
         policy(`tenant:${tenant.id}`, { 'channels.allowBaileys': null });
     });
 });

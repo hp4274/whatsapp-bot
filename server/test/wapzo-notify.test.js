@@ -160,6 +160,24 @@ describe('Wuzie WhatsApp number', () => {
         assert.deepEqual(types.map((r) => r.message_type), ['campaign']);
     });
 
+    it('sends to open leads only: new and on hold, not accepted or dismissed', async () => {
+        const all = (await call(sup, 'GET', '/api/admin/leads')).body.leads;
+        const by = (email) => all.find((l) => l.email === email);
+        await call(sup, 'PATCH', `/api/admin/leads/${by('ravi@t.test').id}`, { status: 'hold' });
+        await call(sup, 'PATCH', `/api/admin/leads/${by('meena@f.test').id}`, { status: 'dismissed' });
+        const ids = ['early@shop.test', 'ravi@t.test', 'meena@f.test', 'asha@shop.test'].map((e) => by(e).id);
+        const res = await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: [], leads: ids, text: 'Hi {name} of {business}' });
+        assert.equal(res.status, 200, JSON.stringify(res.body));
+        assert.equal(res.body.queued, 2);
+        const out = sent().filter(([kind]) => kind === 'broadcast').slice(-2);
+        assert.deepEqual(out.map(([, to, text]) => [to, text]), [
+            ['919876511111', 'Hi Early of Early Shop'],
+            ['919876533333', 'Hi Ravi of Ravi Tutors'],
+        ]);
+        const closed = ids.slice(2);
+        assert.equal((await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: [], leads: closed, text: 'Hi' })).status, 400);
+    });
+
     it('sends an image, alone or with text, to every business and typed numbers together', async () => {
         const form = new FormData();
         form.set('file', new Blob([Buffer.from('89504e470d0a1a0a0000', 'hex')], { type: 'image/png' }), 'offer.png');

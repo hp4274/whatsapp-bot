@@ -143,8 +143,12 @@
     <div class="row">
       @if (!connected()) {
         <span class="muted small"
-          ><i class="ti ti-link-off" aria-hidden="true"></i> Not connected -
-          <a routerLink="/connection">connect a number</a></span
+          ><i class="ti ti-link-off" aria-hidden="true"></i> No WhatsApp number linked -
+          @if (isAdmin()) {
+            <a routerLink="/whatsapp">link one</a>
+          } @else {
+            ask an admin to link one
+          }</span
         >
         <span class="grow"></span>
       }

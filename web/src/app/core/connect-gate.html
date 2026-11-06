@@ -1,0 +1,38 @@
+@if (open()) {
+  <!-- Escape must not close it: the app does nothing until a number is linked. -->
+  <dialog
+    #dialog
+    class="gate"
+    aria-labelledby="gate-title"
+    aria-describedby="gate-desc"
+    (cancel)="$event.preventDefault()"
+  >
+    <span class="badge" aria-hidden="true"><i class="ti ti-brand-whatsapp"></i></span>
+    <h2 id="gate-title">Link your WhatsApp number</h2>
+    @if (canConnect()) {
+      <p id="gate-desc">
+        Wuzie sends from your own WhatsApp number. Link it once by scanning a QR code with your phone, and the
+        rest of the app opens up.
+      </p>
+      <div class="acts">
+        <button type="button" class="btn ghost" (click)="signOut.emit()">
+          <i class="ti ti-logout" aria-hidden="true"></i> Sign out
+        </button>
+        <a class="btn primary" routerLink="/whatsapp" autofocus>
+          <i class="ti ti-qrcode" aria-hidden="true"></i> Link WhatsApp
+        </a>
+      </div>
+    } @else {
+      <!-- The gate reloads on every number change, so it closes by itself once an admin links one. -->
+      <p id="gate-desc">
+        Your business has no WhatsApp number linked yet. Ask an admin on your team to link one. This page opens
+        up by itself once they do.
+      </p>
+      <div class="acts">
+        <button type="button" class="btn primary" (click)="signOut.emit()">
+          <i class="ti ti-logout" aria-hidden="true"></i> Sign out
+        </button>
+      </div>
+    }
+  </dialog>
+}

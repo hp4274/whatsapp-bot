@@ -23,6 +23,7 @@
  *   .s-drawer    side drawer + .s-scrim backdrop
  *   .s-enter     staggered entrance; set style="--i: n"
  *   .switch      the one on/off switch: `@include s.switch` where a component has one (kept out of `all` for size)
+ *   details.advanced   the one collapsed "Advanced" fold: `@include s.advanced` (kept out of `all`); body in .advanced-body
  * Layout mixins, included where needed (not by `all`): s.fit-grid on a grid host, s.stat-grid on a tile row,
  * s.drawer-panel / s.scrim for a component's own drawer.
  * Keyframes: s-rise, s-shimmer, s-float, s-pop.
@@ -507,6 +508,54 @@
     }
     &:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
     &:disabled { opacity: 0.5; cursor: not-allowed; }
+  }
+}
+
+/*
+ * The one "Advanced" fold: <details class="advanced"><summary>Advanced</summary> … </details>.
+ * Settings a small-business owner rarely needs stay one click away instead of crowding the card, so every page
+ * folds them the same way: a quiet muted row with a chevron that turns when open, a hairline above the content.
+ * Kept out of `all` for size: `@include s.advanced;` where a component has one.
+ */
+@mixin advanced {
+  details.advanced {
+    border-top: 1px solid var(--border-color);
+
+    > summary {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: var(--space-md) 0;
+      list-style: none;
+      cursor: pointer;
+      font-size: 13.5px;
+      font-weight: 500;
+      color: var(--text-muted);
+      border-radius: var(--radius-md);
+      transition: color var(--fast) var(--ease);
+
+      &::-webkit-details-marker { display: none; }
+      &::after {
+        content: '\ea5f';
+        margin-left: auto;
+        font-family: 'tabler-icons';
+        font-weight: 400;
+        transition: transform var(--base) var(--ease);
+      }
+      &:hover { color: var(--text-strong); }
+      &:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    }
+
+    &[open] > summary {
+      color: var(--text-strong);
+      &::after { transform: rotate(180deg); }
+    }
+
+    > .advanced-body {
+      display: grid;
+      gap: var(--space-lg);
+      padding-bottom: var(--space-md);
+    }
   }
 }
 

@@ -2,6 +2,18 @@
   <a routerLink="/campaigns"><i class="ti ti-arrow-left" aria-hidden="true"></i>All campaigns</a>
 </nav>
 
+<!-- Outside the campaign block: a first load that fails has no campaign to show it in. -->
+@if (error()) {
+  <p class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="grow">{{ error() }}</span>
+    <button type="button" class="btn sm" (click)="tryAgain()">Try again</button>
+    <button type="button" class="btn sm icon ghost" (click)="error.set('')" aria-label="Dismiss">
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
+  </p>
+}
+
 @if (notFound()) {
   <section class="s-card s-enter" role="alert">
     <div class="s-empty">
@@ -53,17 +65,6 @@
         aria-hidden="true"
       ></i>
       <span class="grow">{{ reason }}</span>
-    </p>
-  }
-
-  @if (error()) {
-    <p class="s-banner" role="alert">
-      <i class="ti ti-alert-circle" aria-hidden="true"></i>
-      <span class="grow">{{ error() }}</span>
-      <button type="button" class="btn sm" (click)="error.set(''); reload()">Try again</button>
-      <button type="button" class="btn sm icon ghost" (click)="error.set('')" aria-label="Dismiss">
-        <i class="ti ti-x" aria-hidden="true"></i>
-      </button>
     </p>
   }
 
@@ -174,13 +175,6 @@
       </section>
     }
 
-    @if (status() === 'running' && store.safety()?.quiet?.active) {
-      <p class="muted">
-        <i class="ti ti-moon" aria-hidden="true"></i> Quiet time: sending resumes in about
-        {{ restLeft() }}.
-      </p>
-    }
-
     @if (live(); as p) {
       <div
         class="progress"
@@ -194,14 +188,14 @@
         <div class="progress-text">
           <span
             ><span class="live-dot" aria-hidden="true"></span> {{ count(p.processed) }} /
-            {{ count(p.total) }} processed ({{ pct(p.pct) }})</span
+            {{ count(p.total) }} done ({{ pct(p.pct) }})</span
           >
           <span class="muted"
             >{{ count(p.successful) }} sent · {{ count(p.failed) }} failed · {{ count(p.pending) }} waiting</span
           >
           @if (store.pacing(); as wait) {
             @if (store.pacingLeft(); as left) {
-              <span class="muted">{{ wait.resting ? 'Resting' : 'Next in' }} {{ left }}s</span>
+              <span class="muted">{{ wait.resting ? 'Short break, next in' : 'Next in' }} {{ left }}s</span>
             }
           }
         </div>
@@ -244,34 +238,9 @@
           (blur)="confirmCancel.set(false)"
         >
           <i class="ti ti-ban" aria-hidden="true"></i>
-          {{ confirmCancel() ? 'Confirm: cancel pending?' : 'Cancel pending' }}
+          {{ confirmCancel() ? 'Click again to stop' : 'Stop sending the rest' }}
         </button>
       }
-
-      <div class="retry">
-        <button
-          type="button"
-          class="btn"
-          [disabled]="!canRetry() || !!busy()"
-          (click)="retry()"
-          aria-describedby="retry-hint"
-        >
-          @if (busy() === 'retry') {
-            <span class="spinner" aria-hidden="true"></span>
-          } @else {
-            <i class="ti ti-reload" aria-hidden="true"></i>
-          }
-          Retry failed only
-        </button>
-        <small id="retry-hint" class="muted">
-          @if (failedCount() > 0) {
-            Re-queues {{ count(failedCount()) }} failed recipient{{ failedCount() === 1 ? '' : 's' }} with
-            the same message and attachment
-          } @else {
-            No failed recipients to retry
-          }
-        </small>
-      </div>
 
       @if (c.status === 'draft' || c.status === 'scheduled') {
         <a class="btn" routerLink="/campaign" [queryParams]="{ edit: c.id }">
@@ -281,16 +250,47 @@
       <a class="btn" routerLink="/campaign" [queryParams]="{ duplicate: c.id }">
         <i class="ti ti-copy" aria-hidden="true"></i>Duplicate
       </a>
-
-      <button type="button" class="btn" [disabled]="busy() === 'export'" (click)="exportCsv()">
-        @if (busy() === 'export') {
-          <span class="spinner" aria-hidden="true"></span>
-        } @else {
-          <i class="ti ti-download" aria-hidden="true"></i>
-        }
-        Export CSV
-      </button>
     </div>
+
+    <!-- Rarely needed, so folded away; it opens by itself when there are failures to retry. -->
+    <details class="advanced" [open]="canRetry()">
+      <summary>More actions</summary>
+      <div class="advanced-body more-actions">
+        <div class="retry">
+          <button
+            type="button"
+            class="btn"
+            [disabled]="!canRetry() || !!busy()"
+            (click)="retry()"
+            aria-describedby="retry-hint"
+          >
+            @if (busy() === 'retry') {
+              <span class="spinner" aria-hidden="true"></span>
+            } @else {
+              <i class="ti ti-reload" aria-hidden="true"></i>
+            }
+            Try the failed ones again
+          </button>
+          <small id="retry-hint" class="muted">
+            @if (failedCount() > 0) {
+              Sends the same message and attachment again to the {{ count(failedCount()) }}
+              {{ failedCount() === 1 ? 'person' : 'people' }} it failed for
+            } @else {
+              Nobody to try again - no message failed
+            }
+          </small>
+        </div>
+
+        <button type="button" class="btn" [disabled]="busy() === 'export'" (click)="exportCsv()">
+          @if (busy() === 'export') {
+            <span class="spinner" aria-hidden="true"></span>
+          } @else {
+            <i class="ti ti-download" aria-hidden="true"></i>
+          }
+          Download report (CSV)
+        </button>
+      </div>
+    </details>
   </section>
 
   @if (analytics(); as a) {

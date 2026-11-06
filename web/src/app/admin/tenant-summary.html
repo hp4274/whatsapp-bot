@@ -146,7 +146,7 @@
       {{ limits().messagesPerMonth === undefined ? quota(plan()?.limits?.messagesPerMonth) + " (the plan's)" : limit(limits().messagesPerMonth) }}
     </dd>
     <dt>Messages a day</dt>
-    <dd>{{ safety() ? (safety()!.dailyLimit ? safety()!.dailyLimit.toLocaleString() : "The plan's") : '…' }}</dd>
+    <dd>{{ safety() ? (safety()!.dailyLimit ? safety()!.dailyLimit.toLocaleString() : limits().ownDailyLimit ? 'No limit' : "The plan's") : '…' }}</dd>
   </dl>
   <p class="sub">Changes on the right show here as you make them; Save settings keeps them.</p>
 </section>

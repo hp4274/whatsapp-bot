@@ -84,10 +84,14 @@
         <i class="ti ti-plug-connected-x" aria-hidden="true"></i>
         <strong>Can't read your groups yet</strong>
         <p>{{ loadError() }}</p>
-        <a class="btn primary sm" routerLink="/connection" (click)="closed.emit()">
-          <i class="ti ti-qrcode" aria-hidden="true"></i> Link a WhatsApp number by QR to read your
-          groups
-        </a>
+        @if (isAdmin()) {
+          <a class="btn primary sm" routerLink="/whatsapp" (click)="closed.emit()">
+            <i class="ti ti-qrcode" aria-hidden="true"></i> Link a WhatsApp number by QR to read your
+            groups
+          </a>
+        } @else {
+          <p>Ask an admin to link a WhatsApp number by QR, then try again.</p>
+        }
       </div>
     } @else if (!groups().length) {
       <div class="s-empty">

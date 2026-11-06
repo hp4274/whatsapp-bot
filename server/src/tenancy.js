@@ -97,14 +97,14 @@ export const NUMBER_SKIP_TEXT = [
     'I accept full responsibility for any restriction or ban of this number, and for any lost messages, contacts or business that follow. The platform cannot restore a banned number.',
 ];
 /**
- * What a business accepts to leave sending safety: levels, brakes and quiet time off, the plan's day and speed kept
+ * What a business accepts to leave sending safety: levels and brakes off, the plan's day and speed kept
  * (POST /api/safety/custom/exit). Asked again on every exit, as kind `safety_exit`.
  */
 // v3: the business never sees levels, warm-up or brakes by name (docs/bulk.md §18). Exit is asked on every exit, so a
-// new version asks nobody again.
-export const SAFETY_EXIT_VERSION = '2026-10-3';
+// new version asks nobody again. v4 (2026-11-05): quiet hours are gone from bulk sending.
+export const SAFETY_EXIT_VERSION = '2026-11-5';
 export const SAFETY_EXIT_TEXT = [
-    'Leaving sending safety removes the gradual start, the automatic slow-downs and the quiet hours from every number of our business.',
+    'Leaving sending safety removes the gradual start and the automatic slow-downs from every number of our business.',
     'Numbers will send at our plan\'s full daily limit and speed from the first day. WhatsApp is likely to restrict or ban a number that does that, temporarily or permanently.',
     'I accept full responsibility for any restriction or ban of our number(s), and for any lost messages, contacts or business that follow. The platform cannot restore a banned number.',
 ];
@@ -439,7 +439,9 @@ export class Tenancy {
         const platform = this.platformSafety(tenant);
         // dailyLimit with no admin value falls back to 0 (no own ceiling): see platformSafety.
         const touched = Object.fromEntries(Object.keys(tenant.customSafety).map((key) => [key, platform[key]]));
-        return { ...touched, ...tenant.safety, ...(this.customSafetyActive(tenant) ? tenant.customSafety : {}), ...exitOf(tenant) };
+        // Its own day (limits.ownDailyLimit) is the admin's or none: a number's stored 250 must not stand in.
+        const ownDay = tenant.limits?.ownDailyLimit ? { dailyLimit: platform.dailyLimit } : {};
+        return { ...touched, ...ownDay, ...tenant.safety, ...(this.customSafetyActive(tenant) ? tenant.customSafety : {}), ...exitOf(tenant) };
     }
 
     /** `exit`: { at, by, fullName } when the business left sending safety, null to rejoin. */
@@ -821,6 +823,9 @@ export const LIMIT_SPEC = Object.freeze({
     // The business's own monthly message quota. Absent = the plan's; null = no limit; a number = that many (0 = none).
     // Not in DEFAULT_LIMITS, so "absent" survives; the value 'plan' removes it again.
     messagesPerMonth: [0, 100000000],
+    // True: safety.dailyLimit replaces the plan's per-number day (channels.dailyCap) instead of only lowering it;
+    // with it 0 there is no day cap at all. Sending levels still apply. Absent = the plan's day, as before.
+    ownDailyLimit: 'bool',
 });
 /** A numeric tenant limit as a cap: null when there is none, else the number (0 is a cap of zero). */
 export function capOf(value) {

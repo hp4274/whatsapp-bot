@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import type { Subscription } from 'rxjs';
 
 import { validateInteractive } from '../campaign/interactive/interactive.model';
 import { Auth } from '../core/auth';
@@ -17,7 +18,7 @@ import { Pager, pageOf } from '../core/pager';
 import { scrollToTop } from '../core/scroll';
 import { Store } from '../core/store';
 import { Tilt } from '../school/tilt';
-import { ButtonsEditor } from './buttons-editor';
+import { ButtonsEditor, withoutBlankReplies } from './buttons-editor';
 import { HeaderMedia, TemplatePreview } from './template-preview';
 import {
   ApiError,
@@ -162,6 +163,8 @@ export class TemplatesView {
     if (s.score > s.limit) return 'tone-bad';
     return s.score >= s.limit - 15 ? 'tone-warn' : 'tone-ok';
   });
+  /** A score at or near the limit is shown outside the Advanced fold, where it can't be missed. */
+  protected readonly spamHigh = computed(() => ['tone-bad', 'tone-warn'].includes(this.spamTone()));
   protected readonly spamWhy = computed(
     () => this.spam()?.reasons.map((r) => `${r.reason} (+${r.points})`).join(', ') ?? '',
   );
@@ -213,7 +216,15 @@ export class TemplatesView {
   });
   protected readonly vars = computed(() => usedIn(this.draft().body));
   protected readonly problems = computed(() => validate(this.draft().body));
-  protected readonly ixProblems = computed(() => validateInteractive(this.draft().interactive));
+  /** A reply button left blank is dropped on save, not held against it. */
+  protected readonly ixProblems = computed(() =>
+    validateInteractive(withoutBlankReplies(this.draft().interactive)),
+  );
+
+  /** A pending or rejected template can't be sent (server reviewBlock), so it offers no "Use". */
+  protected canUse(t: Template): boolean {
+    return t.reviewStatus !== 'pending' && t.reviewStatus !== 'rejected';
+  }
 
   constructor() {
     this.load();
@@ -223,15 +234,19 @@ export class TemplatesView {
     effect((onCleanup) => {
       if (this.panel()?.mode !== 'edit') return;
       const { body, interactive } = this.draft();
-      const timer = setTimeout(
-        () =>
-          this.api.spamScore({ body, interactive }).subscribe({
-            next: (s) => this.spam.set(s),
-            error: () => this.spam.set(null),
-          }),
-        400,
-      );
-      onCleanup(() => clearTimeout(timer));
+      let request: Subscription | undefined;
+      const timer = setTimeout(() => {
+        request = this.api.spamScore({ body, interactive }).subscribe({
+          next: (s) => this.spam.set(s),
+          error: () => this.spam.set(null),
+        });
+      }, 400);
+      // A newer edit cancels the request in flight too, or a slow old answer would overwrite
+      // the score of the text now on screen.
+      onCleanup(() => {
+        clearTimeout(timer);
+        request?.unsubscribe();
+      });
     });
   }
 
@@ -331,6 +346,7 @@ export class TemplatesView {
       ...d,
       name: d.name.trim(),
       variables: vars,
+      interactive: withoutBlankReplies(d.interactive),
       sampleValues: Object.fromEntries(
         Object.entries(d.sampleValues).filter(([k, v]) => vars.includes(k) && v.trim()),
       ),

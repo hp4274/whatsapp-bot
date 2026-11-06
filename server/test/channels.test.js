@@ -269,11 +269,11 @@ describe('channel controls', () => {
 
     it('ignores anti-ban limits in a business\'s own channel settings', async () => {
         const made = await call(tokens.ownerA, 'POST', '/api/channels', {
-            displayName: 'Sneaky', settings: { transport: TRANSPORT_SANDBOX, safetyEnabled: false, quietHoursStart: 3 },
+            displayName: 'Sneaky', settings: { transport: TRANSPORT_SANDBOX, safetyEnabled: false, recipientDailyCap: 3 },
         });
         assert.equal(made.status, 201);
         assert.equal(made.body.channel.settings.safetyEnabled, true);
-        assert.equal(made.body.channel.settings.quietHoursStart, DEFAULTS.quietHoursStart);
+        assert.equal(made.body.channel.settings.recipientDailyCap, DEFAULTS.recipientDailyCap);
         const patched = await call(tokens.ownerA, 'PATCH', `/api/channels/${made.body.channel.id}`, {
             displayName: 'Sneaky 2', settings: { safetyEnabled: false, defaultCountryCode: '44' },
         });

@@ -152,6 +152,13 @@
   --on-fill: #ffffff;
   /// The backdrop behind a drawer or a modal; deeper in dark mode, where a light veil would glow.
   --overlay: rgba(16, 16, 24, 0.45);
+  /// The phone picture that holds a QR code (link card): a dark bezel and a white screen in both themes,
+  /// because a QR code on a dark screen does not scan.
+  --phone-bezel: linear-gradient(160deg, #2a2f3a, #0d1017);
+  --phone-bezel-edge: rgba(255, 255, 255, 0.06);
+  --phone-screen: #ffffff;
+  --phone-ink: #3b3f4a;
+  --phone-mark: #c4c8d2;
 
   --accent-fill: var(--brand-indigo);
   --accent-soft: color-mix(in srgb, var(--brand-indigo) 12%, transparent);

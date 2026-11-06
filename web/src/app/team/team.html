@@ -11,7 +11,9 @@
   <p class="s-banner" role="alert">
     <i class="ti ti-alert-circle" aria-hidden="true"></i>
     <span>{{ error() }}</span>
-    <button class="btn sm" type="button" (click)="refresh()">Try again</button>
+    @if (loadFailed()) {
+      <button class="btn sm" type="button" (click)="refresh()">Try again</button>
+    }
   </p>
 }
 
@@ -24,7 +26,7 @@
           <div class="s-skel"></div>
         }
       </div>
-    } @else {
+    } @else if (!loadFailed() || users().length) {
       <div class="s-table">
         <table>
           <thead>
@@ -57,10 +59,26 @@
                   @if (canManage(user)) {
                     <div class="row-acts">
                       @if (user.disabled) {
-                        <button class="btn sm" type="button" (click)="toggle(user)">Enable</button>
+                        <button class="btn sm" type="button" (click)="toggle(user)">
+                          <i class="ti ti-user-check" aria-hidden="true"></i> Enable
+                        </button>
+                      } @else {
+                        <button
+                          class="btn sm"
+                          type="button"
+                          title="They can't sign in until you enable them again. Frees a seat on your plan."
+                          (click)="toggle(user)"
+                        >
+                          <i class="ti ti-user-off" aria-hidden="true"></i> Disable
+                        </button>
                       }
-                      <button class="btn sm" type="button" (click)="openEdit(user)">
-                        <i class="ti ti-pencil" aria-hidden="true"></i> Edit sign-in
+                      <button
+                        class="btn sm"
+                        type="button"
+                        [attr.aria-label]="'Change email or password for ' + (user.name || user.email)"
+                        (click)="openEdit(user)"
+                      >
+                        <i class="ti ti-pencil" aria-hidden="true"></i> Change login
                       </button>
                       <button
                         class="btn sm icon danger-ghost"
@@ -124,7 +142,7 @@
         [ngModel]="draft().password"
         (ngModelChange)="draft.set({ ...draft(), password: $event })"
       />
-      <span class="hint">8+ characters</span>
+      <span class="hint">At least 8 characters.</span>
     </div>
     <div class="s-field">
       <label for="u-role">Role</label>
@@ -139,6 +157,15 @@
         }
       </select>
     </div>
+    @if (addError()) {
+      <p class="s-banner" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i>
+        <span>{{ addError() }}</span>
+        @if (addRetry()) {
+          <button class="btn sm" type="button" [disabled]="busy()" (click)="add()">Try again</button>
+        }
+      </p>
+    }
     <button class="btn primary" type="submit" [disabled]="busy()">
       {{ busy() ? 'Adding...' : 'Add user' }}
     </button>
@@ -147,7 +174,7 @@
 
 <!-- A member's sign-in, changed by the owner or an admin above them. -->
 @if (editing(); as user) {
-  <div class="dialog-wrap" (click)="editing.set(null)" (keydown.escape)="editing.set(null)">
+  <div class="dialog-wrap" (click)="editing.set(null)">
     <form
       class="dialog"
       role="dialog"
@@ -156,12 +183,13 @@
       (click)="$event.stopPropagation()"
       (submit)="saveEdit($event)"
     >
-      <h3 id="edit-title">{{ user.name || user.email }}'s sign-in</h3>
+      <h3 id="edit-title">Change {{ user.name || user.email }}'s login</h3>
       <p>A new password signs them out on every device.</p>
       <div class="fields">
         <div class="s-field">
           <label for="e-email">Email</label>
           <input
+            #editEmail
             id="e-email"
             name="email"
             type="email"

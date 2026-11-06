@@ -11,7 +11,16 @@ import {
 } from '@angular/core';
 
 import { Contact2, ContactsApi, DuplicateGroup } from '../core/api';
-import { displayPhone, hue, initials, relativeTime } from './contact-util';
+import { Auth } from '../core/auth';
+import {
+  displayPhone,
+  dupeSignature,
+  hue,
+  initials,
+  markNotDupe,
+  notDupes,
+  relativeTime,
+} from './contact-util';
 
 /**
  * Review numbers stored more than once and fold each group into one contact.
@@ -28,6 +37,7 @@ import { displayPhone, hue, initials, relativeTime } from './contact-util';
 })
 export class MergeDialog {
   private readonly api = inject(ContactsApi);
+  private readonly auth = inject(Auth);
 
   readonly initial = input<DuplicateGroup[]>([]);
   readonly closed = output<void>();
@@ -62,7 +72,9 @@ export class MergeDialog {
     });
     // Always show the server's current view, not a stale banner count.
     this.api.duplicates().subscribe({
-      next: ({ groups }) => {
+      next: (res) => {
+        const skipped = notDupes(this.auth.tenantId());
+        const groups = res.groups.filter((g) => !skipped.has(dupeSignature(g)));
         this.fresh = true;
         this.groups.set(groups);
         this.keep.set(
@@ -78,6 +90,7 @@ export class MergeDialog {
   }
 
   protected mergeGroup(group: DuplicateGroup, then?: () => void) {
+    if (this.busyKey()) return; // one merge at a time; the buttons are disabled too
     const keepId = this.keep()[group.key] ?? group.suggestedKeepId;
     const mergeIds = group.contacts.map((c) => c.id).filter((id) => id !== keepId);
     this.busyKey.set(group.key);
@@ -103,7 +116,9 @@ export class MergeDialog {
     if (next) this.mergeGroup(next, () => this.mergeAll());
   }
 
+  /** Remembered in this browser (the server keeps no such list), so the group stays away on reload. */
   protected skip(group: DuplicateGroup) {
+    markNotDupe(this.auth.tenantId(), dupeSignature(group));
     this.groups.set(this.groups().filter((g) => g.key !== group.key));
   }
 

@@ -13,6 +13,7 @@ import {
 import { RouterLink } from '@angular/router';
 
 import { ContactsApi, WhatsappGroup } from '../core/api';
+import { Auth } from '../core/auth';
 import { Pager, pageOf } from '../core/pager';
 import { saveBlob, today } from './contact-util';
 
@@ -39,6 +40,10 @@ interface GroupRow {
 })
 export class GroupsDialog {
   private readonly api = inject(ContactsApi);
+  private readonly auth = inject(Auth);
+
+  /** The WhatsApp page is admin-only: an agent is told to ask instead of being sent there and bounced. */
+  protected readonly isAdmin = computed(() => this.auth.atLeast('admin'));
 
   readonly closed = output<void>();
   /** Fired after members were saved as contacts, so the page can refresh. */

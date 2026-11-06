@@ -146,7 +146,7 @@ section[id] {
   inset: 0;
   z-index: -1;
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--brand-ink) 72%, transparent) 0%, color-mix(in srgb, var(--brand-ink) 40%, transparent) 42%, transparent 62%),
+    linear-gradient(90deg, color-mix(in srgb, var(--brand-ink) 82%, transparent) 0%, color-mix(in srgb, var(--brand-ink) 62%, transparent) 42%, transparent 68%),
     linear-gradient(180deg, color-mix(in srgb, var(--brand-ink) 45%, transparent) 0%, transparent 22%);
 }
 
@@ -241,7 +241,7 @@ h1,
   }
 }
 
-// Slide controls: 44px targets, a short bar drawn inside each; the shown one is wider and solid.
+// Slide controls: small bars on a small pill, each inside a 30x32 target; the shown one is wider and solid.
 // They sit on the photo's bottom edge (.hero is the containing block), on a dim pill so they read on light photos.
 .hero-dots {
   position: absolute;
@@ -250,16 +250,16 @@ h1,
   translate: -50% 0;
   display: flex;
   align-items: center;
-  padding-inline: 4px;
+  padding-inline: 6px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--brand-ink) 45%, transparent);
+  background: color-mix(in srgb, var(--brand-ink) 55%, transparent);
   backdrop-filter: blur(6px);
 
   .dot {
     display: grid;
     place-items: center;
-    width: 44px;
-    height: 44px;
+    width: 30px;
+    height: 32px;
     padding: 0;
     border: 0;
     background: none;
@@ -267,21 +267,21 @@ h1,
 
     &::before {
       content: '';
-      width: 24px;
-      height: 4px;
+      width: 14px;
+      height: 3px;
       border-radius: 999px;
-      background: color-mix(in srgb, var(--on-field) 40%, transparent);
+      background: color-mix(in srgb, var(--on-field) 70%, transparent);
       transition:
         width var(--base) var(--ease),
         background var(--fast) var(--ease);
     }
 
     &:hover::before {
-      background: color-mix(in srgb, var(--on-field) 70%, transparent);
+      background: color-mix(in srgb, var(--on-field) 90%, transparent);
     }
 
     &.on::before {
-      width: 36px;
+      width: 22px;
       background: var(--on-field);
     }
   }
@@ -525,7 +525,7 @@ p {
 
 // The steps really are a sequence, so their order is shown in the step's own colour.
 .step-no {
-  color: var(--tone);
+  color: var(--tone-ink);
   font-weight: 600;
 }
 
@@ -612,7 +612,7 @@ p {
     padding: 3px 10px;
     border-radius: 999px;
     background: color-mix(in srgb, var(--tone) 14%, var(--surface-card));
-    color: var(--tone);
+    color: var(--tone-ink);
     font-style: normal;
     font-weight: 500;
   }
@@ -642,6 +642,7 @@ p {
   .plane-art {
     width: 110px;
     height: auto;
+    overflow: visible;
 
     .w1 {
       fill: color-mix(in srgb, var(--tone) 55%, var(--surface-card));
@@ -818,8 +819,7 @@ p {
   color: var(--text-muted);
 }
 
-.report ul,
-.inbox ul {
+.report ul {
   display: grid;
   gap: 6px;
   margin: 0;
@@ -919,129 +919,29 @@ p {
   font-weight: 500;
 }
 
-// WhatsApp's chat list, in its own light colours (as the chat preview beside it keeps them): round initials, a rule
-// under each row from the text on, green time and count on unread chats.
-.inbox {
-  --wa-ink: #111b21;
-  --wa-meta: #667781;
-  --wa-rule: #e9edef;
-  --wa-unread: #25d366;
-  --wa-unread-text: #1daa61;
-  --wa-avatar: #dfe5e7;
-  --wa-avatar-ink: #54656f;
-
-  ul {
-    gap: 0;
-  }
-}
-
-.inbox li {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 0 4px;
-  font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
-
-  .av {
-    width: 46px;
-    height: 46px;
-    background: var(--wa-avatar);
-    color: var(--wa-avatar-ink);
-    font-size: 17px;
-    font-weight: 500;
-  }
-
-  position: relative;
-
-  .line,
-  .side {
-    padding: 13px 0;
-  }
-
-  // One rule under the row, starting where the text does (avatar 46 + gap 14 + padding 4).
-  &:not(:last-child)::after {
-    content: '';
-    position: absolute;
-    left: 64px;
-    right: 4px;
-    bottom: 0;
-    border-bottom: 1px solid var(--wa-rule);
-  }
-
-  .line {
-    display: grid;
-    flex: 1;
-    min-width: 0;
-    gap: 2px;
-
-    b {
-      font-size: 16px;
-      font-weight: 400;
-      color: var(--wa-ink);
-    }
-
-    small {
-      font-size: 14px;
-      color: var(--wa-meta);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-  }
-
-  .side {
-    display: grid;
-    align-self: stretch;
-    align-content: center;
-    justify-items: end;
-    gap: 4px;
-
-    small {
-      font-size: 12px;
-      color: var(--wa-meta);
-    }
-  }
-
-  &.unread .side small {
-    color: var(--wa-unread-text);
-    font-weight: 500;
-  }
-
-  .count {
-    display: grid;
-    place-items: center;
-    min-width: 20px;
-    height: 20px;
-    padding: 0 6px;
-    border-radius: 999px;
-    background: var(--wa-unread);
-    color: var(--on-fill);
-    font-size: 12px;
-    font-weight: 600;
-  }
-
-  .who-tag {
-    font-size: 12px;
-    color: var(--wa-meta);
-  }
-}
-
 // ---------------------------------------------------------------- tints
-// One tint per card or group: `--tone` is its ink, the field mixes a little of it into the card.
+// One tint per card or group: `--tone` is its colour, the field mixes a little of it into the card.
+// `--tone-ink` is the same colour darkened for text and icons on that tint: the plain tones read at 4.1-4.5:1
+// there, under AA; the darker ink is above 5.5:1. Set in each tone so it mixes that tone, not an inherited one.
 .tone-blue {
   --tone: var(--primary-text);
+  --tone-ink: color-mix(in srgb, var(--tone) 80%, var(--brand-ink));
 }
 .tone-green {
   --tone: var(--success);
+  --tone-ink: color-mix(in srgb, var(--tone) 80%, var(--brand-ink));
 }
 .tone-violet {
   --tone: var(--accent);
+  --tone-ink: color-mix(in srgb, var(--tone) 80%, var(--brand-ink));
 }
 .tone-yellow {
   --tone: var(--warning);
+  --tone-ink: color-mix(in srgb, var(--tone) 80%, var(--brand-ink));
 }
 .tone-pink {
   --tone: var(--danger-text);
+  --tone-ink: color-mix(in srgb, var(--tone) 80%, var(--brand-ink));
 }
 
 // ------------------------------------------------------- campaign tools
@@ -1236,7 +1136,7 @@ p {
   width: 44px;
   height: 44px;
   background: color-mix(in srgb, var(--tone) 16%, var(--surface-card));
-  color: var(--tone);
+  color: var(--tone-ink);
   font-size: 15px;
   font-weight: 600;
 }
@@ -1293,26 +1193,6 @@ p {
   font-weight: 600;
 }
 
-// --------------------------------------------------------------- replies
-.replies {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: clamp(32px, 5vw, 72px);
-  align-items: start;
-
-  h3 {
-    font-size: clamp(24px, 2.4vw, 32px);
-    line-height: 1.1;
-    letter-spacing: -0.035em;
-  }
-
-  > div > p {
-    margin: 12px 0 28px;
-    font-size: 17px;
-    line-height: 1.6;
-  }
-}
-
 // ------------------------------------------------------------- facilities
 .facilities {
   display: grid;
@@ -1353,7 +1233,7 @@ p {
       height: 40px;
       border-radius: 12px;
       background: color-mix(in srgb, var(--tone) 10%, var(--surface-card));
-      color: var(--tone);
+      color: var(--tone-ink);
       font-size: 19px;
     }
   }
@@ -1363,6 +1243,17 @@ p {
     font-weight: 600;
     color: var(--text-strong);
   }
+}
+
+.soon {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
 }
 
 // The picture over each group: a fragment of the app on the group's tint.
@@ -1413,7 +1304,7 @@ p {
     width: 48px;
     height: 48px;
     background: color-mix(in srgb, var(--tone) 14%, var(--surface-card));
-    color: var(--tone);
+    color: var(--tone-ink);
     font-size: 22px;
   }
 
@@ -1445,6 +1336,7 @@ p {
     height: 64px;
     font-size: 22px;
     --tone: var(--accent);
+    --tone-ink: color-mix(in srgb, var(--tone) 80%, var(--brand-ink));
   }
 
   b {
@@ -1529,7 +1421,7 @@ p {
       width: 44px;
       height: 44px;
       background: color-mix(in srgb, var(--tone) 14%, var(--surface-card));
-      color: var(--tone);
+      color: var(--tone-ink);
     }
   }
 
@@ -1583,7 +1475,7 @@ p {
     height: 52px;
     border-radius: 14px;
     background: color-mix(in srgb, var(--tone) 12%, var(--surface-card));
-    color: var(--tone);
+    color: var(--tone-ink);
     font-size: 26px;
   }
 
@@ -1953,9 +1845,9 @@ p.eyebrow,
 .giant {
   margin: clamp(40px, 6vw, 80px) 0 0;
   // Sized so the five letters span the content width, as on Kardlyz's footer.
-  font-size: min(28.5vw, 424px);
+  font-size: min(30vw, 446px);
   font-weight: 800;
-  letter-spacing: -0.07em;
+  letter-spacing: -0.035em;
   line-height: 0.95;
   color: var(--field-line);
   user-select: none;
@@ -2026,8 +1918,7 @@ p.eyebrow,
   .show,
   .safety-grid,
   .who-grid,
-  .faq-grid,
-  .replies {
+  .faq-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -2069,7 +1960,7 @@ p.eyebrow,
   // One column puts the copy over the people, so the scrim reaches further across.
   .hero-scrim {
     background:
-      linear-gradient(90deg, color-mix(in srgb, var(--brand-ink) 80%, transparent) 0%, color-mix(in srgb, var(--brand-ink) 55%, transparent) 55%, transparent 90%),
+      linear-gradient(90deg, color-mix(in srgb, var(--brand-ink) 86%, transparent) 0%, color-mix(in srgb, var(--brand-ink) 70%, transparent) 55%, transparent 92%),
       linear-gradient(180deg, color-mix(in srgb, var(--brand-ink) 55%, transparent) 0%, transparent 25%);
   }
 }
