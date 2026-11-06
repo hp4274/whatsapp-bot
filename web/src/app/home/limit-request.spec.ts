@@ -79,6 +79,16 @@ describe('LimitRequestDrawer', () => {
     fixture.detectChanges();
     expect(send().disabled).toBe(false);
 
+    // Past the 1e9 ceiling Send turns off, not only the browser's validation bubble.
+    const first = el.querySelector<HTMLInputElement>('input[type="number"]')!;
+    first.value = '5000000000';
+    first.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(send().disabled).toBe(true);
+    first.value = '80';
+    first.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
     send().click();
     expect(api.create).toHaveBeenCalledWith({
       items: [

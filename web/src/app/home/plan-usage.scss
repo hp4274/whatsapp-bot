@@ -1,42 +1,54 @@
 @use '../school/school-shared' as s;
 
 @include s.card;
-@include s.buttons;
 @include s.skeleton;
 @include s.banner;
 @include s.pill;
 @include s.tones;
+@include s.advanced;
+
+// Only the two button variants this panel uses, copied from s.buttons: the whole
+// mixin, next to s.advanced, took the panel past its 4 kB style budget.
+.btn.ghost { background: transparent; border-color: transparent; }
+.btn.sm { min-height: 32px; padding: 0 11px; font-size: 12.5px; }
 
 :host {
   display: block;
   min-width: 0;
 }
-.card-head {
+.card-head,
+.head-end {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+}
+.card-head {
   justify-content: space-between;
   gap: 4px var(--space-md);
   margin-bottom: var(--space-md);
 }
 .head-end {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
   gap: var(--space-sm) var(--space-md);
 }
-// The newest limit request, or the notice that one was just sent.
+// The newest limit request, the notice that one was just sent, and the "subscription ended" note.
 .ask-line,
-.card-head + .s-banner {
-  margin: 0 0 var(--space-md);
-}
-.ask-line {
+.note {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   font-size: 13px;
+}
+.ask-line,
+.note,
+.card-head + .s-banner {
+  margin: 0 0 var(--space-md);
+}
+.ask-line {
   color: var(--text-color);
+}
+.note {
+  color: var(--danger-text);
 }
 h3 {
   margin: 0;
@@ -46,23 +58,24 @@ h3 {
 }
 .muted {
   font-size: 12.5px;
+}
+.muted,
+li > .ti,
+.figure small {
   color: var(--text-muted);
 }
-.note {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 var(--space-md);
-  font-size: 13px;
-  color: var(--danger-text);
-}
+
+// The four main meters in one row when there is room, wrapping to two and then one on a phone.
 .meters {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--space-md) var(--space-xl);
   margin: 0;
   padding: 0;
   list-style: none;
+}
+.main + .advanced {
+  margin-top: var(--space-lg);
 }
 li {
   display: grid;
@@ -79,7 +92,6 @@ li {
   }
   > .ti {
     font-size: 16px;
-    color: var(--text-muted);
   }
 }
 .label {
@@ -97,7 +109,6 @@ li {
   white-space: nowrap;
   small {
     font-weight: 400;
-    color: var(--text-muted);
   }
 }
 .bar {
@@ -112,11 +123,7 @@ li {
     height: 100%;
     border-radius: inherit;
     background: var(--tone);
+    // styles.scss's global reduced-motion rule stills this.
     transition: width 600ms var(--ease);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .bar i {
-    transition: none;
   }
 }

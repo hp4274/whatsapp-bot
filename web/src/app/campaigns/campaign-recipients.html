@@ -69,7 +69,8 @@
         </tr>
       </thead>
       <tbody>
-        @for (r of shown(); track r.phone; let i = $index) {
+        <!-- A shared campaign can list one phone under two numbers, so the phone alone is not a key. -->
+        @for (r of shown(); track r.phone + ':' + (r.channelId ?? ''); let i = $index) {
           <tr [style.--i]="i">
             <td class="mono ph">+{{ r.phone }}</td>
             <td data-label="Name">{{ r.name || '-' }}</td>
@@ -101,7 +102,7 @@
           </tr>
         } @empty {
           <tr class="none">
-            <td colspan="7">
+            <td [attr.colspan]="shared() ? 8 : 7">
               <div class="s-empty">
                 <i
                   class="ti ti-{{ recipients().length ? 'filter-off' : 'users' }}"

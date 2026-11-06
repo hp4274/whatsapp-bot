@@ -3,6 +3,7 @@
 
 @include s.keyframes;
 @include s.buttons;
+@include s.advanced;
 @include s.banner;
 @include k.dialog(760px);
 @include k.tag;
@@ -262,6 +263,7 @@
   text-align: left;
   font-size: 12px;
   summary { cursor: pointer; font-weight: 500; color: var(--danger-text); }
+  p { margin: 8px 0 0; }
   ul { max-height: 160px; overflow-y: auto; margin: 8px 0 0; padding-left: 18px; font-family: var(--font-mono); }
 }
 

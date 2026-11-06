@@ -27,110 +27,6 @@
   </div>
 </header>
 
-@if (quiet(); as q) {
-  <section
-    #strip
-    class="quiet s-enter"
-    style="--i: 1"
-    aria-labelledby="quiet-title"
-    (keydown.escape)="hide()"
-    (focusout)="blurred()"
-  >
-    <div class="quiet-top">
-      <h3 id="quiet-title"><i class="ti ti-moon" aria-hidden="true"></i>Quiet time today</h3>
-      <span class="quiet-note">
-        {{ q.total }} in {{ q.windows.length }} breaks. Bulk sends pause, then carry on by themselves.
-      </span>
-      <span class="quiet-now" title="Times are in your local time">
-        <i class="ti ti-clock" aria-hidden="true"></i>Now <b>{{ q.clock }}</b>
-        <span class="sr">Times are in your local time.</span>
-      </span>
-    </div>
-
-    <ul class="quiet-chips">
-      @for (w of q.windows; track w.key) {
-        <li
-          class="qchip"
-          [class.now]="w.state === 'now'"
-          [class.done]="w.state === 'done'"
-          [class.off]="!w.onBar"
-          [class.hot]="lit() === w.key"
-          [class.dim]="lit() !== null && lit() !== w.key"
-        >
-          <button
-            type="button"
-            class="qchip-btn"
-            [attr.aria-pressed]="pinKey() === w.key"
-            (pointerenter)="hoverChip(w, $event)"
-            (pointerleave)="leaveChip()"
-            (focus)="focusChip(w, $event)"
-            (blur)="unlight()"
-            (click)="pin(w, $event)"
-          >
-            <i
-              class="ti {{ w.state === 'now' ? 'ti-moon' : w.state === 'done' ? 'ti-check' : 'ti-clock' }}"
-              aria-hidden="true"
-            ></i>
-            <span class="mono">{{ w.label }}</span>
-            @if (w.day) {
-              <small>{{ w.day }}</small>
-            }
-            @if (w.state === 'now') {
-              <b>Resting · back in {{ w.backIn }}</b>
-            }
-          </button>
-        </li>
-      }
-    </ul>
-
-    <div
-      class="quiet-track"
-      tabindex="0"
-      role="group"
-      [attr.aria-label]="
-        'Quiet windows across your local day: ' +
-        q.summary +
-        '. Left and Right arrows move through the day, Home and End jump, Escape closes.'
-      "
-      (pointermove)="move($event)"
-      (pointerdown)="press($event)"
-      (pointerleave)="leave($event)"
-      (keydown)="key($event)"
-    >
-      <div #bar class="quiet-bar">
-        @for (w of q.windows; track w.key) {
-          @if (w.onBar) {
-            <button
-              type="button"
-              class="seg"
-              [class.now]="w.state === 'now'"
-              [class.hot]="lit() === w.key"
-              [class.dim]="lit() !== null && lit() !== w.key"
-              [style.left.%]="w.from"
-              [style.width.%]="w.span"
-              [style.--tilt]="lit() === w.key ? tilt() : null"
-              [attr.aria-label]="w.speech"
-              [attr.aria-pressed]="pinKey() === w.key"
-              (focus)="focusWindow(w, $event)"
-              (click)="pin(w, $event, true)"
-            ></button>
-          }
-        }
-        <span class="marker" [style.left.%]="q.marker"></span>
-        @if (cursor() !== null) {
-          <span class="cursor" [style.left.%]="cursor()"></span>
-        }
-      </div>
-    </div>
-    <div class="quiet-scale" aria-hidden="true">
-      <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
-    </div>
-
-    <app-quiet-tip [info]="tip()" [place]="place()" [top]="tipTop()" />
-    <p class="sr" aria-live="polite">{{ live() }}</p>
-  </section>
-}
-
 <section class="toolbar s-enter" style="--i: 1">
   <div class="chips" role="group" aria-label="Filter by status">
     @for (f of filters; track f.key) {
@@ -141,7 +37,10 @@
         (click)="setFilter(f.key)"
       >
         {{ f.label }}
-        <b>{{ counts()[f.key] ?? 0 }}</b>
+        <!-- A failed first load knows no counts; a row of zeros would read as "you have none". -->
+        @if (campaigns().length || !error()) {
+          <b>{{ counts()[f.key] ?? 0 }}</b>
+        }
       </button>
     }
   </div>
@@ -186,7 +85,7 @@
       </a>
     </div>
   </section>
-} @else {
+} @else if (campaigns().length) {
   <section class="s-card list s-enter" style="--i: 2">
     <div class="s-table">
       <table>
@@ -205,7 +104,8 @@
         <tbody>
           @for (c of rows(); track c.id) {
             <tr [class.live]="c.status === 'running'" [style.--i]="$index">
-              <td class="idx mono">{{ offset() + $index + 1 }}</td>
+              <!-- The campaign's own number, as its page says "Campaign #N". -->
+              <td class="idx mono">#{{ c.id }}</td>
               <td class="name">
                 <a [routerLink]="['/campaigns', c.id]">{{ c.name || 'Untitled campaign' }}</a>
               </td>
@@ -363,7 +263,7 @@
                 <div class="s-empty">
                   <i class="ti ti-filter-off" aria-hidden="true"></i>
                   <strong>Nothing here</strong>
-                  <p>No campaigns match this filter.</p>
+                  <p>No campaigns match {{ search() ? 'your search' : 'this filter' }}.</p>
                   <button type="button" class="btn sm" (click)="setFilter('all'); setSearch('')">
                     Show all campaigns
                   </button>

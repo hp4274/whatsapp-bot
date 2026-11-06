@@ -22,12 +22,16 @@ import { Store } from '../core/store';
 
 /** Answer labels in the server's order: the index (0-3) is what gets posted. */
 const AGE_CHOICES: readonly string[] = ['Under 1 month', '1–6 months', '6–24 months', '2+ years'];
+// Same 0-3 order as before (server startLevelFor `usage`): rarer use is a lower start.
 const USAGE_CHOICES: readonly string[] = [
-  'New or hardly used',
-  'Light personal use',
-  'Regular daily chats',
-  'Busy business number',
+  'Rarely or never',
+  'A few times a week',
+  'Every day',
+  'All day, for business',
 ];
+
+/** Each instance numbers its own ids, so two on one page (Home, or a card beside the popup) never share one. */
+let nextUid = 0;
 
 /**
  * The 2 questions a newly linked QR number answers before it sends in bulk.
@@ -58,8 +62,18 @@ export class NumberQuestions {
   readonly channelId = input.required<number>();
   /** Ask in a modal that opens by itself (right after linking) instead of inline. */
   readonly popup = input(false, { transform: booleanAttribute });
+  /** Also ask a number whose questions were skipped, so they can be answered later (Home). */
+  readonly reanswer = input(false, { transform: booleanAttribute });
   /** The questions are settled (answered, skipped or answered elsewhere): the parent should refresh. */
   readonly done = output<NumberStartResult>();
+
+  private readonly uid = nextUid++;
+  /** The radio `name`s stay fixed (nq-age, nq-usage): one instance per page asks, and the spec reads them. */
+  protected readonly ids = {
+    title: `nq-title-${this.uid}`,
+    skipTitle: `nq-skip-title-${this.uid}`,
+    skipDesc: `nq-skip-desc-${this.uid}`,
+  };
 
   protected readonly ageChoices = AGE_CHOICES;
   protected readonly usageChoices = USAGE_CHOICES;
@@ -79,9 +93,14 @@ export class NumberQuestions {
   protected readonly accepted = signal(false);
   protected readonly skipError = signal<string | null>(null);
 
+  /** The questions to show: unanswered, or skipped when this view may re-ask them. */
+  protected readonly asking = computed(() => {
+    const i = this.info();
+    return !!i && (!i.asked || (this.reanswer() && !!i.skipped));
+  });
   /** Answered before this view opened: nothing to show. */
   protected readonly blank = computed(
-    () => !this.loading() && !this.error() && !this.result() && !!this.info()?.asked,
+    () => !this.loading() && !this.error() && !this.result() && !!this.info() && !this.asking(),
   );
   /** Closed with Later or Done: the popup stays shut until the page is opened again. */
   protected readonly dismissed = signal(false);

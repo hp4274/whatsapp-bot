@@ -667,28 +667,6 @@ describe('super admin: skip new-link wait', () => {
     });
 });
 
-describe('super admin: skip quiet time', () => {
-    it('a tenant with sending.skipQuietTime has no rest windows and no quiet time in estimates', async () => {
-        const { sendingTables } = await import('../src/policy/levels.js');
-        assert.equal(sendingTables({}).skipQuiet, false);
-        assert.equal(sendingTables({ 'sending.skipQuietTime': true }).skipQuiet, true);
-
-        const db = freshDb();
-        const manager = new CampaignManager(db, new FakeLive(), qr({ humanTiming: true }));
-        try {
-            assert.ok(manager.safetyStatus().quiet, 'by default the number keeps its daily rest windows');
-            const tables = manager.quota.tables();
-            manager.quota.tables = () => ({ ...tables, skipQuiet: true });
-            const status = manager.safetyStatus(200);
-            assert.equal(status.quiet, null);
-            assert.equal(status.estimateSeconds.quietSeconds, 0);
-        } finally {
-            await manager.shutdown();
-            db.close();
-        }
-    });
-});
-
 describe("Wuzie's own number: no limits, small gaps", () => {
     it('sends account messages and broadcasts to new people at once, even on a resting number', async () => {
         const db = freshDb();

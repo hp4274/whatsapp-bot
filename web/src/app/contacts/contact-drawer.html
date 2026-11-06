@@ -46,9 +46,12 @@
     </header>
 
     @if (error()) {
-      <p class="s-banner" role="alert">
+      <div class="s-banner" role="alert">
         <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ error() }}
-      </p>
+        <button class="btn sm" type="button" [disabled]="saving()" (click)="retry()">
+          <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+        </button>
+      </div>
     }
 
     <!-- Profile -->
@@ -73,8 +76,13 @@
               type="email"
               maxlength="200"
               [ngModel]="profile().email"
+              [attr.aria-invalid]="emailError() ? true : null"
+              [attr.aria-describedby]="emailError() ? 'cd-email-err' : null"
               (ngModelChange)="profile.set({ name: profile().name, email: $event })"
             />
+            @if (emailError()) {
+              <p class="err" id="cd-email-err" role="alert">{{ emailError() }}</p>
+            }
           </div>
           <div class="row-end">
             <button class="btn sm" type="button" (click)="editing.set(false)">Cancel</button>
@@ -103,7 +111,11 @@
                 &middot; {{ ago(c.optedOutAt) }}
               }
             } @else {
-              Consent: {{ c.optInStatus === 'opted_in' ? 'opted in' : 'unknown' }}
+              {{
+                c.optInStatus === 'opted_in'
+                  ? 'They agreed to hear from you'
+                  : "They haven't said yes or no yet"
+              }}
             }
           </span>
         </div>
@@ -232,7 +244,7 @@
 
     <!-- Custom fields -->
     <section class="panel" aria-labelledby="cd-fields">
-      <h4 id="cd-fields"><i class="ti ti-table" aria-hidden="true"></i> Custom fields</h4>
+      <h4 id="cd-fields"><i class="ti ti-table" aria-hidden="true"></i> Extra details</h4>
       @if (fields().length) {
         <div class="fields">
           @for (f of fields(); track $index; let i = $index) {
@@ -268,7 +280,7 @@
         </div>
       } @else {
         <p class="muted small">
-          None recorded. Fields like a patient id or class name can be used in message templates.
+          None yet. Details like a patient id or class name can be filled into your messages.
         </p>
       }
       <datalist id="cd-key-list">
@@ -282,7 +294,7 @@
       @if (canWrite()) {
         <div class="row-end">
           <button class="btn ghost sm" type="button" (click)="addField()">
-            <i class="ti ti-plus" aria-hidden="true"></i> Add field
+            <i class="ti ti-plus" aria-hidden="true"></i> Add detail
           </button>
           @if (fieldsDirty()) {
             <button class="btn ghost sm" type="button" (click)="resetFields()">Discard</button>
@@ -292,7 +304,7 @@
               [disabled]="saving() || !!fieldError()"
               (click)="saveFields()"
             >
-              Save fields
+              Save details
             </button>
           }
         </div>
@@ -302,7 +314,15 @@
     <!-- Timeline -->
     <section class="panel" aria-labelledby="cd-history">
       <h4 id="cd-history"><i class="ti ti-history" aria-hidden="true"></i> Timeline</h4>
-      @if (timeline(); as items) {
+      @if (timelineError()) {
+        <div class="s-banner" role="alert">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i> Couldn't load the messages:
+          {{ timelineError() }}
+          <button class="btn sm" type="button" (click)="loadTimeline()">
+            <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+          </button>
+        </div>
+      } @else if (timeline(); as items) {
         <ol class="timeline">
           @for (e of items; track e.messageId + e.at) {
             <li
@@ -336,8 +356,10 @@
           }
         </ol>
       } @else {
-        <div class="s-skel" style="width: 80%"></div>
-        <div class="s-skel" style="width: 60%"></div>
+        <div aria-busy="true" aria-label="Loading messages">
+          <div class="s-skel" style="width: 80%"></div>
+          <div class="s-skel" style="width: 60%"></div>
+        </div>
       }
     </section>
 
@@ -376,9 +398,12 @@
         <i class="ti ti-x" aria-hidden="true"></i>
       </button>
     </header>
-    <p class="s-banner" role="alert">
+    <div class="s-banner" role="alert">
       <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ error() }}
-    </p>
+      <button class="btn sm" type="button" (click)="retry()">
+        <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+      </button>
+    </div>
   } @else {
     <div class="loading" aria-busy="true">
       <h3 id="cd-title" class="sr-only">Loading contact</h3>

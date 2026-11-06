@@ -37,7 +37,7 @@ import { NOT_ON_WHATSAPP_CODE, Transport, TransportConnectionError, TransportSen
 import { useEncryptedAuthState } from './encryptedAuth.js';
 
 export const TOS_WARNING =
-    'Baileys automates a WhatsApp account over the multi-device protocol. It is not an '
+    'A QR-linked number automates a WhatsApp account over the multi-device protocol. It is not an '
     + 'official API, it violates the WhatsApp Terms of Service, and bulk sending from a '
     + 'personal number can get that number banned.';
 
@@ -62,7 +62,7 @@ const ACK_ERRORS = {
 };
 
 export function ackError(code) {
-    if (!code) return 'Baileys reported a send failure';
+    if (!code) return 'WhatsApp reported a send failure';
     return ACK_ERRORS[code] ?? `WhatsApp rejected the message (error ${code}).`;
 }
 
@@ -146,7 +146,7 @@ const withTimeout = (promise, ms) => {
 };
 
 export class BaileysTransport extends Transport {
-    static name_ = 'WhatsApp via Baileys (QR login, no browser, no access token)';
+    static name_ = 'WhatsApp (QR login, no browser, no access token)';
     realDelivery = true;
     supportsReceipts = true;
     supportsGroups = true;
@@ -232,7 +232,7 @@ export class BaileysTransport extends Transport {
         this.loggingOut = false;
         this.#clearReconnectTimer();
         if (this.connecting) {
-            throw new TransportConnectionError('Baileys connection already in progress');
+            throw new TransportConnectionError('A WhatsApp connection is already in progress');
         }
         if (this.qrExpired) {
             this.qrExpired = false;
@@ -259,7 +259,7 @@ export class BaileysTransport extends Transport {
                 msgRetryCounterCache: this.retryCache,
             });
         } catch (err) {
-            throw new TransportConnectionError(`Failed to start Baileys: ${err.message ?? err}`);
+            throw new TransportConnectionError(`Could not start the WhatsApp connection: ${err.message ?? err}`);
         }
         this.sock = sock;
 
@@ -335,20 +335,20 @@ export class BaileysTransport extends Transport {
                 } else if (connection === 'close' && statusCode(lastDisconnect) === LOGGED_OUT) {
                     this.#dropSession();
                     finish(reject, new TransportConnectionError(
-                        `Baileys authentication failed: ${reasonText(lastDisconnect)}. The saved login was rejected and has been cleared: connect again and scan the QR code.`, { retryable: false }));
+                        `WhatsApp login failed: ${reasonText(lastDisconnect)}. The saved login was rejected and has been cleared: connect again and scan the QR code.`, { retryable: false }));
                 } else if (connection === 'close' && this.#rescan(statusCode(lastDisconnect))) {
                     this.#dropSession();
                     finish(reject, new TransportConnectionError(
                         `${RESCAN.get(statusCode(lastDisconnect))}. It has been cleared: connect again and scan the QR code.`, { retryable: false }));
                 } else if (connection === 'close' && statusCode(lastDisconnect) === BAD_SESSION) {
-                    finish(reject, new TransportConnectionError(`Baileys connection closed: ${reasonText(lastDisconnect)}`));
+                    finish(reject, new TransportConnectionError(`WhatsApp connection closed: ${reasonText(lastDisconnect)}`));
                 }
                 // Any other close: #handleConnectionUpdate already scheduled a
                 // reconnect (Baileys needs one right after a QR scan, code 515).
             };
             // Real timer: the injectable one is for reconnect backoff only.
             const timer = setTimeout(() => finish(reject, new TransportConnectionError(
-                `Timed out after ${CONNECT_TIMEOUT_MS / 1000}s waiting for Baileys to connect`)), CONNECT_TIMEOUT_MS);
+                `Timed out after ${CONNECT_TIMEOUT_MS / 1000}s waiting for WhatsApp to connect`)), CONNECT_TIMEOUT_MS);
             sock.ev.on('connection.update', onUpdate);
         });
     }
@@ -412,7 +412,7 @@ export class BaileysTransport extends Transport {
                 this.qr = null;
                 // Not our own logout(): the device was removed from the phone, or WhatsApp ended the session.
                 if (!this.loggingOut) this.events.emit('logged_out', { detail });
-                this.events.emit('state', { state: 'auth_failure', detail: `Baileys session logged out: ${detail}` });
+                this.events.emit('state', { state: 'auth_failure', detail: `WhatsApp session logged out: ${detail}` });
                 return;
             }
             if (this.#rescan(code)) {
@@ -1023,7 +1023,7 @@ export class BaileysTransport extends Transport {
         return {
             providerId,
             status: Status.SENT,
-            detail: id ? 'accepted by WhatsApp' : 'sent, but Baileys returned no message id - no DELIVERED/READ for this one',
+            detail: id ? 'accepted by WhatsApp' : 'sent, but WhatsApp returned no message id - no DELIVERED/READ for this one',
         };
     }
 

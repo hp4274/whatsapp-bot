@@ -1,7 +1,7 @@
 <!--
   One scrolling page on the dashboard's tokens, ordered around bulk sending:
   the hero is a slider of customers getting their message; how a send works; what a bulk send can
-  carry; how it keeps the number safe; what happens when people reply; the
+  carry; how it keeps the number safe; a tour of every feature, ready or coming soon; the
   rest of the toolkit; who it is for; the request-access form; questions; a navy close.
   Pricing is commented out below until it is shown again.
 
@@ -145,7 +145,7 @@
         </li>
         <li class="tone-violet">
           <div class="plane" data-ui aria-hidden="true">
-            <svg class="plane-art" viewBox="0 0 120 100"><path class="w1" d="M6 50 114 6 58 62Z" /><path class="w2" d="M114 6 86 94 58 62Z" /><path class="w3" d="M58 62l6 32 22-.5Z" /></svg>
+            <svg class="plane-art" viewBox="-4 -4 128 108"><path class="w1" d="M4 46 116 4 44 60Z" /><path class="w2" d="M116 4 84 92 44 60Z" /><path class="w3" d="M44 60 64 76 50 92Z" /></svg>
             <span class="plane-msg">Hi {{ '{' }}{{ '{' }}name{{ '}' }}{{ '}' }}, our Diwali sale starts Friday!</span>
           </div>
           <h3><span class="step-no">03</span>Write once, send to all</h3>
@@ -265,7 +265,7 @@
             <li><b>Priya Shah</b><small>+91 98200 11234</small><span class="pill ok">Read</span></li>
             <li><b>Rohan Mehta</b><small>+91 99300 55821</small><span class="pill ok">Replied</span></li>
             <li><b>Kavya Rao</b><small>+91 98450 22109</small><span class="pill">Delivered</span></li>
-            <li><b>Imran Ali</b><small>+91 97000 01234</small><span class="pill bad">Not on WhatsApp</span></li>
+            <li><b>Vikram Joshi</b><small>+91 97000 01234</small><span class="pill bad">Not on WhatsApp</span></li>
           </ul>
         </div>
       </article>
@@ -352,8 +352,8 @@
               <span class="pill bad">Not sent</span>
             </div>
             <div class="person">
-              <span class="av round">IA</span>
-              <span class="grow"><b>Imran Ali</b><small>+91 97000 01234</small></span>
+              <span class="av round">VJ</span>
+              <span class="grow"><b>Vikram Joshi</b><small>+91 97000 01234</small></span>
               <span class="pill bad">Not sent</span>
             </div>
             <span class="retry-btn"><i class="ti ti-refresh"></i>Retry 3 failed</span>
@@ -404,9 +404,9 @@
             <p>Leave time between messages and take scheduled breaks.</p>
           </li>
           <li class="tone-violet">
-            <i class="ti ti-moon" aria-hidden="true"></i>
-            <h3>Quiet hours</h3>
-            <p>Hold overnight messages until the sending window opens.</p>
+            <i class="ti ti-sun" aria-hidden="true"></i>
+            <h3>Daytime only</h3>
+            <p>Bulk messages wait for each customer's daytime, never at night.</p>
           </li>
           <li class="tone-green">
             <i class="ti ti-player-pause" aria-hidden="true"></i>
@@ -418,49 +418,15 @@
     </div>
   </section>
 
-  <!-- =============================== REPLIES ============================== -->
-  <section class="section" id="replies" aria-labelledby="replies-title">
+  <!-- ============================== FEATURES ============================== -->
+  <!-- Every feature down the side; the one picked shows its WhatsApp chat and what it does (chat-preview). -->
+  <section class="section" id="explore" aria-labelledby="explore-title">
     <div class="wrap">
       <div class="section-head">
-        <h2 id="replies-title">When they reply, you’re ready</h2>
-        <p>A bulk send brings answers back. Wuzie replies to the common ones and puts the rest in front of your team.</p>
+        <h2 id="explore-title">See what your customers see</h2>
+        <p>Pick a feature to open its WhatsApp chat. The ones marked Soon are on the way.</p>
       </div>
-      <div class="replies">
-        <div>
-          <h3>Auto-replies, in your words</h3>
-          <p>Keywords, numbered menus and after-hours messages. Pick a business and watch one answer.</p>
-          <app-chat-preview />
-        </div>
-        <div>
-          <h3>One inbox for the whole team</h3>
-          <p>Every reply from every number in one list, assigned to the right person.</p>
-          <div class="frag inbox" data-ui>
-            <div class="frag-head"><strong>Inbox</strong><span class="pill">4 open</span></div>
-            <ul>
-              <li>
-                <span class="av round">P</span>
-                <span class="line"><b>Priya Shah</b><small>SHOP, I want the blue kurta</small></span>
-                <span class="side"><small>9:42</small><span class="who-tag">Bot</span></span>
-              </li>
-              <li class="unread">
-                <span class="av round">K</span>
-                <span class="line"><b>Kavya Rao</b><small>Is the sale on in the Pune store too?</small></span>
-                <span class="side"><small>9:38</small><span class="count">2</span></span>
-              </li>
-              <li>
-                <span class="av round">A</span>
-                <span class="line"><b>Arjun Nair</b><small>Thanks, ordered!</small></span>
-                <span class="side"><small>9:20</small><span class="who-tag">Neha</span></span>
-              </li>
-              <li class="unread">
-                <span class="av round">S</span>
-                <span class="line"><b>Sana Qureshi</b><small>Do you deliver to Nashik?</small></span>
-                <span class="side"><small>9:05</small><span class="count">1</span></span>
-              </li>
-            </ul>
-          </div>
-        </div>
-      </div>
+      <app-chat-preview />
     </div>
   </section>
 
@@ -469,7 +435,7 @@
     <div class="wrap">
       <div class="section-head">
         <h2 id="more-title">Your WhatsApp workspace, beyond campaigns</h2>
-        <p>Switch on what your business needs; each one lives in the same dashboard.</p>
+        <p>Everything lives in the same dashboard. The ones marked Soon are on the way.</p>
       </div>
       <div class="facilities" reveal="children">
         @for (group of facilities; track group.heading) {
@@ -519,7 +485,7 @@
               @for (item of group.items; track item.name) {
                 <li>
                   <i class="ti ti-{{ item.icon }} tone-{{ group.tone }}" aria-hidden="true"></i>
-                  <span><b>{{ item.name }}</b>{{ item.text }}</span>
+                  <span><b>{{ item.name }}@if (item.soon) {<em class="soon">Soon</em>}</b>{{ item.text }}</span>
                 </li>
               }
             </ul>
@@ -620,7 +586,7 @@
         <a href="#features">Bulk messaging</a>
         <a href="#how">How it works</a>
         <a href="#safety">Safety</a>
-        <a href="#replies">Replies</a>
+        <a href="#explore">All features</a>
         <a href="#access">Request access</a>
         <a href="#faq">FAQ</a>
         <a routerLink="/login">Sign in</a>

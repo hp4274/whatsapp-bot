@@ -6,6 +6,7 @@
 @include s.banner;
 @include s.buttons;
 @include s.skeleton;
+@include s.advanced;
 
 :host {
   display: block;
@@ -32,11 +33,18 @@ p {
   border-top: 1px solid var(--border-color);
 
   > .s-banner,
-  > .allowance,
   > .skeleton,
-  > .band {
+  > .band,
+  > p,
+  > details.advanced {
     margin: 0 var(--space-xl);
   }
+}
+
+/* Inside Details the first band needs no rule of its own: the fold's summary already draws one. */
+details.advanced .band:first-child {
+  padding-top: 0;
+  border-top: 0;
 }
 
 .card-head {
@@ -61,34 +69,6 @@ p {
   gap: var(--space-md);
   padding-top: var(--space-lg);
   border-top: 1px solid var(--border-color);
-}
-
-/* The daily allowance in one line; warning tone while bulk is held. */
-.allowance {
-  --tone: var(--success);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--tone) 8%, transparent);
-  font-size: 13.5px;
-  color: var(--text-color);
-
-  .ti {
-    flex: none;
-    font-size: 18px;
-    color: var(--tone);
-  }
-
-  strong {
-    font-weight: 500;
-    color: var(--text-strong);
-  }
-
-  &.held {
-    --tone: var(--warning);
-  }
 }
 
 .risk-head {
@@ -171,56 +151,6 @@ p {
 
   .meter {
     margin-top: 4px;
-  }
-
-  &.rest .ti {
-    margin-right: 4px;
-  }
-
-  &.resting > strong {
-    color: var(--accent);
-  }
-
-  /* A button, so touch and keyboard get the same "ends in / ended ago" tooltip as hover. */
-  .win {
-    padding: 0;
-    border: 0;
-    border-radius: 6px;
-    background: none;
-    font: inherit;
-    font-variant-numeric: tabular-nums;
-    color: inherit;
-    cursor: pointer;
-    transition:
-      background var(--fast) var(--ease),
-      box-shadow var(--fast) var(--ease),
-      opacity var(--fast) var(--ease),
-      transform var(--fast) var(--ease);
-
-    &.done {
-      opacity: 0.6;
-    }
-
-    &.now {
-      font-weight: 500;
-      color: var(--accent);
-    }
-
-    &.hot {
-      opacity: 1;
-      transform: translateY(-1px);
-      background: color-mix(in srgb, var(--accent) 14%, transparent);
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
-    }
-
-    &.dim {
-      opacity: 0.45;
-    }
-
-    em {
-      font-style: normal;
-      color: var(--hint);
-    }
   }
 }
 
@@ -370,14 +300,9 @@ table {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .meter .bar,
-  .stat .win {
+  .meter .bar {
     transition: none;
     animation: none;
-  }
-
-  .stat .win.hot {
-    transform: none;
   }
 }
 

@@ -6,9 +6,9 @@
     <div>
       <h3 id="md-title"><i class="ti ti-arrows-join" aria-hidden="true"></i> Merge duplicates</h3>
       <p class="muted">
-        Pick the contact to keep in each group. Tags and custom fields from the others are added to
+        Pick the contact to keep in each group. Tags and extra details from the others are added to
         it (the kept contact wins where both have a value), an opt-out is never lost, and the others
-        are deleted.
+        are deleted. "Not duplicates" is remembered on this browser only.
       </p>
     </div>
     <button
@@ -52,7 +52,7 @@
                 <span class="mono">{{ c.phone }}</span>
                 <span class="facts">
                   {{ c.tags.length }} tag{{ c.tags.length === 1 ? '' : 's' }} &middot;
-                  {{ fieldCount(c) }} field{{ fieldCount(c) === 1 ? '' : 's' }} &middot; added
+                  {{ fieldCount(c) }} detail{{ fieldCount(c) === 1 ? '' : 's' }} &middot; added
                   {{ ago(c.createdAt) }}
                   @if (c.optedOut) {
                     &middot; <em>opted out</em>
@@ -66,8 +66,16 @@
           }
         </div>
         <div class="row-end">
-          <button class="btn sm" type="button" (click)="skip(g)">Not duplicates</button>
-          <button class="btn primary sm" type="button" (click)="mergeGroup(g)">
+          <!-- Every group's buttons wait while any merge runs: "Merge all" works through them one at a time. -->
+          <button class="btn sm" type="button" [disabled]="!!busyKey()" (click)="skip(g)">
+            Not duplicates
+          </button>
+          <button
+            class="btn primary sm"
+            type="button"
+            [disabled]="!!busyKey()"
+            (click)="mergeGroup(g)"
+          >
             @if (busyKey() === g.key) {
               <span class="spinner" aria-hidden="true"></span> Merging...
             } @else {

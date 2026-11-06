@@ -16,12 +16,12 @@ export type SafetyField = {
 /** Order is the order shown; each field's `help` is the plain-language hint under it. */
 export const SAFETY_GROUPS: { title: string; fields: SafetyField[] }[] = [
   {
-    title: 'Daily cap',
+    title: 'Daily limit',
     fields: [
       {
         key: 'dailyLimit',
         label: 'Messages per day',
-        help: "Ceiling per number (0 = the plan's day). A QR number grows its daily limit as people reply; this only lowers it",
+        help: "Most per number (0 = use your plan's limit). A number's daily limit grows as people reply; this can only lower it",
       },
     ],
   },
@@ -30,12 +30,12 @@ export const SAFETY_GROUPS: { title: string; fields: SafetyField[] }[] = [
     fields: [
       {
         key: 'minDelaySeconds',
-        label: 'Min gap (s)',
-        help: "0 = the number's own gap. A value only ever slows it",
+        label: 'Shortest gap between messages (seconds)',
+        help: "0 = the number's own gap. A value here can only slow it down",
       },
       {
         key: 'maxDelaySeconds',
-        label: 'Max gap (s)',
+        label: 'Longest gap between messages (seconds)',
         help: "0 = the number's own gap. A value only ever slows it",
       },
       { key: 'restEvery', label: 'Rest every N messages', help: '0 = never rest', qrIgnored: true },
@@ -44,20 +44,20 @@ export const SAFETY_GROUPS: { title: string; fields: SafetyField[] }[] = [
     ],
   },
   {
-    title: 'Throughput and retries',
+    title: 'Speed and retries',
     fields: [
       {
         key: 'rateLimitPerSecond',
-        label: 'Messages per second',
-        help: 'Token-bucket rate',
+        label: 'Messages per second (max)',
+        help: 'The most that go out in any one second',
         step: 0.1,
       },
-      { key: 'rateLimitBurst', label: 'Burst', help: 'Sent at once after idle' },
-      { key: 'maxRetries', label: 'Max retries', help: 'Attempts on failure' },
-      { key: 'retryDelay', label: 'Retry delay (s)', help: 'First wait', step: 0.5 },
-      { key: 'retryBackoff', label: 'Backoff factor', help: 'Multiplier per retry', step: 0.5 },
-      { key: 'retryMaxDelay', label: 'Max retry wait (s)', help: 'Cap on backoff' },
-      { key: 'retryJitter', label: 'Jitter (0-1)', help: 'Randomises retries', step: 0.05 },
+      { key: 'rateLimitBurst', label: 'Short burst allowed', help: 'How many can go out at once after a quiet spell' },
+      { key: 'maxRetries', label: 'Tries after a failed send', help: 'How many times a failed message is tried again' },
+      { key: 'retryDelay', label: 'Wait before the first retry (seconds)', help: 'Then each wait grows', step: 0.5 },
+      { key: 'retryBackoff', label: 'Wait longer after each failure (×)', help: '2 doubles the wait each time', step: 0.5 },
+      { key: 'retryMaxDelay', label: 'Longest wait before a retry (seconds)', help: 'Waits never grow past this' },
+      { key: 'retryJitter', label: 'Random variation in gaps (0-1)', help: 'Varies each retry wait a little', step: 0.05 },
     ],
   },
   {
@@ -70,21 +70,14 @@ export const SAFETY_GROUPS: { title: string; fields: SafetyField[] }[] = [
       },
       {
         key: 'recipientDailyCap',
-        label: 'Bulk per recipient per 24h',
+        label: 'Campaign messages per person per day',
         help: 'Replies never count. 0 = off. QR numbers: always 1',
       },
       {
         key: 'requireVariationAbove',
-        label: 'Require spintax/{name} above N recipients',
+        label: 'Require word choices or {name} above this many people',
         help: '0 = off. QR numbers: never above 15',
       },
-    ],
-  },
-  {
-    title: 'Quiet hours (bulk only, channel timezone)',
-    fields: [
-      { key: 'quietHoursStart', label: 'Hold from hour (0-23)', help: 'Bulk waits, never fails' },
-      { key: 'quietHoursEnd', label: 'Resume at hour (0-23)', help: 'Same as start = off' },
     ],
   },
 ];

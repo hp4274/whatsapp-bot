@@ -4,9 +4,10 @@ import { RouterLink } from '@angular/router';
 
 import { relativeTime } from '../campaigns/campaign-format';
 import { CampaignStatusPill } from '../campaigns/status-pill';
-import { type Campaign, CampaignsApi } from '../core/api';
+import { type Campaign, CampaignsApi, type Channel, ChannelsApi } from '../core/api';
 import { Auth } from '../core/auth';
 import { Store } from '../core/store';
+import { NumberQuestions } from '../connection/number-questions';
 import { PlanUsagePanel } from './plan-usage';
 
 /** How many campaigns the home list shows before "View all" takes over. */
@@ -35,13 +36,14 @@ function failedOf(c: Campaign): number {
  */
 @Component({
   selector: 'app-home',
-  imports: [RouterLink, CampaignStatusPill, PlanUsagePanel],
+  imports: [RouterLink, CampaignStatusPill, PlanUsagePanel, NumberQuestions],
   templateUrl: './home.html',
   styleUrl: './home.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Home {
   private readonly api = inject(CampaignsApi);
+  private readonly channelsApi = inject(ChannelsApi);
   private readonly auth = inject(Auth);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly store = inject(Store);
@@ -61,17 +63,29 @@ export class Home {
     return !owned || owned.includes(service);
   }
 
-  protected readonly showConnection = computed(() => this.has('whatsapp_channels'));
-  protected readonly showCampaigns = computed(() => this.has('bulk_messages'));
+  private readonly showNumbers = computed(() => this.has('whatsapp_channels') && this.auth.atLeast('admin'));
+  /** 'campaigns', like the sidebar: the server gates /api/campaign(s) on it, so without it the list would only 403. */
+  protected readonly showCampaigns = computed(() => this.has('campaigns'));
 
   protected readonly greeting = computed(() => {
     const name = this.auth.user()?.name?.trim().split(/\s+/)[0];
     return name ? `Welcome back, ${name}` : 'Welcome back';
   });
 
-  /** Live number state, or null until the stream has said anything. */
-  protected readonly connection = computed(() =>
-    this.store.streamOnline() ? this.store.connection() : null,
+  private readonly channels = signal<readonly Channel[]>([]);
+  /** Answered here: the card stays to show the outcome until Done. */
+  protected readonly kept = signal<ReadonlySet<number>>(new Set());
+  /**
+   * Linked numbers whose 2 questions wait or were skipped (a skipped start can still be answered). A number not
+   * linked yet is asked on the connect page once it is.
+   */
+  protected readonly toAnswer = computed(() =>
+    this.channels().filter(
+      (c) =>
+        this.kept().has(c.id) ||
+        ((!!c.providerAccountId || !!c.health?.connected) &&
+          (c.health?.usage?.skipped || c.health?.usage?.asked === false)),
+    ),
   );
 
   protected readonly totals = computed(() => {
@@ -101,6 +115,29 @@ export class Home {
   constructor() {
     this.load();
     this.store.watch(['campaigns', 'campaign', 'history'], () => this.load());
+    this.loadChannels();
+    this.store.watch(['channels', 'connection'], () => this.loadChannels());
+  }
+
+  private loadChannels(): void {
+    if (!this.showNumbers()) return;
+    this.channelsApi
+      .list()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: ({ channels }) => this.channels.set(channels), error: () => undefined });
+  }
+
+  protected answered(id: number): void {
+    this.kept.update((ids) => new Set(ids).add(id));
+    this.loadChannels();
+  }
+
+  protected dismiss(id: number): void {
+    this.kept.update((ids) => {
+      const next = new Set(ids);
+      next.delete(id);
+      return next;
+    });
   }
 
   protected load(): void {

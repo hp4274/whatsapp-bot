@@ -27,6 +27,15 @@ const CTA_KINDS = [
   { value: 'copy', label: 'Copy code', placeholder: 'SAVE20' },
 ] as const;
 
+/**
+ * Quick replies without a blank one: an "Add quick reply" row left empty would otherwise
+ * block save with "Button 3 needs a title". Only blank reply buttons go; the rest is untouched.
+ */
+export function withoutBlankReplies(value: InteractiveDraft | null): InteractiveDraft | null {
+  if (value?.type !== 'buttons' || !value.buttons?.some((b) => !b.title.trim())) return value;
+  return { ...value, buttons: value.buttons.filter((b) => b.title.trim()) };
+}
+
 /** Move item i by d (-1 up, +1 down) in a copy of the list. */
 function moved<T>(list: T[], i: number, d: number): T[] {
   const j = i + d;
@@ -61,7 +70,7 @@ export class ButtonsEditor {
   protected readonly kinds = CTA_KINDS;
   protected readonly limits = LIMITS;
   protected readonly type = computed<Choice>(() => this.value()?.type ?? 'none');
-  protected readonly errors = computed(() => validateInteractive(this.value()));
+  protected readonly errors = computed(() => validateInteractive(withoutBlankReplies(this.value())));
   protected readonly rows = computed(
     () => this.value()?.list?.sections.flatMap((s) => s.rows) ?? [],
   );

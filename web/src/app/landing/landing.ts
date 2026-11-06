@@ -55,7 +55,7 @@ const SLIDE_MS = 4000;
 const FACILITIES: readonly {
   readonly heading: string;
   readonly tone: 'blue' | 'green' | 'violet';
-  readonly items: readonly { readonly icon: string; readonly name: string; readonly text: string }[];
+  readonly items: readonly { readonly icon: string; readonly name: string; readonly text: string; readonly soon?: boolean }[];
 }[] = [
   {
     heading: 'Messaging',
@@ -63,7 +63,7 @@ const FACILITIES: readonly {
     items: [
       { icon: 'device-mobile', name: 'Multiple numbers', text: 'Manage sales and support from one login.' },
       { icon: 'file-text', name: 'Message templates', text: 'Save and reuse frequent replies.' },
-      { icon: 'school', name: 'School assistant', text: 'Handle fee notices and parent questions.' },
+      { icon: 'school', name: 'School assistant', text: 'Handle fee notices and parent questions.', soon: true },
     ],
   },
   {
@@ -71,16 +71,16 @@ const FACILITIES: readonly {
     tone: 'green',
     items: [
       { icon: 'user', name: 'Contacts', text: 'Keep each customer’s message history together.' },
-      { icon: 'credit-card', name: 'Payment reminders', text: 'Follow up on invoices until they’re paid.' },
-      { icon: 'calendar', name: 'Appointments', text: 'Remind customers the day before a booking.' },
+      { icon: 'credit-card', name: 'Payment reminders', text: 'Follow up on invoices until they’re paid.', soon: true },
+      { icon: 'calendar', name: 'Appointments', text: 'Remind customers the day before a booking.', soon: true },
     ],
   },
   {
     heading: 'Team & integrations',
     tone: 'violet',
     items: [
-      { icon: 'hierarchy-3', name: 'Workflows', text: 'Automate thank-yous and follow-ups.' },
-      { icon: 'code', name: 'API & webhooks', text: 'Send messages and receive replies in your software.' },
+      { icon: 'hierarchy-3', name: 'Workflows', text: 'Automate thank-yous and follow-ups.', soon: true },
+      { icon: 'code', name: 'API & webhooks', text: 'Send messages and receive replies in your software.', soon: true },
       { icon: 'users', name: 'Team roles', text: 'Set access for agents, admins and owners.' },
     ],
   },
@@ -164,7 +164,7 @@ const FAQS: readonly { readonly q: string; readonly a: string }[] = [
   },
   {
     q: 'Will my number get banned?',
-    a: 'No tool can promise that. Wuzie lowers the risk: it caps how much a number sends a day, leaves random gaps between messages, holds bulk sends in your quiet hours and pauses a campaign when too many messages fail.',
+    a: 'No tool can promise that. Wuzie lowers the risk: it caps how much a number sends a day, leaves random gaps between messages, holds bulk sends until your customers’ daytime and pauses a campaign when too many messages fail.',
   },
   {
     q: 'Do I need the WhatsApp Business API?',
@@ -176,7 +176,7 @@ const FAQS: readonly { readonly q: string; readonly a: string }[] = [
   },
   {
     q: 'What happens when people reply?',
-    a: 'Replies land in the shared inbox, where your team answers them, and auto-replies can answer common questions straight away.',
+    a: 'Replies land in the shared inbox, where your team answers them. Automatic replies to common questions are coming soon.',
   },
   {
     q: 'How do I get an account?',

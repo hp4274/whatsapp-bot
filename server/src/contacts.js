@@ -163,6 +163,19 @@ const CONSENT_KEYS = ['consent', 'opt_in', 'optin', 'opted_in', 'whatsapp_consen
 // A consent cell is its own proof ("yes", "signed form 3 Mar", "website checkbox"): any answer but a no counts.
 const NO_CONSENT = /^(no|n|false|0|none|unknown|-|opt(ed)?[ _-]?out)$/i;
 
+/** Rows looked at for the header: a sheet's title and notes sit above it, never this far down. */
+const HEADER_SCAN = 10;
+
+/**
+ * Where the header row is: the first of the top rows with the most filled cells. A report-style sheet opens with
+ * a merged title ("PURPLE TEAM · 4 passes", one filled cell) above the real headers; taking row 1 then gave a
+ * single column.
+ */
+export function headerRow(table) {
+    const filled = table.slice(0, HEADER_SCAN).map((row) => row.filter(Boolean).length);
+    return Math.max(0, filled.indexOf(Math.max(0, ...filled)));
+}
+
 /** Raw header row + body rows (strings), from CSV or the first XLSX sheet. */
 export async function parseTable(filename, buffer) {
     let table;
@@ -175,9 +188,10 @@ export async function parseTable(filename, buffer) {
         table = parseCsv(buffer.toString('utf8'));
     }
     table = table.map((row) => (Array.isArray(row) ? row : []).map((cell) => String(cell ?? '').trim()));
-    const headers = (table[0] ?? []).map((h) => h.trim());
+    const at = headerRow(table);
+    const headers = [...(table[at] ?? [])];
     while (headers.length && !headers.at(-1)) headers.pop();
-    const rows = table.slice(1)
+    const rows = table.slice(at + 1)
         .map((row) => headers.map((_, i) => row[i] ?? ''))
         .filter((row) => row.some(Boolean));
     return { headers, rows };

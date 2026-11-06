@@ -15,6 +15,7 @@
 
 import express from 'express';
 
+import { channelUsage } from '../channelUsage.js';
 import { numberCap } from '../policy/channelOps.js';
 import { tighterCap } from '../tenancy.js';
 import { BillingStore, periodOf } from './store.js';
@@ -59,6 +60,12 @@ export function createBillingRouter({ db, state }) {
         if (state?.templates) {
             const cap = tighterCap(limits.maxTemplates, state.platformPolicy?.()?.['templates.maxTemplates']);
             extra.push(row('templates', state.templates.list().length, cap));
+        }
+        // Messages today on this number: the figures its card shows (channelUsage), so an admin's day shows here too.
+        const quota = state?.manager?.quota;
+        if (quota && state.channel) {
+            const { usage: day } = channelUsage(state.channel, { db, config: state.config, quota });
+            extra.push(row('today', day.sentToday, day.todayLimit));
         }
         // Team seats: a disabled user holds none (app.js team routes), which is what agents counts.
         extra.push(row('users', billing.used('agents'), limits.maxUsers));

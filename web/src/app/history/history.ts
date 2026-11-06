@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   computed,
   effect,
   inject,
@@ -9,6 +10,7 @@ import {
   untracked,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import type { Subscription } from 'rxjs';
 
 import { localTime, statusLabel } from '../campaigns/campaign-format';
 import { Api, MessageRecord } from '../core/api';
@@ -62,11 +64,17 @@ const STATUS_TONE: Readonly<Record<string, string>> = {
 export class HistoryView {
   private readonly api = inject(Api);
   private readonly store = inject(Store);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly statuses = STATUSES;
   protected readonly skeletonRows = SKELETON_ROWS;
   protected readonly status = signal('ALL');
+  /** The recipient filter in force. It changes on Enter, not per keystroke, so typing never refetches. */
   protected readonly recipient = signal('');
+  /** What the recipient box holds right now; Enter copies it into `recipient`. */
+  protected readonly recipientDraft = signal('');
+  /** A filter narrows the list, so an empty result means "no match", not "nothing sent". */
+  protected readonly filtered = computed(() => this.status() !== 'ALL' || this.recipient() !== '');
   protected readonly records = signal<MessageRecord[]>([]);
   protected readonly counts = signal<Record<string, number>>({});
   protected readonly loading = signal(false);
@@ -95,23 +103,35 @@ export class HistoryView {
 
   /** The signature the browser already holds; the server 204s when it matches. */
   private signature = '';
+  /** The filters `signature` was issued for; a new filter must fetch in full. */
+  private signatureFor = '';
+  /**
+   * The request in flight. A newer load cancels it, so a slow answer for an
+   * old filter can never land on top of the list for the new one.
+   */
+  private inflight?: Subscription;
 
   constructor() {
     // Refetch when the filters change, and whenever the server says the
-    // history moved. Nothing polls: the event stream drives it.
+    // history moved. Nothing polls: the event stream drives it. This is the
+    // only trigger for a filter change, so one change sends one request.
     effect(() => {
       this.status();
       this.recipient();
       this.store.historyRevision();
       untracked(() => this.load());
     });
+    this.destroyRef.onDestroy(() => this.inflight?.unsubscribe());
   }
 
   protected load(force = false): void {
-    if (force) this.signature = '';
+    const filters = `${this.status()}|${this.recipient().trim()}`;
+    if (force || filters !== this.signatureFor) this.signature = '';
+    this.signatureFor = filters;
     this.loading.set(true);
     this.error.set('');
-    this.api
+    this.inflight?.unsubscribe();
+    this.inflight = this.api
       .history({
         status: this.status(),
         recipient: this.recipient().trim(),
@@ -132,9 +152,15 @@ export class HistoryView {
       });
   }
 
-  protected onFilter(): void {
-    this.signature = ''; // a new filter always fetches
-    this.load(true);
+  /** Enter in the recipient box applies it; the effect then loads once. */
+  protected applyRecipient(): void {
+    this.recipient.set(this.recipientDraft().trim());
+  }
+
+  protected clearFilters(): void {
+    this.status.set('ALL');
+    this.recipientDraft.set('');
+    this.recipient.set('');
   }
 
   protected countEntries(): { status: string; n: number }[] {

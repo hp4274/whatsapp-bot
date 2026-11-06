@@ -255,9 +255,9 @@
                     type="number"
                     min="1"
                     step="1"
-                    [placeholder]="currentPlan()?.dailyCap ? '' + currentPlan()?.dailyCap : 'No daily cap'"
+                    placeholder="No limit"
                     [disabled]="followDay()"
-                    [value]="followDay() ? (currentPlan()?.dailyCap ?? '') : safety.dailyLimit"
+                    [value]="followDay() ? (currentPlan()?.dailyCap ?? '') : safety.dailyLimit || ''"
                     (input)="setDay($any($event.target).value)"
                   />
                   <label class="follow">
@@ -564,7 +564,7 @@
                     <strong>The business left sending safety</strong>
                     <span class="muted"
                       >By {{ off.fullName }} ({{ off.by }}) on {{ off.at.slice(0, 10) }}. Levels,
-                      brakes, pacing and quiet hours are off for every number until they
+                      brakes and pacing are off for every number until they
                       rejoin.</span
                     >
                   </div>

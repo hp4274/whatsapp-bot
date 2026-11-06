@@ -1,6 +1,7 @@
 @use '../school/school-shared' as s;
 
 @include s.buttons;
+@include s.advanced;
 
 /* The card is the host: a Kardlyz card (24px radius, hairline border) that
  * lifts on hover and leans a degree or two toward the pointer. The number you
@@ -34,9 +35,11 @@
   box-shadow: var(--shadow-lift);
 }
 
-:host(.open) {
+/* The selected number: room for the link card, and no lean while someone reads the QR steps. */
+:host(.expanded) {
   --rx: 0deg;
   --ry: 0deg;
+  gap: var(--space-lg);
 }
 
 :host(.active) {
@@ -175,6 +178,11 @@
   &.recommended {
     background: var(--primary-tint);
     color: var(--primary-text);
+  }
+
+  &.sending {
+    background: color-mix(in srgb, var(--info) 12%, transparent);
+    color: var(--info);
   }
 }
 
@@ -526,16 +534,19 @@
 }
 
 .actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-sm);
   margin-top: 4px;
+
+  &:empty {
+    display: none;
+  }
 }
 
-.drawer {
-  padding-top: var(--space-lg);
-  border-top: 1px solid var(--border-color);
-  animation: fade-in-up var(--base) var(--ease) both;
+/* The fold sits flush with the card edge; its body breathes like the card. */
+details.advanced {
+  margin-top: 4px;
 }
 
 @media (max-width: 560px) {

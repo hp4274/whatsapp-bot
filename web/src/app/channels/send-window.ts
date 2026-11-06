@@ -52,9 +52,9 @@ export class SendWindow {
 
   protected readonly problem = computed(() => {
     if (!this.enabled()) return '';
-    if (!this.start() || !this.end()) return 'Set both an opening and a closing time.';
+    if (!this.start() || !this.end()) return 'Set both a start and an end time.';
     if (toMinutes(this.start()) >= toMinutes(this.end()))
-      return 'Closing time must be after opening time (overnight windows are not supported).';
+      return 'The end time must be after the start time (hours past midnight are not supported).';
     if (!this.days().size) return 'Pick at least one day.';
     return '';
   });
@@ -82,7 +82,8 @@ export class SendWindow {
     if (this.enabled() !== Boolean(saved)) return true;
     if (!saved || !this.enabled()) return false;
     const savedDays = new Set(
-      saved.days?.length ? saved.days.map((d) => d.slice(0, 3)) : WEEKDAYS.map((d) => d.id),
+      // Lower-cased like the draft: days set through the API may be "Mon", and must not read as an edit.
+      saved.days?.length ? saved.days.map((d) => d.toLowerCase().slice(0, 3)) : WEEKDAYS.map((d) => d.id),
     );
     const draftDays = this.days();
     return (

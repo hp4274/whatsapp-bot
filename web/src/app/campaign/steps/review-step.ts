@@ -7,6 +7,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
+import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
@@ -30,10 +31,8 @@ import { CampaignDraft, addDays, today } from '../draft';
 import { CampaignPolicy } from '../policy-api';
 import { formatDuration } from '../wa-format';
 
-/** The server may add quiet-hours info to the safety preview. */
+/** The server may add sending-window info to the safety preview. */
 type Safety = SafetyStatus & {
-  quietHoursStart?: number;
-  quietHoursEnd?: number;
   withinWindow?: boolean;
   withinSendingWindow?: boolean;
 };
@@ -124,7 +123,7 @@ export function sharedFinish(
  */
 @Component({
   selector: 'app-review-step',
-  imports: [FormsModule, RouterLink],
+  imports: [DecimalPipe, FormsModule, RouterLink],
   templateUrl: './review-step.html',
   styleUrl: './review-step.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -140,6 +139,11 @@ export class ReviewStep {
   protected readonly policy = inject(CampaignPolicy);
 
   protected readonly zones = zones(this.draft.timezone());
+  /**
+   * "More options" starts open only for a draft that already spreads or repeats. Read once: a live
+   * binding would snap the fold shut the moment the user switched the option back off.
+   */
+  protected readonly advancedOpen = this.draft.scheduleMode() === 'spread' || !!this.draft.repeatEvery();
   protected readonly safety = signal<Partial<Record<PacingPreset, Safety>>>({});
   protected readonly loadingSafety = signal(false);
   protected readonly busy = signal(false);
@@ -193,6 +197,13 @@ export class ReviewStep {
    * reconnects, while the shared numbers send theirs. Schedule it instead.
    */
   protected readonly canSendNow = computed(() => this.connected());
+  /** Only admins may open the WhatsApp page; agents are told to ask one. */
+  protected readonly isAdmin = computed(() => this.auth.atLeast('admin'));
+  /**
+   * This number's queue still holds another campaign's messages: the server refuses a second
+   * start (409) and the new campaign would be left as a confusing draft, so say it up front.
+   */
+  protected readonly numberBusy = computed(() => this.store.stats().pending > 0);
 
   /** The business's numbers that may send campaigns. */
   protected readonly numbers = signal<Channel[]>([]);
@@ -233,7 +244,7 @@ export class ReviewStep {
           const u = c.health?.usage;
           const why =
             u?.asked === false
-              ? 'until its 2 questions are answered on the Numbers page'
+              ? 'until its 2 questions are answered on the WhatsApp page'
               : u?.blocked
                 ? `while it is paused (${u.blocked})`
                 : 'until its daily limit resets tomorrow';
@@ -281,13 +292,13 @@ export class ReviewStep {
   protected readonly autoOn = signal<number | null>(null);
   private defaulted = false;
 
-  /** "120 warm · 380 new" for one number, or '' before the check answers. */
+  /** "120 chatted with it before · 380 new to it" for one number, or '' before the check answers. */
   protected warmLabel(c: Channel): string {
     const check = this.warm();
     const n = check?.warm[c.id];
     if (!check || n === undefined) return '';
-    const capped = this.draft.fileAudience().length > WARM_CHECK_MAX ? ` of the first ${WARM_CHECK_MAX.toLocaleString()}` : '';
-    return `${n.toLocaleString()} warm · ${(check.checked - n).toLocaleString()} new${capped}`;
+    const capped = this.draft.fileAudience().length > WARM_CHECK_MAX ? ` (of the first ${WARM_CHECK_MAX.toLocaleString()})` : '';
+    return `${n.toLocaleString()} chatted with it before · ${(check.checked - n).toLocaleString()} new to it${capped}`;
   }
 
   protected numberName(c: Channel): string {
@@ -380,6 +391,18 @@ export class ReviewStep {
     return this.held() ? null : finishEstimate(this.current(), this.perNumber());
   });
 
+  /**
+   * How long the send takes, from the server's estimate for the chosen pace, when it all goes within today
+   * (`finish` names the day otherwise). Each number sends its own share at once, so the share sets the time.
+   */
+  protected readonly takes = computed(() => {
+    const s = this.current();
+    if (this.draft.spreadActive() || this.held() || this.finish() || !s) return null;
+    const seconds = s.estimateSeconds.typical;
+    // No pacing (typical 0) has no duration worth stating: "about 0s" reads as broken.
+    return this.perNumber() > 1 && seconds >= 1 ? { count: this.size(), time: formatDuration(seconds) } : null;
+  });
+
   protected readonly buttonsLabel = computed(() => {
     const block = this.draft.interactive();
     if (!block) return 'None';
@@ -452,6 +475,10 @@ export class ReviewStep {
         out.push(s.soon ? 'The scheduled time is less than a minute away. Pick a later time, or send now.'
           : 'The scheduled time is in the past.');
       }
+    }
+    // The server refuses a second run on a busy queue (409); a scheduled one simply waits its turn.
+    if (d.scheduleMode() === 'now' && this.numberBusy()) {
+      out.push('This number is still sending another campaign. Wait for it to finish, or schedule this one for later.');
     }
     if (d.repeatEvery() && d.repeatUntil() && d.repeatUntil() < this.minDate) {
       out.push('The repeat end date is in the past.');
@@ -644,7 +671,7 @@ export class ReviewStep {
     }
     const now = d.scheduleMode() === 'now';
     if (now && !this.canSendNow()) {
-      this.error.set('Connect a WhatsApp number before sending now - or schedule it instead.');
+      this.error.set('Link a WhatsApp number before sending now - or schedule it instead.');
       return;
     }
     if (now && !confirmed) {
@@ -746,8 +773,10 @@ export class ReviewStep {
       },
       error: (err: Error) => {
         this.busy.set(false);
-        d.result.set({ campaign, started: false, error: err.message });
-        this.store.setStatus(`Campaign saved but not started: ${err.message}`, 'warning');
+        // Some server reasons start in lower case ("that audience is empty"); the card shows a sentence.
+        const why = err.message.charAt(0).toUpperCase() + err.message.slice(1);
+        d.result.set({ campaign, started: false, error: why });
+        this.store.setStatus(`Campaign saved but not started: ${why}`, 'warning');
         d.goTo(3);
       },
     });

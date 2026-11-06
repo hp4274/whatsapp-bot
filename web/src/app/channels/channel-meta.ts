@@ -6,7 +6,7 @@ const TRANSPORT_LABELS: Record<
   { label: string; short: string; icon: string; hint: string; qr: boolean }
 > = {
   baileys: {
-    label: 'WhatsApp QR (Baileys)',
+    label: 'WhatsApp (QR)',
     short: 'WhatsApp QR',
     icon: 'qrcode',
     hint: 'QR login, no browser - sends images, PDFs and videos',
@@ -36,16 +36,16 @@ export function transportMeta(id: string | undefined | null) {
 }
 
 const CAPABILITY_LABELS: Record<string, { label: string; hint: string }> = {
-  campaigns: { label: 'Campaigns', hint: 'Bulk broadcasts' },
-  transactional_messages: { label: 'Transactional', hint: 'Receipts, OTPs, confirmations' },
+  campaigns: { label: 'Campaigns', hint: 'Messages sent to many people at once' },
+  transactional_messages: { label: 'Receipts and confirmations', hint: 'One-time codes, receipts, confirmations' },
   workflow_messages: { label: 'Workflows', hint: 'Automations you build' },
   appointment_reminders: { label: 'Appointment reminders', hint: 'Bookings and PTMs' },
   order_updates: { label: 'Order updates', hint: 'Shipping and status' },
-  lead_followups: { label: 'Lead follow-ups', hint: 'Sales nudges' },
-  faq: { label: 'FAQ answers', hint: 'Knowledge base replies' },
-  auto_replies: { label: 'Auto-replies', hint: 'Keyword responses' },
-  ticketing: { label: 'Ticketing', hint: 'Support conversations' },
-  ai: { label: 'AI assistant', hint: 'Generated replies' },
+  lead_followups: { label: 'Lead follow-ups', hint: 'Reminders to people who asked about you' },
+  faq: { label: 'FAQ answers', hint: 'Answers from your FAQ' },
+  auto_replies: { label: 'Auto-replies', hint: 'Replies to keywords' },
+  ticketing: { label: 'Support tickets', hint: 'Support conversations' },
+  ai: { label: 'AI assistant', hint: 'Replies written by AI' },
 };
 
 export const capabilityMeta = (id: string) =>
@@ -63,9 +63,21 @@ export function liveState(channel: Channel): LiveState {
 export const LIVE_LABEL: Record<LiveState, string> = {
   connected: 'Connected',
   connecting: 'Connecting',
-  disconnected: 'Not connected',
-  disabled: 'Disabled',
+  disconnected: 'Not linked',
+  disabled: 'Paused',
 };
+
+/**
+ * The HTTP client's own text ("Http failure response for /api/...: 0 Unknown Error") is all an error carries
+ * when the server sent no message of its own. It means nothing to a business owner, so say what happened.
+ */
+export function plainError(message: string): string {
+  if (!/^Http failure/i.test(message)) return message;
+  // Status 0: the request never got an answer. Anything else: the server failed without saying why.
+  return /: 0 /.test(message)
+    ? "Couldn't reach Wuzie. Check your internet connection and try again."
+    : 'Something went wrong on our side. Try again in a moment.';
+}
 
 export const WEEKDAYS = [
   { id: 'mon', short: 'Mon', long: 'Monday' },

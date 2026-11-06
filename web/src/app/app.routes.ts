@@ -22,12 +22,15 @@ export const routes: Routes = [
     loadComponent: () => import('./home/home').then((m) => m.Home),
   },
   {
-    path: 'connection',
-    title: 'Connection - Wuzie',
-    // Every action on this page is admin-only on the server; an agent would only meet 403s.
+    path: 'whatsapp',
+    title: 'WhatsApp - Wuzie',
+    // Linking, adding and renaming numbers are admin-only on the server; an agent would only meet 403s.
     canActivate: [roleGuard('admin')],
-    loadComponent: () => import('./connection/connection').then((m) => m.ConnectionView),
+    loadComponent: () => import('./whatsapp/whatsapp').then((m) => m.WhatsApp),
   },
+  // The two pages this one replaced. A string redirect keeps the query, so an old ?channel= link still picks the number.
+  { path: 'connection', redirectTo: 'whatsapp' },
+  { path: 'channels', redirectTo: 'whatsapp' },
   {
     path: 'contacts',
     title: 'Contacts - Wuzie',
@@ -123,13 +126,6 @@ export const routes: Routes = [
     title: 'History - Wuzie',
     canActivate: [authGuard],
     loadComponent: () => import('./history/history').then((m) => m.HistoryView),
-  },
-  {
-    path: 'channels',
-    title: 'WhatsApp Numbers - Wuzie',
-    // Adding, linking and renaming numbers are admin-only on the server.
-    canActivate: [roleGuard('admin')],
-    loadComponent: () => import('./channels/channels').then((m) => m.ChannelsView),
   },
   {
     path: 'school',

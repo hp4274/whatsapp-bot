@@ -263,6 +263,8 @@ export class CampaignDraft {
   readonly excludedRows = signal<number[]>([]);
   /** Columns typed in after the upload: one value for every row, used like a file column. */
   readonly extraColumns = signal<readonly { slug: string; value: string }[]>([]);
+  /** File columns left out after the upload: not variables, not sent. Never the phone or name column. */
+  readonly droppedColumns = signal<readonly string[]>([]);
   /**
    * A duplicated or edited campaign's stored recipient list. Saved campaigns
    * keep the resolved list, not the sheet, so it stands in for the import
@@ -365,6 +367,7 @@ export class CampaignDraft {
     dedupeDays: this.dedupeDays,
     excludedRows: this.excludedRows,
     extraColumns: this.extraColumns,
+    droppedColumns: this.droppedColumns,
     audienceFrom: this.audienceFrom,
     retarget: this.retarget,
     segmentId: this.segmentId,
@@ -418,12 +421,13 @@ export class CampaignDraft {
       ];
     }
     const { phone, name } = this.mapping();
+    const dropped = new Set(this.droppedColumns());
     return [
       'name',
       'phone',
       ...preview.columns
         .map((c) => c.slug)
-        .filter((s) => s !== phone && s !== name && s !== 'name' && s !== 'phone'),
+        .filter((s) => s !== phone && s !== name && s !== 'name' && s !== 'phone' && !dropped.has(s)),
       ...this.extraColumns().map((c) => c.slug),
     ];
   });
@@ -439,13 +443,14 @@ export class CampaignDraft {
     const phoneAt = preview.columns.findIndex((c) => c.slug === phone);
     const nameAt = preview.columns.findIndex((c) => c.slug === name);
     const added = this.extraColumns();
+    const dropped = new Set(this.droppedColumns());
     return audit.valid
       .filter((v) => !excluded.has(v.row))
       .map((v) => {
         const row = preview.rows[v.row] ?? [];
         const extra: Record<string, string> = {};
         preview.columns.forEach((c, j) => {
-          if (j !== phoneAt && j !== nameAt) extra[c.slug] = String(row[j] ?? '');
+          if (j !== phoneAt && j !== nameAt && !dropped.has(c.slug)) extra[c.slug] = String(row[j] ?? '');
         });
         for (const c of added) extra[c.slug] = c.value;
         return { name: v.name, phone: v.phone, extra };
@@ -809,6 +814,19 @@ export class CampaignDraft {
   }
 
   /**
+   * Picking a template replaces the message, so its header media replaces the
+   * attachment too: a text-only template must not keep the previous one's image.
+   */
+  useTemplateMedia(mediaId: string | null): void {
+    this.setAttachment(
+      mediaId
+        ? { mediaId, filename: 'Template attachment', mimetype: '', size: 0, previewUrl: '' }
+        : null,
+    );
+    if (mediaId) this.loadPreview(mediaId);
+  }
+
+  /**
    * A restored or duplicated attachment has no local File to preview: fetch an image back so the
    * phone preview is not blank. The type is checked on the blob since saved metadata may lack it.
    */
@@ -817,7 +835,13 @@ export class CampaignDraft {
       next: (blob) => {
         const current = this.attachment();
         if (current?.mediaId !== mediaId || !blob.type.startsWith('image/')) return;
-        this.setAttachment({ ...current, previewUrl: URL.createObjectURL(blob) });
+        // A template's media arrives with no type or size: the blob has both, so it previews as an image.
+        this.setAttachment({
+          ...current,
+          mimetype: current.mimetype || blob.type,
+          size: current.size || blob.size,
+          previewUrl: URL.createObjectURL(blob),
+        });
       },
       error: () => undefined,
     });
@@ -883,11 +907,13 @@ export class CampaignDraft {
     if (source === 'file') {
       const preview = this.preview();
       const { phone, name } = this.mapping();
-      // The import reference only carries file rows and columns, so added ones force the explicit list.
+      // The import reference only carries file rows and columns as uploaded, so added or left-out ones force the
+      // explicit list.
       if (
         preview &&
         !this.excludedRows().length &&
         !this.extraColumns().length &&
+        !this.droppedColumns().length &&
         !this.extraList().length
       ) {
         body.audience = {
@@ -1118,6 +1144,7 @@ export class CampaignDraft {
     this.audit.set(null);
     this.excludedRows.set([]);
     this.extraColumns.set([]);
+    this.droppedColumns.set([]);
     this.mapping.set({ phone: '', name: '' });
     this.savedAudience.set(null);
     this.audienceFrom.set(null);
@@ -1189,6 +1216,7 @@ export class CampaignDraft {
     const file = snap.file;
     if (file) {
       const extra = this.extraColumns();
+      const dropped = this.droppedColumns();
       const excluded = this.excludedRows();
       const reopen =
         file.storageId === null
@@ -1199,6 +1227,7 @@ export class CampaignDraft {
                 this.adoptImport(preview);
                 this.mapping.set(file.mapping);
                 this.extraColumns.set(extra);
+                this.droppedColumns.set(dropped);
                 this.excludedRows.set(excluded);
                 // The audit (who is valid) is not kept and only the Who step runs it,
                 // so a later step would show an empty audience until it is opened.

@@ -1,8 +1,8 @@
-<!-- Funnel tiles, then clicks and failures side by side, then re-target shortcuts. -->
+<!-- Funnel tiles, then clicks and failures side by side, then follow-up shortcuts. -->
 <section class="s-card s-enter" style="--i: 2" aria-labelledby="funnel-h">
   <header class="head">
     <div class="titles">
-      <h3 id="funnel-h">Delivery funnel</h3>
+      <h3 id="funnel-h">How it went</h3>
       <span class="sub">{{ count(analytics().funnel.audience || analytics().funnel.queued) }} recipients</span>
     </div>
     <div class="fresh">
@@ -163,8 +163,8 @@
 
 <section class="s-card retarget s-enter" style="--i: 6" aria-labelledby="rt-h">
   <div>
-    <h3 id="rt-h">Re-target</h3>
-    <p>Start a follow-up campaign for a slice of this audience.</p>
+    <h3 id="rt-h">Follow up</h3>
+    <p>Send a new campaign to some of these people. Anyone who opted out is left out.</p>
   </div>
   <div class="rt-actions">
     @for (r of retargets(); track r.filter) {

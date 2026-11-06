@@ -5,7 +5,7 @@ import { RouterLink } from '@angular/router';
 const LINKS: readonly { readonly id: string; readonly label: string }[] = [
   { id: 'features', label: 'Bulk messaging' },
   { id: 'safety', label: 'Safety' },
-  { id: 'replies', label: 'Replies' },
+  { id: 'explore', label: 'All features' },
   // { id: 'pricing', label: 'Pricing' }, // the pricing section is hidden for now (landing.html)
   { id: 'faq', label: 'FAQ' },
 ];

@@ -1,8 +1,7 @@
 /**
  * The sending-safety audit fixes: an admin form saved back unchanged pins nothing, a business's own config save
  * never freezes the admin's enforced values, `fixed` pacing never switches a QR number's gaps off, the rest count
- * carries across back-to-back campaigns, quiet windows show only while they hold bulk, long quiet hours never
- * overlap, a pin can always be cleared, and a start level is logged as one.
+ * carries across back-to-back campaigns, a pin can always be cleared, and a start level is logged as one.
  */
 
 import assert from 'node:assert/strict';
@@ -12,7 +11,7 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
 import { closeApp } from '../src/app.js';
-import { BRAKES, LEVELS, MAX_QUIET_HOURS, dayPlan, levelFor } from '../src/campaign/humanize.js';
+import { BRAKES, LEVELS, levelFor } from '../src/campaign/humanize.js';
 import { CampaignManager } from '../src/campaign/manager.js';
 import { DEFAULT_SENDING } from '../src/campaign/safety.js';
 import { Channels } from '../src/channels.js';
@@ -221,21 +220,6 @@ describe('pacing on a QR number', () => {
         }
     });
 
-    it('reports quiet windows only while they hold bulk (M4)', async () => {
-        const db = freshDb();
-        const manager = new CampaignManager(db, new FakeLive(), qr({ humanTiming: true }));
-        try {
-            assert.ok(manager.safetyStatus().quiet, 'on safety, the windows apply');
-            manager.applyConfig({ ...manager.config, humanTiming: false });
-            assert.equal(manager.safetyStatus().quiet, null, 'no human timing: no windows');
-            manager.applyConfig({ ...manager.config, humanTiming: true, safetyEnabled: false });
-            assert.equal(manager.safetyStatus().quiet, null, 'left sending safety: no windows');
-        } finally {
-            await manager.shutdown();
-            db.close();
-        }
-    });
-
     it('takes the plan\'s speed in the status, as the run does (M2)', async () => {
         const db = freshDb();
         const manager = new CampaignManager(db, new FakeLive(), qr({ humanTiming: false }));
@@ -252,23 +236,7 @@ describe('pacing on a QR number', () => {
     });
 });
 
-describe('quiet hours and level history', () => {
-    it('never overlaps or crosses midnight, even at the policy\'s longest quiet time (L3)', () => {
-        for (let day = 0; day < 200; day += 1) {
-            const at = new Date(Date.UTC(2026, 0, 1) + day * 86_400_000);
-            for (const hours of [[MAX_QUIET_HOURS, MAX_QUIET_HOURS], [20, 20]]) {
-                const plan = dayPlan(`seed${day}`, { quietHours: hours }, at, 'UTC');
-                assert.ok(plan.quietMinutes <= MAX_QUIET_HOURS * 60);
-                let end = 0;
-                for (const w of plan.windows) {
-                    assert.ok(w.start >= end, `day ${day}: windows overlap`);
-                    end = w.start + w.minutes;
-                }
-                assert.ok(end <= 1440, `day ${day}: past midnight`);
-            }
-        }
-    });
-
+describe('level history', () => {
     it('logs the questions\' start as a start, not a promotion with health figures', () => {
         const now = new Date();
         const state = { level: 1, demotedAt: null, cleanChecks: 0, checkedAt: null };

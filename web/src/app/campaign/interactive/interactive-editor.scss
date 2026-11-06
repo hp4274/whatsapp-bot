@@ -1,3 +1,8 @@
+@use '../../school/school-shared' as s;
+
+// Reply-code folds inside each button and menu option.
+@include s.advanced;
+
 :host {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -140,17 +145,6 @@
 }
 
 // How a QR number sends it: one muted line, not a setting.
-.qr-hint {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 12.5px;
-
-  .ti { font-size: 15px; }
-}
-
 .note {
   display: flex;
   gap: 8px;
@@ -272,4 +266,12 @@
     .field, .wide, .pic, .add { grid-column: 1; }
     .rm { grid-column: 2; grid-row: 1; }
   }
+}
+
+// The reply code folds in the item's own grid column, so no hairline above it.
+.item details.advanced {
+  align-self: end;
+  min-width: 0;
+  border-top: 0;
+  > summary { padding: var(--space-sm) 0; overflow-wrap: anywhere; }
 }

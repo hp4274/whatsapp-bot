@@ -76,10 +76,11 @@ export class WapzoApi {
     return this.http.post<WapzoTestResult>('/api/admin/wapzo/test', { to, text }).pipe(catchError(toMessage));
   }
 
-  /** `tenants`: 'all' (less archived and opted-out ones) or the ids picked; `numbers` as typed. */
+  /** `tenants`: 'all' (less archived and opted-out ones) or the ids picked; `leads`: open lead ids; `numbers` as typed. */
   broadcast(body: {
     text: string;
     tenants: 'all' | readonly number[];
+    leads?: readonly number[];
     numbers: readonly string[];
     mediaId?: string | null;
   }): Observable<WapzoBroadcastResult> {

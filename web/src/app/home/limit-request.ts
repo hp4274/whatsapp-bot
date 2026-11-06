@@ -40,6 +40,9 @@ const DEFAULT_DAYS = 30;
 /** The server takes at most this many asks in one request. */
 const MAX_ASKS = 10;
 
+/** The largest limit anyone may ask for; the input's `max` alone would leave Send enabled past it. */
+const MAX_VALUE = 1_000_000_000;
+
 /**
  * Request more: a business asks the platform admin for higher limits, each for a while or until changed. One column
  * of asks (as the product owner asked), then an optional note; earlier requests and their answers sit underneath so
@@ -101,10 +104,17 @@ export class LimitRequestDrawer {
       asks.length > 0 &&
       this.picked().size === asks.length &&
       asks.every(
-        (a) => a.key !== '' && Number.isInteger(a.value) && (a.value ?? 0) >= 1 && this.durations().includes(a.days),
+        (a) =>
+          a.key !== '' &&
+          Number.isInteger(a.value) &&
+          (a.value ?? 0) >= 1 &&
+          (a.value ?? 0) <= MAX_VALUE &&
+          this.durations().includes(a.days),
       )
     );
   });
+
+  protected readonly maxValue = MAX_VALUE;
 
   protected readonly durationLabel = durationLabel;
   protected readonly askLine = askLine;

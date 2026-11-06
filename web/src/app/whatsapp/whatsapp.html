@@ -1,0 +1,374 @@
+<!--
+  WhatsApp: the header (status, plan line or Add), the summary strip with several numbers, the add form, then the
+  selected number's card expanded around its link card, the other numbers compact, the one questions popup,
+  ban protection, and the ban checklist folded away. Error, then skeleton, then content.
+-->
+@let st = status();
+<header class="s-head">
+  <div>
+    <p class="eyebrow"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i> WhatsApp</p>
+    <h2>{{ multi() ? 'Your WhatsApp numbers' : 'Your WhatsApp number' }}</h2>
+    <p>
+      {{ multi() ? 'Each number has its own daily limit and sending hours.'
+        : 'Messages, campaigns and auto-replies go out from this number.' }}
+    </p>
+  </div>
+  <div class="head-side">
+    <span class="s-pill {{ st.tone }}">{{ st.text }}</span>
+    @if (canAdd()) {
+      <button
+        class="btn primary add"
+        type="button"
+        (click)="toggleForm()"
+        [attr.aria-expanded]="showForm()"
+        [attr.aria-controls]="showForm() ? 'add-number' : null"
+      >
+        <i class="ti ti-{{ showForm() ? 'x' : 'plus' }}" aria-hidden="true"></i>
+        {{ showForm() ? 'Cancel' : 'Add number' }}
+      </button>
+    } @else if (cap(); as n) {
+      <p class="plan-line muted">Your plan includes {{ n }} number{{ n === 1 ? '' : 's' }}</p>
+    }
+  </div>
+</header>
+
+@if (!loading() && multi()) {
+  @let s = summary();
+  <ul class="stats" aria-label="Summary">
+    <li>
+      <i class="ti ti-device-mobile" aria-hidden="true"></i><strong>{{ s.total }}</strong> numbers
+    </li>
+    <li class="ok">
+      <i class="ti ti-access-point" aria-hidden="true"></i><strong>{{ s.connected }}</strong> connected
+    </li>
+    <li>
+      <i class="ti ti-send" aria-hidden="true"></i><strong>{{ s.sentToday }}</strong> sent today
+    </li>
+    @if (s.attention) {
+      <li class="warn">
+        <i class="ti ti-exclamation-mark" aria-hidden="true"></i
+        ><strong>{{ s.attention }}</strong> need{{ s.attention === 1 ? 's' : '' }} attention
+      </li>
+    }
+  </ul>
+}
+
+@if (showForm() && canAdd()) {
+  <form id="add-number" class="card new" (submit)="create($event)" novalidate aria-labelledby="add-h">
+    <div class="new-head">
+      <h3 id="add-h">Add a number</h3>
+      <p class="muted">After adding it, link it here with a QR code.</p>
+    </div>
+
+    <div class="grid">
+      <div class="field">
+        <label for="c-name">Name</label>
+        <input
+          #firstField
+          id="c-name"
+          name="displayName"
+          required
+          maxlength="80"
+          placeholder="e.g. Sales line"
+          aria-describedby="c-name-hint"
+          [ngModel]="draft().displayName"
+          (ngModelChange)="setDraft('displayName', $event)"
+          [attr.aria-invalid]="!!formError() && !draft().displayName.trim()"
+        />
+        <span class="hint" id="c-name-hint">Give the number a name your team will recognise.</span>
+      </div>
+      <div class="field">
+        <label for="c-phone">Phone number <span class="opt">optional</span></label>
+        <app-phone-input
+          inputId="c-phone"
+          name="phoneNumber"
+          [value]="draft().phoneNumber"
+          (valueChange)="setDraft('phoneNumber', $event)"
+        />
+      </div>
+    </div>
+
+    <!-- The browser's zone is right for nearly everyone; the full list of ~400 zones waits under Advanced. -->
+    <p class="zone muted">
+      <i class="ti ti-clock" aria-hidden="true"></i> Sending hours use the time in
+      <strong>{{ draft().timezone.split('_').join(' ') }}</strong>.
+    </p>
+    <details class="advanced">
+      <summary>Advanced</summary>
+      <div class="advanced-body">
+        <div class="field">
+          <label for="c-tz">Time zone</label>
+          <select
+            id="c-tz"
+            name="timezone"
+            [ngModel]="draft().timezone"
+            (ngModelChange)="setDraft('timezone', $event)"
+          >
+            @for (z of zones; track z) {
+              <option [value]="z">{{ z.split('_').join(' ') }}</option>
+            }
+          </select>
+        </div>
+      </div>
+    </details>
+
+    @if (warning()) {
+      <p class="tos"><i class="ti ti-gavel" aria-hidden="true"></i>{{ warning() }}</p>
+    }
+
+    @if (formError()) {
+      <p class="s-banner" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i>{{ formError() }}
+      </p>
+    }
+
+    <div class="new-foot">
+      <button class="btn primary" type="submit" [disabled]="busy()">
+        @if (busy()) {
+          <span class="spinner" aria-hidden="true"></span> Adding...
+        } @else {
+          Add number
+        }
+      </button>
+      <button class="btn" type="button" (click)="toggleForm()">Cancel</button>
+    </div>
+  </form>
+}
+
+@if (loading()) {
+  <div class="rack" aria-busy="true" aria-label="Loading your numbers">
+    <div class="skel-card wide" aria-hidden="true">
+      <i class="s-line short"></i><i class="s-line"></i><i class="s-block"></i><i class="s-line mid"></i>
+    </div>
+  </div>
+} @else if (loadError() && !channels().length) {
+  <div class="s-banner" role="alert">
+    <i class="ti ti-cloud-off" aria-hidden="true"></i>
+    <span class="grow">Couldn't load your numbers: {{ loadError() }}</span>
+    <button class="btn sm" type="button" (click)="loading.set(true); refresh()">
+      <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+    </button>
+  </div>
+} @else {
+  @if (loadError()) {
+    <p class="s-banner tone-warn" role="alert">
+      <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+      <span class="grow">Showing the last loaded data: {{ loadError() }}</span>
+      <button class="btn sm" type="button" (click)="refresh()">Try again</button>
+    </p>
+  }
+
+  @if (notice()) {
+    <p class="notice" role="status"><i class="ti ti-arrow-back-up" aria-hidden="true"></i>{{ notice() }}</p>
+  }
+  @if (returnName(); as back) {
+    <p class="notice" role="status">
+      <i class="ti ti-qrcode" aria-hidden="true"></i>
+      <span class="grow"
+        >Linking {{ selectedName() }}.
+        @if (detourSending()) {
+          Your send on {{ back }} keeps going.
+        }
+      </span>
+      <button class="btn sm" type="button" (click)="goBack()">Back to {{ back }}</button>
+    </p>
+  }
+
+  <!-- Keyed on the selected id: the link card, health and limits all read the selected number, so a switch
+       builds them afresh instead of showing the last number's state while the new one loads. -->
+  @for (id of [activeId()]; track id) {
+    @if (selected(); as ch) {
+      <app-channel-card
+        [expanded]="true"
+        [channel]="ch"
+        [capabilities]="capabilities()"
+        [active]="true"
+        [sending]="sendRunning()"
+        [multi]="multi()"
+        [recommended]="recommendedId() === ch.id"
+        [canDelete]="multi()"
+        (updated)="replace($event)"
+        (changed)="refresh()"
+        (removed)="removed(ch)"
+        (ask)="ask(ch.id)"
+      >
+        <app-link-card
+          [autoStart]="autoLink() === ch.id"
+          (linked)="linked()"
+          (cancelled)="goBack()"
+          (recover)="openRecover()"
+        />
+      </app-channel-card>
+    }
+  }
+
+  @if (!channels().length) {
+    <div class="card state s-empty">
+      <i class="ti ti-message" aria-hidden="true"></i>
+      <strong>No numbers yet</strong>
+      <p>Add your first WhatsApp number to start sending campaigns and replying to customers.</p>
+      @if (canAdd()) {
+        <button class="btn primary" type="button" (click)="toggleForm()">
+          <i class="ti ti-plus" aria-hidden="true"></i> Add number
+        </button>
+      }
+    </div>
+  }
+
+  @if (confirmLink(); as target) {
+    <div class="s-banner tone-info confirm" role="alertdialog" aria-labelledby="confirm-link-text">
+      <i class="ti ti-info-circle" aria-hidden="true"></i>
+      <span class="grow" id="confirm-link-text"
+        >Your send on {{ selectedName() }} keeps going. Its live progress shows again when you switch back.</span
+      >
+      <button #confirmGo class="btn sm primary" type="button" (click)="startLink(target)">Link {{ target.displayName }}</button>
+      <button class="btn sm" type="button" (click)="confirmLink.set(null)">Cancel</button>
+    </div>
+  }
+
+  @if (others().length) {
+    <div class="rack">
+      @for (other of others(); track other.id) {
+        <app-channel-card
+          [channel]="other"
+          [capabilities]="capabilities()"
+          [multi]="true"
+          [recommended]="recommendedId() === other.id"
+          [canDelete]="true"
+          [linkBusy]="store.connecting()"
+          (updated)="replace($event)"
+          (changed)="refresh()"
+          (removed)="removed(other)"
+          (use)="use(other)"
+          (connect)="link(other)"
+          (ask)="ask(other.id)"
+        />
+      }
+    </div>
+  }
+}
+
+<!-- The one questions popup on the page: it asks after a link here, or from a card's "Answer 2 questions". -->
+@if (asking(); as a) {
+  @for (item of [a]; track item.n) {
+    <app-number-questions popup [channelId]="item.id" (done)="refresh()" />
+  }
+}
+
+@if (!loading() && channels().length) {
+  <section class="card safety" aria-labelledby="safety-title">
+    <header class="card-head">
+      <span class="badge warn"><i class="ti ti-shield" aria-hidden="true"></i></span>
+      <div>
+        <h3 id="safety-title">Ban protection</h3>
+        <p class="muted">
+          We set how fast and how many messages go out each day, to keep your number from being banned.
+        </p>
+      </div>
+      <span class="s-pill {{ safetyOff() ? 'tone-bad' : customSafety() ? 'tone-warn' : 'tone-mute' }}">{{
+        safetyOff() ? 'Protection off' : customSafety() ? 'Your own limits' : 'Standard protection'
+      }}</span>
+    </header>
+
+    @if (safetyOff()) {
+      <p class="s-banner off" role="status">
+        <i class="ti ti-shield-off" aria-hidden="true"></i>
+        <span class="grow"
+          >Ban protection is off. Your numbers send their full day at full speed, so WhatsApp can ban them. Turn it
+          back on under Advanced: sending limits.</span
+        >
+      </p>
+    }
+
+    @for (id of [activeId()]; track id) {
+      <app-sending-health #health />
+
+      <details class="advanced limits" [open]="safetyOff()">
+        <summary>Advanced: sending limits</summary>
+        <div class="advanced-body">
+          <app-safety-controls
+            (changed)="health.refresh()"
+            (active)="customSafety.set($event)"
+            (exited)="safetyOff.set($event)"
+          />
+        </div>
+      </details>
+    }
+
+    @if (warning()) {
+      <p class="fine muted">{{ warning() }}</p>
+    }
+  </section>
+
+  <section class="card recover" aria-labelledby="recover-title" #recover>
+    <header class="card-head">
+      <span class="badge warn"><i class="ti ti-lifebuoy" aria-hidden="true"></i></span>
+      <div>
+        <h3 id="recover-title">If WhatsApp bans your number</h3>
+        <p class="muted">A calm checklist for getting a restricted number reviewed and back in use.</p>
+      </div>
+    </header>
+
+    <details class="advanced" [open]="recoverOpen()" (toggle)="toggled($event)">
+      <summary>Show the steps</summary>
+      <div class="advanced-body">
+        <ol class="steps recover-steps">
+          <li>
+            <span class="num" aria-hidden="true">1</span>
+            <span>
+              <strong>Know which ban you have</strong>
+              <small class="muted"
+                >A temporary ban shows a countdown in WhatsApp. Wait it out, and don't reinstall or switch apps,
+                because that can make it permanent.</small
+              >
+            </span>
+          </li>
+          <li>
+            <span class="num" aria-hidden="true">2</span>
+            <span>
+              <strong>Request a review</strong>
+              <small class="muted"
+                >Open WhatsApp on the phone, tap <b>Request a review</b>, and explain that these were customers
+                who opted in.</small
+              >
+            </span>
+          </li>
+          <li>
+            <span class="num" aria-hidden="true">3</span>
+            <span>
+              <strong>If the review fails, use WhatsApp's contact form</strong>
+              <small class="muted"
+                >Go to
+                <a href="https://www.whatsapp.com/contact" target="_blank" rel="noopener"
+                  >whatsapp.com/contact <i class="ti ti-external-link" aria-hidden="true"></i></a
+                >
+                and include the number in international format.</small
+              >
+            </span>
+          </li>
+          <li>
+            <span class="num" aria-hidden="true">4</span>
+            <span>
+              <strong>Pause here</strong>
+              <small class="muted"
+                >Unlink this number and stop its campaigns while the review runs. Sending from another number
+                does not lift the ban.</small
+              >
+            </span>
+          </li>
+          <li>
+            <span class="num" aria-hidden="true">5</span>
+            <span>
+              <strong>Once it's back</strong>
+              <small class="muted"
+                >Link it again and answer its 2 questions again; daily sending starts low and rises as people
+                reply. Send only to people who opted in, and vary your messages.</small
+              >
+            </span>
+          </li>
+        </ol>
+        <p class="fine muted">WhatsApp decides every appeal. This app cannot unban a number.</p>
+      </div>
+    </details>
+  </section>
+}

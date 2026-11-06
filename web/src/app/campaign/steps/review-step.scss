@@ -244,3 +244,26 @@
   font-size: 13px;
   .ti { color: var(--primary-text); }
 }
+
+// "More options" fold (same look as school-shared's `advanced` mixin).
+@include s.advanced;
+
+.adv-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.adv-label {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  strong { font-size: 14px; font-weight: 500; color: var(--text-strong); }
+  small { font-size: 12px; }
+}
+.zone-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12.5px;
+}

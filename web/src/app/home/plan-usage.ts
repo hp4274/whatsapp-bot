@@ -1,4 +1,4 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { DatePipe, DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, type ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
@@ -13,22 +13,27 @@ interface Row {
   readonly label: string;
   readonly icon: string;
   readonly unit: string;
+  /** What a limit of 0 means for this row; "Not on your plan" when unset. */
+  readonly none?: string;
 }
 
 /**
- * The limits a business runs into, in the order it meets them. `agents`,
- * `campaigns` and `workflow_runs` are left out on purpose: team seats are
- * `users` (what the team page enforces), and nothing meters the other two, so
- * a "0 of 2" there would only mislead.
+ * The limits a business runs into, in the order it meets them. `agents`, `campaigns` and `workflow_runs` are
+ * left out on purpose: team seats are `users` (what the team page enforces), and nothing meters the other two,
+ * so a "0 of 2" there would only mislead. API requests are left out too: the API is not offered yet.
  */
-const ROWS: readonly Row[] = [
+const MAIN: readonly Row[] = [
+  { key: 'today', label: 'Messages today', icon: 'send', unit: '', none: 'None today' },
   { key: 'messages', label: 'Messages this month', icon: 'message', unit: '' },
-  { key: 'channels', label: 'WhatsApp numbers', icon: 'brand-whatsapp', unit: '' },
   { key: 'contacts', label: 'Contacts', icon: 'address-book', unit: '' },
+  { key: 'channels', label: 'WhatsApp numbers', icon: 'brand-whatsapp', unit: '' },
+];
+
+/** Limits a business rarely reaches; folded under "More limits" so the four above are read first. */
+const MORE: readonly Row[] = [
   { key: 'templates', label: 'Templates', icon: 'template', unit: '' },
   { key: 'users', label: 'Team members', icon: 'users', unit: '' },
   { key: 'storage_mb', label: 'Storage', icon: 'database', unit: ' MB' },
-  { key: 'api_requests', label: 'API requests this month', icon: 'api', unit: '' },
 ];
 
 /** At or past this share of a limit, the bar turns to the warning tone. */
@@ -45,7 +50,7 @@ const ANSWER_SHOWN_MS = 14 * 864e5;
  */
 @Component({
   selector: 'app-plan-usage',
-  imports: [DatePipe, DecimalPipe, LimitRequestDrawer],
+  imports: [DatePipe, DecimalPipe, NgTemplateOutlet, LimitRequestDrawer],
   templateUrl: './plan-usage.html',
   styleUrl: './plan-usage.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -89,12 +94,17 @@ export class PlanUsagePanel {
       : '';
   });
 
-  protected readonly rows = computed(() => {
-    const byKey = new Map<string, PlanUsageMetric>(
-      (this.usage()?.metrics ?? []).map((m) => [m.metric, m]),
-    );
-    return ROWS.flatMap((row) => {
-      const m = byKey.get(row.key);
+  private readonly byKey = computed(
+    () => new Map<string, PlanUsageMetric>((this.usage()?.metrics ?? []).map((m) => [m.metric, m])),
+  );
+  protected readonly main = computed(() => this.meters(MAIN));
+  protected readonly more = computed(() => this.meters(MORE));
+  /** A folded limit that is nearly or fully used opens the fold, so "full" is never hidden. */
+  protected readonly moreNeedsLook = computed(() => this.more().some((r) => r.tone !== 'ok'));
+
+  private meters(rows: readonly Row[]) {
+    return rows.flatMap((row) => {
+      const m = this.byKey().get(row.key);
       if (!m) return [];
       const share = m.limit ? m.used / m.limit : 0;
       return [
@@ -107,7 +117,7 @@ export class PlanUsagePanel {
         },
       ];
     });
-  });
+  }
 
   constructor() {
     this.load();

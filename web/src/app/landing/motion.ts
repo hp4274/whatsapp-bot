@@ -3,7 +3,6 @@ import {
   Directive,
   ElementRef,
   afterNextRender,
-  afterRenderEffect,
   inject,
   input,
 } from '@angular/core';
@@ -109,40 +108,6 @@ export class CountUp {
         });
       });
       destroyRef.onDestroy(stop);
-    });
-  }
-}
-
-/**
- * A segmented control's sliding highlight: the host holds a `.thumb` and
- * buttons with `aria-pressed`; whenever `segThumb` (the chosen key) changes,
- * the thumb springs under the pressed button. It is re-placed without motion
- * when the control resizes (web fonts arriving, a breakpoint).
- */
-@Directive({ selector: '[segThumb]' })
-export class SegThumb {
-  readonly segThumb = input.required<string>();
-
-  constructor() {
-    const el = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
-    const place = (glide: boolean) => {
-      const thumb = el.querySelector<HTMLElement>('.thumb');
-      const btn = el.querySelector<HTMLElement>('[aria-pressed="true"]');
-      if (!thumb || !btn) return;
-      const to = { x: btn.offsetLeft, width: btn.offsetWidth };
-      animate(thumb, to, glide && !still() ? { type: 'spring', visualDuration: 0.35, bounce: 0.2 } : { duration: 0 });
-    };
-    const destroyRef = inject(DestroyRef);
-    let placed = false;
-    afterRenderEffect(() => {
-      this.segThumb();
-      place(placed);
-      placed = true;
-    });
-    afterNextRender(() => {
-      const ro = new ResizeObserver(() => place(false));
-      ro.observe(el);
-      destroyRef.onDestroy(() => ro.disconnect());
     });
   }
 }

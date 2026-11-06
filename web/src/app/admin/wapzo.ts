@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { DatePipe } from '@angular/common';
 
 import type { ConnectionState, MessageStatus } from '../core/api';
@@ -59,6 +59,7 @@ type Busy = 'link' | 'unlink' | 'country' | 'test' | null;
   templateUrl: './wapzo.html',
   styleUrl: './wapzo.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(document:keydown.escape)': 'viewingId.set(null)' },
 })
 export class Wuzie {
   private readonly api = inject(WapzoApi);
@@ -75,6 +76,10 @@ export class Wuzie {
   protected readonly messages = signal<readonly WapzoMessage[]>([]);
   protected readonly log = signal<readonly WapzoLogEntry[]>([]);
   protected readonly connection = signal<ConnectionState | null>(null);
+  /** The sent message open in the side drawer; read from the log, so its status updates live while open. */
+  protected readonly viewingId = signal<string | null>(null);
+  protected readonly viewing = computed(() => this.log().find((e) => e.id === this.viewingId()) ?? null);
+  private readonly closeView = viewChild<ElementRef<HTMLButtonElement>>('closeView');
 
   /** Unsaved edits by kind: a live reload refreshes the saved texts but never wipes what the admin is typing. */
   protected readonly drafts = signal<Readonly<Record<string, string>>>({});
@@ -114,6 +119,8 @@ export class Wuzie {
   constructor() {
     this.reload();
     this.loadConfig();
+    // The drawer takes focus when it opens, so Escape and Tab start inside it.
+    effect(() => this.closeView()?.nativeElement.focus());
     // A sent message, a new link or another admin's edit shows here at once.
     inject(AdminFeed).watch(['channels', 'wapzo', 'campaigns', 'usage'], () => this.reload(true));
     // Only while linking: the QR code changes every few seconds and the countdown ticks. Cleared on destroy too.

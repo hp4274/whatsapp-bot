@@ -129,21 +129,18 @@ export interface SafetyStatus {
   restMinMinutes: number;
   restMaxMinutes: number;
   /**
-   * `quietSeconds` is the nightly rest already included in min/max/typical. `days` / `finishesOn`
+   * `days` / `finishesOn`
    * (the channel's local YYYY-MM-DD) assume today's level for every day; null with no daily cap.
    */
   estimateSeconds: {
     min: number;
     max: number;
     typical: number;
-    quietSeconds?: number;
     days?: number | null;
     finishesOn?: string | null;
   };
   waitingSeconds: number;
   pausedByQuota: boolean;
-  /** Today's quiet-time windows; null when quiet time is off. */
-  quiet?: QuietWindow | null;
   /** QR numbers only: the sending level, today's budgets, the brakes on and the content rules. */
   level?: SendingLevel;
   budgets?: SendingBudgets;
@@ -220,31 +217,6 @@ export interface ContentRules {
   readonly varyAbove: number;
   /** Appended to every message without a STOP. */
   readonly optOutLine: string;
-}
-
-export interface QuietWindow {
-  /** Resting right now, in whichever window is open. */
-  active: boolean;
-  /** Seconds left of the open window; 0 when not resting. */
-  leftSeconds: number;
-  /** Total quiet time today, all windows together. */
-  minutesToday: number;
-  /** Minutes after local midnight when today's first window starts. */
-  startMinute: number;
-  /** Today's separate windows, sorted, in minutes after midnight on the channel's clock. */
-  windows: readonly QuietSpan[];
-  /** Channel clock (minutes after midnight) when the server answered; the browser's own zone may differ. */
-  nowMinute: number;
-  /** Server clock (ms epoch) when it answered: the viewer measures its own clock skew against it. */
-  nowAt: number;
-}
-
-/** One quiet window: channel-zone minutes, plus the same span as ms-epoch instants for local display. */
-export interface QuietSpan {
-  readonly startMinute: number;
-  readonly endMinute: number;
-  readonly startAt: number;
-  readonly endAt: number;
 }
 
 export interface SafetyEvent {
@@ -604,13 +576,19 @@ export class Api {
   }
 }
 
+/** No words from the server (offline, a proxy page): say what happened instead of Angular's "Http failure response for …". */
+function plainHttpError(error: HttpErrorResponse): string {
+  if (error.status === 0) return "Can't reach the server. Check your internet connection and try again.";
+  return `Something went wrong on our side (error ${error.status}). Please try again.`;
+}
+
 /** Surface the server's own words, not "Http failure response for ...". */
 function toMessage(error: HttpErrorResponse) {
   const errors = error.error?.errors;
   const message =
     Array.isArray(errors) && errors.length
       ? errors.join('\n')
-      : error.error?.message || error.message || 'Request failed';
+      : error.error?.message || plainHttpError(error);
   return throwError(() => new Error(message));
 }
 
@@ -658,8 +636,6 @@ export interface SafetyPolicy {
   failureStopPercent: number;
   recipientDailyCap: number;
   requireVariationAbove: number;
-  quietHoursStart: number;
-  quietHoursEnd: number;
 }
 
 /** Plan limits the platform admin sets per tenant. 0 means no limit. */
@@ -676,6 +652,8 @@ export interface TenantLimits {
   allowCustomSafety: boolean;
   /** Its own monthly message quota: absent = the plan's, null = no limit, a number (0 = none). */
   messagesPerMonth?: number | null;
+  /** True: its own messages a day per number (safety.dailyLimit, 0 = no limit) replaces the plan's day. */
+  ownDailyLimit?: boolean;
 }
 
 /** A recorded acceptance of the sending-risk terms. Immutable on the server. */
@@ -1013,6 +991,8 @@ export interface ChannelUsage {
   growing: boolean;
   /** QR numbers with safety on only: false while the 2 questions are unanswered (bulk is held). */
   asked?: boolean;
+  /** The questions were skipped; they can still be answered from Home. */
+  skipped?: boolean;
   /** Plain-text reason bulk is paused, when it is. */
   blocked?: string;
 }
@@ -1020,6 +1000,8 @@ export interface ChannelUsage {
 /** `GET /api/channels/:id/start`: the 2 questions a newly linked QR number answers. */
 export interface NumberStart {
   asked: boolean;
+  /** The questions were skipped: they can still be answered (Home). */
+  skipped?: boolean;
   todayLimit: number | null;
   planLimit: number | null;
   skipWarning: { version: string; text: string[] };

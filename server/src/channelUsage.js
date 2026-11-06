@@ -56,6 +56,8 @@ export function channelUsage(channel, { db, config, sending = {}, pin = null, st
     if (quota.qr && status.enabled) {
         Object.assign(usage, { planLimit: status.ceiling, growing: todayLimit < status.ceiling });
         if (status.asked !== null) usage.asked = status.asked;
+        // Skipped questions can still be answered later (POST /channels/:id/start).
+        if (status.level?.start?.answers?.skipped === true) usage.skipped = true;
     }
     if (blocked) usage.blocked = blocked;
     // While it waits the day is 0 now, not a used-up cap.

@@ -15,6 +15,7 @@
 @include s.skeleton;
 @include s.banner;
 @include s.tilt;
+@include s.advanced;
 @include k.sr-only;
 @include k.avatar(34px);
 
@@ -34,6 +35,7 @@
   .muted { display: block; margin-top: 6px; font-size: 12.5px; }
   button.s-stat { cursor: pointer; }
   [aria-pressed='true'] { box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone) 14%, transparent); }
+  .stats-error { grid-column: 1 / -1; }
 }
 
 /* Duplicate banner: a quiet card with a violet tile, not a gradient slab. */

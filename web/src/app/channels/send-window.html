@@ -1,5 +1,5 @@
 <form class="win" (submit)="submit($event)" novalidate [attr.aria-busy]="busy()">
-  <div class="mode" role="group" aria-label="Sending window mode">
+  <div class="mode" role="group" aria-label="When this number may send">
     <button
       type="button"
       class="seg"
@@ -7,7 +7,7 @@
       [attr.aria-pressed]="!enabled()"
       (click)="enabled.set(false)"
     >
-      <i class="ti ti-infinity" aria-hidden="true"></i> Always open
+      <i class="ti ti-infinity" aria-hidden="true"></i> Any time
     </button>
     <button
       type="button"
@@ -45,7 +45,7 @@
 
     <div class="times">
       <div class="field">
-        <label [for]="'w-start-' + channel().id">Opens</label>
+        <label [for]="'w-start-' + channel().id">From</label>
         <input
           type="time"
           [id]="'w-start-' + channel().id"
@@ -57,7 +57,7 @@
       </div>
       <span class="dash" aria-hidden="true">&rarr;</span>
       <div class="field">
-        <label [for]="'w-end-' + channel().id">Closes</label>
+        <label [for]="'w-end-' + channel().id">Until</label>
         <input
           type="time"
           [id]="'w-end-' + channel().id"
@@ -91,9 +91,9 @@
       @if (!enabled()) {
         messages can go out any time.
       } @else if (openNow()) {
-        <strong>inside</strong> the window, sending is allowed.
+        <strong>inside</strong> sending hours, so messages can go out.
       } @else {
-        <strong>outside</strong> the window, messages wait until it opens.
+        <strong>outside</strong> sending hours, so messages wait until they start.
       }
     </span>
   </p>
@@ -107,11 +107,11 @@
       @if (busy()) {
         <span class="spinner" aria-hidden="true"></span>
       }
-      Save window
+      Save hours
     </button>
     @if (channel().businessHours) {
       <button class="btn small" type="button" (click)="alwaysOpen()" [disabled]="busy()">
-        Clear window
+        Send any time
       </button>
     }
   </div>

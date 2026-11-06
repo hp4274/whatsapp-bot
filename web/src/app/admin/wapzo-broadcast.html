@@ -45,12 +45,20 @@
             </span>
           </p>
         }
-        @case ('choose') {
+        @case ('none') {}
+        @default {
+          @let leadsTab = audience() === 'leads';
+          @if (leadsTab) {
+            <p class="muted small">Account requests that are new or on hold. Accepted and dismissed ones are left out.</p>
+            @if (leadsError()) {
+              <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ leadsError() }}</p>
+            }
+          }
           <div class="pick-bar">
             <input
               type="search"
-              placeholder="Search businesses"
-              aria-label="Search businesses"
+              [placeholder]="leadsTab ? 'Search leads' : 'Search businesses'"
+              [attr.aria-label]="leadsTab ? 'Search leads' : 'Search businesses'"
               [value]="search()"
               (input)="search.set($any($event.target).value)"
             />
@@ -58,21 +66,22 @@
               {{ allShownPicked() ? 'Clear' : 'Select all' }}
             </button>
           </div>
-          <ul class="list" aria-label="Businesses">
-            @for (t of shown(); track t.id) {
-              @let st = state(t);
+          <ul class="list" [attr.aria-label]="leadsTab ? 'Leads' : 'Businesses'">
+            @for (r of shown(); track r.id) {
               <li>
                 <label>
-                  <input type="checkbox" [checked]="picked().has(t.id)" (change)="toggle(t.id)" />
+                  <input type="checkbox" [checked]="pick()().has(r.id)" (change)="toggle(r.id)" />
                   <span class="name">
-                    <strong>{{ t.name }}</strong>
-                    <span class="muted small">{{ t.contactPhone || 'No number on file' }}</span>
+                    <strong>{{ r.name }}</strong>
+                    <span class="muted small">{{ r.sub }}</span>
                   </span>
-                  <span class="s-pill {{ st.tone }}">{{ st.label }}</span>
+                  <span class="s-pill {{ r.tone }}">{{ r.label }}</span>
                 </label>
               </li>
             } @empty {
-              <li class="muted small none">No business matches.</li>
+              <li class="muted small none">
+                {{ leadsTab ? (openLeads().length ? 'No lead matches.' : 'No new or on-hold leads.') : 'No business matches.' }}
+              </li>
             }
           </ul>
         }
@@ -126,7 +135,7 @@
 
       @if (text().trim() || image()) {
         <div class="preview" aria-live="polite">
-          <span class="muted small">{{ first() ? 'Preview for ' + first()!.name : 'Preview' }}</span>
+          <span class="muted small">{{ first() ? 'Preview for ' + first() : 'Preview' }}</span>
           <div class="bubble">
             @if (image(); as img) {
               <figure>

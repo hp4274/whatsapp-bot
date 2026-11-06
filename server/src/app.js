@@ -10,6 +10,7 @@
  */
 
 import fs from 'node:fs';
+import { isIP } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -373,10 +374,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         })).catch((err) => logger.warn('ops alert failed', { error: err.message }));
     };
     manager.opsAlert = opsAlert;
-    // Bulk waits out the sending window / quiet hours instead of failing.
-    // A super admin's skipQuietTime drops the quiet hours; the channel's own sending window stays.
-    manager.bulkWindowOpen = () => bulkWindowOpen(state.channel,
-        manager.quota.tables?.().skipQuiet ? { ...state.config, quietHoursStart: 0, quietHoursEnd: 0 } : state.config);
+    // Bulk waits out the sending window instead of failing.
+    manager.bulkWindowOpen = () => bulkWindowOpen(state.channel);
     manager.timezone = () => state.channel?.timezone;
     // Tracked links need an address the recipient's phone can reach; without one, text goes as written.
     if (deps.publicBaseUrl) manager.links = new LinkStore(db, deps.publicBaseUrl);
@@ -2167,7 +2166,7 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         const chats = runtimes.get(channel.id)?.state.historyChats ?? null;
         const suggested = chats == null ? null : suggestStart(chats);
         return {
-            asked: usage.asked !== false, todayLimit: usage.todayLimit, planLimit: usage.planLimit,
+            asked: usage.asked !== false, skipped: usage.skipped === true, todayLimit: usage.todayLimit, planLimit: usage.planLimit,
             suggested: suggested && { ...suggested, chats },
         };
     };
@@ -2182,11 +2181,12 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
     app.post('/channels/:id/start', (req, res) => {
         const channel = channels.get(req.params.id);
         if (!channel) return res.status(404).json({ errors: ['channel not found'] });
-        const asked = fullHealth(channel).usage.asked;
+        const { asked, skipped } = fullHealth(channel).usage;
         if (asked === undefined || !deps.setChannelStart) return res.status(400).json({ errors: ['Only QR-login numbers with sending safety on are asked these questions.'] });
-        if (asked) return res.status(409).json({ errors: ["This number's questions are already answered."] });
         const body = req.body ?? {};
         const skip = body.skip === true;
+        // A skipped start may still be answered (from Home), never skipped twice.
+        if (asked && !(skipped && !skip)) return res.status(409).json({ errors: ["This number's questions are already answered."] });
         let level;
         let answers;
         if (skip) {
@@ -2312,6 +2312,9 @@ function cleanBaseUrl(value) {
     return null;
 }
 
+/** True when the address is a bare IP, so links built on it show the server's address instead of the site's name. */
+const isIpBase = (base) => isIP(new URL(base).hostname.replace(/^\[|\]$/g, '')) !== 0;
+
 export function createApp({
     db = new Database(), config = loadConfig(), deps = {}, dataDir = APP_DIR,
     // Off by default: a test that builds an app should not start a timer it
@@ -2331,6 +2334,11 @@ export function createApp({
     const trustProxy = process.env.TRUST_PROXY;
     if (trustProxy) app.set('trust proxy', trustProxy === 'true' ? true : /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
     publicBaseUrl = cleanBaseUrl(publicBaseUrl);
+    if (publicBaseUrl && isIpBase(publicBaseUrl)) {
+        console.warn(`[links] PUBLIC_BASE_URL ${publicBaseUrl} is an IP address, so links show it. Set it to the site's domain.`);
+    }
+    // Sign-in links an admin's action sends: the admin's own site address wins over a bare-IP PUBLIC_BASE_URL.
+    const siteUrl = (req) => (publicBaseUrl && !isIpBase(publicBaseUrl) ? publicBaseUrl : req.get('origin') || publicBaseUrl) ?? null;
     // Before the body parser, so a malformed body is still logged with an id.
     app.use(requestContext());
     app.use(securityHeaders());
@@ -2452,6 +2460,10 @@ export function createApp({
     const opsAlert = deps.opsAlert ?? opsAlerts.raise;
     // Super-admin rules per plan; every tenant runtime reads its effective values through deps.platformPolicy.
     const policyStore = new PolicyStore(db);
+    // A business with its own day (limits.ownDailyLimit): no plan day (planDaily null = no cap) and no warm-up
+    // (sending.ownDay, campaign/safety.js), for every reader: the engine, the cards and the admin views.
+    policyStore.adjust = (tenantId) => (tenancy.getTenant(tenantId)?.limits?.ownDailyLimit
+        ? { 'channels.dailyCap': null, 'sending.ownDay': true } : null);
     // Each tenant's security.* values (policy/security.js), read on every request by the rate
     // limits and the session check, so cached for 5s. An admin policy save clears it.
     const securityCache = new Map();
@@ -3496,7 +3508,10 @@ export function createApp({
         const tenants = all
             ? tenancy.listTenants().filter((t) => t.status !== 'archived' && t.wapzoUpdates !== false)
             : ids.map((id) => tenancy.getTenant(id)).filter((t) => t && t.status !== 'system');
-        if (!tenants.length && !numbers.length) return res.status(400).json({ errors: ['Choose who gets it.'] });
+        // Open account requests only: a lead accepted or dismissed meanwhile is left out.
+        const openLeads = (Array.isArray(body.leads) ? body.leads : []).slice(0, 1000)
+            .map((id) => leads.get(id)).filter((l) => l && (l.status === 'new' || l.status === 'hold'));
+        if (!tenants.length && !openLeads.length && !numbers.length) return res.status(400).json({ errors: ['Choose who gets it.'] });
         const state = notifier.systemState();
         if (!state?.transport?.isConnected?.()) return res.status(409).json({ errors: ['The Wuzie WhatsApp number is not linked.'] });
         // An image uploaded through the number's own API (/wapzo/api/media/upload), so it is the system tenant's.
@@ -3527,8 +3542,13 @@ export function createApp({
             if (!phone) { skipped.push({ to: tenant.name, reason: 'No WhatsApp number on file.' }); continue; }
             one(phone, tenant.name, { name: owner?.name || tenant.name, business: tenant.name });
         }
+        for (const lead of openLeads) {
+            const label = lead.business || lead.name;
+            if (!lead.phone) { skipped.push({ to: label, reason: 'No WhatsApp number given.' }); continue; }
+            one(lead.phone, label, { name: lead.name, business: lead.business });
+        }
         for (const number of numbers) one(number, number, {});
-        audit(req, 'wapzo.broadcast', String(queued.length), { queued: queued.length, skipped: skipped.length });
+        audit(req, 'wapzo.broadcast', String(queued.length), { queued: queued.length, skipped: skipped.length, leads: openLeads.length });
         return res.json({ queued: queued.length, skipped });
     });
 
@@ -3724,7 +3744,7 @@ export function createApp({
         const user = await tenancy.createUser({ email, name, password, role: 'super_admin', adminRoleId: roleIdOf(roleId) });
         const roleName = adminRoles.get(user.adminRoleId).name;
         // Their sign-in by email; the page still shows it once, for when the email does not arrive.
-        const base = publicBaseUrl ?? req.get('origin') ?? null;
+        const base = siteUrl(req);
         const mail = await mailer.send({
             to: user.email,
             ...staffWelcomeEmail({ name: user.name, roleName, email: user.email, password, loginUrl: base && `${base}/login` }),
@@ -3765,13 +3785,13 @@ export function createApp({
             // The plan is live from now: a paying business out of trial owes its price at once.
             const charged = chargeIfActive(req, tenant.id);
             audit(req, 'tenant.activate', tenant.id, { slug: tenant.slug, charged });
-            const signIn = publicBaseUrl ?? req.get('origin') ?? null;
+            const signIn = siteUrl(req);
             notifyTenant('account_activated', tenant.id, { link: signIn ? `${signIn}/login` : 'the Wuzie sign-in page' },
                 `activate:${tenant.id}`);
             const overview = tenantOverview(active);
             let email = { sent: false, reason: 'Not sent.' };
             if (req.body?.sendWelcome !== false) {
-                const base = publicBaseUrl ?? req.get('origin') ?? null;
+                const base = siteUrl(req);
                 email = await mailer.send({
                     to: owner.email,
                     ...welcomeEmail({
@@ -4190,6 +4210,7 @@ export function createApp({
         try {
             const tenant = tenancy.setLimits(req.params.id, req.body ?? {});
             runtimes.get(tenant.id)?.applyPolicy(); // allowCustomSafety may have switched custom limits on/off
+            touchTenants([tenant.id]); // ownDailyLimit changes the plan day the engine reads: now, not in 5 s
             audit(req, 'tenant.limits', tenant.id, tenant.limits);
             return res.json({ limits: tenant.limits });
         } catch (err) {

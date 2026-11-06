@@ -1,4 +1,13 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { TenancyApi } from '../core/api';
@@ -7,6 +16,33 @@ import { ConfirmDialog } from '../core/confirm-dialog';
 
 /** Placeholder rows shown while the first user list loads. */
 const SKELETON_ROWS: readonly number[] = [0, 1, 2];
+
+/** A loose shape check, so a typo is caught next to the form instead of after a round trip. */
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * The server's team errors are short lower-case phrases meant for logs ("nothing to change");
+ * these are the ones a person meets on this page, in words that say what to do.
+ */
+const FRIENDLY: Readonly<Record<string, string>> = {
+  'nothing to change': 'Change the email or type a new password first.',
+  'a valid email is required': 'Enter a valid email address.',
+  'password must be at least 8 characters': 'Use a password of at least 8 characters.',
+  'that email is already registered': 'That email already has an account. Use another one.',
+};
+
+/** Server text in sentence case with a full stop; a full plan also says how to make room. */
+function plain(message: string): string {
+  const known = FRIENDLY[message.trim().toLowerCase()];
+  if (known) return known;
+  let text = message.trim();
+  text = text.charAt(0).toUpperCase() + text.slice(1);
+  if (!/[.!?]$/.test(text)) text += '.';
+  if (/^Your plan allows \d+ team members?\.$/.test(text)) {
+    text += ' Disable or remove someone to free a seat.';
+  }
+  return text;
+}
 
 /**
  * Who can sign in to the workspace.
@@ -22,6 +58,9 @@ const SKELETON_ROWS: readonly number[] = [0, 1, 2];
   templateUrl: './team.html',
   styleUrl: './team.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // On the document, not the dialog: focus can drop to <body> (a disabled Save button), and Escape must still close it.
+  // Not mid-save, or a failed save would report its error to a dialog that is already gone.
+  host: { '(document:keydown.escape)': '!busy() && editing.set(null)' },
 })
 export class TeamView {
   private readonly api = inject(TenancyApi);
@@ -39,9 +78,14 @@ export class TeamView {
   protected readonly error = signal('');
   protected readonly busy = signal(false);
   protected readonly loading = signal(true);
+  /** The list never arrived: the banner says so, and the table must not claim "No users yet". */
+  protected readonly loadFailed = signal(false);
   protected readonly me = this.auth.user;
 
   protected readonly draft = signal({ name: '', email: '', password: '', role: 'agent' as Role });
+  /** Why adding failed, shown inside the form; `addRetry` says whether trying again could help. */
+  protected readonly addError = signal('');
+  protected readonly addRetry = signal(false);
 
   /** You can only create people below you, which is what the server enforces too. */
   protected readonly assignable = computed(() => {
@@ -51,8 +95,12 @@ export class TeamView {
     return this.roles().filter((r) => ROLE_RANK.indexOf(r) < ROLE_RANK.indexOf(mine));
   });
 
+  private readonly editEmail = viewChild<ElementRef<HTMLInputElement>>('editEmail');
+
   constructor() {
     this.refresh();
+    // The edit dialog takes focus as it opens, so the keyboard (and Escape) works inside it at once.
+    effect(() => this.editEmail()?.nativeElement.focus());
   }
 
   protected refresh() {
@@ -62,19 +110,30 @@ export class TeamView {
         this.users.set(users);
         this.roles.set(roles);
         this.loading.set(false);
+        this.loadFailed.set(false);
       },
       error: (err: Error) => {
         this.loading.set(false);
-        this.error.set(err.message);
+        this.loadFailed.set(true);
+        this.error.set(plain(err.message));
       },
     });
   }
 
-  protected add(event: Event) {
-    event.preventDefault();
+  protected add(event?: Event) {
+    event?.preventDefault();
+    if (this.busy()) return;
     const d = this.draft();
+    // Checked here rather than by the browser (the form is novalidate) so the message reads like the others.
+    const invalid = !EMAIL_SHAPE.test(d.email.trim())
+      ? 'Enter a valid email address.'
+      : d.password.length < 8
+        ? 'Use a password of at least 8 characters.'
+        : '';
+    this.addRetry.set(false);
+    this.addError.set(invalid);
+    if (invalid) return;
     this.busy.set(true);
-    this.error.set('');
     this.api
       .createUser({
         email: d.email.trim(),
@@ -90,7 +149,10 @@ export class TeamView {
         },
         error: (err: Error) => {
           this.busy.set(false);
-          this.error.set(err.message);
+          const message = plain(err.message);
+          this.addError.set(message);
+          // A known refusal (bad field, taken email, full plan) fails the same way again; anything else may be a blip.
+          this.addRetry.set(!Object.values(FRIENDLY).includes(message) && !message.startsWith('Your plan allows'));
         },
       });
   }
@@ -129,7 +191,7 @@ export class TeamView {
         },
         error: (err: Error) => {
           this.busy.set(false);
-          this.editError.set(err.message);
+          this.editError.set(plain(err.message));
         },
       });
   }
@@ -138,14 +200,16 @@ export class TeamView {
     this.removing.set(null);
     this.api.removeUser(user.id).subscribe({
       next: () => this.refresh(),
-      error: (err: Error) => this.error.set(err.message),
+      error: (err: Error) => this.error.set(plain(err.message)),
     });
   }
 
+  /** Enable or disable: a disabled member cannot sign in and holds no seat on the plan. */
   protected toggle(user: User) {
+    this.error.set('');
     this.api.setUserDisabled(user.id, !user.disabled).subscribe({
       next: () => this.refresh(),
-      error: (err: Error) => this.error.set(err.message),
+      error: (err: Error) => this.error.set(plain(err.message)),
     });
   }
 

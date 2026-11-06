@@ -12,6 +12,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
 
 import { Api } from '../../core/api';
+import { Store } from '../../core/store';
 import { MediaSrc } from './media-src';
 import {
   InteractiveButton,
@@ -104,6 +105,8 @@ export class InteractiveEditor {
   readonly carousel = input(false);
 
   private readonly api = inject(Api);
+  /** A QR-linked number sends replies and menus as a numbered text menu; the note says so only then. */
+  protected readonly qrNumber = inject(Store).qrNumber;
 
   /** Prefix for element ids so label[for] stays unique across instances. */
   protected readonly uid = `ie${++seq}`;

@@ -455,12 +455,17 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
       display: none;
     }
 
-    // Round button on the 1px edge line, level with the mark: top 16px puts
-    // its 28px middle on the mark's, right -14.5px centres it on the border.
+    // Round button on the 1px edge line, level with the mark: 16px into the
+    // rail puts its 28px middle on the mark's, and 14.5px back from the rail's
+    // right edge centres it on the border. Fixed to the viewport (the shell's
+    // 16px padding, the rail's 1px border and 84px width), not absolute in the
+    // rail: an absolute child hanging past the edge made the rail 15px wider
+    // than its box (scrollWidth 97 vs 82). The sidebar never scrolls, so
+    // fixed holds.
     .rail-toggle {
-      position: absolute;
-      top: 16px;
-      right: -14.5px;
+      position: fixed;
+      top: calc(16px + 1px + 16px);
+      left: calc(16px + 84px - 1px + 14.5px - 28px);
       z-index: 10;
       width: 28px;
       height: 28px;

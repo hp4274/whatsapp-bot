@@ -1,19 +1,31 @@
-@if (view(); as v) {
+@if (loadError()) {
+  <div class="sc-error" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="grow">Couldn't load your sending limits: {{ loadError() }}</span>
+    <button class="btn" type="button" (click)="load()">
+      <i class="ti ti-refresh" aria-hidden="true"></i>Try again
+    </button>
+  </div>
+} @else if (loading()) {
+  <div class="sc-skel" aria-busy="true" aria-label="Loading your sending limits">
+    <span></span><span class="short"></span>
+  </div>
+} @else if (view(); as v) {
   @if (v.exited; as off) {
     <!-- Left sending safety: say so loudly, and make coming back one click. -->
     <div class="sc-off" role="status">
       <i class="ti ti-shield-off" aria-hidden="true"></i>
       <div>
-        <strong>Sending safety is off</strong>
+        <strong>Ban protection is off</strong>
         <span
           >Left by {{ off.fullName || off.by }} on {{ off.at | date: 'd MMM, h:mm a' }}. Every
-          number sends its plan's full day at its plan's pace, with no gradual rise, no automatic
-          slow-downs and no quiet time, so WhatsApp can ban any of your numbers.</span
+          number sends its plan's full day at its plan's pace, with no gradual rise and no automatic
+          slow-downs, so WhatsApp can ban any of your numbers.</span
         >
       </div>
       <button class="btn primary" type="button" (click)="rejoin()" [disabled]="busy()">
         <i class="ti ti-shield-check" aria-hidden="true"></i
-        >{{ busy() ? 'Rejoining...' : 'Rejoin sending safety' }}
+        >{{ busy() ? 'Turning it on...' : 'Turn ban protection back on' }}
       </button>
     </div>
     @if (error() && !open()) {
@@ -25,7 +37,7 @@
     <div class="sc-banner" role="status">
       <i class="ti ti-shield-exclamation" aria-hidden="true"></i>
       <div>
-        <strong>Custom sending limits active</strong>
+        <strong>Your own limits are on</strong>
         <span
           >Accepted by {{ consent.fullName || consent.email }} on
           {{ consent.acceptedAt | date: 'mediumDate' }}. Your business is responsible for what
@@ -45,34 +57,31 @@
       <p class="muted">
         {{
           v.active
-            ? 'You are using your own limits instead of the platform defaults.'
-            : 'Pacing, daily cap, rate and retry limits are set by the platform admin to keep your number safe. You may change them at your own risk.'
+            ? 'You are using your own limits instead of ours.'
+            : 'We set how fast and how many messages go out each day, to keep your number from being banned. You may change them at your own risk.'
         }}
       </p>
       <button class="btn" type="button" (click)="openEditor()">
         <i class="ti ti-adjustments-horizontal" aria-hidden="true"></i
-        >{{ v.active ? 'Edit limits' : 'Customize' }}
+        >Change limits
       </button>
     </div>
   } @else {
-    <p class="muted">
-      Pacing, daily cap, rate and retry limits are set by the platform admin to keep your number
-      safe.
-    </p>
+    <p class="muted">We set how fast and how many messages go out each day, to keep your number from being banned.</p>
   }
 
   @if (!v.exited) {
     <div class="sc-leave">
-      <p class="muted">Send with no limits at all. You can rejoin any time.</p>
+      <p class="muted">
+        Send with no limits at all. This is how numbers get banned. You can turn it back on any time.
+      </p>
       <button class="btn danger" type="button" (click)="openExit()">
-        <i class="ti ti-shield-off" aria-hidden="true"></i>Leave sending safety
+        <i class="ti ti-shield-off" aria-hidden="true"></i>Turn off ban protection
       </button>
     </div>
   }
 } @else {
-  <p class="muted">
-    Pacing, daily cap, rate and retry limits are set by the platform admin to keep your number safe.
-  </p>
+  <p class="muted">We set how fast and how many messages go out each day, to keep your number from being banned.</p>
 }
 
 @if (open() && view(); as v) {
@@ -89,7 +98,7 @@
         <h3 id="sc-title" tabindex="-1">
           {{
             leaving()
-              ? 'Before you leave sending safety'
+              ? 'Turn off ban protection?'
               : needsConsent()
                 ? 'Before you change sending limits'
                 : 'Your sending limits'
@@ -99,7 +108,7 @@
           {{
             consenting()
               ? 'Read this carefully. It is recorded with your name and the time.'
-              : 'Values differ from the platform where marked. Risky values are flagged in red.'
+              : 'Values that differ from ours are marked. Risky values are flagged in red.'
           }}
         </p>
       </div>
@@ -130,12 +139,12 @@
             <strong>Your WhatsApp number can be restricted or permanently banned.</strong>
             <p>
               @if (leaving()) {
-                Without sending safety, every number sends your plan's full daily limit from day
+                Without ban protection, every number sends your plan's full daily limit from day
                 one, with no gradual rise and no automatic slow-downs when people stop replying or
                 block you. That is the pattern WhatsApp bans for. You are asked this every time you
                 leave.
               } @else {
-                WhatsApp watches for fast, high-volume and unsolicited messaging. The platform's
+                WhatsApp watches for fast, high-volume and unsolicited messaging. Our standard
                 limits exist to keep you under that radar. Loosening them is entirely your
                 decision and your risk.
               }
@@ -151,7 +160,7 @@
 
         @if (!leaving()) {
         <div class="sc-recommended">
-          <strong>Recommended (current platform values)</strong>
+          <strong>Recommended (our standard limits)</strong>
           <span
             >{{
               v.platform.dailyLimit
@@ -213,8 +222,8 @@
         <div class="sc-rows">
           <div class="sc-row" [class.risky]="risks()['safetyEnabled']">
             <div class="sc-label">
-              <label for="sc-enabled">Sending safety enforced</label>
-              <span class="hint">platform: {{ platformValue('safetyEnabled') }}</span>
+              <label for="sc-enabled">Ban protection on</label>
+              <span class="hint">ours: {{ platformValue('safetyEnabled') }}</span>
             </div>
             <button
               id="sc-enabled"
@@ -254,7 +263,7 @@
                       <label [for]="'sc-' + f.key">{{ f.label }}</label>
                       <span class="hint" [id]="'sc-h-' + f.key">
                         {{ f.help }} ·
-                        <span class="sc-platform">platform: {{ platformValue(f.key) }}</span>
+                        <span class="sc-platform">ours: {{ platformValue(f.key) }}</span>
                       </span>
                     </div>
                     <input
@@ -265,7 +274,11 @@
                       [value]="d[f.key]"
                       (input)="setNumber(f.key, $any($event.target).value)"
                       [attr.aria-describedby]="'sc-h-' + f.key"
+                      [attr.aria-invalid]="blanks().has(f.key)"
                     />
+                    @if (blanks().has(f.key)) {
+                      <span class="sc-risk" role="alert">Enter a number (0 is allowed).</span>
+                    }
                     @if (risks()[f.key]; as why) {
                       <span class="sc-risk"
                         ><i class="ti ti-alert-triangle" aria-hidden="true"></i>{{ why }}</span
@@ -282,7 +295,7 @@
 
     <footer>
       @if (leaving()) {
-        <button class="btn" type="button" (click)="close()" [disabled]="busy()">Stay protected</button>
+        <button class="btn" type="button" (click)="close()" [disabled]="busy()">Keep ban protection on</button>
         <button
           class="btn danger"
           type="button"
@@ -290,7 +303,7 @@
           [disabled]="busy() || !consentReady()"
         >
           <i class="ti ti-shield-off" aria-hidden="true"></i
-          >{{ busy() ? 'Leaving...' : 'Leave sending safety' }}
+          >{{ busy() ? 'Turning off...' : 'Turn off ban protection' }}
         </button>
       } @else if (needsConsent()) {
         <button class="btn" type="button" (click)="close()" [disabled]="busy()">Cancel</button>
@@ -312,11 +325,11 @@
           [disabled]="busy()"
         >
           <i class="ti ti-rotate" aria-hidden="true"></i
-          >{{ resetConfirm() ? 'Click again to reset' : 'Reset to platform defaults' }}
+          >{{ resetConfirm() ? 'Click again to reset' : 'Go back to our standard limits' }}
         </button>
         <span class="spacer"></span>
         <button class="btn" type="button" (click)="close()" [disabled]="busy()">Cancel</button>
-        <button class="btn primary" type="button" (click)="save()" [disabled]="busy()">
+        <button class="btn primary" type="button" (click)="save()" [disabled]="busy() || blanks().size > 0">
           {{ busy() ? 'Saving...' : 'Save limits' }}
         </button>
       }

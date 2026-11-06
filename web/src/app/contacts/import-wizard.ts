@@ -31,12 +31,37 @@ const LIST_CHECKS: readonly {
 }[] = [
   { kind: 'invalid', text: 'are not phone numbers and will be skipped', one: 'is not a phone number and will be skipped' },
   { kind: 'duplicates', text: 'appear more than once; each person is imported once', one: 'appears more than once; it is imported once' },
-  { kind: 'landline', text: "don't look like Indian mobile numbers (landlines or typos)", one: "doesn't look like an Indian mobile number (landline or typo)" },
+  // The server only runs this check on +91 numbers, so the wording names no country.
+  { kind: 'landline', text: "don't look like mobile numbers (landlines or typos)", one: "doesn't look like a mobile number (landline or typo)" },
   { kind: 'foreign', text: 'are outside your default country', one: 'is outside your default country' },
 ];
 interface Column {
   kind: Kind;
   key: string;
+}
+
+/** Column headings in the preview table, in the words the dropdown uses. */
+const KIND_LABEL: Record<Exclude<Kind, 'custom' | 'ignore'>, string> = {
+  phone: 'Phone number',
+  name: 'Name',
+  email: 'Email',
+  tags: 'Tags',
+  consent: 'Said yes to messages',
+};
+
+/** The most skipped rows listed after an import; the rest are counted, not shown. */
+const PROBLEMS_SHOWN = 50;
+
+/**
+ * The server's phone errors ("not a valid E.164 number: 12 -> 9112") in plain words. Anything
+ * it does not recognise passes through unchanged.
+ */
+export function plainReason(text: string): string {
+  return text
+    .replace(/not a valid E\.164 number: (.*?) -> \S*$/, '"$1" is not a valid phone number')
+    .replace(/not a number: (.*)$/, '"$1" is not a valid phone number')
+    .replace(/empty phone number$/, 'no phone number')
+    .replace(/missing phone number$/, 'no phone number');
 }
 
 /** The stepper's order; `stepIndex` compares against it to tick finished steps. */
@@ -68,6 +93,8 @@ export class ImportWizard {
   readonly knownTags = input<{ tag: string; count: number }[]>([]);
   readonly closed = output<void>();
   readonly imported = output<void>();
+  /** "From WhatsApp groups" under More options: the page swaps this wizard for the groups dialog. */
+  readonly fromGroups = output<void>();
 
   protected readonly steps = STEPS;
   protected readonly step = signal<Step>('upload');
@@ -104,9 +131,9 @@ export class ImportWizard {
     if (count('name') > 1) return 'Only one column can be the name.';
     if (count('email') > 1) return 'Only one column can be the email.';
     if (cols.some((c) => c.kind === 'custom' && !c.key.trim()))
-      return 'Give every custom field a name.';
+      return 'Give every extra detail a name.';
     const keys = cols.filter((c) => c.kind === 'custom').map((c) => c.key.trim());
-    if (new Set(keys).size !== keys.length) return 'Two columns map to the same custom field.';
+    if (new Set(keys).size !== keys.length) return 'Two columns are saved as the same extra detail.';
     return '';
   });
 
@@ -126,15 +153,20 @@ export class ImportWizard {
   /** The list check for whichever column is mapped to the phone: one line per problem found. */
   protected readonly listCheck = computed(() => {
     const at = this.columns().findIndex((c) => c.kind === 'phone');
-    const q = at >= 0 ? this.preview()?.quality?.[at] : null;
-    if (!q) return null;
+    const p = this.preview();
+    if (at < 0 || !p?.quality) return null;
+    const q = p.quality[at];
+    // The server skips the check when fewer than half the first rows are valid numbers, which
+    // is exactly the list that most needs a warning.
+    const mostlyBad = !q && p.rows.some((r) => String(r[at] ?? '').trim());
+    if (!q) return mostlyBad ? { checked: 0, lines: [], mostlyBad } : null;
     const lines = LIST_CHECKS.filter((c) => q[c.kind] > 0).map((c) => ({
       ...c,
       text: q[c.kind] === 1 ? c.one : c.text,
       n: q[c.kind],
       examples: q.examples[c.kind].join(', '),
     }));
-    return { checked: q.checked, lines };
+    return { checked: q.checked, lines, mostlyBad };
   });
 
   protected readonly invalid = computed(() => {
@@ -145,11 +177,11 @@ export class ImportWizard {
   protected readonly problems = computed(() => {
     const r = this.result();
     if (!r) return [];
-    return [...r.errors, ...(r.saved?.failed ?? []).map((f) => `Row ${f.row}: ${f.error}`)].slice(
-      0,
-      50,
-    );
+    return [...r.errors, ...(r.saved?.failed ?? []).map((f) => `Row ${f.row}: ${f.error}`)]
+      .slice(0, PROBLEMS_SHOWN)
+      .map(plainReason);
   });
+  protected readonly problemsShown = PROBLEMS_SHOWN;
 
   /** Bumped per preview request, so only the last file picked or dropped is used. */
   private uploadSeq = 0;
@@ -236,8 +268,8 @@ export class ImportWizard {
   }
 
   protected targetLabel(c: Column) {
-    if (c.kind === 'custom') return c.key || 'custom';
-    return c.kind;
+    if (c.kind === 'custom') return c.key || 'Extra detail';
+    return c.kind === 'ignore' ? '' : KIND_LABEL[c.kind];
   }
 
   // ------------------------------------------------------------------ tags --

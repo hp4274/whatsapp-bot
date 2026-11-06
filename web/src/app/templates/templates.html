@@ -206,14 +206,16 @@
               Keep
             </button>
           } @else {
-            <button
-              class="btn sm primary"
-              type="button"
-              (click)="useInCampaign(t)"
-              [attr.aria-label]="'Use ' + t.name + ' in a campaign'"
-            >
-              <i class="ti ti-send" aria-hidden="true"></i> Use
-            </button>
+            @if (canUse(t)) {
+              <button
+                class="btn sm primary"
+                type="button"
+                (click)="useInCampaign(t)"
+                [attr.aria-label]="'Use ' + t.name + ' in a campaign'"
+              >
+                <i class="ti ti-send" aria-hidden="true"></i> Use
+              </button>
+            }
             <button
               class="btn sm ghost"
               type="button"
@@ -349,61 +351,27 @@
           <span
             ><b>{{ ago(e.lastUsedAt) }}</b> last used</span
           >
-          <button class="btn sm" type="button" (click)="useInCampaign(e)">
-            <i class="ti ti-send" aria-hidden="true"></i> Use in campaign
-          </button>
+          @if (canUse(e)) {
+            <button class="btn sm" type="button" (click)="useInCampaign(e)">
+              <i class="ti ti-send" aria-hidden="true"></i> Use in campaign
+            </button>
+          }
         </div>
       }
       <form class="ed" (ngSubmit)="save()">
         <div class="form">
-          <div class="row">
-            <div class="field">
-              <label for="tp-name">Name</label>
-              <input
-                id="tp-name"
-                name="name"
-                required
-                maxlength="80"
-                [ngModel]="draft().name"
-                (ngModelChange)="patch({ name: $event })"
-                placeholder="e.g. order_shipped"
-              />
-            </div>
-            <div class="field">
-              <label for="tp-type">Type</label>
-              <select
-                id="tp-type"
-                name="type"
-                [ngModel]="draft().templateType"
-                (ngModelChange)="patch({ templateType: $event })"
-              >
-                @for (t of types; track t) {
-                  <option [value]="t">{{ meta[t].label }}</option>
-                }
-              </select>
-            </div>
+          <div class="field">
+            <label for="tp-name">Name</label>
+            <input
+              id="tp-name"
+              name="name"
+              required
+              maxlength="80"
+              [ngModel]="draft().name"
+              (ngModelChange)="patch({ name: $event })"
+              placeholder="e.g. order_shipped"
+            />
           </div>
-
-          <fieldset class="catpick">
-            <legend>Category</legend>
-            <div class="opts" role="radiogroup" aria-label="Category">
-              @for (c of categories; track c) {
-                <button
-                  type="button"
-                  role="radio"
-                  class="opt"
-                  [class]="cat[c].tone"
-                  [attr.aria-checked]="draft().category === c"
-                  (click)="patch({ category: c })"
-                >
-                  <i class="ti ti-{{ cat[c].icon }}" aria-hidden="true"></i>{{ cat[c].label }}
-                </button>
-              }
-            </div>
-            <p class="guide" aria-live="polite">
-              <i class="ti ti-info-circle" aria-hidden="true"></i>{{ cat[draft().category].guide }}
-            </p>
-          </fieldset>
 
           <section class="block" aria-labelledby="tp-media-h">
             <h4 id="tp-media-h">
@@ -452,25 +420,6 @@
                     <i class="ti ti-upload" aria-hidden="true"></i> Upload image, video or PDF
                   }
                 </label>
-                <div class="paste">
-                  <label class="sr-only" for="tp-mid">Existing media id</label>
-                  <input
-                    id="tp-mid"
-                    name="mid"
-                    placeholder="or paste a media id (med_…)"
-                    [ngModel]="pasteId()"
-                    (ngModelChange)="pasteId.set($event)"
-                    (keydown.enter)="$event.preventDefault(); attachPasted()"
-                  />
-                  <button
-                    class="btn sm"
-                    type="button"
-                    [disabled]="!pasteId().trim()"
-                    (click)="attachPasted()"
-                  >
-                    Attach
-                  </button>
-                </div>
               </div>
             }
             @if (mediaError()) {
@@ -522,44 +471,16 @@
                 {{ draft().body.length - 1024 }}.</span
               >
             }
-            @if (spam(); as sp) {
-              <span class="spam" aria-live="polite">
-                <span class="s-pill" [class]="spamTone()" [attr.title]="spamWhy() || null"
-                  ><i class="ti ti-gauge" aria-hidden="true"></i> Spam score {{ sp.score }}{{
-                    sp.limit < 100 ? ' / ' + sp.limit : ''
-                  }}</span
-                >
-                @if (sp.reasons.length) {
-                  <small class="muted">{{ spamWhy() }}</small>
-                }
+            @if (spamHigh()) {
+              <span class="spam-warn" role="status">
+                <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+                This wording may look like spam to WhatsApp. Open Advanced to see why.
               </span>
             }
             @for (m of problems(); track m) {
               <span class="err">{{ m }}</span>
             }
           </div>
-
-          @if (vars().length) {
-            <fieldset class="samples">
-              <legend>
-                Sample values <small>shown in the preview</small>
-              </legend>
-              @for (v of vars(); track v) {
-                <div class="field">
-                  <label [for]="'tp-s-' + v"
-                    ><code>{{ '{' + v + '}' }}</code></label
-                  >
-                  <input
-                    [id]="'tp-s-' + v"
-                    [name]="'s-' + v"
-                    [ngModel]="draft().sampleValues[v] ?? ''"
-                    (ngModelChange)="setSample(v, $event)"
-                    [placeholder]="'Example ' + v"
-                  />
-                </div>
-              }
-            </fieldset>
-          }
 
           <section class="block" aria-labelledby="tp-btn-h">
             <h4 id="tp-btn-h"><i class="ti ti-hand-finger" aria-hidden="true"></i> Buttons</h4>
@@ -568,6 +489,110 @@
               (valueChange)="patch({ interactive: $event })"
             />
           </section>
+
+          <!-- Rarely needed. Type and category only sort the list (the server sends every
+               template the same way); the rest is reuse, preview and fine-tuning. -->
+          <details class="advanced">
+            <summary>Advanced</summary>
+            <div class="advanced-body">
+              <p class="muted adv-note">
+                Type and category only help you sort and filter your templates. They don't change
+                how the message is sent.
+              </p>
+              <div class="field">
+                <label for="tp-type">Type</label>
+                <select
+                  id="tp-type"
+                  name="type"
+                  [ngModel]="draft().templateType"
+                  (ngModelChange)="patch({ templateType: $event })"
+                >
+                  @for (t of types; track t) {
+                    <option [value]="t">{{ meta[t].label }}</option>
+                  }
+                </select>
+              </div>
+
+              <fieldset class="catpick">
+                <legend>Category</legend>
+                <div class="opts" role="radiogroup" aria-label="Category">
+                  @for (c of categories; track c) {
+                    <button
+                      type="button"
+                      role="radio"
+                      class="opt"
+                      [class]="cat[c].tone"
+                      [attr.aria-checked]="draft().category === c"
+                      (click)="patch({ category: c })"
+                    >
+                      <i class="ti ti-{{ cat[c].icon }}" aria-hidden="true"></i>{{ cat[c].label }}
+                    </button>
+                  }
+                </div>
+                <p class="guide" aria-live="polite">
+                  <i class="ti ti-info-circle" aria-hidden="true"></i
+                  >{{ cat[draft().category].guide }}
+                </p>
+              </fieldset>
+
+              @if (!draft().headerMediaId) {
+                <div class="field">
+                  <label for="tp-mid">Reuse a file you uploaded before</label>
+                  <div class="paste">
+                    <input
+                      id="tp-mid"
+                      name="mid"
+                      placeholder="Paste its media id (med_…)"
+                      [ngModel]="pasteId()"
+                      (ngModelChange)="pasteId.set($event)"
+                      (keydown.enter)="$event.preventDefault(); attachPasted()"
+                    />
+                    <button
+                      class="btn sm"
+                      type="button"
+                      [disabled]="!pasteId().trim()"
+                      (click)="attachPasted()"
+                    >
+                      Attach
+                    </button>
+                  </div>
+                </div>
+              }
+
+              @if (vars().length) {
+                <fieldset class="samples">
+                  <legend>Example values <small>only used in the preview</small></legend>
+                  @for (v of vars(); track v) {
+                    <div class="field">
+                      <label [for]="'tp-s-' + v"
+                        ><code>{{ '{' + v + '}' }}</code></label
+                      >
+                      <input
+                        [id]="'tp-s-' + v"
+                        [name]="'s-' + v"
+                        [ngModel]="draft().sampleValues[v] ?? ''"
+                        (ngModelChange)="setSample(v, $event)"
+                        [placeholder]="'Example ' + v"
+                      />
+                    </div>
+                  }
+                </fieldset>
+              }
+
+              @if (spam(); as sp) {
+                <span class="spam" aria-live="polite">
+                  <span class="s-pill" [class]="spamTone()" [attr.title]="spamWhy() || null"
+                    ><i class="ti ti-gauge" aria-hidden="true"></i> Spam score {{ sp.score }}{{
+                      sp.limit < 100 ? ' / ' + sp.limit : ''
+                    }}</span
+                  >
+                  @if (sp.reasons.length) {
+                    <small class="muted">{{ spamWhy() }}</small>
+                  }
+                </span>
+              }
+            </div>
+          </details>
         </div>
 
         <div class="side" #side>
@@ -607,9 +632,11 @@
         <span
           ><b>{{ ago(p.template.lastUsedAt) }}</b> last used</span
         >
-        <button class="btn sm" type="button" (click)="useInCampaign(p.template)">
-          <i class="ti ti-send" aria-hidden="true"></i> Use in campaign
-        </button>
+        @if (canUse(p.template)) {
+          <button class="btn sm" type="button" (click)="useInCampaign(p.template)">
+            <i class="ti ti-send" aria-hidden="true"></i> Use in campaign
+          </button>
+        }
       </div>
       @if (versions(); as vs) {
         <ol class="timeline">

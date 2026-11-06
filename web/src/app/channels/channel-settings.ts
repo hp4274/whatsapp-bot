@@ -4,7 +4,10 @@ import { Channel, ChannelPatch } from '../core/api';
 import { capabilityMeta } from './channel-meta';
 import { SendWindow } from './send-window';
 
-/** The per-number drawer: what it may be used for, when it may send, and lifecycle actions. */
+/**
+ * A number's Advanced fold: what it may send, when it may send, and pausing or deleting it. Kept out of
+ * sight on the card because a one-number business rarely needs any of it.
+ */
 @Component({
   selector: 'app-channel-settings',
   imports: [SendWindow],
@@ -17,12 +20,14 @@ export class ChannelSettings {
   readonly capabilities = input<string[]>([]);
   readonly canDelete = input(false);
   readonly busy = input(false);
+  /** The business has several numbers: only then is there a main number to choose. */
+  readonly multi = input(false);
 
   readonly patch = output<ChannelPatch>();
   readonly makeDefault = output<void>();
   readonly remove = output<void>();
 
-  /** Disable and delete are two-step: the first click arms an inline confirm. */
+  /** Pause and delete are two-step: the first click arms an inline confirm. */
   protected readonly confirming = signal<'delete' | 'disable' | null>(null);
   protected readonly label = capabilityMeta;
 

@@ -281,6 +281,8 @@ export class PolicyStore {
             values[field.key] = hit ? hit[1][field.key] : field.default;
             sources[field.key] = hit ? hit[0] : 'default';
         }
+        // The tenant's own limits over its rules (app.js sets it: limits.ownDailyLimit drops the plan's day).
+        if (tenantId != null && this.adjust) Object.assign(values, this.adjust(Number(tenantId)) ?? {});
         return { planKey, values, sources };
     }
 

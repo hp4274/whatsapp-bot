@@ -80,7 +80,12 @@
       <i class="ti ti-help-circle" aria-hidden="true"></i>
       <span
         >Answer this number's 2 questions to start sending. Messages wait until they are answered
-        on the <a routerLink="/connection">Connection page</a>, then go out by themselves.</span
+        @if (isAdmin()) {
+          on the <a routerLink="/whatsapp">WhatsApp page</a>,
+        } @else {
+          (ask an admin to answer them),
+        }
+        then go out by themselves.</span
       >
     </p>
   }
@@ -88,7 +93,7 @@
     <p class="banner">
       <i class="ti ti-hourglass-high" aria-hidden="true"></i>
       <span
-        >{{ overQuota() }} message(s) go over today's limit - they go out tomorrow automatically,
+        >{{ overQuota() }} {{ overQuota() === 1 ? 'message goes' : 'messages go' }} over today's limit - they go out tomorrow automatically,
         nothing to resume.</span
       >
     </p>
@@ -116,10 +121,21 @@
         } @else if (numbers().length > 1) {
           Each number has its own daily limit, so switching on another number below is the safe way to finish
           sooner.
-        } @else {
+        } @else if (isAdmin()) {
           Each number has its own daily limit, so
-          <a routerLink="/channels">adding another number</a> is the safe way to finish sooner.
+          <a routerLink="/whatsapp">adding another number</a> is the safe way to finish sooner.
+        } @else {
+          Each number has its own daily limit, so adding another number (ask an admin) is the safe way to finish sooner.
         }</span
+      >
+    </p>
+  }
+  @if (takes(); as t) {
+    <p class="banner info">
+      <i class="ti ti-clock" aria-hidden="true"></i>
+      <span
+        >Sending all {{ t.count | number }} messages takes about <strong>{{ t.time }}</strong>, with safe gaps
+        between them.</span
       >
     </p>
   }
@@ -136,64 +152,70 @@
       </div>
     </div>
 
-    <ul class="numbers">
-      @for (c of numbers(); track c.id) {
-        @let own = c.id === ownId();
-        @let on = own || sharedIds().includes(c.id);
-        @let warmText = warmLabel(c);
-        <li [class.on]="on">
-          <span class="who">
-            <span class="name">
-              <strong>{{ numberName(c) }}</strong>
-              @if (c.id === recommendedId()) {
-                <span class="pill rec"><i class="ti ti-star" aria-hidden="true"></i> Recommended</span>
-              }
-            </span>
-            <span class="muted">
-              @if (own) {
-                This number
-              } @else if (!c.health?.connected) {
-                Not connected{{ canShare(c) ? ' - it must be by the send time' : '' }}
-              } @else {
-                Connected
-              }
-              @if (warmText) {
-                · {{ warmText }}
-              }
-              @if (on && sharedIds().length) {
-                · <strong class="gets">gets {{ shareOf(c.id) }}</strong>
-              }
-            </span>
-          </span>
-          <button
-            type="button"
-            role="switch"
-            class="switch"
-            [attr.aria-checked]="on"
-            [attr.aria-label]="'Send from ' + numberName(c)"
-            [disabled]="own || !canShare(c)"
-            (click)="toggleNumber(c.id)"
-          >
-            <span class="thumb"></span>
-          </button>
-        </li>
-      }
-    </ul>
+    <!-- Collapsed unless the page itself switched another number on: then the user must see it. -->
+    <details class="advanced" [open]="autoOn() !== null">
+      <summary>Choose numbers</summary>
+      <div class="advanced-body">
+        <ul class="numbers">
+          @for (c of numbers(); track c.id) {
+            @let own = c.id === ownId();
+            @let on = own || sharedIds().includes(c.id);
+            @let warmText = warmLabel(c);
+            <li [class.on]="on">
+              <span class="who">
+                <span class="name">
+                  <strong>{{ numberName(c) }}</strong>
+                  @if (c.id === recommendedId()) {
+                    <span class="pill rec"><i class="ti ti-star" aria-hidden="true"></i> Recommended</span>
+                  }
+                </span>
+                <span class="muted">
+                  @if (own) {
+                    This number
+                  } @else if (!c.health?.connected) {
+                    Not connected{{ canShare(c) ? ' - it must be by the send time' : '' }}
+                  } @else {
+                    Connected
+                  }
+                  @if (warmText) {
+                    · {{ warmText }}
+                  }
+                  @if (on && sharedIds().length) {
+                    · <strong class="gets">gets {{ shareOf(c.id) }}</strong>
+                  }
+                </span>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                class="switch"
+                [attr.aria-checked]="on"
+                [attr.aria-label]="'Send from ' + numberName(c)"
+                [disabled]="own || !canShare(c)"
+                (click)="toggleNumber(c.id)"
+              >
+                <span class="thumb"></span>
+              </button>
+            </li>
+          }
+        </ul>
 
-    @if (autoOn(); as id) {
-      @if (sharedIds().includes(id)) {
-        <p class="muted share-note">
-          <i class="ti ti-bulb" aria-hidden="true"></i>
-          This number is not connected, so {{ channelName(id) }} is switched on to send with it.
-        </p>
-      }
-    }
-    @if (sharedIds().length) {
-      <p class="muted share-note">
-        <i class="ti ti-arrows-split" aria-hidden="true"></i>
-        People are shared evenly over the numbers switched on; each sends its share under its own limit.
-      </p>
-    }
+        @if (autoOn(); as id) {
+          @if (sharedIds().includes(id)) {
+            <p class="muted share-note">
+              <i class="ti ti-bulb" aria-hidden="true"></i>
+              This number is not connected, so {{ channelName(id) }} is switched on to send with it.
+            </p>
+          }
+        }
+        @if (sharedIds().length) {
+          <p class="muted share-note">
+            <i class="ti ti-arrows-split" aria-hidden="true"></i>
+            People are shared evenly over the numbers switched on; each sends its share under its own limit.
+          </p>
+        }
+      </div>
+    </details>
   </section>
 }
 
@@ -202,7 +224,7 @@
     <span class="badge"><i class="ti ti-calendar-event" aria-hidden="true"></i></span>
     <div>
       <h3>When</h3>
-      <p class="muted">Send right away, pick a time, or spread a file across several days</p>
+      <p class="muted">Send right away or pick a time</p>
     </div>
   </div>
 
@@ -231,22 +253,6 @@
         <small>Not on your plan</small>
       }
     </button>
-    <button
-      type="button"
-      role="radio"
-      class="opt"
-      [class.on]="d.scheduleMode() === 'spread'"
-      [attr.aria-checked]="d.scheduleMode() === 'spread'"
-      [disabled]="!policy.allowScheduling() || d.source() !== 'file'"
-      (click)="d.scheduleMode.set('spread')"
-    >
-      <i class="ti ti-calendar-stats" aria-hidden="true"></i><strong>Spread over several days</strong>
-      @if (!policy.allowScheduling()) {
-        <small>Not on your plan</small>
-      } @else if (d.source() !== 'file') {
-        <small>Needs an uploaded file</small>
-      }
-    </button>
   </div>
 
   @if (d.scheduleMode() === 'later') {
@@ -258,14 +264,6 @@
       <div class="field">
         <label for="rv-time">Time</label>
         <input id="rv-time" type="time" [ngModel]="d.time()" (ngModelChange)="d.time.set($event)" />
-      </div>
-      <div class="field">
-        <label for="rv-tz">Time zone</label>
-        <select id="rv-tz" [ngModel]="d.timezone()" (ngModelChange)="d.timezone.set($event)">
-          @for (z of zones; track z) {
-            <option [value]="z">{{ z }}</option>
-          }
-        </select>
       </div>
     </div>
     @if (sendsAt(); as at) {
@@ -308,15 +306,11 @@
           (ngModelChange)="d.spreadTime.set($event)"
         />
       </div>
-      <div class="field">
-        <label for="rv-tz2">Time zone</label>
-        <select id="rv-tz2" [ngModel]="d.timezone()" (ngModelChange)="d.timezone.set($event)">
-          @for (z of zones; track z) {
-            <option [value]="z">{{ z }}</option>
-          }
-        </select>
-      </div>
     </div>
+    <p class="muted zone-note">
+      <i class="ti ti-world" aria-hidden="true"></i> Times are in {{ d.timezone() }} - change it under
+      More options.
+    </p>
 
     <div class="plan-slot" aria-live="polite">
       @if (spreadRangeIssue(); as issue) {
@@ -404,41 +398,86 @@
     <p class="banner danger">
       <i class="ti ti-link-off" aria-hidden="true"></i>
       <span
-        >No WhatsApp number is connected. <a routerLink="/connection">Connect one</a> to send now -
+        >No WhatsApp number is linked.
+        @if (isAdmin()) {
+          <a routerLink="/whatsapp">Link one</a> to send now -
+        } @else {
+          Ask an admin to link one to send now -
+        }
         scheduling still works.</span
       >
     </p>
   }
 
-  @if (d.scheduleMode() !== 'spread') {
-    <div class="when">
-      <div class="field">
-        <label for="rv-repeat">Repeat</label>
-        <select
-          id="rv-repeat"
-          [ngModel]="d.repeatEvery()"
-          (ngModelChange)="d.repeatEvery.set($event)"
+  <!-- Spread, time zone and repeat: rarely needed, so folded away. Opens by itself when the
+       draft already uses one of them, so nothing chosen is ever hidden. -->
+  <details class="advanced" [open]="advancedOpen">
+    <summary>More options</summary>
+    <div class="advanced-body">
+      <div class="adv-row">
+        <span class="adv-label">
+          <strong>Spread over several days</strong>
+          <small class="muted">{{
+            !policy.allowScheduling()
+              ? 'Not on your plan'
+              : d.source() !== 'file'
+                ? 'Needs an uploaded file'
+                : 'Send the file in equal daily batches'
+          }}</small>
+        </span>
+        <button
+          type="button"
+          role="switch"
+          class="switch"
+          aria-label="Spread over several days"
+          [attr.aria-checked]="d.scheduleMode() === 'spread'"
+          [disabled]="!policy.allowScheduling() || d.source() !== 'file'"
+          (click)="d.scheduleMode.set(d.scheduleMode() === 'spread' ? 'now' : 'spread')"
         >
-          <option value="">Don't repeat</option>
-          <option value="day">Every day</option>
-          <option value="week">Every week</option>
-          <option value="month">Every month</option>
-        </select>
+          <span class="thumb"></span>
+        </button>
       </div>
-      @if (d.repeatEvery()) {
+      @if (d.scheduleMode() !== 'now') {
         <div class="field">
-          <label for="rv-until">Until (optional)</label>
-          <input
-            id="rv-until"
-            type="date"
-            [min]="minDate"
-            [ngModel]="d.repeatUntil()"
-            (ngModelChange)="d.repeatUntil.set($event)"
-          />
+          <label for="rv-tz">Time zone</label>
+          <select id="rv-tz" [ngModel]="d.timezone()" (ngModelChange)="d.timezone.set($event)">
+            @for (z of zones; track z) {
+              <option [value]="z">{{ z }}</option>
+            }
+          </select>
+        </div>
+      }
+      @if (d.scheduleMode() !== 'spread') {
+        <div class="when">
+          <div class="field">
+            <label for="rv-repeat">Repeat</label>
+            <select
+              id="rv-repeat"
+              [ngModel]="d.repeatEvery()"
+              (ngModelChange)="d.repeatEvery.set($event)"
+            >
+              <option value="">Don't repeat</option>
+              <option value="day">Every day</option>
+              <option value="week">Every week</option>
+              <option value="month">Every month</option>
+            </select>
+          </div>
+          @if (d.repeatEvery()) {
+            <div class="field">
+              <label for="rv-until">Until (optional)</label>
+              <input
+                id="rv-until"
+                type="date"
+                [min]="minDate"
+                [ngModel]="d.repeatUntil()"
+                (ngModelChange)="d.repeatUntil.set($event)"
+              />
+            </div>
+          }
         </div>
       }
     </div>
-  }
+  </details>
 
   @if (error()) {
     <p class="error" role="alert">
@@ -519,5 +558,5 @@
 @if (blockers().length) {
   <p class="muted hint">{{ blockers()[0] }}</p>
 } @else if (d.scheduleMode() === 'now' && !canSendNow()) {
-  <p class="muted hint">Connect a WhatsApp number to send now - or schedule it instead.</p>
+  <p class="muted hint">Link a WhatsApp number to send now - or schedule it instead.</p>
 }

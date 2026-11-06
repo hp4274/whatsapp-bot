@@ -17,6 +17,7 @@ import { SERVICE_META, SOON_SERVICES } from './admin/service-meta';
 import { TenancyApi } from './core/api';
 import { Auth, Role, Tenant } from './core/auth';
 import { AccountDialog } from './core/account-dialog';
+import { ConnectGate } from './core/connect-gate';
 import { ConfirmDialog } from './core/confirm-dialog';
 import { SendIsland } from './core/send-island';
 import { AdminNotifications } from './admin/admin-notifications';
@@ -47,8 +48,6 @@ interface NavSection {
 
 /** Tabler glyphs, rendered as `ti ti-<icon>`. */
 const ICONS = {
-  connection: 'wifi',
-  campaign: 'messages',
   replies: 'message-bolt',
   payment: 'cash',
   history: 'history',
@@ -129,7 +128,7 @@ function readCollapsed(): boolean {
  */
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, SendIsland, AccountDialog, ConfirmDialog, AdminNotifications],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, SendIsland, AccountDialog, ConfirmDialog, AdminNotifications, ConnectGate],
   templateUrl: './app.html',
   styleUrl: './app.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -279,7 +278,6 @@ export class App {
     {
       heading: 'Messaging',
       items: [
-        { path: '/campaign', label: 'New Campaign', icon: ICONS.campaign, service: 'campaigns' },
         { path: '/campaigns', label: 'Campaigns', icon: 'speakerphone', service: 'campaigns' },
         { path: '/templates', label: 'Templates', icon: 'file-text', service: 'templates' },
         { path: '/auto-replies', label: 'Auto-Replies', icon: ICONS.replies, service: 'auto_replies' },
@@ -312,8 +310,7 @@ export class App {
     {
       heading: 'Settings',
       items: [
-        { path: '/connection', label: 'Connection', icon: ICONS.connection, service: 'whatsapp_channels', min: 'admin' },
-        { path: '/channels', label: 'WhatsApp Numbers', icon: ICONS.channels, service: 'whatsapp_channels', min: 'admin' },
+        { path: '/whatsapp', label: 'WhatsApp', icon: 'brand-whatsapp', service: 'whatsapp_channels', min: 'admin' },
         { path: '/team', label: 'Team', icon: ICONS.team, min: 'admin' },
         { path: '/workflows', label: 'Workflows', icon: 'hierarchy-3', service: 'workflows' },
         { path: '/developer', label: 'API & Webhooks', icon: 'api', service: 'api' },

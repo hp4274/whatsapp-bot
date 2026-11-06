@@ -1,12 +1,11 @@
 <!--
-  Bands in one card: the daily allowance in one line, today (budgets +
-  quiet-time windows), what is braking the number, trust tips for a new QR
-  number, the ban causes, then blocks and reports with who and when.
+  What is slowing the number down stays in view; the rest (today's budgets, trust tips for a new QR number, the
+  ban causes, blocks and reports with who and when) folds into Details. The daily allowance is on the number's card.
 -->
-<section #card class="sh" aria-labelledby="sh-title" (keydown.escape)="close()">
+<section class="sh" aria-labelledby="sh-title">
   <header class="card-head">
     <div>
-      <h3 id="sh-title">Number health</h3>
+      <h3 id="sh-title">How your number is doing</h3>
       <p class="muted">
         Daily sending grows as people reply. Blocks and reports pause a campaign for you.
       </p>
@@ -29,21 +28,38 @@
       <div class="s-skel" style="width: 80%"></div>
     </div>
   } @else {
-    @if (allowance(); as al) {
-      <p class="allowance" [class.held]="al.held" role="status">
-        <i class="ti {{ al.icon }}" aria-hidden="true"></i>
-        <span><strong>{{ al.lead }}</strong>{{ al.rest }}</span>
-      </p>
-    }
+    <!-- Ban protection off: nothing here applies; the controls below offer to turn it back on. -->
+    @if (safety()?.enabled === false) {
+      <p class="muted">Ban protection is off, so nothing slows this number down.</p>
+    } @else {
+      <!-- Brakes (QR numbers): the server's own words, and when each lifts -->
+      @if (brakes().length) {
+        <div class="band">
+          <strong class="cause-title">Why sending is slower right now</strong>
+          <ul class="causes">
+            @for (b of brakes(); track b.code) {
+              <li class="{{ b.code === 'ban' || b.code === 'restricted' ? 'tone-bad' : 'tone-warn' }}">
+                <i class="ti {{ brakeIcon(b.code) }}" aria-hidden="true"></i>
+                <span class="cause-label">{{ brakeLabel(b.code) }}</span>
+                <span class="s-pill tone-mute">{{
+                  b.until ? 'Until ' + (b.until | date: 'd MMM, h:mm a') : 'Until it improves'
+                }}</span>
+                <small class="muted">{{ brakeText(b) }}</small>
+              </li>
+            }
+          </ul>
+        </div>
+      }
 
-    <!-- Left sending safety: only the day's limit above; the controls below offer to rejoin. -->
-    @if (safety()?.enabled !== false) {
+      <details class="advanced">
+        <summary>Details</summary>
+        <div class="advanced-body">
       <!-- Today -->
       @if (safety(); as s) {
         <div class="band today">
           @if (budgets(); as b) {
             <div class="stat">
-              <span>Bulk today</span>
+              <span>Campaign messages today</span>
               <strong>{{ b.bulk.used }}{{ b.bulk.limit ? ' / ' + b.bulk.limit : '' }}</strong>
               <div class="meter slim" aria-hidden="true">
                 <div class="bar" [style.width.%]="share(b.bulk)"></div>
@@ -55,7 +71,7 @@
             <!-- Skipped questions: the number runs at the plan's day, so only that is shown. -->
             @if (!skipped()) {
               <div class="stat">
-                <span>New chats today</span>
+                <span>New people messaged today</span>
                 <strong>{{ b.newChats.used }}{{ b.newChats.limit ? ' / ' + b.newChats.limit : '' }}</strong>
                 <div class="meter slim" aria-hidden="true">
                   <div class="bar" [style.width.%]="share(b.newChats)"></div>
@@ -76,7 +92,7 @@
                 <div class="meter slim" aria-hidden="true">
                   <div class="bar" [style.width.%]="share(b.hour)"></div>
                 </div>
-                <small class="muted">Bulk in the last 60 minutes</small>
+                <small class="muted">Campaign messages in the last hour</small>
               </div>
             }
           } @else {
@@ -95,58 +111,6 @@
             <small class="muted">changes a little every day</small>
           </div>
           -->
-          @if (quiet(); as q) {
-            <div class="stat rest" [class.resting]="resting()">
-              <span title="Times are in your local time"
-                ><i class="ti ti-moon" aria-hidden="true"></i>Quiet time today</span
-              >
-              <strong>{{ duration(q.minutesToday) }}</strong>
-              @if (resting(); as r) {
-                <small class="muted">Quiet now, back in {{ duration(r.minutesLeft) }}</small>
-              }
-              <small class="muted">
-                @for (w of slots(); track w.key; let last = $last) {
-                  <button
-                    type="button"
-                    class="win"
-                    [class.done]="w.state === 'done'"
-                    [class.now]="w.state === 'now'"
-                    [class.hot]="lit() === w.key"
-                    [class.dim]="lit() !== null && lit() !== w.key"
-                    [attr.aria-label]="speech(w)"
-                    [attr.aria-pressed]="pinned() && lit() === w.key"
-                    (pointerenter)="show(w, $event)"
-                    (pointerleave)="hide($event)"
-                    (focus)="show(w, $event)"
-                    (blur)="hide()"
-                    (click)="pin(w, $event)"
-                    >{{ w.label }}@if (w.day) {
-                      <em> {{ w.day }}</em>
-                    }</button
-                  >{{ last ? '' : ' · ' }}
-                }
-              </small>
-            </div>
-          }
-        </div>
-      }
-
-      <!-- Brakes (QR numbers): the server's own words, and when each lifts -->
-      @if (brakes().length) {
-        <div class="band">
-          <strong class="cause-title">Slowing this number down</strong>
-          <ul class="causes">
-            @for (b of brakes(); track b.code) {
-              <li class="{{ b.code === 'ban' || b.code === 'restricted' ? 'tone-bad' : 'tone-warn' }}">
-                <i class="ti {{ brakeIcon(b.code) }}" aria-hidden="true"></i>
-                <span class="cause-label">{{ brakeLabel(b.code) }}</span>
-                <span class="s-pill tone-mute">{{
-                  b.until ? 'Until ' + (b.until | date: 'd MMM, h:mm a') : 'Until it improves'
-                }}</span>
-                <small class="muted">{{ brakeText(b) }}</small>
-              </li>
-            }
-          </ul>
         </div>
       }
 
@@ -230,7 +194,7 @@
             </div>
             <span class="s-pill {{ riskTone() }}">{{
               h.blockRatePercent + h.reportRatePercent | number: '1.0-1'
-            }}% of {{ h.pauseAtPercent }}% limit</span>
+            }}% (campaigns pause at {{ h.pauseAtPercent }}%)</span>
           </div>
 
           <div class="meter {{ riskTone() }}" aria-hidden="true">
@@ -296,8 +260,9 @@
           </p>
         </div>
       }
+        </div>
+      </details>
     }
   }
 
-  <app-quiet-tip [info]="tip()" [place]="place()" [top]="tipTop()" />
 </section>

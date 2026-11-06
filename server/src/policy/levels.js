@@ -6,20 +6,18 @@
  * DailyQuota's `tables` hook returns.
  */
 
-import { BLOCK_PAUSE_MIN_SENT, BLOCK_PAUSE_PERCENT, BRAKES, LEVELS, MAX_QUIET_HOURS } from '../campaign/humanize.js';
+import { BLOCK_PAUSE_MIN_SENT, BLOCK_PAUSE_PERCENT, BRAKES, LEVELS } from '../campaign/humanize.js';
 import { DEFAULT_SENDING } from '../campaign/safety.js';
 
 const S = 'whatsapp_channels';
 const BIG = 10_000_000;
 
-/** Pace columns of the levels table (gaps, rests, quiet time). */
+/** Pace columns of the levels table (gaps, rests). */
 const PACE_COLUMNS = [
     { key: 'name', type: 'text', label: 'Name' },
     { key: 'dailyLimit', type: 'int', min: 0, max: BIG, label: 'Per day' },
     { key: 'minSeconds', type: 'num', min: 0, max: 3600, label: 'Min gap (s)' },
     { key: 'maxSeconds', type: 'num', min: 0, max: 3600, label: 'Max gap (s)' },
-    // More than MAX_QUIET_HOURS a day leaves the rest windows overlapping (humanize.js quietWindows).
-    { key: 'quietHours', type: 'range', min: 0, max: MAX_QUIET_HOURS, label: 'Quiet hours' },
     { key: 'restEvery', type: 'int', min: 0, max: 10000, label: 'Rest every' },
     { key: 'restMinMinutes', type: 'num', min: 0, max: 600, label: 'Rest min (min)' },
     { key: 'restMaxMinutes', type: 'num', min: 0, max: 600, label: 'Rest max (min)' },
@@ -81,11 +79,8 @@ export const LEVELS_POLICY = Object.freeze([
       ],
       label: 'Delivery, stuck and unstable brakes',
       hint: 'Shadow logs when they would fire (number health, kind shadow) and never slows sending. Switch to enforce after reviewing 7 days of triggers.' },
-    { key: 'sending.skipQuietTime', service: S, group: 'Admin overrides', type: 'bool', default: false,
-      label: 'Skip quiet time',
-      hint: 'Bulk keeps sending through the number\'s daily rest windows and the business\'s quiet hours. The recipient\'s daytime and the plan\'s sending window still apply.' },
-    // On by default: phones drop a native carousel sent from a QR number; only Web showed it.
-    { key: 'sending.carouselImages', service: S, group: 'Admin overrides', type: 'bool', default: true,
+    // Off by default, by the user's choice (2026-11-05): the swipe carousel. Phones drop it from a QR number; on sends one image per card.
+    { key: 'sending.carouselImages', service: S, group: 'Admin overrides', type: 'bool', default: false,
       label: 'Send carousels as separate images',
       hint: 'On: one captioned image per card, which every phone, tablet, Mac and WhatsApp Web shows. Off: WhatsApp\'s swipe carousel, which Android and iPhone do not display from a QR number.' },
     { key: 'sending.skipLinkWait', service: S, group: 'Admin overrides', type: 'bool', default: false,
@@ -158,16 +153,17 @@ export function sendingTables(values = {}) {
         blockPausePercent: v('blockPausePercent', BLOCK_PAUSE_PERCENT),
         blockPauseMinSent: v('blockPauseMinSent', BLOCK_PAUSE_MIN_SENT),
         qrVaryAbove: v('qrVaryAbove', DEFAULT_SENDING.qrVaryAbove),
-        skipQuiet: values['sending.skipQuietTime'] === true,
         skipLinkWait: values['sending.skipLinkWait'] === true,
         skipGrowth: values['sending.skipGrowthCap'] === true,
-        carouselImages: values['sending.carouselImages'] !== false,
+        carouselImages: values['sending.carouselImages'] === true,
+        // Not a policy key: set by the runtime for a business whose own day replaces the plan's (limits.ownDailyLimit).
+        ownDay: values['sending.ownDay'] === true,
     };
 }
 
 /**
  * The number questions. `age`: 0 under a month on WhatsApp, 1 one to six months, 2 six to 24 months, 3 over
- * two years. `usage`: 0 new or hardly used, 1 light personal, 2 regular daily chats, 3 a busy business number.
+ * two years. `usage` (how often WhatsApp is used on it): 0 rarely or never, 1 a few times a week, 2 every day, 3 all day for business.
  * Their sum picks the start: 0-1 level 2 (20 a day) up to 6 level 7 (200 a day). Null when an answer is not 0-3.
  */
 export function startLevelFor({ age, usage } = {}) {

@@ -80,3 +80,37 @@ export function saveBlob(blob: Blob, filename: string) {
 }
 
 export const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * Loose on purpose: catches a typo like "name.example.com" before it is saved, and leaves
+ * the real check to whoever emails them. Empty is fine, the field is optional.
+ */
+export const isEmail = (value: string) => !value.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
+/**
+ * "Not duplicates" answers, kept in this browser per tenant: the server has no place to store
+ * them yet. A group is remembered by its number and member ids, so a new copy of the number
+ * brings the group back for review.
+ */
+const notDupesKey = (tenantId: number | null) => `wsender.notDupes.${tenantId ?? 'none'}`;
+
+export const dupeSignature = (group: { key: string; contacts: readonly { id: number }[] }) =>
+  `${group.key}:${group.contacts
+    .map((c) => c.id)
+    .sort((a, b) => a - b)
+    .join(',')}`;
+
+export function notDupes(tenantId: number | null): Set<string> {
+  try {
+    const list: unknown = JSON.parse(localStorage.getItem(notDupesKey(tenantId)) ?? '[]');
+    return new Set(Array.isArray(list) ? list.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function markNotDupe(tenantId: number | null, signature: string) {
+  const next = notDupes(tenantId);
+  next.add(signature);
+  localStorage.setItem(notDupesKey(tenantId), JSON.stringify([...next]));
+}

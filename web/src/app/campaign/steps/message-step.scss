@@ -1,4 +1,5 @@
 @use 'step';
+@use '../../school/school-shared' as s;
 
 // Editor: one 12px-radius field made of toolbar, textarea and variable chips,
 // with the input focus ring on the whole group.
@@ -148,10 +149,16 @@ label.field > span:first-child { font-size: 13px; font-weight: 500; color: var(-
   app-phone-input { flex: 1 1 260px; }
 }
 
-.rules {
-  display: grid;
-  gap: var(--space-md);
-  margin-top: var(--space-lg);
+.rules { margin-top: var(--space-lg); }
 
-  h4 { margin: 0; font-size: 14px; font-weight: 500; color: var(--text-strong); }
+// "More options" and the reply-rules fold (school-shared's `advanced` look).
+@include s.advanced;
+
+// An option and its note read as one pair, so the fold is tighter than the mixin's default.
+details.advanced > .advanced-body { gap: var(--space-md); }
+
+.spin {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-sm);
 }

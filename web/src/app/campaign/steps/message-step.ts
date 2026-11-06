@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   ElementRef,
   inject,
   signal,
@@ -9,6 +10,7 @@ import {
 import { FormsModule } from '@angular/forms';
 
 import { Api, type UploadedMedia } from '../../core/api';
+import { Auth } from '../../core/auth';
 import { ReusePicker } from '../../storage/reuse-picker';
 import { StorageApi, type StorageUse } from '../../storage/storage-api';
 import { shortDate } from '../../storage/storage-format';
@@ -66,10 +68,18 @@ export class MessageStep {
   /** Interactive buttons can be off on the plan; the editor is then replaced by a note. */
   protected readonly policy = inject(CampaignPolicy);
   private readonly editor = viewChild<ElementRef<HTMLTextAreaElement>>('editor');
+  private readonly auth = inject(Auth);
+  /** Reusing a stored file is admin-only on the server, so agents do not get the picker. */
+  protected readonly isAdmin = computed(() => this.auth.atLeast('admin'));
+  /**
+   * The folds start open only when the draft already uses what they hold. Read once: a live
+   * binding would snap a fold shut the moment the user switched its option back off.
+   */
+  protected readonly advancedOpen = this.draft.variantB() !== null || this.draft.trackLinks();
+  protected readonly rulesOpen = this.draft.replyRules().length > 0;
 
   protected readonly uploading = signal(false);
   protected readonly error = signal('');
-  protected readonly spinHelp = signal(false);
   /** First-upload time of the attachment when identical bytes were already stored; else null. */
   protected readonly duplicateOf = signal<string | null>(null);
   protected readonly date = shortDate;
@@ -77,6 +87,8 @@ export class MessageStep {
   /** Saved templates for the picker; null until loaded. */
   protected readonly saved = signal<Template[] | null>(null);
   protected readonly savedError = signal('');
+  /** A failed "Save as template"; its Try again saves again (not a list reload). */
+  protected readonly saveError = signal('');
   protected readonly savedNote = signal('');
   /** The "Save as template" name box: null while closed. */
   protected readonly savingName = signal<string | null>(null);
@@ -112,15 +124,7 @@ export class MessageStep {
     this.draft.message.set(t.body);
     this.draft.templateId.set(t.id);
     this.draft.interactive.set(t.interactive ?? null);
-    if (t.headerMediaId) {
-      this.draft.setAttachment({
-        mediaId: t.headerMediaId,
-        filename: 'Template attachment',
-        mimetype: '',
-        size: 0,
-        previewUrl: '',
-      });
-    }
+    this.draft.useTemplateMedia(t.headerMediaId);
     this.savedNote.set(`Loaded "${t.name}".`);
   }
 
@@ -130,6 +134,7 @@ export class MessageStep {
     const d = this.draft;
     this.saving.set(true);
     this.savedNote.set('');
+    this.saveError.set('');
     this.templatesApi
       .create({
         name,
@@ -158,7 +163,7 @@ export class MessageStep {
         error: (err: Error) => {
           this.saving.set(false);
           this.savedNote.set('');
-          this.savedError.set(`Could not save the template: ${err.message}`);
+          this.saveError.set(`Could not save the template: ${err.message}`);
         },
       });
   }

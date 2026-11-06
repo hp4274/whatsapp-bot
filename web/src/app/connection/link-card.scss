@@ -1,16 +1,13 @@
 @use '../school/school-shared' as s;
 
-@include s.keyframes;
-@include s.head;
-@include s.pill;
-@include s.tones;
 @include s.banner;
 @include s.buttons;
 
+/* Lives inside the selected number's card, so its panels are inset surfaces, not cards of their own. */
 :host {
   display: grid;
   @include s.fit-grid;
-  gap: var(--space-lg);
+  gap: var(--space-md);
 }
 
 h3 {
@@ -18,44 +15,6 @@ h3 {
   font-size: 17px;
   font-weight: 500;
   color: var(--text-strong);
-}
-
-.s-head {
-  .eyebrow .ti {
-    font-size: 15px;
-  }
-
-  .advisory {
-    flex-basis: 100%;
-    margin: 0;
-    font-size: 12.5px;
-
-    &.warn {
-      color: var(--warning);
-    }
-  }
-}
-
-.card-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-xl) var(--space-xl) var(--space-lg);
-
-  > div {
-    flex: 1 1 0;
-    min-width: 0;
-  }
-
-  p {
-    margin: 2px 0 0;
-    font-size: 12.5px;
-  }
-
-  .s-pill {
-    margin-left: auto;
-  }
 }
 
 .badge {
@@ -69,53 +28,12 @@ h3 {
   background: color-mix(in srgb, var(--tone) 12%, transparent);
   color: var(--tone);
 
-  &.accent {
-    --tone: var(--accent);
-  }
-
-  &.warn {
-    --tone: var(--warning);
-  }
-
   &.ok {
     --tone: var(--success);
   }
-}
 
-.badge.bad {
-  --tone: var(--danger-text);
-}
-
-/* Banned or paused: the reason comes first, in the danger tone. */
-.stopped {
-  display: grid;
-  gap: var(--space-md);
-  padding-bottom: var(--space-xl);
-  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
-  background:
-    radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--danger) 12%, transparent), transparent 55%),
-    var(--surface-card);
-
-  .card-head {
-    padding-bottom: 0;
-  }
-
-  > .reason,
-  > .fine,
-  > .link-actions {
-    margin: 0 var(--space-xl);
-  }
-
-  .reason {
-    line-height: 1.6;
-    color: var(--text-strong);
-  }
-
-  a {
-    color: var(--primary-text);
-    font-weight: 500;
-    text-decoration: underline;
-    text-underline-offset: 2px;
+  &.bad {
+    --tone: var(--danger-text);
   }
 }
 
@@ -128,90 +46,76 @@ h3 {
   }
 }
 
-.questions {
-  padding: var(--space-xl);
-}
-
-.safety {
+/* Banned or paused: the reason comes first, in the danger tone. */
+.stopped {
   display: grid;
   gap: var(--space-md);
-  padding-bottom: var(--space-xl);
+  padding: var(--space-lg) var(--space-xl) var(--space-xl);
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--danger) 12%, transparent), transparent 55%),
+    var(--surface-card);
 
-  > app-safety-controls {
-    margin: 0 var(--space-xl);
+  .reason {
+    margin: 0;
+    line-height: 1.6;
+    color: var(--text-strong);
+  }
+
+  .text-link {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: var(--primary-text);
+    font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
   }
 }
 
-/* Ban recovery: a quiet checklist, same rhythm as the safety card. */
-.recover {
-  display: grid;
+.stopped-head {
+  display: flex;
+  align-items: center;
   gap: var(--space-md);
-  padding-bottom: var(--space-xl);
 
-  > .recover-steps,
-  > .fine {
-    margin: 0 var(--space-xl);
-  }
-
-  .recover-steps {
-    li {
-      align-items: flex-start;
-      max-width: 72ch;
-    }
-
-    .num {
-      margin-top: 1px;
-    }
-
-    small {
-      line-height: 1.55;
-    }
-
-    a {
-      color: var(--primary-text);
-      font-weight: 500;
-      text-decoration: underline;
-      text-underline-offset: 2px;
-
-      .ti {
-        font-size: 12px;
-      }
-    }
-
-    b {
-      font-weight: 500;
-      color: var(--text-strong);
-    }
+  p {
+    margin: 2px 0 0;
+    font-size: 12.5px;
   }
 }
 
-/* The link card: steps on the left, a phone that holds the QR on the right. */
+/* The link panel: steps on the left, a phone that holds the QR on the right. */
 .link {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-xl);
-  padding: var(--space-xl) clamp(var(--space-xl), 4vw, 48px);
+  padding: var(--space-xl);
   overflow: hidden;
+  border-radius: var(--radius-lg);
   background:
     radial-gradient(120% 140% at 100% 0%, var(--primary-glow), transparent 55%),
-    var(--surface-card);
+    var(--surface-sunken);
 
   &.live {
+    grid-template-columns: minmax(0, 1fr);
     background:
       radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--success) 18%, transparent), transparent 55%),
-      var(--surface-card);
+      var(--surface-sunken);
   }
 
   h3 {
-    font-size: 22px;
+    font-size: 20px;
     letter-spacing: -0.4px;
   }
 
   .badge {
-    width: 48px;
-    height: 48px;
-    font-size: 24px;
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
   }
 }
 
@@ -308,11 +212,11 @@ h3 {
 
 /* A straight phone: the QR sits on a white screen so it scans in dark mode too. */
 .phone {
-  width: 260px;
+  width: 240px;
   padding: 14px;
   border-radius: 36px;
-  background: linear-gradient(160deg, #2a2f3a, #0d1017);
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.06);
+  background: var(--phone-bezel);
+  box-shadow: inset 0 0 0 2px var(--phone-bezel-edge);
   animation: phone-in 500ms var(--ease) both;
 
   .screen {
@@ -322,8 +226,8 @@ h3 {
     gap: var(--space-sm);
     aspect-ratio: 9 / 15;
     border-radius: 26px;
-    background: #fff;
-    color: #3b3f4a;
+    background: var(--phone-screen);
+    color: var(--phone-ink);
     font-size: 12.5px;
     text-align: center;
     padding: var(--space-md);
@@ -336,14 +240,9 @@ h3 {
     animation: qr-in 520ms var(--ease) both;
   }
 
-  .idle-mark,
-  .done-mark {
+  .idle-mark {
     font-size: 64px;
-    color: #c4c8d2;
-  }
-
-  .done-mark {
-    color: var(--success);
+    color: var(--phone-mark);
   }
 
   .qr-timer {
@@ -372,10 +271,6 @@ h3 {
   }
 }
 
-.safety .tos {
-  margin: 0 var(--space-xl);
-}
-
 @media (max-width: 760px) {
   .link {
     grid-template-columns: minmax(0, 1fr);
@@ -393,25 +288,10 @@ h3 {
   }
 }
 
-/* A narrow header: title and text take the line; the pill drops under them, in line with the title. */
 @media (max-width: 560px) {
-  .card-head {
-    padding: 20px 20px var(--space-lg);
-
-    > div {
-      flex-basis: calc(100% - 38px - var(--space-md));
-    }
-
-    .s-pill {
-      margin-left: calc(38px + var(--space-md));
-    }
-  }
-
-  .safety > app-safety-controls,
-  .safety .tos,
-  .stopped > :is(.reason, .fine, .link-actions),
-  .recover > :is(.recover-steps, .fine) {
-    margin-inline: 20px;
+  .link,
+  .stopped {
+    padding: 18px;
   }
 }
 

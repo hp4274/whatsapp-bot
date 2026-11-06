@@ -225,13 +225,13 @@ describe('admin audit trail', () => {
 
 describe('number protection policy', () => {
     it('exposes the new keys to the platform admin with range checks', async () => {
-        for (const key of ['recipientDailyCap', 'requireVariationAbove', 'quietHoursStart', 'quietHoursEnd']) {
+        for (const key of ['recipientDailyCap', 'requireVariationAbove']) {
             assert.ok(POLICY_KEYS.includes(key), key);
             assert.equal(DEFAULTS[key], 0, `${key} is off by default`);
         }
         const view = await call(tokens.superAdmin, 'GET', `/api/admin/tenants/${tenantB.id}/safety`);
         assert.equal(view.body.safety.recipientDailyCap, 0);
-        assert.equal((await call(tokens.superAdmin, 'PUT', `/api/admin/tenants/${tenantB.id}/safety`, { quietHoursStart: 24 })).status, 400);
+        assert.equal((await call(tokens.superAdmin, 'PUT', `/api/admin/tenants/${tenantB.id}/safety`, { recipientDailyCap: 101 })).status, 400);
         const ok = await call(tokens.superAdmin, 'PUT', `/api/admin/tenants/${tenantB.id}/safety`, { recipientDailyCap: 2 });
         assert.equal(ok.body.safety.recipientDailyCap, 2);
         // Tenants cannot set platform policy through their own config.
@@ -303,21 +303,11 @@ describe('number protection policy', () => {
         }
     });
 
-    it('knows quiet hours in the channel timezone, wrapping midnight, reusing the sending window', () => {
-        const utc = { timezone: 'UTC', businessHours: null };
-        const night = { quietHoursStart: 21, quietHoursEnd: 9 };
-        assert.equal(bulkWindowOpen(utc, night, new Date('2026-01-05T22:30:00Z')), false);
-        assert.equal(bulkWindowOpen(utc, night, new Date('2026-01-05T03:00:00Z')), false);
-        assert.equal(bulkWindowOpen(utc, night, new Date('2026-01-05T12:00:00Z')), true);
-        const midday = { quietHoursStart: 13, quietHoursEnd: 15 };
-        assert.equal(bulkWindowOpen(utc, midday, new Date('2026-01-05T14:00:00Z')), false);
-        assert.equal(bulkWindowOpen(utc, midday, new Date('2026-01-05T16:00:00Z')), true);
-        // 16:00 UTC is 21:30 in Kolkata.
-        assert.equal(bulkWindowOpen({ timezone: 'Asia/Kolkata' }, night, new Date('2026-01-05T16:00:00Z')), false);
-        assert.equal(bulkWindowOpen(utc, {}, new Date('2026-01-05T03:00:00Z')), true, 'off by default');
-        // The channel's own window still applies.
+    it("opens bulk by the channel's own sending window only", () => {
         const office = { timezone: 'UTC', businessHours: { start: '09:00', end: '17:00' } };
-        assert.equal(bulkWindowOpen(office, {}, new Date('2026-01-05T18:00:00Z')), false);
+        assert.equal(bulkWindowOpen(office, new Date('2026-01-05T18:00:00Z')), false);
+        assert.equal(bulkWindowOpen(office, new Date('2026-01-05T12:00:00Z')), true);
+        assert.equal(bulkWindowOpen({ timezone: 'UTC', businessHours: null }, new Date('2026-01-05T03:00:00Z')), true, 'no window: always open');
     });
 
     it('holds bulk outside the window without failing it, while replies still go', async () => {

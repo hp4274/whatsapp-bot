@@ -29,6 +29,9 @@ import {
   initials,
   relativeTime,
   absoluteTime,
+  dupeSignature,
+  isEmail,
+  notDupes,
   saveBlob,
   splitTags,
   today,
@@ -103,6 +106,8 @@ export class ContactsView {
   protected readonly fieldKeys = signal<string[]>([]);
   protected readonly segments = signal<Segment[]>([]);
   protected readonly overall = signal<{ total: number; optedOut: number } | null>(null);
+  /** The stat tiles' counts failed: shown instead of skeletons that would never resolve. */
+  protected readonly metaError = signal('');
   protected readonly loading = signal(true);
   protected readonly refreshing = signal(false);
   protected readonly error = signal('');
@@ -279,27 +284,38 @@ export class ContactsView {
       });
   }
 
-  private loadMeta() {
+  protected loadMeta() {
+    this.metaError.set('');
     this.api
       .segments()
       .subscribe({ next: ({ segments }) => this.segments.set(segments), error: () => undefined });
+    const failed = (err: Error) => {
+      // Tiles that loaded before stay; only a row that never filled turns into the error.
+      if (!this.overall()) this.metaError.set(err.message);
+    };
     this.api.list({}, 1).subscribe({
       next: ({ total }) =>
         this.api.list({ optedOut: true }, 1).subscribe({
           next: (out) => this.overall.set({ total, optedOut: out.total }),
-          error: () => undefined,
+          error: failed,
         }),
+      error: failed,
+    });
+    this.loadDupes();
+  }
+
+  /** Groups the user said are not duplicates (kept in this browser) stay out of the banner. */
+  protected loadDupes() {
+    if (!this.canWrite()) return;
+    this.api.duplicates().subscribe({
+      next: ({ groups, total }) => {
+        const skipped = notDupes(this.auth.tenantId());
+        const open = groups.filter((g) => !skipped.has(dupeSignature(g)));
+        this.dupes.set(open);
+        this.dupeTotal.set(Math.max(0, total - (groups.length - open.length)));
+      },
       error: () => undefined,
     });
-    if (this.canWrite()) {
-      this.api.duplicates().subscribe({
-        next: ({ groups, total }) => {
-          this.dupes.set(groups);
-          this.dupeTotal.set(total);
-        },
-        error: () => undefined,
-      });
-    }
   }
 
   /** Any change to what is being looked at: back to page one, selection cleared. */
@@ -505,6 +521,12 @@ export class ContactsView {
     this.loadMeta();
   }
 
+  protected onMergeClosed() {
+    this.mergeOpen.set(false);
+    // "Not duplicates" answers given in the dialog take the groups off the banner too.
+    this.loadDupes();
+  }
+
   protected onMerged(count: number) {
     this.flash('ok', `Merged ${count} duplicate${count === 1 ? '' : 's'}.`);
     this.load(true);
@@ -517,6 +539,10 @@ export class ContactsView {
     const d = this.draft();
     if (!d.phone.trim()) {
       this.formError.set('A phone number is required.');
+      return;
+    }
+    if (!isEmail(d.email)) {
+      this.formError.set('That email address does not look right. Fix it, or leave it empty.');
       return;
     }
     this.busy.set(true);

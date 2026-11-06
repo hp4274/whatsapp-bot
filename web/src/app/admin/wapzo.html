@@ -215,6 +215,7 @@
             <th scope="col">Message</th>
             <th scope="col">Status</th>
             <th scope="col">Text</th>
+            <th scope="col"><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
@@ -228,6 +229,11 @@
                 <span class="s-pill {{ st.tone }}" [attr.title]="entry.error">{{ st.label }}</span>
               </td>
               <td class="text" [title]="entry.text">{{ entry.text }}</td>
+              <td>
+                <button type="button" class="btn sm ghost" (click)="viewingId.set(entry.id)">
+                  <i class="ti ti-eye" aria-hidden="true"></i> View
+                </button>
+              </td>
             </tr>
           }
         </tbody>
@@ -241,6 +247,37 @@
     </div>
   }
 </section>
+
+@if (viewing(); as v) {
+  @let vs = status(v);
+  <div class="s-scrim" (click)="viewingId.set(null)" aria-hidden="true"></div>
+  <aside class="s-drawer" role="dialog" aria-modal="true" aria-labelledby="view-title">
+    <header class="view-head">
+      <div>
+        <p class="muted small">{{ eventLabel(v) }}</p>
+        <h2 id="view-title">To {{ phone(v.to) }}</h2>
+      </div>
+      <button #closeView type="button" class="btn icon ghost" (click)="viewingId.set(null)" aria-label="Close">
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
+    </header>
+    <dl class="view-meta">
+      <dt>Status</dt>
+      <dd><span class="s-pill {{ vs.tone }}">{{ vs.label }}</span></dd>
+      <dt>Queued</dt>
+      <dd>{{ v.createdAt | date: 'd MMM y, h:mm a' }}</dd>
+      @if (v.sentAt) {
+        <dt>Sent</dt>
+        <dd>{{ v.sentAt | date: 'd MMM y, h:mm a' }}</dd>
+      }
+      @if (v.error) {
+        <dt>{{ vs.tone === 'tone-bad' ? 'Error' : 'Note' }}</dt>
+        <dd [class.bad]="vs.tone === 'tone-bad'">{{ v.error }}</dd>
+      }
+    </dl>
+    <p class="view-text">{{ v.text || 'No text, only an image.' }}</p>
+  </aside>
+}
 
 @if (confirmUnlink()) {
   <app-confirm

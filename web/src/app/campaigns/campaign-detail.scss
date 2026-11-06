@@ -199,9 +199,20 @@ a.btn { text-decoration: none; }
 
 .retry {
   display: grid;
+  justify-items: start;
   gap: 4px;
   max-width: 260px;
   small { font-size: 11.5px; line-height: 1.4; }
+}
+
+// Retry and export: school-shared's "advanced" fold under the controls, laid out as a row.
+@include s.advanced;
+
+details.advanced > .more-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-md);
 }
 
 /* Speed is a radiogroup, so the active state keys off aria-checked rather than the kit's aria-pressed. */

@@ -1,6 +1,6 @@
 /**
  * Making bulk traffic look like a person: sending levels on QR numbers, a different rhythm
- * every day, a typing pause, a few quiet windows per day, the recipient's local
+ * every day, a typing pause, the recipient's local
  * time, and a content check. Pure functions: the manager and the transport
  * decide when to call them.
  *
@@ -16,8 +16,7 @@ const HOUR = 3600;
 export const HELD_TYPES = Object.freeze(['campaign', 'workflow', 'reminder']);
 
 /**
- * Sending levels: what QR (Baileys) numbers follow. paceFor / dayPlan /
- * quietExtraSeconds take a level row.
+ * Sending levels: what QR numbers follow. paceFor takes a level row.
  * `dailyLimit` is bulk a day, `newChats` people this number never talked to,
  * `perHour` bulk in any 60 minutes, `links` per message (0 = none). A level is
  * earned when all three `need`s are met since the anchor (active days with a
@@ -28,21 +27,20 @@ export const HELD_TYPES = Object.freeze(['campaign', 'workflow', 'reminder']);
 // Levels 1-4 let every message of the day go to a new chat (user's call, 2026-10-31); from 5 on, new chats never drop
 // below level 4's 80, so a promotion never lowers a budget.
 export const LEVELS = Object.freeze([
-    { level: 0, name: 'Resting', dailyLimit: 0, newChats: 0, perHour: 0, minSeconds: 90, maxSeconds: 300, quietHours: [6, 8], restEvery: 5, restMinMinutes: 45, restMaxMinutes: 60, links: 0, media: false, need: null },
-    { level: 1, name: 'First steps', dailyLimit: 20, newChats: 20, perHour: 8, minSeconds: 90, maxSeconds: 300, quietHours: [6, 8], restEvery: 5, restMinMinutes: 45, restMaxMinutes: 60, links: 0, media: false, need: { days: 0, delivered: 0, bulk: 0 } },
-    { level: 2, name: 'Settling in', dailyLimit: 35, newChats: 35, perHour: 10, minSeconds: 60, maxSeconds: 180, quietHours: [6, 8], restEvery: 8, restMinMinutes: 45, restMaxMinutes: 55, links: 0, media: false, need: { days: 3, delivered: 8, bulk: 0 } },
-    { level: 3, name: 'Building', dailyLimit: 55, newChats: 55, perHour: 12, minSeconds: 45, maxSeconds: 150, quietHours: [6, 8], restEvery: 10, restMinMinutes: 40, restMaxMinutes: 50, links: 0, media: false, need: { days: 6, delivered: 40, bulk: 0 } },
-    { level: 4, name: 'Growing', dailyLimit: 80, newChats: 80, perHour: 15, minSeconds: 40, maxSeconds: 120, quietHours: [5, 7], restEvery: 12, restMinMinutes: 40, restMaxMinutes: 50, links: 1, media: true, need: { days: 9, delivered: 100, bulk: 40 } },
-    { level: 5, name: 'Steady', dailyLimit: 100, newChats: 80, perHour: 15, minSeconds: 30, maxSeconds: 120, quietHours: [5, 7], restEvery: 15, restMinMinutes: 35, restMaxMinutes: 45, links: 1, media: true, need: { days: 12, delivered: 220, bulk: 90 } },
-    { level: 6, name: 'Trusted', dailyLimit: 150, newChats: 80, perHour: 20, minSeconds: 30, maxSeconds: 90, quietHours: [4, 5.5], restEvery: 20, restMinMinutes: 35, restMaxMinutes: 45, links: 1, media: true, need: { days: 17, delivered: 500, bulk: 200 } },
-    { level: 7, name: 'Established', dailyLimit: 200, newChats: 80, perHour: 30, minSeconds: 20, maxSeconds: 90, quietHours: [3, 4], restEvery: 30, restMinMinutes: 30, restMaxMinutes: 40, links: 1, media: true, need: { days: 24, delivered: 1000, bulk: 400 } },
-    { level: 8, name: 'Proven', dailyLimit: 250, newChats: 80, perHour: 30, minSeconds: 20, maxSeconds: 60, quietHours: [3, 4], restEvery: 30, restMinMinutes: 35, restMaxMinutes: 45, links: 1, media: true, need: { days: 40, delivered: 2500, bulk: 1000 } },
-    // 9-11 are sized so a full day fits the 12-hour recipient daytime: gaps (typing included), rests, and the
-    // share of the quiet windows that lands in the day. About 30% of a day may go to new chats.
+    { level: 0, name: 'Resting', dailyLimit: 0, newChats: 0, perHour: 0, minSeconds: 90, maxSeconds: 300, restEvery: 5, restMinMinutes: 45, restMaxMinutes: 60, links: 0, media: false, need: null },
+    { level: 1, name: 'First steps', dailyLimit: 20, newChats: 20, perHour: 8, minSeconds: 90, maxSeconds: 300, restEvery: 5, restMinMinutes: 45, restMaxMinutes: 60, links: 0, media: false, need: { days: 0, delivered: 0, bulk: 0 } },
+    { level: 2, name: 'Settling in', dailyLimit: 35, newChats: 35, perHour: 10, minSeconds: 60, maxSeconds: 180, restEvery: 8, restMinMinutes: 45, restMaxMinutes: 55, links: 0, media: false, need: { days: 3, delivered: 8, bulk: 0 } },
+    { level: 3, name: 'Building', dailyLimit: 55, newChats: 55, perHour: 12, minSeconds: 45, maxSeconds: 150, restEvery: 10, restMinMinutes: 40, restMaxMinutes: 50, links: 0, media: false, need: { days: 6, delivered: 40, bulk: 0 } },
+    { level: 4, name: 'Growing', dailyLimit: 80, newChats: 80, perHour: 15, minSeconds: 40, maxSeconds: 120, restEvery: 12, restMinMinutes: 40, restMaxMinutes: 50, links: 1, media: true, need: { days: 9, delivered: 100, bulk: 40 } },
+    { level: 5, name: 'Steady', dailyLimit: 100, newChats: 80, perHour: 15, minSeconds: 30, maxSeconds: 120, restEvery: 15, restMinMinutes: 35, restMaxMinutes: 45, links: 1, media: true, need: { days: 12, delivered: 220, bulk: 90 } },
+    { level: 6, name: 'Trusted', dailyLimit: 150, newChats: 80, perHour: 20, minSeconds: 30, maxSeconds: 90, restEvery: 20, restMinMinutes: 35, restMaxMinutes: 45, links: 1, media: true, need: { days: 17, delivered: 500, bulk: 200 } },
+    { level: 7, name: 'Established', dailyLimit: 200, newChats: 80, perHour: 30, minSeconds: 20, maxSeconds: 90, restEvery: 30, restMinMinutes: 30, restMaxMinutes: 40, links: 1, media: true, need: { days: 24, delivered: 1000, bulk: 400 } },
+    { level: 8, name: 'Proven', dailyLimit: 250, newChats: 80, perHour: 30, minSeconds: 20, maxSeconds: 60, restEvery: 30, restMinMinutes: 35, restMaxMinutes: 45, links: 1, media: true, need: { days: 40, delivered: 2500, bulk: 1000 } },
+    // 9-11 are sized so a full day fits the 12-hour recipient daytime: gaps (typing included) and rests. About 30% of a day may go to new chats.
     // Days never drop below level 8's 40 (needs must not go down); delivered and bulk do the gating.
-    { level: 9, name: 'Reliable', dailyLimit: 400, newChats: 120, perHour: 45, minSeconds: 20, maxSeconds: 50, quietHours: [2.5, 3.5], restEvery: 40, restMinMinutes: 20, restMaxMinutes: 30, links: 1, media: true, need: { days: 40, delivered: 3000, bulk: 1500 } },
-    { level: 10, name: 'Strong', dailyLimit: 650, newChats: 200, perHour: 70, minSeconds: 20, maxSeconds: 40, quietHours: [2, 2.5], restEvery: 60, restMinMinutes: 15, restMaxMinutes: 25, links: 1, media: true, need: { days: 40, delivered: 6000, bulk: 3000 } },
-    { level: 11, name: 'Peak', dailyLimit: 1000, newChats: 300, perHour: 100, minSeconds: 15, maxSeconds: 35, quietHours: [1.5, 2], restEvery: 80, restMinMinutes: 10, restMaxMinutes: 15, links: 1, media: true, need: { days: 45, delivered: 12000, bulk: 6000 } },
+    { level: 9, name: 'Reliable', dailyLimit: 400, newChats: 120, perHour: 45, minSeconds: 20, maxSeconds: 50, restEvery: 40, restMinMinutes: 20, restMaxMinutes: 30, links: 1, media: true, need: { days: 40, delivered: 3000, bulk: 1500 } },
+    { level: 10, name: 'Strong', dailyLimit: 650, newChats: 200, perHour: 70, minSeconds: 20, maxSeconds: 40, restEvery: 60, restMinMinutes: 15, restMaxMinutes: 25, links: 1, media: true, need: { days: 40, delivered: 6000, bulk: 3000 } },
+    { level: 11, name: 'Peak', dailyLimit: 1000, newChats: 300, perHour: 100, minSeconds: 15, maxSeconds: 35, restEvery: 80, restMinMinutes: 10, restMaxMinutes: 15, links: 1, media: true, need: { days: 45, delivered: 12000, bulk: 6000 } },
 ]);
 
 /**
@@ -377,136 +375,12 @@ export function wallClock(at = new Date(), zone = null) {
 export const localDayKey = (at = new Date(), zone = null) => wallClock(at, zone).day;
 
 /**
- * The most rest a day may hold (policy sending.levels quietHours). Up to 3 windows with 2 hours of sending kept
- * between them; more than this leaves too little of the day to send in, and past 18 hours they cannot fit.
+ * Today's rhythm for one number: every day draws a different gap multiplier, so no two days repeat the same
+ * timing. Deterministic per (seed, day) so a restart does not re-roll mid-day.
  */
-export const MAX_QUIET_HOURS = 14;
-/** A rest shorter than this is not worth a pause; the day's total is split so none falls below it. */
-const MIN_WINDOW_MINUTES = 40;
-/** Sending time guaranteed between two rests. Each window keeps half of it clear on both sides of its slot. */
-const MIN_GAP_MINUTES = 120;
-
-/**
- * Splits the day's rest into 2-3 separate windows. The day is cut into one
- * equal slot per window and each window sits at a random spot inside its slot,
- * at least half the gap away from the slot edges: so no window crosses
- * midnight, none overlap, and two neighbours are never closer than the gap.
- * Window sizes are weighted (0.5x-1.5x) so they differ, but each is at least
- * MIN_WINDOW_MINUTES and the sizes add up to `total` exactly.
- */
-function quietWindows(random, total) {
-    const count = Math.max(1, Math.min(random() < 0.5 ? 2 : 3, Math.floor(total / MIN_WINDOW_MINUTES)));
-    const weights = Array.from({ length: count }, () => 0.5 + random());
-    const spare = total - count * MIN_WINDOW_MINUTES;
-    const weightSum = weights.reduce((a, b) => a + b, 0);
-    let sizes = weights.map((w) => MIN_WINDOW_MINUTES + Math.floor((spare * w) / weightSum));
-    sizes[count - 1] += total - sizes.reduce((a, b) => a + b, 0);   // rounding remainder
-    const slot = 1440 / count;
-    const margin = MIN_GAP_MINUTES / 2;
-    // A long rest (policy quietHours up to MAX_QUIET_HOURS) with uneven weights can outgrow its slot, and the
-    // windows would overlap or start before midnight: split it evenly then, never beyond what the slots hold.
-    const room = slot - 2 * margin;
-    if (sizes.some((minutes) => minutes > room)) {
-        const fits = Math.min(total, count * room);
-        sizes = sizes.map((_, i) => Math.floor(fits / count) + (i < fits % count ? 1 : 0));
-    }
-    return sizes.map((minutes, i) => ({
-        start: Math.round(i * slot + margin + random() * (slot - 2 * margin - minutes)),
-        minutes,
-    }));
-}
-
-/**
- * Today's rhythm for one number: every day draws a different gap multiplier
- * and different rest windows, so no two days repeat the same timing.
- * Deterministic per (seed, day) so a restart does not re-roll mid-day.
- * `windows` are `{ start, minutes }` in minutes since local midnight in `zone`,
- * sorted and never crossing midnight. `quietMinutes` is their total and
- * `quietStart` the first start, for callers that only know one window.
- */
-export function dayPlan(seed, tier, at = new Date(), zone = null) {
+export function dayPlan(seed, at = new Date(), zone = null) {
     const random = seeded(`${seed}|${localDayKey(at, zone)}`);
-    const [lo, hi] = tier.quietHours;
-    // A table saved before the policy capped quietHours may still ask for more: clamp, as the validator does.
-    const quietMinutes = Math.round(Math.min(MAX_QUIET_HOURS, Math.max(0, lo + random() * (hi - lo))) * 60);
-    const gapFactor = 0.8 + random() * 0.5;
-    const windows = quietWindows(random, quietMinutes);
-    return { gapFactor, quietStart: windows[0].start, quietMinutes, windows, zone };
-}
-
-/** A plan with only `quietStart` / `quietMinutes` (older shape) counts as one window. */
-const windowsOf = (plan) => plan.windows ?? [{ start: plan.quietStart, minutes: plan.quietMinutes }];
-
-const windowAt = (plan, minute) => windowsOf(plan).find((w) => minute >= w.start && minute < w.start + w.minutes);
-
-export function inQuiet(plan, at = new Date()) {
-    return Boolean(windowAt(plan, wallClock(at, plan.zone).minute));
-}
-
-/** Seconds until the rest window we are in ends (0 when not resting). */
-export function quietLeftSeconds(plan, at = new Date()) {
-    const { minute } = wallClock(at, plan.zone);
-    const w = windowAt(plan, minute);
-    return w ? Math.ceil((w.start + w.minutes - minute) * 60) : 0;
-}
-
-/**
- * Today's rest as the UI shows it. `nowMinute` is the channel's clock when
- * asked: the windows are in that zone, which may not be the viewer's, so each
- * window also carries `startAt` / `endAt` (ms epoch) a viewer in any zone can
- * format. `nowAt` is the server's clock, for the viewer to correct its own skew.
- */
-export function quietStatus(plan, at = new Date()) {
-    const nowAt = at.getTime();
-    const minute = wallClock(at, plan.zone).minute;
-    // Counted from the whole second `minute` was read at, so a window's instant is the same on every
-    // call and the UI can use it as a stable key.
-    // ponytail: ignores a DST change inside the day (an hour off on those two days); add a zone-aware conversion if it matters.
-    const instant = (m) => Math.round(Math.floor(nowAt / 1000) * 1000 + (m - minute) * 60_000);
-    return {
-        active: inQuiet(plan, at),
-        leftSeconds: quietLeftSeconds(plan, at),
-        minutesToday: plan.quietMinutes,
-        startMinute: plan.quietStart,
-        windows: windowsOf(plan).map((w) => ({
-            startMinute: w.start,
-            endMinute: w.start + w.minutes,
-            startAt: instant(w.start),
-            endAt: instant(w.start + w.minutes),
-        })),
-        nowMinute: Math.round(minute * 100) / 100,
-        nowAt,
-    };
-}
-
-/**
- * Rest time a run of `seconds` of sending would meet if it started at `at`:
- * walks forward through every window of each day (`planFor(date)` gives that
- * day's plan). Up to three windows a day means ~7 steps a day; 250 steps cover
- * the longest sheets a tier-1 number can work through.
- */
-export function quietExtraSeconds(planFor, seconds, at = new Date()) {
-    let t = at.getTime();
-    let left = seconds;
-    let extra = 0;
-    for (let i = 0; i < 250 && left > 0; i += 1) {
-        const plan = planFor(new Date(t));
-        const { minute } = wallClock(new Date(t), plan.zone);
-        const inside = windowAt(plan, minute);
-        let step;
-        if (inside) {
-            step = (inside.start + inside.minutes - minute) * 60;
-            extra += step;
-        } else {
-            // Sending until the next window opens (still ahead today) or until local midnight.
-            const next = windowsOf(plan).find((w) => w.start > minute);
-            step = ((next ? next.start : 1440) - minute) * 60;
-            if (left <= step) break;
-            left -= step;
-        }
-        t += (step + 1) * 1000;
-    }
-    return Math.round(extra);
+    return { gapFactor: 0.8 + random() * 0.5, zone };
 }
 
 // -------------------------------------------------------------------- typing --

@@ -269,3 +269,39 @@ p { margin: 0; }
   .sc-row { grid-template-columns: 1fr; }
   .sc-row .switch { justify-self: start; }
 }
+
+.sc-error .grow {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+/* Two shimmering lines while the limits load, in place of the note and its button. */
+.sc-skel {
+  display: grid;
+  gap: var(--space-sm);
+
+  span {
+    display: block;
+    height: 14px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--surface-sunken), var(--border-color), var(--surface-sunken));
+    background-size: 200% 100%;
+    animation: sc-shimmer 1.4s linear infinite;
+  }
+
+  .short {
+    width: 45%;
+  }
+}
+
+@keyframes sc-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sc-skel span {
+    animation: none;
+  }
+}

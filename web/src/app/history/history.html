@@ -18,7 +18,7 @@
 <section class="filters" aria-label="Filters">
   <select
     [ngModel]="status()"
-    (ngModelChange)="status.set($event); onFilter()"
+    (ngModelChange)="status.set($event)"
     aria-label="Filter by status"
   >
     @for (option of statuses; track option) {
@@ -26,11 +26,13 @@
     }
   </select>
   <input
-    [ngModel]="recipient()"
-    (ngModelChange)="recipient.set($event)"
-    (keyup.enter)="onFilter()"
-    placeholder="Filter by recipient"
-    aria-label="Filter by recipient"
+    type="search"
+    [ngModel]="recipientDraft()"
+    (ngModelChange)="recipientDraft.set($event)"
+    (keyup.enter)="applyRecipient()"
+    (search)="applyRecipient()"
+    placeholder="Recipient, then press Enter"
+    aria-label="Filter by recipient, press Enter to apply"
   />
   <div class="counts">
     @for (entry of countEntries(); track entry.status) {
@@ -56,11 +58,18 @@
         <div class="s-skel"></div>
       }
     </div>
+  } @else if (!records().length && filtered()) {
+    <div class="s-empty">
+      <i class="ti ti-filter-off" aria-hidden="true"></i>
+      <strong>No messages match these filters</strong>
+      <p>Try another status or recipient.</p>
+      <button type="button" class="btn sm" (click)="clearFilters()">Clear filters</button>
+    </div>
   } @else if (!records().length) {
     <div class="s-empty">
       <i class="ti ti-message-off" aria-hidden="true"></i>
       <strong>No messages yet</strong>
-      <p>Send one from the Messaging &amp; Campaign page and it will appear here.</p>
+      <p>Messages you send, one at a time or in a campaign, will show up here.</p>
     </div>
   } @else {
     <div class="table-wrap">
@@ -71,7 +80,7 @@
             <th scope="col">Name</th>
             <th scope="col">Message</th>
             <th scope="col">Status</th>
-            <th scope="col">Try</th>
+            <th scope="col">Attempts</th>
             <th scope="col">Updated</th>
             <th scope="col">Error</th>
           </tr>
@@ -85,7 +94,7 @@
               <td class="st">
                 <span class="s-pill" [class]="toneFor(record.status)">{{ label(record.status) }}</span>
               </td>
-              <td class="num" data-label="Try">{{ record.attempt }}</td>
+              <td class="num" data-label="Attempts">{{ record.attempt }}</td>
               <td class="when" data-label="Updated" [title]="record.updatedAt">{{ localTime(record.updatedAt) }}</td>
               <td class="error" [class.none]="!record.error" data-label="Error" [title]="record.error || ''">{{ record.error || '' }}</td>
             </tr>

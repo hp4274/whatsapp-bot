@@ -1,0 +1,387 @@
+@use '../school/school-shared' as s;
+
+@include s.keyframes;
+@include s.head;
+@include s.pill;
+@include s.tones;
+@include s.banner;
+@include s.empty;
+@include s.buttons;
+@include s.advanced;
+
+:host {
+  display: grid;
+  @include s.fit-grid;
+  gap: var(--space-xl);
+  align-content: start;
+  min-width: 0;
+}
+
+h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--text-strong);
+}
+
+.grow {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.s-head .eyebrow .ti {
+  font-size: 15px;
+}
+
+/* Status first, then Add (or the plan line where Add would be). */
+.head-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-md);
+}
+
+.plan-line {
+  margin: 0;
+  font-size: 13px;
+}
+
+/* Summary strip: Kardlyz chips, number first. ----------------------------- */
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    --c: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 13px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-card);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text-muted);
+
+    .ti {
+      font-size: 15px;
+      color: var(--c);
+    }
+
+    strong {
+      font-size: 13.5px;
+      font-weight: 500;
+      letter-spacing: -0.2px;
+      color: var(--text-strong);
+      font-variant-numeric: tabular-nums;
+    }
+  }
+
+  .ok {
+    --c: var(--success);
+  }
+
+  .warn {
+    --c: var(--warning);
+    border-color: transparent;
+    background: color-mix(in srgb, var(--warning) 12%, transparent);
+  }
+}
+
+/* Add form ----------------------------------------------------------------- */
+.new {
+  display: grid;
+  @include s.fit-grid;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+  animation: s-pop 280ms var(--ease) both;
+
+  .new-head p {
+    margin: 4px 0 0;
+    font-size: 13px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--space-lg);
+  }
+
+  .opt {
+    font-weight: 400;
+    color: var(--hint);
+  }
+
+  .hint {
+    font-size: 12px;
+    color: var(--hint);
+  }
+
+  .zone {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-size: 13px;
+
+    strong {
+      font-weight: 500;
+      color: var(--text-strong);
+    }
+  }
+}
+
+.tos {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  line-height: 1.5;
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  color: var(--text-color);
+
+  .ti {
+    font-size: 16px;
+    color: var(--warning);
+  }
+}
+
+.new-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+/* "Back on Sales desk", and the way back during a detour to link another number. */
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  background: var(--primary-tint);
+  color: var(--text-strong);
+
+  .ti {
+    font-size: 16px;
+    color: var(--primary-text);
+  }
+}
+
+.s-banner.confirm {
+  flex-wrap: wrap;
+}
+
+/* Cards -------------------------------------------------------------------- */
+.rack {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: var(--space-lg);
+  align-items: start;
+  padding-top: 6px;
+}
+
+.skel-card {
+  display: grid;
+  gap: 12px;
+  padding: var(--space-xl);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  background: var(--surface-card);
+
+  &.wide {
+    grid-column: 1 / -1;
+  }
+
+  i {
+    display: block;
+    border-radius: 999px;
+    background: var(--surface-sunken);
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  .s-line {
+    height: 12px;
+  }
+
+  .short {
+    width: 40%;
+  }
+
+  .mid {
+    width: 70%;
+  }
+
+  .s-block {
+    height: 120px;
+    border-radius: var(--radius-lg);
+  }
+}
+
+.state {
+  padding: 48px var(--space-xl);
+
+  .btn {
+    margin-top: var(--space-sm);
+  }
+}
+
+/* Ban protection and the ban checklist: card head, then inset sections. ------ */
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xl) var(--space-xl) var(--space-lg);
+
+  > div {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  p {
+    margin: 2px 0 0;
+    font-size: 12.5px;
+  }
+
+  .s-pill {
+    margin-left: auto;
+  }
+}
+
+.badge {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  flex: none;
+  --tone: var(--warning);
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
+  color: var(--tone);
+}
+
+.safety,
+.recover {
+  display: grid;
+  @include s.fit-grid;
+  gap: var(--space-md);
+  padding-bottom: var(--space-lg);
+
+  > .s-banner,
+  > details.advanced,
+  > .fine {
+    margin: 0 var(--space-xl);
+  }
+}
+
+.fine {
+  margin: 0;
+  font-size: 12px;
+}
+
+.steps {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-md);
+    padding: 10px 14px;
+    max-width: 72ch;
+  }
+
+  span:last-child {
+    display: grid;
+    gap: 2px;
+  }
+
+  strong {
+    font-weight: 500;
+    color: var(--text-strong);
+  }
+
+  small {
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+
+  .num {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 30px;
+    height: 30px;
+    margin-top: 1px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border-hover);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  a {
+    color: var(--primary-text);
+    font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+
+    .ti {
+      font-size: 12px;
+    }
+  }
+
+  b {
+    font-weight: 500;
+    color: var(--text-strong);
+  }
+}
+
+@media (max-width: 560px) {
+  .s-head .head-side {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+
+  .s-head .add {
+    width: 100%;
+  }
+
+  .new {
+    padding: 20px;
+  }
+
+  /* A narrow header: title and text take the line; the pill drops under them, in line with the title. */
+  .card-head {
+    padding: 20px 20px var(--space-lg);
+
+    > div {
+      flex-basis: calc(100% - 38px - var(--space-md));
+    }
+
+    .s-pill {
+      margin-left: calc(38px + var(--space-md));
+    }
+  }
+
+  .safety > :is(.s-banner, details.advanced),
+  .recover > :is(details.advanced, .fine) {
+    margin-inline: 20px;
+  }
+}
