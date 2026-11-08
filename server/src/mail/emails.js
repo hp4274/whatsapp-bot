@@ -2,10 +2,20 @@
  * The emails Wuzie sends, on one layout that matches the app: the logo's black band with the wordmark, a white
  * card on the light ground, and the logo's orange only on the one action (the dashboard's 60-30-10).
  *
- * Email clients are not browsers: tables for layout, inline styles, no web fonts, no images (often blocked, and
- * the wordmark is text anyway), light colours forced so a dark-mode client does not invert the brand. Every email
- * has a plain-text twin. Anything a visitor typed is escaped.
+ * Email clients are not browsers: tables for layout, inline styles, no web fonts, light colours forced so a dark-mode
+ * client does not invert the brand. The one image is the logo, as a PNG carried inside the email: Gmail and Outlook
+ * show neither SVG nor data: images. The wordmark stays text, so a blocked image still reads "wuzie". Every email has
+ * a plain-text twin. Anything a visitor typed is escaped.
  */
+
+import fs from 'node:fs';
+
+/** The email's copy of web/public/assets/brand/logo.svg; mailer.js attaches it to every message under this id. */
+export const LOGO_CID = 'wuzie-logo';
+export const LOGO_PNG = fs.readFileSync(new URL('./logo.png', import.meta.url));
+
+/** For the dashboard's previews: a page cannot resolve an attachment, so the logo goes in directly. */
+export const withInlineLogo = (html) => html.replaceAll(`cid:${LOGO_CID}`, `data:image/png;base64,${LOGO_PNG.toString('base64')}`);
 
 const C = {
     ground: '#f7f7f9',
@@ -79,7 +89,7 @@ function layout({ preheader, heading, body, footnote }) {
   <tr><td align="center" style="padding:32px 16px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">
       <tr><td style="background:${C.band};border-radius:20px 20px 0 0;padding:22px 32px;">
-        <span style="display:inline-block;width:12px;height:12px;margin-right:9px;border-radius:4px 4px 4px 1px;background:${C.orange};"></span><span style="font:600 24px/1 ${FONT};letter-spacing:-0.6px;color:#ffffff;">wuzie</span>
+        <img src="cid:${LOGO_CID}" width="28" height="28" alt="" style="display:inline-block;width:28px;height:28px;margin-right:9px;border:0;vertical-align:middle;"><span style="font:600 24px/1 ${FONT};letter-spacing:-0.6px;color:#ffffff;vertical-align:middle;">wuzie</span>
       </td></tr>
       <tr><td style="background:${C.card};border-radius:0 0 20px 20px;padding:36px 32px 32px;">
         <h1 style="margin:0 0 20px;font:600 24px/1.3 ${FONT};letter-spacing:-0.3px;color:${C.ink};">${esc(heading)}</h1>

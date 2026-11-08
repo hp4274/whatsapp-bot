@@ -97,7 +97,7 @@ import { DURATIONS, LimitRequestError, LimitRequests, REQUESTABLE } from './limi
 import { LeadError, Leads } from './leads.js';
 import { ReferralError, Referrals } from './referrals.js';
 import { AdminRoleError, AdminRoles, SECTION_ACTIONS, isRead, staffMayOpen } from './adminRoles.js';
-import { AUTOMATIC_EMAILS, accountEmail, customEmail, leadAlertEmail, leadReceivedEmail, staffWelcomeEmail, welcomeEmail } from './mail/emails.js';
+import { AUTOMATIC_EMAILS, accountEmail, customEmail, withInlineLogo, leadAlertEmail, leadReceivedEmail, staffWelcomeEmail, welcomeEmail } from './mail/emails.js';
 import { noMailer } from './mail/mailer.js';
 import { POLICY_FIELDS, PolicyError, PolicyStore, allowedAt, fillTables } from './policy/index.js';
 import { attachCampaignPolicy, bulkKillReason, createCampaignOpsRouter, retentionSweep } from './policy/campaignOps.js';
@@ -3579,14 +3579,14 @@ export function createApp({
         const item = AUTOMATIC_EMAILS.find((e) => e.kind === req.params.kind);
         if (!item) return res.status(404).json({ errors: ['unknown email'] });
         const { subject, html } = item.sample(publicBaseUrl);
-        return res.json({ subject, html });
+        return res.json({ subject, html: withInlineLogo(html) });
     });
 
     /** The email as a client will get it, with sample words. */
     admin.post('/wapzo/email/preview', (req, res) => {
         const vars = { name: 'Priya', business: String(req.body?.business ?? '') || 'Sunrise Traders', email: 'priya@example.com' };
         const subject = renderText(String(req.body?.subject ?? ''), vars);
-        return res.json({ html: customEmail({ subject, body: renderText(String(req.body?.body ?? ''), vars) }).html });
+        return res.json({ html: withInlineLogo(customEmail({ subject, body: renderText(String(req.body?.body ?? ''), vars) }).html) });
     });
 
     /**

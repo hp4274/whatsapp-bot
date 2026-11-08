@@ -8,7 +8,8 @@ import { after, before, describe, it } from 'node:test';
 
 import { closeApp } from '../src/app.js';
 import { Database } from '../src/db.js';
-import { AUTOMATIC_EMAILS, customEmail } from '../src/mail/emails.js';
+import { AUTOMATIC_EMAILS, LOGO_CID, LOGO_PNG, customEmail } from '../src/mail/emails.js';
+import { createMailer } from '../src/mail/mailer.js';
 import { createTestApp, sessionFor } from './helpers.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-email-'));
@@ -140,6 +141,18 @@ describe('Wuzie email', () => {
         assert.ok(body.log.some((e) => e.to === 'team@wuzie.test' && e.subject.includes('Asha Foods')));
         const stored = db.db.prepare('SELECT body FROM platform_emails WHERE to_email = ?').get('asha@test.dev');
         assert.equal(stored.body, '');
+    });
+
+    it('carries the logo inside the email, and shows it in previews', async () => {
+        assert.equal(LOGO_PNG.subarray(1, 4).toString(), 'PNG');
+        assert.ok(customEmail({ subject: 'S', body: 'B' }).html.includes(`cid:${LOGO_CID}`));
+        const sample = await call(sup, 'GET', '/api/admin/wapzo/email/automatic/plan_ending');
+        assert.ok(sample.body.html.includes('src="data:image/png;base64,'));
+        assert.ok(!sample.body.html.includes('cid:'));
+        // The real mailer, against a server that will not answer: the attachment must not be what breaks it.
+        const refused = await createMailer({ SMTP_HOST: '127.0.0.1', SMTP_PORT: '1', SMTP_USER: 'a@b.c', SMTP_PASSWORD: 'x' })
+            .send({ to: 'a@test.dev', ...customEmail({ subject: 'S', body: 'B' }) });
+        assert.equal(refused.sent, false);
     });
 
     it('escapes what is typed and links only web addresses', () => {

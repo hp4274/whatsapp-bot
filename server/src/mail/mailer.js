@@ -12,6 +12,7 @@
 import nodemailer from 'nodemailer';
 
 import { logger } from '../observability/logger.js';
+import { LOGO_CID, LOGO_PNG } from './emails.js';
 
 /** Account emails already sent, by event key (app.js mailOnce): the hourly "ends soon" check emails each one once. */
 export const SENT_MAIL_SCHEMA = `
@@ -53,7 +54,8 @@ export function createMailer(env = process.env) {
         notifyTo: env.LEADS_NOTIFY_EMAIL?.trim() || user,
         async send({ to, subject, html, text, replyTo }) {
             try {
-                const info = await transport.sendMail({ from, to, subject, html, text, replyTo });
+                const attachments = html?.includes(`cid:${LOGO_CID}`) ? [{ filename: 'wuzie.png', content: LOGO_PNG, cid: LOGO_CID }] : undefined;
+                const info = await transport.sendMail({ from, to, subject, html, text, replyTo, attachments });
                 return { sent: true, id: info.messageId };
             } catch (err) {
                 logger.warn('email failed', { to, subject, error: err.message });
