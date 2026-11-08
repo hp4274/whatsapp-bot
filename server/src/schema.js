@@ -26,6 +26,7 @@ import { SCHOOL_SCHEMA } from './school/settings.js';
 import { TICKETS_SCHEMA } from './tickets/schema.js';
 import { WORKFLOWS_SCHEMA } from './workflows/schema.js';
 import { PLATFORM_MESSAGES_SCHEMA } from './platform/notify.js';
+import { PLATFORM_EMAIL_SCHEMA } from './platform/email.js';
 import { LIMIT_REQUESTS_SCHEMA } from './limits/requests.js';
 import { REFERRALS_SCHEMA } from './referrals.js';
 import { ADMIN_ROLES_SCHEMA } from './adminRoles.js';
@@ -48,6 +49,7 @@ export const MODULE_SCHEMAS = [
     STORAGE_SCHEMA,
     LINKS_SCHEMA,
     PLATFORM_MESSAGES_SCHEMA,
+    PLATFORM_EMAIL_SCHEMA,
     LIMIT_REQUESTS_SCHEMA,
     REFERRALS_SCHEMA,
     ADMIN_ROLES_SCHEMA,

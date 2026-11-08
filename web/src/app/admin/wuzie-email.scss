@@ -1,0 +1,137 @@
+@use '../school/school-shared' as s;
+
+@include s.tones;
+@include s.card;
+@include s.pill;
+@include s.chip;
+@include s.table;
+@include s.empty;
+@include s.skeleton;
+@include s.banner;
+@include s.buttons;
+@include s.drawer;
+
+:host {
+  display: grid;
+  @include s.fit-grid;
+  gap: var(--space-xl);
+  align-content: start;
+}
+
+p { margin: 0; }
+.small { font-size: 12.5px; line-height: 1.5; }
+.s-banner .msg { flex: 1; min-width: 0; }
+.s-card > .s-banner { margin-bottom: var(--space-lg); }
+.skip { display: inline-block; margin-right: 8px; }
+
+.head {
+  margin-bottom: var(--space-lg);
+  h3 { margin: 0 0 4px; font-size: 17px; font-weight: 500; color: var(--text-strong); }
+  &.row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    h3 { margin: 0; }
+  }
+}
+
+// Who on the left, a little narrower than the email they get.
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: var(--space-xl);
+  align-items: start;
+  @media (max-width: 900px) { grid-template-columns: minmax(0, 1fr); }
+}
+.what { display: grid; gap: var(--space-md); min-width: 0; }
+
+.field {
+  display: grid;
+  gap: 6px;
+  > span:first-child { font-size: 13px; font-weight: 500; color: var(--text-strong); }
+  textarea { resize: vertical; font-size: 13.5px; line-height: 1.55; }
+}
+
+.foot, .send {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+.send.end { justify-content: flex-end; }
+.vars {
+  display: flex;
+  gap: 4px;
+  .s-chip { padding: 3px 9px; font-family: var(--font-mono); font-size: 11.5px; }
+}
+
+// The real email the server built, in a frame: it stays light in dark mode, as it does in most inboxes.
+.preview {
+  display: grid;
+  gap: 6px;
+  iframe {
+    width: 100%;
+    height: 420px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+  }
+  &.tall iframe { height: min(640px, 70vh); }
+}
+
+// Reads like a list of events, so the sentence wraps instead of being cut off like a template's subject.
+.automatic {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-md);
+    min-height: 56px;
+    padding: var(--space-sm) 0;
+  }
+  li + li { border-top: 1px solid var(--border-color); }
+}
+.about {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  strong { font-size: 13.5px; font-weight: 500; color: var(--text-strong); }
+}
+
+.templates {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li:not(.s-empty) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: var(--space-sm);
+    min-height: 56px;
+  }
+  li:not(.s-empty) + li { border-top: 1px solid var(--border-color); }
+}
+.name {
+  display: grid;
+  min-width: 0;
+  strong, span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  strong { font-size: 13.5px; font-weight: 500; color: var(--text-strong); }
+}
+
+.text { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  h2 { margin: 0; font-size: 20px; font-weight: 500; color: var(--text-strong); }
+}

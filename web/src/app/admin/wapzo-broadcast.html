@@ -26,87 +26,7 @@
   }
 
   <div class="split">
-    <div class="who">
-      <div class="s-seg" role="group" aria-label="Send to">
-        @for (a of audiences; track a.value) {
-          <button type="button" [attr.aria-pressed]="audience() === a.value" (click)="audience.set(a.value)">{{ a.label }}</button>
-        }
-      </div>
-
-      @switch (audience()) {
-        @case ('all') {
-          <p class="note">
-            <i class="ti ti-users" aria-hidden="true"></i>
-            <span>
-              <strong>{{ everyone().length }} businesses</strong>, to the WhatsApp number on file for each.
-              @if (optedOut()) {
-                {{ optedOut() }} switched Wuzie updates off and {{ optedOut() === 1 ? 'is' : 'are' }} left out.
-              }
-            </span>
-          </p>
-        }
-        @case ('none') {}
-        @default {
-          @let leadsTab = audience() === 'leads';
-          @if (leadsTab) {
-            <p class="muted small">Account requests that are new or on hold. Accepted and dismissed ones are left out.</p>
-            @if (leadsError()) {
-              <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ leadsError() }}</p>
-            }
-          }
-          <div class="pick-bar">
-            <input
-              type="search"
-              [placeholder]="leadsTab ? 'Search leads' : 'Search businesses'"
-              [attr.aria-label]="leadsTab ? 'Search leads' : 'Search businesses'"
-              [value]="search()"
-              (input)="search.set($any($event.target).value)"
-            />
-            <button class="btn sm ghost" type="button" [disabled]="!shown().length" (click)="toggleShown()">
-              {{ allShownPicked() ? 'Clear' : 'Select all' }}
-            </button>
-          </div>
-          <ul class="list" [attr.aria-label]="leadsTab ? 'Leads' : 'Businesses'">
-            @for (r of shown(); track r.id) {
-              <li>
-                <label>
-                  <input type="checkbox" [checked]="pick()().has(r.id)" (change)="toggle(r.id)" />
-                  <span class="name">
-                    <strong>{{ r.name }}</strong>
-                    <span class="muted small">{{ r.sub }}</span>
-                  </span>
-                  <span class="s-pill {{ r.tone }}">{{ r.label }}</span>
-                </label>
-              </li>
-            } @empty {
-              <li class="muted small none">
-                {{ leadsTab ? (openLeads().length ? 'No lead matches.' : 'No new or on-hold leads.') : 'No business matches.' }}
-              </li>
-            }
-          </ul>
-        }
-      }
-
-      <!-- Any choice above can take extra numbers: people who are not a business here yet. -->
-      <label class="field">
-        <span>
-          {{ audience() === 'none' ? 'WhatsApp numbers' : 'Other numbers' }}
-          <span class="muted">{{ audience() === 'none' ? '' : 'optional, ' }}one per line or separated by commas</span>
-        </span>
-        <textarea
-          [rows]="audience() === 'none' ? 7 : 3"
-          placeholder="+91 98765 43210&#10;+971 50 123 4567"
-          [value]="numbers()"
-          (input)="numbers.set($any($event.target).value)"
-        ></textarea>
-      </label>
-      @if (typed().length) {
-        <p class="muted small">
-          {{ typed().length }} {{ typed().length === 1 ? 'number' : 'numbers' }}, each sent once. Without a country code they
-          are read as India (+91). {{ '{name}' }} and {{ '{business}' }} stay empty for them.
-        </p>
-      }
-    </div>
+    <app-audience-picker />
 
     <form class="what" (submit)="$event.preventDefault(); confirming.set(true)">
       <label class="field">
@@ -135,7 +55,7 @@
 
       @if (text().trim() || image()) {
         <div class="preview" aria-live="polite">
-          <span class="muted small">{{ first() ? 'Preview for ' + first() : 'Preview' }}</span>
+          <span class="muted small">{{ picker().choice().first ? 'Preview for ' + picker().choice().first : 'Preview' }}</span>
           <div class="bubble">
             @if (image(); as img) {
               <figure>
@@ -156,9 +76,9 @@
       }
 
       <div class="send">
-        <span class="muted small">{{ linked() ? 'Goes to ' + what() + '.' : 'Link the number first.' }}</span>
+        <span class="muted small">{{ linked() ? 'Goes to ' + picker().choice().what + '.' : 'Link the number first.' }}</span>
         <button class="btn primary" type="submit" [disabled]="!ready()">
-          <i class="ti ti-send" aria-hidden="true"></i> {{ busy() ? 'Sending...' : 'Send to ' + what() }}
+          <i class="ti ti-send" aria-hidden="true"></i> {{ busy() ? 'Sending...' : 'Send to ' + picker().choice().what }}
         </button>
       </div>
     </form>
@@ -167,7 +87,7 @@
 
 @if (confirming()) {
   <app-confirm
-    [heading]="'Send to ' + what() + '?'"
+    [heading]="'Send to ' + picker().choice().what + '?'"
     text="It goes out from the Wuzie number, paced like a bulk send. A message on its way cannot be called back."
     action="Send"
     tone="primary"

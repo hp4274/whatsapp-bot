@@ -6,6 +6,7 @@ import { ConfirmDialog } from '../core/confirm-dialog';
 import { AdminFeed } from './admin-feed';
 import { WapzoApi, WapzoLogEntry, WapzoMessage } from './wapzo-api';
 import { WapzoBroadcast } from './wapzo-broadcast';
+import { WuzieEmail } from './wuzie-email';
 import { PhoneInput } from '../core/phone-input';
 
 /** What every message about a business gets (server app.js notifyTenant). */
@@ -55,7 +56,7 @@ type Busy = 'link' | 'unlink' | 'country' | 'test' | null;
  */
 @Component({
   selector: 'app-admin-wapzo',
-  imports: [ConfirmDialog, DatePipe, WapzoBroadcast, PhoneInput],
+  imports: [ConfirmDialog, DatePipe, WapzoBroadcast, WuzieEmail, PhoneInput],
   templateUrl: './wapzo.html',
   styleUrl: './wapzo.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -64,6 +65,7 @@ type Busy = 'link' | 'unlink' | 'country' | 'test' | null;
 export class Wuzie {
   private readonly api = inject(WapzoApi);
 
+  protected readonly tab = signal<'whatsapp' | 'email'>('whatsapp');
   protected readonly loading = signal(true);
   protected readonly error = signal('');
   protected readonly notice = signal('');

@@ -2,9 +2,7 @@
 
 @include s.tones;
 @include s.card;
-@include s.pill;
 @include s.chip;
-@include s.seg;
 @include s.banner;
 @include s.buttons;
 
@@ -25,58 +23,7 @@ p { margin: 0; }
   align-items: start;
   @media (max-width: 900px) { grid-template-columns: minmax(0, 1fr); }
 }
-.who, .what { display: grid; gap: var(--space-md); min-width: 0; }
-
-.note {
-  display: flex;
-  gap: 10px;
-  padding: var(--space-md) var(--space-lg);
-  border-radius: var(--radius-lg);
-  background: var(--surface-sunken);
-  font-size: 13.5px;
-  line-height: 1.55;
-  .ti { margin-top: 2px; font-size: 18px; color: var(--primary-text); }
-  strong { font-weight: 500; color: var(--text-strong); }
-}
-
-.pick-bar {
-  display: flex;
-  gap: var(--space-sm);
-  input { flex: 1; min-width: 0; }
-}
-
-// A short scrolling list: a long one would push the message out of view.
-.list {
-  display: grid;
-  max-height: 300px;
-  margin: 0;
-  padding: 4px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  list-style: none;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-
-  label {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: center;
-    gap: var(--space-md);
-    min-height: 44px;
-    padding: 6px 10px;
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    &:hover { background: var(--surface-sunken); }
-  }
-  input { width: 16px; height: 16px; margin: 0; accent-color: var(--primary); }
-  .none { padding: var(--space-md); }
-}
-.name {
-  display: grid;
-  min-width: 0;
-  strong, span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  strong { font-size: 13.5px; font-weight: 500; color: var(--text-strong); }
-}
+.what { display: grid; gap: var(--space-md); min-width: 0; }
 
 .field {
   display: grid;

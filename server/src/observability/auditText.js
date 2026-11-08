@@ -231,6 +231,8 @@ const RULES = {
     'wapzo.message': (c) => `${field(c.detail, 'enabled') === false ? 'Switched off' : 'Updated'} the Wuzie WhatsApp message ${quote(c.target)}`,
     'wapzo.test': (c) => `Sent a test message from the Wuzie WhatsApp number to ${c.target}`,
     'wapzo.broadcast': (c) => `Sent a message from the Wuzie WhatsApp number to ${c.target} ${c.target === '1' ? 'recipient' : 'recipients'}`,
+    'wapzo.email': (c) => `Sent an email from Wuzie to ${c.target} ${c.target === '1' ? 'recipient' : 'recipients'}`,
+    'wapzo.email_template': (c) => `${field(c.detail, 'deleted') ? 'Deleted' : 'Saved'} the Wuzie email template ${quote(c.target)}`,
     'referral.create': (c) => `Added marketer ${field(c.detail, 'name') ?? ''} with code ${c.target}`,
     'referral.update': (c) => `Changed marketer ${c.target}${field(c.detail, 'status') === 'paused' ? ' (paused)' : ''}`,
     'referral.client': (c) => `Marked ${c.biz()} as brought by marketer ${field(c.detail, 'referrer') ?? ''}`,

@@ -95,6 +95,21 @@ function layout({ preheader, heading, body, footnote }) {
 </html>`;
 }
 
+/** A line the Wuzie team typed: escaped, with web addresses made clickable (only http(s), so never a script link). */
+const linked = (line) => line.split(/(https?:\/\/[^\s<>"']+[^\s<>"'.,!?)])/)
+    .map((part, i) => (i % 2 ? `<a href="${esc(part)}" style="color:${C.ink};">${esc(part)}</a>` : esc(part))).join('');
+
+/** An email written on the dashboard, already filled in for one person: a blank line starts a new paragraph. */
+export function customEmail({ subject, body }) {
+    const html = layout({
+        preheader: body.split('\n')[0],
+        heading: subject,
+        body: body.split(/\n\s*\n/).map((p) => para(p.split('\n').map(linked).join('<br>'))).join(''),
+        footnote: 'You get this because you have a Wuzie account or asked for one. Reply to this email if you would rather not get these.',
+    });
+    return { subject, html, text: body };
+}
+
 /** To the visitor, right after they ask for an account. */
 export function leadReceivedEmail(lead) {
     const first = String(lead.name).trim().split(/\s+/)[0] || 'there';
@@ -293,3 +308,40 @@ export function staffWelcomeEmail({ name, roleName, email, password, loginUrl })
         ].join('\n'),
     };
 }
+
+const SAMPLE = {
+    name: 'Priya Shah', business: 'Sunrise Traders', email: 'priya@example.com', plan: 'Business', amount: '₹2,999',
+    billing: 'monthly', date: '12 Dec 2026', today: '12 Nov 2026', topup: '5,000 messages', due: '₹0', days: 3,
+};
+const SAMPLE_LEAD = { ...SAMPLE, phone: '+91 98200 11234', message: 'Diwali offers to our customers', source: 'landing' };
+const SAMPLE_LOGIN = { ...SAMPLE, planName: SAMPLE.plan, password: 'sample-password' };
+const OWNER = 'The business owner';
+
+/**
+ * Every email Wuzie sends by itself, in the order a client meets them, with a sample to preview. A new automatic
+ * email belongs here, or the Wuzie Email page does not show it.
+ */
+export const AUTOMATIC_EMAILS = Object.freeze([
+    {
+        kind: 'lead_received', label: 'Request received', when: 'Someone fills in the "Ask for your account" form.', to: 'The person who asked',
+        sample: () => leadReceivedEmail(SAMPLE_LEAD),
+    },
+    {
+        kind: 'lead_alert', label: 'New request alert', when: 'Someone fills in the "Ask for your account" form.', to: 'Your team',
+        sample: (appUrl) => leadAlertEmail(SAMPLE_LEAD, appUrl && `${appUrl}/admin/leads`),
+    },
+    {
+        kind: 'welcome', label: 'Account ready', when: 'You activate a business and choose to send its sign-in details.', to: OWNER,
+        sample: (appUrl) => welcomeEmail({ ...SAMPLE_LOGIN, loginUrl: appUrl && `${appUrl}/login` }),
+    },
+    { kind: 'plan_started', label: 'Plan active', when: 'A business is put on a new plan.', to: OWNER, sample: (appUrl) => accountEmail('plan_started', SAMPLE, appUrl) },
+    { kind: 'plan_renewed', label: 'Plan renewed', when: 'A business renews the plan it is on.', to: OWNER, sample: (appUrl) => accountEmail('plan_renewed', SAMPLE, appUrl) },
+    { kind: 'topup_added', label: 'Top-up added', when: 'Days or messages are topped up.', to: OWNER, sample: (appUrl) => accountEmail('topup_added', SAMPLE, appUrl) },
+    { kind: 'payment_received', label: 'Payment received', when: 'You record a payment.', to: OWNER, sample: (appUrl) => accountEmail('payment_received', SAMPLE, appUrl) },
+    { kind: 'plan_ending', label: 'Plan expires soon', when: '3 days before a plan or trial ends.', to: OWNER, sample: (appUrl) => accountEmail('plan_ending', SAMPLE, appUrl) },
+    { kind: 'plan_expired', label: 'Plan expired', when: 'The day a plan or trial ends.', to: OWNER, sample: (appUrl) => accountEmail('plan_expired', SAMPLE, appUrl) },
+    {
+        kind: 'staff_welcome', label: 'Staff sign-in', when: 'You add someone to your platform staff.', to: 'The new staff member',
+        sample: (appUrl) => staffWelcomeEmail({ ...SAMPLE_LOGIN, roleName: 'Support', loginUrl: appUrl && `${appUrl}/login` }),
+    },
+]);

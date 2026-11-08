@@ -22,6 +22,19 @@
   align-content: start;
 }
 
+.pane {
+  display: grid;
+  @include s.fit-grid;
+  gap: var(--space-xl);
+  align-content: start;
+}
+
+// Grid and flex displays above would otherwise beat the browser's rule for [hidden].
+.pane[hidden],
+app-wuzie-email[hidden] {
+  display: none;
+}
+
 .s-banner .msg {
   flex: 1;
   min-width: 0;
