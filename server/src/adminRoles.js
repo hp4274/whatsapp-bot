@@ -86,7 +86,7 @@ const WRITES = [
     [/^POST \/referrals\/?$/, [['referrals', 'add']]],
     [/^POST \/referrals\/\d+\/payout$/, [['referrals', 'pay']]],
     [/^\w+ \/referrals\/\d+(\/|$)/, [['referrals', 'edit']]],
-    [/^POST \/wapzo\/(test|broadcast)$/, [['wapzo', 'send']]],
+    [/^POST \/wapzo\/(test|broadcast|email\/send|email\/preview)$/, [['wapzo', 'send']]],
     [/^\w+ \/wapzo\//, [['wapzo', 'edit']]],
     [/^DELETE \/number-collections\/\d+$/, [['number_collections', 'delete']]],
     [/^\w+ \/numbers\//, [['channels', 'edit'], ['services', 'numbers']]],

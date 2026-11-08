@@ -1,0 +1,337 @@
+<!-- The message that reaches the customer, in WhatsApp's own colours; each scene places it where it fits. -->
+<ng-template #bubble>
+  @if (said(); as s) {
+    <div class="reach">
+      <small>Sent to {{ s.name }}</small>
+      <div class="wa out">
+        <span class="text">{{ s.text }}</span>
+        <span class="meta">{{ s.time }} <i class="ti ti-checks"></i></span>
+      </div>
+    </div>
+  }
+</ng-template>
+
+<div class="scene k-{{ key() }}">
+  @switch (key()) {
+    @case ('bulk') {
+      <article class="draft">
+        <small>Diwali sale campaign</small>
+        <p>Hi <b class="blank">name</b>, our Diwali sale starts Friday! 20% off every kurta, this week only.</p>
+        <span class="file"><i class="ti ti-photo"></i>diwali-offer.jpg</span>
+      </article>
+      <svg class="rays" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <path d="M0 50C50 50 50 10 100 10" />
+        <path d="M0 50C50 50 50 30 100 30" />
+        <path d="M0 50H100" />
+        <path d="M0 50C50 50 50 70 100 70" />
+        <path d="M0 50C50 50 50 90 100 90" />
+      </svg>
+      <ol class="people">
+        @for (p of fan; track p.name) {
+          <li>
+            <span class="av">{{ p.name.charAt(0) }}</span>
+            <span class="line"><b>Hi {{ p.name.split(' ')[0] }}, our Diwali sale…</b><small>{{ p.name }}</small></span>
+            <span class="state {{ p.tone }}"><i class="ti ti-{{ p.icon }}"></i>{{ p.state }}</span>
+          </li>
+        }
+      </ol>
+      <div class="meter"><span><i></i></span><b>842 of 1,200 sent</b></div>
+    }
+
+    @case ('templates') {
+      <article class="tpl">
+        <small>Saved template</small>
+        <h4>Order shipped</h4>
+        <p>
+          Hi <b class="blank">name</b>, your order <b class="blank">order no.</b> has shipped and should reach you by
+          <b class="blank">day</b>.
+        </p>
+      </article>
+      <i class="ti ti-arrow-narrow-right flow"></i>
+      <div class="slips">
+        <div class="wa out"><span class="text">Hi <b>Rohan</b>, your order <b>#4822</b> has shipped and should reach you by <b>Thursday</b>.</span></div>
+        <div class="wa out"><span class="text">Hi <b>Kavya</b>, your order <b>#4825</b> has shipped and should reach you by <b>Friday</b>.</span></div>
+        <div class="wa out"><span class="text">Hi <b>Neel</b>, your order <b>#4831</b> has shipped and should reach you by <b>Monday</b>.</span></div>
+      </div>
+    }
+
+    @case ('contacts') {
+      <div class="sheet">
+        <header><i class="ti ti-file-spreadsheet"></i>customers.xlsx</header>
+        <table>
+          <thead>
+            <tr><th></th><th>Name</th><th>Phone</th><th>Group</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr><td>2</td><td>Priya Shah</td><td>+91 98200 11234</td><td><span class="tag">VIP</span></td><td class="ok"><i class="ti ti-check"></i></td></tr>
+            <tr><td>3</td><td>Rohan Mehta</td><td>+91 99300 55821</td><td><span class="tag">Diwali</span></td><td class="ok"><i class="ti ti-check"></i></td></tr>
+            <tr class="bad"><td>4</td><td>Neel Desai</td><td>98200 112</td><td></td><td>Bad number</td></tr>
+            <tr><td>5</td><td>Kavya Rao</td><td>+91 98111 22334</td><td><span class="tag">VIP</span></td><td class="ok"><i class="ti ti-check"></i></td></tr>
+            <tr class="bad"><td>6</td><td>Rohan Mehta</td><td>+91 99300 55821</td><td></td><td>Duplicate</td></tr>
+            <tr><td>7</td><td>Sana Khan</td><td>+91 90040 77120</td><td><span class="tag">Recent buyers</span></td><td class="ok"><i class="ti ti-check"></i></td></tr>
+          </tbody>
+        </table>
+        <footer><b>412 ready to message</b><span>3 bad numbers</span><span>6 duplicates</span></footer>
+      </div>
+    }
+
+    @case ('inbox') {
+      <div class="desk">
+        <ul class="convos">
+          <li class="on"><span class="av">M</span><span class="line"><b>Meghna Iyer</b><small>Yes please</small></span><em>1</em></li>
+          <li><span class="av">A</span><span class="line"><b>Arjun Nair</b><small>Got it, thanks!</small></span></li>
+          <li><span class="av">S</span><span class="line"><b>Sana Khan</b><small>What time do you close?</small></span><em>2</em></li>
+          <li><span class="av">D</span><span class="line"><b>Dev Patel</b><small>My order arrived damaged</small></span></li>
+        </ul>
+        <section class="talk">
+          <header>
+            <span class="line"><b>Meghna Iyer</b><small>Replied to Diwali sale</small></span>
+            <span class="owner"><i class="ti ti-user-check"></i>Neha</span>
+          </header>
+          <div class="wa in"><span class="text">Do you deliver to Nashik?</span></div>
+          <div class="wa out"><span class="text">Yes, in 2 to 3 days. Shall I place the order for you?</span></div>
+          <div class="wa in"><span class="text">Yes please</span></div>
+          <footer>Reply from Sunrise Traders</footer>
+        </section>
+      </div>
+    }
+
+    @case ('numbers') {
+      <div class="scan">
+        <span class="corners"></span>
+        <div class="qr">
+          @for (cell of qr; track $index) {
+            <i [class.on]="cell"></i>
+          }
+        </div>
+      </div>
+      <div class="share">
+        <div>
+          <h4>One campaign, 3 numbers at once</h4>
+          <small>Diwali sale: 1,200 people, shared evenly</small>
+        </div>
+        <ul>
+          <li style="--w: 78%">
+            <i class="ti ti-device-mobile"></i>
+            <span class="line"><b>Sunrise Main</b><small>+91 98200 11234</small></span>
+            <em>312 of 400</em>
+            <div class="meter"><span><i></i></span></div>
+          </li>
+          <li style="--w: 72%">
+            <i class="ti ti-device-mobile"></i>
+            <span class="line"><b>Sunrise Sales</b><small>+91 99300 55821</small></span>
+            <em>288 of 400</em>
+            <div class="meter"><span><i></i></span></div>
+          </li>
+          <li style="--w: 60%">
+            <i class="ti ti-device-mobile"></i>
+            <span class="line"><b>Sunrise Support</b><small>+91 90040 77120</small></span>
+            <em>242 of 400</em>
+            <div class="meter"><span><i></i></span></div>
+          </li>
+          <li class="add"><i class="ti ti-plus"></i>Scan to add another number</li>
+        </ul>
+      </div>
+    }
+
+    @case ('auto-replies') {
+      <ul class="rules">
+        <li><code>Any first message</code><i class="ti ti-arrow-narrow-right"></i><span>Send the menu</span></li>
+        <li class="on"><code>1</code><i class="ti ti-arrow-narrow-right"></i><span>Check stock</span></li>
+        <li><code>2</code><i class="ti ti-arrow-narrow-right"></i><span>Track my order</span></li>
+        <li><code>After 7 pm</code><i class="ti ti-arrow-narrow-right"></i><span>We open at 9</span></li>
+      </ul>
+      <div class="phone">
+        <div class="bar"><span class="av">P</span><b>Priya Shah</b></div>
+        <div class="wall">
+          <div class="wa in"><span class="text">Is the blue cotton kurta in stock?</span></div>
+          <div class="wa out"><span class="text">Hi Priya! Reply with a number:
+1  Check stock
+2  Track my order
+3  Talk to the team</span></div>
+          <div class="wa in"><span class="text">1</span></div>
+          <div class="wa out"><span class="text">Size M: 4 left. Shall we hold one until 7 pm?</span></div>
+        </div>
+      </div>
+    }
+
+    @case ('ai') {
+      <div class="wa in"><span class="text">Do you have this in XL, and can it reach Pune by Friday?</span></div>
+      <div class="sources">
+        <article class="hit"><small>Stock list</small><p>Kurta, XL</p><b>In stock</b></article>
+        <article class="hit"><small>Delivery times</small><p>Pune</p><b>Next day</b></article>
+        <article><small>Returns policy</small><p>Within 7 days</p></article>
+      </div>
+      <ng-container [ngTemplateOutlet]="bubble" />
+    }
+
+    @case ('faq') {
+      <ng-container [ngTemplateOutlet]="bubble" />
+      <div class="answers">
+        <div class="q"><i class="ti ti-plus"></i>Do you deliver outside Pune?</div>
+        <div class="q open">
+          <i class="ti ti-minus"></i>What time do you close on Sunday?
+          <p>We are open until 6 pm on Sundays.</p>
+        </div>
+        <div class="q"><i class="ti ti-plus"></i>Can I return an item?</div>
+        <div class="q"><i class="ti ti-plus"></i>Do you take UPI?</div>
+      </div>
+    }
+
+    @case ('school') {
+      <div class="register">
+        <h4>Class 6B <small>Term 2 fees</small></h4>
+        <ol>
+          <li class="due"><span>14</span><b>Aarav Kulkarni</b><span>₹12,500</span><em>Due 10 Nov</em></li>
+          <li><span>15</span><b>Ananya Bose</b><span>₹12,500</span><em>Paid</em></li>
+          <li><span>16</span><b>Diya Shah</b><span>₹6,250</span><em>Part paid</em></li>
+          <li><span>17</span><b>Kabir Rao</b><span>₹12,500</span><em>Paid</em></li>
+          <li><span>18</span><b>Meera Pillai</b><span>₹12,500</span><em>Paid</em></li>
+        </ol>
+      </div>
+      <ng-container [ngTemplateOutlet]="bubble" />
+    }
+
+    @case ('payments') {
+      <article class="invoice">
+        <h4>Invoice #1042</h4>
+        <p>Vikram Joshi</p>
+        <dl><dt>Design work</dt><dd>₹2,000</dd><dt>Printing</dt><dd>₹500</dd><dt>Total</dt><dd>₹2,500</dd></dl>
+        <span class="stamp">Due Friday</span>
+      </article>
+      <div class="side">
+        <ol class="chase">
+          <li class="done"><b>3 days before</b><small>Sent</small></li>
+          <li class="now"><b>On the due date</b><small>Going out now</small></li>
+          <li><b>3 days after</b><small>Only if still unpaid</small></li>
+        </ol>
+        <ng-container [ngTemplateOutlet]="bubble" />
+      </div>
+    }
+
+    @case ('appointments') {
+      <div class="diary">
+        <ul class="week">
+          <li>Mon<b>9</b></li>
+          <li class="on">Tue<b>10</b></li>
+          <li>Wed<b>11</b></li>
+          <li>Thu<b>12</b></li>
+          <li>Fri<b>13</b></li>
+          <li>Sat<b>14</b></li>
+        </ul>
+        <ol class="slots">
+          <li><time>10:30</time><span>Free</span></li>
+          <li class="taken"><time>11:15</time><span>Sana Khan</span></li>
+          <li class="on"><time>12:00</time><span>Rohan Mehta, with Dr. Iyer</span></li>
+          <li><time>16:15</time><span>Free</span></li>
+        </ol>
+      </div>
+      <ng-container [ngTemplateOutlet]="bubble" />
+    }
+
+    @case ('orders') {
+      <article class="receipt">
+        <h4>Order #4830</h4>
+        <small>Kavya Rao</small>
+        <dl><dt>2 × Blue kurta, M</dt><dd>₹2,398</dd><dt>Delivery</dt><dd>Free</dd><dt>Total</dt><dd>₹2,398</dd></dl>
+      </article>
+      <div class="side">
+        <ol class="track">
+          <li class="done"><i class="ti ti-check"></i>Confirmed</li>
+          <li class="now"><i class="ti ti-package"></i>Packing</li>
+          <li><i class="ti ti-truck"></i>Shipped</li>
+        </ol>
+        <ng-container [ngTemplateOutlet]="bubble" />
+      </div>
+    }
+
+    @case ('leads') {
+      <div class="board">
+        <section>
+          <h4>New <em>3</em></h4>
+          <article class="moving"><b>Ishaan Verma</b><small>3 month course, wants a call</small></article>
+          <article><b>Tara Menon</b><small>Weekend batch</small></article>
+          <article><b>Dev Patel</b><small>Fees for 6 months</small></article>
+        </section>
+        <section>
+          <h4>Called <em>2</em></h4>
+          <article><b>Sana Khan</b><small>Call back Friday</small></article>
+          <article><b>Neel Desai</b><small>Sent the brochure</small></article>
+        </section>
+        <section>
+          <h4>Joined <em>1</em></h4>
+          <article><b>Meera Nair</b><small>3 month course</small></article>
+        </section>
+      </div>
+    }
+
+    @case ('subscriptions') {
+      <article class="member">
+        <div class="ring"><span><b>5</b><small>days left</small></span></div>
+        <div class="line"><b>Meera Nair</b><small>Monthly plan, ends 12 November</small></div>
+        <div class="replies">
+          <span><b>1</b>Renew</span>
+          <span><b>2</b>Pause</span>
+        </div>
+      </article>
+      <ng-container [ngTemplateOutlet]="bubble" />
+    }
+
+    @case ('events') {
+      <div class="hall">
+        <div class="arc">Stage</div>
+        <div class="seats">
+          @for (s of seats; track s.id) {
+            <i class="{{ s.state }}">{{ s.state === 'mine' ? s.id : '' }}</i>
+          }
+        </div>
+        <p>{{ seatsBooked }} of {{ seats.length }} seats booked</p>
+      </div>
+      <ng-container [ngTemplateOutlet]="bubble" />
+    }
+
+    @case ('tickets') {
+      <article class="stub">
+        <div class="no"><small>Ticket</small><b>#208</b></div>
+        <div class="issue">
+          <h4>Order arrived damaged</h4>
+          <p>Dev Patel</p>
+          <ol>
+            <li class="done">Opened at 12:48</li>
+            <li class="done">Given to Neha at 12:49</li>
+            <li>Reply due today</li>
+          </ol>
+        </div>
+      </article>
+      <ng-container [ngTemplateOutlet]="bubble" />
+    }
+
+    @case ('workflows') {
+      <ol class="flow-steps">
+        <li class="when"><i class="ti ti-shopping-cart"></i><b>Order placed</b></li>
+        <li><i class="ti ti-message"></i><b>Say thank you</b></li>
+        <li class="wait"><i class="ti ti-hourglass"></i><b>Wait 2 days</b></li>
+        <li><i class="ti ti-star"></i><b>Ask for a rating</b></li>
+      </ol>
+      <ng-container [ngTemplateOutlet]="bubble" />
+    }
+
+    @case ('analytics') {
+      <div class="chart">
+        <header><span>Campaign</span><span>Read</span><span>Replied</span></header>
+        <div class="c"><b>Diwali sale</b><span style="--w: 82%"><i></i>82%</span><span class="r" style="--w: 24%"><i></i>24%</span></div>
+        <div class="c"><b>Monsoon offer</b><span style="--w: 71%"><i></i>71%</span><span class="r" style="--w: 17%"><i></i>17%</span></div>
+        <div class="c"><b>New stock</b><span style="--w: 64%"><i></i>64%</span><span class="r" style="--w: 11%"><i></i>11%</span></div>
+        <div class="c"><b>Price list</b><span style="--w: 48%"><i></i>48%</span><span class="r" style="--w: 6%"><i></i>6%</span></div>
+      </div>
+    }
+
+    @case ('api') {
+      <pre class="code">{{ apiCall }}</pre>
+      <div class="side">
+        <span class="created"><i class="ti ti-circle-check"></i>201 Created</span>
+        <ng-container [ngTemplateOutlet]="bubble" />
+      </div>
+    }
+  }
+</div>

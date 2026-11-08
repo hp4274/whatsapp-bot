@@ -26,6 +26,7 @@ const NOT_CONFIGURED = Object.freeze({ sent: false, reason: 'Email is not set up
 /** The no-op mailer: what createApp uses unless index.js hands it a real one. */
 export const noMailer = Object.freeze({
     configured: false,
+    from: null,
     notifyTo: null,
     send: async () => NOT_CONFIGURED,
 });
@@ -48,6 +49,7 @@ export function createMailer(env = process.env) {
     const from = env.SMTP_FROM?.trim() || `Wuzie <${user}>`;
     return {
         configured: true,
+        from,
         notifyTo: env.LEADS_NOTIFY_EMAIL?.trim() || user,
         async send({ to, subject, html, text, replyTo }) {
             try {

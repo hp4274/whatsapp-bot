@@ -1,0 +1,289 @@
+<!-- The compose card (who on the left, the email and its preview on the right), the saved templates, the emails Wuzie
+     sends by itself, then everything that went out. -->
+@if (loadError()) {
+  <div class="s-banner" role="alert">
+    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+    <span class="msg">Could not load Wuzie email: {{ loadError() }}</span>
+    <button class="btn sm" type="button" (click)="load()">Try again</button>
+  </div>
+}
+@if (loaded() && !configured()) {
+  <p class="s-banner tone-warn" role="status">
+    <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+    <span class="msg">Email is not set up on this server. Add the SMTP settings to .env and restart it; until then you can write templates but not send.</span>
+  </p>
+}
+
+<section class="s-card" aria-labelledby="em-title">
+  <div class="head">
+    <h3 id="em-title">Send an email</h3>
+    <p class="muted small">
+      @if (from(); as address) {
+        From {{ address }}.
+      }
+      They go out one at a time, and replies come back to your team.
+    </p>
+  </div>
+
+  @if (error()) {
+    <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ error() }}</p>
+  }
+  @if (result(); as r) {
+    <div class="s-banner {{ r.skipped.length ? 'tone-warn' : 'tone-ok' }}" role="status">
+      <i class="ti {{ r.skipped.length ? 'ti-alert-triangle' : 'ti-circle-check' }}" aria-hidden="true"></i>
+      <div>
+        <strong>Queued for {{ r.queued }}.</strong>
+        @if (r.skipped.length) {
+          Skipped {{ r.skipped.length }}:
+          @for (s of r.skipped; track $index) {
+            <span class="skip">{{ s.to }} ({{ s.reason }})</span>
+          }
+        }
+      </div>
+    </div>
+  }
+
+  <div class="split">
+    <app-audience-picker kind="email" />
+
+    <form class="what" (submit)="$event.preventDefault(); ready() && confirming.set(true)">
+      <label class="field">
+        <span>Start from</span>
+        <select (change)="useTemplate($any($event.target).value)">
+          <option value="" [selected]="templateId() === null">Blank email</option>
+          @for (t of templates(); track t.id) {
+            <option [value]="t.id" [selected]="templateId() === t.id">{{ t.name }}</option>
+          }
+        </select>
+      </label>
+      <label class="field">
+        <span>Subject</span>
+        <input type="text" maxlength="200" [value]="subject()" (input)="subject.set($any($event.target).value)" />
+      </label>
+      <label class="field">
+        <span>Email</span>
+        <textarea
+          #box
+          rows="9"
+          maxlength="20000"
+          placeholder="Hi {name}, ..."
+          [value]="body()"
+          (input)="body.set($any($event.target).value)"
+        ></textarea>
+      </label>
+      <div class="foot">
+        <div class="vars" role="group" aria-label="Insert a word">
+          @for (w of words; track w) {
+            <button type="button" class="s-chip" (click)="insert(box, w)">{{ '{' + w + '}' }}</button>
+          }
+        </div>
+        <span class="muted small">A blank line starts a new paragraph.</span>
+      </div>
+
+      @if (preview(); as html) {
+        <div class="preview">
+          <span class="muted small">Preview</span>
+          <iframe sandbox="" title="Preview of the email" [srcdoc]="html"></iframe>
+        </div>
+      }
+
+      <div class="send">
+        <button class="btn" type="button" [disabled]="!subject().trim() || !body().trim()" (click)="saveAsTemplate()">
+          <i class="ti ti-template" aria-hidden="true"></i> Save as template
+        </button>
+        <button class="btn primary" type="submit" [disabled]="!ready()">
+          <i class="ti ti-send" aria-hidden="true"></i> {{ busy() ? 'Sending...' : 'Send to ' + picker().choice().what }}
+        </button>
+      </div>
+    </form>
+  </div>
+</section>
+
+<section class="s-card" aria-labelledby="em-templates" [attr.aria-busy]="loading()">
+  <div class="head row">
+    <h3 id="em-templates">Email templates</h3>
+    <button class="btn sm" type="button" (click)="newTemplate()">
+      <i class="ti ti-plus" aria-hidden="true"></i> New template
+    </button>
+  </div>
+  @if (listError()) {
+    <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ listError() }}</p>
+  }
+  @if (loading()) {
+    <div class="s-skel" style="height: 48px"></div>
+    <div class="s-skel" style="height: 48px"></div>
+  } @else {
+    <ul class="templates">
+      @for (t of templates(); track t.id) {
+        <li>
+          <span class="name">
+            <strong>{{ t.name }}</strong>
+            <span class="muted small">{{ t.subject }}</span>
+          </span>
+          <button class="btn sm ghost" type="button" (click)="edit(t)">Edit</button>
+          <button class="btn icon sm ghost" type="button" [attr.aria-label]="'Delete ' + t.name" (click)="deleting.set(t)">
+            <i class="ti ti-trash" aria-hidden="true"></i>
+          </button>
+        </li>
+      } @empty {
+        <li class="s-empty">
+          <i class="ti ti-template" aria-hidden="true"></i>
+          <strong>No templates yet</strong>
+          <p>Save the emails you send often, then start from one above.</p>
+        </li>
+      }
+    </ul>
+  }
+</section>
+
+<section class="s-card" aria-labelledby="em-auto" [attr.aria-busy]="loading()">
+  <div class="head">
+    <h3 id="em-auto">Automatic emails</h3>
+    <p class="muted small">Wuzie sends these by itself when each thing happens. Every one that goes out shows under Recent emails.</p>
+  </div>
+  @if (loading()) {
+    <div class="s-skel" style="height: 48px"></div>
+    <div class="s-skel" style="height: 48px"></div>
+  } @else {
+    <ul class="automatic">
+      @for (a of automatic(); track a.kind) {
+        <li>
+          <span class="about">
+            <strong>{{ a.label }}</strong>
+            <span class="muted small">{{ a.when }} Goes to: {{ a.to.toLowerCase() }}.</span>
+          </span>
+          <button class="btn sm ghost" type="button" [attr.aria-label]="'View ' + a.label" (click)="view(a)">
+            <i class="ti ti-eye" aria-hidden="true"></i> View
+          </button>
+        </li>
+      }
+    </ul>
+  }
+</section>
+
+<section class="s-card" aria-labelledby="em-log">
+  <h3 id="em-log">Recent emails</h3>
+  @if (log().length) {
+    <div class="s-table">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Time</th>
+            <th scope="col">To</th>
+            <th scope="col">Subject</th>
+            <th scope="col">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (entry of log(); track entry.id) {
+            @let st = status(entry);
+            <tr>
+              <td class="muted">{{ entry.createdAt | date: 'd MMM, h:mm a' }}</td>
+              <td [title]="entry.label">{{ entry.to }}</td>
+              <td class="text" [title]="entry.subject">{{ entry.subject }}</td>
+              <td><span class="s-pill {{ st.tone }}" [attr.title]="entry.error">{{ st.label }}</span></td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  } @else if (!loading()) {
+    <div class="s-empty">
+      <i class="ti ti-mail" aria-hidden="true"></i>
+      <strong>Nothing sent yet</strong>
+      <p>Emails you send and automatic emails appear here, with whether each one went out.</p>
+    </div>
+  }
+</section>
+
+@if (editing(); as d) {
+  <div class="s-scrim" (click)="editing.set(null)" aria-hidden="true"></div>
+  <aside class="s-drawer" role="dialog" aria-modal="true" aria-labelledby="em-edit-title">
+    <header class="drawer-head">
+      <h2 id="em-edit-title">{{ d.id === null ? 'New template' : 'Edit template' }}</h2>
+      <button type="button" class="btn icon ghost" (click)="editing.set(null)" aria-label="Close">
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
+    </header>
+    <form class="what" (submit)="$event.preventDefault(); saveDraft()">
+      @if (editorError()) {
+        <p class="s-banner" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ editorError() }}</p>
+      }
+      <label class="field">
+        <span>Name</span>
+        <input #nameBox type="text" maxlength="80" [value]="d.name" (input)="patch({ name: $any($event.target).value })" />
+      </label>
+      <label class="field">
+        <span>Subject</span>
+        <input type="text" maxlength="200" [value]="d.subject" (input)="patch({ subject: $any($event.target).value })" />
+      </label>
+      <label class="field">
+        <span>Email</span>
+        <textarea
+          #draftBox
+          rows="12"
+          maxlength="20000"
+          [value]="d.body"
+          (input)="patch({ body: $any($event.target).value })"
+        ></textarea>
+      </label>
+      <div class="vars" role="group" aria-label="Insert a word">
+        @for (w of words; track w) {
+          <button type="button" class="s-chip" (click)="insertInDraft(draftBox, w)">{{ '{' + w + '}' }}</button>
+        }
+      </div>
+      <div class="send end">
+        <button class="btn" type="button" (click)="editing.set(null)">Cancel</button>
+        <button class="btn primary" type="submit" [disabled]="!canSaveDraft()">{{ saving() ? 'Saving...' : 'Save template' }}</button>
+      </div>
+    </form>
+  </aside>
+}
+
+@if (viewing(); as a) {
+  <div class="s-scrim" (click)="viewing.set(null)" aria-hidden="true"></div>
+  <aside class="s-drawer" role="dialog" aria-modal="true" aria-labelledby="em-view-title">
+    <header class="drawer-head">
+      <h2 id="em-view-title">{{ a.label }}</h2>
+      <button #closeView type="button" class="btn icon ghost" (click)="viewing.set(null)" aria-label="Close">
+        <i class="ti ti-x" aria-hidden="true"></i>
+      </button>
+    </header>
+    <p class="muted small">{{ a.when }} Goes to: {{ a.to.toLowerCase() }}. Shown with sample details.</p>
+    @if (sampleError()) {
+      <div class="s-banner" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i>
+        <span class="msg">Could not load this email: {{ sampleError() }}</span>
+        <button class="btn sm" type="button" (click)="view(a)">Try again</button>
+      </div>
+    } @else if (sample(); as s) {
+      <div class="preview tall">
+        <span class="muted small">Subject: {{ s.subject }}</span>
+        <iframe sandbox="" [title]="'Sample of ' + a.label" [srcdoc]="s.html"></iframe>
+      </div>
+    } @else {
+      <div class="s-skel" style="height: 320px" aria-busy="true"></div>
+    }
+  </aside>
+}
+
+@if (confirming()) {
+  <app-confirm
+    [heading]="'Send to ' + picker().choice().what + '?'"
+    text="Each person gets their own copy. An email on its way cannot be called back."
+    action="Send"
+    tone="primary"
+    (confirm)="send()"
+    (cancel)="confirming.set(false)"
+  />
+}
+@if (deleting(); as t) {
+  <app-confirm
+    [heading]="'Delete ' + t.name + '?'"
+    text="Emails already sent are not affected."
+    action="Delete"
+    tone="danger"
+    (confirm)="remove(t)"
+    (cancel)="deleting.set(null)"
+  />
+}

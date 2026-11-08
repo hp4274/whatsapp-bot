@@ -1,17 +1,29 @@
-<!-- Number card (link, test, country code) on the left, the message texts on the right; then a message to many,
-     and the sent log under all of it.
-     The two columns stack below 1000px. -->
+<!-- WhatsApp or Email, switched in the header; both stay mounted so a half-written message survives the switch.
+     WhatsApp: number card (link, test, country code) on the left, the message texts on the right; then a message to
+     many, and the sent log under all of it. The two columns stack below 1000px. -->
 @let conn = connection();
 @let code = qr();
 
 <header class="s-head">
   <div>
-    <p class="eyebrow"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i> Platform</p>
-    <h2>Wuzie WhatsApp</h2>
-    <p>Wuzie's own number. It messages your clients when they ask for an account, when their account is ready, and about their plan and payments.</p>
+    <p class="eyebrow"><i class="ti ti-{{ tab() === 'email' ? 'mail' : 'brand-whatsapp' }}" aria-hidden="true"></i> Platform</p>
+    @if (tab() === 'email') {
+      <h2>Wuzie Email</h2>
+      <p>Write to your clients and leads by email, from a saved template or from scratch.</p>
+    } @else {
+      <h2>Wuzie WhatsApp</h2>
+      <p>Wuzie's own number. It messages your clients when they ask for an account, when their account is ready, and about their plan and payments.</p>
+    }
+  </div>
+  <div class="s-seg" role="group" aria-label="Channel">
+    <button type="button" [attr.aria-pressed]="tab() === 'whatsapp'" (click)="tab.set('whatsapp')">WhatsApp</button>
+    <button type="button" [attr.aria-pressed]="tab() === 'email'" (click)="tab.set('email')">Email</button>
   </div>
 </header>
 
+<app-wuzie-email [hidden]="tab() !== 'email'" />
+
+<div class="pane" [hidden]="tab() !== 'whatsapp'">
 @if (error()) {
   <div class="s-banner" role="alert">
     <i class="ti ti-alert-circle" aria-hidden="true"></i>
@@ -247,6 +259,8 @@
     </div>
   }
 </section>
+
+</div>
 
 @if (viewing(); as v) {
   @let vs = status(v);

@@ -92,11 +92,12 @@ import { PAYMENTS } from './billing/schema.js';
 import { BillingError, BillingStore, cycleAmount } from './billing/store.js';
 import { Ledger, amountOr400, totals } from './billing/ledger.js';
 import { PlatformMessages, createNotifier, renderText } from './platform/notify.js';
+import { EmailError, PlatformEmails, cleanMessage, isEmail } from './platform/email.js';
 import { DURATIONS, LimitRequestError, LimitRequests, REQUESTABLE } from './limits/requests.js';
 import { LeadError, Leads } from './leads.js';
 import { ReferralError, Referrals } from './referrals.js';
 import { AdminRoleError, AdminRoles, SECTION_ACTIONS, isRead, staffMayOpen } from './adminRoles.js';
-import { accountEmail, leadAlertEmail, leadReceivedEmail, staffWelcomeEmail, welcomeEmail } from './mail/emails.js';
+import { AUTOMATIC_EMAILS, accountEmail, customEmail, leadAlertEmail, leadReceivedEmail, staffWelcomeEmail, welcomeEmail } from './mail/emails.js';
 import { noMailer } from './mail/mailer.js';
 import { POLICY_FIELDS, PolicyError, PolicyStore, allowedAt, fillTables } from './policy/index.js';
 import { attachCampaignPolicy, bulkKillReason, createCampaignOpsRouter, retentionSweep } from './policy/campaignOps.js';
@@ -2326,6 +2327,8 @@ export function createApp({
     opsAlertOptions = {},
     // Outgoing email (mail/mailer.js). A no-op unless index.js passes one built from SMTP_* settings.
     mailer = noMailer,
+    // The wait between two dashboard emails (platform/email.js); tests pass 0.
+    emailGapMs = 1000,
 } = {}) {
     const app = express();
     app.disable('x-powered-by');
@@ -2404,7 +2407,7 @@ export function createApp({
         const all = { name: owner?.name || tenant.name, business: tenant.name, email: owner?.email ?? '', today: day(new Date().toISOString()), ...vars };
         // The owner's copy by email: account mail, so it goes whatever the WhatsApp switches say. Replies reach the team.
         const mail = owner?.email && accountEmail(kind, all, publicBaseUrl);
-        if (mail) void mailOnce(`mail:${key}`, { to: owner.email, replyTo: mailer.notifyTo ?? undefined, ...mail });
+        if (mail) void mailOnce(`mail:${key}`, { to: owner.email, replyTo: mailer.notifyTo ?? undefined, ...mail }, tenant.name);
         return notifier.event(kind, {
             to: tenant.contactPhone || leads.forTenant(tenant.id)?.phone || '',
             tenantId: tenant.id,
@@ -2412,10 +2415,16 @@ export function createApp({
             vars: all,
         });
     };
-    /** One email per key, ever: recorded once it is sent, so a failed one is tried again by the next run. */
-    const mailOnce = async (key, mail) => {
-        if (!mailer.configured || db.db.prepare('SELECT 1 FROM sent_mail WHERE key = ?').get(key)) return;
+    /** An automatic email, kept in the Wuzie Email page's log. `label` is who it is about. */
+    const sendLogged = async (mail, label) => {
         const result = await mailer.send(mail);
+        platformEmails.record(mail, label, result);
+        return result;
+    };
+    /** One email per key, ever: recorded once it is sent, so a failed one is tried again by the next run. */
+    const mailOnce = async (key, mail, label) => {
+        if (!mailer.configured || db.db.prepare('SELECT 1 FROM sent_mail WHERE key = ?').get(key)) return;
+        const result = await sendLogged(mail, label);
         if (result.sent) db.db.prepare('INSERT OR IGNORE INTO sent_mail (key, sent_at) VALUES (?, ?)').run(key, new Date().toISOString());
     };
     /** Plan put on or renewed: what it is, what was charged and when it renews. */
@@ -2455,6 +2464,10 @@ export function createApp({
     // Admin screens span every tenant: they listen here instead of polling (GET /api/admin/events).
     const adminFeed = createAdminFeed();
     tenancy.onAudit = ({ tenantId }) => adminFeed.publish('audit', tenantId);
+    const platformEmails = new PlatformEmails(db.db, { mailer, gapMs: emailGapMs, onChange: () => adminFeed.publish('wuzie_email', null) });
+    app.locals.platformEmails = platformEmails;
+    // Whatever a restart interrupted.
+    platformEmails.drain();
     // One platform-wide ops alert channel (OPS_ALERT_WEBHOOK); its limits span every tenant and number.
     const opsAlerts = createOpsAlerts({ audit: (entry) => tenancy.audit(entry), ...opsAlertOptions });
     const opsAlert = deps.opsAlert ?? opsAlerts.raise;
@@ -2602,7 +2615,7 @@ export function createApp({
     };
     const fail = (res, err) => {
         if (err instanceof TenancyError || err instanceof BillingError || err instanceof LeadError || err instanceof LimitRequestError
-            || err instanceof ReferralError || err instanceof AdminRoleError) {
+            || err instanceof ReferralError || err instanceof AdminRoleError || err instanceof EmailError) {
             return res.status(err.status).json({ errors: [err.message] });
         }
         throw err;
@@ -2645,13 +2658,13 @@ export function createApp({
             });
             // Not awaited: the visitor's answer never waits on a mail server. The alert's link uses only the
             // configured address, never this request's Origin, which a stranger could set to anything.
-            void mailer.send({ to: lead.email, ...leadReceivedEmail(lead) });
+            void sendLogged({ to: lead.email, ...leadReceivedEmail(lead) }, lead.business);
             if (mailer.notifyTo) {
-                void mailer.send({
+                void sendLogged({
                     to: mailer.notifyTo,
                     replyTo: lead.email,
                     ...leadAlertEmail(lead, publicBaseUrl && `${publicBaseUrl}/admin/leads`),
-                });
+                }, lead.business);
             }
             tenancy.audit({ action: 'lead.create', target: String(lead.id), detail: { source: lead.source } });
             return res.status(201).json({ ok: true });
@@ -3552,6 +3565,96 @@ export function createApp({
         return res.json({ queued: queued.length, skipped });
     });
 
+    // ---- Wuzie's own email (mail/mailer.js): written and sent from the same page ----
+    admin.get('/wapzo/email', (req, res) => res.json({
+        configured: mailer.configured,
+        from: mailer.from,
+        templates: platformEmails.templates(),
+        log: platformEmails.recent(),
+        automatic: AUTOMATIC_EMAILS.map(({ kind, label, when, to }) => ({ kind, label, when, to })),
+    }));
+
+    /** One automatic email, with sample details. */
+    admin.get('/wapzo/email/automatic/:kind', (req, res) => {
+        const item = AUTOMATIC_EMAILS.find((e) => e.kind === req.params.kind);
+        if (!item) return res.status(404).json({ errors: ['unknown email'] });
+        const { subject, html } = item.sample(publicBaseUrl);
+        return res.json({ subject, html });
+    });
+
+    /** The email as a client will get it, with sample words. */
+    admin.post('/wapzo/email/preview', (req, res) => {
+        const vars = { name: 'Priya', business: String(req.body?.business ?? '') || 'Sunrise Traders', email: 'priya@example.com' };
+        const subject = renderText(String(req.body?.subject ?? ''), vars);
+        return res.json({ html: customEmail({ subject, body: renderText(String(req.body?.body ?? ''), vars) }).html });
+    });
+
+    /**
+     * One email to many: every business's owner, the ones chosen, open leads and/or typed addresses, each address
+     * once. "All" leaves out archived businesses and those that switched Wuzie updates off, as the WhatsApp send does.
+     */
+    admin.post('/wapzo/email/send', (req, res) => {
+        try {
+            if (!mailer.configured) throw new EmailError('Email is not set up on this server.', 409);
+            const body = req.body ?? {};
+            const message = cleanMessage(body);
+            const typed = (Array.isArray(body.emails) ? body.emails : String(body.emails ?? '').split(/[\n,;]+/))
+                .map((e) => String(e).trim()).filter(Boolean);
+            if (typed.length > 500) throw new EmailError('Send to 500 typed addresses at most.');
+            const all = body.tenants === 'all';
+            const ids = all ? [] : (Array.isArray(body.tenants) ? body.tenants.map(Number).filter(Number.isInteger) : []);
+            const tenants = all
+                ? tenancy.listTenants().filter((t) => t.status !== 'archived' && t.wapzoUpdates !== false)
+                : ids.map((id) => tenancy.getTenant(id)).filter((t) => t && t.status !== 'system');
+            const openLeads = (Array.isArray(body.leads) ? body.leads : []).slice(0, 1000)
+                .map((id) => leads.get(id)).filter((l) => l && (l.status === 'new' || l.status === 'hold'));
+            if (!tenants.length && !openLeads.length && !typed.length) throw new EmailError('Choose who gets it.');
+
+            const items = [];
+            const skipped = [];
+            const seen = new Set();
+            const one = (address, label, vars) => {
+                const to = String(address ?? '').trim().toLowerCase();
+                if (!isEmail(to)) { skipped.push({ to: label, reason: to ? 'Not a valid email address.' : 'No email address on file.' }); return; }
+                if (seen.has(to)) return;
+                seen.add(to);
+                const filled = { ...vars, email: to };
+                items.push({ to, label, subject: renderText(message.subject, filled), body: renderText(message.body, filled) });
+            };
+            for (const tenant of tenants) {
+                const owner = tenancy.ownerOf(tenant.id);
+                one(owner?.email, tenant.name, { name: owner?.name || tenant.name, business: tenant.name });
+            }
+            for (const lead of openLeads) one(lead.email, lead.business || lead.name, { name: lead.name, business: lead.business });
+            for (const address of typed) one(address, address, {});
+            platformEmails.enqueue(items);
+            adminFeed.publish('wuzie_email', null);
+            audit(req, 'wapzo.email', String(items.length), { queued: items.length, skipped: skipped.length, subject: message.subject });
+            return res.json({ queued: items.length, skipped });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    const saveEmailTemplate = (req, res, id) => {
+        try {
+            const template = platformEmails.saveTemplate(id, req.body ?? {});
+            audit(req, 'wapzo.email_template', template.name);
+            adminFeed.publish('wuzie_email', null);
+            return res.json({ template });
+        } catch (err) {
+            return fail(res, err);
+        }
+    };
+    admin.post('/wapzo/email/templates', (req, res) => saveEmailTemplate(req, res, null));
+    admin.put('/wapzo/email/templates/:id', (req, res) => saveEmailTemplate(req, res, Number(req.params.id)));
+    admin.delete('/wapzo/email/templates/:id', (req, res) => {
+        if (!platformEmails.deleteTemplate(Number(req.params.id))) return res.status(404).json({ errors: ['That template no longer exists.'] });
+        audit(req, 'wapzo.email_template', req.params.id, { deleted: true });
+        adminFeed.publish('wuzie_email', null);
+        return res.json({ ok: true });
+    });
+
     /**
      * Everything else (connection, QR, config, level, safety) is the number's own API, as a business's Connection
      * page uses it, addressed to the system tenant's number whatever tenant or number the browser last had open.
@@ -3745,10 +3848,10 @@ export function createApp({
         const roleName = adminRoles.get(user.adminRoleId).name;
         // Their sign-in by email; the page still shows it once, for when the email does not arrive.
         const base = siteUrl(req);
-        const mail = await mailer.send({
+        const mail = await sendLogged({
             to: user.email,
             ...staffWelcomeEmail({ name: user.name, roleName, email: user.email, password, loginUrl: base && `${base}/login` }),
-        });
+        }, user.name || user.email);
         return [user.email, { role: roleName }, { mail }];
     }));
     admin.put('/staff/:userId', staffRoute('staff.update', async (req) => {
@@ -3792,7 +3895,7 @@ export function createApp({
             let email = { sent: false, reason: 'Not sent.' };
             if (req.body?.sendWelcome !== false) {
                 const base = siteUrl(req);
-                email = await mailer.send({
+                email = await sendLogged({
                     to: owner.email,
                     ...welcomeEmail({
                         name: owner.name,
@@ -3802,7 +3905,7 @@ export function createApp({
                         password,
                         loginUrl: base && `${base}/login`,
                     }),
-                });
+                }, tenant.name);
                 audit(req, 'tenant.welcome_email', tenant.id, { sent: email.sent });
             }
             return res.json({ tenant: overview, owner: tenancy.getUser(owner.id), email });
@@ -4999,6 +5102,7 @@ async function handleInbound(state, message) {
  */
 export async function closeApp(app) {
     await app.locals.stopScheduler?.();
+    await app.locals.platformEmails?.stop();
     for (const tenant of app.locals.runtimes?.values() ?? []) {
         for (const { state } of tenant.runtimes.values()) await closeState(state);
     }

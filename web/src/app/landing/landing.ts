@@ -12,6 +12,7 @@ import Lenis from 'lenis';
 import { animate, inView, scroll, stagger } from 'motion';
 
 import { ChatPreview } from './chat-preview';
+import { QR } from './feature-scene';
 import { LandingNav } from './landing-nav';
 import { LeadForm } from './lead-form';
 import { CountUp, EASE_OUT, FanOut, Reveal, SPRING, still } from './motion';
@@ -183,22 +184,6 @@ const FAQS: readonly { readonly q: string; readonly a: string }[] = [
     a: 'Accounts are set up for you. Request access, tell us about your business, and we create your workspace and send the sign-in details. Every paid plan starts with a 14-day free trial.',
   },
 ];
-
-/** The how-it-works QR tile: 9x9, with the three corner finder blocks a real code has. Decorative. */
-const QR: readonly number[] = [
-  '111010111',
-  '101001101',
-  '111010111',
-  '000110000',
-  '101101101',
-  '010010110',
-  '111011010',
-  '101001101',
-  '111010111',
-]
-  .join('')
-  .split('')
-  .map(Number);
 
 /** Where the FAQ's "Write to us" goes; account requests use the form (LeadForm). */
 const CONTACT_EMAIL = 'connection@zarklyx.com';

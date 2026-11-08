@@ -1,4 +1,4 @@
-<!-- The feature list on the left, then the chat and what the feature does. Below `lg` the list is a row to swipe. -->
+<!-- The feature list on the left; on the right what the picked one does and a scene of it. Below `lg` the list is a row to swipe. -->
 <div class="rail" role="group" aria-label="Features">
   <div class="group">
     <h3>Available now</h3>
@@ -19,55 +19,25 @@
 </div>
 
 <div class="stage">
-  <figure class="phone" data-ui>
-    <!-- WhatsApp's own chat screen: green bar, beige wallpaper, white and green bubbles, the message bar below. -->
-    <div class="phone-top">
-      <i class="ti ti-arrow-left" aria-hidden="true"></i>
-      <span class="avatar" aria-hidden="true">{{ feature().contact.charAt(0) }}</span>
-      <span class="who">
-        <strong>{{ feature().contact }}</strong>
-        <small>online</small>
-      </span>
-      <i class="ti ti-video" aria-hidden="true"></i>
-      <i class="ti ti-phone" aria-hidden="true"></i>
-    </div>
-    <ol class="thread">
-      <li class="day" aria-hidden="true"><span>Today</span></li>
-      @for (line of feature().lines; track feature().key + $index; let i = $index) {
-        <!-- The tail goes on the first bubble of a run from one side, as WhatsApp draws it. -->
-        <li
-          class="msg {{ line.side }}"
-          [class.first]="i === 0 || feature().lines[i - 1].side !== line.side"
-          [style.--i]="i"
-        >
-          <span class="text">{{ line.text }}</span>
-          <span class="meta">
-            {{ line.time }}
-            @if (line.side === 'out') {
-              <i class="ti ti-checks" aria-label="Read"></i>
-            }
-          </span>
-        </li>
-      }
-    </ol>
-    <div class="composer" aria-hidden="true">
-      <span class="field"><i class="ti ti-mood-smile"></i>Message<i class="ti ti-paperclip"></i></span>
-      <span class="mic"><i class="ti ti-microphone"></i></span>
-    </div>
-    <figcaption class="sr-only">A sample WhatsApp chat showing {{ feature().label }}.</figcaption>
-  </figure>
-
   <div class="about" aria-live="polite">
-    <span class="status" [class.ready]="!soon()">{{ soon() ? 'Coming soon' : 'Available now' }}</span>
-    <h3>{{ feature().title }}</h3>
-    <p>{{ feature().text }}</p>
-    @if (feature().points; as points) {
-      <ul>
-        @for (point of points; track point) {
-          <li><i class="ti ti-check" aria-hidden="true"></i>{{ point }}</li>
-        }
-      </ul>
-    }
+    <div>
+      <span class="status" [class.ready]="!soon()">{{ soon() ? 'Coming soon' : 'Available now' }}</span>
+      <h3>{{ feature().title }}</h3>
+      <p>{{ feature().text }}</p>
+    </div>
     <a class="cta" href="#access">Get access</a>
   </div>
+
+  <figure class="canvas">
+    <app-feature-scene aria-hidden="true" [key]="feature().key" [said]="feature().said" />
+    <figcaption class="sr-only">A sample of {{ feature().label }} at work.</figcaption>
+  </figure>
+
+  @if (feature().points; as points) {
+    <ul class="points">
+      @for (point of points; track point) {
+        <li><i class="ti ti-check" aria-hidden="true"></i>{{ point }}</li>
+      }
+    </ul>
+  }
 </div>
