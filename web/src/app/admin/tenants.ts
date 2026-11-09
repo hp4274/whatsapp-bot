@@ -36,7 +36,6 @@ const DEFAULT_SERVICES: readonly string[] = [
   'whatsapp_channels',
   'contacts',
   'templates',
-  'inbox',
   'auto_replies',
   'bulk_messages',
   'campaigns',

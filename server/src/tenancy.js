@@ -31,7 +31,6 @@ export const TENANT_SERVICES = Object.freeze([
     'whatsapp_channels',
     'contacts',
     'templates',
-    'inbox',
     'auto_replies',
     'bulk_messages',
     'campaigns',

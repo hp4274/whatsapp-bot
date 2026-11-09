@@ -313,7 +313,6 @@ async function runAction(state, { action, i, phone, saved, option, campaignId, c
             conversation = action.assignTo && Number.isInteger(assignee)
                 ? conversations.assign(conversation.id, assignee)
                 : conversations.unassign(conversation.id);
-            conversations.pauseBot(conversation.id);
             let ticketId = null;
             if (action.ticket && state.tickets) {
                 ticketId = state.tickets.create({

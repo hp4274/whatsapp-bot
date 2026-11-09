@@ -25,14 +25,14 @@ const SLIDES: readonly { readonly image: string; readonly mobile?: string; reado
     mobile: 'hero-shop-m.jpg',
     who: 'a clothes shop',
     title: 'Send bulk WhatsApp messages',
-    lede: 'Reach every customer at once from the WhatsApp number you already use. Each message carries the person’s name, goes out at a careful pace that protects your number, and every reply lands in one shared inbox.',
+    lede: 'Reach every customer at once from the WhatsApp number you already use. Each message carries the person’s name, goes out at a careful pace that protects your number, and replies come straight back to it.',
   },
   {
     image: 'hero-studio.jpg',
     mobile: 'hero-studio-m.jpg',
     who: 'a pottery studio',
     title: 'Remind every class at once',
-    lede: 'Class times, changes and fee reminders reach every student by name, from the number they already know, and their replies come back to one inbox.',
+    lede: 'Class times, changes and fee reminders reach every student by name, from the number they already know, and their replies come straight back to it.',
   },
   {
     image: 'hero-music.jpg',
@@ -45,7 +45,7 @@ const SLIDES: readonly { readonly image: string; readonly mobile?: string; reado
     image: 'hero-campus.jpg',
     who: 'a campus club',
     title: 'Reach every member on campus',
-    lede: 'Passes, schedules and reminders go out to every student in one send, each with their own name, and every reply lands in one shared inbox.',
+    lede: 'Passes, schedules and reminders go out to every student in one send, each with their own name, and replies come straight back to your number.',
   },
 ];
 
@@ -127,7 +127,7 @@ const PLANS: readonly {
       '1,000 messages a month',
       '1,000 contacts, up to 1,000 per campaign',
       '1 WhatsApp number, 2 team members',
-      'Auto-replies, templates and shared inbox',
+      'Auto-replies and templates',
     ],
   },
   {
@@ -177,7 +177,7 @@ const FAQS: readonly { readonly q: string; readonly a: string }[] = [
   },
   {
     q: 'What happens when people reply?',
-    a: 'Replies land in the shared inbox, where your team answers them. Automatic replies to common questions are coming soon.',
+    a: 'Replies come straight to your WhatsApp number, so you answer them on your phone as usual. Automatic replies to common questions are coming soon.',
   },
   {
     q: 'How do I get an account?',
@@ -190,8 +190,8 @@ const CONTACT_EMAIL = 'connection@zarklyx.com';
 
 /**
  * The public front page for a visitor from search: Wuzie is bulk WhatsApp
- * messaging first, so the hero shows customers getting their message, and the replies,
- * inbox and the rest follow. Signed-in users never see it (`landingGuard`).
+ * messaging first, so the hero shows customers getting their message, and the
+ * rest follow. Signed-in users never see it (`landingGuard`).
  *
  * Colour follows 60-30-10 on the dashboard's tokens: the ground and cards are
  * the 60, the brand navy fields (hero, the health and access cards, close) the 30, the brand blue

@@ -26,7 +26,6 @@ import {
   subscriptionWhen,
 } from './plans-api';
 import { AdminFeed } from './admin-feed';
-import { PolicyEditor } from './policy-editor';
 import { serviceMeta } from './service-meta';
 import { sentenceCase } from './text';
 
@@ -78,7 +77,7 @@ const PAGE_SIZE = 20;
  */
 @Component({
   selector: 'app-admin-plans',
-  imports: [Tilt, PolicyEditor, Pager],
+  imports: [Tilt, Pager],
   templateUrl: './plans.html',
   styleUrl: './plans.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

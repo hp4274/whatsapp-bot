@@ -5,6 +5,8 @@
   --field: var(--brand-ink);
   --on-field: var(--on-fill);
   --on-field-soft: color-mix(in srgb, var(--on-fill) 74%, transparent);
+  // White on the orange here, by the owner's choice (2.8:1); the dashboard keeps the ink.
+  --on-primary: var(--on-fill);
   --field-line: color-mix(in srgb, var(--on-fill) 16%, transparent);
   --gutter: clamp(16px, 4vw, 48px);
   --gap: clamp(88px, 11vw, 168px);

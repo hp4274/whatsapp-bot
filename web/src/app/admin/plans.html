@@ -175,16 +175,6 @@
       </div>
     </section>
   }
-
-  <!-- Quotas and security per plan: the policy editor's own scope strip picks platform default or a plan. -->
-  <section class="quotas" aria-labelledby="quotas-title">
-    <h3 id="quotas-title"><i class="ti ti-shield-lock" aria-hidden="true"></i> Security</h3>
-    <p class="muted">
-      Request rates, sign-out and API keys. Each plan's quotas (messages, API requests, storage, numbers, templates)
-      are set on the plan above, and a business's own limits in its settings.
-    </p>
-    <app-policy-editor service="account" />
-  </section>
 } @else {
   <section class="tiles" aria-label="Subscription summary">
     <button

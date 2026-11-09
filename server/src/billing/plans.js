@@ -54,7 +54,7 @@ export const STOCK_METRICS = Object.freeze(['channels', 'contacts', 'agents', 's
 export const RECOUNTABLE_METRICS = Object.freeze(['messages']);
 
 const STARTER_SERVICES = Object.freeze([
-    'whatsapp_channels', 'templates', 'auto_replies', 'bulk_messages', 'campaigns', 'contacts', 'inbox',
+    'whatsapp_channels', 'templates', 'auto_replies', 'bulk_messages', 'campaigns', 'contacts',
 ]);
 
 /**

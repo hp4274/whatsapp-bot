@@ -192,16 +192,6 @@
           </div>
         </div>
       </div>
-      <div class="checks">
-        <ar-switch
-          label="Escalate to a human"
-          [checked]="!!d.actions.escalate"
-          (checkedChange)="patchActions({ escalate: $event })"
-        />
-        <span class="hint"
-          >Opens the conversation in the inbox and pauses the bot for this contact.</span
-        >
-      </div>
       <label class="check">
         <input
           type="checkbox"

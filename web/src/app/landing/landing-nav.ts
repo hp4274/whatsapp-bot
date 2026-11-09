@@ -3,9 +3,9 @@ import { RouterLink } from '@angular/router';
 
 /** The page's sections in the bar, in page order; `id` is the section's anchor. */
 const LINKS: readonly { readonly id: string; readonly label: string }[] = [
+  { id: 'explore', label: 'All features' },
   { id: 'features', label: 'Bulk messaging' },
   { id: 'safety', label: 'Safety' },
-  { id: 'explore', label: 'All features' },
   // { id: 'pricing', label: 'Pricing' }, // the pricing section is hidden for now (landing.html)
   { id: 'faq', label: 'FAQ' },
 ];

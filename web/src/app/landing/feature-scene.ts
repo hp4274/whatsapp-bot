@@ -32,14 +32,6 @@ const SEATS = SEAT_ROWS.flatMap((row, r) =>
   }),
 );
 
-const FAN = [
-  { name: 'Priya Shah', state: 'Read', icon: 'checks', tone: 'read' },
-  { name: 'Rohan Mehta', state: 'Read', icon: 'checks', tone: 'read' },
-  { name: 'Kavya Rao', state: 'Delivered', icon: 'checks', tone: '' },
-  { name: 'Neel Desai', state: 'Sent', icon: 'check', tone: '' },
-  { name: 'Sana Khan', state: 'Sending', icon: 'clock', tone: '' },
-];
-
 const API_CALL = `POST /api/v1/orders
 Authorization: Bearer wz_live_...
 
@@ -67,6 +59,5 @@ export class FeatureScene {
   protected readonly qr = QR;
   protected readonly seats = SEATS;
   protected readonly seatsBooked = SEATS.filter((s) => s.state !== 'free').length;
-  protected readonly fan = FAN;
   protected readonly apiCall = API_CALL;
 }

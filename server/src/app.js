@@ -213,8 +213,6 @@ const SERVICE_ROUTE_PREFIXES = Object.freeze([
     ['/contacts', 'contacts'],
     ['/segments', 'contacts'],
     ['/templates', 'templates'],
-    ['/inbox', 'inbox'],
-    ['/conversations', 'inbox'],
     ['/auto-replies', 'auto_replies'],
     ['/campaign', 'campaigns'],
     ['/campaigns', 'campaigns'],

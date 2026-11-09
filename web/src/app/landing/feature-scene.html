@@ -13,31 +13,6 @@
 
 <div class="scene k-{{ key() }}">
   @switch (key()) {
-    @case ('bulk') {
-      <article class="draft">
-        <small>Diwali sale campaign</small>
-        <p>Hi <b class="blank">name</b>, our Diwali sale starts Friday! 20% off every kurta, this week only.</p>
-        <span class="file"><i class="ti ti-photo"></i>diwali-offer.jpg</span>
-      </article>
-      <svg class="rays" viewBox="0 0 100 100" preserveAspectRatio="none">
-        <path d="M0 50C50 50 50 10 100 10" />
-        <path d="M0 50C50 50 50 30 100 30" />
-        <path d="M0 50H100" />
-        <path d="M0 50C50 50 50 70 100 70" />
-        <path d="M0 50C50 50 50 90 100 90" />
-      </svg>
-      <ol class="people">
-        @for (p of fan; track p.name) {
-          <li>
-            <span class="av">{{ p.name.charAt(0) }}</span>
-            <span class="line"><b>Hi {{ p.name.split(' ')[0] }}, our Diwali sale…</b><small>{{ p.name }}</small></span>
-            <span class="state {{ p.tone }}"><i class="ti ti-{{ p.icon }}"></i>{{ p.state }}</span>
-          </li>
-        }
-      </ol>
-      <div class="meter"><span><i></i></span><b>842 of 1,200 sent</b></div>
-    }
-
     @case ('templates') {
       <article class="tpl">
         <small>Saved template</small>
@@ -72,27 +47,6 @@
           </tbody>
         </table>
         <footer><b>412 ready to message</b><span>3 bad numbers</span><span>6 duplicates</span></footer>
-      </div>
-    }
-
-    @case ('inbox') {
-      <div class="desk">
-        <ul class="convos">
-          <li class="on"><span class="av">M</span><span class="line"><b>Meghna Iyer</b><small>Yes please</small></span><em>1</em></li>
-          <li><span class="av">A</span><span class="line"><b>Arjun Nair</b><small>Got it, thanks!</small></span></li>
-          <li><span class="av">S</span><span class="line"><b>Sana Khan</b><small>What time do you close?</small></span><em>2</em></li>
-          <li><span class="av">D</span><span class="line"><b>Dev Patel</b><small>My order arrived damaged</small></span></li>
-        </ul>
-        <section class="talk">
-          <header>
-            <span class="line"><b>Meghna Iyer</b><small>Replied to Diwali sale</small></span>
-            <span class="owner"><i class="ti ti-user-check"></i>Neha</span>
-          </header>
-          <div class="wa in"><span class="text">Do you deliver to Nashik?</span></div>
-          <div class="wa out"><span class="text">Yes, in 2 to 3 days. Shall I place the order for you?</span></div>
-          <div class="wa in"><span class="text">Yes please</span></div>
-          <footer>Reply from Sunrise Traders</footer>
-        </section>
       </div>
     }
 

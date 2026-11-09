@@ -1,6 +1,117 @@
-import { ChangeDetectionStrategy, Component, computed, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, linkedSignal, signal, viewChild } from '@angular/core';
 
 import { FeatureScene, type Said } from './feature-scene';
+
+/** Something a customer can tap, and what the business answers when they do. */
+interface Option {
+  readonly title: string;
+  readonly note?: string;
+  readonly reply: string;
+}
+
+interface Card {
+  readonly title: string;
+  readonly text: string;
+  /** Which part of the shop photo it shows (its top has notification cards drawn in). */
+  readonly crop: string;
+  readonly option: Option;
+}
+
+/** One WhatsApp message: plain text, a photo with a caption, reply buttons, a list menu, or a carousel of cards. */
+interface ChatLine {
+  readonly side: 'in' | 'out';
+  readonly text: string;
+  readonly time: string;
+  readonly photo?: boolean;
+  readonly buttons?: readonly Option[];
+  readonly list?: { readonly button: string; readonly rows: readonly Option[] };
+  readonly cards?: readonly Card[];
+}
+
+interface Variation {
+  readonly key: string;
+  readonly label: string;
+  readonly icon: string;
+  readonly lines: readonly ChatLine[];
+}
+
+/** The kinds of bulk message, listed under Bulk messages in the sidebar. Seen on the customer's phone: the business's messages come in. */
+const BULK_VARIATIONS: readonly Variation[] = [
+  {
+    key: 'regular',
+    label: 'Regular',
+    icon: 'message',
+    lines: [
+      { side: 'in', text: 'Hi Priya, our Diwali sale starts Friday! 20% off every kurta, this week only.', time: '10:00' },
+      { side: 'out', text: 'Is it on in the Pune store too?', time: '10:06' },
+      { side: 'in', text: 'Yes, in every store and online.', time: '10:09' },
+    ],
+  },
+  {
+    key: 'images',
+    label: 'With images',
+    icon: 'photo',
+    lines: [
+      { side: 'in', text: 'Hi Priya, our Diwali sale starts Friday! 20% off every kurta, this week only.', time: '10:00', photo: true },
+      { side: 'out', text: 'Looks lovely! Is it on in Pune too?', time: '10:06' },
+      { side: 'in', text: 'Yes, in every store and online.', time: '10:09' },
+    ],
+  },
+  {
+    key: 'buttons',
+    label: 'Reply buttons',
+    icon: 'arrow-back-up',
+    lines: [
+      {
+        side: 'in',
+        text: 'Hi Priya, our Diwali sale starts Friday! Shall we remind you that morning?',
+        time: '10:00',
+        buttons: [
+          { title: 'Yes, remind me', reply: 'Done, Priya. We will message you on Friday morning.' },
+          { title: 'No, thanks', reply: 'No problem, Priya. We will not remind you.' },
+        ],
+      },
+    ],
+  },
+  {
+    key: 'list',
+    label: 'List options',
+    icon: 'list',
+    lines: [
+      {
+        side: 'in',
+        text: 'Hi Priya, our Diwali sale starts Friday! What are you shopping for?',
+        time: '10:00',
+        list: {
+          button: 'See offers',
+          rows: [
+            { title: 'Kurtas', note: '20% off', reply: 'Every kurta is 20% off until Sunday, Priya.' },
+            { title: 'Sarees', note: '15% off', reply: 'All cotton sarees are 15% off until Sunday.' },
+            { title: 'Stoles', note: 'Buy 2, get 1 free', reply: 'Pick any three stoles and the third is free.' },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    key: 'carousel',
+    label: 'Carousel',
+    icon: 'carousel-horizontal',
+    lines: [
+      { side: 'in', text: 'Hi Priya, our Diwali picks are in. Swipe to see them.', time: '10:00' },
+      {
+        side: 'in',
+        text: '',
+        time: '10:00',
+        cards: [
+          { title: 'Block print kurta', text: '₹1,199, 20% off', crop: '53% 84%', option: { title: 'Hold one for me', reply: 'Your kurta is held until Sunday, Priya.' } },
+          { title: 'Cotton sarees', text: '₹2,499, 15% off', crop: '25% 38%', option: { title: 'Hold one for me', reply: 'Your saree is held until Sunday, Priya.' } },
+          { title: 'Indigo stoles', text: 'Buy 2, get 1 free', crop: '94% 100%', option: { title: 'Hold one for me', reply: 'Your stole is held until Sunday, Priya.' } },
+        ],
+      },
+    ],
+  },
+];
 
 interface Feature {
   readonly key: string;
@@ -10,7 +121,8 @@ interface Feature {
   readonly text: string;
   /** What is in it today; a coming-soon feature promises nothing this specific. */
   readonly points?: readonly string[];
-  readonly said: Said;
+  /** The message a scene shows; Bulk messages has its phone chat instead. */
+  readonly said?: Said;
 }
 
 /** What a business can use today: the open services in `server/src/tenancy.js`. */
@@ -22,7 +134,6 @@ const AVAILABLE: readonly Feature[] = [
     title: 'Message your whole list at once',
     text: 'Upload your contacts and send one campaign from your own number. Each person gets their own chat, with their name in it.',
     points: ['Send now or schedule it for later', 'Add images, PDFs and video', 'Watch sent, read and replied as it goes'],
-    said: { name: 'Priya Shah', text: 'Hi Priya, our Diwali sale starts Friday! 20% off every kurta, this week only.', time: '10:00' },
   },
   {
     key: 'templates',
@@ -41,15 +152,6 @@ const AVAILABLE: readonly Feature[] = [
     text: 'Bring in your list from Excel or CSV, and group people so each campaign reaches the right ones.',
     points: ['Bad numbers and duplicates caught on import', 'Groups and tags, such as VIP or Recent buyers', 'Every message to a person kept in one place'],
     said: { name: 'Kavya Rao', text: 'Hi Kavya, as one of our VIP customers you get first look at the new collection.', time: '12:15' },
-  },
-  {
-    key: 'inbox',
-    label: 'Shared inbox',
-    icon: 'inbox',
-    title: 'Every reply in one place',
-    text: 'When customers answer, their messages land in one list your whole team can see and reply to.',
-    points: ['Answer from the dashboard, on your own number', 'Hand a chat to the right person', 'See which campaign a reply came from'],
-    said: { name: 'Meghna Iyer', text: 'Yes, in 2 to 3 days. Shall I place the order for you?', time: '9:08' },
   },
   {
     key: 'numbers',
@@ -183,8 +285,9 @@ const COMING_SOON: readonly Feature[] = [
 
 /**
  * The landing page's tour of the product: every feature down the side, and for the one picked, what it does and a
- * scene of it at work (FeatureScene). Messages use numbered replies because a QR-linked number cannot send native
- * WhatsApp buttons or lists, so they show what the product really sends. Names and figures are samples.
+ * scene of it at work (FeatureScene). Bulk messages is a WhatsApp chat instead, with its kinds listed under it; tapping
+ * a reply button, a list row or a card plays the customer's choice and the answer. Names and figures are samples.
+ * shortcut: reply buttons and lists are drawn as WhatsApp's native ones, but a QR number delivers them as a numbered text menu; draw that if the page must match delivery exactly.
  */
 @Component({
   selector: 'app-chat-preview',
@@ -198,4 +301,26 @@ export class ChatPreview {
   protected readonly comingSoon = COMING_SOON;
   protected readonly feature = signal(AVAILABLE[0]);
   protected readonly soon = computed(() => COMING_SOON.includes(this.feature()));
+  protected readonly variations = BULK_VARIATIONS;
+  /** Back to Regular whenever Bulk messages is picked again. */
+  protected readonly variation = linkedSignal<Feature, Variation>({ source: this.feature, computation: () => BULK_VARIATIONS[0] });
+  /** What the customer tapped in this chat; another variation starts clean. */
+  protected readonly picked = linkedSignal<Variation, Option | null>({ source: this.variation, computation: () => null });
+  /** The list menu open over the chat. */
+  protected readonly sheet = linkedSignal<Variation, ChatLine['list'] | null>({ source: this.variation, computation: () => null });
+  protected readonly lastTime = computed(() => this.variation().lines.at(-1)?.time ?? '');
+  private readonly thread = viewChild<ElementRef<HTMLElement>>('thread');
+
+  protected pick(option: Option): void {
+    this.picked.set(option);
+    this.sheet.set(null);
+    // After Angular has drawn the two new bubbles.
+    setTimeout(() => this.thread()?.nativeElement.scrollTo({ top: 1e6 }));
+  }
+
+  /** On to the next card, or back to the first from the last: a mouse cannot swipe. */
+  protected nextCard(strip: HTMLElement): void {
+    const atEnd = strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 8;
+    strip.scrollTo({ left: atEnd ? 0 : strip.scrollLeft + 196, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }
 }

@@ -318,6 +318,7 @@ input[type='radio'] {
 // the ink button that turns brand orange on hover; `.danger` is the red-outline
 // destructive one. 38px tall, 10px radius, 13.5px medium — Kardlyz's sizes.
 .btn {
+  text-decoration: none; // Some buttons are links (`<a class="btn">`).
   display: inline-flex;
   align-items: center;
   justify-content: center;

@@ -10,7 +10,7 @@ type Row = { readonly kind: 'pick'; readonly referrer: Referrer } | { readonly k
 
 /**
  * "Referred by": type a marketer's name. Marketers typed before show in the list under the box (the quick-replies
- * list's look, inbox-composer.scss); a new name becomes a marketer when the form saves (server referrals.js
+ * list's look); a new name becomes a marketer when the form saves (server referrals.js
  * setForTenant, at the default 10%, changed later in Referrals). Empty = nobody.
  */
 @Component({
@@ -80,7 +80,7 @@ type Row = { readonly kind: 'pick'; readonly referrer: Referrer } | { readonly k
     input { width: 100%; padding-right: 36px; }
     .box > .ti { position: absolute; right: 12px; top: 50%; translate: 0 -50%; font-size: 16px; color: var(--hint); pointer-events: none; }
 
-    // The quick-replies list (inbox-composer.scss .qr): card surface, rounded rows, the active one sunken with a
+    // Card surface, rounded rows, the active one sunken with a
     // primary bar.
     .list {
       position: absolute;
