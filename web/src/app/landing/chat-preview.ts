@@ -1,4 +1,16 @@
-import { ChangeDetectionStrategy, Component, ElementRef, computed, linkedSignal, signal, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  linkedSignal,
+  signal,
+  viewChild,
+} from '@angular/core';
 
 import { FeatureScene, type Said } from './feature-scene';
 
@@ -34,6 +46,9 @@ interface Variation {
   readonly icon: string;
   readonly lines: readonly ChatLine[];
 }
+
+/** Seconds each feature stays up before the next one takes over. */
+const ROTATE_SECONDS = 6;
 
 /** The kinds of bulk message, listed under Bulk messages in the sidebar. Seen on the customer's phone: the business's messages come in. */
 const BULK_VARIATIONS: readonly Variation[] = [
@@ -295,8 +310,13 @@ const COMING_SOON: readonly Feature[] = [
   templateUrl: './chat-preview.html',
   styleUrl: './chat-preview.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(click)': 'autoplay.set(false)' },
 })
 export class ChatPreview {
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  private readonly injector = inject(Injector);
+  /** Features change by themselves until the visitor takes over; never for someone who asked for less motion. */
+  protected readonly autoplay = signal(!matchMedia('(prefers-reduced-motion: reduce)').matches);
   protected readonly available = AVAILABLE;
   protected readonly comingSoon = COMING_SOON;
   protected readonly feature = signal(AVAILABLE[0]);
@@ -310,6 +330,50 @@ export class ChatPreview {
   protected readonly sheet = linkedSignal<Variation, ChatLine['list'] | null>({ source: this.variation, computation: () => null });
   protected readonly lastTime = computed(() => this.variation().lines.at(-1)?.time ?? '');
   private readonly thread = viewChild<ElementRef<HTMLElement>>('thread');
+
+  constructor() {
+    let inView = false;
+    let shown = 0;
+    const seen = new IntersectionObserver(([entry]) => (inView = entry.isIntersecting), { threshold: 0.3 });
+    seen.observe(this.host);
+    // Counted in seconds, so the next feature gets its full time after a pause or a scroll back.
+    const timer = setInterval(() => {
+      shown = this.autoplay() && inView && !document.hidden && !this.reaching() ? shown + 1 : 0;
+      if (shown < ROTATE_SECONDS) return;
+      shown = 0;
+      this.advance();
+    }, 1000);
+    inject(DestroyRef).onDestroy(() => {
+      clearInterval(timer);
+      seen.disconnect();
+    });
+  }
+
+  /** About to pick something. Not any hover: the section fills the screen, so a resting mouse would stop it for good. */
+  private reaching(): boolean {
+    return this.host.matches(':focus-within') || Boolean(this.host.querySelector('.rail:hover, .cta:hover'));
+  }
+
+  /** Through Bulk's kinds first, then on to the next feature. */
+  private advance(): void {
+    const kind = BULK_VARIATIONS.indexOf(this.variation());
+    if (this.feature().key === 'bulk' && kind < BULK_VARIATIONS.length - 1) {
+      this.variation.set(BULK_VARIATIONS[kind + 1]);
+    } else {
+      const all = [...AVAILABLE, ...COMING_SOON];
+      this.feature.set(all[(all.indexOf(this.feature()) + 1) % all.length]);
+    }
+    // Below `lg` the list is a row to swipe: bring the new chip into sight, once Bulk's kinds have folded away.
+    afterNextRender(
+      () => {
+        const rail = this.host.querySelector('.rail');
+        const chip = rail?.querySelector('.sub[aria-pressed="true"]') ?? rail?.querySelector('.row[aria-pressed="true"]');
+        if (!rail || !chip) return;
+        rail.scrollBy({ left: chip.getBoundingClientRect().left - rail.getBoundingClientRect().left - 16, behavior: 'smooth' });
+      },
+      { injector: this.injector },
+    );
+  }
 
   protected pick(option: Option): void {
     this.picked.set(option);
