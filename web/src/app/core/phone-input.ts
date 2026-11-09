@@ -227,7 +227,7 @@ let next = 0;
       &:disabled { opacity: 0.6; cursor: default; }
     }
 
-    // The app's own dropdown (referrer-input, inbox quick replies): card, search on top, a list that scrolls.
+    // The app's own dropdown (as referrer-input): card, search on top, a list that scrolls.
     .menu {
       position: absolute;
       top: calc(100% + 6px);

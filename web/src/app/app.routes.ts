@@ -74,12 +74,6 @@ export const routes: Routes = [
     loadComponent: () => import('./templates/templates').then((m) => m.TemplatesView),
   },
   {
-    path: 'inbox',
-    title: 'Inbox - Wuzie',
-    canActivate: [authGuard],
-    loadComponent: () => import('./inbox/inbox').then((m) => m.InboxView),
-  },
-  {
     path: 'tickets',
     title: 'Tickets - Wuzie',
     canActivate: [authGuard],

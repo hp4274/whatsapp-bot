@@ -97,19 +97,6 @@ em { font-style: normal; }
   i { display: block; width: 70%; height: 100%; border-radius: inherit; background: var(--brand-gradient); transform-origin: left; animation: grow 900ms var(--ease) 300ms both; }
 }
 
-// Bulk: one draft fans out to many people -----------------------------------------------------------------------
-.k-bulk {
-  grid-template-columns: minmax(0, 1fr) 72px minmax(0, 1.25fr);
-  .draft { display: grid; gap: 10px; padding: 18px; border-radius: var(--radius-md); background: var(--paper); font-size: 16px; line-height: 1.5; }
-  .file { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 13px; }
-  .rays { width: 100%; height: 260px; fill: none; path { stroke: var(--tone); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-dasharray: 4 5; } }
-  .people { display: grid; gap: 8px; @include stagger(5, 90ms); }
-  .people li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 99px; background: var(--paper); }
-  .line { flex: 1; b, small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
-  .state { display: flex; flex: none; align-items: center; gap: 3px; color: var(--text-muted); font-size: 12.5px; &.read .ti { color: var(--wa-tick); } }
-  .meter { grid-column: 1 / -1; i { width: 70%; } }
-}
-
 // Templates: blanks on the left, the filled copies on the right ----------------------------------------------------
 .k-templates {
   --tone: var(--accent);
@@ -141,22 +128,6 @@ em { font-style: normal; }
   .bad td { background: color-mix(in srgb, var(--danger) 8%, transparent); color: var(--danger-text); }
   .bad td:nth-child(2), .bad td:nth-child(3) { text-decoration: line-through; }
   footer { display: flex; flex-wrap: wrap; gap: 4px 20px; padding: 13px 18px; color: var(--text-muted); b { color: var(--tone); font-weight: 600; } }
-}
-
-// Inbox: an app window with two panes -------------------------------------------------------------------------------
-.k-inbox {
-  --tone: var(--info);
-  padding: clamp(14px, 3cqw, 24px);
-  align-items: stretch;
-  .desk { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); border-radius: var(--radius-md); background: var(--paper); overflow: hidden; }
-  .convos { border-right: 1px solid var(--hair); }
-  .convos li { display: flex; align-items: center; gap: 10px; padding: 14px; border-bottom: 1px solid var(--hair); &.on { background: color-mix(in srgb, var(--tone) 10%, transparent); } }
-  .line { flex: 1; b, small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
-  em { display: grid; place-items: center; min-width: 20px; height: 20px; border-radius: 99px; background: var(--tone); color: var(--on-fill); font-size: 12px; }
-  .talk { display: flex; flex-direction: column; gap: 6px; padding: 0 14px 14px; background: var(--wa-wall); }
-  .talk header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 -14px 10px; padding: 12px 14px; background: var(--paper); }
-  .owner { display: flex; flex: none; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 99px; background: color-mix(in srgb, var(--tone) 12%, transparent); color: var(--tone); font-size: 13px; font-weight: 500; }
-  .talk footer { margin-top: auto; padding: 10px 14px; border-radius: 99px; background: var(--wa-in); color: var(--wa-meta); font-size: 13.5px; }
 }
 
 // Numbers: the same QR as How it works' first step, a little larger -------------------------------------------------
@@ -334,11 +305,9 @@ em { font-style: normal; }
 // A narrow stage (tablet list above, or a phone): every scene runs down the page.
 @container (max-width: 640px) {
   .scene { grid-template-columns: minmax(0, 1fr); min-height: 0; }
-  .k-bulk .rays, .k-templates .flow { display: none; }
+  .k-templates .flow { display: none; }
   .k-numbers .scan { justify-self: center; }
   .k-auto-replies .phone { justify-self: center; width: min(100%, 300px); }
-  .k-inbox .desk { grid-template-columns: minmax(0, 1fr); }
-  .k-inbox .convos li:nth-child(n + 3) { display: none; }
   .k-faq .q p { font-size: 18px; }
   .k-ai .sources { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; article { padding: 10px; } }
   .k-ai .reach { max-width: 100%; }

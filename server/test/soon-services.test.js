@@ -17,9 +17,9 @@ describe('coming soon services', () => {
 
     it('are left out of every saved list and of the count', () => {
         assert.ok(soonServices().includes('ai') && soonServices().includes('school_whatsapp_bot'));
-        assert.deepEqual(openServices(), ['whatsapp_channels', 'contacts', 'templates', 'inbox', 'auto_replies', 'bulk_messages', 'campaigns']);
+        assert.deepEqual(openServices(), ['whatsapp_channels', 'contacts', 'templates', 'auto_replies', 'bulk_messages', 'campaigns']);
         assert.deepEqual(normalizeTenantServices([...TENANT_SERVICES]), openServices(), 'a tenant saved with all 21');
-        assert.deepEqual(normalizeTenantServices(['inbox', 'faq']), ['inbox']);
+        assert.deepEqual(normalizeTenantServices(['contacts', 'faq']), ['contacts']);
         assert.deepEqual(normalizeTenantServices(null), openServices(), 'no list = every open one');
     });
 

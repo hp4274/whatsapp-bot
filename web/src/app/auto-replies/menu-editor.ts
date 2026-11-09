@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, input, model } from '@ang
 
 import { InteractiveEditor } from '../campaign/interactive/interactive-editor';
 import { interactiveOptions } from '../campaign/interactive/interactive.model';
-import { ArMedia, ArSwitch, ArVariants } from './ar-fields';
+import { ArMedia, ArVariants } from './ar-fields';
 import { Interactive, MenuNode } from './auto-replies.api';
 
 /** Follow-up nesting allowed below the rule's own menu (rule menu = depth 1). */
@@ -21,7 +21,7 @@ export function nodeTexts(n: MenuNode | undefined): string[] {
  */
 @Component({
   selector: 'ar-menu-editor',
-  imports: [ArVariants, ArMedia, ArSwitch, InteractiveEditor],
+  imports: [ArVariants, ArMedia, InteractiveEditor],
   templateUrl: './menu-editor.html',
   styleUrl: './menu-editor.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -85,13 +85,6 @@ const TICKETS = [
     ['Query about store opening hours on Sunday', 'general', 'low', 'OPEN', 'Shared Sunday timings.'],
 ];
 
-const INBOX = [
-    ['Rahul Khanna', ['Hi, is the blue kurta available in size L?', 'Also, do you have COD for 411001?']],
-    ['Pooja Agarwal', ['My order has not arrived yet', 'Order number is ORD-2291', 'Please check urgently']],
-    ['Manoj Pillai', ['What are your Sunday timings?', 'Thanks!']],
-    ['Neha Kapoor', ['Can I get a bulk discount for 50 pieces?', 'Need them before the 25th', 'Please share the catalogue']],
-];
-
 const OBJECTS = {
     appointment: (i) => ({
         status: ['scheduled', 'confirmed', 'completed', 'rescheduled', 'cancelled', 'no_show'][i],
@@ -261,23 +254,6 @@ export async function seedTenant(state, { services = [], tenantName = '' } = {})
             if (status !== 'OPEN') state.tickets.setStatus(ticket.id, status);
             state.tickets.addNote(ticket.id, note);
             made('tickets');
-        }
-    }
-
-    if (on('inbox')) {
-        const exists = state.db.db.prepare('SELECT 1 FROM inbound_messages WHERE tenant_id = ? AND message_id = ?');
-        for (const [c, [senderName, bodies]] of INBOX.entries()) {
-            const sender = contacts.normalize(phone('300', 101 + c));
-            if (!state.conversations.getByPhone(sender, channelId)) made('conversations');
-            for (const [m, body] of bodies.entries()) {
-                const messageId = `demo-inbox-${c + 1}-${m + 1}`;
-                if (exists.get(state.db.tenantId, messageId)) { had('inboundMessages'); continue; }
-                // Oldest first, a few minutes apart; each conversation an hour or so older than the last.
-                const receivedAt = at(0, -(c * 3 + 1) + m * 0.1);
-                const saved = state.db.insertInbound({ messageId, sender, senderName, body, receivedAt });
-                state.conversations.upsertForInbound({ phone: saved.sender, channelId, at: saved.receivedAt });
-                made('inboundMessages');
-            }
         }
     }
 

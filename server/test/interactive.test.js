@@ -293,13 +293,13 @@ describe('campaign replies end to end', () => {
         assert.equal(res.body.queued, 1);
     });
 
-    it('typing the title escalates: conversation open, bot paused, ticket created', async () => {
+    it('typing the title escalates: conversation open, ticket created, the bot keeps answering', async () => {
         const phone = '919811100003';
         await typed(phone, 'talk to agent');
         assert.ok(await waitFor(() => clicks(campaignId).some((c) => c.recipient === phone)));
         const conversation = db.db.prepare('SELECT * FROM conversations WHERE phone = ?').get(phone);
         assert.equal(conversation.status, 'open');
-        assert.equal(conversation.bot_paused, 1);
+        assert.equal(conversation.bot_paused, 0);
         assert.equal(conversation.assigned_to, null);
         const ticket = db.db.prepare('SELECT * FROM tickets WHERE conversation_id = ?').get(conversation.id);
         assert.ok(ticket, 'ticket opened');

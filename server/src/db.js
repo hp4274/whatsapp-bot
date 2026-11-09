@@ -25,7 +25,6 @@ const DEFAULT_TENANT_SERVICES_JSON = JSON.stringify([
     'whatsapp_channels',
     'contacts',
     'templates',
-    'inbox',
     'auto_replies',
     'bulk_messages',
     'campaigns',
@@ -626,6 +625,8 @@ export class Database {
             `UPDATE tenants SET contact_phone = COALESCE((SELECT phone FROM leads WHERE leads.tenant_id = tenants.id
                  AND phone != '' ORDER BY id DESC LIMIT 1), '') WHERE contact_phone = ''`));
         // The brand became Wuzie: message texts an admin saved still said the old name.
+        // The Inbox page was the only way to hand a chat back to the bot, and it is gone.
+        once(this.db, 'inbox-removed-release-bot', () => this.db.exec('UPDATE conversations SET bot_paused = 0 WHERE bot_paused = 1'));
         once(this.db, 'brand-wuzie', () => this.db.exec(
             `UPDATE platform_messages SET text = REPLACE(text, 'Wapzo', 'Wuzie') WHERE text LIKE '%Wapzo%';
              UPDATE tenants SET name = 'Wuzie' WHERE status = 'system' AND name = 'Wapzo';`));

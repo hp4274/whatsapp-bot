@@ -18,7 +18,6 @@ const ACTIONS: { type: ReplyRuleActionType; label: string; icon: string }[] = [
   { type: 'set_field', label: 'Set contact field', icon: 'notes' },
   { type: 'mute_days', label: 'Mute bulk campaigns', icon: 'bell-off' },
   { type: 'opt_out', label: 'Opt-out contact', icon: 'ban' },
-  { type: 'escalate', label: 'Escalate to inbox', icon: 'headset' },
 ];
 
 /** The blank action added when the user picks a type from "+ Add action". */

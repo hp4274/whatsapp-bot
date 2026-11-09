@@ -76,7 +76,7 @@ const SERVICE_GROUPS = [
   },
   {
     heading: 'Customers',
-    services: ['contacts', 'inbox', 'payment_reminders', 'faq', 'tickets', 'appointments'],
+    services: ['contacts', 'payment_reminders', 'faq', 'tickets', 'appointments'],
   },
   {
     heading: 'Commerce',
@@ -281,7 +281,6 @@ export class App {
         { path: '/campaigns', label: 'Campaigns', icon: 'speakerphone', service: 'campaigns' },
         { path: '/templates', label: 'Templates', icon: 'file-text', service: 'templates' },
         { path: '/auto-replies', label: 'Auto-Replies', icon: ICONS.replies, service: 'auto_replies' },
-        { path: '/inbox', label: 'Inbox', icon: 'inbox', service: 'inbox' },
         { path: '/storage', label: 'Storage', icon: 'folders', service: 'bulk_messages' },
         { path: '/school', label: 'School Assistant', icon: ICONS.school, service: 'school_whatsapp_bot' },
       ],

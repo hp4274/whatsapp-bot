@@ -413,7 +413,6 @@ export class AutoReplyEngine {
             const c = conversations.getByPhone(phone, channelId) ?? conversations.upsertForInbound({ phone, channelId });
             if (c.status !== 'open') conversations.setStatus(c.id, 'open');
             conversations.addTag(c.id, 'handoff');
-            conversations.pauseBot(c.id);
         }
     }
 

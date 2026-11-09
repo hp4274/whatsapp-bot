@@ -251,7 +251,7 @@ describe('system replies', () => {
         conversations.upsertForInbound({ phone: '919800000001', channelId: 0 });
         const jobs = await inbound('I want a human please');
         assert.deepEqual(jobs.map((j) => j.text), ['Connecting you now']);
-        assert.equal(conversations.isBotPaused('919800000001', 0), true);
+        assert.equal(conversations.isBotPaused('919800000001', 0), false);
         assert.ok(conversations.getByPhone('919800000001', 0).tags.includes('handoff'));
     });
 
@@ -259,7 +259,7 @@ describe('system replies', () => {
         const { store, conversations, inbound } = setup();
         store.save({ matchType: 'ANY_OF', keywords: ['complaint'], replyBody: 'Sorry, a manager will call', actions: { escalate: true } });
         await inbound('I have a complaint', { sender: '919800000005' });
-        assert.equal(conversations.isBotPaused('919800000005', 0), true);
+        assert.equal(conversations.isBotPaused('919800000005', 0), false);
     });
 });
 

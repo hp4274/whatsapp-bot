@@ -40,7 +40,7 @@ before(async () => {
     base = `http://127.0.0.1:${server.address().port}`;
     shop = app.locals.tenancy.createTenant('Demo Shop', 'demo-shop', { services: ['contacts', 'templates', 'orders', 'workflows'] });
     school = app.locals.tenancy.createTenant('Sunrise School', 'sunrise', {
-        services: ['school_whatsapp_bot', 'contacts', 'tickets', 'faq', 'inbox', 'auto_replies', 'campaigns', 'appointments',
+        services: ['school_whatsapp_bot', 'contacts', 'tickets', 'faq', 'auto_replies', 'campaigns', 'appointments',
             'leads', 'subscriptions', 'events', 'payment_reminders', 'workflows', 'templates'],
     });
     tokens.superAdmin = sessionFor(app, { role: 'super_admin' });
@@ -94,8 +94,6 @@ describe('demo seeder', () => {
         assert.equal(c.tickets, 6);
         assert.equal(c.faqCategories, 2);
         assert.equal(c.faqItems, 8);
-        assert.equal(c.conversations, 4);
-        assert.ok(c.inboundMessages >= 8);
         assert.ok(c.autoReplies >= 3); // "hi" is a default rule already
         assert.equal(c.campaigns, 1);
         for (const key of ['appointments', 'leads', 'subscriptions', 'events', 'payments']) assert.equal(c[key], 6, key);

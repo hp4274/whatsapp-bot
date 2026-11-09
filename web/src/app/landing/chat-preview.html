@@ -6,6 +6,15 @@
       <button type="button" class="row" [attr.aria-pressed]="feature() === f" (click)="feature.set(f)">
         <i class="ti ti-{{ f.icon }}" aria-hidden="true"></i>{{ f.label }}
       </button>
+      @if (f.key === 'bulk' && feature() === f) {
+        <div class="variants" aria-label="Kinds of bulk message">
+          @for (v of variations; track v.key) {
+            <button type="button" class="sub" [class.selected]="variation() === v" [attr.aria-pressed]="variation() === v" (click)="variation.set(v)">
+              <i class="ti ti-{{ v.icon }}" aria-hidden="true"></i>{{ v.label }}
+            </button>
+          }
+        </div>
+      }
     }
   </div>
   <div class="group">
@@ -18,26 +27,145 @@
   </div>
 </div>
 
-<div class="stage">
-  <div class="about" aria-live="polite">
-    <div>
-      <span class="status" [class.ready]="!soon()">{{ soon() ? 'Coming soon' : 'Available now' }}</span>
+@if (feature().key === 'bulk') {
+  <div class="stage chat">
+    <figure class="phone" data-ui>
+      <!-- WhatsApp's own chat screen: green bar, beige wallpaper, white and green bubbles, the message bar below. -->
+      <div class="phone-top">
+        <i class="ti ti-arrow-left" aria-hidden="true"></i>
+        <span class="avatar" aria-hidden="true">S</span>
+        <span class="who">
+          <strong>Sunrise Traders</strong>
+          <small>online</small>
+        </span>
+        <i class="ti ti-video" aria-hidden="true"></i>
+        <i class="ti ti-phone" aria-hidden="true"></i>
+      </div>
+      <ol class="thread" #thread>
+        <li class="day" aria-hidden="true"><span>Today</span></li>
+        @for (line of variation().lines; track variation().key + $index; let i = $index) {
+          <!-- The tail goes on the first bubble of a run from one side, as WhatsApp draws it. -->
+          <li
+            class="msg {{ line.side }}"
+            [class.first]="i === 0 || variation().lines[i - 1].side !== line.side"
+            [style.--i]="i"
+          >
+            @if (line.photo) {
+              <span class="photo" style="background-image: url(assets/landing/hero-shop.jpg)"></span>
+            }
+            @if (line.text) {
+              <span class="text">{{ line.text }}</span>
+              <span class="meta">
+                {{ line.time }}
+                @if (line.side === 'out') {
+                  <i class="ti ti-checks" aria-label="Read"></i>
+                }
+              </span>
+            }
+            @for (option of line.buttons ?? []; track option.title) {
+              <button type="button" class="act" (click)="pick(option)">
+                <i class="ti ti-arrow-back-up" aria-hidden="true"></i>{{ option.title }}
+              </button>
+            }
+            @if (line.list; as list) {
+              <button type="button" class="act" aria-haspopup="true" (click)="sheet.set(list)">
+                <i class="ti ti-list" aria-hidden="true"></i>{{ list.button }}
+              </button>
+            }
+            @if (line.cards; as cards) {
+              <div class="cards" #strip>
+                @for (card of cards; track card.title) {
+                  <article class="card">
+                    <span
+                      class="pic"
+                      style="background-image: url(assets/landing/hero-shop.jpg)"
+                      [style.background-position]="card.crop"
+                    ></span>
+                    <strong>{{ card.title }}</strong>
+                    <small>{{ card.text }}</small>
+                    <button type="button" class="act" (click)="pick(card.option)">
+                      <i class="ti ti-arrow-back-up" aria-hidden="true"></i>{{ card.option.title }}
+                    </button>
+                  </article>
+                }
+              </div>
+              <button type="button" class="next" aria-label="Next card" (click)="nextCard(strip)">
+                <i class="ti ti-chevron-right" aria-hidden="true"></i>
+              </button>
+            }
+          </li>
+        }
+        @if (picked(); as option) {
+          <li class="msg out first" style="--i: 0">
+            <span class="text">{{ option.title }}</span>
+            <span class="meta">{{ lastTime() }} <i class="ti ti-checks" aria-label="Read"></i></span>
+          </li>
+          <li class="msg in first" style="--i: 1">
+            <span class="text">{{ option.reply }}</span>
+            <span class="meta">{{ lastTime() }}</span>
+          </li>
+        }
+      </ol>
+      <!-- A list menu rises from the foot of the chat, as WhatsApp opens it. -->
+      @if (sheet(); as list) {
+        <div class="sheet" role="group" [attr.aria-label]="list.button">
+          <header>
+            <strong>{{ list.button }}</strong>
+            <button type="button" aria-label="Close options" (click)="sheet.set(null)">
+              <i class="ti ti-x" aria-hidden="true"></i>
+            </button>
+          </header>
+          @for (row of list.rows; track row.title) {
+            <button type="button" class="row-pick" (click)="pick(row)">
+              <span>{{ row.title }}<small>{{ row.note }}</small></span>
+              <i class="radio" aria-hidden="true"></i>
+            </button>
+          }
+        </div>
+      }
+      <div class="composer" aria-hidden="true">
+        <span class="field"><i class="ti ti-mood-smile"></i>Message<i class="ti ti-paperclip"></i></span>
+        <span class="mic"><i class="ti ti-microphone"></i></span>
+      </div>
+      <figcaption class="sr-only">A sample WhatsApp chat: {{ variation().label }} bulk message.</figcaption>
+    </figure>
+
+    <div class="about" aria-live="polite">
+      <span class="status ready">Available now</span>
       <h3>{{ feature().title }}</h3>
       <p>{{ feature().text }}</p>
-    </div>
-    <a class="cta" href="#access">Get access</a>
-  </div>
-
-  <figure class="canvas">
-    <app-feature-scene aria-hidden="true" [key]="feature().key" [said]="feature().said" />
-    <figcaption class="sr-only">A sample of {{ feature().label }} at work.</figcaption>
-  </figure>
-
-  @if (feature().points; as points) {
-    <ul class="points">
-      @for (point of points; track point) {
-        <li><i class="ti ti-check" aria-hidden="true"></i>{{ point }}</li>
+      @if (feature().points; as points) {
+        <ul>
+          @for (point of points; track point) {
+            <li><i class="ti ti-check" aria-hidden="true"></i>{{ point }}</li>
+          }
+        </ul>
       }
-    </ul>
-  }
-</div>
+      <a class="cta" href="#access">Get access</a>
+    </div>
+  </div>
+} @else {
+  <div class="stage">
+    <div class="about" aria-live="polite">
+      <div>
+        <span class="status" [class.ready]="!soon()">{{ soon() ? 'Coming soon' : 'Available now' }}</span>
+        <h3>{{ feature().title }}</h3>
+        <p>{{ feature().text }}</p>
+      </div>
+      <a class="cta" href="#access">Get access</a>
+    </div>
+
+    <figure class="canvas">
+      <app-feature-scene aria-hidden="true" [key]="feature().key" [said]="feature().said ?? null" />
+      <figcaption class="sr-only">A sample of {{ feature().label }} at work.</figcaption>
+    </figure>
+
+    @if (feature().points; as points) {
+      <ul class="points">
+        @for (point of points; track point) {
+          <li><i class="ti ti-check" aria-hidden="true"></i>{{ point }}</li>
+        }
+      </ul>
+    }
+  </div>
+}

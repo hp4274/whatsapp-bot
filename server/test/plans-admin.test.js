@@ -71,7 +71,7 @@ describe('admin plans & subscriptions', () => {
         assert.equal(starter.tenantLimits.maxChannels, 1);
         assert.equal(starter.dailyCap, 250, "the plan's per-number day, for the plan picker");
         assert.equal(body.plans.find((p) => p.key === 'enterprise').dailyCap, 1000);
-        assert.ok(starter.services.includes('inbox') && !starter.services.includes('faq'));
+        assert.ok(starter.services.includes('contacts') && !starter.services.includes('faq'));
         const enterprise = body.plans[2];
         assert.equal(enterprise.price, 0);
         assert.equal(enterprise.trialDays, 0);
@@ -84,12 +84,12 @@ describe('admin plans & subscriptions', () => {
     it('upserts a custom plan and rejects bad input', async () => {
         const made = await call(sup, 'PUT', '/api/admin/billing/plans/pilot', {
             name: 'Pilot', tier: 0, price: 499, currency: 'usd', interval: 'year', trialDays: 7,
-            services: ['contacts', 'inbox', 'nope'], tenantLimits: { maxChannels: 2 },
+            services: ['contacts', 'templates', 'nope'], tenantLimits: { maxChannels: 2 },
         });
         assert.equal(made.status, 200);
         assert.equal(made.body.plan.currency, 'USD');
         assert.equal(made.body.plan.interval, 'year');
-        assert.deepEqual(made.body.plan.services, ['contacts', 'inbox']);
+        assert.deepEqual(made.body.plan.services, ['contacts', 'templates']);
         assert.equal(made.body.plan.tenantLimits.maxChannels, 2);
 
         // A partial PUT keeps the rest.

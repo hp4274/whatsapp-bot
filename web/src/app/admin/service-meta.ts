@@ -4,7 +4,6 @@ export const SERVICE_META: Record<string, { label: string; icon: string; sends?:
   whatsapp_channels: { label: 'WhatsApp numbers', icon: 'device-mobile' },
   contacts: { label: 'Contacts', icon: 'address-book' },
   templates: { label: 'Templates', icon: 'file-text' },
-  inbox: { label: 'Inbox', icon: 'inbox' },
   auto_replies: { label: 'Auto replies', icon: 'message-bolt', sends: true },
   bulk_messages: { label: 'Bulk message', icon: 'send', sends: true },
   campaigns: { label: 'Campaigns', icon: 'speakerphone', sends: true },

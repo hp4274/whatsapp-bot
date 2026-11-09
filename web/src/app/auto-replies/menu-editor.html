@@ -46,11 +46,6 @@
                   (change)="setAction(o.id, { addTag: tagOf($event) })"
                 />
               </div>
-              <ar-switch
-                label="Escalate to human"
-                [checked]="!!n?.actions?.escalate"
-                (checkedChange)="setAction(o.id, { escalate: $event })"
-              />
             </div>
 
             @if (canNest()) {

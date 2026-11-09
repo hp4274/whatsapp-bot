@@ -94,7 +94,7 @@
     <article class="s-stat s-enter tone-info" style="--i: 3" schoolTilt>
       <small>Unread parent queries</small>
       <b>{{ n(d.inbox.unread) }}</b>
-      <span class="muted">{{ d.inbox.unread ? 'Waiting in the inbox' : 'Inbox is clear' }}</span>
+      <span class="muted">{{ d.inbox.unread ? 'Waiting for a reply' : 'All answered' }}</span>
     </article>
 
     @if (areas().has('fees')) {
