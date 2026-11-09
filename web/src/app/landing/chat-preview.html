@@ -1,5 +1,5 @@
 <!-- The feature list on the left; on the right what the picked one does and a scene of it. Below `lg` the list is a row to swipe. -->
-<div class="rail" role="group" aria-label="Features">
+<div class="rail" role="group" aria-label="Features" (pointerdown)="autoplay.set(false)">
   <div class="group">
     <h3>Available now</h3>
     @for (f of available; track f.key) {
@@ -130,7 +130,7 @@
       <figcaption class="sr-only">A sample WhatsApp chat: {{ variation().label }} bulk message.</figcaption>
     </figure>
 
-    <div class="about" aria-live="polite">
+    <div class="about" [attr.aria-live]="autoplay() ? 'off' : 'polite'">
       <span class="status ready">Available now</span>
       <h3>{{ feature().title }}</h3>
       <p>{{ feature().text }}</p>
@@ -146,7 +146,7 @@
   </div>
 } @else {
   <div class="stage">
-    <div class="about" aria-live="polite">
+    <div class="about" [attr.aria-live]="autoplay() ? 'off' : 'polite'">
       <div>
         <span class="status" [class.ready]="!soon()">{{ soon() ? 'Coming soon' : 'Available now' }}</span>
         <h3>{{ feature().title }}</h3>
