@@ -10,6 +10,13 @@ server/uploads/
 server/server/
 server/.wwebjs_cache/
 server/.test_wwebjs/
+.claude/
+.claude-flow/
+.impeccable/
+.playwright-mcp/
+.swarm/
+docs/
+phases/
 
 # Stray tool logs and superseded specs
 .reticle-setup-crash.log
