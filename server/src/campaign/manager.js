@@ -97,7 +97,10 @@ export class CampaignManager extends EventEmitter {
         this.queue = new MessageQueue();
         this.rateLimiter = new RateLimiter(config.rateLimitPerSecond, config.rateLimitBurst);
         this.retryPolicy = RetryPolicy.fromConfig(config);
-        this.campaignId = '';
+        this.campaignId = ''; // the run the stats describe: the latest one started on this number
+        // Runs taken out of the queue (that campaign paused or cancelled while others share the number): a row of
+        // theirs already taken, waiting out its gap, does not go (#attempt). Cleared when the run is queued again.
+        this.detached = new Set();
         this.stats = { total: 0, successful: 0, failed: 0, processed: 0, skippedOptOut: 0, notOnWhatsapp: 0 };
         // phone -> { registered: true | false | null (unknown), at } (see checkRegistered).
         this.registry = new Map();
@@ -366,6 +369,8 @@ export class CampaignManager extends EventEmitter {
         variants = null, trackLinks = false,
         // A fresh run: queue.reset() options. Applied only after every refusal below, so a refused send keeps the live queue.
         reset = null,
+        // Another run is sending on this number: this one joins the queue and they take turns (no reset).
+        join = false,
     } = {}) {
         const versions = Array.isArray(variants) && variants.length ? variants : null;
         const tracking = Boolean(trackLinks && this.links);
@@ -412,12 +417,13 @@ export class CampaignManager extends EventEmitter {
             const refused = texts.map(contentError).find(Boolean);
             if (refused) throw new SafetyError(refused);
         }
-        if (reset) {
+        if (reset && !join) {
             this.resetStats();
             this.queue.reset(reset);
             this.pausedByQuota = false;
         }
         this.campaignId = campaignId ?? crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+        this.detached.delete(this.campaignId);
         // Per-recipient frequency cap: bulk only, rolling 24h, counted from the db (recipientCap).
         const perRecipient = recipientCap(this.config, levels ? this.quota.allowance?.().level ?? { level: 0 } : null);
         const recent = new Map();
@@ -522,13 +528,21 @@ export class CampaignManager extends EventEmitter {
             this.queue.dedupe = previousDedupe;
         }
 
+        if (join) this.queue.interleave();
         this.stats.total += queued;
         this.stats.skippedOptOut += skippedOptOut;
         this.#emitStats();
-        // Say up front how much of this batch today's budget actually covers.
-        const remaining = this.quota.remaining();
+        // Say up front how much of this batch today's budget actually covers, after what the other runs still queue.
+        const ahead = Math.max(0, (this.queue.pendingByType().campaign ?? 0) - queued);
+        const remaining = Math.max(0, this.quota.remaining() - ahead);
         const policyNotes = [];
         if (skippedNoOptIn) policyNotes.push(`${skippedNoOptIn} contacts were skipped because they have not opted in.`);
+        // The business's monthly cap: what the other runs queue counts against it too. The rest waits for the renewal.
+        const monthly = rules?.capRemaining?.();
+        const pastMonth = monthly && Number.isFinite(monthly.left) ? Math.max(0, queued + ahead - monthly.left) : 0;
+        if (pastMonth) {
+            policyNotes.push(`${Math.min(pastMonth, queued)} of these messages are past your ${monthly.period} limit of ${monthly.cap}: they wait until it renews.`);
+        }
         return {
             queued,
             skipped: skipped + skippedNoOptIn,
@@ -566,6 +580,7 @@ export class CampaignManager extends EventEmitter {
             interactive: job.interactive ?? null,
             variant: job.variant ?? null,
             timezone: job.timezone ?? null,
+            partsSent: job.partsSent ?? 0,
         });
         if (!this.#enqueueItem(item)) return null;
         if (this.#ofRun(item)) this.stats.total += 1;
@@ -582,12 +597,14 @@ export class CampaignManager extends EventEmitter {
      * @param {{campaignId: string, jobs: object[], sent: number, failed: number, paused?: boolean, pacing?: string}} run
      * @returns {number} how many were queued
      */
-    restoreRun({ campaignId, jobs, sent = 0, failed = 0, notOnWhatsapp = 0, paused = false, pacing = 'balanced' }) {
+    restoreRun({ campaignId, jobs, sent = 0, failed = 0, notOnWhatsapp = 0, paused = false, pacing = 'balanced', join = false }) {
+        if (join) return this.#rejoin(campaignId, jobs);
         this.queue.reset();
         this.pausedByQuota = false;
         this.resumeRefusal = null;
         this.stopReason = 'Stopped by operator';
         this.campaignId = campaignId;
+        this.detached.delete(campaignId);
         // A repeated number is a row of its own when "skip duplicates" was off.
         const dedupe = this.queue.dedupe;
         this.queue.dedupe = false;
@@ -596,7 +613,7 @@ export class CampaignManager extends EventEmitter {
             const item = queueItem({
                 recipient: job.recipient, message: job.text, name: job.name, campaignId,
                 media: job.media, interactive: job.interactive ?? null,
-                variant: job.variant ?? null, timezone: job.timezone ?? null,
+                variant: job.variant ?? null, timezone: job.timezone ?? null, partsSent: job.partsSent ?? 0,
             });
             item.messageId = job.messageId;
             item.attempt = job.attempt ?? 0;
@@ -605,7 +622,7 @@ export class CampaignManager extends EventEmitter {
         this.queue.dedupe = dedupe;
         // Put without dedupe so repeated rows come back, but remembered: the same message to the same number must
         // still be refused while the restored one waits, as it was before the restart.
-        for (const item of this.queue.items) this.queue.seen.add(this.queue.onePerRecipient ? item.recipient : item.key);
+        for (const item of this.queue.items) this.queue.seen.add(this.queue.keyOf(item));
         this.stats = {
             total: queued + sent + failed + notOnWhatsapp, successful: sent, failed,
             processed: sent + failed + notOnWhatsapp, skippedOptOut: 0, notOnWhatsapp,
@@ -614,6 +631,50 @@ export class CampaignManager extends EventEmitter {
         if (paused) this.queue.pause();
         this.start();
         return queued;
+    }
+
+    /**
+     * A run's unsent rows back into a queue other runs are using (a resume, a restart, a retry): they take turns with
+     * them. Nothing is reset, and the stats keep describing the number's whole bulk queue.
+     */
+    #rejoin(campaignId, jobs) {
+        this.detached.delete(campaignId);
+        let queued = 0;
+        for (const job of jobs) {
+            const item = queueItem({
+                recipient: job.recipient, message: job.text, name: job.name, campaignId,
+                media: job.media, interactive: job.interactive ?? null,
+                variant: job.variant ?? null, timezone: job.timezone ?? null, partsSent: job.partsSent ?? 0,
+            });
+            item.messageId = job.messageId;
+            item.attempt = job.attempt ?? 0;
+            this.queue.putLast(item); // its own rows, already deduped when they were first queued
+            queued += 1;
+        }
+        this.queue.interleave();
+        this.stats.total += queued;
+        this.start();
+        this.#emitStats();
+        return queued;
+    }
+
+    /** The bulk runs this number holds in memory: waiting in the queue, or the one in flight. */
+    runKeys() {
+        const keys = this.queue.runKeys();
+        if (this.current?.messageType === 'campaign' && this.current.campaignId) keys.add(this.current.campaignId);
+        for (const key of this.detached) keys.delete(key);
+        return keys;
+    }
+
+    /**
+     * Take one run out of a queue other runs share (its campaign paused or cancelled). Its rows stay QUEUED in the
+     * table, where a resume finds them; one already taken and waiting out its gap does not go either.
+     */
+    dropRun(campaignId) {
+        this.detached.add(campaignId);
+        const dropped = this.queue.dropRun(campaignId).length;
+        this.#emitStats();
+        return dropped;
     }
 
     /** Queue depth broken down by what produced each item. */
@@ -634,6 +695,7 @@ export class CampaignManager extends EventEmitter {
             idempotencyKey: item.idempotencyKey,
             variant: item.variant ?? null,
         });
+        if (item.partsSent) this.db.setPartsSent?.(item.messageId, item.partsSent); // a retry carries on from there
         this.emit('event', { type: 'message', record });
         return true;
     }
@@ -762,7 +824,7 @@ export class CampaignManager extends EventEmitter {
             // A business cap still reached: resume() would only refuse again, and announce it every recheck.
             const capped = this.resumeRefusal && (this.bulkPolicy?.()?.capRemaining?.()?.left ?? 1) <= 0;
             if (!capped && !this.quota.exhausted() && this.resume()) {
-                this.emit('event', { type: 'holdLifted', campaignId: this.campaignId });
+                this.emit('event', { type: 'holdLifted' }); // every run the hold held
                 return null;
             }
         }
@@ -828,9 +890,9 @@ export class CampaignManager extends EventEmitter {
         if (!this.queue.isStopped && this.current?.messageType === 'campaign') {
             const kill = this.killSwitch?.();
             if (kill) {
-                const campaignId = this.current.campaignId;
+                const runs = this.runKeys(); // stop() cancels every run sending together: each record hears it
                 this.stop(kill);
-                this.emit('event', { type: 'policyStop', reason: kill, campaignId });
+                for (const campaignId of runs) this.emit('event', { type: 'policyStop', reason: kill, campaignId });
             }
         }
         return this.shuttingDown || this.queue.isStopped;
@@ -1054,11 +1116,17 @@ export class CampaignManager extends EventEmitter {
     checkStopRate() {
         if (this.platformLane || !this.campaignId || !this.config.safetyEnabled || this.queue.isPaused || this.queue.isStopped || !this.db.campaignStopRate) return false;
         if (this.quota.qr && this.quota.allowance().level.brakesOff) return false;
-        const { delivered, stopped } = this.db.campaignStopRate(this.campaignId);
-        if (delivered < STOP_PAUSE.minDelivered || stopped * 100 <= delivered * STOP_PAUSE.percent) return false;
-        this.queue.pause();
+        const runs = [...this.runKeys()];
+        if (!runs.length) runs.push(this.campaignId);
+        const over = runs.map((key) => ({ key, ...this.db.campaignStopRate(key) }))
+            .find(({ delivered, stopped }) => delivered >= STOP_PAUSE.minDelivered && stopped * 100 > delivered * STOP_PAUSE.percent);
+        if (!over) return false;
+        const { key, delivered, stopped } = over;
+        // Only that campaign: another sending with it on this number keeps going.
+        if (runs.length > 1) this.dropRun(key);
+        else this.queue.pause();
         this.emit('event', {
-            type: 'failureStop', failed: stopped, processed: delivered,
+            type: 'failureStop', failed: stopped, processed: delivered, campaignId: key,
             message: `Paused: ${stopped} of the ${delivered} people this campaign reached replied STOP (limit ${STOP_PAUSE.percent}%). People don't want this message; change it or the list before resuming.`,
         });
         this.#emitStats();
@@ -1258,6 +1326,8 @@ export class CampaignManager extends EventEmitter {
                 this.queue.putFront(item);
                 return;
             }
+            // Its campaign was paused or cancelled while this row waited out its gap: the row stays as the table has it.
+            if (item.messageType === 'campaign' && this.detached.has(item.campaignId)) return;
 
             item.attempt += 1;
             this.db.updateStatus(item.messageId, Status.SENDING, { attempt: item.attempt });
@@ -1280,7 +1350,15 @@ export class CampaignManager extends EventEmitter {
                     { media: item.media, interactive: item.interactive, ...(typing ? { typingMs: typing } : {}), ...(registered ? { registered } : {}),
                         // A carousel goes as WhatsApp's swipe carousel unless the admin turned sending.carouselImages
                         // on: one image per card, which every device shows (phones do not show the swipe one from QR).
-                        ...(item.interactive?.type === 'carousel' ? { nativeCarousel: this.quota.tables?.().carouselImages !== true } : {}) });
+                        ...(item.interactive?.type === 'carousel' ? {
+                            nativeCarousel: this.quota.tables?.().carouselImages !== true,
+                            // Saved as each message goes, so a crash or a retry never sends the first ones twice.
+                            fromPart: item.partsSent ?? 0,
+                            onPart: (n) => {
+                                item.partsSent = n;
+                                this.db.setPartsSent?.(item.messageId, n);
+                            },
+                        } : {}) });
                 this.lastActionAt = Date.now();
                 // A carousel goes out as several WhatsApp messages (`parts`); the rests and the budgets count each.
                 if (this.transport?.realDelivery) this.sentInRun += result.parts ?? 1;
@@ -1443,7 +1521,9 @@ export class CampaignManager extends EventEmitter {
     const { processed, failed } = this.stats;
     if (!limit || item.messageType !== 'campaign' || processed < 20 ) return;
     if ((failed / processed) * 100 <= limit || this.queue.isPaused || this.queue.isStopped) return;
-    this.queue.pause();
+    // Another campaign sending with it keeps going.
+    if (this.runKeys().size > 1) this.dropRun(item.campaignId);
+    else this.queue.pause();
     this.emit('event', {
       type: 'failureStop', failed, processed, campaignId: item.campaignId,
       message: `Paused: ${failed} of ${processed} messages failed (limit ${limit}%).`,

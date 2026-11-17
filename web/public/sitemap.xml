@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- One <url> per public page. Add a line here when a post is added to web/src/app/blog/posts.ts. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://wuzie.in/</loc></url>
+  <url><loc>https://wuzie.in/blog</loc></url>
+  <url><loc>https://wuzie.in/blog/bulk-whatsapp-messages-customers-want</loc><lastmod>2026-11-13</lastmod></url>
+  <url><loc>https://wuzie.in/blog/keep-your-whatsapp-number-safe</loc><lastmod>2026-11-13</lastmod></url>
+  <url><loc>https://wuzie.in/blog/whatsapp-auto-replies-numbered-menus</loc><lastmod>2026-11-13</lastmod></url>
+</urlset>

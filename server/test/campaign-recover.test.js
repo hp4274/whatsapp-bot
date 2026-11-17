@@ -75,10 +75,16 @@ describe('a campaign across a restart', () => {
         assert.equal(rows.length, 5);
         assert.equal(rows[0].status, Status.SENDING, 'caught mid-send');
         scoped.updateStatus(rows[1].message_id, Status.SENT); // one went out before the restart
+        scoped.setPartsSent(rows[0].message_id, 2); // as a carousel cut off after two of its messages would be
 
         const second = boot(); // the restart: a new manager, nothing in memory
         assert.deepEqual(openCampaigns(scoped).map((c) => c.id), [campaign.id]);
+        const restored = [];
+        const restoreRun = second.manager.restoreRun.bind(second.manager);
+        second.manager.restoreRun = (run) => restoreRun({ ...run, jobs: run.jobs.map((j) => (restored.push(j), j)) });
         assert.equal(second.store.recover(campaign.id), true);
+        assert.equal(restored.find((j) => j.messageId === rows[0].message_id)?.partsSent, 2,
+            'the cut-off row carries on after what already went out');
         assert.equal(second.store.recover(campaign.id), false, 'a live run is not queued twice');
         assert.equal(second.manager.stats.total, 5);
         assert.equal(second.manager.stats.successful, 1);

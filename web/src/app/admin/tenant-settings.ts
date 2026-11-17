@@ -27,7 +27,8 @@ import {
   PlanLogEntry,
   PlansApi,
   Subscription,
-  TENANT_LIMIT_FIELDS,
+  PLAN_LIMIT_FIELDS,
+  TenantLimitKey,
   UsageRow,
   billingOf,
   cycleAmount,
@@ -186,7 +187,7 @@ export class TenantSettings {
     this.settings()?.tenant.status === 'pending' ? TABS.filter((t) => t.id !== 'accounts') : TABS,
   );
   protected readonly accessActions = ACCESS_ACTIONS;
-  protected readonly limitFields = TENANT_LIMIT_FIELDS;
+  protected readonly limitFields = PLAN_LIMIT_FIELDS;
   protected readonly limitText = limitText;
   protected readonly safetyGroups = SAFETY_GROUPS;
   protected readonly ruleServices = POLICY_SERVICES.map((key) => ({ key, label: serviceMeta(key).label }));
@@ -514,7 +515,8 @@ export class TenantSettings {
    */
   private onOwnPlan<T>(request: Observable<T>): Observable<T> {
     const cur = this.settings();
-    if (!cur || this.ownPlan()) return request;
+    // No plan at all: its limits are set by hand on the business, and a save must not invent a subscription for it.
+    if (!cur || this.ownPlan() || !this.sub()) return request;
     return this.plansApi.createOwnPlan(cur.tenant.id).pipe(
       map((made) => {
         this.plans.update((plans) => [...plans.filter((p) => p.key !== made.plan.key), made.plan]);
@@ -662,16 +664,14 @@ export class TenantSettings {
     this.topupPrice.set(null);
   }
 
-  /** The three limits from the Plan tab: only those keys, so the rest of the business's limits stay as saved. */
+  /** The limits from the Plan tab: only those keys, so the rest of the business's limits stay as saved. */
   protected savePlanLimits() {
     const cur = this.settings();
     if (!cur) return;
-    const { maxChannels, maxUsers, maxTemplates, messagesPerMonth, ownDailyLimit } = cur.limits;
+    const { messagesPerMonth, ownDailyLimit } = cur.limits;
     const requests: Observable<unknown>[] = [];
     const limits = this.api.setLimits(cur.tenant.id, {
-      maxChannels,
-      maxUsers,
-      maxTemplates,
+      ...Object.fromEntries(PLAN_LIMIT_FIELDS.map((f) => [f.key, cur.limits[f.key]])),
       // Absent in the working copy = follow the plan, which the server is told as 'plan'.
       messagesPerMonth: messagesPerMonth === undefined ? 'plan' : messagesPerMonth,
       ownDailyLimit: ownDailyLimit === true,
@@ -733,7 +733,7 @@ export class TenantSettings {
   }
 
   /** A whole number from a box; an empty box is "no limit" (null). */
-  protected setCap(key: 'maxChannels' | 'maxUsers' | 'maxTemplates', raw: string) {
+  protected setCap(key: TenantLimitKey, raw: string) {
     this.setLimit(key, raw.trim() === '' ? null : Math.max(0, Math.floor(Number(raw) || 0)));
   }
 

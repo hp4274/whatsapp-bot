@@ -230,7 +230,7 @@ describe('campaigns.* in the campaign store', () => {
         values = { 'campaigns.maxScheduled': 1 };
         store.create({ name: 's1', body: 'hi', status: 'scheduled', scheduledAt: stamp() });
         assert.throws(() => store.create({ name: 's2', body: 'hi', status: 'scheduled', scheduledAt: stamp() }),
-            (err) => err.status === 409 && /1 scheduled campaigns/.test(err.message));
+            (err) => err.status === 409 && /1 scheduled campaign at/.test(err.message));
         const draft = store.create({ name: 'd', body: 'hi' });
         assert.throws(() => store.update(draft.id, { status: 'scheduled', scheduledAt: stamp() }), (err) => err.status === 409);
     });
@@ -249,7 +249,7 @@ describe('campaigns.* in the campaign store', () => {
         const a = store.create({ name: 'a', body: 'hi', audience: [{ phone: '919800000001' }] });
         const b = store.create({ name: 'b', body: 'hi', audience: [{ phone: '919800000002' }] });
         store.start(a.id);
-        assert.throws(() => store.start(b.id), (err) => err.status === 409 && /1 campaigns running/.test(err.message));
+        assert.throws(() => store.start(b.id), (err) => err.status === 409 && /1 campaign running/.test(err.message));
         const paused = store.policyHalt(`camp-${a.id}`, 'paused', 'Auto-paused: 12 of 20 messages failed (limit 50%).');
         assert.equal(paused.status, 'paused');
         assert.match(paused.options.statusReason, /Auto-paused/);

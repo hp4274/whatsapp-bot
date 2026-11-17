@@ -96,24 +96,29 @@ export function createCampaignRouter({ db, state }) {
             settleSoon();
             refreshSoon();
         }
-        // The block-rate and STOP-rate pauses name no campaign: they pause whichever run the number holds.
-        const key = event.campaignId ?? state.manager.campaignId;
+        // An event that names no campaign (a daily limit, the block-rate pause, the kill switch) holds the whole queue:
+        // every run the number holds hears it, as campaigns sending together share it.
+        const keys = event.campaignId ? [event.campaignId] : [...new Set([...(state.manager.runKeys?.() ?? []), state.manager.campaignId])];
         if (['quotaReached', 'policyHold', 'holdLifted'].includes(event.type)) {
             // A daily or monthly limit holds the run and the manager lifts it itself: the record stays running.
             const reason = event.type === 'holdLifted' ? null : (event.message ?? event.reason ?? null);
-            const campaign = campaigns.hold(key, reason);
-            if (!campaign) return;
-            announce('campaignUpdated', campaign);
-            if (reason) engineAudit('campaign.auto_paused', campaign, { reason, resumesByItself: true });
+            for (const key of keys) {
+                const campaign = campaigns.hold(key, reason);
+                if (!campaign) continue;
+                announce('campaignUpdated', campaign);
+                if (reason) engineAudit('campaign.auto_paused', campaign, { reason, resumesByItself: true });
+            }
             return;
         }
         const halt = { failureStop: 'paused', policyStop: 'cancelled' }[event.type];
         if (!halt) return;
         const reason = event.type === 'failureStop' ? `Auto-paused: ${event.message.replace(/^Paused: /, '')}` : event.reason;
-        const campaign = campaigns.policyHalt(key, halt, reason);
-        if (!campaign) return;
-        announce('campaignUpdated', campaign);
-        engineAudit(halt === 'paused' ? 'campaign.auto_paused' : 'campaign.auto_cancelled', campaign, { reason });
+        for (const key of keys) {
+            const campaign = campaigns.policyHalt(key, halt, reason);
+            if (!campaign) continue;
+            announce('campaignUpdated', campaign);
+            engineAudit(halt === 'paused' ? 'campaign.auto_paused' : 'campaign.auto_cancelled', campaign, { reason });
+        }
     });
 
     const fail = (res, err) => {
@@ -520,12 +525,22 @@ export function createCampaignRouter({ db, state }) {
             // campaign's media is gone; it resolves the media itself.
             // A shared campaign starts on every number at once; each sends its share at its own pace.
             const onePerNumber = req.body?.onePerNumber !== false;
-            const across = acrossNumbers(campaigns.require(req.params.id), (store, id) => {
-                // Left with nobody (failover moved everyone to a sibling): nothing to start here, and nothing wrong.
-                const one = store.get(id);
-                if (one.audienceSize === 0 && one.options?.shares?.length) return { campaign: one, queued: 0, skipped: 0, audience: 0 };
-                return store.start(id, { onePerNumber });
-            });
+            const before = campaigns.require(req.params.id);
+            let across;
+            try {
+                across = acrossNumbers(before, (store, id) => {
+                    // Left with nobody (failover moved everyone to a sibling): nothing to start here, and nothing wrong.
+                    const one = store.get(id);
+                    if (one.audienceSize === 0 && one.options?.shares?.length) return { campaign: one, queued: 0, skipped: 0, audience: 0 };
+                    return store.start(id, { onePerNumber });
+                });
+            } catch (err) {
+                // Refused, but a campaign waiting its turn may now say why a plan limit holds it: open pages hear it.
+                if (campaigns.get(before.id)?.options?.statusReason !== before.options?.statusReason) {
+                    state.broadcast?.({ type: 'changed', topic: 'campaigns' });
+                }
+                throw err;
+            }
             const own = across.own ?? { campaign: campaigns.get(req.params.id), queued: 0, skipped: 0, audience: 0 };
             const sum = (key) => (own[key] ?? 0) + across.shares.reduce((n, share) => n + (share.result?.[key] ?? 0), 0);
             const result = {
@@ -543,6 +558,7 @@ export function createCampaignRouter({ db, state }) {
             };
             userAudit(req, 'campaign.start', result.campaign, {
                 audience: result.audience, queued: result.queued, skipped: result.skipped,
+                ...(own.waiting ? { waiting: true } : {}),
             });
             announce('campaignStarted', result.campaign);
             return res.json(result);

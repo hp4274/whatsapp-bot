@@ -220,15 +220,8 @@ export const PLAN_LIMIT_FIELDS: readonly {
   { key: 'maxContactsPerCampaign', label: 'Contacts / campaign' },
 ];
 
-/** The limits a single business's settings show and change (Plan tab), and that Limits shows usage against. */
-export const TENANT_LIMIT_FIELDS: readonly {
-  readonly key: 'maxChannels' | 'maxUsers' | 'maxTemplates';
-  readonly label: string;
-}[] = [
-  { key: 'maxChannels', label: 'WhatsApp numbers' },
-  { key: 'maxUsers', label: 'Team members' },
-  { key: 'maxTemplates', label: 'Templates' },
-];
+/** A business's own settings show exactly these limits too, so the two cannot drift apart. */
+export type TenantLimitKey = (typeof PLAN_LIMIT_FIELDS)[number]['key'];
 
 /** A limit for reading: null is no limit, 0 is none allowed. */
 export function limitText(value: number | null | undefined): string {

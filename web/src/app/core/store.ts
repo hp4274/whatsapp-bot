@@ -484,8 +484,8 @@ function readStoredTheme(): ThemeMode {
   return stored === 'light' || stored === 'dark' || stored === 'auto' ? stored : 'auto';
 }
 
-/** The landing page (`/`, with any fragment or query) and the sign-in screen: no shell, and always light. */
+/** The landing page (`/`, with any fragment or query), the blog and the sign-in screen: no shell, and always light. */
 export function isBare(url: string): boolean {
   const path = url.split(/[?#]/)[0];
-  return path === '/' || path === '' || path.startsWith('/login');
+  return path === '/' || path === '' || path.startsWith('/login') || path === '/blog' || path.startsWith('/blog/');
 }

@@ -1,0 +1,99 @@
+@use 'public' as pub;
+
+:host {
+  display: block;
+  @include pub.tokens;
+}
+
+@include pub.base;
+
+.close {
+  margin-bottom: 12px;
+  padding: clamp(64px, 8vw, 112px) 0 32px;
+  overflow: hidden;
+}
+
+.close-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 32px;
+
+  h2 {
+    max-width: 18ch;
+    margin: 0;
+    font-size: clamp(32px, 4vw, 56px);
+    line-height: 1.04;
+    letter-spacing: -0.04em;
+    font-weight: 500;
+  }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.giant {
+  margin: clamp(40px, 6vw, 80px) 0 0;
+  // Sized so the five letters span the content width, as on Kardlyz's footer.
+  font-size: min(30vw, 446px);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 0.95;
+  color: var(--field-line);
+  user-select: none;
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px 32px;
+  margin-top: 32px;
+  font-size: 13.5px;
+  color: var(--on-field-soft);
+
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+  }
+
+  p {
+    margin: 0;
+  }
+
+  // The orange is too dark to read on the ink, so hover underlines instead of recolouring.
+  a {
+    color: var(--on-field);
+    text-decoration: underline transparent;
+    text-underline-offset: 4px;
+    transition: var(--fast) var(--ease);
+
+    &:hover {
+      text-decoration-color: currentColor;
+    }
+  }
+}
+
+@media (max-width: 767px) {
+  .actions {
+    gap: 10px;
+  }
+
+  // Narrower pills sit side by side from ~380px; below that they stack.
+  .actions .btn {
+    flex: 1 1 auto;
+    padding-inline: 16px;
+  }
+}
+
+// Fingers need 44px targets.
+@media (pointer: coarse) {
+  .foot a {
+    padding: 12px 0;
+  }
+}

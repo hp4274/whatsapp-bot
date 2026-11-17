@@ -387,3 +387,66 @@ describe('groups on a transport without them', () => {
         }
     });
 });
+
+describe('groups when WhatsApp will not answer', () => {
+    it('says so in plain words (502), not as a server error', async () => {
+        let sock;
+        const db = new Database(path.join(tmp, 'groups-fail.db'));
+        const config = { ...DEFAULTS, transport: TRANSPORT_BAILEYS, safetyEnabled: false, humanTiming: false, defaultCountryCode: '91' };
+        delete config.misc;
+        const app = createTestApp({
+            db, config, dataDir: tmp,
+            deps: { sessionDir: tmp, setTimeoutFn: (fn) => setTimeout(fn, 0), createSocket: socketFactory((s) => { sock = s; }) },
+        });
+        const server = app.listen(0, '127.0.0.1');
+        await new Promise((resolve) => server.once('listening', resolve));
+        const base = `http://127.0.0.1:${server.address().port}`;
+        try {
+            assert.equal((await fetch(`${base}/api/connection/connect`, { method: 'POST' })).status, 200);
+            sock.groupFetchAllParticipating = async () => { throw new Error('rate-overlimit'); };
+            for (const [method, url] of [['GET', '/api/contacts/whatsapp-groups'], ['GET', '/api/contacts/whatsapp-groups/export?ids=all'], ['POST', '/api/contacts/whatsapp-groups/import']]) {
+                const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json' }, body: method === 'POST' ? '{"all":true}' : undefined });
+                assert.equal(res.status, 502, url);
+                const body = await res.json();
+                assert.match(body.errors[0], /WhatsApp did not answer/, url);
+                assert.doesNotMatch(body.errors[0], /Server error|rate-overlimit/, url);
+            }
+        } finally {
+            await closeApp(app);
+            await new Promise((resolve) => server.close(resolve));
+            db.close();
+        }
+    });
+});
+
+describe('deleting a linked number', () => {
+    it('unlinks it from WhatsApp, not just drops the connection', async () => {
+        let sock;
+        let loggedOut = 0;
+        const db = new Database(path.join(tmp, 'delete-linked.db'));
+        const config = { ...DEFAULTS, transport: TRANSPORT_BAILEYS, safetyEnabled: false, humanTiming: false, defaultCountryCode: '91' };
+        delete config.misc;
+        const app = createTestApp({
+            db, config, dataDir: tmp,
+            deps: { sessionDir: tmp, setTimeoutFn: (fn) => setTimeout(fn, 0), createSocket: socketFactory((s) => { sock = s; }) },
+        });
+        const server = app.listen(0, '127.0.0.1');
+        await new Promise((resolve) => server.once('listening', resolve));
+        const base = `http://127.0.0.1:${server.address().port}`;
+        const send = (method, url, body) => fetch(base + url, {
+            method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+        });
+        try {
+            assert.equal((await send('POST', '/api/connection/connect')).status, 200);
+            sock.logout = async () => { loggedOut += 1; };
+            const first = (await (await send('GET', '/api/channels')).json()).channels[0];
+            assert.equal((await send('POST', '/api/channels', { displayName: 'Second', settings: { transport: 'baileys' } })).status, 201);
+            assert.equal((await send('DELETE', `/api/channels/${first.id}`)).status, 200);
+            assert.equal(loggedOut, 1, 'the linked device is removed from the phone');
+        } finally {
+            await closeApp(app);
+            await new Promise((resolve) => server.close(resolve));
+            db.close();
+        }
+    });
+});

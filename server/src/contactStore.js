@@ -78,6 +78,13 @@ export class ContactStore {
             if (contact.optInStatus === 'opted_in' && existing?.optInStatus !== 'opted_in') {
                 this.#recordOptIn(contact, consent?.source ?? source ?? 'manual', consent?.text, consent?.userId);
             }
+            // `opt_outs` is what the send path obeys: a status of opted_out without a row there would still be messaged.
+            if (optInStatus === 'opted_out') {
+                this.db.prepare(
+                    `INSERT INTO opt_outs (tenant_id, phone, reason, opted_out_at) VALUES (?, ?, 'marked opted out', ?)
+                     ON CONFLICT(tenant_id, phone) DO NOTHING`).run(this.tenantId, contact.phone, now);
+                return this.get(contact.id);
+            }
             return contact;
         };
 
@@ -129,8 +136,9 @@ export class ContactStore {
                     const saved = this.upsert({
                         phone: raw.phone,
                         normalized,
-                        name: raw.name,
-                        email: raw.email,
+                        // A blank cell is no instruction to erase: it leaves what the contact already has.
+                        name: raw.name || undefined,
+                        email: raw.email || undefined,
                         // The importer calls the leftover columns `extra`; they are
                         // exactly what custom fields are for.
                         customFields: raw.customFields ?? raw.extra,
@@ -320,6 +328,7 @@ export class ContactStore {
             for (const other of others) {
                 this.db.prepare('DELETE FROM contacts WHERE id = ? AND tenant_id = ?').run(other.id, this.tenantId);
             }
+            this.#repoint(others.map((o) => o.id), keep.id);
             this.db.prepare(
                 `UPDATE contacts SET name = ?, email = ?, tags = ?, custom_fields = ?, opt_in_status = ?, updated_at = ?
                  WHERE id = ? AND tenant_id = ?`)
@@ -476,6 +485,8 @@ export class ContactStore {
     saveSegment({ id = null, name, filter = {} }) {
         const clean = String(name ?? '').trim();
         if (!clean) throw new ContactError('a segment needs a name');
+        // A stored filter that is not an object would fail every read of the segment list.
+        if (!plain(filter)) throw new ContactError('filter must be an object');
         const now = utcNow();
         if (id) {
             const info = this.db.prepare(
@@ -542,6 +553,17 @@ export class ContactStore {
     /** The stored form of a number, for callers that need to look one up. */
     normalize(phone, alreadyNormalized = false) {
         return this.#phone(phone, alreadyNormalized);
+    }
+
+    /** Tickets, orders, chats and workflow runs of a merged-away contact now belong to the kept one (no foreign key holds them). */
+    #repoint(fromIds, toId) {
+        const marks = fromIds.map(() => '?').join(',');
+        for (const table of ['tickets', 'business_objects', 'conversations', 'workflow_runs']) {
+            const there = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+            if (!there) continue;
+            this.db.prepare(`UPDATE ${table} SET contact_id = ? WHERE tenant_id = ? AND contact_id IN (${marks})`)
+                .run(toId, this.tenantId, ...fromIds);
+        }
     }
 
     #require(id) {
@@ -661,9 +683,13 @@ export function buildWhere(filter = {}, tenantId) {
                               AND s.status IN ('SENT', 'DELIVERED', 'READ') AND s.updated_at > m.updated_at))`);
     }
     if (filter.search) {
-        clauses.push('(contacts.name LIKE ? OR contacts.phone LIKE ? OR contacts.email LIKE ?)');
-        const like = `%${filter.search}%`;
-        args.push(like, like, like);
+        const term = String(filter.search);
+        const like = (text) => `%${text.replace(/[\\%_]/g, '\\$&')}%`;
+        // Numbers are stored as bare digits: "+91 98300 00011" and "098300 00011" must find 919830000011.
+        const digits = term.replace(/\D/g, '').replace(/^0+/, '');
+        const typedNumber = /^[\d\s+()\-.]+$/.test(term) && digits.length >= 3;
+        clauses.push("(contacts.name LIKE ? ESCAPE '\\' OR contacts.phone LIKE ? ESCAPE '\\' OR contacts.email LIKE ? ESCAPE '\\')");
+        args.push(like(term), like(typedNumber ? digits : term), like(term));
     }
     if (filter.createdAfter) {
         clauses.push('contacts.created_at >= ?');
@@ -774,11 +800,14 @@ function toSegment(row) {
         id: row.id,
         tenantId: row.tenant_id,
         name: row.name,
-        filter: parse(row.filter, {}),
+        // A row saved before filters were checked may hold a non-object: it matches nobody, never everybody.
+        filter: plain(parse(row.filter, {})) ? parse(row.filter, {}) : { ids: [] },
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };
 }
+
+const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 function parse(value, fallback) {
     if (!value) return fallback;

@@ -203,13 +203,13 @@ export function campaignRefusal(values, campaign, counts, { starting = false } =
         }
         const max = Number(v['campaigns.maxScheduled']) || 0;
         if (max && counts('scheduled') >= max) {
-            return { status: 409, message: `Your plan allows ${max} scheduled campaigns at once. Start or cancel one first.` };
+            return { status: 409, message: `Your plan allows ${max} scheduled campaign${max === 1 ? '' : 's'} at once. Start or cancel one first.` };
         }
     }
     if (starting) {
         const max = Number(v['campaigns.maxRunning']) || 0;
         if (max && counts('running') >= max) {
-            return { status: 409, message: `Your plan allows ${max} campaigns running at once. Wait for one to finish.` };
+            return { status: 409, message: `Your plan allows ${max} campaign${max === 1 ? '' : 's'} running at once. Wait for one to finish.` };
         }
     }
     return null;

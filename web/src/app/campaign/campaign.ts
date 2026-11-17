@@ -402,6 +402,8 @@ export class CampaignView implements OnInit {
   }
 
   protected sendSingle(): void {
+    // Each POST is its own message on the server: a second click while the first is in flight would send twice.
+    if (this.busy() || this.uploading()) return;
     if (!this.connected()) {
       this.notice.set(
         this.isAdmin()

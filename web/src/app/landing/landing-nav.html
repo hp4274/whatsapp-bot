@@ -1,18 +1,38 @@
-<!-- Logo on the left; section links, then Get access and Sign in on the right. -->
+<!--
+  Logo on the left; section links and Blog, then Free Access and Sign in on the right.
+  On the landing page (`inPage`) the logo and section links are `#id` anchors; elsewhere they route to `/` with a
+  fragment (landing-nav.ts says why).
+-->
 <nav class="bar" [class.solid]="scrolled()" aria-label="Main">
-  <a class="brand" href="#top" aria-label="Wuzie, back to top">
-    <img class="brand-mark" src="assets/brand/logo.svg" alt="" width="34" height="34" />
-    <span class="brand-word">wuzie</span>
-  </a>
+  @if (inPage()) {
+    <a class="brand" href="#top" aria-label="Wuzie, back to top">
+      <img class="brand-mark" src="assets/brand/logo.svg" alt="" width="34" height="34" />
+      <span class="brand-word">wuzie</span>
+    </a>
+  } @else {
+    <a class="brand" routerLink="/" aria-label="Wuzie home">
+      <img class="brand-mark" src="assets/brand/logo.svg" alt="" width="34" height="34" />
+      <span class="brand-word">wuzie</span>
+    </a>
+  }
 
   <div class="links">
     @for (link of links; track link.id) {
-      <a [href]="'#' + link.id" [class.on]="active() === link.id">{{ link.label }}</a>
+      @if (inPage()) {
+        <a [href]="'#' + link.id" [class.on]="active() === link.id">{{ link.label }}</a>
+      } @else {
+        <a routerLink="/" [fragment]="link.id">{{ link.label }}</a>
+      }
     }
+    <a routerLink="/blog" routerLinkActive="on">Blog</a>
   </div>
 
-  <a class="access" href="#access" [class.on]="active() === 'access'">Get access</a>
-  <a class="signin" routerLink="/login">Sign in <i class="ti ti-arrow-right" aria-hidden="true"></i></a>
+  @if (inPage()) {
+    <a class="access" href="#access" [class.on]="active() === 'access'">Free Access</a>
+  } @else {
+    <a class="access" routerLink="/" fragment="access">Free Access</a>
+  }
+  <a class="signin" [routerLink]="signedIn() ? '/home' : '/login'">{{ signedIn() ? 'Dashboard' : 'Sign in' }} <i class="ti ti-arrow-right" aria-hidden="true"></i></a>
 
   <button
     type="button"
@@ -29,9 +49,18 @@
 @if (menuOpen()) {
   <div class="menu" id="landing-menu">
     @for (link of links; track link.id) {
-      <a [href]="'#' + link.id" [class.on]="active() === link.id" (click)="menuOpen.set(false)">{{ link.label }}</a>
+      @if (inPage()) {
+        <a [href]="'#' + link.id" [class.on]="active() === link.id" (click)="menuOpen.set(false)">{{ link.label }}</a>
+      } @else {
+        <a routerLink="/" [fragment]="link.id" (click)="menuOpen.set(false)">{{ link.label }}</a>
+      }
     }
-    <!-- The bar drops its Get access button on a phone; it stays reachable here. -->
-    <a class="menu-access" href="#access" [class.on]="active() === 'access'" (click)="menuOpen.set(false)">Get access</a>
+    <a routerLink="/blog" routerLinkActive="on" (click)="menuOpen.set(false)">Blog</a>
+    <!-- The bar drops its Free Access button on a phone; it stays reachable here. -->
+    @if (inPage()) {
+      <a class="menu-access" href="#access" [class.on]="active() === 'access'" (click)="menuOpen.set(false)">Free Access</a>
+    } @else {
+      <a class="menu-access" routerLink="/" fragment="access" (click)="menuOpen.set(false)">Free Access</a>
+    }
   </div>
 }

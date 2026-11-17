@@ -65,7 +65,9 @@ describe('campaign lifecycle on one number', () => {
             contacts: new ContactStore(db, '91'), templates: null,
             broadcast: (e) => events.push(e), tenancy: { audit: (row) => audits.push(row) },
         };
-        attachCampaignPolicy(state, { platformPolicy: () => ({ 'bulk.requireOptIn': false, ...policy }) });
+        // The store reads campaigns.* limits from state.platformPolicy; the manager's bulk.* rules from the deps.
+        state.platformPolicy = () => ({ 'bulk.requireOptIn': false, ...policy });
+        attachCampaignPolicy(state, { platformPolicy: state.platformPolicy });
         const router = createCampaignRouter({ db, state });
         const r = { db, manager, transport, store: state.campaigns, audits, events, state, router };
         rigs.push(r);
@@ -86,45 +88,106 @@ describe('campaign lifecycle on one number', () => {
         fs.rmSync(tmp, { recursive: true, force: true });
     });
 
-    it('refuses a second start while the number still sends the first, and pause/cancel touch only the one named', async () => {
+    it('a second start sends together with the first: they take turns, and pause/resume/cancel touch only the one named', async () => {
         const { db, manager, transport, store } = rig();
         transport.held = true;
         const a = store.create({ name: 'Alpha', body: 'Hi {name}', audience: people(6, '98100') });
         const b = store.create({ name: 'Beta', body: 'Hi {name}', audience: people(4, '98200') });
         store.start(a.id);
         assert.ok(await until(() => manager.inFlight === 1));
-        assert.throws(() => store.start(b.id), (err) => err.status === 409 && /still sending «Alpha»/.test(err.message));
-        assert.equal(store.get(b.id).status, 'draft');
+        const joined = store.start(b.id);
+        assert.equal(joined.queued, 4);
+        assert.equal(joined.campaign.status, 'running');
+        assert.equal(joined.together, 'Alpha');
+        assert.match(joined.policyNotes[0], /Sending together with «Alpha»: they take turns on this number/);
+        assert.equal(rows(db, a.id).CANCELLED, undefined, 'Alpha keeps its rows');
+        // They alternate: Alpha's five still waiting and Beta's four, one each in turn.
+        const order = manager.queue.snapshot().map((i) => i.campaignId);
+        assert.deepEqual(order.slice(0, 8), Array.from({ length: 8 }, (_, i) => (i % 2 ? `camp-${b.id}` : `camp-${a.id}`)));
 
-        // A run the manager does not hold (here: left over from before a restart) is paused and cancelled on its own.
-        db.db.prepare("UPDATE campaigns SET status = 'running' WHERE id = ?").run(b.id);
-        for (const p of people(3, '98200')) {
-            db.insert({ messageId: `orphan-${p.phone}`, recipient: p.phone, message: 'x', status: 'QUEUED', campaignId: `camp-${b.id}` });
-        }
+        // Pausing Beta leaves Alpha sending; Beta's rows wait in the table for its resume.
         store.pause(b.id);
-        assert.equal(manager.queue.isPaused, false, 'pausing Beta leaves Alpha sending');
-        assert.equal(store.get(a.id).status, 'running');
-        const cancelled = store.cancel(b.id);
-        assert.equal(cancelled.status, 'cancelled');
-        assert.deepEqual(rows(db, b.id), { CANCELLED: 3 });
-        assert.equal(manager.queue.isStopped, false, 'cancelling Beta leaves Alpha queued');
-        assert.equal(rows(db, a.id).CANCELLED, undefined);
-        assert.equal(manager.pendingByType().campaign, 5, 'Alpha still has its five waiting');
+        assert.equal(manager.queue.isPaused, false);
+        assert.equal(manager.queue.snapshot().filter((i) => i.campaignId === `camp-${b.id}`).length, 0);
+        assert.equal(rows(db, b.id).QUEUED, 4);
+        store.resume(b.id);
+        assert.equal(store.get(b.id).status, 'running');
+        assert.equal(manager.queue.snapshot().filter((i) => i.campaignId === `camp-${b.id}`).length, 4, 'back in turn');
 
-        // Pausing the run it holds does pause the number; a paused run still blocks a new start.
-        store.pause(a.id);
-        assert.equal(manager.queue.isPaused, true);
-        const c = store.create({ name: 'Gamma', body: 'Hi {name}', audience: people(2, '98300') });
-        assert.throws(() => store.start(c.id), /«Alpha» is paused on this number/);
-        store.cancel(a.id);
+        // Cancelling Beta closes only its rows; Alpha carries on.
+        store.cancel(b.id);
+        assert.deepEqual(rows(db, b.id), { CANCELLED: 4 });
+        assert.equal(manager.queue.isStopped, false);
+        assert.equal(manager.pendingByType().campaign, 5, 'Alpha still has its five waiting');
         transport.held = false;
-        assert.ok(await until(() => !manager.inFlight && !manager.queue.isStopped), 'the queue reopens once the send in flight ends');
-        assert.equal(rows(db, a.id).QUEUED, undefined, 'none of Alpha is left waiting');
-        assert.equal(store.start(c.id).queued, 2, 'the number is free again');
+        assert.ok(await until(() => rows(db, a.id).SENT === 6), 'Alpha sends all six');
+        assert.deepEqual(rows(db, b.id), { CANCELLED: 4 }, 'nothing of the cancelled one went');
+    });
+
+    it('a campaign paused on its own does not block a new one, and rejoins when resumed', async () => {
+        const { db, manager, transport, store } = rig();
+        transport.held = true;
+        const a = store.create({ name: 'Alpha', body: 'Hi {name}', audience: people(3, '98400') });
+        const c = store.create({ name: 'Gamma', body: 'Hi {name}', audience: people(2, '98600') });
+        store.start(a.id);
+        assert.ok(await until(() => manager.inFlight === 1));
+        store.pause(a.id);
+        assert.equal(manager.queue.isPaused, true, 'alone, a pause holds the queue');
+        const started = store.start(c.id);
+        assert.equal(started.queued, 2);
+        assert.equal(started.together, null, 'the paused one is out of the queue');
+        assert.equal(manager.queue.isPaused, false);
+        transport.held = false;
+        assert.ok(await until(() => rows(db, c.id).SENT === 2), 'Gamma sends');
+        assert.deepEqual(rows(db, a.id), { QUEUED: 3 }, 'Alpha waits, paused: the row in its gap did not go either');
+        store.resume(a.id);
+        assert.ok(await until(() => rows(db, a.id).SENT === 3), 'Alpha finishes after its resume');
+    });
+
+    it('says how much of a joining campaign today\'s limit covers after what is already queued', async () => {
+        const { manager, transport, store } = rig();
+        transport.held = true;
+        manager.quota.remaining = () => 7;
+        const a = store.create({ name: 'Alpha', body: 'Hi {name}', audience: people(6, '98700') });
+        const b = store.create({ name: 'Beta', body: 'Hi {name}', audience: people(4, '98710') });
+        store.start(a.id);
+        assert.ok(await until(() => manager.inFlight === 1));
+        const joined = store.start(b.id);
+        // Seven left today, five of them for Alpha's rows still queued: two of Beta's go today.
+        assert.equal(joined.overQuota, 2);
+        assert.match(joined.policyNotes.at(-1), /Today's limit covers 2 of these 4 messages, after what is already queued\. The other 2 go out tomorrow/);
+        transport.held = false;
+    });
+
+    it('the plan\'s campaigns-running limit still caps how many send together', async () => {
+        const { manager, transport, store } = rig({ policy: { 'campaigns.maxRunning': 2 } });
+        transport.held = true;
+        const [a, b, c] = ['A', 'B', 'C'].map((n, i) => store.create({ name: n, body: 'Hi {name}', audience: people(2, `9880${i}`) }));
+        store.start(a.id);
+        assert.ok(await until(() => manager.inFlight === 1));
+        assert.equal(store.start(b.id).queued, 2);
+        assert.throws(() => store.start(c.id), /allows 2 campaigns running at once/);
+        assert.equal(store.get(c.id).status, 'draft');
+        transport.held = false;
+    });
+
+    it('a start that can never succeed is refused on a busy number too', async () => {
+        const { manager, transport, store } = rig();
+        transport.held = true;
+        const a = store.create({ name: 'Alpha', body: 'Hi {name}', audience: people(2, '98810') });
+        store.start(a.id);
+        assert.ok(await until(() => manager.inFlight === 1));
+        const empty = store.create({ name: 'Empty', body: 'Hi', audience: [] });
+        assert.throws(() => store.start(empty.id), /audience is empty/);
+        assert.equal(store.get(empty.id).status, 'draft');
+        const noText = store.create({ name: 'NoText', body: '', audience: people(1, '98820') });
+        assert.throws(() => store.start(noText.id), /template or a body/);
+        assert.equal(manager.pendingByType().campaign, 1, 'Alpha untouched');
+        transport.held = false;
     });
 
     it('closes a run at once when everybody was skipped, so it never holds a running slot', () => {
-        const { db, store, audits } = rig({ 'campaigns.maxRunning': 1 });
+        const { db, store, audits } = rig({ policy: { 'campaigns.maxRunning': 1 } });
         const list = people(3, '98400');
         for (const p of list) db.addOptOut(p.phone);
         const skipped = store.create({ name: 'Nobody', body: 'Hi {name}', audience: list });

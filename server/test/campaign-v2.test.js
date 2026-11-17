@@ -315,6 +315,22 @@ describe('the campaign store', () => {
         assert.equal(result.campaign.finishedAt, null);
     });
 
+    it('retries a carousel that stopped partway from where it stopped, so nobody gets the first messages twice', () => {
+        const c = store.create({
+            name: 'Half carousel',
+            body: 'Hi {name}',
+            audience: [{ name: 'Dev', phone: '919822200011' }, { name: 'Eve', phone: '919822200012' }],
+        });
+        store.start(c.id);
+        const half = insertRow(c.id, '919822200011', 'FAILED', { name: 'Dev', error: 'The carousel stopped after 2 of 4 messages.' });
+        scoped.setPartsSent(half.messageId, 2);
+        insertRow(c.id, '919822200012', 'FAILED', { name: 'Eve', error: 'boom' });
+        const before = manager.jobs.length;
+        assert.equal(store.retryFailed(c.id).queued, 2);
+        const jobs = Object.fromEntries(manager.jobs.slice(before).map((j) => [j.recipient, j.partsSent]));
+        assert.deepEqual(jobs, { 919822200011: 2, 919822200012: 0 });
+    });
+
     it('reports the funnel, failure reasons and replies from the latest rows, and exports them', () => {
         const c = store.create({
             name: 'Analytics',

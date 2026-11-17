@@ -253,8 +253,9 @@ describe('the controls', () => {
         manager.enqueueContacts([{ name: 'X', phone: '919000000011' }, { name: 'Y', phone: '919000000012' }],
             'Hi {name}', { campaignId: 'camp-live', reset: {} });
         const unvaried = store.create({ name: 'Same text', body: 'hello', audience: { tags: ['vip'] } });
-        // Refused before anything else: a start would reset the queue that holds the other run.
-        assert.throws(() => store.start(unvaried.id), (err) => err.status === 409 && /still sending another bulk send/.test(err.message));
+        // Refused (one text for everyone), and the run it would have joined is untouched.
+        assert.throws(() => store.start(unvaried.id));
+        assert.equal(store.get(unvaried.id).status, 'draft');
         assert.equal(manager.queue.pending, 2, 'the live run is still queued');
         assert.equal(manager.campaignId, 'camp-live');
         store.remove(unvaried.id);

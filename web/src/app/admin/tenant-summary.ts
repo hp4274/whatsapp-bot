@@ -12,7 +12,7 @@ import { sentenceCase } from './text';
 import {
   BILLINGS,
   PLAN_QUOTA_FIELDS,
-  TENANT_LIMIT_FIELDS,
+  PLAN_LIMIT_FIELDS,
   Plan,
   Subscription,
   formatPrice,
@@ -94,7 +94,7 @@ export class TenantSummary {
   protected readonly copied = signal(false);
 
   protected readonly quotaFields = PLAN_QUOTA_FIELDS;
-  protected readonly limitFields = TENANT_LIMIT_FIELDS;
+  protected readonly limitFields = PLAN_LIMIT_FIELDS;
   protected readonly limit = limitText;
   protected readonly formatPrice = formatPrice;
   protected readonly paidPrice = paidPrice;
