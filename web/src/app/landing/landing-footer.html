@@ -1,0 +1,33 @@
+<!-- The last ask on the left, its actions on the right; the giant wordmark; then the links and the small print. -->
+<footer class="close field" aria-labelledby="close-title">
+  <div class="wrap">
+    <div class="close-row">
+      <h2 id="close-title">Your next campaign is one upload away</h2>
+      <div class="actions">
+        @if (inPage()) {
+          <a class="btn go" href="#access">Start sending <i class="ti ti-arrow-right" aria-hidden="true"></i></a>
+        } @else {
+          <a class="btn go" routerLink="/" fragment="access">Start sending <i class="ti ti-arrow-right" aria-hidden="true"></i></a>
+        }
+        <a class="btn ghost" routerLink="/login">Sign in</a>
+      </div>
+    </div>
+
+    <p class="giant" aria-hidden="true">wuzie</p>
+
+    <div class="foot">
+      <nav aria-label="Footer">
+        @for (link of links; track link.id) {
+          @if (inPage()) {
+            <a [href]="'#' + link.id">{{ link.label }}</a>
+          } @else {
+            <a routerLink="/" [fragment]="link.id">{{ link.label }}</a>
+          }
+        }
+        <a routerLink="/blog">Blog</a>
+        <a routerLink="/login">Sign in</a>
+      </nav>
+      <p>© {{ year }} Wuzie. WhatsApp is a trademark of Meta Platforms, Inc.; Wuzie is not affiliated with Meta.</p>
+    </div>
+  </div>
+</footer>

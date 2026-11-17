@@ -9,6 +9,7 @@ import { after, before, describe, it } from 'node:test';
 import { closeApp } from '../src/app.js';
 import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
+import { localNow } from '../src/school/routes.js';
 import { createTestApp, sessionFor } from './helpers.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-school-'));
@@ -156,6 +157,12 @@ describe('school assistant', () => {
 
         // WhatsApp sends the country code; the roster row may not have had one.
         db.db.prepare("UPDATE contacts SET phone = ? WHERE phone = ?").run('9876512012', '919876512012');
+        // The reply covers the current month, so mark a day in it rather than a fixed date.
+        const zone = db.db.prepare('SELECT timezone FROM whatsapp_channels WHERE tenant_id = 1 ORDER BY id LIMIT 1').get()?.timezone;
+        const today = localNow(zone).date; // the command's own clock: a UTC date can be another month around midnight
+        await call(owner, 'PUT', '/api/school/attendance', {
+            date: today, classKey: '10A', marks: students.map((s) => ({ studentId: s.id, status: 'present' })),
+        });
         await inbound('919876512012', 'ATTENDANCE');
         await wait();
         assert.ok(sentTo('919876512012').some((t) => /present over/.test(t)), 'matched by last ten digits');

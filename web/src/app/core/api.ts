@@ -1653,6 +1653,8 @@ export interface CampaignStartResult {
   stats?: CampaignStats | null;
   /** One entry per number the campaign sends from, this one first; each starts on its own. */
   numbers?: { channelId: number; queued: number; safety: SafetyStatus | null; error: string | null }[];
+  /** Started while the number sends that campaign: they take turns (policyNotes says so). */
+  together?: string | null;
   /** Recipients the audience resolved to before any skip. */
   audience?: number;
   queued?: number;

@@ -559,4 +559,6 @@
   <p class="muted hint">{{ blockers()[0] }}</p>
 } @else if (d.scheduleMode() === 'now' && !canSendNow()) {
   <p class="muted hint">Link a WhatsApp number to send now - or schedule it instead.</p>
+} @else if (d.scheduleMode() === 'now' && numberBusy()) {
+  <p class="muted hint">This number is still sending another campaign. This one waits its turn and starts on its own when it finishes.</p>
 }

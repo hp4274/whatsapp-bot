@@ -221,6 +221,22 @@ it('a native carousel is one interactive message: each card an uploaded image, i
     assert.equal(result.providerId, sock().relays[0].opts.messageId);
 });
 
+it('a native carousel whose image upload fails sends nothing and may be tried again', async () => {
+    const { transport, sock } = makeTransport();
+    await transport.connect();
+    sock().waUploadToServer = async () => { throw new Error('upload socket hang up'); };
+    const media = { buffer: Buffer.from('89504e470d0a1a0a00', 'hex'), mimetype: 'image/png' };
+    const interactive = { type: 'carousel', carousel: { kind: 'reply', cards: [
+        { mediaId: 'u1', text: 'One', media, buttons: [{ id: 'A', title: 'A' }] },
+        { mediaId: 'u2', text: 'Two', media, buttons: [{ id: 'B', title: 'B' }] },
+    ] } };
+    await assert.rejects(
+        transport.sendMessage('919800000008', 'Our picks', { interactive, nativeCarousel: true }),
+        (err) => err.retryable === true && /upload failed/.test(err.message),
+    );
+    assert.equal(sock().relays.length + sock().sends.length, 0);
+});
+
 it("the sender's own devices get the carousel unwrapped; other messages pass through", () => {
     const interactiveMessage = { body: { text: 'Our picks' } };
     const ctx = { deviceListMetadataVersion: 2 };
@@ -265,6 +281,52 @@ it('a carousel campaign on a QR number counts each part against the day', async 
         db.close();
         fs.rmSync(tmp, { recursive: true, force: true });
     }
+});
+
+it('a carousel that fails partway is retried from where it stopped: nobody gets the first messages twice', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-baileys-carousel-'));
+    const db = new Database(path.join(tmp, 'm.db'));
+    // The second card is refused (a socket hiccup): the main text and card 1 are already on the phone.
+    const { transport, sock } = makeTransport({ sockOptions: { sendResult: (jid, content, n) => {
+        if (n === 3) throw new Error('Connection Closed');
+        return { key: { id: `BAE5${n}`, remoteJid: jid, fromMe: true } };
+    } } });
+    await transport.connect();
+    const manager = new CampaignManager(db, transport, { ...DEFAULTS, transport: 'baileys', safetyEnabled: false, rateLimitPerSecond: 1000, pacingMode: 'fixed', maxRetries: 3 });
+    applySendingPolicy(manager.quota, { 'sending.carouselImages': true });
+    const card = (n) => {
+        const filePath = path.join(tmp, `c${n}.png`);
+        fs.writeFileSync(filePath, png().buffer);
+        return { mediaId: `m${n}`, text: `Card ${n}`, media: { filePath, mimetype: 'image/png' }, cta: [{ title: 'Open', value: `https://x.test/${n}` }] };
+    };
+    try {
+        manager.enqueueContacts([{ name: 'A', phone: '919855550202' }], 'Hi {name}', { interactive: { type: 'carousel', carousel: { kind: 'url', cards: [card(1), card(2)] } } });
+        manager.start();
+        const deadline = Date.now() + 15000;
+        while (Date.now() < deadline && manager.stats.processed < 1) await new Promise((r) => setTimeout(r, 25));
+        await new Promise((r) => setTimeout(r, 100));
+        assert.equal(sock().sends.length, 4, 'main text, card 1, the refused card 2, then card 2 only');
+        assert.equal(sock().sends.filter((s) => s.content.text === 'Hi A').length, 1, 'the main text went once');
+        const row = db.history({ limit: 5 }).find((m) => m.recipient === '919855550202');
+        assert.equal(row.status, Status.SENT);
+        assert.equal(db.db.prepare('SELECT parts_sent FROM messages WHERE recipient = ?').get('919855550202').parts_sent, 3);
+    } finally {
+        await manager.shutdown();
+        db.close();
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }
+});
+
+it('a carousel card whose file is gone sends nothing at all', async () => {
+    const { transport, sock } = makeTransport();
+    await transport.connect();
+    const media = { buffer: Buffer.from('png'), mimetype: 'image/png' };
+    const interactive = { type: 'carousel', carousel: { kind: 'reply', cards: [
+        { mediaId: 'a', text: 'One', media, buttons: [{ id: 'A', title: 'A' }] },
+        { mediaId: 'b', text: 'Two', media: { filePath: path.join(os.tmpdir(), 'wsender-nope', 'gone.png'), mimetype: 'image/png' }, buttons: [{ id: 'B', title: 'B' }] },
+    ] } };
+    await assert.rejects(transport.sendMessage('919800000007', 'Hello', { interactive }));
+    assert.equal(sock().sends.length, 0, 'not even the main text');
 });
 
 it('emits restricted on a 475 ack and on a reach-out timelock, at least 24h out; never on a 463', async () => {
@@ -554,6 +616,18 @@ it('logout unlinks the device and wipes the cached session', async () => {
     await transport.logout();
     assert.equal(sock().loggedOut, true);
     assert.equal(sock().ended, true);
+    assert.equal(fs.existsSync(transport.authDir), false);
+    assert.equal(transport.isConnected(), false);
+});
+
+it('logout does not hang when WhatsApp never answers: the session is dropped after the timeout', async (t) => {
+    const { transport, sock } = makeTransport();
+    await transport.connect();
+    sock().logout = () => new Promise(() => {}); // never settles
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const done = transport.logout();
+    t.mock.timers.tick(5000);
+    await done;
     assert.equal(fs.existsSync(transport.authDir), false);
     assert.equal(transport.isConnected(), false);
 });

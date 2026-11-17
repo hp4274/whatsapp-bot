@@ -192,6 +192,12 @@ describe('quick bulk sends, resume and campaign pages over HTTP', () => {
         db?.close();
     });
 
+    it('a quick bulk send with contacts that are not a list is a 400, not a server error', async () => {
+        const res = await api('POST', '/api/campaign/start', { contacts: '919811110009', template: 'Hi' });
+        assert.equal(res.status, 400);
+        assert.match(res.body.errors[0], /contacts must be a list/);
+    });
+
     it('a quick bulk send keeps waiting one-offs and refuses while another run is still in the queue', async () => {
         hold();
         try {
@@ -315,5 +321,26 @@ describe('a country code on a number without +', () => {
     it('a country without fixed lengths keeps the old rule', () => {
         assert.equal(classifyPhone('4915123456789', { countryCode: '49' }).phone, '4915123456789');
         assert.equal(classifyPhone('015123456789', { countryCode: '49' }).phone, '4915123456789');
+    });
+});
+
+describe('one message per number', () => {
+    it('counts one number written two ways as one recipient', async () => {
+        const db = freshDb();
+        const transport = new FakeLive();
+        transport.realDelivery = false;
+        const manager = new CampaignManager(db, transport, { ...DEFAULTS, transport: TRANSPORT_SANDBOX, safetyEnabled: false, rateLimitPerSecond: 1000 });
+        try {
+            const result = manager.enqueueContacts(people(['+91 98111 10003', '919811110003', '919811110004']), 'Hi {name}',
+                { campaignId: 'run', onePerNumber: true });
+            assert.equal(result.queued, 2, 'the same WhatsApp number in two formats goes once');
+            manager.start();
+            assert.ok(await until(() => transport.sent.length === 2));
+            await sleep(50);
+            assert.equal(transport.sent.length, 2);
+        } finally {
+            await manager.shutdown();
+            db.close();
+        }
     });
 });

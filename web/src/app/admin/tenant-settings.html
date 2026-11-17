@@ -226,7 +226,12 @@
                     placeholder="No limit"
                     [value]="s.limits[f.key] ?? ''"
                     (input)="setCap(f.key, $any($event.target).value)"
+                    [attr.aria-describedby]="s.limits[f.key] === 0 ? 'pl-zero-' + f.key : null"
                   />
+                  <!-- A 0 typed by mistake blocks the feature outright (Contacts / campaign: every campaign). -->
+                  @if (s.limits[f.key] === 0) {
+                    <small class="warn-note" [id]="'pl-zero-' + f.key">0 allows none. Leave it blank for no limit.</small>
+                  }
                 </div>
               }
               <!-- Messages: each follows the plan until unticked; unticked, the box is this business's own. -->

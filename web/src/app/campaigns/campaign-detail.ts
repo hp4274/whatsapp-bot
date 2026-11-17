@@ -398,10 +398,11 @@ export class CampaignDetailView {
     this.run(
       action,
       () => this.api.action(this.numericId(), action),
-      ({ queued, carried }) =>
-        early
-          ? `Sent ${queued ?? 0} now${carried ? `; ${carried} more go out tomorrow` : ''}.`
-          : done[action],
+      ({ queued, carried, policyNotes }) =>
+        [
+          early ? `Sent ${queued ?? 0} now${carried ? `; ${carried} more go out tomorrow` : ''}.` : done[action],
+          ...(policyNotes ?? []),
+        ].join(' '),
     );
   }
 

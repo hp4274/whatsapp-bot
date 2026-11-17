@@ -333,7 +333,8 @@ export class TemplatesView {
 
   protected save(): void {
     const p = this.panel();
-    if (p?.mode !== 'edit' || this.busy()) return;
+    // Enter in a field submits the form even while the button is disabled: an upload still running would be lost.
+    if (p?.mode !== 'edit' || this.busy() || this.uploading()) return;
     const d = this.draft();
     if (!d.name.trim()) {
       this.panelError.set('Give the template a name.');

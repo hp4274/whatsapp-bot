@@ -3,9 +3,50 @@
 <html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
-  <title>Wuzie</title>
+  <title>Wuzie - Bulk WhatsApp messaging from your own number</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!--
+    What a crawler that runs no JavaScript sees (link previews, AI assistants); the public pages then set their own
+    (landing/page-meta.ts). No canonical here: this file is served for every route, and it would point them all at `/`.
+  -->
+  <meta name="description" content="Send bulk WhatsApp messages from the number you already use: personal to each customer, paced to protect your number, with replies straight back to you.">
+  <meta property="og:site_name" content="Wuzie">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Wuzie - Bulk WhatsApp messaging from your own number">
+  <meta property="og:description" content="Send bulk WhatsApp messages from the number you already use: personal to each customer, paced to protect your number, with replies straight back to you.">
+  <meta property="og:image" content="https://wuzie.in/assets/landing/hero-shop.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://wuzie.in/#org",
+        "name": "Wuzie",
+        "url": "https://wuzie.in/",
+        "logo": "https://wuzie.in/assets/brand/favicon.png",
+        "email": "connection@zarklyx.com"
+      },
+      {
+        "@type": "WebSite",
+        "name": "Wuzie",
+        "url": "https://wuzie.in/",
+        "publisher": { "@id": "https://wuzie.in/#org" }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "Wuzie",
+        "url": "https://wuzie.in/",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web",
+        "description": "Bulk WhatsApp messaging from the WhatsApp number a business already uses: personal to each customer, paced to protect the number, with replies straight back to it.",
+        "publisher": { "@id": "https://wuzie.in/#org" }
+      }
+    ]
+  }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&display=swap">
@@ -14,5 +55,42 @@
 </head>
 <body>
   <app-root></app-root>
+  <!--
+    The page for a reader that runs no JavaScript: AI assistants and simple crawlers otherwise get an empty body.
+    Keep it true to the landing page's copy (landing/landing.ts) and to public/llms.txt.
+    shortcut: every route serves this same text, blog posts included; prerender the public routes when each
+    post must be readable without JavaScript.
+  -->
+  <noscript>
+    <h1>Wuzie: send bulk WhatsApp messages from your own number</h1>
+    <p>Reach every customer at once from the WhatsApp number you already use. Each message carries the person's name, goes out at a careful pace that protects your number, and replies come straight back to it.</p>
+    <h2>How it works</h2>
+    <ul>
+      <li>Link your WhatsApp or WhatsApp Business number by scanning a QR code, the same way WhatsApp Web works. There is no Meta approval to wait for.</li>
+      <li>Upload your contacts and write one message with each customer's name in it.</li>
+      <li>Wuzie sends it with random gaps between messages and a daily cap for each number.</li>
+      <li>Replies arrive on your own WhatsApp number.</li>
+    </ul>
+    <h2>Who it is for</h2>
+    <p>Shops and online brands, schools and coaching classes, clinics and services, and agencies running campaigns for many clients.</p>
+    <h2>Questions</h2>
+    <h3>How many messages can I send a day?</h3>
+    <p>A new number starts with a small daily limit that grows as the number becomes established, up to 1,000 a day per number. Add more numbers to send more.</p>
+    <h3>Will my number get banned?</h3>
+    <p>No tool can promise that. Wuzie lowers the risk: it caps how much a number sends a day, leaves random gaps between messages and pauses a campaign when too many messages fail.</p>
+    <h3>Do I need the WhatsApp Business API?</h3>
+    <p>No. You link the number you already use by scanning a QR code.</p>
+    <h3>Can I send images, PDFs and buttons?</h3>
+    <p>Text, images, documents and video, yes. Native WhatsApp buttons and lists are not available on linked numbers, so options are numbered replies.</p>
+    <h3>How do I get an account?</h3>
+    <p>Accounts are set up for you: ask through the Free Access form on this page. Every paid plan starts with a 14-day free trial.</p>
+    <h2>Guides</h2>
+    <ul>
+      <li><a href="/blog/bulk-whatsapp-messages-customers-want">Bulk WhatsApp messages your customers will want to read</a></li>
+      <li><a href="/blog/keep-your-whatsapp-number-safe">How to keep your WhatsApp number safe when you send in bulk</a></li>
+      <li><a href="/blog/whatsapp-auto-replies-numbered-menus">Auto-replies and numbered menus your customers will actually use</a></li>
+    </ul>
+    <p>This page needs JavaScript to show the full site. Contact: connection@zarklyx.com</p>
+  </noscript>
 </body>
 </html>

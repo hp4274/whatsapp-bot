@@ -55,22 +55,24 @@
             }
             @if (line.text) {
               <span class="text">{{ line.text }}</span>
+              <!-- Buttons and lists as a linked number delivers them: plain numbered lines. Each line answers for the
+                   customer, with its number, so the visitor can try the menu. -->
+              @if (menuOf(line); as menu) {
+                <span class="menu" role="group" [attr.aria-label]="'Options: ' + menu.ask">
+                  <span class="text" [class.bold]="menu.bold">{{ menu.ask }}</span>
+                  @for (option of menu.options; track option.title; let n = $index) {
+                    <button type="button" class="menu-row" (click)="pick(option, '' + (n + 1))">
+                      {{ n + 1 }}. {{ option.title }}@if (option.note) { - {{ option.note }}}
+                    </button>
+                  }
+                </span>
+              }
               <span class="meta">
                 {{ line.time }}
                 @if (line.side === 'out') {
                   <i class="ti ti-checks" aria-label="Read"></i>
                 }
               </span>
-            }
-            @for (option of line.buttons ?? []; track option.title) {
-              <button type="button" class="act" (click)="pick(option)">
-                <i class="ti ti-arrow-back-up" aria-hidden="true"></i>{{ option.title }}
-              </button>
-            }
-            @if (line.list; as list) {
-              <button type="button" class="act" aria-haspopup="true" (click)="sheet.set(list)">
-                <i class="ti ti-list" aria-hidden="true"></i>{{ list.button }}
-              </button>
             }
             @if (line.cards; as cards) {
               <div class="cards" #strip>
@@ -95,34 +97,17 @@
             }
           </li>
         }
-        @if (picked(); as option) {
+        @if (picked(); as answer) {
           <li class="msg out first" style="--i: 0">
-            <span class="text">{{ option.title }}</span>
+            <span class="text">{{ answer.said }}</span>
             <span class="meta">{{ lastTime() }} <i class="ti ti-checks" aria-label="Read"></i></span>
           </li>
           <li class="msg in first" style="--i: 1">
-            <span class="text">{{ option.reply }}</span>
+            <span class="text">{{ answer.reply }}</span>
             <span class="meta">{{ lastTime() }}</span>
           </li>
         }
       </ol>
-      <!-- A list menu rises from the foot of the chat, as WhatsApp opens it. -->
-      @if (sheet(); as list) {
-        <div class="sheet" role="group" [attr.aria-label]="list.button">
-          <header>
-            <strong>{{ list.button }}</strong>
-            <button type="button" aria-label="Close options" (click)="sheet.set(null)">
-              <i class="ti ti-x" aria-hidden="true"></i>
-            </button>
-          </header>
-          @for (row of list.rows; track row.title) {
-            <button type="button" class="row-pick" (click)="pick(row)">
-              <span>{{ row.title }}<small>{{ row.note }}</small></span>
-              <i class="radio" aria-hidden="true"></i>
-            </button>
-          }
-        </div>
-      }
       <div class="composer" aria-hidden="true">
         <span class="field"><i class="ti ti-mood-smile"></i>Message<i class="ti ti-paperclip"></i></span>
         <span class="mic"><i class="ti ti-microphone"></i></span>
@@ -141,7 +126,13 @@
           }
         </ul>
       }
-      <a class="cta" href="#access">Get access</a>
+      @if (hasMenu()) {
+        <p class="note">
+          <i class="ti ti-info-circle" aria-hidden="true"></i>
+          From your own number, options arrive as a numbered menu and customers reply with the number. Tap one to try it.
+        </p>
+      }
+      <a class="cta" href="#access">Free Access</a>
     </div>
   </div>
 } @else {
@@ -152,7 +143,7 @@
         <h3>{{ feature().title }}</h3>
         <p>{{ feature().text }}</p>
       </div>
-      <a class="cta" href="#access">Get access</a>
+      <a class="cta" href="#access">Free Access</a>
     </div>
 
     <figure class="canvas">

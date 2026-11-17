@@ -69,6 +69,8 @@ export function ackError(code) {
 /** Statuses kept in memory for getStatus(); older ones are forgotten so the map cannot grow without end. */
 const RECEIPTS_MAX = 20_000;
 const LOGGED_OUT = 401;
+/** How long logout() waits for WhatsApp to confirm the unlink before dropping the session anyway. */
+const LOGOUT_TIMEOUT_MS = 5000;
 const CONNECTION_REPLACED = 440;
 const FORBIDDEN = 403; // WhatsApp banned the number (CB:failure)
 const BAD_SESSION = 500;
@@ -717,10 +719,17 @@ export class BaileysTransport extends Transport {
     async logout() {
         if (this.sock) {
             this.loggingOut = true; // the 401 this causes is ours, not an unexpected logout
+            let timer;
             try {
-                await this.sock.logout();
+                // WhatsApp may never answer: a delete or disconnect must not hang on it. The session is dropped below either way.
+                await Promise.race([
+                    this.sock.logout(),
+                    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('logout timed out')), LOGOUT_TIMEOUT_MS); }),
+                ]);
             } catch {
                 // fall through
+            } finally {
+                clearTimeout(timer);
             }
         }
         await this.disconnect();
@@ -728,7 +737,7 @@ export class BaileysTransport extends Transport {
         fs.rmSync(this.authDir, { recursive: true, force: true });
     }
 
-    async sendMessage(recipient, message, { media = null, interactive = null, typingMs = 0, registered = false, nativeCarousel = false } = {}) {
+    async sendMessage(recipient, message, { media = null, interactive = null, typingMs = 0, registered = false, nativeCarousel = false, fromPart = 0, onPart = null } = {}) {
         if (!this.connected || !this.sock) {
             throw new TransportConnectionError('Transport is reconnecting', { retryable: true });
         }
@@ -751,7 +760,7 @@ export class BaileysTransport extends Transport {
             await new Promise((resolve) => setTimeout(resolve, typingMs));
         }
         try {
-            return await this.#deliver(jid, message, attachment, interactive, typingMs, nativeCarousel);
+            return await this.#deliver(jid, message, attachment, interactive, typingMs, nativeCarousel, { fromPart, onPart });
         } finally {
             // Not awaited: the caller only learns the provider id when we return, and a
             // delivery receipt that lands during this round trip finds no row to update.
@@ -931,13 +940,13 @@ export class BaileysTransport extends Transport {
         }
     }
 
-    async #deliver(jid, message, attachment, interactive, typingMs, nativeCarousel = false) {
+    async #deliver(jid, message, attachment, interactive, typingMs, nativeCarousel = false, progress = {}) {
         // No native buttons: they render on some devices only, and Baileys' retry resend drops the node they need.
         // A carousel is the one exception, by the user's choice: native unless the admin picked separate images.
         if (interactive?.type === 'carousel') {
             return nativeCarousel
                 ? this.#deliverCarouselNative(jid, message, interactive)
-                : this.#deliverCarouselText(jid, message, attachment, interactive, typingMs);
+                : this.#deliverCarouselText(jid, message, attachment, interactive, typingMs, progress);
         }
         const text = interactive ? renderFallbackText(message, interactive) : message;
         const sent = await this.#send(jid, attachment ? { ...attachment, caption: text } : { text });
@@ -951,20 +960,36 @@ export class BaileysTransport extends Transport {
      * shortcut: N+1 messages in one paced job; the job's receipt is the first message's, and a failure midway leaves
      * the earlier ones sent. Per-card jobs would need queue changes.
      */
-    async #deliverCarouselText(jid, message, attachment, interactive, typingMs) {
+    async #deliverCarouselText(jid, message, attachment, interactive, typingMs, { fromPart = 0, onPart = null } = {}) {
         const text = String(message ?? '');
-        const first = await this.#send(jid, attachment ? { ...attachment, caption: text } : { text });
         const captions = carouselCaptions(interactive);
-        const media = interactive.carousel.cards.map((card, i) => mediaContent(card.media, captions[i]));
-        for (const content of media) {
-            if (typingMs > 0) {
-                await this.#presence('composing', jid);
-                await new Promise((resolve) => setTimeout(resolve, typingMs));
+        // Before the first message: a card whose file is gone must not leave the main text sent on its own.
+        const parts = [
+            attachment ? { ...attachment, caption: text } : { text },
+            ...interactive.carousel.cards.map((card, i) => mediaContent(card.media, captions[i])),
+        ];
+        // `fromPart`: that many are on the phone already (a restart or a retry carries on after them).
+        let sent = Math.min(Math.max(0, Math.floor(fromPart) || 0), parts.length);
+        let first = null;
+        try {
+            for (; sent < parts.length; ) {
+                if (sent > 0 && typingMs > 0) {
+                    await this.#presence('composing', jid);
+                    await new Promise((resolve) => setTimeout(resolve, typingMs));
+                }
+                const out = await this.#send(jid, parts[sent]);
+                first ??= out;
+                sent += 1;
+                onPart?.(sent);
             }
-            await this.#send(jid, content);
+        } catch (err) {
+            if (sent === 0) throw err; // nothing went out: an ordinary failure
+            // The progress is saved (onPart), so a retry sends only the rest: nobody gets the first ones twice.
+            throw new TransportSendError(`The carousel stopped after ${sent} of ${parts.length} messages. A retry sends only the rest.`,
+                { retryable: err?.retryable === true, code: err?.code === 'RATE_LIMITED' ? 'RATE_LIMITED' : null });
         }
         // `parts`: the budgets and the rests count each WhatsApp message, not the one job.
-        return { ...this.#accepted(first?.key?.id), parts: 1 + media.length };
+        return { ...this.#accepted(first?.key?.id), parts: parts.length };
     }
 
     /**
@@ -981,7 +1006,13 @@ export class BaileysTransport extends Transport {
         for (const card of cards) {
             const media = mediaContent(card.media);
             if (!media.image) throw new TransportSendError('A carousel card needs an image.', { retryable: false });
-            const { imageMessage } = await prepareWAMessageMedia({ image: media.image }, { upload: this.sock.waUploadToServer, mediaCache });
+            let imageMessage;
+            try {
+                ({ imageMessage } = await prepareWAMessageMedia({ image: media.image }, { upload: this.sock.waUploadToServer, mediaCache }));
+            } catch (err) {
+                // Nothing has gone to the recipient yet: an upload hiccup is safe to try again.
+                throw new TransportSendError(`carousel image upload failed: ${err?.message ?? err}`, { retryable: true });
+            }
             const buttons = kind === 'url'
                 ? (card.cta ?? []).map((b) => ({ name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: b.title, url: b.value, merchant_url: b.value }) }))
                 : (card.buttons ?? []).map((b) => ({ name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: b.title, id: b.id }) }));

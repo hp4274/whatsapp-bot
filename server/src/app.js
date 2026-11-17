@@ -1048,9 +1048,18 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     app.get('/contacts/export', (req, res) => {
         const ids = String(req.query.ids ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0);
         // `ids` present means "exactly these", even when none of them parse.
-        const list = req.query.ids !== undefined
-            ? ids.slice(0, MAX_BULK).map((id) => contacts.get(id)).filter(Boolean)
-            : contacts.find(filterFromQuery(req.query), { limit: 5000, sort: req.query.sort, dir: req.query.dir });
+        let list = [];
+        if (req.query.ids !== undefined) {
+            list = ids.slice(0, MAX_BULK).map((id) => contacts.get(id)).filter(Boolean);
+        } else {
+            // `find` hands back at most 5000 rows a call: page through, so a big book is not silently cut short.
+            const filter = filterFromQuery(req.query);
+            for (let offset = 0; offset < 500_000; offset += 5000) {
+                const page = contacts.find(filter, { limit: 5000, offset, sort: req.query.sort, dir: req.query.dir });
+                list.push(...page);
+                if (page.length < 5000) break;
+            }
+        }
         const stamp = new Date().toISOString().slice(0, 10);
         res.set('content-type', 'text/csv; charset=utf-8');
         res.set('content-disposition', `attachment; filename="contacts-${stamp}.csv"`);
@@ -1073,6 +1082,18 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         return groups;
     };
     const notLinked = (res) => res.status(409).json({ errors: ['Connect a WhatsApp QR number first.'] });
+    /** The groups, or null once the reply is sent: 409 with no QR number linked, 502 when WhatsApp would not answer. */
+    const groupsOrReply = async (res) => {
+        try {
+            const groups = await whatsappGroups();
+            if (groups) return groups;
+            notLinked(res);
+        } catch (err) {
+            logger.warn('could not read WhatsApp groups', { error: err.message });
+            res.status(502).json({ errors: ['WhatsApp did not answer the groups request. Try again in a minute.'] });
+        }
+        return null;
+    };
     /** `all`, or ids picked from the listing; [] when nothing was picked. */
     const pickGroups = (groups, ids, all) => {
         if (all || ids === 'all') return groups;
@@ -1082,8 +1103,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     const communityName = (groups, g) => (g.community ? groups.find((c) => c.id === g.community)?.name ?? '' : '');
 
     app.get('/contacts/whatsapp-groups', async (req, res) => {
-        const groups = await whatsappGroups();
-        if (!groups) return notLinked(res);
+        const groups = await groupsOrReply(res);
+        if (!groups) return undefined;
         // Counts only: the numbers themselves leave through export/import.
         return res.json({
             groups: groups.map((g) => ({
@@ -1095,8 +1116,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     });
 
     app.get('/contacts/whatsapp-groups/export', async (req, res) => {
-        const groups = await whatsappGroups();
-        if (!groups) return notLinked(res);
+        const groups = await groupsOrReply(res);
+        if (!groups) return undefined;
         const picked = pickGroups(groups, req.query.ids);
         if (!picked.length) return res.status(400).json({ errors: ['Pick at least one group.'] });
         const lines = [['phone', 'name', 'group', 'community', 'admin'].map(csvCell).join(',')];
@@ -1123,8 +1144,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     });
 
     app.post('/contacts/whatsapp-groups/import', async (req, res) => {
-        const groups = await whatsappGroups();
-        if (!groups) return notLinked(res);
+        const groups = await groupsOrReply(res);
+        if (!groups) return undefined;
         const picked = pickGroups(groups, req.body?.ids, req.body?.all === true);
         if (!picked.length) return res.status(400).json({ errors: ['Pick at least one group.'] });
         // One row per number, tagged with every picked group it is in.
@@ -1185,7 +1206,10 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             // Look up by the stored form, not by whatever the caller typed.
             const existed = req.body?.phone ? contacts.getByPhone(contacts.normalize(req.body.phone)) : null;
             // An opt-in made here is the operator's: the proof names who, and is never taken from the body.
-            const contact = contacts.upsert({ ...req.body, consent: { source: 'manual', userId: req.user?.id } });
+            const input = { ...req.body, consent: { source: 'manual', userId: req.user?.id } };
+            // The Add form sends blank name/email for a number already saved: that must not erase them (PUT edits).
+            if (existed) for (const key of ['name', 'email']) if (input[key] === '') delete input[key];
+            const contact = contacts.upsert(input);
             return res.status(existed ? 200 : 201).json({ contact });
         } catch (err) {
             return contactFail(res, err);
@@ -1223,6 +1247,9 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     app.post('/contacts/:id/tags', (req, res) => {
         try {
             const { add = [], remove = [] } = req.body ?? {};
+            if (!Array.isArray(add) || !Array.isArray(remove)) {
+                return res.status(400).json({ errors: ['add and remove must be lists of tags'] });
+            }
             let contact = add.length ? contacts.addTags(req.params.id, add) : contacts.get(req.params.id);
             if (!contact) return res.status(404).json({ errors: ['contact not found'] });
             if (remove.length) contact = contacts.removeTags(req.params.id, remove);
@@ -1668,6 +1695,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             onePerNumber = true, mediaId = null,
         } = req.body ?? {};
         const ownText = (c) => String(c?.extra?.message ?? c?.extra?.custom_message ?? '').trim();
+        if (!segmentId && !Array.isArray(audience)) return res.status(400).json({ errors: ['contacts must be a list of { name, phone }'] });
         if (!template
             && !(Array.isArray(audience) && audience.length && audience.every(ownText))) {
             return res.status(400).json({ errors: ['message is required'] });
@@ -2214,6 +2242,13 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
     app.delete('/channels/:id', async (req, res) => {
         try {
             const channel = channels.remove(req.params.id);
+            // A deleted number is unlinked too, or the phone keeps listing this server as a linked device
+            // and the saved login stays on disk. (Disabling a number only releases it, so it can resume.)
+            try {
+                await runtimes.get(channel.id)?.state.transport?.logout?.();
+            } catch {
+                // the number is going anyway
+            }
             await release(channel.id);
             audit?.(req, 'channel.delete', channel.id, channel.displayName);
             return res.json({ deleted: channel.id });
@@ -2231,9 +2266,11 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
 
     // -------------------------------------------------- channel routes --
     // A paused number must still show why: these reads (and the ban_guard resume) reach it, nothing else does.
+    // The contact book and segments are the business's own data, not the number's: a paused number must not lock them.
     const pausedPages = (req) => (req.method === 'GET'
             && (req.path === '/connection' || req.path === '/events' || req.path === '/safety' || req.path.startsWith('/safety/')))
-        || (req.method === 'POST' && req.path === '/connection/resume');
+        || (req.method === 'POST' && req.path === '/connection/resume')
+        || /^\/(contacts|segments)(\/|$)/i.test(req.path);
     /**
      * A campaign belongs to the number it was made on, and only that number's engine holds its run. The list shows
      * every number's campaigns, so an action on one must reach its own number whatever number the page has
@@ -4706,11 +4743,27 @@ export function createApp({
         // A campaign with `scheduled_at` holds no timer either, for the same
         // reason: the row is the state and must survive a restart.
         try {
-            for (const { id, tenantId, channelId } of dueCampaigns(db, new Date())) {
+            // After a restart the in-memory queue is empty but the campaigns still read running/paused:
+            // queue their unsent rows again once the number is back online.
+            // First, so a campaign waiting its turn (started on a busy number) does not jump ahead of it.
+            for (const { id, tenantId, channelId } of openCampaigns(db)) {
                 try {
-                    const store = campaignsOn(tenantId, channelId);
-                    // Starting resets the queue: wait while this number is still sending another run.
-                    if (store?.manager?.queue.pending || store?.manager?.inFlight) continue;
+                    campaignsOn(tenantId, channelId)?.recover(id);
+                } catch (err) {
+                    const key = `recover:${tenantId}:${id}`;
+                    if (!sweepWarned.has(key)) {
+                        sweepWarned.add(key);
+                        console.error(`[campaigns] ${id} could not resume after restart (will keep retrying):`, err.message);
+                    }
+                }
+            }
+            for (const { id, tenantId, channelId } of dueCampaigns(db, new Date())) {
+                let store = null;
+                let before = null;
+                try {
+                    store = campaignsOn(tenantId, channelId);
+                    // A number already sending another campaign is no reason to wait: this one joins it (store.start).
+                    before = store?.get(id)?.options?.statusReason ?? null;
                     const started = store?.start(id);
                     // Nobody pressed Start, so no route announced it: the open pages and the audit trail hear it here.
                     const campaign = started?.campaign ?? store?.get(id);
@@ -4723,6 +4776,14 @@ export function createApp({
                             detail: { name: campaign.name, scheduled: true, audience: started?.audience ?? null, queued: started?.queued ?? null } });
                     }
                 } catch (err) {
+                    // A campaign waiting its turn that a plan limit still holds now says so (store.start): tell its
+                    // open pages, once, when the note changed.
+                    const campaign = store?.get(id);
+                    if (campaign && (campaign.options?.statusReason ?? null) !== before) {
+                        const channel = runtimeFor(tenantId).channels.get(campaign.channelId ?? channelId);
+                        (channel ? runtimeFor(tenantId).runtimeFor(channel).state : null)
+                            ?.broadcast?.({ type: 'changed', topic: 'campaigns' });
+                    }
                     // An empty audience, a deleted template or a disconnected
                     // number must not stop the sweep for every other tenant. The
                     // campaign stays `scheduled` and is retried next tick, so
@@ -4731,19 +4792,6 @@ export function createApp({
                     if (!sweepWarned.has(key)) {
                         sweepWarned.add(key);
                         console.error(`[campaigns] ${id} failed to start (will keep retrying):`, err.message);
-                    }
-                }
-            }
-            // After a restart the in-memory queue is empty but the campaigns still read running/paused:
-            // queue their unsent rows again once the number is back online.
-            for (const { id, tenantId, channelId } of openCampaigns(db)) {
-                try {
-                    campaignsOn(tenantId, channelId)?.recover(id);
-                } catch (err) {
-                    const key = `recover:${tenantId}:${id}`;
-                    if (!sweepWarned.has(key)) {
-                        sweepWarned.add(key);
-                        console.error(`[campaigns] ${id} could not resume after restart (will keep retrying):`, err.message);
                     }
                 }
             }

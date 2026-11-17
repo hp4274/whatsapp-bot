@@ -1,14 +1,24 @@
 import { Routes } from '@angular/router';
 
-import { authGuard, homeGuard, landingGuard, roleGuard, sectionGuard } from './core/auth';
+import { authGuard, homeGuard, roleGuard, sectionGuard } from './core/auth';
 
 export const routes: Routes = [
   {
     path: '',
     pathMatch: 'full',
     title: 'Wuzie - Bulk WhatsApp messaging from your own number',
-    canActivate: [landingGuard],
     loadComponent: () => import('./landing/landing').then((m) => m.Landing),
+  },
+  // The public blog: open to everyone, signed in or not (no guard), with the landing page's look (isBare in core/store.ts).
+  {
+    path: 'blog',
+    title: 'Blog - Wuzie',
+    loadComponent: () => import('./blog/blog-list').then((m) => m.BlogList),
+  },
+  {
+    // No route title: the guide sets its own from its slug (blog-post.ts), and a route title would overwrite it.
+    path: 'blog/:slug',
+    loadComponent: () => import('./blog/blog-post').then((m) => m.BlogPost),
   },
   {
     path: 'login',

@@ -11,7 +11,7 @@ export const QueueState = Object.freeze({
 export function queueItem({
     recipient, message, name = '', campaignId = '', media = null,
     messageType = 'campaign', priority = 4, idempotencyKey = null, interactive = null,
-    variant = null, timezone = null,
+    variant = null, timezone = null, partsSent = 0,
 }) {
     return {
         recipient,
@@ -24,6 +24,8 @@ export function queueItem({
         variant,
         // The contact's own IANA zone (humanize.js contactZone): their daytime, not their country code's.
         timezone,
+        // A carousel's messages already sent (a resumed one starts after them).
+        partsSent,
         messageType,
         priority,
         idempotencyKey,
@@ -37,6 +39,15 @@ export function queueItem({
         },
     };
 }
+
+/**
+ * The number an item goes to, for one-per-number dedupe: '+91 98000 00001' and '919800000001' are one person on
+ * WhatsApp. A jid (a group, @lid) stays as it is.
+ */
+export const recipientKey = (recipient) => {
+    const text = String(recipient ?? '');
+    return text.includes('@') ? text : text.replace(/\D/g, '');
+};
 
 export class MessageQueue {
     /**
@@ -100,7 +111,7 @@ export class MessageQueue {
     put(item) {
         if (this.isStopped) return false;
         if (this.dedupe) {
-            const key = this.onePerRecipient ? item.recipient : item.key;
+            const key = this.keyOf(item);
             if (this.seen.has(key)) {
                 this.duplicatesRejected += 1;
                 return false;
@@ -114,6 +125,48 @@ export class MessageQueue {
         while (at > 0 && (this.items[at - 1].priority ?? 4) > priority) at -= 1;
         this.items.splice(at, 0, item);
         return true;
+    }
+
+    /**
+     * What counts as "the same message" for dedupe. One per number is per run: two campaigns sending together may
+     * both reach a number (each once), as they would one after the other.
+     */
+    keyOf(item) {
+        return this.onePerRecipient ? `${item.campaignId}|${recipientKey(item.recipient)}` : item.key;
+    }
+
+    /** The bulk runs with something waiting here, by campaign key. */
+    runKeys() {
+        return new Set(this.items.filter((i) => (i.messageType ?? 'campaign') === 'campaign').map((i) => i.campaignId));
+    }
+
+    /** Take one run's waiting items out (that campaign paused or cancelled while others share the number). */
+    dropRun(campaignId) {
+        const dropped = this.items.filter((i) => i.campaignId === campaignId && (i.messageType ?? 'campaign') === 'campaign');
+        if (dropped.length) this.items = this.items.filter((i) => !dropped.includes(i));
+        return dropped;
+    }
+
+    /**
+     * Campaigns sending together take turns: the bulk items alternate between runs, each run keeping its own order.
+     * Replies and quick sends keep their places, so they still go first.
+     */
+    interleave() {
+        const slots = [];
+        const byRun = new Map();
+        this.items.forEach((item, at) => {
+            if ((item.messageType ?? 'campaign') !== 'campaign') return;
+            slots.push(at);
+            if (!byRun.has(item.campaignId)) byRun.set(item.campaignId, []);
+            byRun.get(item.campaignId).push(item);
+        });
+        if (byRun.size < 2) return;
+        const runs = [...byRun.values()];
+        const merged = [];
+        for (let turn = 0; merged.length < slots.length; turn += 1) {
+            for (const run of runs) if (turn < run.length) merged.push(run[turn]);
+        }
+        slots.forEach((at, n) => { this.items[at] = merged[n]; });
     }
 
     /**

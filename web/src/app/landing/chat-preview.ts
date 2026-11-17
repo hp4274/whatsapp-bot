@@ -29,7 +29,11 @@ interface Card {
   readonly option: Option;
 }
 
-/** One WhatsApp message: plain text, a photo with a caption, reply buttons, a list menu, or a carousel of cards. */
+/**
+ * One WhatsApp message: plain text, a photo with a caption, reply buttons, a list menu, or a carousel of cards.
+ * Buttons and lists are drawn the way a linked (QR) number delivers them: a numbered text menu the customer
+ * answers with a digit (`renderFallbackText` in `server/src/messaging/interactive.js`).
+ */
 interface ChatLine {
   readonly side: 'in' | 'out';
   readonly text: string;
@@ -40,6 +44,20 @@ interface ChatLine {
   readonly cards?: readonly Card[];
 }
 
+/** A buttons or list message as the customer's phone shows it: a heading line, then the numbered options. */
+interface Menu {
+  readonly ask: string;
+  /** A list's button title arrives in WhatsApp bold; a buttons message asks "Reply 1 or 2:". */
+  readonly bold: boolean;
+  readonly options: readonly Option[];
+}
+
+/** What the customer sent back in the chat, and the business's answer to it. */
+interface Answer {
+  readonly said: string;
+  readonly reply: string;
+}
+
 interface Variation {
   readonly key: string;
   readonly label: string;
@@ -48,7 +66,7 @@ interface Variation {
 }
 
 /** Seconds each feature stays up before the next one takes over. */
-const ROTATE_SECONDS = 6;
+const ROTATE_SECONDS = 4;
 
 /** The kinds of bulk message, listed under Bulk messages in the sidebar. Seen on the customer's phone: the business's messages come in. */
 const BULK_VARIATIONS: readonly Variation[] = [
@@ -301,8 +319,9 @@ const COMING_SOON: readonly Feature[] = [
 /**
  * The landing page's tour of the product: every feature down the side, and for the one picked, what it does and a
  * scene of it at work (FeatureScene). Bulk messages is a WhatsApp chat instead, with its kinds listed under it; tapping
- * a reply button, a list row or a card plays the customer's choice and the answer. Names and figures are samples.
- * shortcut: reply buttons and lists are drawn as WhatsApp's native ones, but a QR number delivers them as a numbered text menu; draw that if the page must match delivery exactly.
+ * a menu option or a card plays the customer's choice and the answer. Names and figures are samples.
+ * Buttons and lists are drawn as the numbered text menu a QR number really delivers, not WhatsApp's native buttons,
+ * so the page never shows a customer something their phone will not. The carousel stays native: it is the sending default.
  */
 @Component({
   selector: 'app-chat-preview',
@@ -324,10 +343,10 @@ export class ChatPreview {
   protected readonly variations = BULK_VARIATIONS;
   /** Back to Regular whenever Bulk messages is picked again. */
   protected readonly variation = linkedSignal<Feature, Variation>({ source: this.feature, computation: () => BULK_VARIATIONS[0] });
-  /** What the customer tapped in this chat; another variation starts clean. */
-  protected readonly picked = linkedSignal<Variation, Option | null>({ source: this.variation, computation: () => null });
-  /** The list menu open over the chat. */
-  protected readonly sheet = linkedSignal<Variation, ChatLine['list'] | null>({ source: this.variation, computation: () => null });
+  /** What the customer answered in this chat; another variation starts clean. */
+  protected readonly picked = linkedSignal<Variation, Answer | null>({ source: this.variation, computation: () => null });
+  /** A buttons or list message on show: the description then says how those arrive. */
+  protected readonly hasMenu = computed(() => this.variation().lines.some((line) => line.buttons || line.list));
   protected readonly lastTime = computed(() => this.variation().lines.at(-1)?.time ?? '');
   private readonly thread = viewChild<ElementRef<HTMLElement>>('thread');
 
@@ -375,9 +394,19 @@ export class ChatPreview {
     );
   }
 
-  protected pick(option: Option): void {
-    this.picked.set(option);
-    this.sheet.set(null);
+  /** The numbered menu a buttons or list message arrives as; null for any other message. */
+  protected menuOf(line: ChatLine): Menu | null {
+    if (line.buttons) {
+      const nums = line.buttons.map((_, i) => String(i + 1));
+      const ask = nums.length > 1 ? `${nums.slice(0, -1).join(', ')} or ${nums.at(-1)}` : nums[0];
+      return { ask: `Reply ${ask}:`, bold: false, options: line.buttons };
+    }
+    return line.list ? { ask: line.list.button, bold: true, options: line.list.rows } : null;
+  }
+
+  /** The customer answers: a menu with the option's number, a carousel card with its button. */
+  protected pick(option: Option, said: string = option.title): void {
+    this.picked.set({ said, reply: option.reply });
     // After Angular has drawn the two new bubbles.
     setTimeout(() => this.thread()?.nativeElement.scrollTo({ top: 1e6 }));
   }

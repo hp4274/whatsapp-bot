@@ -46,7 +46,8 @@ export function parseCsv(text) {
         else if (char === ',') {
             row.push(field);
             field = '';
-        } else if (char === '\n') {
+        } else if (char === '\n' || (char === '\r' && source[i + 1] !== '\n')) {
+            // A lone CR (old Mac / some Excel exports) ends a row like LF; CRLF is ended by its LF.
             row.push(field);
             rows.push(row);
             row = [];
@@ -134,10 +135,21 @@ export function importCsv(text, defaultCountryCode = '') {
     return rowsToContacts(records, defaultCountryCode);
 }
 
+/**
+ * Excel shows a long whole number (a phone with its country code, 919876543210) as 9.19877E+11, and that text is what
+ * `raw: false` hands back: the digits are gone. The cell still holds the exact value, so its text is spelled out.
+ */
+function spellOutIntegers(sheet) {
+    for (const [address, cell] of Object.entries(sheet)) {
+        if (address[0] !== '!' && cell?.t === 'n' && Number.isInteger(cell.v) && /E\+/i.test(cell.w ?? '')) cell.w = String(cell.v);
+    }
+}
+
 export async function importXlsx(buffer, defaultCountryCode = '') {
     const XLSX = await import('xlsx');
     const book = XLSX.read(buffer, { type: 'buffer' });
     const sheetName = book.SheetNames[0];
+    if (sheetName) spellOutIntegers(book.Sheets[sheetName]);
     if (!sheetName) return { contacts: [], errors: ['workbook has no sheets'], duplicates: 0, detectedVariables: [] };
     const records = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { defval: '', raw: false });
     return rowsToContacts(records, defaultCountryCode);
@@ -183,6 +195,7 @@ export async function parseTable(filename, buffer) {
         const XLSX = await import('xlsx');
         const book = XLSX.read(buffer, { type: 'buffer' });
         const sheet = book.Sheets[book.SheetNames[0]];
+        if (sheet) spellOutIntegers(sheet);
         table = sheet ? XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false }) : [];
     } else {
         table = parseCsv(buffer.toString('utf8'));

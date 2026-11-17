@@ -36,7 +36,7 @@ import {
   splitTags,
   today,
 } from './contact-util';
-import { ImportWizard } from './import-wizard';
+import { ImportWizard, plainReason } from './import-wizard';
 import { MergeDialog } from './merge-dialog';
 import { GroupsDialog } from './groups-dialog';
 import { PhoneInput } from '../core/phone-input';
@@ -566,7 +566,7 @@ export class ContactsView {
         },
         error: (err: Error) => {
           this.busy.set(false);
-          this.formError.set(err.message);
+          this.formError.set(plainReason(err.message));
         },
       });
   }
@@ -580,13 +580,17 @@ export class ContactsView {
   protected saveSegment() {
     const name = this.segName().trim();
     if (!name) return;
+    // Cleared at once: the Save button disables, so a double click cannot save it twice.
+    this.segName.set('');
     this.api.saveSegment({ name, filter: this.filter() }).subscribe({
       next: ({ segment }) => {
-        this.segName.set('');
         this.segments.set([...this.segments(), { ...segment, count: this.total() }]);
         this.flash('ok', `Segment "${segment.name}" saved.`);
       },
-      error: (err: Error) => this.flash('warn', err.message),
+      error: (err: Error) => {
+        this.segName.set(name);
+        this.flash('warn', err.message);
+      },
     });
   }
 

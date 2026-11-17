@@ -1,32 +1,16 @@
-// 60-30-10 on the dashboard tokens: ground and cards (60), the brand navy
-// fields (30), the brand blue on actions and live state only (10).
+@use 'public' as pub;
+
+// The public kit (_public.scss) sets the tokens, page width, pill buttons and ink fields.
 :host {
   display: block;
-  --field: var(--brand-ink);
-  --on-field: var(--on-fill);
-  --on-field-soft: color-mix(in srgb, var(--on-fill) 74%, transparent);
-  // White on the orange here, by the owner's choice (2.8:1); the dashboard keeps the ink.
-  --on-primary: var(--on-fill);
-  --field-line: color-mix(in srgb, var(--on-fill) 16%, transparent);
-  --gutter: clamp(16px, 4vw, 48px);
-  --gap: clamp(88px, 11vw, 168px);
-  // Small labels sit on sunken tiles; the dashboard's hint grey drops to 3.8:1 there in dark mode.
-  --hint: var(--text-muted);
-  color: var(--text-color);
-  font-size: 16px;
+  @include pub.tokens;
 }
 
+@include pub.base;
 
 ::selection {
   background: var(--primary-tint);
   color: var(--text-strong);
-}
-
-.wrap {
-  width: 100%;
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 0 var(--gutter);
 }
 
 // Clears the floating bar (top + height + a little air); Lenis glides to the same line (landing.ts).
@@ -43,51 +27,6 @@ section[id] {
   background: var(--primary);
   transform: scaleX(0);
   transform-origin: left;
-}
-
-// --------------------------------------------------------------- buttons
-// Landing actions are pills, as on Kardlyz's public pages; the app keeps its 10px buttons.
-.btn {
-  text-decoration: none;
-  min-height: 46px;
-  padding: 0 24px;
-  border-radius: 999px;
-  font-size: 15px;
-}
-
-// The brand orange with the ink on it (6.8:1); white would be 2.8:1.
-.btn.go {
-  border-color: transparent;
-  background: var(--primary);
-  color: var(--on-primary);
-
-  &:hover {
-    background: var(--primary-hover);
-  }
-}
-
-.btn.ghost {
-  background: transparent;
-  border-color: color-mix(in srgb, var(--on-fill) 36%, transparent);
-  color: var(--on-field);
-
-  &:hover {
-    background: var(--field-line);
-  }
-}
-
-// ---------------------------------------------------------------- fields
-.field {
-  background: var(--field);
-  color: var(--on-field);
-  margin: 0 12px;
-  border-radius: 28px;
-
-  h1,
-  h2,
-  h3 {
-    color: var(--on-field);
-  }
 }
 
 // ------------------------------------------------------------------ hero
@@ -1821,68 +1760,6 @@ p.eyebrow,
   }
 }
 
-// ----------------------------------------------------------- close/footer
-.close {
-  margin-bottom: 12px;
-  padding: clamp(64px, 8vw, 112px) 0 32px;
-  overflow: hidden;
-}
-
-.close-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 32px;
-
-  h2 {
-    max-width: 18ch;
-  }
-
-  .hero-actions {
-    margin-top: 0;
-  }
-}
-
-.giant {
-  margin: clamp(40px, 6vw, 80px) 0 0;
-  // Sized so the five letters span the content width, as on Kardlyz's footer.
-  font-size: min(30vw, 446px);
-  font-weight: 800;
-  letter-spacing: -0.035em;
-  line-height: 0.95;
-  color: var(--field-line);
-  user-select: none;
-}
-
-.foot {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 16px 32px;
-  margin-top: 32px;
-  font-size: 13.5px;
-  color: var(--on-field-soft);
-
-  nav {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 24px;
-  }
-
-  // The brand blue is too dark to read on navy, so hover underlines instead of recolouring.
-  a {
-    color: var(--on-field);
-    text-decoration: underline transparent;
-    text-underline-offset: 4px;
-    transition: var(--fast) var(--ease);
-
-    &:hover {
-      text-decoration-color: currentColor;
-    }
-  }
-}
-
 .faq-grid a,
 .section-head a {
   color: var(--primary-text);
@@ -1968,12 +1845,6 @@ p.eyebrow,
 }
 
 @media (max-width: 767px) {
-  // Inline only: a `margin` shorthand here also wiped the hero's top and the footer's bottom gap.
-  .field {
-    margin-inline: 8px;
-    border-radius: 22px;
-  }
-
   // On a phone the photo is a 3:4 portrait (landing.ts `mobile`) at the panel's foot, full width.
   // Its top 30% (plain wall in each cut) fades into the navy under the copy; the rest sits below it.
   .hero {
@@ -2053,13 +1924,6 @@ p.eyebrow,
   .hero-actions .btn {
     flex: 1 1 auto;
     padding-inline: 16px;
-  }
-}
-
-// Fingers need 44px targets.
-@media (pointer: coarse) {
-  .foot a {
-    padding: 12px 0;
   }
 }
 

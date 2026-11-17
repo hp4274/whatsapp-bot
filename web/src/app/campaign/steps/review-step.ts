@@ -199,10 +199,7 @@ export class ReviewStep {
   protected readonly canSendNow = computed(() => this.connected());
   /** Only admins may open the WhatsApp page; agents are told to ask one. */
   protected readonly isAdmin = computed(() => this.auth.atLeast('admin'));
-  /**
-   * This number's queue still holds another campaign's messages: the server refuses a second
-   * start (409) and the new campaign would be left as a confusing draft, so say it up front.
-   */
+  /** This number's queue still holds another campaign's messages: Send now joins it and they take turns. */
   protected readonly numberBusy = computed(() => this.store.stats().pending > 0);
 
   /** The business's numbers that may send campaigns. */
@@ -368,7 +365,10 @@ export class ReviewStep {
     if (this.sharedIds().length) return 0;
     if (this.held()) return 0;
     const s = this.current();
-    return s && s.remaining !== null ? Math.max(0, this.perNumber() - s.remaining) : 0;
+    // What the number already has queued (another campaign sending) comes out of today's budget first.
+    return s && s.remaining !== null
+      ? Math.max(0, this.perNumber() - Math.max(0, s.remaining - this.store.stats().pending))
+      : 0;
   });
 
   /**
@@ -428,7 +428,10 @@ export class ReviewStep {
       s && this.perNumber() > 1 && s.estimateSeconds.typical >= 1
         ? ` It will take about ${formatDuration(s.estimateSeconds.typical)}.`
         : '';
-    return `Send to ${who} now?${took}`;
+    const together = this.numberBusy()
+      ? ' This number is already sending another campaign: they take turns, so each goes at about half its pace.'
+      : '';
+    return `Send to ${who} now?${took}${together}`;
   });
 
   protected readonly sendsAt = computed(() => {
@@ -475,10 +478,6 @@ export class ReviewStep {
         out.push(s.soon ? 'The scheduled time is less than a minute away. Pick a later time, or send now.'
           : 'The scheduled time is in the past.');
       }
-    }
-    // The server refuses a second run on a busy queue (409); a scheduled one simply waits its turn.
-    if (d.scheduleMode() === 'now' && this.numberBusy()) {
-      out.push('This number is still sending another campaign. Wait for it to finish, or schedule this one for later.');
     }
     if (d.repeatEvery() && d.repeatUntil() && d.repeatUntil() < this.minDate) {
       out.push('The repeat end date is in the past.');
@@ -746,10 +745,12 @@ export class ReviewStep {
     this.campaignsApi.action(campaign.id, 'start').subscribe({
       next: (res) => {
         this.busy.set(false);
+        // The server's count allows for what other campaigns already queue on this number.
         const overQuota =
-          res.safety && res.safety.remaining !== null
+          res.overQuota ??
+          (res.safety && res.safety.remaining !== null
             ? Math.max(0, (res.numbers?.[0]?.queued ?? res.queued ?? 0) - res.safety.remaining)
-            : 0;
+            : 0);
         // The server's own notes may already explain a lowered speed; add ours only if they do not.
         const notes = [...(res.policyNotes ?? []), ...this.numberNotes(res.numbers ?? []).filter(Boolean)];
         const clamp = res.pacingClamped;

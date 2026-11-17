@@ -216,9 +216,11 @@ export class CampaignsListView {
     this.confirming.set(null);
     this.setBusy(c.id, true);
     const done = {
-      next: () => {
+      next: (res: { policyNotes?: string[] } | object) => {
         this.setBusy(c.id, false);
-        this.store.setStatus(`Campaign "${c.name}" ${DONE[action]}`, 'primary');
+        // A start says when it sends together with another campaign, or what goes out tomorrow.
+        const notes = ('policyNotes' in res && res.policyNotes) || [];
+        this.store.setStatus([`Campaign "${c.name}" ${DONE[action]}`, ...notes].join(' '), 'primary');
         this.load();
       },
       error: (err: Error) => {

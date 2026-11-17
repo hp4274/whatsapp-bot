@@ -87,7 +87,13 @@ if (fs.existsSync(webDist)) {
             res.setHeader('Cache-Control', /-[A-Za-z0-9_]{8,}\.(js|css)$/.test(file) ? 'public, max-age=31536000, immutable' : 'no-cache');
         },
     }));
-    app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(webDist, 'index.html')));
+    // The standard name is llms.txt; llm.txt is a common guess.
+    app.get('/llm.txt', (req, res) => res.redirect(301, '/llms.txt'));
+    // A missing file (robots.txt before a deploy, an old asset) is a 404, not the app's page: a crawler reading
+    // HTML as robots.txt or a sitemap is worse than one told it is not there. App routes have no extension.
+    app.get(/^(?!\/api\/).*/, (req, res) => (path.extname(req.path)
+        ? res.status(404).type('text/plain').send('Not found')
+        : res.sendFile(path.join(webDist, 'index.html'))));
 }
 
 // First run: there is nobody to sign in as, so create the platform admin.

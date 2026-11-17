@@ -7,15 +7,17 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router } from '@angular/router';
 import Lenis from 'lenis';
 import { animate, inView, scroll, stagger } from 'motion';
 
 import { ChatPreview } from './chat-preview';
 import { QR } from './feature-scene';
+import { LandingFooter } from './landing-footer';
 import { LandingNav } from './landing-nav';
 import { LeadForm } from './lead-form';
 import { CountUp, EASE_OUT, FanOut, Reveal, SPRING, still } from './motion';
+import { PageMeta } from './page-meta';
 
 /** The hero's slides: a photo of customers getting a message, with its own headline and line.
  *  `mobile` is a portrait cut of the same scene for phones; without one the wide photo is cropped. */
@@ -181,9 +183,14 @@ const FAQS: readonly { readonly q: string; readonly a: string }[] = [
   },
   {
     q: 'How do I get an account?',
-    a: 'Accounts are set up for you. Request access, tell us about your business, and we create your workspace and send the sign-in details. Every paid plan starts with a 14-day free trial.',
+    a: 'Accounts are set up for you. Choose Free Access, tell us about your business, and we create your workspace and send the sign-in details. Every paid plan starts with a 14-day free trial.',
   },
 ];
+
+/** The tab title, as the route gives it, and the line search results show under it. */
+const TITLE = 'Wuzie - Bulk WhatsApp messaging from your own number';
+const DESCRIPTION =
+  'Send bulk WhatsApp messages from the number you already use: personal to each customer, paced to protect your number, with replies straight back to you.';
 
 /** Where the FAQ's "Write to us" goes; account requests use the form (LeadForm). */
 const CONTACT_EMAIL = 'connection@zarklyx.com';
@@ -191,7 +198,7 @@ const CONTACT_EMAIL = 'connection@zarklyx.com';
 /**
  * The public front page for a visitor from search: Wuzie is bulk WhatsApp
  * messaging first, so the hero shows customers getting their message, and the
- * rest follow. Signed-in users never see it (`landingGuard`).
+ * rest follow. Signed-in users see it too; the bar then offers Dashboard in place of Sign in.
  *
  * Colour follows 60-30-10 on the dashboard's tokens: the ground and cards are
  * the 60, the brand navy fields (hero, the health and access cards, close) the 30, the brand blue
@@ -203,7 +210,7 @@ const CONTACT_EMAIL = 'connection@zarklyx.com';
  */
 @Component({
   selector: 'app-landing',
-  imports: [RouterLink, Reveal, FanOut, CountUp, ChatPreview, LandingNav, LeadForm],
+  imports: [Reveal, FanOut, CountUp, ChatPreview, LandingFooter, LandingNav, LeadForm],
   templateUrl: './landing.html',
   styleUrl: './landing.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -223,7 +230,6 @@ export class Landing {
   protected readonly plans = PLANS;
   protected readonly faqs = FAQS;
   protected readonly qr = QR;
-  protected readonly year = new Date().getFullYear();
   /** The section on screen, for the nav's highlight. */
   protected readonly active = signal('');
 
@@ -232,10 +238,24 @@ export class Landing {
 
   constructor() {
     const destroyRef = inject(DestroyRef);
+    const meta = inject(PageMeta);
+    meta.set({ title: TITLE, description: DESCRIPTION, path: '/' });
+    destroyRef.onDestroy(() => meta.clear());
+    // Arriving from another page of the app (the blog's links to /#faq and the like), not a fresh load: the window
+    // still holds that page's scroll, and the router has no scroll restoration (app.config.ts).
+    const routed = inject(Router).navigated;
     afterNextRender(() => {
       // Lenis honours reduced motion by itself: scrolling then tracks the input 1:1 and jumps are instant.
       this.lenis = new Lenis({ autoRaf: true });
       destroyRef.onDestroy(() => this.lenis?.destroy());
+      let target: HTMLElement | null = null;
+      try {
+        target = location.hash.length > 1 ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null;
+      } catch {
+        // A malformed hash (`/#%`): start at the top rather than skip the rest of this setup.
+      }
+      if (target) this.lenis.scrollTo(target, { immediate: true });
+      else if (routed) window.scrollTo(0, 0);
 
       // A band across the middle of the screen: whichever section crosses it is "current".
       // The callback returns a leave handler: without one, inView stops watching after the first entry.

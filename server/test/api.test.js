@@ -54,8 +54,8 @@ const api = async (method, url, body) => {
 };
 
 // The auto-reply engine waits a human-like 2500-4500ms before replying, so a
-// 4s default raced it and flaked roughly one run in three.
-const waitFor = async (predicate, timeoutMs = 6000) => {
+// 4s default raced it and flaked roughly one run in three; 10s leaves room on a slow machine (only a failure waits it out).
+const waitFor = async (predicate, timeoutMs = 10_000) => {
     const end = Date.now() + timeoutMs;
     while (Date.now() < end) {
         if (await predicate()) return true;
@@ -131,6 +131,8 @@ describe('sending', () => {
             mediaId: media.mediaId,
         });
         assert.equal(body.queued, 1);
+        // The next bulk send is refused while this one still holds the number: let it finish (slow on a busy machine).
+        assert.ok(await waitFor(async () => (await api('GET', '/api/campaign/stats')).body.stats.processed >= 1));
     });
 
     it('accepts an mp4 video upload and caps images at 16 MB', async () => {

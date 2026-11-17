@@ -352,6 +352,8 @@ function addTenantControlColumns(db) {
     if (!columnsOf(db, 'messages').includes('variant')) db.exec('ALTER TABLE messages ADD COLUMN variant TEXT');
     // WhatsApp messages one row went out as (a carousel is its text plus a captioned image per card); NULL = 1.
     if (!columnsOf(db, 'messages').includes('parts')) db.exec('ALTER TABLE messages ADD COLUMN parts INTEGER');
+    // How many of a carousel's messages are already on the phone, so a restart or a retry sends only the rest.
+    if (!columnsOf(db, 'messages').includes('parts_sent')) db.exec('ALTER TABLE messages ADD COLUMN parts_sent INTEGER');
     // Set once a campaign message was judged for a block at 48h (stuckSent), so it is never judged again.
     if (!columnsOf(db, 'messages').includes('block_checked')) db.exec('ALTER TABLE messages ADD COLUMN block_checked INTEGER');
     // Where an audited change came from and which request made it, so the admin can open that request's log lines.
@@ -723,6 +725,12 @@ export class Database {
         args.push(messageId, this.tenantId);
         this.db.prepare(`UPDATE messages SET ${sets.join(', ')} WHERE message_id = ? AND tenant_id = ?`)
             .run(...args);
+    }
+
+    /** A carousel's progress, written after each of its messages goes out (see `parts_sent`). */
+    setPartsSent(messageId, partsSent) {
+        this.db.prepare('UPDATE messages SET parts_sent = ? WHERE message_id = ? AND tenant_id = ?')
+            .run(partsSent, messageId, this.tenantId);
     }
 
     /**
