@@ -32,10 +32,14 @@ export const FIELD_TYPES = Object.freeze(['string', 'number', 'boolean', 'dateti
 export const OBJECT_TYPES = Object.freeze({
     lead: {
         label: 'Lead',
-        fields: { name: 'string', source: 'string', interest: 'string', value: 'number', assignedTo: 'string', notes: 'string' },
+        fields: {
+            name: 'string', phone: 'string', source: 'string', interest: 'string', value: 'number', assignedTo: 'string',
+            followUpAt: 'datetime', notes: 'string',
+        },
         required: [],
         statuses: ['new', 'contacted', 'qualified', 'converted', 'lost'],
         closed: ['converted', 'lost'],
+        occursAt: 'followUpAt',
         events: { created: 'lead.created', updated: 'lead.updated', statusChanged: 'lead.updated' },
     },
     appointment: {

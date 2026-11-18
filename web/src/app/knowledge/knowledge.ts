@@ -13,8 +13,11 @@ import { Observable } from 'rxjs';
 import { Auth } from '../core/auth';
 import { Store } from '../core/store';
 import { Tilt } from '../school/tilt';
+import { FAQ_PACKS, FaqPack, hasPlaceholder } from './faq-packs';
 import {
   FaqCategory,
+  FaqImportResult,
+  FaqImportRow,
   FaqInput,
   FaqItem,
   FaqMiss,
@@ -27,7 +30,19 @@ import {
 } from './knowledge-api';
 
 /** Sections of the knowledge base, one tab each. */
-type Tab = 'questions' | 'categories' | 'test' | 'gaps';
+type Tab = 'questions' | 'add' | 'categories' | 'test' | 'gaps';
+
+/** One question in the import preview, editable before it is saved. */
+interface PreviewRow {
+  question: string;
+  answer: string;
+  category: string;
+  keywords: string[];
+  include: boolean;
+}
+
+/** A pasted line: "question | answer | category", a tab working as the bar (cells pasted from a sheet). */
+const PASTE_SPLIT = /\s*[|\t]\s*/;
 
 /** The FAQ editor's working copy; `keywords` stays a comma string until save. */
 interface Draft {
@@ -78,6 +93,7 @@ export class KnowledgeView {
   protected readonly matchHints = MATCH_HINTS;
   protected readonly tabs: { id: Tab; label: string; icon: string }[] = [
     { id: 'questions', label: 'Questions', icon: 'help-octagon' },
+    { id: 'add', label: 'Add many', icon: 'file-import' },
     { id: 'categories', label: 'Categories', icon: 'folder' },
     { id: 'test', label: 'Test', icon: 'flask' },
     { id: 'gaps', label: 'Gaps', icon: 'zoom-question' },
@@ -107,6 +123,23 @@ export class KnowledgeView {
   protected readonly testing = signal(false);
   protected readonly result = signal<MatchResult | null>(null);
   protected readonly testedText = signal('');
+
+  protected readonly packs = FAQ_PACKS;
+  protected readonly preview = signal<PreviewRow[] | null>(null);
+  protected readonly previewFrom = signal('');
+  protected readonly skippedLines = signal(0);
+  protected readonly pasteText = signal('');
+  protected readonly reading = signal(false);
+  protected readonly picked = computed(() => (this.preview() ?? []).filter((r) => r.include));
+  /** Picked rows that will be imported paused because a [placeholder] is still in them. */
+  protected readonly unfilled = computed(
+    () => this.picked().filter((r) => this.needsDetails(r)).length,
+  );
+
+  protected readonly missReply = signal('');
+  protected readonly alertOwner = signal(false);
+  /** Set while the business edits the follow-up, so a live reload does not overwrite what they are typing. */
+  private readonly settingsDirty = signal(false);
 
   protected readonly categories = computed(() => this.data()?.categories ?? []);
   protected readonly items = computed(() => this.data()?.items ?? []);
@@ -182,6 +215,10 @@ export class KnowledgeView {
     this.api.dashboard().subscribe({
       next: (d) => {
         this.data.set(d);
+        if (!this.settingsDirty()) {
+          this.missReply.set(d.settings?.missReply ?? '');
+          this.alertOwner.set(d.settings?.alertOwner ?? false);
+        }
         this.loading.set(false);
       },
       error: (e: Error) => {
@@ -402,6 +439,117 @@ export class KnowledgeView {
     this.mutate(this.api.dismissMiss(miss.id), 'Dismissed.');
   }
 
+  // -------------------------------------------------------------- add many --
+  protected pickPack(pack: FaqPack) {
+    this.showPreview(
+      pack.items.map((r) => ({ ...r, category: r.category ?? '', keywords: [...(r.keywords ?? [])] })),
+      pack.title,
+    );
+  }
+
+  protected readPaste() {
+    const lines = this.pasteText()
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const rows = lines
+      .map((l) => l.split(PASTE_SPLIT))
+      .filter((cells) => cells.length >= 2 && cells[0] && cells[1])
+      .map(([question, answer, category = '']) => ({ question, answer, category, keywords: [] }));
+    if (!rows.length) {
+      this.flash('bad', 'Write one question per line as: Question | Answer');
+      return;
+    }
+    this.showPreview(rows, 'pasted text', lines.length - rows.length);
+  }
+
+  protected readFile(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || this.reading()) return;
+    this.reading.set(true);
+    this.api.readFile(file).subscribe({
+      next: ({ items }) => {
+        this.reading.set(false);
+        if (!items.length) return this.flash('bad', 'No questions found. Use the columns question, answer and category.');
+        this.showPreview(
+          items.map((r) => ({ question: r.question, answer: r.answer, category: r.category ?? '', keywords: [] })),
+          file.name,
+        );
+      },
+      error: (e: Error) => {
+        this.reading.set(false);
+        this.flash('bad', e.message);
+      },
+    });
+  }
+
+  protected setRow<K extends keyof PreviewRow>(index: number, key: K, value: PreviewRow[K]) {
+    const rows = this.preview();
+    if (rows) this.preview.set(rows.map((r, i) => (i === index ? { ...r, [key]: value } : r)));
+  }
+
+  protected setAll(include: boolean) {
+    this.preview.update((rows) => rows?.map((r) => ({ ...r, include })) ?? null);
+  }
+
+  protected needsDetails(row: PreviewRow) {
+    return hasPlaceholder(row.question) || hasPlaceholder(row.answer);
+  }
+
+  protected closePreview() {
+    this.preview.set(null);
+    this.skippedLines.set(0);
+  }
+
+  protected importPreview() {
+    const rows: FaqImportRow[] = this.picked().map((r) => ({
+      question: r.question.trim(),
+      answer: r.answer.trim(),
+      category: r.category.trim(),
+      keywords: r.keywords,
+      isActive: !this.needsDetails(r),
+    }));
+    if (!rows.length || this.busy()) return;
+    this.busy.set(true);
+    this.api.importItems(rows).subscribe({
+      next: (result) => {
+        this.busy.set(false);
+        this.closePreview();
+        this.pasteText.set('');
+        this.flash(result.created ? 'ok' : 'bad', importSummary(result));
+        this.tab.set('questions');
+        this.load();
+      },
+      error: (e: Error) => {
+        this.busy.set(false);
+        this.flash('bad', e.message);
+      },
+    });
+  }
+
+  private showPreview(rows: Omit<PreviewRow, 'include'>[], from: string, skipped = 0) {
+    this.preview.set(rows.map((r) => ({ ...r, include: true })));
+    this.previewFrom.set(from);
+    this.skippedLines.set(skipped);
+  }
+
+  // ------------------------------------------------------- nothing answered --
+  protected editSettings(key: 'missReply' | 'alertOwner', value: string | boolean) {
+    this.settingsDirty.set(true);
+    if (key === 'missReply') this.missReply.set(String(value));
+    else this.alertOwner.set(value === true);
+  }
+
+  protected saveSettings() {
+    this.mutate(
+      this.api.saveSettings({ missReply: this.missReply(), alertOwner: this.alertOwner() }),
+      'Saved.',
+      () => this.settingsDirty.set(false),
+    );
+  }
+
   // --------------------------------------------------------------- helpers --
   private mutate(req: Observable<unknown>, success: string, after?: () => void) {
     if (this.busy()) return;
@@ -430,4 +578,14 @@ export class KnowledgeView {
   private focusEditor() {
     setTimeout(() => document.getElementById('kb-question')?.focus({ preventScroll: false }), 0);
   }
+}
+
+/** One sentence for what an import did, counting only what happened. */
+function importSummary(r: FaqImportResult): string {
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const parts = [`Added ${plural(r.created, 'question', 'questions')}.`];
+  if (r.duplicates) parts.push(`${plural(r.duplicates, 'was', 'were')} already there.`);
+  if (r.invalid) parts.push(`${plural(r.invalid, 'line had', 'lines had')} no question or answer.`);
+  if (r.overLimit) parts.push(`${r.overLimit} left out: your plan allows ${r.limit} FAQ answers.`);
+  return parts.join(' ');
 }

@@ -57,6 +57,11 @@ export class LinkCard {
 
   /** Start linking as soon as the settings arrive (the page's "Link with QR code" on another number). */
   readonly autoStart = input(false);
+  /**
+   * Each new value signs the number out and starts a fresh QR (the catalog's "Link a WhatsApp Business
+   * number"): moving the number to the Business app needs a new link, and the old one may still look live.
+   */
+  readonly relink = input(0);
 
   /** The number went from unlinked to linked while this card was open. */
   readonly linked = output<void>();
@@ -140,6 +145,13 @@ export class LinkCard {
         if (wasConnected !== null && connected !== wasConnected) this.clearError();
         wasConnected = connected;
       });
+    });
+    let relinked = 0;
+    effect(() => {
+      const n = this.relink();
+      if (!n || n === relinked || !this.config()) return;
+      relinked = n;
+      untracked(() => this.disconnect('unlink', () => this.connect()));
     });
     let started = false;
     effect(() => {
@@ -248,7 +260,7 @@ export class LinkCard {
   }
 
   /** Cancel a link in progress, or unlink a live number: the same logout on the server. */
-  protected disconnect(kind: 'cancel' | 'unlink'): void {
+  protected disconnect(kind: 'cancel' | 'unlink', then?: () => void): void {
     if (this.disconnecting()) return;
     this.disconnecting.set(true);
     this.errors.set([]);
@@ -262,6 +274,7 @@ export class LinkCard {
         this.store.qr.set(null);
         this.store.setStatus(kind === 'cancel' ? 'Linking cancelled.' : 'Unlinked.');
         if (kind === 'cancel') this.cancelled.emit();
+        then?.();
       },
       (err, current) => {
         this.disconnecting.set(false);

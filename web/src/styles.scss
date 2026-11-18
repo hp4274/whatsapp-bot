@@ -54,6 +54,9 @@
   --primary-glow: rgba(237, 126, 37, 0.22);
   --primary-tint: #fff1e6;
   --accent: var(--brand-indigo);
+  /* Two-series charts (auto-reply report): validated pair, light surface (dataviz validate_palette). */
+  --chart-1: #ed7e25;
+  --chart-2: #4f46e5;
 
   // -------------------------------------------------------------- surfaces
   --bg-color: #f7f7f9;
@@ -102,6 +105,9 @@
   --primary-glow: rgba(237, 126, 37, 0.26);
   --primary-tint: rgba(237, 126, 37, 0.16);
   --accent: #a5b4fc;
+  /* The same pair stepped for the dark surface (lightness band 0.48-0.67, CVD-safe). */
+  --chart-1: #d9691a;
+  --chart-2: #7c83f0;
   --brand-word-ink: var(--text-strong);
 
   --bg-color: #0a0a0b;
@@ -596,3 +602,11 @@ details[open]::details-content {
 .ngx-charts .tick text { fill: var(--hint); }
 .ngx-charts-tooltip-content { background: var(--surface-card) !important; color: var(--text-strong) !important; border: 1px solid var(--border-color); }
 .ngx-charts-tooltip-content .tooltip-caption, .ngx-charts-tooltip-content .tooltip-label { color: var(--text-muted) !important; }
+
+/* The setting a search jumped to (Tenants > settings), for a moment. Global: it may sit inside a child component. */
+.s-found {
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+  background: var(--primary-tint);
+  transition: box-shadow var(--base) var(--ease), background var(--base) var(--ease);
+}

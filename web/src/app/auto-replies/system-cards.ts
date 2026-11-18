@@ -8,13 +8,14 @@ import {
   signal,
 } from '@angular/core';
 
-import { ArChips, ArMedia, ArSwitch, ArText } from './ar-fields';
+import { ArChips, ArMedia, ArSwitch, ArText, ArTranslations } from './ar-fields';
 import {
   ArToasts,
   AutoRepliesApi,
   AutoReplySettings,
   DAYS,
   DayHours,
+  Language,
   SystemKey,
   SystemStats,
   Weekday,
@@ -55,7 +56,7 @@ type Draft = AutoReplySettings[SystemKey];
  */
 @Component({
   selector: 'ar-system-cards',
-  imports: [ArSwitch, ArText, ArMedia, ArChips],
+  imports: [ArSwitch, ArText, ArMedia, ArChips, ArTranslations],
   templateUrl: './system-cards.html',
   styleUrl: './system-cards.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -66,6 +67,27 @@ export class SystemCards {
 
   readonly settings = model.required<AutoReplySettings>();
   readonly stats = input<SystemStats | null>(null);
+  readonly languages = input<readonly Language[]>([]);
+  /** The plan's auto-reply rules (GET /api/policy values). */
+  readonly plan = input<Record<string, unknown>>({});
+
+  protected readonly SWITCH: Record<SystemKey, string> = {
+    welcome: 'autoReplies.allowWelcome',
+    away: 'autoReplies.allowAway',
+    fallback: 'autoReplies.allowFallback',
+    handoff: 'autoReplies.allowHandoff',
+  };
+  protected readonly translations = computed(() => this.plan()['autoReplies.allowTranslations'] !== false);
+  /** The delay range and the hourly cap the plan allows. */
+  protected readonly limits = computed(() => {
+    const p = this.plan();
+    const lo = Number(p['autoReplies.minDelaySec'] ?? 0);
+    return {
+      minDelay: lo,
+      maxDelay: Math.max(lo, Number(p['autoReplies.maxDelaySec'] ?? 10)),
+      cap: Number(p['autoReplies.maxPerContactHour'] ?? 0),
+    };
+  });
 
   protected readonly cards = CARDS;
   protected readonly days = DAYS;
@@ -147,6 +169,20 @@ export class SystemCards {
       this.saving.set(false);
       if (ok && this.open() === k) this.draft.set(structuredClone(this.settings()[k]));
     });
+  }
+
+  protected onPlan(key: SystemKey): boolean {
+    return this.plan()[this.SWITCH[key]] !== false;
+  }
+
+  protected saveGeneral(patch: Partial<Pick<AutoReplySettings, 'enabled' | 'delaySec' | 'maxPerContactHour'>>): void {
+    const prev = this.settings();
+    this.settings.set({ ...prev, ...patch });
+    this.put(patch, 'enabled' in patch ? `Auto replies ${patch.enabled ? 'on' : 'off'}` : 'Saved', (ok) => ok || this.settings.set(prev));
+  }
+
+  protected saveLanguage(patch: Partial<AutoReplySettings['language']>): void {
+    this.put({ language: { ...this.settings().language, ...patch } }, 'Reply language saved');
   }
 
   protected saveBizName(): void {

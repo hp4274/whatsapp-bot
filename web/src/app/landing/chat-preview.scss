@@ -80,6 +80,16 @@
   }
 }
 
+// A coming-soon feature: a plain line, nothing to press.
+.row.later {
+  color: var(--text-muted);
+  cursor: default;
+
+  &:hover {
+    background: transparent;
+  }
+}
+
 .soon {
   flex: none;
   margin-left: auto;
@@ -91,54 +101,9 @@
   font-weight: 500;
 }
 
-// The kinds of bulk message under its row in the list.
-.variants {
-  display: grid;
-  gap: 2px;
-  margin: 2px 0 6px 21px;
-  padding-left: 10px;
-  border-left: 1px solid var(--border-color);
-}
-
-.sub {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 36px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 14px;
-  font-weight: 500;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background var(--fast) var(--ease),
-    color var(--fast) var(--ease);
-
-  .ti {
-    font-size: 17px;
-  }
-
-  &:hover {
-    background: var(--surface-sunken);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--primary-text);
-    outline-offset: -2px;
-  }
-
-  &.selected {
-    color: var(--primary-text);
-  }
-}
-
 // Bulk messages: the phone beside its words.
 .stage.chat {
-  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 456px) minmax(0, 1fr);
   gap: clamp(32px, 4vw, 56px);
   align-items: center;
 
@@ -305,6 +270,97 @@
 
   &:hover {
     background: var(--primary-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-text);
+    outline-offset: 2px;
+  }
+}
+
+// The kinds of bulk message as a slider: an arrow on each side of the phone, every kind as a tab under the
+// phone and its words.
+.deck {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.kinds {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.kind {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--fast) var(--ease),
+    border-color var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+
+  .ti {
+    font-size: 16px;
+  }
+
+  &:hover {
+    background: var(--surface-sunken);
+  }
+
+  &[aria-pressed='true'] {
+    border-color: var(--primary-text);
+    background: var(--primary-tint);
+    color: var(--primary-text);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-text);
+    outline-offset: 2px;
+  }
+}
+
+.arrow {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  background: var(--surface-card);
+  color: var(--text-strong);
+  cursor: pointer;
+  transition:
+    border-color var(--fast) var(--ease),
+    color var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+
+  .ti {
+    font-size: 20px;
+  }
+
+  &:hover {
+    border-color: var(--primary-text);
+    color: var(--primary-text);
+  }
+
+  &:active {
+    transform: scale(0.92);
   }
 
   &:focus-visible {
@@ -684,8 +740,9 @@
     }
   }
 
-  .phone {
-    max-width: 360px;
+  .deck {
+    width: 100%;
+    max-width: 456px;
   }
 }
 
@@ -727,22 +784,6 @@
     margin-left: 0;
   }
 
-  // In the row to swipe, the kinds follow Bulk messages as chips of their own.
-  .variants {
-    display: contents;
-  }
-
-  .sub {
-    flex: none;
-    min-height: 42px;
-    border: 1px solid var(--border-color);
-    border-radius: 999px;
-
-    &.selected {
-      border-color: var(--primary-text);
-    }
-  }
-
   .stage {
     position: static;
   }
@@ -756,7 +797,7 @@
 
 @media (pointer: coarse) {
   .row,
-  .sub {
+  .kind {
     min-height: 44px;
   }
 }

@@ -13,6 +13,7 @@ import { Router } from '@angular/router';
 import type { Subscription } from 'rxjs';
 
 import { validateInteractive } from '../campaign/interactive/interactive.model';
+import { Contact2, ContactsApi } from '../core/api';
 import { Auth } from '../core/auth';
 import { Pager, pageOf } from '../core/pager';
 import { scrollToTop } from '../core/scroll';
@@ -22,6 +23,7 @@ import { ButtonsEditor, withoutBlankReplies } from './buttons-editor';
 import { HeaderMedia, TemplatePreview } from './template-preview';
 import {
   ApiError,
+  ContactPreview,
   ReviewStatus,
   SpamScore,
   Starter,
@@ -122,6 +124,7 @@ const kindOf = (mime: string): HeaderMedia['kind'] =>
 })
 export class TemplatesView {
   private readonly api = inject(TemplatesApi);
+  private readonly contactsApi = inject(ContactsApi);
   private readonly auth = inject(Auth);
   private readonly store = inject(Store);
   private readonly router = inject(Router);
@@ -167,6 +170,19 @@ export class TemplatesView {
   protected readonly spamHigh = computed(() => ['tone-bad', 'tone-warn'].includes(this.spamTone()));
   protected readonly spamWhy = computed(
     () => this.spam()?.reasons.map((r) => `${r.reason} (+${r.points})`).join(', ') ?? '',
+  );
+
+  // preview as a real contact
+  protected readonly asQuery = signal('');
+  protected readonly asMatches = signal<Contact2[]>([]);
+  protected readonly asContact = signal<Contact2 | null>(null);
+  protected readonly asPreview = signal<ContactPreview | null>(null);
+  protected readonly asError = signal('');
+  /** "12 contacts are missing {city}", for the variables some contacts have no value for. */
+  protected readonly gaps = computed(() =>
+    Object.entries(this.asPreview()?.missingCounts ?? {})
+      .filter(([, n]) => n > 0)
+      .map(([key, count]) => ({ key, count })),
   );
 
   // header media
@@ -230,6 +246,46 @@ export class TemplatesView {
     this.load();
     this.store.watch(['templates'], () => this.load(true));
     this.destroyRef.onDestroy(() => this.setMedia(null));
+    // Contact search for "Preview as", debounced.
+    effect((onCleanup) => {
+      const search = this.asQuery().trim();
+      if (!search || this.asContact()) {
+        this.asMatches.set([]);
+        return;
+      }
+      let request: Subscription | undefined;
+      const timer = setTimeout(() => {
+        request = this.contactsApi.list({ search }, 6).subscribe({
+          next: ({ contacts }) => this.asMatches.set(contacts),
+          error: () => this.asMatches.set([]),
+        });
+      }, 300);
+      onCleanup(() => {
+        clearTimeout(timer);
+        request?.unsubscribe();
+      });
+    });
+    // The picked contact's message follows the body as it is typed.
+    effect((onCleanup) => {
+      const contact = this.asContact();
+      const panel = this.panel();
+      if (!contact || panel?.mode !== 'edit') return;
+      const { body } = this.draft();
+      let request: Subscription | undefined;
+      const timer = setTimeout(() => {
+        request = this.api.previewFor(panel.id, contact.id, body).subscribe({
+          next: (p) => {
+            this.asPreview.set(p);
+            this.asError.set('');
+          },
+          error: (e: Error) => this.asError.set(e.message),
+        });
+      }, 400);
+      onCleanup(() => {
+        clearTimeout(timer);
+        request?.unsubscribe();
+      });
+    });
     // Score the draft as it is typed, debounced so a keystroke is not a request.
     effect((onCleanup) => {
       if (this.panel()?.mode !== 'edit') return;
@@ -275,6 +331,7 @@ export class TemplatesView {
   protected openNew(): void {
     this.draft.set(blank());
     this.resetMedia();
+    this.previewAs(null);
     this.panelError.set('');
     this.panel.set({ mode: 'edit', id: null });
   }
@@ -291,6 +348,7 @@ export class TemplatesView {
       interactive: t.interactive ?? null,
     });
     this.resetMedia();
+    this.previewAs(null);
     if (t.headerMediaId) this.loadMedia(t.headerMediaId);
     this.panelError.set('');
     this.panel.set({ mode: 'edit', id: t.id });
@@ -461,6 +519,19 @@ export class TemplatesView {
         this.mediaError.set(`Media ${id} was not found. Upload the file again.`);
       },
     });
+  }
+
+  protected searchAs(text: string): void {
+    this.asContact.set(null);
+    this.asPreview.set(null);
+    this.asQuery.set(text);
+  }
+
+  protected previewAs(contact: Contact2 | null): void {
+    this.asContact.set(contact);
+    this.asPreview.set(null);
+    this.asError.set('');
+    this.asQuery.set(contact ? contact.name || contact.phone : '');
   }
 
   private resetMedia() {

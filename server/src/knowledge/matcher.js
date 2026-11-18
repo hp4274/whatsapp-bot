@@ -25,6 +25,7 @@
  * one, nothing imports one, and the matcher is complete without it.
  */
 
+import { INTENTS } from '../autoreply/intents.js';
 import { withinSendingWindow } from '../channels.js';
 
 export const MATCH_TYPES = Object.freeze(['EXACT', 'CONTAINS', 'REGEX', 'SIMILARITY', 'FALLBACK']);
@@ -49,9 +50,10 @@ export const SIMILARITY_THRESHOLD = 0.6;
  * @param {?Function} [options.aiFallback] the AI seam; see the module comment
  * @param {string} [options.locale] only consider items for this locale (plus
  *   the locale-less ones, which are the default answers)
+ * @param {boolean} [options.synonyms] try the intent word groups after similarity (rule faq.allowSynonyms)
  * @returns {{ item: object, level: string, score: number } | null}
  */
-export function matchFaq(text, items, { now = new Date(), channel = null, threshold = SIMILARITY_THRESHOLD, aiFallback = null, locale = '' } = {}) {
+export function matchFaq(text, items, { now = new Date(), channel = null, threshold = SIMILARITY_THRESHOLD, aiFallback = null, locale = '', synonyms = true } = {}) {
     const norm = normalizeText(text);
     if (!norm) return null;
 
@@ -107,6 +109,11 @@ export function matchFaq(text, items, { now = new Date(), channel = null, thresh
     }
     if (best) return best;
 
+    if (synonyms) {
+        const hit = synonymMatch(norm, pool);
+        if (hit) return hit;
+    }
+
     // The AI seam. Nothing supplies a handler today; a later phase can pass
     // one here without any other level changing.
     if (typeof aiFallback === 'function') {
@@ -141,6 +148,74 @@ export function nearestFaq(text, items) {
     }
     return best;
 }
+
+/**
+ * Words the intent groups in autoreply/intents.js lack but customers type to a FAQ. Greeting and thanks are left
+ * out: "hi" must not answer "Hi, what are your timings?".
+ */
+const EXTRA_WORDS = {
+    price: ['kitne ka', 'kitne ki', 'kitne me', 'kitne mein', 'rate kya', 'kya rate'],
+    hours: ['time', 'kab khulta', 'kab khulti', 'kab khulte', 'khulta', 'khulti', 'khulte', 'band hota', 'baje',
+        'sunday', 'holiday', 'chutti'],
+    location: ['kahan hai', 'kidhar hai', 'kaha pe'],
+    delivery: ['ghar pe', 'ghar par', 'bhejoge', 'bhej doge'],
+    payment: ['online payment', 'cash', 'emi'],
+};
+const SKIP_INTENTS = new Set(['greeting', 'thanks']);
+
+/** [normalised phrase, intent] pairs. Built once: the groups are fixed data. */
+const SYNONYMS = Object.entries(INTENTS)
+    .filter(([id]) => !SKIP_INTENTS.has(id))
+    .flatMap(([id, group]) => [...group.words, ...(EXTRA_WORDS[id] ?? [])].map((w) => [normalizeText(w), id]))
+    .filter(([w]) => w);
+
+/** Intent -> how many of its phrases the text says, whole words only ("rate" is not in "pirate"). */
+export function intentsOf(text) {
+    const padded = ` ${normalizeText(text)} `;
+    const out = new Map();
+    for (const [word, id] of SYNONYMS) if (padded.includes(` ${word} `)) out.set(id, (out.get(id) ?? 0) + 1);
+    return out;
+}
+
+/**
+ * "rate kya hai" finds "What are your prices?": both say the price intent. Only CONTAINS and SIMILARITY items take
+ * part (EXACT and REGEX asked for something precise). Score: the message's intent words the item shares, over all
+ * of them plus the item's intents the message does not say; at least half must agree. So "kitne baje khulta hai"
+ * (hours three times, price once) finds the hours answer, and "delivery charges" is not answered by "change my
+ * delivery address" (delivery agrees, price and location do not).
+ */
+export const SYNONYM_THRESHOLD = 0.5;
+
+function synonymMatch(norm, pool) {
+    const asked = intentsOf(norm);
+    if (!asked.size) return null;
+    let total = 0;
+    for (const n of asked.values()) total += n;
+    let best = null;
+    for (const item of pool) {
+        if (!['CONTAINS', 'SIMILARITY'].includes(type(item))) continue;
+        const has = new Set(phrases(item).flatMap((p) => [...intentsOf(p).keys()]));
+        let shared = 0;
+        for (const [id, n] of asked) if (has.has(id)) shared += n;
+        const extra = [...has].filter((id) => !asked.has(id)).length;
+        const score = shared / (total + extra);
+        if (score >= SYNONYM_THRESHOLD && (!best || score > best.score)) best = { item, level: 'synonym', score };
+    }
+    return best;
+}
+
+/**
+ * Whether an unanswered message belongs on the miss list: three words or more and not just an acknowledgement.
+ * "ok", "thanks", "👍" and "ok thank you ji" are not questions anyone needs to write an answer for.
+ */
+export function worthNoting(text) {
+    const words = normalizeText(text).split(' ').filter(Boolean);
+    return words.length >= 3 && !words.every((w) => ACKS.has(w));
+}
+const ACKS = new Set(['ok', 'okay', 'okk', 'okkk', 'ohk', 'k', 'kk', 'hmm', 'hm', 'hmmm', 'thanks', 'thank', 'thanku',
+    'you', 'u', 'ty', 'thx', 'tq', 'ji', 'sir', 'madam', 'mam', 'yes', 'no', 'ha', 'haan', 'han', 'sure', 'done',
+    'fine', 'good', 'great', 'nice', 'cool', 'got', 'it', 'alright', 'theek', 'thik', 'hai', 'bhai', 'very', 'much',
+    'so', 'dhanyavad', 'shukriya', 'acha', 'accha', 'achha', 'welcome', 'noted', 'right', 'oh', 'and', 'all', 'the']);
 
 /** lowercase, punctuation out, whitespace collapsed. The one normalisation. */
 export function normalizeText(text) {

@@ -54,6 +54,15 @@ export interface PolicyPlan {
   readonly key: string;
   readonly name: string;
   readonly tier: number;
+  /** Set on a business's own plan: edited from that business (Tenants), not as a plan tab. */
+  readonly tenantId?: number | null;
+}
+
+export interface AutoReplyUsage {
+  readonly rules: number;
+  readonly activeRules: number;
+  readonly replies: number;
+  readonly failed: number;
 }
 
 export interface PolicyOverview {
@@ -78,11 +87,23 @@ export type PolicyScope = string;
 export const POLICY_SERVICES: readonly string[] = [
   'whatsapp_channels',
   'templates',
+  'contacts',
   'auto_replies',
   'bulk_messages',
   'campaigns',
+  'orders',
+  'appointments',
+  'leads',
+  'payment_reminders',
+  'faq',
+  'tickets',
+  'otp',
+  'catalog',
   'account',
 ];
+
+/** Modules whose admin page shows a usage line per business (`GET /api/admin/services/:service/usage`). */
+export const USAGE_SERVICES: readonly string[] = ['orders', 'appointments', 'leads', 'payment_reminders', 'faq', 'tickets', 'otp', 'catalog', 'templates', 'contacts'];
 
 const toMessage = (error: HttpErrorResponse) => {
   const errors = error.error?.errors;
@@ -99,6 +120,16 @@ const toMessage = (error: HttpErrorResponse) => {
 @Injectable({ providedIn: 'root' })
 export class PolicyApi {
   private readonly http = inject(HttpClient);
+
+  /** Auto replies per business, last 7 days: rules, replies sent, failures (keyed by tenant id). */
+  autoReplyUsage(): Observable<{ usage: Record<number, AutoReplyUsage> }> {
+    return this.http.get<{ usage: Record<number, AutoReplyUsage> }>('/api/admin/auto-replies/usage');
+  }
+
+  /** One line per business for a module, keyed by tenant id; a business with nothing to show is absent. */
+  serviceUsage(service: string): Observable<{ usage: Record<number, string> }> {
+    return this.http.get<{ usage: Record<number, string> }>(`/api/admin/services/${service}/usage`);
+  }
 
   overview(): Observable<PolicyOverview> {
     return this.http.get<PolicyOverview>('/api/admin/policy').pipe(catchError(toMessage));

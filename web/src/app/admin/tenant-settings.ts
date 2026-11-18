@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   computed,
   effect,
   inject,
@@ -40,7 +41,7 @@ import {
   stateTone,
   subscriptionWhen,
 } from './plans-api';
-import { POLICY_SERVICES } from './policy-api';
+import { POLICY_SERVICES, PolicyApi, PolicyField } from './policy-api';
 import { PolicyEditor } from './policy-editor';
 import { TenantAccounts } from './tenant-accounts';
 import { TenantLimitRequests } from './tenant-limit-requests';
@@ -97,6 +98,27 @@ function localDay(iso: string | null | undefined): string {
 }
 
 /** Plan first: it is what an admin opening a business usually came for. */
+/** One thing the search can find: what it is called, and where it lives. */
+interface SettingHit {
+  readonly label: string;
+  readonly tab: SettingsTab;
+  /** Rules tab only: the service whose rules hold it. */
+  readonly service?: string;
+  /** "Plan", "Rules › Auto replies": shown beside the label. */
+  readonly where: string;
+}
+
+/** The headings and boxes drawn by the template, per tab (only the open tab is in the page, so the search needs this list). */
+const STATIC_SETTINGS: readonly [SettingsTab, readonly string[]][] = [
+  ['general', ['Sending limits', 'Let this business change its own sending limits', 'Blocked words']],
+  ['plan', ['Plan', 'Services', 'Limits', 'Messages per month', 'Messages per day', 'Billing', 'Dates', 'Start date',
+    'End date', 'Top up', 'Extra days', 'Extra messages this month', 'Plan history']],
+  ['payments', ['Payments']],
+  ['limits', ['Usage this month']],
+  ['safety', ['Sending safety', 'Pacing mode', 'Security']],
+  ['accounts', ['Accounts']],
+];
+
 const TABS: readonly { id: SettingsTab; label: string; icon: string }[] = [
   { id: 'plan', label: 'Plan', icon: 'crown' },
   { id: 'payments', label: 'Payments', icon: 'cash' },
@@ -151,6 +173,73 @@ export class TenantSettings {
   private readonly api = inject(TenancyApi);
   private readonly plansApi = inject(PlansApi);
   private readonly leadsApi = inject(LeadsApi);
+  private readonly policyApi = inject(PolicyApi);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+
+  // ---- search ----
+  protected readonly query = signal('');
+  /** The platform rules a business can override (from the policy list), for the search. */
+  private readonly ruleFields = signal<readonly PolicyField[]>([]);
+  /** Everything the search can find, across every tab. */
+  private readonly searchIndex = computed<readonly SettingHit[]>(() => {
+    const tabLabel = (id: SettingsTab) => TABS.find((t) => t.id === id)?.label ?? id;
+    const out: SettingHit[] = [];
+    for (const [tab, labels] of STATIC_SETTINGS) for (const label of labels) out.push({ label, tab, where: tabLabel(tab) });
+    for (const f of PLAN_LIMIT_FIELDS) out.push({ label: f.label, tab: 'plan', where: 'Plan › Limits' });
+    for (const g of SAFETY_GROUPS) for (const f of g.fields) out.push({ label: f.label, tab: 'safety', where: `Anti-ban › ${g.title}` });
+    for (const a of ACCESS_ACTIONS) out.push({ label: a.label, tab: 'safety', where: 'Anti-ban › Security' });
+    for (const f of this.ruleFields()) {
+      if (f.scopes && !f.scopes.includes('tenant')) continue;
+      out.push({ label: f.label, tab: 'rules', service: f.service, where: `Rules › ${serviceMeta(f.service).label}` });
+    }
+    return out;
+  });
+  /** Matches for what is typed: every word must appear in the name or where it lives. */
+  protected readonly searchHits = computed(() => {
+    const words = this.query().trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const tabs = new Set(this.tabs().map((t) => t.id));
+    return this.searchIndex()
+      .filter((h) => tabs.has(h.tab))
+      .filter((h) => words.every((w) => `${h.label} ${h.where}`.toLowerCase().includes(w)))
+      .slice(0, 8);
+  });
+
+  /** Open the setting's tab (and its rules service), then bring it into view and flash it. */
+  protected goTo(hit: SettingHit): void {
+    this.query.set('');
+    this.tab.set(hit.tab);
+    if (hit.service) this.rulesService.set(hit.service);
+    // The tab draws on the next pass and the Rules editor loads its own data: look for a little while.
+    const target = hit.label.toLowerCase();
+    let tries = 0;
+    const find = () => {
+      const body = this.host.querySelector('.settings-body');
+      const el = [...(body?.querySelectorAll('h4, legend, label, .opt span, strong, dt') ?? [])]
+        .find((node) => node.textContent?.trim().toLowerCase().startsWith(target));
+      if (el) {
+        const box = el.closest('.field, .opt, fieldset, section, li') ?? el;
+        box.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+        box.classList.add('s-found');
+        setTimeout(() => box.classList.remove('s-found'), 1800);
+        const input = box.querySelector<HTMLElement>('input, select, textarea, button[role="switch"]');
+        input?.focus({ preventScroll: true });
+      } else if ((tries += 1) < 20) {
+        setTimeout(find, 100);
+      }
+    };
+    setTimeout(find);
+  }
+
+  /** Enter jumps to the first match; Escape clears. */
+  protected searchKey(event: KeyboardEvent): void {
+    if (event.key === 'Enter' && this.searchHits().length) {
+      event.preventDefault();
+      this.goTo(this.searchHits()[0]);
+    } else if (event.key === 'Escape') {
+      this.query.set('');
+    }
+  }
   /** A staff role without Tenants > Change sees the settings but cannot touch them (the server refuses too). */
   private readonly auth = inject(Auth);
   protected readonly readOnly = computed(() => !this.auth.can('tenants', 'edit'));
@@ -273,6 +362,8 @@ export class TenantSettings {
 
   constructor() {
     this.loadPlans();
+    // The platform rules, for the search. A nicety: the settings still work if it fails.
+    this.policyApi.overview().subscribe({ next: (ov) => this.ruleFields.set(ov.fields), error: () => {} });
     // A plan, rule or this business changed (in another tab, by another admin, or saved here): the plan cards, usage
     // against limits and history show it at once. The working copy being edited on the right is left alone.
     inject(AdminFeed).watch(['tenants', 'policy', 'billing'], () => {

@@ -9,8 +9,11 @@ import {
 } from '@angular/core';
 import { TitleCasePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject, of } from 'rxjs';
+import { catchError, debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
 
-import { TenancyApi } from '../core/api';
+import { Contact2, ContactsApi, TenancyApi } from '../core/api';
 import { Auth, User } from '../core/auth';
 import { Pager, pageOf } from '../core/pager';
 import { Store } from '../core/store';
@@ -25,6 +28,8 @@ import {
   TicketFilter,
   TicketPatch,
   TicketPriority,
+  TicketRules,
+  TicketSettings,
   TicketStats,
   TicketStatus,
   TicketsApi,
@@ -83,6 +88,7 @@ export class TicketsView {
   private readonly auth = inject(Auth);
   private readonly store = inject(Store);
   private readonly tenancy = inject(TenancyApi);
+  private readonly contacts = inject(ContactsApi);
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly statuses = TICKET_STATUSES;
@@ -90,7 +96,8 @@ export class TicketsView {
   protected readonly statusLabel = STATUS_LABEL;
   protected readonly statusTone = STATUS_TONE;
   protected readonly priorityTone = PRIORITY_TONE;
-  protected readonly slaHours = SLA_HOURS;
+  /** The platform's response times (tickets.sla), from the server with each list load. */
+  protected readonly slaHours = signal<Record<TicketPriority, number>>(SLA_HOURS);
 
   // list
   protected readonly tickets = signal<Ticket[]>([]);
@@ -117,12 +124,31 @@ export class TicketsView {
   protected readonly note = signal('');
   protected readonly pendingStatus = signal<TicketStatus | null>(null);
   protected readonly notify = signal(false);
+  protected readonly reply = signal('');
+  protected readonly replying = signal(false);
+  /** The chat with the customer: what they wrote, and what we sent. */
+  protected readonly conversation = computed(() =>
+    this.events().filter((e) => (e.kind === 'inbound' || e.kind === 'message') && e.body),
+  );
+
+  // WhatsApp settings
+  protected readonly settings = signal<TicketSettings | null>(null);
+  protected readonly rules = signal<TicketRules>({ autoCreate: true, customerReply: true });
+  protected readonly settingsOpen = signal(false);
+  protected readonly keywordsText = signal('');
+  protected readonly settingsError = signal('');
+  protected readonly settingsSaving = signal(false);
 
   // create
   protected readonly creating = signal(false);
   protected readonly draft = signal<TicketDraft>(blankDraft());
   protected readonly submitted = signal(false);
   protected readonly createError = signal('');
+  protected readonly contactQuery = signal('');
+  protected readonly contactResults = signal<Contact2[]>([]);
+  protected readonly contactSearching = signal(false);
+  protected readonly pickedContact = signal<Contact2 | null>(null);
+  private readonly contactSearch = new Subject<string>();
 
   protected readonly me = this.auth.user;
 
@@ -130,7 +156,9 @@ export class TicketsView {
     const q = this.search().trim().toLowerCase();
     if (!q) return this.tickets();
     return this.tickets().filter((t) =>
-      `${t.reference} ${t.subject} ${t.category}`.toLowerCase().includes(q),
+      `${t.reference} ${t.subject} ${t.category} ${t.customer?.name ?? ''} ${t.customer?.phone ?? ''}`
+        .toLowerCase()
+        .includes(q),
     );
   });
 
@@ -170,8 +198,31 @@ export class TicketsView {
           error: () => {},
         });
     }
+    this.contactSearch
+      .pipe(
+        debounceTime(250),
+        distinctUntilChanged(),
+        switchMap((q) => {
+          if (!q.trim()) return of([]);
+          this.contactSearching.set(true);
+          return this.contacts.list({ search: q.trim() }, 8).pipe(
+            map((r) => r.contacts),
+            catchError(() => of([])),
+          );
+        }),
+        takeUntilDestroyed(),
+      )
+      .subscribe((list) => {
+        this.contactSearching.set(false);
+        this.contactResults.set(list);
+      });
     this.load();
-    this.store.watch(['tickets'], () => this.load(true));
+    this.loadSettings();
+    this.store.watch(['tickets'], () => {
+      this.load(true);
+      const open = this.selected();
+      if (open) this.loadEvents(open.id);
+    });
   }
 
   // ------------------------------------------------------------- list --
@@ -179,8 +230,12 @@ export class TicketsView {
     if (!quiet) this.loading.set(true);
     this.error.set('');
     this.api.list(this.filter()).subscribe({
-      next: (list) => {
-        this.tickets.set(list);
+      next: ({ tickets, sla }) => {
+        this.tickets.set(tickets);
+        this.slaHours.set(sla);
+        const open = this.selected();
+        const fresh = open && tickets.find((t) => t.id === open.id);
+        if (fresh) this.selected.set(fresh);
         this.loading.set(false);
       },
       error: (e: Error) => {
@@ -193,6 +248,42 @@ export class TicketsView {
 
   private loadStats() {
     this.api.stats().subscribe({ next: (s) => this.stats.set(s), error: () => {} });
+  }
+
+  // ------------------------------------------------------------- settings --
+  private loadSettings() {
+    this.api.settings().subscribe({
+      next: ({ settings, allowed }) => {
+        this.settings.set(settings);
+        this.rules.set(allowed);
+        this.keywordsText.set(settings.keywords.join(', '));
+      },
+      error: (e: Error) => this.settingsError.set(e.message),
+    });
+  }
+
+  protected saveSettings(patch: Partial<TicketSettings>) {
+    this.settingsSaving.set(true);
+    this.settingsError.set('');
+    this.api.saveSettings(patch).subscribe({
+      next: (settings) => {
+        this.settingsSaving.set(false);
+        this.settings.set(settings);
+        this.keywordsText.set(settings.keywords.join(', '));
+      },
+      error: (e: Error) => {
+        this.settingsSaving.set(false);
+        this.settingsError.set(e.message);
+      },
+    });
+  }
+
+  protected saveKeywords() {
+    const keywords = this.keywordsText()
+      .split(/[,\n]/)
+      .map((k) => k.trim())
+      .filter(Boolean);
+    this.saveSettings({ keywords });
   }
 
   protected setFilter(patch: Partial<TicketFilter>) {
@@ -276,6 +367,8 @@ export class TicketsView {
         return e.to ? `assigned to ${this.userName(Number(e.to))}` : 'unassigned the ticket';
       case 'message':
         return 'messaged the customer';
+      case 'inbound':
+        return 'wrote on WhatsApp';
       default:
         return e.body && !e.from && !e.to ? 'added a note' : 'updated the ticket';
     }
@@ -289,12 +382,14 @@ export class TicketsView {
         priority: 'flag',
         assigned: 'user',
         message: 'message',
+        inbound: 'brand-whatsapp',
         note: 'note',
       }[kind] ?? 'history'
     );
   }
 
   protected actor(e: TicketEvent): string {
+    if (e.kind === 'inbound') return this.selected()?.customer?.name || 'Customer';
     return e.userId == null ? 'System' : this.userName(e.userId);
   }
 
@@ -303,6 +398,7 @@ export class TicketsView {
     this.selected.set(t);
     this.detailError.set('');
     this.note.set('');
+    this.reply.set('');
     this.pendingStatus.set(null);
     this.loadEvents(t.id);
   }
@@ -381,6 +477,25 @@ export class TicketsView {
     });
   }
 
+  protected sendReply(t: Ticket) {
+    const text = this.reply().trim();
+    if (!text) return;
+    this.replying.set(true);
+    this.detailError.set('');
+    this.api.reply(t.id, text).subscribe({
+      next: ({ event, ticket }) => {
+        this.replying.set(false);
+        this.reply.set('');
+        this.events.update((list) => [...list, event]);
+        this.replace(ticket);
+      },
+      error: (e: Error) => {
+        this.replying.set(false);
+        this.detailError.set(e.message);
+      },
+    });
+  }
+
   protected rate(t: Ticket, score: number) {
     this.saving.set(true);
     this.api.satisfaction(t.id, score).subscribe({
@@ -404,6 +519,7 @@ export class TicketsView {
   // ------------------------------------------------------------- create --
   protected startCreate() {
     this.draft.set(blankDraft());
+    this.clearContact();
     this.submitted.set(false);
     this.createError.set('');
     this.creating.set(true);
@@ -411,6 +527,25 @@ export class TicketsView {
 
   protected setDraft(patch: Partial<TicketDraft>) {
     this.draft.update((d) => ({ ...d, ...patch }));
+  }
+
+  protected searchContacts(q: string) {
+    this.contactQuery.set(q);
+    this.contactSearch.next(q);
+  }
+
+  protected pickContact(c: Contact2) {
+    this.pickedContact.set(c);
+    this.setDraft({ contactId: c.id });
+    this.contactResults.set([]);
+    this.contactQuery.set('');
+  }
+
+  protected clearContact() {
+    this.pickedContact.set(null);
+    this.setDraft({ contactId: null });
+    this.contactQuery.set('');
+    this.contactResults.set([]);
   }
 
   protected submitCreate() {

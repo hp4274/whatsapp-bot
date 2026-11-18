@@ -82,6 +82,9 @@ describe('interactive.js', () => {
         assert.equal(matchReply(p, { replyId: 'CONFIRM_ORDER_7' }).id, 'YES');
         assert.equal(matchReply(p, { body: '4' }), null);
         assert.equal(matchReply(p, { body: 'hello' }), null);
+        assert.equal(matchReply(p, { body: '2️⃣' }).id, 'LATER', 'keycap emoji');
+        assert.equal(matchReply(p, { body: 'agent' }).id, 'AGENT', 'part of one title');
+        assert.equal(matchReply(p, { body: 'no' }), null, 'too short to guess');
         assert.equal(interactiveOptions(normalizeInteractive(LIST)).length, 2);
         assert.equal(renderFallbackText('Book', normalizeInteractive(LIST)), 'Book\n\n*Pick a slot*\n\n_Morning_\n1. 9 AM - Front desk\n2. 11 AM');
     });

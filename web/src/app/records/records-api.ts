@@ -41,6 +41,19 @@ export interface BusinessObject {
   occursAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Who it is for: the contact, else the number a WhatsApp order came from (id null). */
+  customer?: Customer | null;
+}
+
+export interface Customer {
+  id: number | null;
+  name: string;
+  phone: string;
+}
+
+/** Leads > "make a lead from every new person who messages" (server/src/objects/leads.js). */
+export interface LeadSettings {
+  autoCapture: boolean;
 }
 
 export interface ObjectEvent {
@@ -63,6 +76,8 @@ export interface ObjectInput {
   reference?: string;
   contactId?: number | null;
   status?: string;
+  /** On update, false keeps a status change from messaging the customer. */
+  notify?: boolean;
   /** On update, `null` removes a field. */
   data?: Record<string, FieldValue | null>;
 }
@@ -108,11 +123,38 @@ export class RecordsApi {
     );
   }
 
-  update(type: string, id: number, patch: ObjectInput): Observable<BusinessObject> {
-    return this.http.put<{ object: BusinessObject }>(`/api/objects/${enc(type)}/${id}`, patch).pipe(
-      map((r) => r.object),
-      catchError(toMessage),
-    );
+  /** `notified`: a status change was sent to the customer on WhatsApp. */
+  update(
+    type: string,
+    id: number,
+    patch: ObjectInput,
+  ): Observable<{ object: BusinessObject; notified?: boolean }> {
+    return this.http
+      .put<{ object: BusinessObject; notified?: boolean }>(`/api/objects/${enc(type)}/${id}`, patch)
+      .pipe(catchError(toMessage));
+  }
+
+  /** Contacts to pick as a record's customer, by name or number. */
+  customers(type: string, search: string): Observable<Customer[]> {
+    const params = new HttpParams().set('search', search);
+    return this.http
+      .get<{ contacts: Customer[] }>(`/api/objects/${enc(type)}/customers`, { params })
+      .pipe(
+        map((r) => r.contacts),
+        catchError(toMessage),
+      );
+  }
+
+  leadSettings(): Observable<{ settings: LeadSettings; rules: { autoCapture: boolean } }> {
+    return this.http
+      .get<{ settings: LeadSettings; rules: { autoCapture: boolean } }>('/api/objects/lead/settings')
+      .pipe(catchError(toMessage));
+  }
+
+  saveLeadSettings(patch: Partial<LeadSettings>): Observable<{ settings: LeadSettings }> {
+    return this.http
+      .put<{ settings: LeadSettings }>('/api/objects/lead/settings', patch)
+      .pipe(catchError(toMessage));
   }
 
   remove(type: string, id: number): Observable<{ deleted: number }> {

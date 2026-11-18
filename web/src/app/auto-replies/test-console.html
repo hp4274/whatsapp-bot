@@ -7,7 +7,12 @@
     </div>
     @if (menuRule(); as m) {
       <span class="menu-pill enter" role="status">
-        <i class="ti ti-hierarchy-3" aria-hidden="true"></i> In menu: <strong>{{ m }}</strong>
+        @if (session()?.flow; as f) {
+          <i class="ti ti-message-question" aria-hidden="true"></i> Answering
+          <strong>{{ m }}</strong> · question {{ f.step + 1 }}
+        } @else {
+          <i class="ti ti-hierarchy-3" aria-hidden="true"></i> In menu: <strong>{{ m }}</strong>
+        }
         <button type="button" (click)="reset()" aria-label="Reset menu session">
           <i class="ti ti-rotate" aria-hidden="true"></i>
         </button>
@@ -18,19 +23,54 @@
   <div class="grid">
     <form class="form" (submit)="$event.preventDefault(); run()">
       <div class="field">
-        <label for="tc-body">Message</label>
+        <label for="tc-body">Message <span class="hint">text, a photo, a file, a location...</span></label>
+        @if (attachment(); as a) {
+          <div class="att-chip enter">
+            @if (a.url) {
+              <img [src]="a.url" alt="" />
+            } @else {
+              <i class="ti ti-{{ a.icon }}" aria-hidden="true"></i>
+            }
+            <span class="grow"><strong>{{ typeLabel[a.type] }}</strong> {{ a.name }}</span>
+            <button type="button" class="x" (click)="attachment.set(null)" aria-label="Remove attachment">
+              <i class="ti ti-x" aria-hidden="true"></i>
+            </button>
+          </div>
+        }
         <div class="send">
+          <div class="attach">
+            <button
+              type="button"
+              class="btn icon"
+              [attr.aria-expanded]="attachOpen()"
+              aria-haspopup="menu"
+              aria-label="Attach"
+              (click)="attachOpen.set(!attachOpen())"
+            >
+              <i class="ti ti-paperclip" aria-hidden="true"></i>
+            </button>
+            @if (attachOpen()) {
+              <div class="attach-menu enter" role="menu" (keydown.escape)="attachOpen.set(false)">
+                @for (a of attachTypes; track a.type) {
+                  <button type="button" role="menuitem" (click)="attach(a.type)">
+                    <i class="ti ti-{{ a.icon }}" aria-hidden="true"></i>{{ typeLabel[a.type] }}
+                  </button>
+                }
+              </div>
+            }
+            <input #filePicker type="file" class="sr-only" tabindex="-1" aria-hidden="true" (change)="picked($event)" />
+          </div>
           <input
             id="tc-body"
             [value]="body()"
             (input)="body.set(v($event))"
-            placeholder="Type what the customer sends, e.g. menu"
+            [placeholder]="attachment() ? 'Add a caption (optional)' : 'Type what the customer sends, e.g. menu'"
             autocomplete="off"
           />
           <button
             type="submit"
             class="btn primary"
-            [disabled]="running() || !body().trim()"
+            [disabled]="running() || (!body().trim() && !mediaType())"
             aria-label="Run test"
           >
             @if (running()) {
@@ -93,6 +133,9 @@
             }
             @if (r.context.newContact) {
               <span><i class="ti ti-user-plus" aria-hidden="true"></i>New (24h)</span>
+            }
+            @if (r.context.language) {
+              <span><i class="ti ti-language" aria-hidden="true"></i>{{ r.context.language }}</span>
             }
             @for (t of r.context.tags; track t) {
               <span><i class="ti ti-tag" aria-hidden="true"></i>{{ t }}</span>

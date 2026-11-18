@@ -18,6 +18,11 @@ export const CHANNEL_POLICY = Object.freeze([
           { value: 'quota', label: 'Most quota left' },
       ],
       label: 'Sender rule', hint: 'Which number sends when a business has several.' },
+    // The WhatsApp Catalog service's own rules (its admin page); keys keep the channels. prefix they shipped with.
+    { key: 'channels.allowCatalog', service: 'catalog', group: 'Catalog', type: 'bool', default: true,
+      label: 'Allow the WhatsApp Business catalog', hint: 'Businesses can see and import the catalog of a linked WhatsApp Business number.' },
+    { key: 'channels.catalogOrders', service: 'catalog', group: 'Catalog', type: 'bool', default: true,
+      label: 'Catalog carts become orders', hint: 'A cart sent from the WhatsApp catalog becomes an Orders record (businesses with Orders only).' },
 
     { key: 'channels.dailyCap', scopes: ['global','plan'], service: S, group: 'Numbers', type: 'int', default: 250, min: 1, max: 10000000,
       label: 'Daily limit per number', hint: 'QR numbers climb their sending levels up to this, never above. Applies to every number at once.' },

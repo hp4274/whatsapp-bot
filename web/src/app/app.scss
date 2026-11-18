@@ -696,6 +696,114 @@ $ease: cubic-bezier(0.16, 1, 0.3, 1);
   }
 }
 
+// ------------------------------------------------------------ page guide
+// The Guide button: the panel's top-right corner. Wide screens give the page a slim strip above its header so the
+// button never sits on a page's own buttons; narrow screens put it in the top bar.
+.guide-btn {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px 0 11px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--surface-card);
+  color: var(--text-color);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+
+  .ti { font-size: 17px; }
+
+  &:hover { border-color: var(--border-hover); background: var(--surface-sunken); }
+  &:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+  &.on {
+    border-color: transparent;
+    background: var(--primary-tint);
+    color: var(--primary-text);
+  }
+
+  @media (min-width: $lg) {
+    top: 14px;
+    right: 18px;
+  }
+}
+
+@media (min-width: $lg) {
+  .panel.has-guide .page { padding-top: 60px; }
+}
+
+// The guide panel. Closed it has no width (and a negative margin cancels the shell's gap), so the page panel fills
+// the row; open it grows to its width and the page panel shrinks beside it. The content keeps a fixed width, so the
+// words don't reflow while it slides.
+$guide-w: 380px;
+
+.guide {
+  flex: none;
+  width: 0;
+  height: 100%;
+  margin-left: -14px;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateX(24px);
+  background: var(--surface-card);
+  border: 1px solid transparent;
+  border-radius: 24px;
+  transition:
+    width 520ms $ease,
+    margin 520ms $ease,
+    opacity 320ms $ease,
+    transform 520ms $ease,
+    border-color 320ms $ease;
+
+  @media (min-width: $md) { margin-left: -16px; }
+
+  &.open {
+    width: $guide-w;
+    margin-left: 0;
+    opacity: 1;
+    transform: none;
+    border-color: var(--border-color);
+  }
+
+  .guide-inner { width: $guide-w; }
+
+  // Small laptops: a narrower guide leaves the page room to work.
+  @media (min-width: $lg) and (max-width: $xl - 1px) {
+    &.open,
+    .guide-inner { width: 320px; }
+  }
+
+  // Below `lg` there is no room beside the page: the guide is a sheet over the right side instead. No scrim - the
+  // page stays usable behind it.
+  @media (max-width: $lg - 1px) {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 60;
+    width: min($guide-w, calc(100vw - 24px));
+    height: auto;
+    margin: 0;
+    transform: translateX(calc(100% + 24px));
+    box-shadow: var(--shadow-float);
+
+    &.open { width: min($guide-w, calc(100vw - 24px)); }
+    .guide-inner { width: 100%; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide { transition: opacity 120ms linear; transform: none; }
+}
+
 // Sidebar: what waits on an item (a small count at its right edge), and services not open yet.
 // The same quiet count as a section's (Pending setup 1): tinted, small, beside the label.
 .nav-count {

@@ -14,7 +14,11 @@
  */
 
 import { utcNow } from '../protocol.js';
-import { MATCH_TYPES, matchFaq, nearestFaq, normalizeText } from './matcher.js';
+import { MATCH_TYPES, matchFaq, nearestFaq, normalizeText, worthNoting } from './matcher.js';
+
+/** When nothing answers: `missReply` goes to the customer (empty = silence), `alertOwner` tells the owner. */
+export const FAQ_SETTINGS = Object.freeze({ missReply: '', alertOwner: false });
+const MAX_MISS_REPLY = 1000;
 
 export class KnowledgeError extends Error {
     constructor(message, status = 400) {
@@ -307,31 +311,108 @@ export class KnowledgeStore {
 
     // ------------------------------------------------------------ answering --
     /**
-     * The one call the inbound path needs: match, then count the outcome.
+     * The one call the inbound path needs: match, and count a hit.
      *
-     * A hit bumps the item's counter. A miss lands in `faq_misses` and returns
-     * null - escalation is the caller's decision, because only the caller knows
-     * whether a human is available and whether this number may be messaged at
-     * all. `record: false` makes it a dry run, which is what the operator's
-     * test harness wants: trying out a question should not move the analytics.
+     * A miss is not recorded here: the keyword auto-replies run after the FAQ and may still answer, so the caller
+     * calls `noteMiss` once nothing did. `record: false` makes it a dry run, which is what the operator's test
+     * harness wants: trying out a question should not move the analytics.
      */
-    answer(text, { channel = null, now = new Date(), locale = '', record = true, threshold } = {}) {
-        const items = this.list({ activeOnly: true });
-        const match = matchFaq(text, items, { channel, now, locale, threshold });
-        if (!record) return match;
-        if (match) {
-            this.recordHit(match.item.id);
-            return { ...match, item: this.get(match.item.id) };
-        }
-        this.recordMiss(text);
+    answer(text, { channel = null, now = new Date(), locale = '', record = true, threshold, synonyms = true } = {}) {
+        const match = matchFaq(text, this.list({ activeOnly: true }), { channel, now, locale, threshold, synonyms });
+        if (!record || !match) return match;
+        this.recordHit(match.item.id);
+        return { ...match, item: this.get(match.item.id) };
+    }
+
+    /**
+     * A message nothing answered. Short ones and acknowledgements ("ok", "thanks") are skipped, so the list holds
+     * real questions; returns the miss row, or null when skipped.
+     */
+    noteMiss(text) {
+        if (!worthNoting(text)) return null;
+        const miss = this.recordMiss(text);
         // Charge the near-miss to the item that almost answered, so an item
         // whose keywords are too narrow shows up as such.
-        const near = nearestFaq(text, items);
+        const near = nearestFaq(text, this.list({ activeOnly: true }));
         if (near) {
             this.db.prepare('UPDATE faq_items SET miss_count = miss_count + 1 WHERE id = ? AND tenant_id = ?')
                 .run(near.item.id, this.tenantId);
         }
-        return null;
+        return miss;
+    }
+
+    // ------------------------------------------------------------ settings --
+    settings() {
+        const row = this.db.prepare('SELECT settings FROM faq_settings WHERE tenant_id = ?').get(this.tenantId);
+        return { ...FAQ_SETTINGS, ...parse(row?.settings, {}) };
+    }
+
+    saveSettings(patch = {}) {
+        const next = { ...this.settings() };
+        if (patch.missReply !== undefined) {
+            next.missReply = String(patch.missReply ?? '').trim();
+            if (next.missReply.length > MAX_MISS_REPLY) {
+                throw new KnowledgeError(`the reply can be at most ${MAX_MISS_REPLY} characters`);
+            }
+        }
+        if (patch.alertOwner !== undefined) next.alertOwner = patch.alertOwner === true;
+        this.db.prepare(
+            `INSERT INTO faq_settings (tenant_id, settings, updated_at) VALUES (?, ?, ?)
+             ON CONFLICT (tenant_id) DO UPDATE SET settings = excluded.settings, updated_at = excluded.updated_at`)
+            .run(this.tenantId, JSON.stringify(next), utcNow());
+        return next;
+    }
+
+    // -------------------------------------------------------------- import --
+    /**
+     * Add many items at once (a starter pack, a pasted list, a sheet): `{ question, answer, category?, keywords?,
+     * isActive? }` each. A question already in the FAQ is skipped, a category is found by name or made, and at most
+     * `room` items are added (null = no limit). One transaction, so a bad row never leaves half an import.
+     */
+    importItems(rows, { room = null } = {}) {
+        const result = { created: 0, duplicates: 0, invalid: 0, overLimit: 0 };
+        const known = new Set(this.list().map((item) => normalizeText(item.question)));
+        const categories = new Map(this.categories().map((c) => [c.name.trim().toLowerCase(), c.id]));
+        this.db.exec('BEGIN');
+        try {
+            for (const row of Array.isArray(rows) ? rows : []) {
+                const question = String(row?.question ?? '').trim();
+                const answer = String(row?.answer ?? '').trim();
+                if (!question || !answer) {
+                    result.invalid += 1;
+                    continue;
+                }
+                const key = normalizeText(question);
+                if (known.has(key)) {
+                    result.duplicates += 1;
+                    continue;
+                }
+                if (room !== null && result.created >= room) {
+                    result.overLimit += 1;
+                    continue;
+                }
+                const name = String(row.category ?? '').trim();
+                let categoryId = null;
+                // A name that makes no slug (all symbols) files the item as uncategorised rather than failing the import.
+                if (name && slugify(name)) {
+                    categoryId = categories.get(name.toLowerCase())
+                        ?? this.getCategoryBySlug(name)?.id
+                        ?? this.createCategory({ name, position: categories.size }).id;
+                    categories.set(name.toLowerCase(), categoryId);
+                }
+                this.create({
+                    question, answer, categoryId, keywords: row.keywords, isActive: row.isActive !== false,
+                    matchType: MATCH_TYPES.includes(String(row.matchType ?? '').toUpperCase()) ? String(row.matchType).toUpperCase() : 'CONTAINS',
+                });
+                known.add(key);
+                result.created += 1;
+            }
+            this.db.exec('COMMIT');
+        } catch (err) {
+            this.db.exec('ROLLBACK');
+            throw err;
+        }
+        return result;
     }
 
     // ------------------------------------------------------------ private --

@@ -17,6 +17,8 @@
 
 import express from 'express';
 
+import { mountOtpApi } from '../otp/routes.js';
+import { objectCapError } from '../policy/modules.js';
 import { API_SCOPES, ApiKeyError, ApiKeyStore, EXPIRY_WARNING_DAYS } from './keys.js';
 import { WEBHOOK_EVENTS, WebhookError, WebhookStore } from './webhooks.js';
 
@@ -187,7 +189,7 @@ export function createPublicApiRouter({ db, state }) {
         version: 'v1',
         scopes: req.apiKey.scopes,
         availableScopes: API_SCOPES,
-        resources: ['events', 'contacts', ...Object.keys(OBJECT_ROUTES), 'tickets'],
+        resources: ['events', 'contacts', ...Object.keys(OBJECT_ROUTES), 'tickets', 'otp'],
     }));
 
     // ------------------------------------------------------------ events --
@@ -248,6 +250,8 @@ export function createPublicApiRouter({ db, state }) {
             // `data` may be nested or flat: an outside system posting
             // {amount: 100} should not have to learn our envelope.
             const data = rest.data ?? rest;
+            const capped = objectCapError(state.platformPolicy?.() ?? {}, state.objects, type);
+            if (capped) return res.status(403).json({ errors: [capped] });
             try {
                 const object = await state.objects.create(type, {
                     reference, contactId, status, metadata, data, source: 'api',
@@ -304,6 +308,9 @@ export function createPublicApiRouter({ db, state }) {
             return fail(res, err);
         }
     });
+
+    // -------------------------------------------------------------- otp --
+    mountOtpApi(v1, { state, scope });
 
     return router;
 }

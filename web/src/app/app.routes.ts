@@ -114,6 +114,18 @@ export const routes: Routes = [
     loadComponent: () => import('./workflows/workflows').then((m) => m.WorkflowsView),
   },
   {
+    path: 'catalog',
+    title: 'WhatsApp Catalog - Wuzie',
+    canActivate: [authGuard],
+    loadComponent: () => import('./catalog/catalog-page').then((m) => m.CatalogPage),
+  },
+  {
+    path: 'otp',
+    title: 'WhatsApp OTP - Wuzie',
+    canActivate: [authGuard],
+    loadComponent: () => import('./otp/otp').then((m) => m.OtpView),
+  },
+  {
     path: 'developer',
     title: 'API & Webhooks - Wuzie',
     canActivate: [authGuard],

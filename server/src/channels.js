@@ -177,7 +177,7 @@ export class Channels {
                 patch.displayName === undefined ? channel.displayName : String(patch.displayName).trim(),
                 JSON.stringify(sealSettings(settings)),
                 JSON.stringify(patch.capabilities === undefined ? channel.capabilities : cleanCapabilities(patch.capabilities)),
-                patch.timezone === undefined ? channel.timezone : String(patch.timezone),
+                patch.timezone === undefined ? (channel.timezoneAuto ? '' : channel.timezone) : String(patch.timezone),
                 patch.businessHours === undefined
                     ? (channel.businessHours ? JSON.stringify(channel.businessHours) : null)
                     : (patch.businessHours ? JSON.stringify(patch.businessHours) : null),
@@ -213,7 +213,8 @@ export class Channels {
     /** First run for a tenant: turn its config file into channel #1. */
     seed(config, displayName = 'Primary number', safety = {}) {
         if (this.list().length) return this.getDefault();
-        return this.create({ displayName, settings: config, isDefault: true, safety });
+        // No zone yet: the owner's browser fills it in on first sign-in (timezoneAuto); UTC until then.
+        return this.create({ displayName, settings: config, isDefault: true, safety, timezone: '' });
     }
 }
 
@@ -262,6 +263,7 @@ function toChannel(row) {
         settings: retire(openSettings(parse(row.settings, DEFAULTS))),
         capabilities: parse(row.capabilities, [...CAPABILITIES]),
         timezone: row.timezone || 'UTC',
+        timezoneAuto: !row.timezone,
         businessHours: parse(row.business_hours, null),
         isDefault: Boolean(row.is_default),
         numberSince: row.number_since ?? null,

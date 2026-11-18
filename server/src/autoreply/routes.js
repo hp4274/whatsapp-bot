@@ -10,7 +10,10 @@ import express from 'express';
 
 import { isHelp, helpText } from '../help.js';
 import { localClock } from './engine.js';
-import { ruleKind, ruleRefusal } from './policy.js';
+import { INTENTS } from './intents.js';
+import { LANGUAGES } from './language.js';
+import { MESSAGE_TYPES } from './match.js';
+import { SYSTEM_SWITCH, featureRefusal, ruleKind, ruleRefusal, systemAllowed } from './policy.js';
 import { AutoReplyStore, EMPTY_STATS, SYSTEM_KEYS, validateRule } from './store.js';
 
 export function createAutoReplyRouter({ db, state }) {
@@ -29,7 +32,14 @@ export function createAutoReplyRouter({ db, state }) {
     app.get('/auto-replies', (req, res) => {
         const all = stats();
         // Platform rules the tenant inherits and cannot remove (shown locked in the UI).
-        res.json({ rules: store.list().map((r) => withStats(r, all)), platformOptOutWords: state.platformPolicy?.()['autoReplies.optOutWords'] ?? [] });
+        res.json({
+            rules: store.list().map((r) => withStats(r, all)),
+            platformOptOutWords: state.platformPolicy?.()['autoReplies.optOutWords'] ?? [],
+            // What the editor offers: the built-in intents (with a few sample words) and the reply languages.
+            intents: Object.entries(INTENTS).map(([id, i]) => ({ id, label: i.label, examples: i.words.slice(0, 4), words: i.words })),
+            languages: LANGUAGES,
+            messageTypes: MESSAGE_TYPES,
+        });
     });
 
     app.post('/auto-replies', (req, res) => {
@@ -39,6 +49,20 @@ export function createAutoReplyRouter({ db, state }) {
         if (refusal) return res.status(403).json({ errors: [refusal] });
         const saved = store.save({ ...rule, priority: req.body?.priority });
         return res.status(201).json({ rule: withStats(saved) });
+    });
+
+    // The Activity log: what the automation did with each message, newest first.
+    app.get('/auto-replies/log', (req, res) => {
+        res.json({ log: store.recentLog({ limit: req.query.limit, outcome: req.query.outcome || null }) });
+    });
+
+    /** The Reports tab, over the last `days` (1..90, default 7) in the number's time zone. */
+    app.get('/auto-replies/report', (req, res) => {
+        const days = Math.min(90, Math.max(1, Number(req.query.days) || 7));
+        const now = new Date();
+        const since = new Date(now.getTime() - (days - 1) * 86_400_000);
+        since.setUTCHours(0, 0, 0, 0);
+        res.json({ days, ...store.report(since, now, state.channel?.timezone || 'UTC') });
     });
 
     app.post('/auto-replies/reorder', (req, res) => {
@@ -58,7 +82,10 @@ export function createAutoReplyRouter({ db, state }) {
     app.put('/auto-replies/settings', (req, res) => {
         const { timezone, ...patch } = req.body ?? {};
         void timezone; // read-only: it is the channel's
-        res.json({ settings: { ...store.saveSettings(patch), timezone: state.channel?.timezone || 'UTC' } });
+        const policy = state.platformPolicy?.() ?? {};
+        const blocked = Object.keys(SYSTEM_SWITCH).find((key) => patch[key]?.enabled === true && !systemAllowed(key, policy));
+        if (blocked) return res.status(403).json({ errors: [`The ${blocked} message is not included in your plan.`] });
+        return res.json({ settings: { ...store.saveSettings(patch), timezone: state.channel?.timezone || 'UTC' } });
     });
 
     app.put('/auto-replies/:id', (req, res) => {
@@ -71,11 +98,11 @@ export function createAutoReplyRouter({ db, state }) {
         if (body.replyBody !== undefined && body.variants === undefined) merged.variants = [body.replyBody, ...current.variants.slice(1)];
         const rule = validateRule(merged);
         if (rule.errors) return res.status(400).json({ errors: rule.errors });
-        // Editing never counts against the cap; only a change into a disallowed kind is refused.
-        if (ruleKind(rule) !== ruleKind(current)) {
-            const refusal = ruleRefusal(rule, state.platformPolicy?.(), 0);
-            if (refusal) return res.status(403).json({ errors: [refusal] });
-        }
+        // Editing never counts against the cap; a change into a disallowed kind is refused, and so is anything
+        // the plan's feature switches and limits leave out.
+        const policy = state.platformPolicy?.() ?? {};
+        const refusal = featureRefusal(rule, policy) ?? (ruleKind(rule) !== ruleKind(current) ? ruleRefusal(rule, policy, 0) : null);
+        if (refusal) return res.status(403).json({ errors: [refusal] });
         return res.json({ rule: withStats(store.save({ ...rule, id: current.id, priority: body.priority ?? current.priority })) });
     });
 
@@ -94,11 +121,20 @@ export function createAutoReplyRouter({ db, state }) {
         const sender = String(b.sender ?? '').replace(/[^\d]/g, '') || '15551234567';
         const at = b.at ? new Date(b.at) : new Date();
         if (Number.isNaN(at.getTime())) return res.status(400).json({ errors: ['at must be a date-time'] });
-        const msg = { sender, senderName: String(b.senderName ?? ''), body, messageId: `test.${Date.now()}`, replyId: b.replyId ?? null };
+        const msg = { sender, senderName: String(b.senderName ?? ''), body, messageId: `test.${Date.now()}`, replyId: b.replyId ?? null,
+            // Try a photo, voice note or location against message-type rules.
+            mediaType: MESSAGE_TYPES.includes(b.mediaType) ? b.mediaType : null };
         const firstContact = typeof b.firstContact === 'boolean' ? b.firstContact : null;
         const tags = Array.isArray(b.tags) ? b.tags.map(String) : null;
         const session = b.session && Number.isInteger(Number(b.session.ruleId))
-            ? { ruleId: Number(b.session.ruleId), path: Array.isArray(b.session.path) ? b.session.path.map(String) : [], expiresAt: b.session.expiresAt ?? null }
+            ? {
+                ruleId: Number(b.session.ruleId), path: Array.isArray(b.session.path) ? b.session.path.map(String) : [], expiresAt: b.session.expiresAt ?? null,
+                // A rule's questions in progress: which one, and the answers so far.
+                flow: b.session.flow && typeof b.session.flow === 'object' ? {
+                    step: Number(b.session.flow.step) || 0, tries: Number(b.session.flow.tries) || 0,
+                    answers: b.session.flow.answers && typeof b.session.flow.answers === 'object' ? b.session.flow.answers : {},
+                } : null,
+            }
             : null;
 
         // What sits between the two engine stages in the live path.
@@ -123,7 +159,7 @@ export function createAutoReplyRouter({ db, state }) {
             matched: plan.matched,
             context: plan.context,
             session: nextSession
-                ? { ruleId: nextSession.ruleId, path: nextSession.path ?? [], expiresAt: nextSession.expiresAt ?? new Date(at.getTime() + 30 * 60_000).toISOString() }
+                ? { ruleId: nextSession.ruleId, path: nextSession.path ?? [], flow: nextSession.flow ?? null, expiresAt: nextSession.expiresAt ?? new Date(at.getTime() + 30 * 60_000).toISOString() }
                 : null,
         });
     });

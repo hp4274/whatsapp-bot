@@ -1,0 +1,52 @@
+<section class="log" aria-labelledby="al-h">
+  <header class="head">
+    <div>
+      <span class="eyebrow"><i class="ti ti-history" aria-hidden="true"></i> Activity</span>
+      <h2 id="al-h">Activity log</h2>
+      <p class="muted">Every message the automation handled, and what it did. Kept for 30 days.</p>
+    </div>
+    <div class="filters" role="group" aria-label="Show">
+      @for (f of filters; track f.label) {
+        <button type="button" class="chip" [attr.aria-pressed]="filter() === f.value" (click)="pick(f.value)">
+          {{ f.label }}
+        </button>
+      }
+    </div>
+  </header>
+
+  @if (error()) {
+    <div class="s-banner" role="alert">
+      <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+      <span class="grow">Couldn't load the log: {{ error() }}</span>
+      <button class="link" type="button" (click)="load()">Try again</button>
+    </div>
+  } @else if (loading()) {
+    <span class="sk" aria-busy="true" aria-label="Loading the activity log"></span>
+  } @else if (!lines().length) {
+    <div class="s-empty">
+      <i class="ti ti-list-details" aria-hidden="true"></i>
+      <strong>Nothing here yet</strong>
+      <p>Messages your customers send show up here with the reply they got.</p>
+    </div>
+  } @else {
+    <ol class="lines">
+      @for (l of lines(); track l.id) {
+        <li [class]="l.outcome">
+          <span class="badge">
+            <i class="ti ti-{{ outcomes[l.outcome].icon }}" aria-hidden="true"></i>{{ outcomes[l.outcome].label }}
+          </span>
+          <div class="what">
+            <p class="said"><span class="who">+{{ l.phone }}</span> “{{ l.inbound }}”</p>
+            @if (l.rule) {
+              <p class="rule">{{ l.rule }}</p>
+            }
+            @if (l.detail) {
+              <p class="detail">{{ l.detail }}</p>
+            }
+          </div>
+          <time [attr.datetime]="l.at" [title]="localTime(l.at)">{{ ago(l.at) }}</time>
+        </li>
+      }
+    </ol>
+  }
+</section>

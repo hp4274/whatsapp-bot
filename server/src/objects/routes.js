@@ -7,6 +7,9 @@
 
 import express from 'express';
 
+import { objectCapError } from '../policy/modules.js';
+import { notifyCustomer } from '../shop/notice.js';
+import { leadSettings, saveLeadSettings } from './leads.js';
 import { ObjectStore } from './store.js';
 import { OBJECT_TYPES, ObjectError, eventTypes, typeOf } from './types.js';
 
@@ -28,6 +31,13 @@ export function createObjectRouter({ db, state }) {
         },
     });
     state.objects = objects;
+
+    /** Who a record is for, for the Records page: its contact, else the number it was placed from. */
+    const withCustomer = (o) => {
+        const contact = o.contactId ? state.contacts?.get(o.contactId) : null;
+        const phone = contact?.phone ?? o.metadata?.phone ?? null;
+        return { ...o, customer: contact || phone ? { id: contact?.id ?? null, name: contact?.name ?? '', phone } : null };
+    };
 
     const fail = (res, err) => {
         if (!(err instanceof ObjectError)) throw err;
@@ -54,7 +64,7 @@ export function createObjectRouter({ db, state }) {
                 .filter(([k]) => k.startsWith('data.')).map(([k, v]) => [k.slice(5), v]));
             const query = { type: req.params.type, status, contactId, from, to, filter };
             return res.json({
-                objects: objects.list({ ...query, limit, offset }),
+                objects: objects.list({ ...query, limit, offset }).map(withCustomer),
                 total: objects.count(query),
             });
         } catch (err) {
@@ -64,15 +74,45 @@ export function createObjectRouter({ db, state }) {
 
     router.post('/objects/:type', async (req, res) => {
         try {
+            // The plan's cap on orders / bookings a month, or leads kept (policy/modules.js).
+            const capped = objectCapError(state.platformPolicy?.() ?? {}, objects, String(req.params.type).toLowerCase());
+            if (capped) return res.status(403).json({ errors: [capped] });
             const object = await objects.create(req.params.type, req.body ?? {});
             state.broadcast?.({ type: 'object', object });
-            return res.status(201).json({ object });
+            return res.status(201).json({ object: withCustomer(object) });
         } catch (err) {
             return fail(res, err);
         }
     });
 
-    // Before `/:type/:id`, or "due" would be parsed as an id.
+    // Before `/:type/:id`, or "due", "customers" and "settings" would be parsed as ids.
+    /** Contacts to pick as a record's customer, by name or number (the contacts page may not be in the plan). */
+    router.get('/objects/:type/customers', (req, res) => {
+        try {
+            typeOf(req.params.type);
+            const search = String(req.query.search ?? '').trim();
+            const found = state.contacts?.find(search ? { search } : {}, { limit: 8 }) ?? [];
+            return res.json({ contacts: found.map((c) => ({ id: c.id, name: c.name ?? '', phone: c.phone })) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /** The Leads page's "make a lead from every new person who messages" switch (leads.js). */
+    router.get('/objects/lead/settings', (req, res) => res.json({
+        settings: leadSettings(db),
+        rules: { autoCapture: state.platformPolicy?.()?.['leads.autoCapture'] !== false },
+    }));
+
+    router.put('/objects/lead/settings', (req, res) => {
+        if (req.body?.autoCapture === true && state.platformPolicy?.()?.['leads.autoCapture'] === false) {
+            return res.status(403).json({ errors: ['Your plan does not include making leads from new chats.'] });
+        }
+        const settings = saveLeadSettings(db, req.body ?? {});
+        state.broadcast?.({ type: 'changed', topic: 'objects', path: '/objects/lead' });
+        return res.json({ settings });
+    });
+
     router.get('/objects/:type/due', (req, res) => {
         try {
             const before = req.query.before ? new Date(req.query.before) : new Date();
@@ -85,7 +125,7 @@ export function createObjectRouter({ db, state }) {
 
     router.get('/objects/:type/:id', (req, res) => {
         try {
-            return res.json({ object: find(objects, req.params) });
+            return res.json({ object: withCustomer(find(objects, req.params)) });
         } catch (err) {
             return fail(res, err);
         }
@@ -93,9 +133,13 @@ export function createObjectRouter({ db, state }) {
 
     router.put('/objects/:type/:id', async (req, res) => {
         try {
-            const object = await objects.update(find(objects, req.params).id, req.body ?? {});
+            const before = find(objects, req.params);
+            const object = await objects.update(before.id, req.body ?? {});
             state.broadcast?.({ type: 'object', object });
-            return res.json({ object });
+            // An order or booking that moved tells its customer, as the WhatsApp page does (same key: one message).
+            const notified = object.status !== before.status && req.body?.notify !== false
+                && notifyCustomer(state, object, { statusMoved: true }) === 'sent';
+            return res.json({ object: withCustomer(object), notified });
         } catch (err) {
             return fail(res, err);
         }

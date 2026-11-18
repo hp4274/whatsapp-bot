@@ -173,4 +173,15 @@ tbody tr {
   .st { grid-row: 1; grid-column: 2; }
   tbody td.error.none { display: none; }
   tbody td:is(.message, .error) { white-space: normal; overflow-wrap: anywhere; }
+  /* A long message reads left to right under its label, cut at four lines so one order can't fill the screen. */
+  tbody td.message[data-label] {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 5; // the label line + four of text
+    line-clamp: 5;
+    overflow: hidden;
+    text-align: left;
+
+    &::before { display: block; margin-bottom: 2px; }
+  }
 }

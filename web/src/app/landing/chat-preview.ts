@@ -6,13 +6,17 @@ import {
   Injector,
   afterNextRender,
   computed,
+  effect,
   inject,
   linkedSignal,
   signal,
   viewChild,
 } from '@angular/core';
 
+import { animate, stagger } from 'motion';
+
 import { FeatureScene, type Said } from './feature-scene';
+import { SPRING, still } from './motion';
 
 /** Something a customer can tap, and what the business answers when they do. */
 interface Option {
@@ -68,7 +72,7 @@ interface Variation {
 /** Seconds each feature stays up before the next one takes over. */
 const ROTATE_SECONDS = 4;
 
-/** The kinds of bulk message, listed under Bulk messages in the sidebar. Seen on the customer's phone: the business's messages come in. */
+/** The kinds of bulk message, slid through above the phone. Seen on the customer's phone: the business's messages come in. */
 const BULK_VARIATIONS: readonly Variation[] = [
   {
     key: 'regular',
@@ -200,6 +204,7 @@ const AVAILABLE: readonly Feature[] = [
 /**
  * On the way. Mirrors SOON_SERVICES in `admin/service-meta.ts`, with Integrations folded into API and Auto replies
  * added: a business can reach those today, but the landing page does not sell them yet. The chats are previews.
+ * Orders and Appointments are left out on purpose: they are listed for the super admin only until they open.
  */
 const COMING_SOON: readonly Feature[] = [
   {
@@ -241,22 +246,6 @@ const COMING_SOON: readonly Feature[] = [
     title: 'Get paid without chasing',
     text: 'Follow up on invoices until they are paid, without writing each reminder yourself.',
     said: { name: 'Vikram Joshi', text: 'Hi Vikram, invoice #1042 for ₹2,500 is due on Friday. Reply 1 for a payment link.', time: '10:30' },
-  },
-  {
-    key: 'appointments',
-    label: 'Appointments',
-    icon: 'calendar-event',
-    title: 'Bookings and reminders in the chat',
-    text: 'Customers pick a time on WhatsApp and get a reminder before they are due.',
-    said: { name: 'Rohan Mehta', text: 'Booked: Tuesday 12:00 with Dr. Iyer. We will remind you an hour before.', time: '18:21' },
-  },
-  {
-    key: 'orders',
-    label: 'Orders',
-    icon: 'shopping-cart',
-    title: 'Take orders over WhatsApp',
-    text: 'Turn a customer’s message into an order you can track from the dashboard.',
-    said: { name: 'Kavya Rao', text: 'Confirmed. We will message you when it ships.', time: '13:06' },
   },
   {
     key: 'leads',
@@ -339,7 +328,6 @@ export class ChatPreview {
   protected readonly available = AVAILABLE;
   protected readonly comingSoon = COMING_SOON;
   protected readonly feature = signal(AVAILABLE[0]);
-  protected readonly soon = computed(() => COMING_SOON.includes(this.feature()));
   protected readonly variations = BULK_VARIATIONS;
   /** Back to Regular whenever Bulk messages is picked again. */
   protected readonly variation = linkedSignal<Feature, Variation>({ source: this.feature, computation: () => BULK_VARIATIONS[0] });
@@ -349,6 +337,8 @@ export class ChatPreview {
   protected readonly hasMenu = computed(() => this.variation().lines.some((line) => line.buttons || line.list));
   protected readonly lastTime = computed(() => this.variation().lines.at(-1)?.time ?? '');
   private readonly thread = viewChild<ElementRef<HTMLElement>>('thread');
+  /** Which way the last change of kind went, so the chat slides in from that side. */
+  private dir = 1;
 
   constructor() {
     let inView = false;
@@ -366,6 +356,31 @@ export class ChatPreview {
       clearInterval(timer);
       seen.disconnect();
     });
+
+    // Each change slides in: a new feature's text, picture and points one after another; another kind of bulk
+    // message only its text (its chat bubbles pop in by themselves). Not on first paint: the section's reveal has that.
+    let onShow: Feature | null = null;
+    effect(() => {
+      const feature = this.feature();
+      this.variation();
+      const first = onShow === null;
+      const whole = feature !== onShow;
+      onShow = feature;
+      if (first || still()) return;
+      afterNextRender(
+        () => {
+          if (whole) {
+            animate(this.host.querySelectorAll('.stage > *'), { opacity: [0, 1], y: [18, 0] }, { ...SPRING, delay: stagger(0.07) });
+            return;
+          }
+          // Another kind of bulk message: the chat slides in sideways, from the side the visitor went.
+          const thread = this.thread()?.nativeElement;
+          if (thread) animate(thread, { opacity: [0, 1], x: [this.dir * 48, 0] }, SPRING);
+          animate(this.host.querySelectorAll('.stage .about'), { opacity: [0, 1], y: [18, 0] }, SPRING);
+        },
+        { injector: this.injector },
+      );
+    });
   }
 
   /** About to pick something. Not any hover: the section fills the screen, so a resting mouse would stop it for good. */
@@ -377,21 +392,35 @@ export class ChatPreview {
   private advance(): void {
     const kind = BULK_VARIATIONS.indexOf(this.variation());
     if (this.feature().key === 'bulk' && kind < BULK_VARIATIONS.length - 1) {
+      this.dir = 1;
       this.variation.set(BULK_VARIATIONS[kind + 1]);
     } else {
-      const all = [...AVAILABLE, ...COMING_SOON];
-      this.feature.set(all[(all.indexOf(this.feature()) + 1) % all.length]);
+      // Coming-soon features are listed, never shown: the slide goes round the available ones only.
+      this.feature.set(AVAILABLE[(AVAILABLE.indexOf(this.feature()) + 1) % AVAILABLE.length]);
     }
     // Below `lg` the list is a row to swipe: bring the new chip into sight, once Bulk's kinds have folded away.
     afterNextRender(
       () => {
         const rail = this.host.querySelector('.rail');
-        const chip = rail?.querySelector('.sub[aria-pressed="true"]') ?? rail?.querySelector('.row[aria-pressed="true"]');
+        const chip = rail?.querySelector('.row[aria-pressed="true"]');
         if (!rail || !chip) return;
         rail.scrollBy({ left: chip.getBoundingClientRect().left - rail.getBoundingClientRect().left - 16, behavior: 'smooth' });
       },
       { injector: this.injector },
     );
+  }
+
+  /** Pick a kind of bulk message from the tabs. */
+  protected show(v: Variation): void {
+    this.dir = BULK_VARIATIONS.indexOf(v) < BULK_VARIATIONS.indexOf(this.variation()) ? -1 : 1;
+    this.variation.set(v);
+  }
+
+  /** The arrows: one kind back or on, round from the last to the first. */
+  protected step(by: 1 | -1): void {
+    const n = BULK_VARIATIONS.length;
+    this.dir = by;
+    this.variation.set(BULK_VARIATIONS[(BULK_VARIATIONS.indexOf(this.variation()) + by + n) % n]);
   }
 
   /** The numbered menu a buttons or list message arrives as; null for any other message. */

@@ -75,7 +75,7 @@ const FACILITIES: readonly {
     items: [
       { icon: 'user', name: 'Contacts', text: 'Keep each customer’s message history together.' },
       { icon: 'credit-card', name: 'Payment reminders', text: 'Follow up on invoices until they’re paid.', soon: true },
-      { icon: 'calendar', name: 'Appointments', text: 'Remind customers the day before a booking.', soon: true },
+      { icon: 'message-bolt', name: 'Auto replies', text: 'Answer common questions, even after hours.', soon: true },
     ],
   },
   {
@@ -142,7 +142,7 @@ const PLANS: readonly {
       '25,000 messages a month',
       '25,000 contacts, up to 25,000 per campaign',
       '5 WhatsApp numbers, 15 team members',
-      'Payment reminders, tickets and appointments',
+      'Payment reminders and tickets',
       'Workflows, analytics and the API',
     ],
   },

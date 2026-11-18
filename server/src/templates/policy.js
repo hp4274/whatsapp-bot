@@ -103,6 +103,12 @@ export function templateRuleProblem(draft, { policy = {}, limits = {}, media = (
     const word = blockedWordIn({ blockedWords: words }, `${draft.name ?? ''} ${text}`);
     if (word) return { rule: 'blockedWords', message: `This template uses "${word}", which is not allowed on this platform.` };
 
+    const maxChars = Number(policy['templates.maxBodyChars']) || 0;
+    const chars = String(draft.body ?? '').length;
+    if (maxChars > 0 && chars > maxChars) {
+        return { rule: 'maxBodyChars', message: `Templates can be up to ${maxChars} characters on your plan; this one has ${chars}.` };
+    }
+
     const domains = (policy['templates.blockedDomains'] ?? []).map((d) => String(d).trim().toLowerCase().replace(/^\*?\./, '')).filter(Boolean);
     const { hosts } = linksIn(text);
     for (const host of hosts) {

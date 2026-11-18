@@ -35,6 +35,8 @@ const DEFAULT_TENANT_SERVICES_JSON = JSON.stringify([
     'appointments',
     'orders',
     'leads',
+    'otp',
+    'catalog',
     'subscriptions',
     'events',
     'api',
@@ -614,6 +616,8 @@ export class Database {
         this.db.exec(SCHEMA);
         addTenantControlColumns(this.db);
         for (const fragment of MODULE_SCHEMAS) this.db.exec(fragment);
+        // A timed bot pause (a person replied from the phone, or a handoff): the bot talks again after it.
+        if (!columnsOf(this.db, 'conversations').includes('bot_paused_until')) this.db.exec('ALTER TABLE conversations ADD COLUMN bot_paused_until TEXT');
         migrateTemplates(this.db);
         migrateAutoReplies(this.db);
         migratePlans(this.db);
@@ -632,6 +636,8 @@ export class Database {
         once(this.db, 'brand-wuzie', () => this.db.exec(
             `UPDATE platform_messages SET text = REPLACE(text, 'Wapzo', 'Wuzie') WHERE text LIKE '%Wapzo%';
              UPDATE tenants SET name = 'Wuzie' WHERE status = 'system' AND name = 'Wapzo';`));
+        // Seeded numbers got UTC, never a choice: blank it so the owner's browser zone is picked up (timezoneAuto).
+        once(this.db, 'channel-utc-to-browser-zone', () => this.db.exec("UPDATE whatsapp_channels SET timezone = '' WHERE timezone = 'UTC'"));
         this.db.prepare(`INSERT OR IGNORE INTO tenants (id, name, slug, status, created_at)
                          VALUES (?, 'Default', 'default', 'active', ?)`).run(DEFAULT_TENANT_ID, utcNow());
         // The root handle is tenant 1, so single-tenant code and tests are unchanged.

@@ -142,13 +142,13 @@ export class ConversationStore {
     }
 
     /** Human takeover: the bot stops talking over the agent. */
-    pauseBot(id) {
-        return this.#patch(id, 'bot_paused = 1', []);
+    pauseBot(id, until = null) {
+        return this.#patch(id, 'bot_paused = 1, bot_paused_until = ?', [until ? new Date(until).toISOString() : null]);
     }
 
     /** Hand back to the bot. */
     resumeBot(id) {
-        return this.#patch(id, 'bot_paused = 0', []);
+        return this.#patch(id, 'bot_paused = 0, bot_paused_until = NULL', []);
     }
 
     // -------------------------------------------------------------- reads --
@@ -288,9 +288,10 @@ export class ConversationStore {
     isBotPaused(phone, channelId) {
         const channel = channelId == null ? this.channelId : Number(channelId);
         const row = this.db.prepare(
-            'SELECT bot_paused FROM conversations WHERE tenant_id = ? AND channel_id = ? AND phone = ?')
+            'SELECT bot_paused, bot_paused_until FROM conversations WHERE tenant_id = ? AND channel_id = ? AND phone = ?')
             .get(this.tenantId, channel, String(phone));
-        return Boolean(row?.bot_paused);
+        // A timed pause ends by itself.
+        return Boolean(row?.bot_paused) && (!row.bot_paused_until || row.bot_paused_until > new Date().toISOString());
     }
 
     stats({ userId = null } = {}) {

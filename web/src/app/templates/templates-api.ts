@@ -47,6 +47,14 @@ export interface Template {
 
 export type ReviewStatus = '' | 'pending' | 'approved' | 'rejected';
 
+/** POST /api/templates/:id/preview with a contact. */
+export interface ContactPreview {
+  readonly body: string;
+  /** Variables this contact has no value for. */
+  readonly missing: readonly string[];
+  readonly missingCounts: Readonly<Record<string, number>>;
+}
+
 /** Server heuristic: a plain sum of named points, so the editor can say why. */
 export interface SpamScore {
   readonly score: number;
@@ -140,6 +148,15 @@ export class TemplatesApi {
   spamScore(body: Pick<TemplateDraft, 'body' | 'interactive'>) {
     return this.http
       .post<SpamScore & { limit: number }>('/api/templates/spam-score', body)
+      .pipe(catchError(toError));
+  }
+  /**
+   * The body as one contact gets it. `id` null previews an unsaved template; `missingCounts` is how many contacts
+   * have no value for each variable.
+   */
+  previewFor(id: number | null, contactId: number, body: string) {
+    return this.http
+      .post<ContactPreview>(`/api/templates/${id ?? 'draft'}/preview`, { contactId, body })
       .pipe(catchError(toError));
   }
   library() {

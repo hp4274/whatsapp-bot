@@ -377,6 +377,10 @@ export class CampaignStore {
             throw err;
         }
         this.manager.start();
+        // The template's "Sent N" counts campaign messages too, not only workflow sends.
+        if (result.queued && campaign.templateId != null && this.templates?.get?.(campaign.templateId)) {
+            this.templates.recordUse?.(campaign.templateId, result.queued);
+        }
         const startedAt = campaign.startedAt ?? this.now();
         if (!result.queued) {
             // Everyone was skipped: no send will ever settle this run, so it must not sit in `running`

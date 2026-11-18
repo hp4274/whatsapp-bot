@@ -105,6 +105,12 @@
     } @else {
       <p class="phone">
         <span class="mono">{{ ch.phoneNumber || 'Phone number not added' }}</span>
+        @if (ch.health?.accountType; as kind) {
+          <span class="kind" [class.biz]="kind === 'business'" [title]="kind === 'business' ? 'Linked from the WhatsApp Business app' : 'Linked from the regular WhatsApp app'">
+            <i class="ti ti-{{ kind === 'business' ? 'building-store' : 'brand-whatsapp' }}" aria-hidden="true"></i>
+            {{ kind === 'business' ? 'WhatsApp Business' : 'WhatsApp' }}
+          </span>
+        }
         <button
           class="icon-btn pencil"
           type="button"
@@ -117,6 +123,19 @@
     }
   </div>
 </div>
+
+<!-- Only once the phone said which app it runs: a Business number opens its catalog, a regular one says how to get one. -->
+@if (state() === 'connected' && ch.health?.accountType; as kind) {
+  <button
+    type="button"
+    class="btn catalog"
+    [class.locked]="kind !== 'business'"
+    [attr.aria-label]="kind === 'business' ? null : 'Catalog, needs WhatsApp Business'"
+    (click)="catalog.emit()"
+  >
+    <i class="ti ti-{{ kind === 'business' ? 'building-store' : 'lock' }}" aria-hidden="true"></i>Catalog
+  </button>
+}
 
 @if (error()) {
   <p class="alert" role="alert">

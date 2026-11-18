@@ -13,6 +13,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map } from 'rxjs';
 
+import { localZone } from '../channels/channel-meta';
 import { ChannelsApi } from './api';
 import { Auth } from './auth';
 import { Store } from './store';
@@ -102,6 +103,12 @@ export class ConnectGate {
         this.linked.set(
           channels.some((c) => c.health?.connected || c.health?.connecting || !!c.providerAccountId),
         );
+        // A number with no zone yet takes this computer's; the owner can change it under Sending hours.
+        if (this.applies() && this.canConnect()) {
+          for (const c of channels.filter((ch) => ch.timezoneAuto)) {
+            this.channelsApi.update(c.id, { timezone: localZone() }).subscribe({ error: () => undefined });
+          }
+        }
         // Back to the main number; useChannel tells every open page to reload against it.
         if (picked !== null && picked === this.auth.channelId() && !channels.some((c) => c.id === picked)) {
           this.store.useChannel(null);

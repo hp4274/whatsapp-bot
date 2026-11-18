@@ -21,7 +21,7 @@
       >
         <i class="ti ti-world" aria-hidden="true"></i>Platform default
       </button>
-      @for (plan of plans(); track plan.key) {
+      @for (plan of sharedPlans(); track plan.key) {
         <button
           type="button"
           [attr.aria-pressed]="scope() === planScope(plan.key)"

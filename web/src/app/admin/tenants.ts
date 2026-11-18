@@ -39,6 +39,8 @@ const DEFAULT_SERVICES: readonly string[] = [
   'auto_replies',
   'bulk_messages',
   'campaigns',
+  'otp',
+  'catalog',
   'payment_reminders',
   'workflows',
   'faq',

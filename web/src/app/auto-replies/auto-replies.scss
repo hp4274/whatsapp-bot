@@ -5,8 +5,48 @@
 @include s.banner;
 @include s.buttons;
 @include s.empty;
+@include s.seg;
 
 :host { display: block; }
+
+/* Tabs ------------------------------------------------------------------ */
+.tabs {
+  justify-self: start;
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 38px;
+    padding: 8px 14px;
+    font-size: 13.5px;
+    cursor: pointer;
+
+    .ti { font-size: 16px; }
+    &:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+  }
+
+  // A phone: one scrollable row instead of three wrapped ones.
+  @media (max-width: 640px) {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    justify-self: stretch;
+    scrollbar-width: none;
+  }
+}
+
+.tab-lede {
+  margin: calc(var(--space-md) - var(--space-xl)) 0 0;
+  font-size: 13.5px;
+  color: var(--text-muted);
+}
+
+.panel {
+  display: grid;
+  @include s.fit-grid;
+  gap: var(--space-xl);
+  animation: s-rise 320ms var(--ease) both;
+}
 
 .page {
   display: grid;
@@ -119,6 +159,7 @@
 }
 
 .edit {
+  scroll-margin-top: var(--space-md); // revealEditor() on a phone: a little air above the card
   display: grid;
   gap: var(--space-md);
   min-width: 0;

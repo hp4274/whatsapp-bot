@@ -368,3 +368,36 @@ export function contactsToCsv(contacts) {
     // BOM so Excel opens UTF-8 names correctly.
     return `\uFEFF${lines.join('\r\n')}\r\n`;
 }
+
+// -------------------------------------------------------------- paste --
+const NUMBER_RUN = /\+?\d[\d ()\-.]{5,}\d/g;
+
+/**
+ * Phone numbers in pasted text: one per line, comma-separated or mixed into sentences ("call 98765 43210").
+ * Returns { valid: [stored form, first time seen], invalid: [as typed], duplicates: repeats within the paste }.
+ */
+export function pastedNumbers(text, defaultCountryCode = '') {
+    const runs = [];
+    for (const piece of String(text ?? '').split(/[\r\n,;\t|/]+/)) {
+        for (const run of piece.match(NUMBER_RUN) ?? []) {
+            // Spaced numbers in a row read as one long run: split it back into its words.
+            if (run.replace(/\D/g, '').length > 15) runs.push(...run.split(/\s+/).filter((w) => /\d{7,}/.test(w.replace(/\D/g, ''))));
+            else runs.push(run.trim());
+        }
+    }
+    const seen = new Set();
+    const result = { valid: [], invalid: [], duplicates: 0 };
+    for (const raw of runs) {
+        let phone;
+        try {
+            phone = normalizePhone(raw, defaultCountryCode);
+        } catch (err) {
+            if (!(err instanceof PhoneError)) throw err;
+            result.invalid.push(raw);
+            continue;
+        }
+        if (seen.has(phone)) result.duplicates += 1;
+        else { seen.add(phone); result.valid.push(phone); }
+    }
+    return result;
+}

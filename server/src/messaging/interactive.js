@@ -209,10 +209,15 @@ export function matchReply(interactive, { body = '', replyId = null } = {}) {
         const index = options.findIndex((o) => o.id === replyId || o.payload === replyId);
         if (index >= 0) return pick(options[index], index);
     }
-    const text = String(body).trim().toLowerCase().replace(/[.)\s]+$/, '');
+    // "2️⃣" is "2" plus a keycap mark.
+    const text = String(body).trim().toLowerCase().replace(/️?⃣/g, '').replace(/[.)\s]+$/, '');
     if (!text) return null;
-    const n = Number(text.replace(/^#/, ''));
+    const n = Number(text.replace(/^(#|option\s*)/, ''));
     if (Number.isInteger(n) && n >= 1 && n <= options.length) return pick(options[n - 1], n - 1);
     const index = options.findIndex((o) => o.title.toLowerCase() === text);
-    return index >= 0 ? pick(options[index], index) : null;
+    if (index >= 0) return pick(options[index], index);
+    // Part of a title ("pricing" for "Pricing & plans"), only when exactly one option fits.
+    if (text.length < 3) return null;
+    const near = options.map((o, i) => [o, i]).filter(([o]) => o.title.toLowerCase().includes(text));
+    return near.length === 1 ? pick(near[0][0], near[0][1]) : null;
 }

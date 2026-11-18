@@ -6,29 +6,26 @@
       <button type="button" class="row" [attr.aria-pressed]="feature() === f" (click)="feature.set(f)">
         <i class="ti ti-{{ f.icon }}" aria-hidden="true"></i>{{ f.label }}
       </button>
-      @if (f.key === 'bulk' && feature() === f) {
-        <div class="variants" aria-label="Kinds of bulk message">
-          @for (v of variations; track v.key) {
-            <button type="button" class="sub" [class.selected]="variation() === v" [attr.aria-pressed]="variation() === v" (click)="variation.set(v)">
-              <i class="ti ti-{{ v.icon }}" aria-hidden="true"></i>{{ v.label }}
-            </button>
-          }
-        </div>
-      }
     }
   </div>
   <div class="group">
     <h3>Coming soon</h3>
+    <!-- Listed, not picked: there is nothing to show of them yet. -->
     @for (f of comingSoon; track f.key) {
-      <button type="button" class="row" [attr.aria-pressed]="feature() === f" (click)="feature.set(f)">
+      <span class="row later">
         <i class="ti ti-{{ f.icon }}" aria-hidden="true"></i>{{ f.label }}<span class="soon">Soon</span>
-      </button>
+      </span>
     }
   </div>
 </div>
 
 @if (feature().key === 'bulk') {
   <div class="stage chat">
+    <!-- The kinds of bulk message as a slider: arrows either side of the phone, every kind as a tab below. -->
+    <div class="deck">
+      <button type="button" class="arrow" aria-label="Previous kind of message" (click)="step(-1)">
+        <i class="ti ti-chevron-left" aria-hidden="true"></i>
+      </button>
     <figure class="phone" data-ui>
       <!-- WhatsApp's own chat screen: green bar, beige wallpaper, white and green bubbles, the message bar below. -->
       <div class="phone-top">
@@ -114,6 +111,10 @@
       </div>
       <figcaption class="sr-only">A sample WhatsApp chat: {{ variation().label }} bulk message.</figcaption>
     </figure>
+      <button type="button" class="arrow" aria-label="Next kind of message" (click)="step(1)">
+        <i class="ti ti-chevron-right" aria-hidden="true"></i>
+      </button>
+    </div>
 
     <div class="about" [attr.aria-live]="autoplay() ? 'off' : 'polite'">
       <span class="status ready">Available now</span>
@@ -134,12 +135,20 @@
       }
       <a class="cta" href="#access">Free Access</a>
     </div>
+
+    <div class="kinds" role="group" aria-label="Kinds of bulk message">
+      @for (v of variations; track v.key) {
+        <button type="button" class="kind" [attr.aria-pressed]="variation() === v" (click)="show(v)">
+          <i class="ti ti-{{ v.icon }}" aria-hidden="true"></i>{{ v.label }}
+        </button>
+      }
+    </div>
   </div>
 } @else {
   <div class="stage">
     <div class="about" [attr.aria-live]="autoplay() ? 'off' : 'polite'">
       <div>
-        <span class="status" [class.ready]="!soon()">{{ soon() ? 'Coming soon' : 'Available now' }}</span>
+        <span class="status ready">Available now</span>
         <h3>{{ feature().title }}</h3>
         <p>{{ feature().text }}</p>
       </div>

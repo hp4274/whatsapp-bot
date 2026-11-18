@@ -177,11 +177,12 @@ export class TemplateStore {
      * templates does this business actually use" without an events table that
      * would need its own retention policy.
      */
-    recordUse(id) {
+    recordUse(id, count = 1) {
         const template = this.#require(id);
         this.db.prepare(
-            'UPDATE templates SET use_count = use_count + 1, last_used_at = ? WHERE id = ? AND tenant_id = ?')
-            .run(utcNow(), template.id, this.tenantId);
+            'UPDATE templates SET use_count = use_count + ?, last_used_at = ? WHERE id = ? AND tenant_id = ?')
+            .run(Math.max(1, Math.floor(Number(count)) || 1), utcNow(), template.id, this.tenantId);
+        this.onUse?.(template.id);
         return this.get(template.id);
     }
 

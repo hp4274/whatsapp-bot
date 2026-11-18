@@ -9,6 +9,13 @@
 @include s.empty;
 @include s.skeleton;
 @include s.banner;
+@include s.seg;
+@include s.card;
+
+.views {
+  justify-self: start;
+  button { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; cursor: pointer; .ti { font-size: 16px; } }
+}
 @include s.drawer-keyframes;
 
 :host { display: block; }
@@ -20,9 +27,25 @@
 
 .banner-msg { flex: 1; min-width: 0; color: var(--text-color); }
 
+.grow { flex: 1; min-width: 0; }
+
+/* Leads: the "make a lead from every new chat" switch. */
+.capture {
+  display: flex; align-items: flex-start; gap: var(--space-md); padding: var(--space-lg);
+  > .grow > h3 { margin: 0; font-size: 15px; font-weight: 500; color: var(--text-strong); }
+  p { margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+  .err { color: var(--danger-text); font-weight: 500; }
+}
+.badge {
+  display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 12px; font-size: 20px;
+  background: var(--primary-tint); color: var(--primary-text);
+}
+
 /* Toolbar: status chips scroll sideways; search sits at the end. */
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-md); }
 .chips { display: flex; gap: var(--space-sm); overflow-x: auto; flex: 1 1 360px; padding: 2px; }
+// Wide screens wrap: a scrolling row hid the last statuses behind the search with no hint.
+@media (min-width: 761px) { .chips { flex-wrap: wrap; overflow-x: visible; } }
 .s-chip {
   flex: none;
   cursor: pointer;
@@ -107,6 +130,29 @@ tbody tr {
   &.invalid input { border-color: var(--danger); }
   &.check { display: flex; align-items: center; gap: var(--space-sm); align-self: end; min-height: 40px; input { width: 18px; height: 18px; } }
 }
+.saved { display: flex; align-items: center; gap: var(--space-sm); margin: 0; font-size: 13px; font-weight: 500; color: var(--primary-text); }
+
+/* Customer picker: a search box with a short list under it, or the picked contact. */
+.customer {
+  .picked {
+    display: flex; align-items: center; gap: var(--space-sm); min-height: 40px; padding: 0 4px 0 12px;
+    border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--surface-sunken); font-size: 13.5px;
+    .ti { color: var(--text-muted); }
+  }
+  .results {
+    border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--surface-card); overflow: hidden;
+    p { margin: 0; padding: 10px 12px; font-size: 13px; }
+    .err { color: var(--danger-text); }
+  }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li + li { border-top: 1px solid var(--border-color); }
+  li button {
+    display: flex; justify-content: space-between; gap: var(--space-md); width: 100%; padding: 10px 12px; border: 0;
+    background: none; color: var(--text-color); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
+    &:hover, &:focus-visible { background: var(--surface-sunken); }
+  }
+}
+
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); padding-top: var(--space-md); border-top: 1px solid var(--border-color); .spacer { flex: 1; } }
 .confirm {
   display: flex; align-items: center; gap: var(--space-sm); padding: 4px 4px 4px var(--space-md); border-radius: var(--radius-md);
