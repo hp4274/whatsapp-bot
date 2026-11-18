@@ -1,0 +1,179 @@
+<!--
+  Head: the number, the product count and close. Body: a state that stops the catalog being read (plan, account,
+  link), or the toolbar (search, refresh), collection chips and the product grid. Foot: pick and import.
+-->
+<div class="scrim" (click)="closed.emit()" aria-hidden="true"></div>
+<aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="catalog-title" tabindex="-1">
+  <header class="drawer-head">
+    <div>
+      <p class="eyebrow">{{ channel().displayName }}</p>
+      <h2 id="catalog-title">
+        Catalog
+        @if (catalog(); as c) {
+          <span class="count">{{ c.products.length }} {{ c.products.length === 1 ? 'product' : 'products' }}</span>
+        }
+      </h2>
+    </div>
+    <button type="button" class="icon-btn" (click)="closed.emit()" aria-label="Close catalog">
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
+  </header>
+
+  <div class="drawer-body" [attr.aria-busy]="loading()">
+    @let err = error();
+    @if (err && err.code === 'catalog_disabled') {
+      <div class="s-empty">
+        <i class="ti ti-lock" aria-hidden="true"></i>
+        <strong>Catalog is not part of your plan</strong>
+        <p>Contact support to add it to your business.</p>
+      </div>
+    } @else if (err && err.code === 'not_business') {
+      <div class="s-empty">
+        <i class="ti ti-building-store" aria-hidden="true"></i>
+        <strong>This number is not on WhatsApp Business</strong>
+        <p>{{ err.message }}</p>
+      </div>
+    } @else if (err && err.code === 'not_connected') {
+      <div class="s-empty">
+        <i class="ti ti-plug-connected-x" aria-hidden="true"></i>
+        <strong>This number is not linked right now</strong>
+        <p>Link it again with a QR code, then open the catalog.</p>
+      </div>
+    } @else {
+      @if (err) {
+        <div class="s-banner" role="alert">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i>
+          <span class="grow">{{ err.message }}</span>
+          <button type="button" class="btn sm" (click)="load(true)" [disabled]="loading()">
+            <i class="ti ti-refresh" aria-hidden="true"></i>Try again
+          </button>
+        </div>
+      }
+
+      @if (catalog(); as c) {
+        <div class="toolbar">
+          <label class="search">
+            <i class="ti ti-search" aria-hidden="true"></i>
+            <span class="sr-only">Search products</span>
+            <input
+              type="search"
+              placeholder="Search products"
+              [value]="query()"
+              (input)="query.set($any($event.target).value)"
+            />
+          </label>
+          <button type="button" class="btn" (click)="load(true)" [disabled]="loading()">
+            <i class="ti ti-refresh" [class.spin]="loading()" aria-hidden="true"></i>Refresh
+          </button>
+          <span class="updated" aria-live="polite">{{ loading() ? 'Reading from WhatsApp…' : updated() }}</span>
+        </div>
+
+        @if (c.collections.length) {
+          <div class="chips" role="group" aria-label="Collections">
+            <button type="button" class="s-chip" [attr.aria-pressed]="collectionId() === null" (click)="collectionId.set(null)">
+              All <b>{{ c.products.length }}</b>
+            </button>
+            @for (col of c.collections; track col.id) {
+              <button type="button" class="s-chip" [attr.aria-pressed]="collectionId() === col.id" (click)="collectionId.set(col.id)">
+                {{ col.name }} <b>{{ col.productIds.length }}</b>
+              </button>
+            }
+          </div>
+        }
+
+        @if (!c.products.length) {
+          <div class="s-empty">
+            <i class="ti ti-package" aria-hidden="true"></i>
+            <strong>Your catalog is empty</strong>
+            <p>Add products in the WhatsApp Business app: Settings → Business tools → Catalog. Then refresh here.</p>
+          </div>
+        } @else if (!shown().length) {
+          <div class="s-empty">
+            <i class="ti ti-search" aria-hidden="true"></i>
+            <strong>No products match</strong>
+            <p>Try another word, or pick All.</p>
+          </div>
+        } @else {
+          <ul class="grid" aria-label="Products">
+            @for (p of shown(); track p.id) {
+              <li>
+                <label class="product" [class.picked]="picked().has(p.id)">
+                  <span class="photo">
+                    <i class="ti ti-photo-off" aria-hidden="true"></i>
+                    @if (p.image) {
+                      <img [mediaSrc]="p.image" alt="" loading="lazy" />
+                    }
+                    @if (!ordersOff()) {
+                      <input
+                        type="checkbox"
+                        class="pick"
+                        [checked]="picked().has(p.id)"
+                        (change)="toggle(p.id)"
+                        [attr.aria-label]="'Pick ' + p.name"
+                      />
+                    }
+                  </span>
+                  <span class="info">
+                    <span class="name">{{ p.name }}</span>
+                    <span class="price">{{ price(p.price, p.currency) }}</span>
+                    @if (p.hidden) {
+                      <span class="s-pill hidden-pill"><i class="ti ti-eye-off" aria-hidden="true"></i>Hidden</span>
+                    }
+                    @if (p.description) {
+                      <span class="desc">{{ p.description }}</span>
+                    }
+                  </span>
+                </label>
+              </li>
+            }
+          </ul>
+        }
+      } @else if (loading()) {
+        <ul class="grid" aria-hidden="true">
+          @for (n of [1, 2, 3, 4, 5, 6]; track n) {
+            <li class="product ghost">
+              <span class="photo"></span>
+              <span class="info">
+                <span class="s-skel"></span>
+                <span class="s-skel short"></span>
+              </span>
+            </li>
+          }
+        </ul>
+      }
+    }
+  </div>
+
+  @if (catalog()?.products?.length) {
+    <footer class="drawer-foot">
+      @if (ordersOff()) {
+        <p class="note"><i class="ti ti-info-circle" aria-hidden="true"></i>Your business has no Orders service, so products can't be added to an Orders list.</p>
+      } @else {
+        @if (imported(); as r) {
+          <p class="ok" role="status">
+            <i class="ti ti-circle-check" aria-hidden="true"></i>
+            <span class="grow">
+              Added {{ r.created }} to your Orders list{{ r.skipped ? ' · ' + r.skipped + ' skipped' : '' }}.
+            </span>
+            <a routerLink="/records/order" (click)="closed.emit()">Open Orders <i class="ti ti-arrow-right" aria-hidden="true"></i></a>
+          </p>
+        }
+        @if (importError()) {
+          <p class="bad" role="alert"><i class="ti ti-alert-circle" aria-hidden="true"></i>{{ importError() }}</p>
+        }
+        <div class="foot-actions">
+          <button type="button" class="btn" (click)="toggleShown()" [disabled]="!shown().length">
+            {{ allShownPicked() ? 'Clear shown' : 'Pick all shown' }}
+          </button>
+          <button type="button" class="btn primary" (click)="importPicked()" [disabled]="!picked().size || importing()">
+            @if (importing()) {
+              <span class="spinner" aria-hidden="true"></span>Adding…
+            } @else {
+              <i class="ti ti-shopping-cart-plus" aria-hidden="true"></i>Add {{ picked().size || '' }} to my Orders list
+            }
+          </button>
+        </div>
+      }
+    </footer>
+  }
+</aside>

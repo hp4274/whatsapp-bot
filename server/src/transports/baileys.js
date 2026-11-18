@@ -367,6 +367,7 @@ export class BaileysTransport extends Transport {
         return {
             connected: true,
             account: this.account,
+            accountType: accountTypeOf(sock),
             detail: `QR session, no access token, no browser. ${TOS_WARNING}`,
             realDelivery: true,
         };
@@ -545,7 +546,15 @@ export class BaileysTransport extends Transport {
     }
 
     async #handleInbound(sock, msg) {
-        if (!msg?.key || msg.key.fromMe) return;
+        if (!msg?.key) return;
+        if (msg.key.fromMe) {
+            // Typed on the phone or WhatsApp Web: a person is answering this chat. What this socket sends
+            // arrives as 'append', and is in the sent store besides.
+            if (this.messageStore?.sentProto?.(msg.key.id)) return;
+            const typed = await toInboundMessage(msg, sock);
+            if (typed) this.events.emit('manual_reply', { recipient: typed.sender });
+            return;
+        }
         const inbound = await toInboundMessage(msg, sock);
         if (!inbound) return;
         this.events.emit('inbound', inbound);
@@ -1109,6 +1118,41 @@ export class BaileysTransport extends Transport {
     getStatus(providerId) {
         return this.receipts.get(providerId) ?? null;
     }
+
+    /**
+     * This number's own WhatsApp Business catalog: `{ products, collections: [{ id, name, productIds }] }`, products
+     * as Baileys parses them (price in thousandths). Throws an error tagged `code` 'not_connected' / 'not_business'.
+     */
+    async catalog() {
+        if (!this.connected || !this.sock) throw Object.assign(new Error('WhatsApp is not connected'), { code: 'not_connected' });
+        if (accountTypeOf(this.sock) !== 'business' || typeof this.sock.getCatalog !== 'function') {
+            throw Object.assign(new Error('not a WhatsApp Business number'), { code: 'not_business' });
+        }
+        const sock = this.sock;
+        const products = [];
+        let cursor;
+        // 4 pages of 50: enough for a small business's catalog without hammering WhatsApp.
+        for (let page = 0; page < 4; page += 1) {
+            const result = await sock.getCatalog({ limit: 50, cursor });
+            products.push(...(result?.products ?? []));
+            cursor = result?.nextPageCursor;
+            if (!cursor) break;
+        }
+        let collections = [];
+        try {
+            collections = ((await sock.getCollections(undefined, 50))?.collections ?? [])
+                .map((c) => ({ id: String(c.id ?? ''), name: String(c.name ?? ''), productIds: (c.products ?? []).map((p) => String(p.id)) }));
+        } catch {
+            // collections are a nicety: the products alone are still the catalog
+        }
+        return { products, collections };
+    }
+
+    /** A catalog cart's lines and total (`sock.getOrderDetails`), or null when WhatsApp will not say. */
+    async getOrderDetails(orderId, token) {
+        if (!this.connected || typeof this.sock?.getOrderDetails !== 'function' || !orderId || !token) return null;
+        return this.sock.getOrderDetails(String(orderId), String(token));
+    }
 }
 
 function statusCode(lastDisconnect) {
@@ -1118,6 +1162,16 @@ function statusCode(lastDisconnect) {
 function reasonText(lastDisconnect) {
     const err = lastDisconnect?.error;
     return String(err?.output?.payload?.message ?? err?.message ?? err ?? 'disconnected');
+}
+
+/**
+ * 'business' for the WhatsApp Business app, 'personal' for regular WhatsApp, null when unknown. The phone tells a
+ * linked device its platform at pairing (creds.platform): smba / smbi are Business on Android / iPhone.
+ */
+export function accountTypeOf(sock) {
+    const platform = String(sock?.authState?.creds?.platform ?? '').toLowerCase();
+    if (!platform) return null;
+    return platform.startsWith('smb') ? 'business' : 'personal';
 }
 
 function accountOf(sock) {
@@ -1174,6 +1228,11 @@ const MEDIA_TYPES = {
     documentMessage: 'document',
     audioMessage: 'audio',
     stickerMessage: 'sticker',
+    // Not files, but a message type an auto-reply rule can answer.
+    locationMessage: 'location',
+    liveLocationMessage: 'location',
+    contactMessage: 'contact',
+    contactsArrayMessage: 'contact',
 };
 
 /** Unwrap ephemeral / view-once envelopes down to the real content. */
@@ -1211,6 +1270,22 @@ export function extractContent(message) {
         } catch { /* not ours */ }
         return { body: c.interactiveResponseMessage.body?.text ?? '', replyId, mediaType: null };
     }
+    if (c.orderMessage) {
+        // A cart sent from the business's WhatsApp catalog (app.js handleCatalogOrder makes it an order).
+        const o = c.orderMessage;
+        const itemCount = Number(o.itemCount ?? 0);
+        const note = String(o.message ?? '').trim();
+        const total1000 = Number(o.totalAmount1000?.low ?? o.totalAmount1000 ?? 0);
+        return {
+            body: note || o.orderTitle || `Order: ${itemCount} item${itemCount === 1 ? '' : 's'}`,
+            replyId: null,
+            mediaType: 'order',
+            order: {
+                orderId: String(o.orderId ?? ''), token: String(o.token ?? ''), itemCount,
+                total: total1000 ? total1000 / 1000 : null, currency: String(o.totalCurrencyCode ?? ''), note,
+            },
+        };
+    }
     const body = c.conversation
         ?? c.extendedTextMessage?.text
         ?? (mediaType ? c[Object.keys(MEDIA_TYPES).find((k) => c[k])]?.caption : null)
@@ -1231,7 +1306,7 @@ async function toInboundMessage(msg, sock) {
     if (!phoneJid.endsWith('@s.whatsapp.net')) return null; // no phone number to answer to
     const sender = phoneJid.split('@')[0].split(':')[0];
     if (!sender) return null;
-    const { body, replyId, mediaType } = extractContent(msg.message);
+    const { body, replyId, mediaType, order } = extractContent(msg.message);
     if (!body && !replyId && !mediaType) return null; // protocol/reaction/empty
     const ts = Number(msg.messageTimestamp?.low ?? msg.messageTimestamp ?? 0);
     return {
@@ -1241,6 +1316,7 @@ async function toInboundMessage(msg, sock) {
         body,
         replyId,
         mediaType,
+        ...(order && { order }),
         timestamp: ts ? new Date(ts * 1000).toISOString() : new Date().toISOString(),
     };
 }

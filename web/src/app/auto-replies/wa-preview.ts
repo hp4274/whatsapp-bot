@@ -7,7 +7,18 @@ import { Interactive, Media } from './auto-replies.api';
 
 export interface PreviewTurn {
   incoming: string;
+  /** What the customer sent along (test console): a photo shows, anything else is an icon and a name. */
+  attachment?: PreviewAttachment | null;
   replies: PreviewReply[];
+}
+
+export interface PreviewAttachment {
+  /** A message type: image, video, audio, document, sticker, location, contact. */
+  readonly type: string;
+  readonly icon: string;
+  readonly name: string;
+  /** A local object URL for a picked photo or sticker, so it can be drawn; never uploaded. */
+  readonly url: string | null;
 }
 
 export interface PreviewReply {

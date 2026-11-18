@@ -27,12 +27,25 @@
     <a routerLink="/blog" routerLinkActive="on">Blog</a>
   </div>
 
-  @if (inPage()) {
-    <a class="access" href="#access" [class.on]="active() === 'access'">Free Access</a>
-  } @else {
-    <a class="access" routerLink="/" fragment="access">Free Access</a>
+  <!-- Free Access asks for sign-up: someone already signed in gets their own link instead. -->
+  @if (!account()) {
+    @if (inPage()) {
+      <a class="access" href="#access" [class.on]="active() === 'access'">Free Access</a>
+    } @else {
+      <a class="access" routerLink="/" fragment="access">Free Access</a>
+    }
   }
-  <a class="signin" [routerLink]="signedIn() ? '/home' : '/login'">{{ signedIn() ? 'Dashboard' : 'Sign in' }} <i class="ti ti-arrow-right" aria-hidden="true"></i></a>
+  @if (account(); as a) {
+    <a class="signin" routerLink="/home" [attr.title]="a.full" [attr.aria-label]="a.full">
+      @if (a.initial) {
+        <span class="avatar" aria-hidden="true">{{ a.initial }}</span>
+      }
+      <span class="who">{{ a.label }}</span>
+      <i class="ti ti-arrow-right" aria-hidden="true"></i>
+    </a>
+  } @else {
+    <a class="signin" routerLink="/login">Sign in <i class="ti ti-arrow-right" aria-hidden="true"></i></a>
+  }
 
   <button
     type="button"
@@ -56,11 +69,13 @@
       }
     }
     <a routerLink="/blog" routerLinkActive="on" (click)="menuOpen.set(false)">Blog</a>
-    <!-- The bar drops its Free Access button on a phone; it stays reachable here. -->
-    @if (inPage()) {
-      <a class="menu-access" href="#access" [class.on]="active() === 'access'" (click)="menuOpen.set(false)">Free Access</a>
-    } @else {
-      <a class="menu-access" routerLink="/" fragment="access" (click)="menuOpen.set(false)">Free Access</a>
+    <!-- The bar drops its Free Access button on a phone; it stays reachable here (signed out only). -->
+    @if (!account()) {
+      @if (inPage()) {
+        <a class="menu-access" href="#access" [class.on]="active() === 'access'" (click)="menuOpen.set(false)">Free Access</a>
+      } @else {
+        <a class="menu-access" routerLink="/" fragment="access" (click)="menuOpen.set(false)">Free Access</a>
+      }
     }
   </div>
 }

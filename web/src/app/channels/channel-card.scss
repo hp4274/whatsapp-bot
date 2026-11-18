@@ -247,6 +247,24 @@
   color: var(--text-muted);
 }
 
+/* Which app the linked phone runs: WhatsApp Business or regular WhatsApp. */
+.kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+
+  .ti { font-size: 13px; }
+  &.biz { background: var(--primary-tint); color: var(--primary-text); }
+}
+
 .account .ti {
   font-size: 14px;
   color: var(--success);
@@ -560,5 +578,17 @@ details.advanced {
   :host(:hover),
   :host(.active) {
     transform: none;
+  }
+}
+
+/* Catalog: a regular WhatsApp number shows it locked, muted, and explains instead of opening. */
+.catalog {
+  justify-self: start;
+  min-height: 40px;
+
+  &.locked {
+    color: var(--text-muted);
+    background: var(--surface-sunken);
+    border-style: dashed;
   }
 }

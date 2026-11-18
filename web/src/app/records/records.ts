@@ -12,16 +12,22 @@ import {
   viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { map } from 'rxjs/operators';
+import { ArSwitch } from '../auto-replies/ar-fields';
 import { Pager, pageOf } from '../core/pager';
 import { Store } from '../core/store';
+import { ShopPanel } from '../shop/shop';
+import { ShopMode } from '../shop/shop-api';
 
 import {
   BusinessObject,
+  Customer,
   FieldKind,
   FieldValue,
   ObjectEvent,
   ObjectInput,
   ObjectTypeSpec,
+  LeadSettings,
   RecordsApi,
 } from './records-api';
 
@@ -42,6 +48,8 @@ const TYPE_ICON: Record<string, string> = {
   event: 'confetti',
   payment: 'cash',
 };
+/** Record types that can also be taken on WhatsApp, and the shop mode for each (server/src/shop/). */
+const SHOP_MODE: Record<string, ShopMode> = { order: 'order', appointment: 'booking' };
 /** The list is filtered client-side, so fetch enough rows that search and status chips feel instant. */
 const FETCH_LIMIT = 500;
 /** Record rows per page. */
@@ -84,7 +92,7 @@ const isBlank = (v: unknown) =>
  */
 @Component({
   selector: 'app-records',
-  imports: [FormsModule, Pager],
+  imports: [FormsModule, Pager, ShopPanel, ArSwitch],
   templateUrl: './records.html',
   styleUrl: './records.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -119,6 +127,23 @@ export class RecordsView {
   protected readonly deleting = signal(false);
   protected readonly events = signal<ObjectEvent[]>([]);
   protected readonly eventsLoading = signal(false);
+  /** Shown after a save, e.g. that the customer was told on WhatsApp. */
+  protected readonly savedNote = signal('');
+
+  // customer picker (drawer)
+  protected readonly draftCustomer = signal<Customer | null>(null);
+  protected readonly customerQuery = signal('');
+  protected readonly customerResults = signal<Customer[]>([]);
+  protected readonly customerSearching = signal(false);
+  protected readonly customerError = signal('');
+  private customerTimer: ReturnType<typeof setTimeout> | undefined;
+  private customerToken = 0;
+
+  // leads: "make a lead from every new person who messages"
+  protected readonly leadSettings = signal<LeadSettings | null>(null);
+  protected readonly leadCaptureAllowed = signal(true);
+  protected readonly leadSaving = signal(false);
+  protected readonly leadError = signal('');
   private readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
 
   /** Bumped per load so a slow response for a previous record type cannot overwrite the current one. */
@@ -133,6 +158,13 @@ export class RecordsView {
   );
   protected readonly pluralLabel = computed(() => plural(this.label()));
   protected readonly icon = computed(() => TYPE_ICON[this.typeKey()] ?? 'folder-open');
+  protected readonly shopMode = computed<ShopMode | null>(() => SHOP_MODE[this.typeKey()] ?? null);
+  /** Records list or the WhatsApp setup; back to the list whenever the record type changes. */
+  protected readonly view = linkedSignal<'list' | 'whatsapp'>(() => {
+    this.typeKey();
+    return 'list';
+  });
+  protected readonly onWhatsApp = computed(() => !!this.shopMode() && this.view() === 'whatsapp');
 
   protected readonly fields = computed<FieldDef[]>(() => {
     const s = this.spec();
@@ -172,7 +204,12 @@ export class RecordsView {
     return this.objects().filter((o) => {
       if (status && o.status !== status) return false;
       if (!q) return true;
-      const hay = [o.reference, ...Object.values(o.data ?? {}).map((v) => String(v))]
+      const hay = [
+        o.reference,
+        o.customer?.name ?? '',
+        o.customer?.phone ?? '',
+        ...Object.values(o.data ?? {}).map((v) => String(v)),
+      ]
         .join(' ')
         .toLowerCase();
       return hay.includes(q);
@@ -194,9 +231,51 @@ export class RecordsView {
   constructor() {
     effect(() => {
       const type = this.typeKey();
-      untracked(() => this.load(type));
+      untracked(() => {
+        this.load(type);
+        this.loadLeadSettings();
+      });
     });
-    this.store.watch(['objects'], () => this.quietReload());
+    this.store.watch(['objects'], () => {
+      this.quietReload();
+      this.loadLeadSettings();
+    });
+  }
+
+  // ---------- leads: auto-capture ----------
+
+  private loadLeadSettings() {
+    if (this.typeKey() !== 'lead') {
+      this.leadSettings.set(null);
+      return;
+    }
+    this.api.leadSettings().subscribe({
+      next: (r) => {
+        if (this.typeKey() !== 'lead') return;
+        this.leadSettings.set(r.settings);
+        this.leadCaptureAllowed.set(r.rules.autoCapture);
+      },
+      error: (e: Error) => this.leadError.set(e.message),
+    });
+  }
+
+  protected toggleAutoCapture(on: boolean) {
+    this.leadSaving.set(true);
+    this.leadError.set('');
+    this.api.saveLeadSettings({ autoCapture: on }).subscribe({
+      next: (r) => {
+        this.leadSaving.set(false);
+        this.leadSettings.set(r.settings);
+      },
+      error: (e: Error) => {
+        this.leadSaving.set(false);
+        this.leadError.set(e.message);
+        // The switch already flipped itself: put it back to what is saved.
+        const saved = this.leadSettings();
+        this.leadSettings.set(null);
+        setTimeout(() => this.leadSettings.set(saved));
+      },
+    });
   }
 
   /** Live refresh: refetch the list only, keeping filters, drawer and form state. */
@@ -322,6 +401,7 @@ export class RecordsView {
       draft[f.name] = f.kind === 'boolean' ? false : f.kind === 'number' ? null : '';
     this.draft.set(draft);
     this.draftRef.set('');
+    this.draftCustomer.set(null);
     this.draftStatus.set(s.defaultStatus ?? s.statuses[0]);
     this.events.set([]);
     this.show();
@@ -346,6 +426,7 @@ export class RecordsView {
     }
     this.draft.set(draft);
     this.draftRef.set(o.reference);
+    this.draftCustomer.set(o.customer ?? null);
     this.draftStatus.set(o.status);
   }
 
@@ -366,6 +447,53 @@ export class RecordsView {
     this.deleting.set(false);
     this.eventsToken++;
     this.eventsLoading.set(false);
+    this.savedNote.set('');
+    this.resetCustomerSearch();
+  }
+
+  // ---------- customer picker ----------
+
+  protected searchCustomers(q: string) {
+    this.customerQuery.set(q);
+    clearTimeout(this.customerTimer);
+    const token = ++this.customerToken;
+    const term = q.trim();
+    this.customerError.set('');
+    if (!term) {
+      this.customerResults.set([]);
+      this.customerSearching.set(false);
+      return;
+    }
+    this.customerSearching.set(true);
+    this.customerTimer = setTimeout(() => {
+      this.api.customers(this.typeKey(), term).subscribe({
+        next: (list) => {
+          if (token !== this.customerToken) return;
+          this.customerResults.set(list);
+          this.customerSearching.set(false);
+        },
+        error: (e: Error) => {
+          if (token !== this.customerToken) return;
+          this.customerResults.set([]);
+          this.customerSearching.set(false);
+          this.customerError.set(e.message);
+        },
+      });
+    }, 250);
+  }
+
+  protected pickCustomer(c: Customer) {
+    this.draftCustomer.set(c);
+    this.resetCustomerSearch();
+  }
+
+  private resetCustomerSearch() {
+    clearTimeout(this.customerTimer);
+    this.customerToken++;
+    this.customerQuery.set('');
+    this.customerResults.set([]);
+    this.customerSearching.set(false);
+    this.customerError.set('');
   }
 
   protected closeDrawer() {
@@ -455,7 +583,9 @@ export class RecordsView {
       const body: ObjectInput = { status: this.draftStatus(), data };
       const ref = this.draftRef().trim();
       if (ref) body.reference = ref;
-      req = this.api.create(type, body);
+      const contactId = this.draftCustomer()?.id;
+      if (contactId != null) body.contactId = contactId;
+      req = this.api.create(type, body).pipe(map((object) => ({ object, notified: false })));
     } else {
       // Send only what changed; null removes a field.
       const data: Record<string, FieldValue | null> = {};
@@ -468,7 +598,9 @@ export class RecordsView {
       const patch: ObjectInput = {};
       if (Object.keys(data).length) patch.data = data;
       if (this.draftStatus() !== current.status) patch.status = this.draftStatus();
-      if (!patch.data && !patch.status) {
+      const contactId = this.draftCustomer()?.id ?? null;
+      if (contactId !== current.contactId) patch.contactId = contactId;
+      if (!patch.data && !patch.status && patch.contactId === undefined) {
         this.formError.set('Nothing changed.');
         return;
       }
@@ -476,7 +608,7 @@ export class RecordsView {
     }
     this.saving.set(true);
     req.subscribe({
-      next: (saved) => {
+      next: ({ object: saved, notified }) => {
         this.saving.set(false);
         if (saved.type !== this.typeKey()) return;
         if (current) {
@@ -487,6 +619,7 @@ export class RecordsView {
         }
         this.fill(saved);
         this.loadEvents(saved);
+        this.savedNote.set(notified ? 'Saved. The customer was told on WhatsApp.' : 'Saved.');
       },
       error: (e: Error) => {
         this.saving.set(false);

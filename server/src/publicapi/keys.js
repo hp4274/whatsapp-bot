@@ -32,6 +32,7 @@ export const API_SCOPES = Object.freeze([
     'objects:read',
     'objects:write',
     'tickets:write',
+    'otp:send',
 ]);
 
 /** Every key starts with this, so one is recognisable in a log or a paste. */

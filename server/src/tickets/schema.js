@@ -52,4 +52,11 @@ CREATE TABLE IF NOT EXISTS ticket_events (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ticket_events_ticket ON ticket_events(tenant_id, ticket_id, id);
+
+-- The business's Tickets settings (auto-create, keywords, owner alerts): one JSON row per tenant.
+CREATE TABLE IF NOT EXISTS ticket_settings (
+    tenant_id INTEGER PRIMARY KEY,
+    settings TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL
+);
 `;

@@ -8,11 +8,28 @@
 import { SCHOOL_HELP_LINES } from './school/commands.js';
 import { getSettings } from './school/settings.js';
 import { normalizeInboundText } from './autoreply/engine.js';
+import { INTENTS } from './autoreply/intents.js';
 import { AutoReplyStore } from './autoreply/store.js';
+import { shopHelpLines, usableModes } from './shop/bot.js';
 
 const HELP_WORDS = new Set(['help', 'menu', 'commands']);
 const MAX_KEYWORDS = 15;
 const MAX_QUESTIONS = 8;
+
+/**
+ * What a rule is for, in a few words: its name when it has one (other than the keyword itself), else the start
+ * of its reply with {variables} left out.
+ */
+function ruleUse(rule, word) {
+    const name = String(rule.name ?? '').trim();
+    if (name && name.toLowerCase() !== word) return name;
+    const reply = String(rule.variants?.[0] ?? rule.replyBody ?? '')
+        .replace(/\{[^}]*\}/g, '').replace(/\s+/g, ' ').trim()
+        // "{time_greeting} {name}, thank you..." leaves a comma in front once the variables are out.
+        .replace(/^[\s,.;:!-]+/, '').split(/(?<=[.!?])\s/)[0];
+    const sentence = reply.charAt(0).toUpperCase() + reply.slice(1);
+    return sentence.length > 48 ? `${sentence.slice(0, 47).trimEnd()}…` : sentence || 'Quick reply';
+}
 
 /** True when the message is just the help word. */
 export const isHelp = (body) => HELP_WORDS.has(normalizeInboundText(body));
@@ -33,11 +50,22 @@ export function helpText(state) {
     const out = [`${settings.schoolName || 'Reply with a keyword'}:`];
     if (school) out.push('', 'School', ...SCHOOL_HELP_LINES);
 
-    const keywords = [...new Set(rules
-        .filter((r) => r.matchType !== 'FALLBACK' && r.matchType !== 'REGEX')
-        .flatMap((r) => words(r).map((k) => String(k).trim().toLowerCase()))
-        .filter(Boolean))].slice(0, MAX_KEYWORDS);
-    if (keywords.length) out.push('', 'Quick replies', keywords.join(', '));
+    // One line per rule: the word to send, and what it gets them ("PRICING - Our price list").
+    const seen = new Set();
+    const lines = [];
+    for (const r of rules) {
+        if (['FALLBACK', 'REGEX', 'MESSAGE_TYPE'].includes(String(r.matchType).toUpperCase())) continue;
+        const raw = String(words(r)[0] ?? '').trim();
+        // An intent rule's keyword is an id ("order_status"): show a word that means it.
+        const word = (String(r.matchType).toUpperCase() === 'INTENT' ? INTENTS[raw]?.words[0] ?? raw : raw).toLowerCase();
+        if (!word || seen.has(word)) continue;
+        seen.add(word);
+        lines.push(`- ${word.toUpperCase()} - ${ruleUse(r, word)}`);
+        if (lines.length >= MAX_KEYWORDS) break;
+    }
+    const shop = shopHelpLines(usableModes(state));
+    if (shop.length) out.push('', 'Orders & bookings', ...shop);
+    if (lines.length) out.push('', 'Quick replies', ...lines);
 
     const questions = (state.knowledge?.list({ activeOnly: true }) ?? [])
         .map((q) => String(q.question ?? '').trim()).filter(Boolean).slice(0, MAX_QUESTIONS);

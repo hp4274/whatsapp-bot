@@ -95,6 +95,8 @@ export class PolicyEditor {
   protected readonly plans = computed(() =>
     [...(this.overview()?.planList ?? [])].sort((a, b) => a.tier - b.tier),
   );
+  /** The plan tabs: shared plans only. A business's own plan is one business, edited from its gear on Tenants. */
+  protected readonly sharedPlans = computed(() => this.plans().filter((p) => p.tenantId == null));
   protected readonly scope = computed(() => {
     const id = this.tenantId();
     return id == null ? this.pickedScope() : `tenant:${id}`;

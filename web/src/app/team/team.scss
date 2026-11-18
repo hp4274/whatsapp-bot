@@ -20,6 +20,7 @@
 
 .people {
   overflow: hidden;
+  container: people / inline-size;
 
   tr.off td { opacity: 0.55; }
   .strong { color: var(--text-strong); font-weight: 500; }
@@ -44,6 +45,33 @@
   // minmax(0, …): a bare 1fr grows to the table's width and .people clips Status and the actions on a phone;
   // capped at the viewport, .s-table scrolls sideways instead.
   .split { grid-template-columns: minmax(0, 1fr); }
+}
+
+// When the card is too narrow for the five columns (a phone, and even beside the
+// form at 1440 the actions were cut off), each person becomes a small block, so
+// Role, Status and the actions are on screen instead of behind a sideways scroll.
+@container people (max-width: 860px) {
+  .people .s-table {
+    overflow: visible;
+    margin: 0;
+    padding: 0;
+
+    thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    table, tbody { display: block; }
+    tbody tr {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border-color);
+      &:last-child { border-bottom: 0; }
+    }
+    td { display: block; padding: 0; border: 0; white-space: normal; }
+    td.strong, td.mono { flex: 1 1 100%; overflow-wrap: anywhere; }
+    td.right { flex: 1 1 100%; text-align: left; }
+    .row-acts { flex-wrap: wrap; }
+  }
 }
 
 // Edit and remove use the app's one confirm dialog (school-shared confirm).

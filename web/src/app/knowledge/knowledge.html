@@ -97,9 +97,14 @@
               <strong>No questions yet</strong>
               <p>Start with the one customers ask most: opening hours, prices, or where you are.</p>
               @if (canWrite()) {
-                <button class="btn primary" type="button" (click)="add()">
-                  <i class="ti ti-plus" aria-hidden="true"></i> Write your first answer
-                </button>
+                <div class="acts">
+                  <button class="btn primary" type="button" (click)="tab.set('add')">
+                    <i class="ti ti-file-import" aria-hidden="true"></i> Start from a pack
+                  </button>
+                  <button class="btn" type="button" (click)="add()">
+                    <i class="ti ti-plus" aria-hidden="true"></i> Write your own
+                  </button>
+                </div>
               }
             </div>
           }
@@ -244,6 +249,158 @@
               </button>
             </div>
           }
+        }
+      </div>
+    }
+
+    <!-- ============================================================= ADD MANY -->
+    @if (tab() === 'add') {
+      <div class="panel" role="tabpanel" aria-label="Add many questions">
+        @if (!canWrite()) {
+          <div class="s-card s-empty">
+            <i class="ti ti-lock" aria-hidden="true"></i>
+            <strong>Only admins can add questions</strong>
+          </div>
+        } @else if (preview(); as rows) {
+          <div class="card pad">
+            <div class="ed-head">
+              <div>
+                <h3 class="sub">
+                  <i class="ti ti-list-check" aria-hidden="true"></i> Check before adding
+                </h3>
+                <p class="muted hint">
+                  From {{ previewFrom() }}: {{ picked().length }} of {{ rows.length }} picked. Edit
+                  anything below.
+                  @if (skippedLines()) {
+                    {{ skippedLines() }} line{{ skippedLines() === 1 ? '' : 's' }} without a "|"
+                    left out.
+                  }
+                </p>
+              </div>
+              <span class="acts">
+                <button class="btn sm ghost" type="button" (click)="setAll(true)">All</button>
+                <button class="btn sm ghost" type="button" (click)="setAll(false)">None</button>
+              </span>
+            </div>
+            @if (unfilled()) {
+              <p class="s-banner tone-info" role="note">
+                <i class="ti ti-info-circle" aria-hidden="true"></i>
+                {{ unfilled() }} answer{{ unfilled() === 1 ? ' has' : 's have' }} [details] to
+                fill in. They are added paused; fill them in and switch them live.
+              </p>
+            }
+            <ul class="preview">
+              @for (r of rows; track $index; let i = $index) {
+                <li [class.off]="!r.include">
+                  <input
+                    type="checkbox"
+                    [checked]="r.include"
+                    (change)="setRow(i, 'include', $any($event.target).checked)"
+                    [attr.aria-label]="'Add: ' + r.question"
+                  />
+                  <div class="p-fields">
+                    <input
+                      [attr.aria-label]="'Question ' + (i + 1)"
+                      [value]="r.question"
+                      (change)="setRow(i, 'question', $any($event.target).value)"
+                    />
+                    <textarea
+                      rows="2"
+                      [attr.aria-label]="'Answer ' + (i + 1)"
+                      [value]="r.answer"
+                      (change)="setRow(i, 'answer', $any($event.target).value)"
+                    ></textarea>
+                    <span class="meta">
+                      @if (r.category) {
+                        <span class="tag">{{ r.category }}</span>
+                      }
+                      @if (needsDetails(r)) {
+                        <span class="tag warn">fill in [details]</span>
+                      }
+                    </span>
+                  </div>
+                </li>
+              }
+            </ul>
+            <div class="row end">
+              <button class="btn" type="button" (click)="closePreview()">Back</button>
+              <button
+                class="btn primary"
+                type="button"
+                (click)="importPreview()"
+                [disabled]="!picked().length || busy()"
+              >
+                @if (busy()) {
+                  <span class="spinner" aria-hidden="true"></span>
+                }
+                Add {{ picked().length }} question{{ picked().length === 1 ? '' : 's' }}
+              </button>
+            </div>
+          </div>
+        } @else {
+          <div class="card pad">
+            <h3 class="sub">
+              <i class="ti ti-package-import" aria-hidden="true"></i> Start from a pack
+            </h3>
+            <p class="muted hint">
+              The questions customers ask most, for your kind of business. You can edit every
+              answer before adding.
+            </p>
+            <div class="packs">
+              @for (p of packs; track p.key) {
+                <button class="pack" type="button" (click)="pickPack(p)">
+                  <i class="ti ti-{{ p.icon }}" aria-hidden="true"></i>
+                  <strong>{{ p.title }}</strong>
+                  <span class="muted">{{ p.blurb }}</span>
+                  <span class="tag">{{ p.items.length }} questions</span>
+                </button>
+              }
+            </div>
+          </div>
+
+          <form class="card pad" (ngSubmit)="readPaste()">
+            <h3 class="sub">
+              <i class="ti ti-clipboard-text" aria-hidden="true"></i> Paste or upload
+            </h3>
+            <div class="field">
+              <label for="kb-paste">One question per line: Question | Answer | Category</label>
+              <textarea
+                id="kb-paste"
+                name="paste"
+                rows="5"
+                placeholder="What are your timings? | 10am to 8pm, Monday to Saturday | Store&#10;Do you deliver? | Yes, free above ₹500"
+                [ngModel]="pasteText()"
+                (ngModelChange)="pasteText.set($event)"
+              ></textarea>
+              <span class="hint"
+                >Category is optional. Cells copied from Excel or Google Sheets work too.</span
+              >
+            </div>
+            <div class="row">
+              <label class="btn upload" [class.busy]="reading()">
+                @if (reading()) {
+                  <span class="spinner" aria-hidden="true"></span>
+                } @else {
+                  <i class="ti ti-file-spreadsheet" aria-hidden="true"></i>
+                }
+                Upload CSV or Excel
+                <input
+                  class="sr-only"
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  [disabled]="reading()"
+                  (change)="readFile($event)"
+                />
+              </label>
+              <button class="btn primary" type="submit" [disabled]="!pasteText().trim()">
+                <i class="ti ti-eye" aria-hidden="true"></i> Preview
+              </button>
+            </div>
+            <span class="hint muted"
+              >A sheet needs the columns <b>question</b> and <b>answer</b>, and may have
+              <b>category</b>.</span
+            >
+          </form>
         }
       </div>
     }
@@ -544,6 +701,45 @@
             </ul>
           }
         </div>
+
+        <form class="card pad" (ngSubmit)="saveSettings()">
+          <h3 class="sub">
+            <i class="ti ti-message-2" aria-hidden="true"></i> When nothing answers
+          </h3>
+          <p class="muted hint">
+            A real question that no FAQ answer and no auto reply matched. Short replies like "ok"
+            and "thanks" are left out.
+          </p>
+          <div class="field">
+            <label for="kb-miss-reply">Reply to the customer</label>
+            <textarea
+              id="kb-miss-reply"
+              name="missReply"
+              rows="2"
+              maxlength="1000"
+              placeholder="Leave empty to stay silent. e.g. Thanks! We will get back to you shortly."
+              [disabled]="!canWrite()"
+              [ngModel]="missReply()"
+              (ngModelChange)="editSettings('missReply', $event)"
+            ></textarea>
+            <span class="hint">Sent at most once an hour to the same customer.</span>
+          </div>
+          <label class="check"
+            ><input
+              type="checkbox"
+              name="alertOwner"
+              [disabled]="!canWrite()"
+              [ngModel]="alertOwner()"
+              (ngModelChange)="editSettings('alertOwner', $event)"
+            />
+            Message the owner on WhatsApp with the question</label
+          >
+          @if (canWrite()) {
+            <div class="row end">
+              <button class="btn primary" type="submit" [disabled]="busy()">Save</button>
+            </div>
+          }
+        </form>
 
         <div class="card pad">
           <h3 class="sub"><i class="ti ti-navigation" aria-hidden="true"></i> Near misses</h3>

@@ -18,7 +18,24 @@
   </p>
 }
 
-@if (meta().sends) {
+@if (key() === 'otp') {
+  <aside class="s-banner tone-info">
+    <i class="ti ti-password" aria-hidden="true"></i>
+    <span class="msg">
+      Codes go out at once, ahead of campaigns, with no daily cap or pacing: someone is waiting for each one. A
+      business calls the API with a key it makes on its WhatsApp OTP page; the rules below limit how often.
+    </span>
+  </aside>
+} @else if (meta().uncapped) {
+  <aside class="s-banner tone-info">
+    <i class="ti ti-message-bolt" aria-hidden="true"></i>
+    <span class="msg">
+      Auto replies answer customers who wrote in: they go out at once, with no daily cap. Whether they count
+      toward a business's message limits is the <strong>Count auto replies toward message limits</strong> rule
+      below (off by default).
+    </span>
+  </aside>
+} @else if (meta().sends) {
   <aside class="s-banner tone-warn">
     <i class="ti ti-shield" aria-hidden="true"></i>
     <span class="msg">
@@ -91,7 +108,22 @@
           <strong>{{ tenant.name }}</strong>
           <span class="muted">{{ tenant.slug }} &middot; #{{ tenant.id }}</span>
         </div>
-        @if (meta().sends) {
+        <div class="meta">
+        @if (usage()[tenant.id]; as u) {
+          <span class="s-chip" title="Auto replies in the last 7 days">
+            <i class="ti ti-message-bolt" aria-hidden="true"></i>{{ u.activeRules }}/{{ u.rules }} rules ·
+            {{ u.replies }} replies
+            @if (u.failed) {
+              · <span class="fail">{{ u.failed }} failed</span>
+            }
+          </span>
+        }
+        @if (usageLine()[tenant.id]; as line) {
+          <span class="s-chip" title="This month">
+            <i class="ti ti-{{ meta().icon }}" aria-hidden="true"></i>{{ line }}
+          </span>
+        }
+        @if (meta().sends && !meta().uncapped) {
           <span class="s-chip"
             ><i class="ti ti-gauge" aria-hidden="true"></i>Daily cap {{ cap(tenant) }}</span
           >
@@ -113,6 +145,7 @@
             {{ provisioningId() === tenant.id ? 'Provisioning...' : 'Provision school pack' }}
           </button>
         }
+        </div>
         <label class="toggle">
           <button
             type="button"

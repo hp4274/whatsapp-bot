@@ -189,7 +189,22 @@
     <!-- Scrim behind the drawer, below `lg` only. -->
     <div class="scrim" aria-hidden="true" (click)="closeNav()"></div>
 
-    <div class="panel">
+    <div class="panel" [class.has-guide]="guide()">
+      <!-- The page's written guide: top-right of the panel, only on pages that have one. -->
+      @if (guide()) {
+        <button
+          type="button"
+          class="guide-btn"
+          aria-controls="page-guide"
+          [class.on]="guideOpen()"
+          [attr.aria-expanded]="guideOpen()"
+          (click)="setGuideOpen(!guideOpen())"
+        >
+          <i class="ti ti-book-2" aria-hidden="true"></i>
+          <span>Guide</span>
+        </button>
+      }
+
       <!-- Below `lg` only: the sidebar is a drawer there, so something has to open it. -->
       <header class="topbar">
         <button
@@ -230,6 +245,17 @@
         }
         <router-outlet />
       </main>
+    </div>
+
+    <!--
+      The guide: a second panel beside the page. Opening it shrinks the page panel (it is a flex sibling);
+      nothing in the page closes it - only its own close button or the Guide button.
+    -->
+    @let open = guideOpen() && !!guide();
+    <div class="guide" id="page-guide" [class.open]="open" [attr.inert]="open ? null : ''">
+      @if (shownGuide(); as g) {
+        <app-page-guide class="guide-inner" [guide]="g" (closed)="setGuideOpen(false)" />
+      }
     </div>
   </div>
 

@@ -2,6 +2,8 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  Injector,
+  afterNextRender,
   computed,
   inject,
   signal,
@@ -39,6 +41,7 @@ import {
 import { ImportWizard, plainReason } from './import-wizard';
 import { MergeDialog } from './merge-dialog';
 import { GroupsDialog } from './groups-dialog';
+import { GreetingsCard } from './greetings-card';
 import { PhoneInput } from '../core/phone-input';
 
 interface Draft {
@@ -84,7 +87,17 @@ const VERB: Record<BulkAction, string> = {
  */
 @Component({
   selector: 'app-contacts',
-  imports: [FormsModule, Tilt, BulkBar, ContactDrawer, ImportWizard, MergeDialog, GroupsDialog, PhoneInput],
+  imports: [
+    FormsModule,
+    Tilt,
+    BulkBar,
+    ContactDrawer,
+    ImportWizard,
+    MergeDialog,
+    GroupsDialog,
+    GreetingsCard,
+    PhoneInput,
+  ],
   templateUrl: './contacts.html',
   styleUrl: './contacts.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -95,6 +108,7 @@ export class ContactsView {
   private readonly auth = inject(Auth);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
 
   protected readonly pageSize = 50;
   protected readonly consentOptions = CONSENT_OPTIONS;
@@ -118,6 +132,10 @@ export class ContactsView {
   protected readonly tagFilter = signal<string[]>([]);
   protected readonly segmentId = signal<number | null>(null);
   protected readonly consent = signal<ConsentFilter>('');
+  /** "detail = value" on a custom field (server buildWhere `custom`); the inputs below build it. */
+  protected readonly fieldFilter = signal<{ key: string; value: string } | null>(null);
+  protected readonly fieldKey = signal('');
+  protected readonly fieldValue = signal('');
   protected readonly sort = signal<ContactSort | ''>('');
   protected readonly dir = signal<'asc' | 'desc'>('asc');
   protected readonly page = signal(0);
@@ -132,11 +150,24 @@ export class ContactsView {
   protected readonly importOpen = signal(false);
   protected readonly mergeOpen = signal(false);
   protected readonly groupsOpen = signal(false);
+  protected readonly greetOpen = signal(false);
   protected readonly dupes = signal<DuplicateGroup[]>([]);
   protected readonly dupeTotal = signal(0);
   protected readonly dupeDismissed = signal(false);
 
   protected readonly showForm = signal(false);
+
+  /** Opens or closes the Add form; opening brings the form into view (it sits below the tiles, off screen on a phone) and focuses Phone. */
+  protected toggleForm(open = !this.showForm()): void {
+    this.showForm.set(open);
+    if (!open) return;
+    afterNextRender(() => {
+      const phone = document.getElementById('n-phone');
+      phone?.focus({ preventScroll: true });
+      phone?.closest('form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, { injector: this.injector });
+  }
+
   protected readonly busy = signal(false);
   protected readonly formError = signal('');
   protected readonly draft = signal<Draft>({
@@ -166,6 +197,8 @@ export class ContactsView {
     else if (consent === 'opted_out') base.optedOut = true;
     else if (consent === 'not_on_whatsapp') base.notOnWhatsapp = true;
     else if (consent) base.optInStatus = consent;
+    const field = this.fieldFilter();
+    if (field) base.custom = { ...(base.custom ?? {}), [field.key]: field.value };
     return base;
   });
 
@@ -176,7 +209,7 @@ export class ContactsView {
    * Individually ticked rows do not use it: they travel as ids (see sendCampaign).
    */
   protected readonly campaignLink = computed<{ segment: number } | { tags: string } | null>(() => {
-    if (this.search().trim() || this.consent()) return null;
+    if (this.search().trim() || this.consent() || this.fieldFilter()) return null;
     const segment = this.segmentId();
     const tags = this.tagFilter();
     if (segment !== null) return tags.length ? null : { segment };
@@ -207,7 +240,13 @@ export class ContactsView {
   }
 
   protected readonly hasFilters = computed(() =>
-    Boolean(this.search().trim() || this.tagFilter().length || this.segmentId() || this.consent()),
+    Boolean(
+      this.search().trim() ||
+        this.tagFilter().length ||
+        this.segmentId() ||
+        this.consent() ||
+        this.fieldFilter(),
+    ),
   );
   protected readonly pageCount = computed(() =>
     Math.max(1, Math.ceil(this.total() / this.pageSize)),
@@ -363,6 +402,21 @@ export class ContactsView {
     this.tagFilter.set([]);
     this.segmentId.set(null);
     this.consent.set('');
+    this.fieldFilter.set(null);
+    this.refilter();
+  }
+
+  protected applyField() {
+    const key = this.fieldKey() || this.fieldKeys()[0] || '';
+    const value = this.fieldValue().trim();
+    if (!key || !value) return;
+    this.fieldFilter.set({ key, value });
+    this.refilter();
+  }
+
+  protected clearField() {
+    this.fieldFilter.set(null);
+    this.fieldValue.set('');
     this.refilter();
   }
 

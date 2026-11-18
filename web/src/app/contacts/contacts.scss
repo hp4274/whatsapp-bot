@@ -68,6 +68,7 @@
 
 /* New contact ----------------------------------------------------------- */
 .new {
+  scroll-margin-top: var(--space-md); // toggleForm() scrolls here on a phone
   display: grid;
   gap: var(--space-lg);
   animation: s-pop 280ms var(--ease) both;
@@ -200,6 +201,18 @@
   }
   // Five options don't fit a 390px card on one line: they wrap inside the track rather than clip ("Unknow").
   .consent { flex-wrap: wrap; max-width: 100%; }
+
+  // "city = Pune": a custom-field filter.
+  .field-filter {
+    display: flex;
+    flex: 1 1 280px;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: var(--text-muted);
+    select { flex: 0 1 140px; min-width: 0; }
+    input { flex: 1 1 100px; min-width: 0; }
+  }
 }
 
 .active-filters {

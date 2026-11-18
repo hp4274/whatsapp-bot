@@ -20,6 +20,8 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { Channel, ChannelsApi, TenancyApi } from '../core/api';
 import { PhoneInput } from '../core/phone-input';
 import { Store } from '../core/store';
+import { CatalogDrawer } from '../channels/catalog-drawer';
+import { CatalogLocked } from '../channels/catalog-locked';
 import { ChannelCard } from '../channels/channel-card';
 import { liveState, localZone, plainError, timeZones } from '../channels/channel-meta';
 import { LinkCard } from '../connection/link-card';
@@ -55,6 +57,8 @@ const emptyDraft = () => ({
   selector: 'app-whatsapp',
   imports: [
     FormsModule,
+    CatalogDrawer,
+    CatalogLocked,
     ChannelCard,
     LinkCard,
     NumberQuestions,
@@ -109,6 +113,10 @@ export class WhatsApp {
   protected readonly confirmLink = signal<Channel | null>(null);
   /** One status line after switching back ("Back on Sales desk"). */
   protected readonly notice = signal('');
+  /** The number whose Catalog button was clicked: its drawer, or the WhatsApp Business explanation. */
+  protected readonly catalogFor = signal<Channel | null>(null);
+  /** The number to sign out and link again; `n` makes each ask a fresh one, even for the same number. */
+  private readonly relinkAsk = signal<{ id: number; n: number } | null>(null);
 
   private readonly firstField = viewChild<ElementRef<HTMLInputElement>>('firstField');
   private readonly recoverRef = viewChild<ElementRef<HTMLElement>>('recover');
@@ -211,6 +219,21 @@ export class WhatsApp {
     });
     // Connection events notify 'channels' too (Store.handle), so linking on this page lands here.
     this.store.watch(['channels', 'campaign'], () => this.refreshSoon(), 0);
+
+    // ?relink=<id> (the Catalog page's "Link a WhatsApp Business number"): once the list is in, start that number's
+    // sign-out + new QR, then drop the parameter so a reload does not do it again.
+    const relinkId = Number(this.route.snapshot.queryParamMap.get('relink'));
+    if (relinkId) {
+      const once = effect(() => {
+        const target = this.loaded() ? this.channels().find((c) => c.id === relinkId) : undefined;
+        if (!this.loaded()) return;
+        once.destroy();
+        untracked(() => {
+          if (target) this.relink(target);
+          void this.router.navigate([], { relativeTo: this.route, queryParams: { relink: null }, queryParamsHandling: 'merge', replaceUrl: true });
+        });
+      });
+    }
 
     // Other numbers do not stream events here, so poll gently while visible.
     const timer = setInterval(() => {
@@ -389,6 +412,21 @@ export class WhatsApp {
     const name = this.channels().find((c) => c.id === back)?.displayName;
     this.store.useChannel(back);
     if (name) this.notice.set(`Back on ${name}.`);
+  }
+
+  /**
+   * "Link a WhatsApp Business number": select the number (its link card is only on the selected one) and have
+   * that card unlink it and show a new QR, the same Unlink → Link WhatsApp it offers by hand.
+   */
+  protected relink(channel: Channel) {
+    this.catalogFor.set(null);
+    if (channel.id !== this.activeId()) this.use(channel);
+    this.relinkAsk.set({ id: channel.id, n: (this.relinkAsk()?.n ?? 0) + 1 });
+  }
+
+  protected relinkFor(id: number): number {
+    const ask = this.relinkAsk();
+    return ask?.id === id ? ask.n : 0;
   }
 
   protected ask(id: number) {

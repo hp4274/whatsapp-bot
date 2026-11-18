@@ -35,6 +35,20 @@ CREATE TABLE IF NOT EXISTS autoreply_hits (
 );
 CREATE INDEX IF NOT EXISTS idx_autoreply_hits_key ON autoreply_hits(tenant_id, rule_key, at);
 CREATE INDEX IF NOT EXISTS idx_autoreply_hits_phone ON autoreply_hits(tenant_id, channel_id, phone, rule_key, at);
+-- What the automation did with each message it handled: replied (and with what), failed (why), skipped or stayed
+-- silent (why). The Activity log shows it; kept 30 days.
+CREATE TABLE IF NOT EXISTS autoreply_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id   INTEGER NOT NULL,
+    channel_id  INTEGER NOT NULL DEFAULT 0,
+    phone       TEXT NOT NULL,
+    inbound     TEXT NOT NULL DEFAULT '',
+    outcome     TEXT NOT NULL,
+    rule        TEXT NOT NULL DEFAULT '',
+    detail      TEXT NOT NULL DEFAULT '',
+    at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_autoreply_log ON autoreply_log(tenant_id, at);
 `;
 
 export function migrateAutoReplies(db) {

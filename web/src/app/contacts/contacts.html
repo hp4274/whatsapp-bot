@@ -24,13 +24,21 @@
       Export
     </button>
     @if (canWrite()) {
+      <button
+        class="btn"
+        type="button"
+        [attr.aria-expanded]="greetOpen()"
+        (click)="greetOpen.set(!greetOpen())"
+      >
+        <i class="ti ti-cake" aria-hidden="true"></i> Greetings
+      </button>
       <button class="btn" type="button" (click)="importOpen.set(true)">
         <i class="ti ti-file-upload" aria-hidden="true"></i> Import
       </button>
       <button
         class="btn primary"
         type="button"
-        (click)="showForm.set(!showForm())"
+        (click)="toggleForm()"
         [attr.aria-expanded]="showForm()"
       >
         <i class="ti ti-{{ showForm() ? 'x' : 'user-plus' }}" aria-hidden="true"></i>
@@ -119,6 +127,10 @@
       </button>
     </div>
   </div>
+}
+
+@if (greetOpen()) {
+  <app-greetings-card [fieldKeys]="fieldKeys()" (closed)="greetOpen.set(false)" />
 }
 
 @if (showForm()) {
@@ -256,6 +268,8 @@
         <button class="btn sm send-view" type="button" (click)="sendCampaign()">
           <i class="ti ti-send" aria-hidden="true"></i> Send campaign to this view
         </button>
+      } @else if (fieldFilter() && canWrite()) {
+        <p class="muted small">Save this view as a segment, then send a campaign to the segment.</p>
       }
       @if (canWrite()) {
         <form class="save-seg" (submit)="$event.preventDefault(); saveSegment()">
@@ -316,6 +330,31 @@
           </button>
         }
       </div>
+      @if (fieldKeys().length) {
+        <form class="field-filter" (submit)="$event.preventDefault(); applyField()">
+          <i class="ti ti-filter-plus" aria-hidden="true"></i>
+          <select
+            name="fieldKey"
+            aria-label="Contact detail"
+            [ngModel]="fieldKey() || fieldKeys()[0]"
+            (ngModelChange)="fieldKey.set($event)"
+          >
+            @for (k of fieldKeys(); track k) {
+              <option [value]="k">{{ k }}</option>
+            }
+          </select>
+          <span aria-hidden="true">=</span>
+          <input
+            name="fieldValue"
+            aria-label="Detail value"
+            placeholder="value"
+            maxlength="200"
+            [ngModel]="fieldValue()"
+            (ngModelChange)="fieldValue.set($event)"
+          />
+          <button class="btn sm" type="submit" [disabled]="!fieldValue().trim()">Filter</button>
+        </form>
+      }
       @if (hasFilters()) {
         <button class="btn sm" type="button" (click)="clearFilters()">
           <i class="ti ti-filter-off" aria-hidden="true"></i> Clear
@@ -326,8 +365,18 @@
       }
     </div>
 
-    @if (segment() || tagFilter().length) {
+    @if (segment() || tagFilter().length || fieldFilter()) {
       <div class="active-filters" aria-label="Active filters">
+        @if (fieldFilter(); as f) {
+          <button
+            type="button"
+            class="s-chip on"
+            (click)="clearField()"
+            [attr.aria-label]="'Remove filter ' + f.key + ' = ' + f.value"
+          >
+            {{ f.key }} = {{ f.value }} <i class="ti ti-x" aria-hidden="true"></i>
+          </button>
+        }
         @if (segment(); as s) {
           <button
             type="button"
@@ -422,7 +471,7 @@
               <button class="btn primary sm" type="button" (click)="importOpen.set(true)">
                 <i class="ti ti-file-upload" aria-hidden="true"></i> Import a sheet
               </button>
-              <button class="btn sm" type="button" (click)="showForm.set(true)">Add contact</button>
+              <button class="btn sm" type="button" (click)="toggleForm(true)">Add contact</button>
             </div>
           }
         </div>

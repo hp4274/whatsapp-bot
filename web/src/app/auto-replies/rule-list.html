@@ -3,10 +3,74 @@
     <h2>
       Keyword rules <span class="count">{{ rules().length }}</span>
     </h2>
-    <button type="button" class="btn primary sm" (click)="create.emit()" [disabled]="creating()">
-      <i class="ti ti-plus" aria-hidden="true"></i> New rule
-    </button>
+    <div class="actions">
+      <button
+        type="button"
+        class="btn sm"
+        [attr.aria-expanded]="showTemplates()"
+        (click)="showTemplates.set(!showTemplates())"
+      >
+        <i class="ti ti-template" aria-hidden="true"></i> Templates
+      </button>
+      <button type="button" class="btn primary sm" (click)="create.emit()" [disabled]="creating()">
+        <i class="ti ti-plus" aria-hidden="true"></i> New rule
+      </button>
+    </div>
   </div>
+
+  @if (showTemplates()) {
+    @if (openPack(); as pack) {
+      <!-- One set: every rule ticked; ones already added are left out. Add them all at once. -->
+      <div class="pack enter" role="group" [attr.aria-label]="pack.title + ' rules'">
+        <button type="button" class="back" (click)="openPack.set(null)">
+          <i class="ti ti-chevron-left" aria-hidden="true"></i> All sets
+        </button>
+        <strong class="pack-title"><i class="ti ti-{{ pack.icon }}" aria-hidden="true"></i> {{ pack.title }}</strong>
+        <ul class="templates">
+          @for (t of packList(); track t.key) {
+            <li>
+              <label class="tpl" [class.done]="added(t)">
+                <input
+                  type="checkbox"
+                  [checked]="!added(t) && !skip().has(t.key)"
+                  [disabled]="added(t)"
+                  (change)="toggleSkip(t.key)"
+                />
+                <span>
+                  <strong>{{ t.title }}</strong>
+                  <small>{{ t.blurb }}</small>
+                  @if (added(t)) {
+                    <small class="tag">Already added</small>
+                  } @else if (needsDetails(t)) {
+                    <small class="tag warn">Starts off: fill in your [details], then switch it on</small>
+                  }
+                </span>
+              </label>
+              @if (!added(t)) {
+                <button type="button" class="edit-first" (click)="pickTemplate(t)">Edit before adding</button>
+              }
+            </li>
+          }
+        </ul>
+        <button type="button" class="btn primary sm" [disabled]="!chosen().length || adding()" (click)="addChosen()">
+          <i class="ti ti-plus" aria-hidden="true"></i>
+          {{ adding() ? 'Adding…' : 'Add ' + chosen().length + ' rule' + (chosen().length === 1 ? '' : 's') }}
+        </button>
+      </div>
+    } @else {
+      <p class="tip">Pick a set: it adds every rule for that part of your business, ready to use.</p>
+      <ul class="templates enter" aria-label="Rule sets">
+        @for (p of packs; track p.key) {
+          <li>
+            <button type="button" class="tpl" (click)="openPack.set(p)">
+              <i class="ti ti-{{ p.icon }}" aria-hidden="true"></i>
+              <span><strong>{{ p.title }}</strong><small>{{ p.blurb }}</small></span>
+            </button>
+          </li>
+        }
+      </ul>
+    }
+  }
 
   <label class="search">
     <i class="ti ti-search" aria-hidden="true"></i>
@@ -145,7 +209,12 @@
         } @else {
           <i class="ti ti-message-bolt" aria-hidden="true"></i>
           <strong>No keyword rules yet</strong>
-          <span>Reply instantly to “price”, “menu” or “hours”.</span>
+          <span>Reply instantly to “price”, “order” or “hours”.</span>
+          @if (!showTemplates()) {
+            <button type="button" class="btn sm" (click)="showTemplates.set(true)">
+              <i class="ti ti-template" aria-hidden="true"></i> Add a ready-made set
+            </button>
+          }
         }
       </li>
     }

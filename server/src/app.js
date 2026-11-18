@@ -17,6 +17,7 @@ import express from 'express';
 import multer from 'multer';
 
 import { AutoReplyEngine } from './autoreply/engine.js';
+import { AutoReplyStore } from './autoreply/store.js';
 import { processOptOut } from './autoreply/optout.js';
 import { COMPLAINT_WORDS } from './campaign/humanize.js';
 import { CampaignManager, NOT_ON_WHATSAPP_TEXT } from './campaign/manager.js';
@@ -41,12 +42,13 @@ import {
 } from './config.js';
 import { DEFAULT_TENANT_ID, Database } from './db.js';
 import {
-    buildPaymentReminderMessage,
     importPaymentReminders,
     remindersToContacts,
 } from './paymentReminders.js';
+import { createPaymentDuesRouter, DueStore, duesUsage, handlePaymentReply, monthCapError, recordDues } from './paymentDues.js';
 import {
-    PREVIEW_ROWS, columnQuality, contactsToCsv, csvCell, importContacts, mappedRowsToContacts, parseTable, resolveMapping, suggestMapping,
+    PREVIEW_ROWS, columnQuality, contactsToCsv, csvCell, importContacts, mappedRowsToContacts, parseTable, pastedNumbers, resolveMapping,
+    suggestMapping,
 } from './contacts.js';
 import { PhoneError, contactContext, normalizePhone, personalize, utcNow } from './protocol.js';
 import {
@@ -63,12 +65,16 @@ import { ConversationStore } from './inbox/store.js';
 import { createKnowledgeRouter } from './knowledge/routes.js';
 import { createAutoReplyRouter } from './autoreply/routes.js';
 import { KnowledgeStore } from './knowledge/store.js';
+import { followUpMiss } from './knowledge/miss.js';
 import { createObjectRouter } from './objects/routes.js';
+import { ObjectStore } from './objects/store.js';
+import { OBJECT_TYPES } from './objects/types.js';
 import { createTicketRouter } from './tickets/routes.js';
-import { TicketStore } from './tickets/store.js';
+import { CLOSED_STATUSES, TicketStore, slaTable } from './tickets/store.js';
+import { ticketAfterInbound, ticketFromHandoff, ticketInbound } from './tickets/whatsapp.js';
 import { JobStore } from './scheduler/store.js';
 import { SchedulerWorker } from './scheduler/worker.js';
-import { TemplateError, TemplateStore, validate as validateTemplate } from './templates/store.js';
+import { TemplateError, TemplateStore, usedIn as usedInTemplate, validate as validateTemplate } from './templates/store.js';
 import { MAX_UPLOAD_MB, needsReview, reviewBlock, spamScore, stricterCap, templateRuleProblem } from './templates/policy.js';
 import { getLibraryEntry, listLibrary } from './templates/library.js';
 import { registerTemplateAdmin } from './templates/admin.js';
@@ -114,6 +120,15 @@ import { SCHOOL_TEMPLATES, STUDENT_CSV_COLUMNS } from './school/templates.js';
 import { handleSchoolCommand } from './school/commands.js';
 import { helpText, isHelp } from './help.js';
 import { createSchoolRouter, schoolSweep } from './school/routes.js';
+import { MODULE_SWEEPS } from './moduleSweeps.js';
+import { getGreetings, saveGreetings } from './contactGreetings.js';
+import { ruleCap } from './policy/modules.js';
+import { handleShopCommand } from './shop/bot.js';
+import { createCatalogRouter, handleCatalogOrder } from './catalog/routes.js';
+import { captureLead } from './objects/leads.js';
+import { createShopRouter } from './shop/routes.js';
+import { createOtpRouter } from './otp/routes.js';
+import { OtpStore } from './otp/store.js';
 import { ipAllowed } from './security/ip.js';
 import { rateLimit } from './security/signature.js';
 import { checkImport, fileTypeError } from './security/filetype.js';
@@ -190,6 +205,10 @@ const FEATURE_ROUTERS = [
     createInteractiveRouter,
     // After createObjectRouter: it reads `state.objects`.
     createSchoolRouter,
+    createShopRouter,
+    createPaymentDuesRouter,
+    // After createPublicApiRouter: it reads `state.apiKeys`.
+    createOtpRouter,
 ];
 
 /** Which capability each sending route needs. Everything else is read or admin. */
@@ -197,6 +216,9 @@ const SEND_ROUTES = Object.freeze({
     '/messages': 'transactional_messages',
     '/campaign/start': 'campaigns',
     '/payment-reminders/send': 'transactional_messages',
+    '/otp/test': 'transactional_messages',
+    // The public API's one send: picked onto a connected number like the dashboard's.
+    '/v1/otp/send': 'transactional_messages',
 });
 
 /**
@@ -214,6 +236,10 @@ const SERVICE_ROUTE_PREFIXES = Object.freeze([
     ['/segments', 'contacts'],
     ['/templates', 'templates'],
     ['/auto-replies', 'auto_replies'],
+    // Ordering and booking on WhatsApp (shop/): part of the Orders and Appointments features, not Auto replies.
+    ['/shop/order', 'orders'],
+    ['/shop/booking', 'appointments'],
+    ['/otp', 'otp'],
     ['/campaign', 'campaigns'],
     ['/campaigns', 'campaigns'],
     ['/payment-reminders', 'payment_reminders'],
@@ -238,6 +264,53 @@ const SERVICE_ROUTE_PREFIXES = Object.freeze([
     ['/billing', 'analytics'],
     ['/analytics', 'analytics'],
 ]);
+
+/** "N made this month · M open" for a record type: open is anything not in the type's closed statuses. */
+function recordUsage(type, noun) {
+    return (scoped) => {
+        const objects = new ObjectStore(scoped);
+        const now = new Date();
+        const month = objects.count({ type, createdSince: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)) });
+        const closed = OBJECT_TYPES[type].closed.reduce((n, status) => n + objects.count({ type, status }), 0);
+        return `${month} ${noun} this month · ${objects.count({ type }) - closed} open`;
+    };
+}
+
+/** The per-business usage line on a module's super-admin page (/api/admin/services/:service/usage). */
+const USAGE_LINES = Object.freeze({
+    orders: recordUsage('order', 'orders'),
+    appointments: recordUsage('appointment', 'bookings'),
+    leads: recordUsage('lead', 'leads'),
+    payment_reminders: duesUsage,
+    faq: (scoped) => {
+        const s = new KnowledgeStore(scoped).stats();
+        return `${s.items} answers · ${Math.round(s.coverage * 100)}% of questions answered`;
+    },
+    tickets: (scoped) => {
+        const s = new TicketStore(scoped).stats();
+        const open = Object.entries(s.byStatus).filter(([status]) => !CLOSED_STATUSES.includes(status)).reduce((n, [, v]) => n + v, 0);
+        return `${open} open · ${s.overdue} overdue`;
+    },
+    catalog: (scoped) => {
+        const one = (sql) => { try { return scoped.db.prepare(sql).get(scoped.tenantId).n; } catch { return 0; } };
+        const imported = one("SELECT COUNT(*) AS n FROM shop_items WHERE tenant_id = ? AND catalog_id != ''");
+        const carts = one(`SELECT COUNT(*) AS n FROM business_objects WHERE tenant_id = ? AND type = 'order'
+            AND json_extract(metadata, '$.catalogOrderId') IS NOT NULL AND created_at >= '${new Date().toISOString().slice(0, 7)}-01'`);
+        return `${imported} products imported · ${carts} cart orders this month`;
+    },
+    otp: (scoped) => {
+        const s = new OtpStore(scoped).stats();
+        return `${s.sentMonth} sent this month · ${s.sentMonth ? Math.round(s.verifiedMonth / s.sentMonth * 100) : 0}% verified`;
+    },
+    templates: (scoped) => {
+        const list = new TemplateStore(scoped).list();
+        return `${list.length} templates · ${list.filter((t) => t.reviewStatus === 'pending').length} pending review`;
+    },
+    contacts: (scoped) => {
+        const book = new ContactStore(scoped);
+        return `${book.count()} contacts · ${book.count({ optedOut: true })} opted out`;
+    },
+});
 
 /** Express matches routes case-insensitively and ignores a trailing slash; the gates must too. */
 const routeKey = (path) => path.toLowerCase().replace(/\/+$/, '') || '/';
@@ -348,17 +421,11 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         const capability = capabilityForPath(req.path);
         if (!capability || req.method === 'GET' || req.method === 'HEAD') return next();
         const channel = state.channel;
-        if (channel.status !== 'active') {
-            return res.status(409).json({ errors: [`channel ${channel.id} is disabled`] });
-        }
-        if (!channel.capabilities.includes(capability)) {
-            return res.status(409).json({ errors: [`channel ${channel.id} is not enabled for ${capability}`] });
-        }
-        if (!withinSendingWindow(channel)) {
-            return res.status(409).json({
-                errors: [`channel ${channel.id} is outside its sending window (${channel.timezone})`],
-            });
-        }
+        // /v1 callers get the public API's error shape.
+        const refuse = (message) => res.status(409).json(req.path.startsWith('/v1/') ? { error: 'channel_unavailable', message } : { errors: [message] });
+        if (channel.status !== 'active') return refuse(`channel ${channel.id} is disabled`);
+        if (!channel.capabilities.includes(capability)) return refuse(`channel ${channel.id} is not enabled for ${capability}`);
+        if (!withinSendingWindow(channel)) return refuse(`channel ${channel.id} is outside its sending window (${channel.timezone})`);
         return next();
     });
 
@@ -385,14 +452,14 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     const messages = new MessageService(db, manager, () => state.channel, {
         isBotPaused: (phone, channelId) => conversations.isBotPaused(phone, channelId),
         // The admin's tenant controls and the plan's message quota refuse every new send (attachCampaignPolicy sets both).
-        guard: (job) => manager.sendBlock?.(job.messageType) ?? manager.capBlock?.() ?? null,
+        guard: (job) => manager.sendBlock?.(job.messageType) ?? manager.capBlock?.(false, job.messageType) ?? null,
     });
     // Contacts belong to the tenant, not to one number, but the store needs the
     // channel's country code to normalise what people type.
     const contacts = new ContactStore(db, config.defaultCountryCode);
     const templates = new TemplateStore(db);
     const conversations = new ConversationStore(db);
-    const tickets = new TicketStore(db);
+    const tickets = new TicketStore(db, { sla: () => slaTable(deps.platformPolicy?.()?.['tickets.sla']) });
     const knowledge = new KnowledgeStore(db);
     const billing = new BillingStore(db, { overrides: () => deps.platformPolicy?.() ?? {}, ownLimits: limits });
     const workflows = new WorkflowStore(db);
@@ -433,6 +500,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         media: (mediaId) => state.media?.get(mediaId) ?? null,
         businessName: () => state.tenancy?.getTenant(db.tenantId)?.name ?? '',
         platformPolicy: () => deps.platformPolicy?.() ?? {},
+        onEscalate: (msg) => ticketFromHandoff(state, msg),
     });
     state.platformPolicy = () => deps.platformPolicy?.() ?? {};
     state.manager = manager;
@@ -453,6 +521,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     state.contacts = contacts;
     state.templates = templates;
     templates.sendGate = (template) => reviewBlock(template, state.platformPolicy(), state.channel);
+    templates.onUse = () => broadcast(state, { type: 'changed', topic: 'templates' }); // "Sent N" updates live
     state.conversations = conversations;
     state.tickets = tickets;
     state.knowledge = knowledge;
@@ -689,6 +758,14 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         transport.events?.on('inbound', (message) => {
             void handleInbound(state, message);
         });
+        // A person answered from the phone: the bot steps back from that chat for a while.
+        transport.events?.on('manual_reply', ({ recipient } = {}) => {
+            try {
+                state.autoReply?.humanReplied?.(recipient);
+            } catch (err) {
+                console.error('[auto-replies] could not pause the bot for a manual reply:', err.message);
+            }
+        });
         // Only people in the contact list get a read receipt, not every stranger who writes in.
         transport.shouldRead = (phone) => Boolean(contacts.getByPhone(contacts.normalize(phone)));
 
@@ -864,6 +941,56 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     });
 
     // ----------------------------------------------------------- contacts --
+    // Platform contact rules (policy/contacts.js). contacts.maxContacts counts only numbers not in the book yet,
+    // so re-importing a sheet that updates people is never refused.
+    const contactRoomError = (phones) => {
+        const cap = ruleCap(state.platformPolicy(), 'contacts.maxContacts');
+        if (cap === null) return null;
+        const fresh = new Set(phones.filter((phone) => phone && !contacts.getByPhone(phone))).size;
+        const have = contacts.count();
+        return fresh && have + fresh > cap
+            ? `Your plan allows ${cap} contacts. You have ${have}, and this would add ${fresh} more.` : null;
+    };
+    const CONTACT_SWITCHES = {
+        'contacts.allowGroupImport': 'Reading WhatsApp group members is turned off on this platform: collecting them is the most common reason numbers get banned.',
+        'contacts.allowExport': 'Downloading contacts is turned off on this platform.',
+    };
+    /** True once a 403 is sent for a rule the super admin turned off. */
+    const contactRuleOff = (res, key) => {
+        if (state.platformPolicy()[key] !== false) return false;
+        res.status(403).json({ errors: [CONTACT_SWITCHES[key]] });
+        return true;
+    };
+
+    // Paste numbers: preview without `save`, then import with it (the same text is sent again).
+    app.post('/contacts/paste', (req, res) => {
+        const text = String(req.body?.text ?? '');
+        if (text.length > 500_000) return res.status(400).json({ errors: ['That is too much text to paste at once. Split it up.'] });
+        const { valid, invalid, duplicates } = pastedNumbers(text, state.config.defaultCountryCode);
+        const existing = valid.filter((phone) => contacts.getByPhone(phone)).length;
+        const counts = {
+            valid: valid.length, invalid: invalid.length, duplicates, existing, new: valid.length - existing,
+            sample: valid.slice(0, 20), invalidSample: invalid.slice(0, 50),
+        };
+        if (req.body?.save !== true) return res.json(counts);
+        if (!valid.length) return res.status(400).json({ errors: ['No phone numbers found in that text.'] });
+        const room = contactRoomError(valid);
+        if (room) return res.status(403).json({ errors: [room] });
+        const tags = (Array.isArray(req.body.tags) ? req.body.tags : []).map((t) => String(t).trim()).filter(Boolean);
+        const saved = contacts.importMany(valid.map((phone) => ({ phone })), { source: 'paste', tags, normalized: true });
+        return res.json({ ...counts, saved: { created: saved.created, updated: saved.updated, failed: saved.failed.length } });
+    });
+
+    // Birthday greetings (contactGreetings.js): the business's switch, date field and message.
+    app.get('/contacts/greetings', (req, res) => res.json({
+        settings: getGreetings(db.db, db.tenantId),
+        allowed: state.platformPolicy()['contacts.allowDateGreetings'] !== false,
+    }));
+    app.put('/contacts/greetings', (req, res) => {
+        const { settings, error } = saveGreetings(db.db, db.tenantId, req.body ?? {});
+        return error ? res.status(400).json({ errors: [error] }) : res.json({ settings });
+    });
+
     app.post('/contacts/import', upload.single('file'), checkImport, async (req, res) => {
         if (!req.file) return res.status(400).json({ errors: ['no file uploaded'] });
         try {
@@ -889,6 +1016,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             if (req.query.save === 'true' || req.body?.save === 'true') {
                 const tags = String(req.query.tags ?? req.body?.tags ?? '').split(',').map((t) => t.trim()).filter(Boolean);
                 // importContacts already normalised every number.
+                const room = contactRoomError(result.contacts.map((c) => c.phone));
+                if (room) return res.status(403).json({ errors: [room] });
                 result.saved = contacts.importMany(result.contacts, { source: 'import', tags, normalized: true });
             }
             return res.json(result);
@@ -1046,6 +1175,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     // Static paths below must stay above `/contacts/:id`, or ':id' swallows them.
     /** CSV of the given ids, or of everything matching the filter. */
     app.get('/contacts/export', (req, res) => {
+        if (contactRuleOff(res, 'contacts.allowExport')) return undefined;
         const ids = String(req.query.ids ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0);
         // `ids` present means "exactly these", even when none of them parse.
         let list = [];
@@ -1103,6 +1233,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     const communityName = (groups, g) => (g.community ? groups.find((c) => c.id === g.community)?.name ?? '' : '');
 
     app.get('/contacts/whatsapp-groups', async (req, res) => {
+        if (contactRuleOff(res, 'contacts.allowGroupImport')) return undefined;
         const groups = await groupsOrReply(res);
         if (!groups) return undefined;
         // Counts only: the numbers themselves leave through export/import.
@@ -1116,6 +1247,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     });
 
     app.get('/contacts/whatsapp-groups/export', async (req, res) => {
+        if (contactRuleOff(res, 'contacts.allowGroupImport') || contactRuleOff(res, 'contacts.allowExport')) return undefined;
         const groups = await groupsOrReply(res);
         if (!groups) return undefined;
         const picked = pickGroups(groups, req.query.ids);
@@ -1144,6 +1276,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     });
 
     app.post('/contacts/whatsapp-groups/import', async (req, res) => {
+        if (contactRuleOff(res, 'contacts.allowGroupImport')) return undefined;
         const groups = await groupsOrReply(res);
         if (!groups) return undefined;
         const picked = pickGroups(groups, req.body?.ids, req.body?.all === true);
@@ -1158,6 +1291,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             }
         }
         // WhatsApp numbers are already international digits.
+        const room = contactRoomError([...rows.keys()]);
+        if (room) return res.status(403).json({ errors: [room] });
         const saved = contacts.importMany([...rows.values()], { source: 'whatsapp_group', normalized: true });
         return res.json({
             created: saved.created, updated: saved.updated, failed: saved.failed.length,
@@ -1205,6 +1340,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         try {
             // Look up by the stored form, not by whatever the caller typed.
             const existed = req.body?.phone ? contacts.getByPhone(contacts.normalize(req.body.phone)) : null;
+            const room = existed ? null : contactRoomError([contacts.normalize(req.body?.phone)]);
+            if (room) return res.status(403).json({ errors: [room] });
             // An opt-in made here is the operator's: the proof names who, and is never taken from the body.
             const input = { ...req.body, consent: { source: 'manual', userId: req.user?.id } };
             // The Add form sends blank name/email for a number already saved: that must not erase them (PUT edits).
@@ -1348,8 +1485,16 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         return problem ? res.status(400).json({ errors: [problem.message], rule: problem.rule }) : null;
     };
     // New or reworded templates go (back) to the review queue when the policy asks for one.
-    const queueForReview = (template) => (needsReview(state.platformPolicy(), template)
-        ? templates.setReview(template.id, 'pending') : template);
+    // templates.autoApproveBelowSpam lets a clean-looking one skip the wait.
+    const queueForReview = (template) => {
+        const policy = state.platformPolicy();
+        if (!needsReview(policy, template)) return template;
+        const auto = Number(policy['templates.autoApproveBelowSpam']) || 0;
+        const { score } = spamScore(template);
+        return auto > 0 && score <= auto
+            ? templates.setReview(template.id, 'approved', `Approved by itself: spam score ${score}`)
+            : templates.setReview(template.id, 'pending');
+    };
 
     app.post('/templates', (req, res) => {
         const capError = templateCapError();
@@ -1432,8 +1577,27 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         }
     });
 
+    /**
+     * With `contactId`: the message exactly as that contact gets it (the editor may send its unsaved `body`; id
+     * `draft` previews a template not saved yet), its own missing variables, and how many contacts lack each one.
+     */
     app.post('/templates/:id/preview', (req, res) => {
         try {
+            const contactId = req.body?.contactId;
+            if (contactId != null) {
+                const contact = contacts.get(contactId);
+                if (!contact) return res.status(404).json({ errors: ['contact not found'] });
+                const saved = req.params.id === 'draft' ? null : templates.get(req.params.id);
+                if (!saved && req.params.id !== 'draft') return res.status(404).json({ errors: ['template not found'] });
+                const body = typeof req.body?.body === 'string' ? req.body.body : saved.body;
+                const context = contactContext({ ...contact, extra: contact.customFields });
+                const keys = usedInTemplate(body).filter((key) => key !== 'phone');
+                return res.json({
+                    body: personalize(body, context),
+                    missing: keys.filter((key) => context[key] === undefined || context[key] === null || context[key] === ''),
+                    missingCounts: Object.fromEntries(keys.map((key) => [key, contacts.missingCount(key)])),
+                });
+            }
             return res.json(templates.preview(req.params.id, req.body?.context ?? {}));
         } catch (err) {
             return templateFail(res, err);
@@ -1556,22 +1720,28 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         try {
             const result = await importPaymentReminders(
                 req.file.originalname, req.file.buffer, state.config.defaultCountryCode);
-            return res.json(result);
+            // Every row is kept as a due (paymentDues.js), and its message is made in the business's words.
+            return res.json({ ...result, saved: await recordDues(state, result.reminders, { render: true }) });
         } catch (err) {
             return res.status(400).json({ errors: [`Payment reminder import failed: ${err.message}`] });
         }
     });
 
-    app.post('/payment-reminders/send', (req, res) => {
+    app.post('/payment-reminders/send', async (req, res) => {
         const { reminders = [] } = req.body ?? {};
         if (!Array.isArray(reminders) || reminders.length === 0) {
             return res.status(400).json({ errors: ['no payment reminders'] });
+        }
+        // The platform's cap on one send (paymentReminders.maxPerSend, policy/modules.js).
+        const perSend = ruleCap(state.platformPolicy(), 'paymentReminders.maxPerSend');
+        if (perSend !== null && reminders.length > perSend) {
+            return res.status(403).json({ errors: [`Your plan sends up to ${perSend} reminders at a time. Split the sheet and send the rest after.`] });
         }
         if (!state.transport?.isConnected?.()) {
             return res.status(409).json({ errors: ['Connect a transport first.'] });
         }
 
-        const contacts = [];
+        const rows = [];
         const errors = [];
         reminders.forEach((input, index) => {
             const row = Number(input?.rowNumber) || index + 1;
@@ -1587,31 +1757,31 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
                 errors.push(`Row ${row}: missing remaining payment amount`);
                 return;
             }
-            const reminder = {
+            rows.push({
                 rowNumber: row,
                 name: String(input?.name ?? '').trim(),
                 phone,
                 remaining: String(input.remaining).trim(),
                 dueDate: String(input?.dueDate ?? '').trim(),
+                invoiceId: String(input?.invoiceId ?? '').trim(),
                 message: String(input?.message ?? '').trim(),
-                finalMessage: String(input?.finalMessage ?? '').trim() || buildPaymentReminderMessage({
-                    name: input?.name,
-                    phone,
-                    remaining: input.remaining,
-                    dueDate: input?.dueDate,
-                    message: input?.message,
-                }),
-            };
-            contacts.push(remindersToContacts([reminder])[0]);
+                finalMessage: String(input?.finalMessage ?? '').trim(),
+            });
         });
         if (errors.length) return res.status(400).json({ errors });
-        if (!contacts.length) return res.status(400).json({ errors: ['no valid payment reminders'] });
+        if (!rows.length) return res.status(400).json({ errors: ['no valid payment reminders'] });
         const busy = state.campaigns?.busyWith(null);
         if (busy) return res.status(409).json({ errors: [busyText(busy, 'send')] });
+        // paymentReminders.maxPerMonth (policy/paymentReminders.js): sends by hand and automatic ones together.
+        const dueStore = new DueStore(db);
+        const overMonth = monthCapError(state, rows.length, dueStore);
+        if (overMonth) return res.status(403).json({ errors: [overMonth] });
 
+        await recordDues(state, rows, { sent: true });
         // A fresh run, but a reply or quick send still waiting is someone's message: it keeps its place.
-        const result = manager.enqueueContacts(contacts, '{final_message}', { onePerNumber: true, reset: { keepOneOff: true } });
+        const result = manager.enqueueContacts(remindersToContacts(rows), '{final_message}', { onePerNumber: true, reset: { keepOneOff: true } });
         manager.start();
+        dueStore.addSent(result.queued ?? rows.length);
         return res.json(result);
     });
 
@@ -2264,6 +2434,9 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         return res.status(result.status).json(result.body);
     };
 
+    // A number's WhatsApp Business catalog: the URL names the number, so it is answered here (catalog/routes.js).
+    app.use(createCatalogRouter({ channels, runtimes }));
+
     // -------------------------------------------------- channel routes --
     // A paused number must still show why: these reads (and the ban_guard resume) reach it, nothing else does.
     // The contact book and segments are the business's own data, not the number's: a paused number must not lock them.
@@ -2316,6 +2489,7 @@ function channelHealth(channel, runtime) {
         connecting: Boolean(state?.connecting),
         running: Boolean(state),
         account: state?.info?.account ?? '',
+        accountType: state?.info?.accountType ?? null,
         detail: state?.info?.detail ?? '',
         error: state?.info?.error ?? null,
         withinSendingWindow: withinSendingWindow(channel),
@@ -2779,6 +2953,14 @@ export function createApp({
         if (write && startsWorkflow && tenant.controls.automationsEnabled === false) {
             return res.status(403).json({ error: 'tenant_blocked', message: 'Automations are disabled for this account.' });
         }
+        // OTP is its own service, not the "api" one: gated on `otp` and kept off the api_requests quota.
+        const otp = under('/api/v1/otp');
+        if (otp && !tenant.services.includes('otp')) {
+            return res.status(403).json({ error: 'otp_not_enabled', message: 'WhatsApp OTP is not enabled for this account.' });
+        }
+        if (p === '/api/v1/otp/send' && tenant.controls.sendingEnabled === false) {
+            return res.status(403).json({ error: 'tenant_blocked', message: 'Sending is disabled for this account.' });
+        }
         const billing = new BillingStore(db.forTenant(key.tenantId), {
             overrides: () => policyStore.resolve(key.tenantId).values,
             ownLimits: () => tenancy.getTenant(key.tenantId)?.limits ?? {},
@@ -2788,7 +2970,7 @@ export function createApp({
         }
         // The plan's api_requests quota (or the admin's billing.apiRequestsPerMonth); a refused call
         // is not counted, and neither is one the per-key rate limit turns away.
-        const quota = billing.check('api_requests');
+        const quota = otp ? { allowed: true } : billing.check('api_requests');
         if (!quota.allowed) {
             const message = quota.limit === 0
                 ? "This account's plan does not include API access."
@@ -2797,7 +2979,7 @@ export function createApp({
         }
         req.apiKey = key;
         return v1Limit(req, res, () => {
-            billing.record('api_requests');
+            if (!otp) billing.record('api_requests');
             bindContext({ tenantId: key.tenantId });
             req.url = req.url.slice('/api'.length);
             return runtimeFor(key.tenantId).router(req, res, next);
@@ -2962,6 +3144,33 @@ export function createApp({
     });
     admin.use(createCampaignOpsRouter({ db, runtimes, runtimeFor, tenancy, policyStore, audit }));
     registerTemplateAdmin(admin, { db, tenancy, policy: policyStore, audit }); // review queue, starter library
+
+    // Auto replies at a glance, per business: rules, replies sent and failures in the last 7 days.
+    admin.get('/auto-replies/usage', (req, res) => {
+        const since = new Date(Date.now() - 7 * 86_400_000);
+        res.json({
+            usage: Object.fromEntries(tenancy.listTenants()
+                .map((t) => [t.id, new AutoReplyStore(db.forTenant(t.id)).usage(since)])),
+        });
+    });
+
+    /**
+     * One line per business for a module's admin page (Orders, Appointments, Leads, FAQ, Tickets), from the stores'
+     * own counters. A business whose numbers cannot be read is left out rather than failing the whole list.
+     */
+    admin.get('/services/:service/usage', (req, res) => {
+        const line = USAGE_LINES[req.params.service];
+        if (!line) return res.json({ usage: {} });
+        const usage = {};
+        for (const t of tenancy.listTenants()) {
+            try {
+                usage[t.id] = line(db.forTenant(t.id));
+            } catch {
+                // a tenant whose tables are not there yet has nothing to show
+            }
+        }
+        res.json({ usage });
+    });
 
     admin.get('/tenants', (req, res) => res.json({
         tenants: tenancy.listTenants().map(tenantOverview),
@@ -4409,7 +4618,7 @@ export function createApp({
         fields: POLICY_FIELDS,
         global: fillTables(policyStore.values('global')),
         plans: Object.fromEntries(Object.entries(policyStore.planValues()).map(([plan, values]) => [plan, fillTables(values)])),
-        planList: new BillingStore(db.forTenant(DEFAULT_TENANT_ID)).plans().map((p) => ({ key: p.key, name: p.name, tier: p.tier })),
+        planList: new BillingStore(db.forTenant(DEFAULT_TENANT_ID)).plans().map((p) => ({ key: p.key, name: p.name, tier: p.tier, tenantId: p.tenantId ?? null })),
         // Tables saved with an old row count: sending holds numbers at their old top until the admin saves them again.
         stale: policyStore.staleTables(),
     }));
@@ -4872,6 +5081,29 @@ export function createApp({
         } catch (err) {
             console.error('[school] sweep failed:', err.message);
         }
+
+        // Business modules' built-in reminders and follow-ups (moduleSweeps.js), per tenant with the service.
+        if (MODULE_SWEEPS.length) {
+            for (const tenant of tenancy.listTenants()) {
+                const sweeps = MODULE_SWEEPS.filter((s) => tenant.status === 'active' && tenant.services.includes(s.service));
+                if (!sweeps.length) continue;
+                try {
+                    const runtime = runtimeFor(tenant.id);
+                    const channel = runtime.channels.getDefault();
+                    if (!channel) continue;
+                    const state = runtime.runtimeFor(channel).state;
+                    for (const s of sweeps) {
+                        try {
+                            await s.run(state, new Date());
+                        } catch (err) {
+                            console.error(`[${s.name}] sweep for tenant ${tenant.id} failed:`, err.message);
+                        }
+                    }
+                } catch (err) {
+                    console.error(`[modules] sweep for tenant ${tenant.id} failed:`, err.message);
+                }
+            }
+        }
     };
 
     /**
@@ -5033,6 +5265,8 @@ async function handleInbound(state, message) {
         phone: saved.sender, channelId: state.channel.id, at: saved.receivedAt,
     });
     broadcast(state, { type: 'inbound_message', message: saved, conversationId: conversation?.id ?? null });
+    // Onto the customer's open ticket (tickets/whatsapp.js); the mark tells the end whether anything replied.
+    const ticketMark = ticketInbound(state, saved);
     // "spam" / "I will report you": a report in the making. Recorded with who and when; may pause the run.
     // Only from someone we really sent to: a stranger's text cannot be a report of us.
     if (COMPLAINT_WORDS.test(saved.body ?? '') && state.db.hasSentTo(saved.sender)) {
@@ -5052,6 +5286,10 @@ async function handleInbound(state, message) {
             if (optOut.action === 'opted_out') state.manager.checkStopRate();
             return saved;
         }
+        // Leads > "make a lead from every new person who messages" (objects/leads.js); never in the way of the reply.
+        await captureLead(state, saved).catch((err) => console.error('[leads] capture failed:', err.message));
+        // A cart sent from the WhatsApp catalog becomes an Orders record, whether or not auto replies are on.
+        if (message.order && await handleCatalogOrder(state, saved, message.order)) return saved;
         // An answer to a campaign's buttons/list (native tap or typed "1"):
         // counted, and the campaign's reply rules run. A rule that acted owns
         // the message; a click without a rule falls through to auto-replies.
@@ -5061,11 +5299,13 @@ async function handleInbound(state, message) {
         if (!state.channel.capabilities.includes('auto_replies')) return saved;
         // The admin switched automations/sending off, or the message quota is used up: keep
         // the message, send nothing (the message service would refuse every reply, one inbound_error each).
-        if (state.manager.sendBlock?.('auto_reply') ?? state.manager.capBlock?.()) return saved;
+        if (state.manager.sendBlock?.('auto_reply') ?? state.manager.capBlock?.(false, 'auto_reply')) return saved;
         // A human has the conversation: the bot does not talk over them. The
         // message service enforces this too, but returning early also skips the
         // typing delay and the FAQ lookup.
         if (state.conversations?.isBotPaused(saved.sender, state.channel.id)) return saved;
+        // The business switched its auto replies off (Auto replies > Settings); opt-out above still ran.
+        if (!state.autoReply.active()) return saved;
 
         // Menu answers, human handoff, welcome and away messages (autoreply/engine.js).
         // A text-only welcome/away comes back unsent as `early.greeting`: the
@@ -5081,6 +5321,20 @@ async function handleInbound(state, message) {
         const greet = (text) => state.autoReply.withGreeting(text, greeting);
         const greetingSent = () => state.autoReply.noteGreeting(saved, greeting);
 
+        // MENU / CART / CHECKOUT / PAID / STATUS / INFO and a live cart's numbers (shop/bot.js). Ahead of HELP:
+        // with the shop on, MENU is its catalogue; with it off, nothing here answers and MENU is the HELP list.
+        const shop = await handleShopCommand(state, { ...saved, replyId: message.replyId ?? null }, { greeting: greeting?.text ?? '' });
+        if (shop.handled) {
+            if (shop.sent) greetingSent();
+            return saved;
+        }
+        // PAID / a screenshot from someone with an open payment due (paymentDues.js). After the shop: its PAID wins.
+        const due = await handlePaymentReply(state, saved, { greeting: greeting?.text ?? '' });
+        if (due.handled) {
+            if (due.sent) greetingSent();
+            return saved;
+        }
+
         // HELP lists every keyword the customer can use, whichever engine owns it.
         if (isHelp(saved.body)) {
             const text = helpText(state);
@@ -5091,6 +5345,7 @@ async function handleInbound(state, message) {
                 if (outcome.accepted) {
                     greetingSent();
                     state.db.markInboundReplied(saved.messageId, 'help');
+                    state.autoReply.log(saved, 'replied', 'HELP list', text);
                     return saved;
                 }
             }
@@ -5108,8 +5363,13 @@ async function handleInbound(state, message) {
         // fallback, so an operator migrates at their own pace: with no FAQ
         // items the match is always null and behaviour is unchanged.
         // Platform: FAQ answers need autoReplies.allowAi, and respect quiet hours.
-        const faqOn = state.platformPolicy()['autoReplies.allowAi'] !== false && !state.autoReply.quiet();
-        const hit = faqOn ? state.knowledge?.answer(saved.body, { channel: state.channel }) : null;
+        // The FAQ answers only for a business that has the FAQ service and is allowed to answer from it.
+        const policy = state.platformPolicy();
+        const faqOn = policy['autoReplies.allowAi'] !== false && policy['faq.autoAnswer'] !== false
+            && (state.tenancy?.getTenant(state.db.tenantId)?.services.includes('faq') ?? true) && !state.autoReply.quiet();
+        const hit = faqOn
+            ? state.knowledge?.answer(saved.body, { channel: state.channel, synonyms: policy['faq.allowSynonyms'] !== false })
+            : null;
         if (hit?.item) {
             const outcome = state.messages.send({
                 messageType: 'auto_reply',
@@ -5120,6 +5380,7 @@ async function handleInbound(state, message) {
             if (outcome.accepted) {
                 greetingSent();
                 state.db.markInboundReplied(saved.messageId, `faq:${hit.item.id}`);
+                state.autoReply.log(saved, 'replied', `FAQ: ${hit.item.question ?? hit.item.id}`, hit.item.answer);
                 broadcast(state, {
                     type: 'faq_reply', sender: saved.sender, itemId: hit.item.id, level: hit.level,
                 });
@@ -5135,9 +5396,18 @@ async function handleInbound(state, message) {
                 rule: reply.rule.keyword,
                 providerId: reply.result?.providerId ?? null,
             });
+        } else if (faqOn && saved.body && followUpMiss(state, saved).noted) {
+            // Nothing answered (FAQ nor keywords): the FAQ's gap list and its "when nothing answers" setting.
+            broadcast(state, { type: 'changed', topic: 'faq' });
         }
     } catch (err) {
+        console.error(`[auto-replies] handling a message from ...${String(saved.sender).slice(-4)} failed:`, err);
+        state.autoReply?.log?.(saved, 'failed', '', `Error: ${err.message ?? String(err)}`);
         broadcast(state, { type: 'inbound_error', sender: saved.sender, error: err.message ?? String(err) });
+    } finally {
+        ticketAfterInbound(state, saved, ticketMark);
+        // The Activity log has a new line (or the page has nothing new to show, which costs one reload).
+        broadcast(state, { type: 'changed', topic: 'auto-replies' });
     }
     return saved;
 }
@@ -5183,6 +5453,7 @@ function connectionState(state) {
         transport: state.config.transport,
         name: transport?.name ?? null,
         account: state.info?.account ?? '',
+        accountType: state.info?.accountType ?? null,
         detail: state.info?.detail ?? '',
         error: state.info?.error ?? null,
         code: state.info?.code ?? null,

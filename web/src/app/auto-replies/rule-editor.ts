@@ -10,8 +10,12 @@ import {
 
 import { InteractiveEditor } from '../campaign/interactive/interactive-editor';
 import { interactiveOptions, validateInteractive } from '../campaign/interactive/interactive.model';
-import { ArChips, ArMedia, ArSwitch, ArVariants } from './ar-fields';
+import { ArChips, ArMedia, ArSwitch, ArTranslations, ArVariants } from './ar-fields';
 import {
+  CollectQuestion,
+  CollectType,
+  Intent,
+  Language,
   MatchType,
   MenuNode,
   RulePayload,
@@ -48,10 +52,65 @@ export const MATCH_TYPES: readonly {
     icon: 'player-track-next',
   },
   { value: 'ANY_OF', label: 'Any of', hint: 'Any keyword as a whole word', icon: 'arrows-join' },
+  { value: 'ALL_OF', label: 'All of', hint: 'Every keyword, in any order: “price” and “delivery”', icon: 'list-check' },
   { value: 'FUZZY', label: 'Fuzzy', hint: 'Typo tolerant: “prise” finds “price”', icon: 'wand' },
+  {
+    value: 'MESSAGE_TYPE',
+    label: 'Message type',
+    hint: 'A photo, file, voice note, location…',
+    icon: 'paperclip',
+  },
+  {
+    value: 'INTENT',
+    label: 'Intent',
+    hint: 'What they mean, any language: “rate kya hai” is Price',
+    icon: 'bulb',
+  },
   { value: 'REGEX', label: 'Regex', hint: 'JavaScript regular expression', icon: 'code' },
   { value: 'FALLBACK', label: 'Fallback', hint: 'When no other rule matched', icon: 'lifebuoy' },
 ];
+
+/**
+ * Spelling mistakes the matcher forgives anyway, to show the business what it already catches: a letter left
+ * out, two letters swapped, a letter stretched. Never the first letter (the matcher keeps it too).
+ */
+export function typoExamples(keyword: string): string[] {
+  const w = keyword.toLowerCase().trim();
+  if (!w || w.includes(' ')) return [];
+  if (w.length < 4) return [w + w.slice(-1).repeat(2)];
+  const mid = Math.floor(w.length / 2);
+  const out = new Set([
+    w.slice(0, mid) + w.slice(mid + 1),
+    w.slice(0, mid) + w[mid + 1] + w[mid] + w.slice(mid + 2),
+    w + w.slice(-1),
+  ]);
+  out.delete(w);
+  return [...out];
+}
+
+
+export const COLLECT_TYPES: readonly { value: CollectType; label: string }[] = [
+  { value: 'text', label: 'Any text' },
+  { value: 'name', label: 'Name' },
+  { value: 'phone', label: 'Phone number' },
+  { value: 'email', label: 'Email' },
+  { value: 'number', label: 'Number' },
+  { value: 'language', label: 'Language choice' },
+];
+
+/** Human names for the message types a rule can answer. */
+export const MESSAGE_TYPE_LABEL: Record<string, string> = {
+  image: 'Photo',
+  video: 'Video',
+  audio: 'Voice note / audio',
+  document: 'Document / PDF',
+  sticker: 'Sticker',
+  location: 'Location',
+  contact: 'Contact card',
+};
+
+/** Triggers whose "keywords" are picked from a fixed list, not typed. */
+const PICKED: readonly MatchType[] = ['INTENT', 'MESSAGE_TYPE'];
 
 /** A new rule that already says something sensible, so the preview is never blank. */
 export function emptyDraft(): RuleDraft {
@@ -69,6 +128,10 @@ export function emptyDraft(): RuleDraft {
     schedule: null,
     audience: { type: 'all' },
     actions: { addTag: '', setField: null, escalate: false, stop: true },
+    synonyms: true,
+    typos: true,
+    translations: {},
+    collect: null,
     isActive: true,
   };
 }
@@ -114,8 +177,20 @@ export function toPayload(d: RuleDraft): RulePayload {
       escalate: !!d.actions.escalate,
       stop: d.actions.stop,
     },
+    synonyms: d.synonyms,
+    typos: d.typos,
+    translations: Object.fromEntries(
+      Object.entries(d.translations).filter(([, text]) => text.trim()),
+    ),
+    collect: cleanCollect(d),
     isActive: d.isActive,
   };
+}
+
+/** Questions with a field and a question only; null when none are left. */
+function cleanCollect(d: RuleDraft): RulePayload['collect'] {
+  const questions = (d.collect?.questions ?? []).filter((q) => q.key.trim() && q.question.trim());
+  return questions.length ? { questions, doneReply: d.collect?.doneReply ?? '' } : null;
 }
 
 /**
@@ -136,6 +211,7 @@ function browserZone(): string {
     ArChips,
     ArMedia,
     ArSwitch,
+    ArTranslations,
     ArVariants,
     InteractiveEditor,
     MenuEditor,
@@ -151,12 +227,63 @@ export class RuleEditor {
   readonly stats = input<RuleStats | null>(null);
   readonly businessName = input('Your business');
   readonly saving = input(false);
+  readonly intents = input<readonly Intent[]>([]);
+  readonly languages = input<readonly Language[]>([]);
+  readonly messageTypes = input<readonly string[]>([]);
+  /** The plan's auto-reply rules (GET /api/policy values). */
+  readonly plan = input<Record<string, unknown>>({});
+
+  /** What the plan includes, for hiding what it does not. */
+  protected readonly allows = computed(() => {
+    const p = this.plan();
+    return {
+      intents: p['autoReplies.allowIntents'] !== false,
+      messageTypes: p['autoReplies.allowMessageTypes'] !== false,
+      questions: p['autoReplies.allowQuestions'] !== false,
+      translations: p['autoReplies.allowTranslations'] !== false,
+      maxQuestions: Number(p['autoReplies.maxQuestions'] ?? 8) || 8,
+    };
+  });
+  /** Match types on the plan (the current one stays listed so an old rule still reads right). */
+  protected readonly shownTypes = computed(() => {
+    const a = this.allows();
+    const cur = this.value().matchType;
+    // Fuzzy is how every keyword matches now, so it is not a choice (an old Fuzzy rule still shows it).
+    return MATCH_TYPES.filter((m) => m.value === cur
+      || m.value !== 'FUZZY' && (m.value !== 'INTENT' || a.intents) && (m.value !== 'MESSAGE_TYPE' || a.messageTypes));
+  });
+
+  /** A few of the spelling mistakes the keywords already catch. */
+  protected readonly typoHints = computed(() => {
+    const d = this.value();
+    if (!['EXACT', 'CONTAINS', 'ANY_OF', 'ALL_OF', 'FUZZY'].includes(d.matchType) || d.typos === false) return [];
+    return d.keywords.slice(0, 3).flatMap((k) => typoExamples(k).slice(0, 2)).slice(0, 6);
+  });
+
+  /** Words that mean the same as a keyword (the built-in intents), not yet keywords themselves. */
+  protected readonly similarWords = computed(() => {
+    const d = this.value();
+    if (d.matchType === 'REGEX' || !this.allows().intents) return [];
+    const have = new Set(d.keywords.map((k) => k.toLowerCase().trim()));
+    const out = new Set<string>();
+    for (const intent of this.intents()) {
+      const words = intent.words ?? intent.examples;
+      if (words.some((w) => have.has(w.toLowerCase()))) for (const w of words) if (!have.has(w.toLowerCase())) out.add(w);
+    }
+    return [...out].slice(0, 16);
+  });
+
+  protected addKeyword(word: string): void {
+    this.patch({ keywords: [...this.value().keywords, word] });
+  }
   readonly dirty = input(false);
   readonly save = output<void>();
   readonly remove = output<void>();
   readonly cancel = output<void>();
 
   protected readonly matchTypes = MATCH_TYPES;
+  protected readonly collectTypes = COLLECT_TYPES;
+  protected readonly typeLabel = MESSAGE_TYPE_LABEL;
   protected readonly variables = VARIABLES;
   protected readonly ago = ago;
   protected readonly confirmDelete = signal(false);
@@ -174,7 +301,13 @@ export class RuleEditor {
   protected readonly problems = computed(() => {
     const d = this.value();
     const out: string[] = [];
-    if (d.matchType !== 'FALLBACK' && !d.keywords.length) out.push('Add at least one keyword.');
+    if (d.matchType === 'INTENT' && !d.keywords.length) out.push('Pick at least one intent.');
+    else if (d.matchType === 'MESSAGE_TYPE' && !d.keywords.length) out.push('Pick at least one message type.');
+    else if (d.matchType !== 'FALLBACK' && !d.keywords.length) out.push('Add at least one keyword.');
+    const asks = (d.collect?.questions ?? []).filter((q) => q.question.trim());
+    if (asks.some((q) => !q.key.trim())) out.push('Name the contact field each answer is saved to.');
+    if (asks.length && (d.interactive || d.actions.escalate))
+      out.push('A rule that asks questions cannot also show buttons or hand over to a person.');
     if (!d.variants.some((v) => v.trim()) && !d.media && !d.interactive)
       out.push('Write a reply, attach media or add buttons.');
     if (d.audience.type === 'tag' && !d.audience.tag?.trim())
@@ -217,10 +350,20 @@ export class RuleEditor {
     }
     return [
       {
-        incoming: d.matchType === 'FALLBACK' ? 'something unexpected' : (d.keywords[0] ?? 'Hi'),
+        incoming:
+          d.matchType === 'FALLBACK'
+            ? 'something unexpected'
+            : d.matchType === 'INTENT'
+              ? (this.intents().find((i) => i.id === d.keywords[0])?.examples[0] ?? 'Hi')
+              : d.matchType === 'MESSAGE_TYPE'
+                ? `[${MESSAGE_TYPE_LABEL[d.keywords[0]] ?? 'Photo'}]`
+                : (d.keywords[0] ?? 'Hi'),
         replies: [
           {
-            text: renderTemplate(d.variants[0] ?? '', sample),
+            // The first question rides in the same message, as the server sends it.
+            text: [renderTemplate(d.variants[0] ?? '', sample), d.collect?.questions[0]?.question]
+              .filter(Boolean)
+              .join('\n\n'),
             media: d.media,
             interactive: d.interactive,
           },
@@ -240,6 +383,51 @@ export class RuleEditor {
   protected setField(key: 'key' | 'value', v: string): void {
     const cur = this.value().actions.setField ?? { key: '', value: '' };
     this.patchActions({ setField: { ...cur, [key]: v } });
+  }
+
+  protected setType(m: MatchType): void {
+    const d = this.value();
+    // Picked ids (intents, message types) and typed keywords do not carry over between kinds of trigger.
+    const switching = m !== d.matchType && (PICKED.includes(m) || PICKED.includes(d.matchType));
+    this.patch({ matchType: m, keywords: switching ? [] : d.keywords });
+  }
+
+  protected toggleOption(i: number, code: string): void {
+    const cur = this.questions()[i].options ?? ['en', 'hi', 'gu'];
+    this.setQuestion(i, { options: cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code] });
+  }
+
+  protected toggleIntent(id: string): void {
+    const k = this.value().keywords;
+    this.patch({ keywords: k.includes(id) ? k.filter((x) => x !== id) : [...k, id] });
+  }
+
+  protected questions(): CollectQuestion[] {
+    return this.value().collect?.questions ?? [];
+  }
+
+  protected setQuestions(questions: CollectQuestion[]): void {
+    const doneReply = this.value().collect?.doneReply ?? '';
+    this.patch({ collect: questions.length ? { questions, doneReply } : null });
+  }
+
+  protected setQuestion(i: number, p: Partial<CollectQuestion>): void {
+    this.setQuestions(this.questions().map((q, j) => (j === i ? { ...q, ...p } : q)));
+  }
+
+  protected addQuestion(): void {
+    const first = !this.questions().length;
+    this.setQuestions([
+      ...this.questions(),
+      first
+        ? { key: 'name', question: 'May I have your name?', type: 'name' }
+        : { key: '', question: '', type: 'text' },
+    ]);
+  }
+
+  protected setDone(doneReply: string): void {
+    const c = this.value().collect;
+    if (c) this.patch({ collect: { ...c, doneReply } });
   }
 
   protected v(e: Event): string {

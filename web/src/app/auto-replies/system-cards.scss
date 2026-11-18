@@ -1,3 +1,7 @@
+@use '../school/school-shared' as s;
+
+@include s.advanced;
+
 :host { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-md); }
 
 .bar {
@@ -290,4 +294,75 @@
 
 @media (prefers-reduced-motion: reduce) {
   .tile:hover { transform: none; }
+}
+
+// How replies pick a language: one quiet row under the heading.
+.lang {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-bottom: var(--space-md);
+  font-size: 13px;
+  color: var(--text-muted);
+
+  label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  select {
+    width: auto;
+  }
+
+  .hint {
+    flex-basis: 100%;
+    font-size: 12px;
+  }
+}
+
+.lang-h {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  color: var(--text-strong);
+
+  .ti {
+    font-size: 16px;
+  }
+}
+
+// The business's own switches: on/off, reply delay, hourly cap.
+.general {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+  margin-bottom: var(--space-md);
+  padding: 12px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  font-size: 13px;
+  color: var(--text-color);
+
+  label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  input[type='number'] {
+    width: 72px;
+  }
+
+  small {
+    color: var(--text-muted);
+  }
+}
+
+.tile.locked {
+  opacity: 0.65;
 }

@@ -105,7 +105,7 @@
       </dl>
     }
   } @else {
-    <p class="sub">No plan: services and limits are set by hand. Choose one under Plan.</p>
+    <p class="sub">No plan: services and limits are set by hand. Pick one in Plans &amp; billing, Subscriptions.</p>
   }
 </section>
 
@@ -148,7 +148,7 @@
     <dt>Messages a day</dt>
     <dd>{{ safety() ? (safety()!.dailyLimit ? safety()!.dailyLimit.toLocaleString() : limits().ownDailyLimit ? 'No limit' : "The plan's") : '…' }}</dd>
   </dl>
-  <p class="sub">Changes on the right show here as you make them; Save settings keeps them.</p>
+  <p class="sub">Changes you make to the settings show here at once; Save settings keeps them.</p>
 </section>
 
 <section>

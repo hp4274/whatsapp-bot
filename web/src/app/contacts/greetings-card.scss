@@ -1,0 +1,26 @@
+@use '../school/school-shared' as s;
+
+@include s.keyframes;
+@include s.card;
+@include s.buttons;
+@include s.banner;
+@include s.skeleton;
+@include s.switch;
+
+.greet {
+  display: grid;
+  gap: var(--space-md);
+  animation: s-pop 280ms var(--ease) both;
+
+  header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); }
+  h3 { margin: 0; display: flex; align-items: center; gap: var(--space-sm); }
+  p { margin: 0; }
+  .line { height: 14px; }
+  .small { font-size: 12.5px; }
+}
+
+.grid { display: grid; gap: var(--space-lg); }
+.row { display: flex; align-items: center; gap: var(--space-sm); font-weight: 500; }
+label small { font-weight: 400; }
+textarea { resize: vertical; }
+.actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-md); }

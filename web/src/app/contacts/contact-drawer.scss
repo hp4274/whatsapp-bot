@@ -225,7 +225,9 @@
     border-radius: 4px 12px 12px 12px;
     background: var(--surface-sunken);
     max-height: 120px;
-    overflow: hidden;
+    // Scrolls rather than cuts: a long order summary was clipped mid-line with no way to read the rest.
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .in .body { background: var(--primary-tint); }
 }

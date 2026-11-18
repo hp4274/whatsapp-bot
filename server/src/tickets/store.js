@@ -16,8 +16,9 @@ import { utcNow } from '../protocol.js';
 
 export const TICKET_STATUSES = Object.freeze(['OPEN', 'IN_PROGRESS', 'WAITING_CUSTOMER', 'RESOLVED', 'CLOSED']);
 export const TICKET_PRIORITIES = Object.freeze(['low', 'normal', 'high', 'urgent']);
-export const TICKET_SOURCES = Object.freeze(['manual', 'workflow', 'keyword', 'api']);
-export const TICKET_EVENT_KINDS = Object.freeze(['created', 'status', 'assigned', 'note', 'priority', 'message']);
+export const TICKET_SOURCES = Object.freeze(['manual', 'workflow', 'keyword', 'api', 'whatsapp']);
+/** 'message' is what we sent the customer; 'inbound' is what they wrote to us while the ticket was open. */
+export const TICKET_EVENT_KINDS = Object.freeze(['created', 'status', 'assigned', 'note', 'priority', 'message', 'inbound']);
 
 /** Statuses that mean nobody is waiting on us any more. */
 export const CLOSED_STATUSES = Object.freeze(['RESOLVED', 'CLOSED']);
@@ -28,6 +29,13 @@ export const CLOSED_STATUSES = Object.freeze(['RESOLVED', 'CLOSED']);
  * nobody can answer a question about.
  */
 export const SLA_HOURS = Object.freeze({ low: 72, normal: 24, high: 8, urgent: 2 });
+
+/** The business's own Tickets settings (Tickets page). Auto-create is opt-in: a ticket per complaint is a choice. */
+export const TICKET_SETTINGS = Object.freeze({
+    autoCreate: false,
+    keywords: Object.freeze(['complaint', 'problem', 'issue', 'refund', 'not working']),
+    ownerAlerts: true,
+});
 
 /** Field -> the event kind its change is recorded as. */
 const EVENT_KIND = Object.freeze({ status: 'status', assignedTo: 'assigned', priority: 'priority' });
@@ -58,11 +66,13 @@ export class TicketError extends Error {
 
 export class TicketStore {
     /** @param {import('../db.js').Database} database a tenant-scoped handle */
-    constructor(database, { now = () => utcNow() } = {}) {
+    /** `sla`: () => { low, normal, high, urgent } hours, the platform's rule (tickets.sla); SLA_HOURS without one. */
+    constructor(database, { now = () => utcNow(), sla = () => SLA_HOURS } = {}) {
         this.db = database.db;
         this.tenantId = database.tenantId;
         this.channelId = database.channelId ?? null;
         this.now = () => iso(now());
+        this.sla = sla;
     }
 
     // ------------------------------------------------------------- writes --
@@ -83,7 +93,7 @@ export class TicketStore {
                 this.#nextReference(), String(category ?? '').trim(), prio,
                 pick(status, TICKET_STATUSES, 'OPEN'), intOrNull(assignedTo),
                 pick(source, TICKET_SOURCES, 'manual'), String(subject ?? '').trim(),
-                JSON.stringify(metadata ?? {}), slaDueAt(now, prio), now, now,
+                JSON.stringify(metadata ?? {}), slaDueAt(now, prio, this.sla()), now, now,
             );
         const id = Number(info.lastInsertRowid);
         this.#event(id, { kind: 'created', userId, toValue: pick(status, TICKET_STATUSES, 'OPEN'), body: subject });
@@ -111,7 +121,7 @@ export class TicketStore {
         // clock that no longer matches the promise.
         if (changes.some((c) => c.key === 'priority') && !('slaDueAt' in patch)) {
             const prio = changes.find((c) => c.key === 'priority').to;
-            changes.push({ key: 'slaDueAt', column: 'sla_due_at', from: before.slaDueAt, to: slaDueAt(before.createdAt, prio) });
+            changes.push({ key: 'slaDueAt', column: 'sla_due_at', from: before.slaDueAt, to: slaDueAt(before.createdAt, prio, this.sla()) });
         }
         const status = changes.find((c) => c.key === 'status');
         if (status?.to === 'RESOLVED' && !before.resolvedAt && !('resolvedAt' in patch)) {
@@ -191,7 +201,60 @@ export class TicketStore {
         }, { userId });
     }
 
+    /** Merge `patch` over the stored settings, keeping only known keys. */
+    saveSettings(patch = {}) {
+        const next = { ...this.settings() };
+        if ('autoCreate' in patch) next.autoCreate = Boolean(patch.autoCreate);
+        if ('ownerAlerts' in patch) next.ownerAlerts = Boolean(patch.ownerAlerts);
+        if (Array.isArray(patch.keywords)) {
+            next.keywords = [...new Set(patch.keywords.map((k) => String(k ?? '').trim().toLowerCase().slice(0, 60)).filter(Boolean))]
+                .slice(0, 30);
+        }
+        this.db.prepare(`INSERT INTO ticket_settings (tenant_id, settings, updated_at) VALUES (?, ?, ?)
+                         ON CONFLICT(tenant_id) DO UPDATE SET settings = excluded.settings, updated_at = excluded.updated_at`)
+            .run(this.tenantId, JSON.stringify(next), this.now());
+        return next;
+    }
+
     // -------------------------------------------------------------- reads --
+    settings() {
+        const row = this.db.prepare('SELECT settings FROM ticket_settings WHERE tenant_id = ?').get(this.tenantId);
+        return { ...TICKET_SETTINGS, keywords: [...TICKET_SETTINGS.keywords], ...parse(row?.settings, {}) };
+    }
+
+    /**
+     * The contact's newest ticket still being worked on. A school leave request is a ticket too, but a parent's
+     * next message is not part of their leave, so those are left out.
+     */
+    openFor(contactId) {
+        const row = this.db.prepare(
+            `SELECT * FROM tickets WHERE tenant_id = ? AND contact_id = ? AND category != 'leave_request'
+               AND status NOT IN (${CLOSED_STATUSES.map(() => '?').join(',')})
+             ORDER BY id DESC LIMIT 1`).get(this.tenantId, Number(contactId), ...CLOSED_STATUSES);
+        return row ? toTicket(row) : null;
+    }
+
+    /** The contact's newest RESOLVED ticket last touched at or after `since`. */
+    resolvedSince(contactId, since) {
+        const row = this.db.prepare(
+            `SELECT * FROM tickets WHERE tenant_id = ? AND contact_id = ? AND category != 'leave_request'
+               AND status = 'RESOLVED' AND updated_at >= ? ORDER BY id DESC LIMIT 1`)
+            .get(this.tenantId, Number(contactId), iso(since));
+        return row ? toTicket(row) : null;
+    }
+
+    /** RESOLVED tickets nobody has touched since `before` (the auto-close sweep). */
+    resolvedBefore(before) {
+        return this.db.prepare("SELECT * FROM tickets WHERE tenant_id = ? AND status = 'RESOLVED' AND updated_at < ? ORDER BY id LIMIT 500")
+            .all(this.tenantId, iso(before)).map(toTicket);
+    }
+
+    countOpen() {
+        return this.db.prepare(
+            `SELECT COUNT(*) AS n FROM tickets WHERE tenant_id = ? AND status NOT IN (${CLOSED_STATUSES.map(() => '?').join(',')})`)
+            .get(this.tenantId, ...CLOSED_STATUSES).n;
+    }
+
     get(id) {
         const row = this.db.prepare('SELECT * FROM tickets WHERE id = ? AND tenant_id = ?')
             .get(Number(id) || 0, this.tenantId);
@@ -318,9 +381,14 @@ export class TicketStore {
     }
 }
 
+/** The `tickets.sla` policy rows ([{ priority, hours }]) as { low, normal, high, urgent } hours. */
+export const slaTable = (rows) => (Array.isArray(rows) && rows.length
+    ? Object.fromEntries(rows.map((r) => [String(r.priority).toLowerCase(), Number(r.hours)]))
+    : SLA_HOURS);
+
 /** When a ticket opened at `from` with this priority breaches. */
-export function slaDueAt(from, priority) {
-    const hours = SLA_HOURS[priority] ?? SLA_HOURS.normal;
+export function slaDueAt(from, priority, table = SLA_HOURS) {
+    const hours = table?.[priority] ?? SLA_HOURS[priority] ?? SLA_HOURS.normal;
     const base = Date.parse(from);
     if (!Number.isFinite(base)) return null;
     return new Date(base + hours * 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z');

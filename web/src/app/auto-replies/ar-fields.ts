@@ -11,7 +11,14 @@ import {
 } from '@angular/core';
 
 import { MediaSrc } from '../campaign/interactive/media-src';
-import { ArToasts, AutoRepliesApi, Media, VARIABLES } from './auto-replies.api';
+import {
+  ArToasts,
+  AutoRepliesApi,
+  Language,
+  Media,
+  Translations,
+  VARIABLES,
+} from './auto-replies.api';
 
 /** Per-instance id counter, so a label can point at a control it does not own. */
 let seq = 0;
@@ -612,5 +619,123 @@ export class ArVariants {
 
   protected remove(i: number): void {
     this.value.set(this.value().filter((_, j) => j !== i));
+  }
+}
+
+/**
+ * The same reply in other languages. The server reads which language a customer writes in and sends the
+ * matching text; any language not listed gets the main reply.
+ */
+@Component({
+  selector: 'ar-translations',
+  imports: [ArText],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: ` @for (code of codes(); track code) {
+      <div class="row enter">
+        <span class="lang">{{ labelOf(code) }}</span>
+        <ar-text
+          [rows]="2"
+          [value]="value()[code]"
+          (valueChange)="set(code, $event)"
+          [ariaLabel]="'Reply in ' + labelOf(code)"
+          placeholder="The same reply in this language"
+        />
+        <button
+          type="button"
+          class="rm"
+          [attr.aria-label]="'Remove ' + labelOf(code)"
+          (click)="remove(code)"
+        >
+          <i class="ti ti-x" aria-hidden="true"></i>
+        </button>
+      </div>
+    }
+    @if (left().length) {
+      <label class="add">
+        <i class="ti ti-language" aria-hidden="true"></i>
+        <select #pick (change)="add(pick.value); pick.value = ''" aria-label="Add a language">
+          <option value="">Reply in another language…</option>
+          @for (l of left(); track l.code) {
+            <option [value]="l.code">{{ l.label }}</option>
+          }
+        </select>
+      </label>
+    }`,
+  styles: `
+    :host {
+      display: grid;
+      gap: var(--space-sm);
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 110px 1fr auto;
+      gap: 8px;
+      align-items: start;
+      @media (max-width: 560px) {
+        grid-template-columns: 1fr auto;
+        .lang {
+          grid-column: 1 / -1;
+        }
+      }
+    }
+    .lang {
+      margin-top: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-strong);
+    }
+    .rm {
+      display: grid;
+      place-items: center;
+      margin-top: 7px;
+      border: 0;
+      background: transparent;
+      color: var(--text-muted);
+      border-radius: 8px;
+      padding: 5px;
+    }
+    .rm:hover {
+      color: var(--danger-text);
+      background: color-mix(in srgb, var(--danger) 10%, transparent);
+    }
+    .add {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      justify-self: start;
+      color: var(--text-muted);
+      .ti {
+        font-size: 16px;
+      }
+      select {
+        width: auto;
+      }
+    }
+  `,
+})
+export class ArTranslations {
+  readonly value = model<Translations>({});
+  readonly languages = input<readonly Language[]>([]);
+
+  protected readonly codes = computed(() => Object.keys(this.value()));
+  protected readonly left = computed(() =>
+    this.languages().filter((l) => !(l.code in this.value())),
+  );
+
+  protected labelOf(code: string): string {
+    return this.languages().find((l) => l.code === code)?.label ?? code;
+  }
+
+  protected add(code: string): void {
+    if (code) this.value.set({ ...this.value(), [code]: '' });
+  }
+
+  protected set(code: string, text: string): void {
+    this.value.set({ ...this.value(), [code]: text });
+  }
+
+  protected remove(code: string): void {
+    const { [code]: _, ...rest } = this.value();
+    this.value.set(rest);
   }
 }

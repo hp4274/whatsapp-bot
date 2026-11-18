@@ -91,6 +91,75 @@
   gap: 8px;
 
   .btn { flex: none; min-height: 44px; }
+  > input { flex: 1; min-width: 0; }
+}
+
+/* The attach button and its menu (what a customer can send besides text). */
+.attach { position: relative; flex: none; }
+.attach .btn.icon { width: 44px; padding: 0; justify-content: center; }
+.attach-menu {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 6px);
+  left: 0;
+  display: grid;
+  min-width: 210px;
+  padding: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-lift);
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 40px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-color);
+    font: inherit;
+    font-size: 13.5px;
+    text-align: left;
+    cursor: pointer;
+
+    .ti { font-size: 18px; color: var(--text-muted); }
+    &:hover, &:focus-visible { background: var(--surface-sunken); color: var(--text-strong); outline: none; }
+  }
+}
+
+.att-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  font-size: 13px;
+  color: var(--text-muted);
+
+  img { width: 36px; height: 36px; border-radius: 6px; object-fit: cover; }
+  > .ti { font-size: 20px; color: var(--text-strong); }
+  strong { font-weight: 500; color: var(--text-strong); margin-right: 4px; }
+  .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .x {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+
+    &:hover { background: var(--surface-card); color: var(--text-strong); }
+    &:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+  }
 }
 
 .two {

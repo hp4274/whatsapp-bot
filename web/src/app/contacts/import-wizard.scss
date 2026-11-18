@@ -5,6 +5,7 @@
 @include s.buttons;
 @include s.advanced;
 @include s.banner;
+@include s.seg;
 @include k.dialog(760px);
 @include k.tag;
 @include k.tag-editor;
@@ -277,4 +278,14 @@
 @media (prefers-reduced-motion: reduce) {
   .drop:hover, .drop.over { transform: none; }
   .stack, .drop.over .stack { transform: none; }
+}
+
+/* Paste numbers --------------------------------------------------------- */
+.mode { justify-self: start; margin-bottom: 4px; }
+.paste {
+  display: grid;
+  gap: 8px;
+  label { font-size: 13px; font-weight: 500; color: var(--text-strong); }
+  textarea { width: 100%; min-height: 160px; resize: vertical; font-family: var(--font-mono); font-size: 13px; }
+  .check li .ti-circle-check { color: var(--success); }
 }

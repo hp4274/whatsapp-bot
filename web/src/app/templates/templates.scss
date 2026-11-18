@@ -127,9 +127,13 @@ code {
     font-size: 17px;
     font-weight: 500;
     color: var(--text-strong);
+    // Two lines, not one: names often share a prefix ("Payment reminder - ...") and must stay tellable apart.
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
   span { font-size: 12px; color: var(--hint); }
 }
@@ -262,6 +266,10 @@ code {
     box-shadow: var(--shadow-card);
 
     b { color: var(--text-strong); }
+  }
+  // Two tiles a row on a phone: drop the icon so "Authentication" reads in full.
+  @media (max-width: 480px) {
+    .ti { display: none; }
   }
 }
 
@@ -639,4 +647,65 @@ textarea { resize: vertical; line-height: 1.5; }
 
 @media (prefers-reduced-motion: reduce) {
   .starter:hover { transform: none; }
+}
+
+// "Preview as a contact" under the phone: a search, its matches, and what is missing.
+.as-contact {
+  display: grid;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+
+  > label { font-size: 13px; font-weight: 500; color: var(--text-muted); }
+}
+
+.as-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+
+  > .ti { color: var(--text-muted); }
+  > input { flex: 1; min-width: 0; border: 0; background: transparent; padding: var(--space-sm) 0; color: var(--text-color); }
+  > input:focus { outline: none; }
+  &:focus-within { border-color: var(--primary); }
+}
+
+.as-matches {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-xs);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+
+  button {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    width: 100%;
+    padding: var(--space-xs) var(--space-sm);
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-color);
+    text-align: left;
+    cursor: pointer;
+
+    &:hover, &:focus-visible { background: var(--primary-tint); }
+    small { color: var(--text-muted); }
+  }
+}
+
+.as-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+
+  &.tone-warn { color: var(--warning); }
+  &.tone-bad { color: var(--danger-text); }
 }

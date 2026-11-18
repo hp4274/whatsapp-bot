@@ -75,4 +75,11 @@ CREATE TABLE IF NOT EXISTS faq_misses (
     UNIQUE (tenant_id, text)
 );
 CREATE INDEX IF NOT EXISTS idx_faq_misses_tenant ON faq_misses(tenant_id, count DESC, id);
+
+-- What happens when nothing answers (store.js FAQ_SETTINGS): one JSON row per business.
+CREATE TABLE IF NOT EXISTS faq_settings (
+    tenant_id  INTEGER PRIMARY KEY,
+    settings   TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL
+);
 `;

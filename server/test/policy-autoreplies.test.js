@@ -9,9 +9,11 @@ import { after, before, describe, it } from 'node:test';
 import { closeApp } from '../src/app.js';
 import { AutoReplyEngine } from '../src/autoreply/engine.js';
 import { processOptOut } from '../src/autoreply/optout.js';
-import { AutoReplyStore } from '../src/autoreply/store.js';
+import { effectiveSettings, ruleRefusal } from '../src/autoreply/policy.js';
+import { tenantSentSince } from '../src/policy/campaignOps.js';
+import { AutoReplyStore, DEFAULT_SETTINGS } from '../src/autoreply/store.js';
 import { Database } from '../src/db.js';
-import { createTestApp } from './helpers.js';
+import { createTestApp, sessionFor } from './helpers.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-policy-ar-'));
 let seq = 0;
@@ -49,6 +51,68 @@ describe('kinds skipped at match time', () => {
         const ok = setup({});
         ok.store.save(menuRule);
         assert.equal((await ok.inbound('menu')).length, 1);
+    });
+});
+
+describe('feature switches and business settings', () => {
+    it('a switched-off feature stops its rules; system replies follow the plan', async () => {
+        const t = setup({ 'autoReplies.allowIntents': false, 'autoReplies.allowQuestions': false, 'autoReplies.allowFallback': false });
+        t.store.save({ matchType: 'INTENT', keywords: ['price'], replyBody: 'Rs 99' });
+        t.store.save({ matchType: 'ANY_OF', keywords: ['book'], replyBody: 'Sure', collect: { questions: [{ key: 'name', question: 'Name?', type: 'name' }] } });
+        t.store.save({ matchType: 'ANY_OF', keywords: ['price'], synonyms: true, replyBody: 'plain' });
+        t.store.saveSettings({ fallback: { enabled: true, text: 'Sorry?', throttleHours: 0 } });
+        assert.equal((await t.inbound('how much')).length, 0, 'no intent, no synonyms, no fallback');
+        assert.equal((await t.inbound('book')).length, 0, 'questions off');
+        assert.deepEqual((await t.inbound('price')).map((j) => j.text), ['plain']);
+    });
+
+    it('translations off: the main reply, whatever the language', async () => {
+        const t = setup({ 'autoReplies.allowTranslations': false });
+        t.store.save({ matchType: 'ANY_OF', keywords: ['price'], replyBody: 'English', translations: { hinglish: 'Hinglish' } });
+        assert.deepEqual((await t.inbound('price kya hai')).map((j) => j.text), ['English']);
+    });
+
+    it('the business switch silences everything; its cap is the lower of the two', async () => {
+        const t = setup({ 'autoReplies.maxPerContactHour': 5 });
+        t.store.save({ matchType: 'CONTAINS', keywords: ['hi'], replyBody: 'hello' });
+        t.store.saveSettings({ enabled: false });
+        assert.equal((await t.inbound('hi')).length, 0);
+        t.store.saveSettings({ enabled: true, maxPerContactHour: 1 });
+        assert.equal((await t.inbound('hi')).length, 1);
+        assert.equal((await t.inbound('hi')).length, 0, 'the business cap of 1');
+    });
+
+    it('caps the pause, the handover and the delay at the plan', () => {
+        const s = effectiveSettings({ ...DEFAULT_SETTINGS, delaySec: 50, handoff: { ...DEFAULT_SETTINGS.handoff, pauseHours: 500 },
+            fallback: { ...DEFAULT_SETTINGS.fallback, handoffAfter: 9 } },
+        { 'autoReplies.maxPauseHours': 24, 'autoReplies.maxHandoffAfter': 3, 'autoReplies.maxDelaySec': 5, 'autoReplies.allowAway': false });
+        assert.equal(s.handoff.pauseHours, 24);
+        assert.equal(s.fallback.handoffAfter, 3);
+        assert.equal(s.delaySec, 5);
+        assert.equal(s.away.enabled, false);
+    });
+
+    it('refuses rules past the feature switches and limits', () => {
+        assert.match(ruleRefusal({ matchType: 'MESSAGE_TYPE', keywords: ['image'] }, { 'autoReplies.allowMessageTypes': false }), /Message-type/);
+        assert.match(ruleRefusal({ matchType: 'ANY_OF', variants: ['a', 'b', 'c'] }, { 'autoReplies.maxVariants': 2 }), /2 reply variants/);
+        assert.match(ruleRefusal({ matchType: 'ANY_OF', collect: { questions: [{}, {}] } }, { 'autoReplies.maxQuestions': 1 }), /1 questions/);
+        assert.match(ruleRefusal({ matchType: 'ANY_OF', translations: { hi: 'x' } }, { 'autoReplies.allowTranslations': false }), /other languages/);
+        assert.equal(ruleRefusal({ matchType: 'ANY_OF', translations: { hi: 'x' } }, {}), null);
+    });
+});
+
+describe('auto replies and the message quota', () => {
+    it('do not count toward the cap or quota unless the platform says so', () => {
+        const { db } = setup();
+        const add = (id, type) => db.db.prepare(`INSERT INTO messages (tenant_id, message_id, message_type, recipient, message, status, created_at, updated_at, sent_at)
+            VALUES (1, ?, ?, '919800000001', 'x', 'SENT', ?, ?, ?)`).run(id, type, MON_10AM.toISOString(), MON_10AM.toISOString(), MON_10AM.toISOString());
+        add('a1', 'auto_reply');
+        add('c1', 'campaign');
+        const since = '2026-10-01T00:00:00Z';
+        assert.equal(tenantSentSince(db.db, 1, since), 1, 'the campaign only');
+        db.db.prepare(`INSERT INTO platform_policy (scope, key, value, updated_at) VALUES ('global', 'autoReplies.countTowardQuota', 'true', ?)`)
+            .run(MON_10AM.toISOString());
+        assert.equal(tenantSentSince(db.db, 1, since), 2, 'switched on: both');
     });
 });
 
@@ -131,5 +195,24 @@ describe('policy HTTP', () => {
         app.locals.policy.set('global', { 'autoReplies.allowKeywords': false, 'autoReplies.maxRules': null });
         const kw = await call('POST', '/api/auto-replies', { matchType: 'EXACT', keywords: ['xxx'], replyBody: 'ok' });
         assert.match(kw.body.errors[0], /Keyword/);
+    });
+
+    it('will not switch on a system reply the plan leaves out', async () => {
+        app.locals.policy.set('global', { 'autoReplies.allowWelcome': false });
+        const r = await call('PUT', '/api/auto-replies/settings', { welcome: { enabled: true } });
+        assert.equal(r.status, 403);
+        assert.match(r.body.errors[0], /welcome/);
+        app.locals.policy.set('global', {});
+    });
+
+    it('shows a super admin each business\'s auto-reply usage, and nobody else', async () => {
+        const admin = sessionFor(app, { role: 'super_admin' });
+        const res = await fetch(`${base}/api/admin/auto-replies/usage`, { headers: { authorization: `Bearer ${admin}` } });
+        assert.equal(res.status, 200);
+        const { usage } = await res.json();
+        assert.equal(typeof usage[1].rules, 'number');
+        assert.equal(typeof usage[1].replies, 'number');
+        const owner = await call('GET', '/api/admin/auto-replies/usage');
+        assert.ok(owner.status === 401 || owner.status === 403);
     });
 });

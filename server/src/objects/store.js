@@ -174,9 +174,12 @@ export class ObjectStore {
             .all(...args, Math.min(Number(limit) || 100, LIST_MAX), Number(offset) || 0).map(toObject);
     }
 
-    count({ type, status, contactId, from, to, filter } = {}) {
+    /** `createdSince` counts by when a record was made (plan caps), not by its `occurs_at` like `from`. */
+    count({ type, status, contactId, from, to, filter, createdSince } = {}) {
         const { sql, args } = buildWhere({ type, status, contactId, from, to, filter }, this.tenantId);
-        return this.db.prepare(`SELECT COUNT(*) AS n FROM business_objects WHERE ${sql}`).get(...args).n;
+        const since = createdSince ? ' AND business_objects.created_at >= ?' : '';
+        return this.db.prepare(`SELECT COUNT(*) AS n FROM business_objects WHERE ${sql}${since}`)
+            .get(...args, ...(createdSince ? [iso(createdSince)] : [])).n;
     }
 
     /**

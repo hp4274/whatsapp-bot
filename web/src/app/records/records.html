@@ -15,10 +15,28 @@
         }
       </p>
     </div>
-    <button type="button" class="btn primary" (click)="openNew()" [disabled]="!spec()">
-      <i class="ti ti-plus" aria-hidden="true"></i> New {{ label().toLowerCase() }}
-    </button>
+    @if (!onWhatsApp()) {
+      <button type="button" class="btn primary" (click)="openNew()" [disabled]="!spec()">
+        <i class="ti ti-plus" aria-hidden="true"></i> New {{ label().toLowerCase() }}
+      </button>
+    }
   </header>
+
+  <!-- Orders and Appointments can also be taken on WhatsApp: the setup and what came in sit beside the records. -->
+  @if (shopMode(); as mode) {
+    <div class="views s-seg" role="tablist" [attr.aria-label]="pluralLabel() + ' views'">
+      <button type="button" role="tab" [attr.aria-selected]="!onWhatsApp()" (click)="view.set('list')">
+        <i class="ti ti-list" aria-hidden="true"></i> All {{ pluralLabel().toLowerCase() }}
+      </button>
+      <button type="button" role="tab" [attr.aria-selected]="onWhatsApp()" (click)="view.set('whatsapp')">
+        <i class="ti ti-brand-whatsapp" aria-hidden="true"></i> On WhatsApp
+      </button>
+    </div>
+  }
+
+  @if (onWhatsApp()) {
+    <app-shop [mode]="shopMode()!" />
+  } @else {
 
   @if (error()) {
     <div class="s-banner" role="alert">
@@ -28,6 +46,31 @@
         <i class="ti ti-refresh" aria-hidden="true"></i> Try again
       </button>
     </div>
+  }
+
+  @if (leadSettings(); as ls) {
+    <section class="s-card capture" aria-labelledby="capture-h">
+      <span class="badge" aria-hidden="true"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i></span>
+      <div class="grow">
+        <h3 id="capture-h">Make a lead from every new person who messages</h3>
+        <p>
+          @if (leadCaptureAllowed()) {
+            Their name, number and first message are saved here as a new lead, once per person.
+          } @else {
+            <i class="ti ti-lock" aria-hidden="true"></i> Not part of your plan. Add leads by hand.
+          }
+        </p>
+        @if (leadError()) {
+          <p class="err" role="alert">{{ leadError() }}</p>
+        }
+      </div>
+      <ar-switch
+        [checked]="ls.autoCapture && leadCaptureAllowed()"
+        [disabled]="leadSaving() || !leadCaptureAllowed()"
+        [label]="ls.autoCapture && leadCaptureAllowed() ? 'On' : 'Off'"
+        (checkedChange)="toggleAutoCapture($event)"
+      />
+    </section>
   }
 
   @if (spec() && !error()) {
@@ -98,6 +141,7 @@
             <thead>
               <tr>
                 <th scope="col">Reference</th>
+                <th scope="col">Customer</th>
                 @for (f of keyFields(); track f.name) {
                   <th scope="col" [class.num]="f.kind === 'number'">{{ f.label }}</th>
                 }
@@ -117,6 +161,16 @@
                 >
                   <td class="ref">
                     <span class="mono">{{ o.reference }}</span>
+                  </td>
+                  <td>
+                    @if (o.customer; as c) {
+                      {{ c.name || c.phone }}
+                      @if (c.name && c.phone) {
+                        <span class="muted"> · {{ c.phone }}</span>
+                      }
+                    } @else {
+                      —
+                    }
                   </td>
                   @for (f of keyFields(); track f.name) {
                     <td [class.num]="f.kind === 'number'">{{ display(o, f) }}</td>
@@ -139,6 +193,7 @@
       }
     }
   </div>
+  }
 </section>
 
 <!-- Drawer lives at the component root: no transformed ancestor may contain a fixed element. -->
@@ -172,7 +227,70 @@
         </div>
       }
 
+      @if (savedNote()) {
+        <p class="saved" role="status">
+          <i class="ti ti-circle-check" aria-hidden="true"></i> {{ savedNote() }}
+        </p>
+      }
+
       <div class="grid">
+        <div class="field wide customer">
+          <span class="lbl" id="cust-lbl">Customer</span>
+          @if (draftCustomer(); as c) {
+            <div class="picked">
+              <i class="ti ti-user" aria-hidden="true"></i>
+              <span class="grow"
+                >{{ c.name || c.phone }}
+                @if (c.name && c.phone) {
+                  <span class="muted"> · {{ c.phone }}</span>
+                }
+              </span>
+              <button
+                type="button"
+                class="btn ghost sm"
+                (click)="draftCustomer.set(null)"
+                [attr.aria-label]="'Remove customer ' + (c.name || c.phone)"
+              >
+                Change
+              </button>
+            </div>
+          } @else {
+            <input
+              type="search"
+              name="customerSearch"
+              [ngModel]="customerQuery()"
+              (ngModelChange)="searchCustomers($event)"
+              placeholder="Search contacts by name or number"
+              aria-labelledby="cust-lbl"
+              aria-controls="cust-results"
+              autocomplete="off"
+            />
+            @if (customerQuery().trim()) {
+              <div id="cust-results" class="results" aria-live="polite">
+                @if (customerSearching()) {
+                  <p class="muted">Searching…</p>
+                } @else if (customerError()) {
+                  <p class="err">{{ customerError() }}</p>
+                } @else if (!customerResults().length) {
+                  <p class="muted">No contact matches. Add them on the Contacts page first.</p>
+                } @else {
+                  <ul>
+                    @for (c of customerResults(); track c.id) {
+                      <li>
+                        <button type="button" (click)="pickCustomer(c)">
+                          <span>{{ c.name || c.phone }}</span>
+                          @if (c.name) {
+                            <span class="muted">{{ c.phone }}</span>
+                          }
+                        </button>
+                      </li>
+                    }
+                  </ul>
+                }
+              </div>
+            }
+          }
+        </div>
         <label class="field">
           <span class="lbl">Reference</span>
           @if (selected()) {

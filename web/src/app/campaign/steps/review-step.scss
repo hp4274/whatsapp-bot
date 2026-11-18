@@ -16,6 +16,8 @@
   .ti { align-self: center; font-size: 18px; color: var(--primary-text); }
   // The attachment's file name can be one long word.
   .muted { min-width: 0; overflow-wrap: anywhere; }
+  // Its Edit lines up with the message row's Edit below, at the right edge.
+  > .btn { margin-left: auto; align-self: center; }
 }
 
 // What goes out, in one line, with the way back to change it.

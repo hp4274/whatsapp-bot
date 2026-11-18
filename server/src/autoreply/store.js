@@ -8,7 +8,9 @@
 
 import { normalizeInteractive } from '../messaging/interactive.js';
 import { utcNow } from '../protocol.js';
-import { MATCH_TYPES, byPriority, ruleKeywords } from './match.js';
+import { INTENT_IDS } from './intents.js';
+import { LANGUAGE_CODES } from './language.js';
+import { MATCH_TYPES, MESSAGE_TYPES, byPriority, ruleKeywords } from './match.js';
 
 export const DAYS = Object.freeze(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
 export const SYSTEM_KEYS = Object.freeze(['welcome', 'away', 'fallback', 'handoff']);
@@ -25,6 +27,12 @@ export class AutoReplyError extends Error {
 const workday = { open: true, start: '09:00', end: '18:00' };
 export const DEFAULT_SETTINGS = Object.freeze({
     businessName: '',
+    // The business's own switch for all of its automatic replies (STOP is honoured either way).
+    enabled: true,
+    // Seconds to wait before replying, inside the platform's range (autoReplies.minDelaySec / maxDelaySec).
+    delaySec: 1,
+    // Automatic replies one contact may get in an hour; 0 = the platform's limit. Never above it.
+    maxPerContactHour: 0,
     welcome: {
         enabled: false,
         text: '{time_greeting} {first_name}! Welcome to {business_name|us}. Reply HELP to see what we can do for you.',
@@ -44,12 +52,25 @@ export const DEFAULT_SETTINGS = Object.freeze({
         text: "Sorry, I didn't catch that. Reply HELP to see the options, or AGENT to talk to a person.",
         media: null,
         throttleHours: 6,
+        // After this many fallbacks to one contact within an hour, the next miss hands over to a person (0 = never).
+        handoffAfter: 2,
+    },
+    // Which language replies go out in (see AutoReplyEngine #language).
+    language: {
+        mode: 'auto', // 'auto': the contact's choice, else what they write in; 'fixed': always `fixed`
+        fixed: 'en',
+        fallback: '', // the translation to use when there is none for the customer's language ('' = main reply)
+        mixed: 'mirror', // Hinglish/Gujlish: 'mirror' answers in kind, 'dominant' prefers Hindi/Gujarati
+        // A customer writing in a language no reply is in is told which ones we answer in (once a day).
+        askUnknown: true,
     },
     handoff: {
         enabled: false,
         keywords: ['agent', 'human', 'talk to a person'],
         text: 'Connecting you to a team member. Someone will reply here shortly.',
         media: null,
+        // The bot stays quiet this long after a handoff or after a person replies from the phone (0 = never pauses).
+        pauseHours: 2,
     },
 });
 
@@ -80,6 +101,7 @@ export class AutoReplyStore {
         const config = JSON.stringify({
             keywords: rule.keywords, variants: rule.variants, media: rule.media, interactive: rule.interactive,
             menu: rule.menu, schedule: rule.schedule, audience: rule.audience, actions: rule.actions,
+            synonyms: rule.synonyms, typos: rule.typos, translations: rule.translations, collect: rule.collect,
         });
         const row = {
             keyword: rule.keywords[0] ?? '',
@@ -145,15 +167,19 @@ export class AutoReplyStore {
         const row = this.db.prepare('SELECT * FROM autoreply_sessions WHERE tenant_id = ? AND channel_id = ? AND phone = ?')
             .get(this.tenantId, this.channelId, String(phone));
         if (!row || row.expires_at <= now.toISOString()) return null;
-        return { ruleId: row.rule_id, path: parse(row.path, []), expiresAt: row.expires_at };
+        // `path` holds a menu path (array) or, for a rule asking questions, { flow: { step, tries, answers } }.
+        const path = parse(row.path, []);
+        return Array.isArray(path)
+            ? { ruleId: row.rule_id, path, expiresAt: row.expires_at }
+            : { ruleId: row.rule_id, path: [], flow: path.flow ?? null, expiresAt: row.expires_at };
     }
 
-    setSession(phone, { ruleId, path = [] }, now = new Date()) {
+    setSession(phone, { ruleId, path = [], flow = null }, now = new Date()) {
         const expiresAt = new Date(now.getTime() + SESSION_MINUTES * 60_000).toISOString();
         this.db.prepare(`INSERT INTO autoreply_sessions (tenant_id, channel_id, phone, rule_id, path, expires_at) VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(tenant_id, channel_id, phone) DO UPDATE SET rule_id = excluded.rule_id, path = excluded.path, expires_at = excluded.expires_at`)
-            .run(this.tenantId, this.channelId, String(phone), Number(ruleId), JSON.stringify(path), expiresAt);
-        return { ruleId: Number(ruleId), path, expiresAt };
+            .run(this.tenantId, this.channelId, String(phone), Number(ruleId), JSON.stringify(flow ? { flow } : path), expiresAt);
+        return { ruleId: Number(ruleId), path, flow, expiresAt };
     }
 
     clearSession(phone) {
@@ -167,6 +193,42 @@ export class AutoReplyStore {
             .run(this.tenantId, this.channelId, String(key), String(phone), now.toISOString());
     }
 
+    // ---------------------------------------------------------------- log --
+    /** One line of the Activity log. `outcome`: replied | failed | skipped | none. Lines older than `keepDays` (the platform's autoReplies.logDays) go. */
+    log({ phone, inbound = '', outcome, rule = '', detail = '' }, now = new Date(), keepDays = 30) {
+        this.db.prepare(`INSERT INTO autoreply_log (tenant_id, channel_id, phone, inbound, outcome, rule, detail, at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(this.tenantId, this.channelId, String(phone), String(inbound ?? '').slice(0, 500), outcome,
+                String(rule ?? '').slice(0, 120), String(detail ?? '').slice(0, 500), now.toISOString());
+        this.db.prepare('DELETE FROM autoreply_log WHERE tenant_id = ? AND at < ?')
+            .run(this.tenantId, new Date(now.getTime() - Math.max(1, Number(keepDays) || 30) * 86_400_000).toISOString());
+    }
+
+    /** For the super admin: rules (active of all), replies sent and failures since `since`, every number. */
+    usage(since) {
+        const at = since.toISOString();
+        const rules = this.db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(is_active), 0) AS active FROM auto_replies WHERE tenant_id = ?').get(this.tenantId);
+        const one = (sql) => this.db.prepare(sql).get(this.tenantId, at).n;
+        return {
+            rules: rules.n,
+            activeRules: rules.active,
+            replies: one("SELECT COUNT(*) AS n FROM autoreply_hits WHERE tenant_id = ? AND at >= ? AND rule_key != 'miss'"),
+            failed: one("SELECT COUNT(*) AS n FROM autoreply_log WHERE tenant_id = ? AND at >= ? AND outcome = 'failed'"),
+        };
+    }
+
+    /** The newest Activity log lines, every number of the business; `outcome` narrows it. */
+    recentLog({ limit = 100, outcome = null } = {}) {
+        const n = Math.min(500, Math.max(1, Number(limit) || 100));
+        const rows = outcome
+            ? this.db.prepare('SELECT * FROM autoreply_log WHERE tenant_id = ? AND outcome = ? ORDER BY id DESC LIMIT ?').all(this.tenantId, String(outcome), n)
+            : this.db.prepare('SELECT * FROM autoreply_log WHERE tenant_id = ? ORDER BY id DESC LIMIT ?').all(this.tenantId, n);
+        return rows.map((r) => ({
+            id: r.id, channelId: r.channel_id || null, phone: r.phone, inbound: r.inbound, outcome: r.outcome,
+            rule: r.rule, detail: r.detail, at: r.at,
+        }));
+    }
+
     /** When this number last got this reply on this channel, or null. */
     lastHit(key, phone) {
         const row = this.db.prepare(`SELECT MAX(at) AS at FROM autoreply_hits
@@ -175,11 +237,151 @@ export class AutoReplyStore {
         return row?.at ? new Date(row.at) : null;
     }
 
-    /** Auto-replies sent to this number on this channel since `since` (loop protection). */
+    /** Replies with one of these keys sent to this number on this channel since `since`. */
+    keyHitsSince(keys, phone, since) {
+        if (!keys.length) return 0;
+        return this.db.prepare(`SELECT COUNT(*) AS n FROM autoreply_hits
+            WHERE tenant_id = ? AND channel_id = ? AND phone = ? AND at >= ? AND rule_key IN (${keys.map(() => '?').join(', ')})`)
+            .get(this.tenantId, this.channelId, String(phone), since.toISOString(), ...keys.map(String)).n;
+    }
+
+    /** The texts of this contact's last messages on this channel, newest first. */
+    recentInbound(phone, limit = 5) {
+        return this.db.prepare(`SELECT body FROM inbound_messages WHERE tenant_id = ? AND COALESCE(channel_id, 0) = ? AND sender = ?
+            ORDER BY id DESC LIMIT ?`).all(this.tenantId, this.channelId, String(phone), limit).map((r) => r.body ?? '');
+    }
+
+    /**
+     * Auto-replies sent to this number on this channel since `since` (loop protection). 'miss' marks no reply;
+     * answers to our own questions and menus (flow:, menu:) are bounded by those and do not count.
+     */
     hitsSince(phone, since) {
         return this.db.prepare(`SELECT COUNT(*) AS n FROM autoreply_hits
-            WHERE tenant_id = ? AND channel_id = ? AND phone = ? AND at >= ?`)
+            WHERE tenant_id = ? AND channel_id = ? AND phone = ? AND at >= ? AND rule_key != 'miss'
+              AND rule_key NOT LIKE 'flow:%' AND rule_key NOT LIKE 'menu:%'`)
             .get(this.tenantId, this.channelId, String(phone), since.toISOString()).n;
+    }
+
+    /**
+     * The Reports tab: what customers sent since `since`, what answered them, what nothing answered, and where they
+     * left a menu or a rule's questions part-way. Every number of the business. `timeZone` buckets days and hours.
+     *
+     * - "Answered" is an incoming message something replied to (`inbound_messages.replied_rule`: the keyword, FAQ,
+     *   HELP, a menu pick...). A message while a person had the chat is not answered by the bot, and counts as not.
+     * - "Left part-way" is a menu or question session that expired: a finished one is deleted (clearSession), so an
+     *   expired row is someone who stopped answering. Only each contact's latest session is kept, so it undercounts.
+     */
+    report(since, now = new Date(), timeZone = 'UTC') {
+        const at = since.toISOString();
+        const inbound = this.db.prepare(`SELECT sender, body, replied_rule, received_at FROM inbound_messages
+            WHERE tenant_id = ? AND received_at >= ?`).all(this.tenantId, at);
+        const rules = this.list();
+        const byId = new Map(rules.map((r) => [r.id, r]));
+        const byKeyword = new Map(rules.flatMap((r) => ruleKeywords(r).map((k) => [String(k).toLowerCase(), r])));
+
+        let fmt;
+        try {
+            fmt = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' });
+        } catch {
+            fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' });
+        }
+        const local = (iso) => {
+            const p = Object.fromEntries(fmt.formatToParts(new Date(iso)).map((x) => [x.type, x.value]));
+            return { day: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour) % 24 };
+        };
+
+        const days = new Map();
+        const hours = Array(24).fill(0);
+        const answeredBy = new Map();
+        let answered = 0;
+        for (const m of inbound) {
+            const { day, hour } = local(m.received_at);
+            const d = days.get(day) ?? { date: day, answered: 0, unanswered: 0 };
+            if (m.replied_rule) {
+                d.answered += 1;
+                answered += 1;
+                const hit = answeredBy.get(m.replied_rule) ?? { key: m.replied_rule, uses: 0, customers: new Set() };
+                hit.uses += 1;
+                hit.customers.add(m.sender);
+                answeredBy.set(m.replied_rule, hit);
+            } else {
+                d.unanswered += 1;
+            }
+            days.set(day, d);
+            hours[hour] += 1;
+        }
+
+        // Every day in the range, quiet ones included, so the chart does not skip.
+        const byDay = [];
+        for (let t = new Date(since); t <= now; t = new Date(t.getTime() + 86_400_000)) {
+            const { day } = local(t.toISOString());
+            if (!byDay.some((d) => d.date === day)) byDay.push(days.get(day) ?? { date: day, answered: 0, unanswered: 0 });
+        }
+
+        const hot = [...answeredBy.values()]
+            .map((h) => ({ key: h.key, ...this.#answerLabel(h.key, byKeyword), uses: h.uses, customers: h.customers.size }))
+            .sort((a, b) => b.uses - a.uses).slice(0, 10);
+
+        const unanswered = this.db.prepare(`SELECT LOWER(TRIM(inbound)) AS text, COUNT(*) AS count, COUNT(DISTINCT phone) AS customers, MAX(at) AS lastAt
+            FROM autoreply_log WHERE tenant_id = ? AND at >= ? AND outcome = 'none' AND TRIM(inbound) != ''
+            GROUP BY LOWER(TRIM(inbound)) ORDER BY count DESC, lastAt DESC LIMIT 10`).all(this.tenantId, at);
+
+        const left = new Map();
+        for (const s of this.db.prepare(`SELECT rule_id, path FROM autoreply_sessions
+            WHERE tenant_id = ? AND expires_at >= ? AND expires_at <= ?`).all(this.tenantId, at, now.toISOString())) {
+            const rule = byId.get(s.rule_id);
+            const path = parse(s.path, []);
+            const step = Array.isArray(path) ? null : Number(path.flow?.step ?? 0);
+            const where = step === null
+                ? `Menu, level ${path.length + 1}`
+                : `Question ${step + 1}: ${rule?.collect?.questions?.[step]?.question ?? ''}`.replace(/: $/, '');
+            const key = `${s.rule_id}|${where}`;
+            const row = left.get(key) ?? { ruleId: s.rule_id, rule: rule ? (rule.name || ruleKeywords(rule)[0] || `Rule ${rule.id}`) : 'A deleted rule', where, count: 0 };
+            row.count += 1;
+            left.set(key, row);
+        }
+
+        const hits = (key) => this.db.prepare('SELECT COUNT(*) AS n FROM autoreply_hits WHERE tenant_id = ? AND at >= ? AND rule_key = ?')
+            .get(this.tenantId, at, key).n;
+        const messages = inbound.length;
+        return {
+            totals: {
+                messages,
+                answered,
+                unanswered: messages - answered,
+                answerRate: messages ? Math.round((answered / messages) * 100) : 0,
+                customers: new Set(inbound.map((m) => m.sender)).size,
+                handoffs: hits('handoff'),
+                leftPartWay: [...left.values()].reduce((n, r) => n + r.count, 0),
+                failed: this.db.prepare("SELECT COUNT(*) AS n FROM autoreply_log WHERE tenant_id = ? AND at >= ? AND outcome = 'failed'").get(this.tenantId, at).n,
+            },
+            byDay,
+            hours,
+            hot,
+            unanswered,
+            leftPartWay: [...left.values()].sort((a, b) => b.count - a.count).slice(0, 10),
+        };
+    }
+
+    /**
+     * What `inbound_messages.replied_rule` names, for people: { label, kind, rule? }. It holds a rule's keyword, an
+     * engine source (welcome, menu, flow...), `faq:<id>`, `help`, or a module tag (`shop:menu`, `school:fees`).
+     */
+    #answerLabel(key, byKeyword) {
+        const SYSTEM = {
+            welcome: 'Welcome message', away: 'Away message', fallback: 'Default fallback', handoff: 'Human handoff',
+            menu: 'Menu choice', flow: 'Answer to a question', schedule: 'Outside-hours reply', help: 'HELP list',
+        };
+        if (SYSTEM[key]) return { label: SYSTEM[key], kind: 'system' };
+        const faq = /^faq:(d+)$/.exec(key);
+        if (faq) {
+            const row = this.db.prepare('SELECT question FROM faq_items WHERE id = ? AND tenant_id = ?').get(Number(faq[1]), this.tenantId);
+            return { label: row?.question || 'A deleted FAQ answer', kind: 'faq' };
+        }
+        const mod = /^(shop|school):(.+)$/.exec(key);
+        if (mod) return { label: mod[2].toUpperCase(), kind: mod[1] === 'shop' ? 'orders' : 'school' };
+        const rule = byKeyword.get(String(key).toLowerCase());
+        return { label: key, kind: 'keyword', rule: rule ? rule.name || null : null };
     }
 
     /** { key: { hits, lastTriggeredAt, today, week } } for every key with hits. `dayStart` is local midnight. */
@@ -238,6 +440,11 @@ function toRule(row) {
         schedule: config.schedule ?? null,
         audience: config.audience ?? { type: 'all' },
         actions: { stop: true, ...(config.actions ?? {}) },
+        synonyms: Boolean(config.synonyms),
+        // On unless switched off: rules saved before the option existed forgive typos too.
+        typos: config.typos !== false,
+        translations: config.translations ?? {},
+        collect: config.collect ?? null,
         isActive: Boolean(row.is_active),
         cooldownSec: row.cooldown_sec ?? 0,
         createdAt: row.created_at,
@@ -318,6 +525,37 @@ function validZone(zone) {
     }
 }
 
+/** { languageCode: text } for the languages the editor offers; empty texts dropped. */
+function cleanTranslations(input) {
+    if (!input || typeof input !== 'object') return {};
+    return Object.fromEntries(Object.entries(input)
+        .filter(([code, text]) => LANGUAGE_CODES.includes(code) && str(text))
+        .map(([code, text]) => [code, str(text)]));
+}
+
+export const COLLECT_TYPES = Object.freeze(['text', 'name', 'phone', 'email', 'number', 'language']);
+
+/** Questions a rule asks one by one after its reply; each answer lands in a contact field. Null when none. */
+function cleanCollect(input) {
+    const questions = (Array.isArray(input?.questions) ? input.questions : []).slice(0, 8).map((q) => ({
+        key: str(q?.key, 60).toLowerCase().replace(/[^\w]+/g, '_').replace(/^_+|_+$/g, ''),
+        question: str(q?.question, 1000),
+        type: COLLECT_TYPES.includes(q?.type) ? q.type : 'text',
+        options: q?.type === 'language' ? languageOptions(q.options) : undefined,
+    }))
+        // The chosen language is the contact's `language` field: what the engine reads as their preference.
+        .map((q) => (q.type === 'language' ? { ...q, key: 'language' } : q))
+        .filter((q) => q.key && q.question);
+    return questions.length
+        ? { questions, doneReply: str(input.doneReply), doneTranslations: cleanTranslations(input.doneTranslations) }
+        : null;
+}
+
+function languageOptions(list) {
+    const codes = [...new Set((Array.isArray(list) ? list : []).filter((c) => LANGUAGE_CODES.includes(c)))].slice(0, 10);
+    return codes.length ? codes : ['en', 'hi', 'gu'];
+}
+
 function cleanAudience(audience) {
     const type = ['all', 'new', 'tag'].includes(audience?.type) ? audience.type : 'all';
     return type === 'tag' ? { type, tag: str(audience.tag, 60).toLowerCase() } : { type };
@@ -341,6 +579,10 @@ export function cleanRule(input = {}) {
         schedule: cleanSchedule(input.schedule),
         audience: cleanAudience(input.audience),
         actions: cleanActions(input.actions),
+        synonyms: Boolean(input.synonyms),
+        typos: input.typos !== false,
+        translations: cleanTranslations(input.translations),
+        collect: cleanCollect(input.collect),
         isActive: input.isActive === undefined && input.is_active === undefined ? true : Boolean(input.isActive ?? input.is_active),
     };
 }
@@ -368,6 +610,9 @@ export function validateRule(input = {}) {
     if (!rule.variants.length && !rule.media) errors.push('replyBody is required');
     if (rule.interactive && !rule.variants.length) errors.push('a reply with buttons or a list needs message text');
     if (rule.audience.type === 'tag' && !rule.audience.tag) errors.push('choose the tag this rule is for');
+    if (rule.matchType === 'INTENT' && rule.keywords.some((k) => !INTENT_IDS.includes(k))) errors.push(`intent must be one of ${INTENT_IDS.join(', ')}`);
+    if (rule.matchType === 'MESSAGE_TYPE' && rule.keywords.some((k) => !MESSAGE_TYPES.includes(k))) errors.push(`message type must be one of ${MESSAGE_TYPES.join(', ')}`);
+    if (rule.collect && (rule.interactive || rule.actions.escalate)) errors.push('a rule that asks questions cannot also show a menu or hand over to a person');
     return errors.length ? { errors } : rule;
 }
 
@@ -375,7 +620,9 @@ export function validateRule(input = {}) {
 function mergeSettings(base, patch) {
     const out = { ...base };
     for (const [key, value] of Object.entries(patch ?? {})) {
-        if (value && typeof value === 'object' && !Array.isArray(value) && base[key] && typeof base[key] === 'object' && !Array.isArray(base[key])) {
+        // Translations are sent whole: a language left out has been removed.
+        if (key === 'translations') out[key] = value ?? {};
+        else if (value && typeof value === 'object' && !Array.isArray(value) && base[key] && typeof base[key] === 'object' && !Array.isArray(base[key])) {
             out[key] = mergeSettings(base[key], value);
         } else if (value !== undefined) {
             out[key] = value;
@@ -393,17 +640,33 @@ function cleanSettings(s) {
     const hrs = (v, d) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Math.min(720, Number(v)) : d);
     return {
         businessName: str(s.businessName, 120),
-        welcome: { enabled: Boolean(s.welcome?.enabled), text: str(s.welcome?.text), media: cleanMedia(s.welcome?.media) },
+        enabled: s.enabled !== false,
+        delaySec: Math.min(120, Math.max(0, Number(s.delaySec ?? 1) || 0)),
+        maxPerContactHour: Math.min(1000, Math.max(0, Math.floor(Number(s.maxPerContactHour ?? 0)) || 0)),
+        welcome: { enabled: Boolean(s.welcome?.enabled), text: str(s.welcome?.text), media: cleanMedia(s.welcome?.media), translations: cleanTranslations(s.welcome?.translations) },
         away: {
             enabled: Boolean(s.away?.enabled), text: str(s.away?.text), media: cleanMedia(s.away?.media), hours,
+            translations: cleanTranslations(s.away?.translations),
             holidays: [...new Set((Array.isArray(s.away?.holidays) ? s.away.holidays : []).map(String).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))].sort(),
             throttleHours: hrs(s.away?.throttleHours, 12),
         },
-        fallback: { enabled: Boolean(s.fallback?.enabled), text: str(s.fallback?.text), media: cleanMedia(s.fallback?.media), throttleHours: hrs(s.fallback?.throttleHours, 0) },
+        fallback: {
+            enabled: Boolean(s.fallback?.enabled), text: str(s.fallback?.text), media: cleanMedia(s.fallback?.media),
+            throttleHours: hrs(s.fallback?.throttleHours, 0), translations: cleanTranslations(s.fallback?.translations),
+            handoffAfter: Math.min(20, Math.max(0, Math.floor(Number(s.fallback?.handoffAfter ?? 2)) || 0)),
+        },
+        language: {
+            mode: s.language?.mode === 'fixed' ? 'fixed' : 'auto',
+            fixed: LANGUAGE_CODES.includes(s.language?.fixed) ? s.language.fixed : 'en',
+            fallback: LANGUAGE_CODES.includes(s.language?.fallback) ? s.language.fallback : '',
+            mixed: s.language?.mixed === 'dominant' ? 'dominant' : 'mirror',
+            askUnknown: s.language?.askUnknown !== false,
+        },
         handoff: {
             enabled: Boolean(s.handoff?.enabled),
             keywords: [...new Set((Array.isArray(s.handoff?.keywords) ? s.handoff.keywords : []).map((k) => str(k, 60).toLowerCase()).filter(Boolean))].slice(0, 20),
-            text: str(s.handoff?.text), media: cleanMedia(s.handoff?.media),
+            text: str(s.handoff?.text), media: cleanMedia(s.handoff?.media), translations: cleanTranslations(s.handoff?.translations),
+            pauseHours: Math.min(720, Math.max(0, Number(s.handoff?.pauseHours ?? 2) || 0)),
         },
     };
 }

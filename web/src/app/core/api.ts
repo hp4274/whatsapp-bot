@@ -106,6 +106,7 @@ export interface PaymentReminder {
   remaining: string;
   remainingValue: number;
   dueDate: string;
+  invoiceId: string;
   message: string;
   finalMessage: string;
 }
@@ -114,6 +115,8 @@ export interface PaymentReminderImportResult {
   reminders: PaymentReminder[];
   errors: string[];
   duplicates: number;
+  /** Rows kept as dues (server/src/paymentDues.js): new, updated, or left alone because already paid. */
+  saved: { created: number; updated: number; skipped: number };
 }
 
 export interface SafetyStatus {
@@ -971,6 +974,8 @@ export interface ChannelHealth {
   connecting: boolean;
   running: boolean;
   account: string;
+  /** Which app the linked phone runs, reported by WhatsApp at pairing; null until known. */
+  accountType?: 'business' | 'personal' | null;
   detail: string;
   error: string | null;
   withinSendingWindow: boolean;
@@ -1054,6 +1059,8 @@ export interface Channel {
   settings: AppConfig;
   capabilities: string[];
   timezone: string;
+  /** No zone chosen yet (reads as UTC): the shell fills in the browser's. */
+  timezoneAuto?: boolean;
   businessHours: BusinessHours | null;
   isDefault: boolean;
   createdAt: string;
@@ -1246,6 +1253,26 @@ export interface Segment {
   updatedAt: string;
 }
 
+/** POST /api/contacts/paste: counts, a sample, and `saved` once imported. */
+export interface PasteResult {
+  valid: number;
+  invalid: number;
+  duplicates: number;
+  existing: number;
+  new: number;
+  sample?: string[];
+  invalidSample?: string[];
+  saved?: { created: number; updated: number; failed: number };
+}
+
+/** Birthday greetings (server contactGreetings.js). */
+export interface GreetingSettings {
+  enabled: boolean;
+  /** The custom field that holds the date. */
+  field: string;
+  message: string;
+}
+
 export interface ContactList {
   contacts: Contact2[];
   total: number;
@@ -1410,6 +1437,25 @@ export class ContactsApi {
 
   deleteSegment(id: number): Observable<{ deleted: number }> {
     return this.http.delete<{ deleted: number }>(`/api/segments/${id}`).pipe(catchError(toMessage));
+  }
+
+  /** Numbers found in pasted text: a preview, or with `save` the import itself. */
+  paste(text: string, tags: string[] = [], save = false): Observable<PasteResult> {
+    return this.http
+      .post<PasteResult>('/api/contacts/paste', { text, tags, save })
+      .pipe(catchError(toMessage));
+  }
+
+  greetings(): Observable<{ settings: GreetingSettings; allowed: boolean }> {
+    return this.http
+      .get<{ settings: GreetingSettings; allowed: boolean }>('/api/contacts/greetings')
+      .pipe(catchError(toMessage));
+  }
+
+  saveGreetings(patch: Partial<GreetingSettings>): Observable<{ settings: GreetingSettings }> {
+    return this.http
+      .put<{ settings: GreetingSettings }>('/api/contacts/greetings', patch)
+      .pipe(catchError(toMessage));
   }
 
   importFile(

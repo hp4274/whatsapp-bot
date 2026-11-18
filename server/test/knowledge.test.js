@@ -21,7 +21,8 @@ import { Database } from '../src/db.js';
 import { KNOWLEDGE_SCHEMA } from '../src/knowledge/schema.js';
 import { KnowledgeError, KnowledgeStore } from '../src/knowledge/store.js';
 import { createKnowledgeRouter } from '../src/knowledge/routes.js';
-import { SIMILARITY_THRESHOLD, dice, matchFaq, normalizeText } from '../src/knowledge/matcher.js';
+import { SIMILARITY_THRESHOLD, dice, matchFaq, normalizeText, worthNoting } from '../src/knowledge/matcher.js';
+import { followUpMiss } from '../src/knowledge/miss.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-knowledge-'));
 let db;
@@ -332,7 +333,10 @@ describe('analytics', () => {
             question: 'how do i change my delivery address', answer: 'reply with the new one',
             matchType: 'SIMILARITY',
         });
-        assert.equal(faq.answer('delivery charges to kerala'), null, 'below threshold is a miss');
+        assert.equal(faq.answer('delivery charges to kerala', { synonyms: false }), null, 'below threshold is a miss');
+        assert.equal(faq.misses().some((row) => row.text === 'delivery charges to kerala'), false,
+            'answer() leaves the miss to the caller: the keyword engine may still answer');
+        assert.ok(faq.noteMiss('delivery charges to kerala'));
         assert.equal(faq.get(created.id).missCount, 1, 'the item that nearly answered wears the near-miss');
         assert.equal(faq.misses().some((row) => row.text === 'delivery charges to kerala'), true);
     });
@@ -467,5 +471,164 @@ describe('routes', () => {
         assert.equal(overview.body.similarityThreshold, SIMILARITY_THRESHOLD);
         assert.ok(Array.isArray(overview.body.items));
         assert.ok(Array.isArray(overview.body.categories));
+    });
+});
+
+// ---------------------------------------------------------------- 2026-11-18 --
+describe('synonyms (faq.allowSynonyms)', () => {
+    const price = item({ id: 1, question: 'What are your prices?' });
+    const hours = item({ id: 2, question: 'What are your opening hours?' });
+    const address = item({ id: 3, question: 'How do I change my delivery address?' });
+
+    it('finds the question by its Hinglish words', () => {
+        assert.equal(matchFaq('rate kya hai', [price, hours]).item.id, 1);
+        assert.equal(matchFaq('ye kitne ka hai bhai', [price, hours]).item.id, 1);
+        assert.equal(matchFaq('timing', [price, hours]).item.id, 2);
+        assert.equal(matchFaq('shop kab khulta hai', [price, hours]).item.id, 2);
+        assert.equal(matchFaq('kitne baje khulta hai', [price, hours]).item.id, 2, 'hours said more than price');
+        assert.equal(matchFaq('rate kya hai', [price]).level, 'synonym');
+    });
+
+    it('stays off when the rule is off, and does not guess on a half match', () => {
+        assert.equal(matchFaq('rate kya hai', [price], { synonyms: false }), null);
+        assert.equal(matchFaq('delivery charges to kerala', [address]), null);
+        assert.equal(matchFaq('hello there friend', [price, hours]), null, 'greetings are not synonyms');
+        assert.equal(matchFaq('rate kya hai', [item({ id: 4, question: 'price', matchType: 'EXACT' })]), null);
+    });
+});
+
+describe('honest misses', () => {
+    it('skips short messages and acknowledgements', () => {
+        for (const text of ['ok', 'thanks', 'thank you', '👍', 'hmm', 'k', 'ok thank you ji', 'ok 👍 thanks sir']) {
+            assert.equal(worthNoting(text), false, text);
+        }
+        assert.equal(worthNoting('do you take amex'), true);
+        const faq = store();
+        assert.equal(faq.noteMiss('ok thanks'), null);
+        assert.equal(faq.misses().some((row) => row.text === 'ok thanks'), false);
+    });
+
+    it('replies and alerts the owner once per contact an hour, as the business set', () => {
+        const faq = store(tenantB);
+        const sent = [];
+        const replied = [];
+        const state = {
+            knowledge: faq,
+            channel: { id: 1 },
+            db: { tenantId: tenantB, markInboundReplied: (id, why) => replied.push([id, why]) },
+            tenancy: { getTenant: () => ({ contactPhone: '+91 98765 43210' }) },
+            messages: {
+                send: (job) => {
+                    const dup = sent.some((s) => s.idempotencyKey === job.idempotencyKey);
+                    if (!dup) sent.push(job);
+                    return dup ? { accepted: false, reason: 'duplicate' } : { accepted: true };
+                },
+            },
+        };
+        const msg = (body, messageId) => ({ body, messageId, sender: '919000000001' });
+        const now = new Date('2026-11-18T10:05:00Z');
+
+        assert.deepEqual(followUpMiss(state, msg('do you sell gift cards', 'm1'), now),
+            { noted: true, replied: false, alerted: false }, 'default: silent, as before');
+        assert.equal(sent.length, 0);
+
+        faq.saveSettings({ missReply: 'We will get back to you soon.', alertOwner: true });
+        assert.deepEqual(followUpMiss(state, msg('do you sell gift vouchers', 'm2'), now),
+            { noted: true, replied: true, alerted: true });
+        assert.equal(sent.length, 2);
+        assert.equal(sent[0].recipient, '919000000001');
+        assert.equal(sent[1].recipient, '919876543210');
+        assert.deepEqual(replied, [['m2', 'faq:miss']]);
+
+        followUpMiss(state, msg('and can i return a gift', 'm3'), new Date('2026-11-18T10:50:00Z'));
+        assert.equal(sent.length, 2, 'same hour, same contact: nothing more');
+        assert.equal(followUpMiss(state, msg('ok thanks', 'm4'), now).noted, false);
+        assert.throws(() => faq.saveSettings({ missReply: 'x'.repeat(1001) }), (err) => err.status === 400);
+    });
+});
+
+describe('import and plan rules', () => {
+    let server;
+    let base;
+    const policy = {};
+
+    before(async () => {
+        db.db.prepare("INSERT INTO tenants (name, slug, status, created_at) VALUES ('C', 'faq-c', 'active', '2026-01-01T00:00:00+00:00')").run();
+        const tenantC = db.db.prepare("SELECT id FROM tenants WHERE slug = 'faq-c'").get().id;
+        const app = express();
+        app.use(express.json());
+        app.use(createKnowledgeRouter({
+            db: db.forTenant(tenantC),
+            state: { channel: null, broadcast: () => {}, platformPolicy: () => policy },
+        }));
+        server = app.listen(0);
+        await new Promise((resolve) => server.once('listening', resolve));
+        base = `http://127.0.0.1:${server.address().port}`;
+    });
+
+    after(() => server?.close());
+
+    const call = async (method, url, body) => {
+        const res = await fetch(`${base}${url}`, {
+            method,
+            headers: body ? { 'content-type': 'application/json' } : {},
+            body: body ? JSON.stringify(body) : undefined,
+        });
+        return { status: res.status, body: await res.json() };
+    };
+
+    it('imports up to faq.maxItems, files categories, skips repeats and reports the rest', async () => {
+        policy['faq.maxItems'] = 3;
+        const first = await call('POST', '/faq/import', {
+            items: [
+                { question: 'What are your timings?', answer: '9 to 9', category: 'Shop' },
+                { question: 'Where are you?', answer: '[your address]', category: 'shop', isActive: false },
+                { question: 'what are your TIMINGS', answer: 'dup' },
+                { question: 'no answer', answer: '' },
+                { question: 'Do you deliver?', answer: 'Yes' },
+                { question: 'Do you take UPI?', answer: 'Yes' },
+            ],
+        });
+        assert.equal(first.status, 201);
+        assert.deepEqual(first.body, { created: 3, duplicates: 1, invalid: 1, overLimit: 1, limit: 3 });
+        const all = (await call('GET', '/faq')).body;
+        assert.equal(all.categories.length, 1, 'Shop and shop are one category');
+        assert.equal(all.items.find((i) => i.question === 'Where are you?').isActive, false);
+
+        const full = await call('POST', '/faq/import', { items: [{ question: 'More?', answer: 'no' }] });
+        assert.equal(full.status, 403);
+        assert.match(full.body.errors[0], /allows 3/);
+        policy['faq.maxItems'] = 0;
+    });
+
+    it('refuses regex answers when faq.allowRegex is off', async () => {
+        policy['faq.allowRegex'] = false;
+        assert.equal((await call('POST', '/faq', { question: 'q1', answer: 'a', matchType: 'REGEX' })).status, 403);
+        assert.equal((await call('POST', '/faq/import', { items: [{ question: 'q2', answer: 'a', matchType: 'regex' }] })).status, 403);
+        const ok = await call('POST', '/faq', { question: 'q3', answer: 'a' });
+        assert.equal(ok.status, 201);
+        assert.equal((await call('PUT', `/faq/${ok.body.item.id}`, { matchType: 'REGEX' })).status, 403);
+        policy['faq.allowRegex'] = true;
+        assert.equal((await call('PUT', `/faq/${ok.body.item.id}`, { matchType: 'REGEX' })).status, 200);
+    });
+
+    it('reads a CSV of question, answer, category for the preview without saving it', async () => {
+        const form = new FormData();
+        form.append('file', new Blob(['Question,Answer,Category\n"Do you open on Sunday?","Yes, 10 to 2",Hours\n']), 'faq.csv');
+        const res = await fetch(`${base}/faq/import/file`, { method: 'POST', body: form });
+        const body = await res.json();
+        assert.equal(res.status, 200);
+        assert.deepEqual(body.items, [{ question: 'Do you open on Sunday?', answer: 'Yes, 10 to 2', category: 'Hours' }]);
+
+        const bare = new FormData();
+        bare.append('file', new Blob(['Do you deliver?,Yes\nUPI?,Yes\n']), 'plain.csv');
+        const rows = (await (await fetch(`${base}/faq/import/file`, { method: 'POST', body: bare })).json()).items;
+        assert.equal(rows.length, 2, 'no header row: the first line is a question too');
+    });
+
+    it('keeps the settings per business', async () => {
+        assert.deepEqual((await call('GET', '/faq/settings')).body.settings, { missReply: '', alertOwner: false });
+        const saved = await call('PUT', '/faq/settings', { missReply: '  Thanks, we will reply soon.  ', alertOwner: true });
+        assert.deepEqual(saved.body.settings, { missReply: 'Thanks, we will reply soon.', alertOwner: true });
     });
 });

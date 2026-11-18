@@ -20,8 +20,15 @@
 
     <div class="chat" role="log" aria-label="WhatsApp preview">
       @for (t of turns(); track $index) {
-        @if (t.incoming) {
-          <div class="out enter">
+        @if (t.incoming || t.attachment) {
+          <div class="out enter" [class.has-att]="!!t.attachment">
+            @if (t.attachment; as a) {
+              @if (a.url) {
+                <img class="att-img" [src]="a.url" [alt]="a.name" />
+              } @else {
+                <span class="att"><i class="ti ti-{{ a.icon }}" aria-hidden="true"></i>{{ a.name }}</span>
+              }
+            }
             {{ t.incoming
             }}<span class="tick"><i class="ti ti-checks" aria-hidden="true"></i></span>
           </div>

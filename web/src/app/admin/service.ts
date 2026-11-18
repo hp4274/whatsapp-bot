@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, linkedSignal, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
@@ -6,7 +6,7 @@ import { map } from 'rxjs';
 import { SchoolCatalog, SchoolProvisionResult, TenancyApi } from '../core/api';
 import { Tenant } from '../core/auth';
 import { Pager, pageOf } from '../core/pager';
-import { POLICY_SERVICES } from './policy-api';
+import { AutoReplyUsage, POLICY_SERVICES, PolicyApi, USAGE_SERVICES } from './policy-api';
 import { CampaignsOps } from './campaigns-ops';
 import { ChannelsOps } from './channels-ops';
 import { TemplateReview } from './template-review';
@@ -38,6 +38,7 @@ const STUDENT_EXAMPLE_ROW = '24,Aarav Mehta,10,A,Rakesh Mehta,Neha Mehta,9876512
 export class ServiceView {
   private readonly api = inject(TenancyApi);
   private readonly route = inject(ActivatedRoute);
+  private readonly policyApi = inject(PolicyApi);
   /** Pill labels are sentence case: "past_due" reads "Past due". */
   protected readonly sentence = sentenceCase;
   protected readonly key = toSignal(
@@ -48,6 +49,10 @@ export class ServiceView {
   protected readonly skeletonRows = SKELETON_ROWS;
   protected readonly loading = signal(true);
   protected readonly tenants = signal<Tenant[]>([]);
+  /** Auto replies only: each business's rules, replies and failures this week. */
+  protected readonly usage = signal<Record<number, AutoReplyUsage>>({});
+  /** The modules (Orders, FAQ, Tickets...): one usage line per business, e.g. "12 orders this month · 3 open". */
+  protected readonly usageLine = signal<Record<number, string>>({});
   protected readonly busyId = signal<number | null>(null);
   protected readonly error = signal('');
   protected readonly pageSize = PAGE_SIZE;
@@ -72,6 +77,16 @@ export class ServiceView {
 
   constructor() {
     this.refresh();
+    // Auto replies only: the usage line beside each business. A nicety, so the list still shows if it fails.
+    effect(() => {
+      const key = this.key();
+      this.usageLine.set({});
+      if (key === 'auto_replies') {
+        this.policyApi.autoReplyUsage().subscribe({ next: ({ usage }) => this.usage.set(usage), error: () => {} });
+      } else if (USAGE_SERVICES.includes(key)) {
+        this.policyApi.serviceUsage(key).subscribe({ next: ({ usage }) => this.usageLine.set(usage), error: () => {} });
+      }
+    });
     this.api.schoolCatalog().subscribe({
       next: (catalog) => {
         this.catalog.set(catalog);

@@ -1,0 +1,195 @@
+<!--
+  Reports. A range switch, six headline numbers, then: messages by day (answered vs not), when customers write,
+  hot keywords beside questions nothing answered, and where customers stopped part-way. Each chart has a table view.
+-->
+<div class="bar">
+  <div class="s-seg" role="group" aria-label="Report range">
+    @for (r of ranges; track r.days) {
+      <button type="button" [attr.aria-pressed]="days() === r.days" (click)="days.set(r.days)">Last {{ r.label }}</button>
+    }
+  </div>
+  @if (loading() && report()) {
+    <span class="muted small" aria-live="polite">Updating…</span>
+  }
+</div>
+
+@if (error()) {
+  <div class="s-banner" role="alert">
+    <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+    <span class="grow">Couldn't load the report: {{ error() }}</span>
+    <button class="link" type="button" (click)="load()">Try again</button>
+  </div>
+} @else if (loading() && !report()) {
+  <div class="skel" aria-busy="true" aria-label="Loading the report">
+    <div class="stats">
+      @for (n of [1, 2, 3, 4, 5, 6]; track n) {
+        <span class="sk tile"></span>
+      }
+    </div>
+    <span class="sk chart"></span>
+  </div>
+} @else if (report(); as r) {
+  @let t = r.totals;
+  <dl class="stats" aria-label="This period">
+    <div class="s-stat" style="--tone: var(--chart-1)">
+      <dt><small>Messages in</small></dt>
+      <dd><b>{{ t.messages }}</b><span class="sub">from {{ t.customers }} customer{{ t.customers === 1 ? '' : 's' }}</span></dd>
+    </div>
+    <div class="s-stat" style="--tone: var(--chart-1)">
+      <dt><small>Answered by the bot</small></dt>
+      <dd><b>{{ t.answerRate }}%</b><span class="sub">{{ t.answered }} messages</span></dd>
+    </div>
+    <div class="s-stat" style="--tone: var(--chart-2)">
+      <dt><small>Not answered</small></dt>
+      <dd><b>{{ t.unanswered }}</b><span class="sub">nothing matched, or a person had the chat</span></dd>
+    </div>
+    <div class="s-stat" style="--tone: var(--text-muted)">
+      <dt><small>Handed to a person</small></dt>
+      <dd><b>{{ t.handoffs }}</b><span class="sub">asked for a human, or stuck</span></dd>
+    </div>
+    <div class="s-stat" style="--tone: var(--text-muted)">
+      <dt><small>Left part-way</small></dt>
+      <dd><b>{{ t.leftPartWay }}</b><span class="sub">stopped in a menu or form</span></dd>
+    </div>
+    <div class="s-stat" style="--tone: var(--text-muted)">
+      <dt><small>Replies that failed</small></dt>
+      <dd><b>{{ t.failed }}</b><span class="sub">see Activity for why</span></dd>
+    </div>
+  </dl>
+
+  @if (!t.messages) {
+    <div class="s-card s-empty">
+      <i class="ti ti-chart-bar" aria-hidden="true"></i>
+      <strong>No messages in the last {{ r.days }} days</strong>
+      <p>When customers write to your number, this fills in: what they ask, what the bot answers, and where they stop.</p>
+    </div>
+  } @else {
+    <!-- Messages by day -->
+    <section class="s-card" aria-labelledby="rp-days">
+      <div class="card-head">
+        <h3 id="rp-days">Messages by day</h3>
+        <ul class="legend" aria-label="Legend">
+          <li><span class="sw one" aria-hidden="true"></span>Answered</li>
+          <li><span class="sw two" aria-hidden="true"></span>Not answered</li>
+        </ul>
+      </div>
+      <div class="chart days" [class.dense]="r.byDay.length > 31" role="img"
+        [attr.aria-label]="'Messages per day over the last ' + r.days + ' days; the table below has the numbers.'">
+        @for (d of r.byDay; track d.date; let i = $index) {
+          <div class="col" [title]="dayLabel(d.date) + ': ' + d.answered + ' answered, ' + d.unanswered + ' not answered'">
+            <div class="stack" [style.height.%]="pct(d.answered + d.unanswered, dayMax())">
+              @if (d.unanswered) {
+                <span class="seg two" [style.flex-grow]="d.unanswered"></span>
+              }
+              @if (d.answered) {
+                <span class="seg one" [style.flex-grow]="d.answered"></span>
+              }
+            </div>
+            <span class="x" [class.hide]="!showDayLabel(i, r.byDay.length)">{{ dayLabel(d.date) }}</span>
+          </div>
+        }
+      </div>
+      <details class="table-view">
+        <summary>Show as a table</summary>
+        <div class="s-table">
+          <table>
+            <thead><tr><th scope="col">Day</th><th scope="col" class="num">Answered</th><th scope="col" class="num">Not answered</th></tr></thead>
+            <tbody>
+              @for (d of r.byDay; track d.date) {
+                <tr><td>{{ dayLabel(d.date) }}</td><td class="num">{{ d.answered }}</td><td class="num">{{ d.unanswered }}</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+
+    <!-- When customers write -->
+    <section class="s-card" aria-labelledby="rp-hours">
+      <div class="card-head">
+        <h3 id="rp-hours">When customers write</h3>
+        @if (busiest(); as b) {
+          <span class="muted small">Busiest hour: <strong>{{ b }}</strong></span>
+        }
+      </div>
+      <div class="chart hours" role="img" [attr.aria-label]="'Messages by hour of the day; busiest ' + (busiest() ?? 'none') + '.'">
+        @for (n of r.hours; track $index; let h = $index) {
+          <div class="col" [title]="hourLabel(h) + ': ' + n + ' message' + (n === 1 ? '' : 's')">
+            <div class="stack" [style.height.%]="pct(n, hourMax())">
+              @if (n) {
+                <span class="seg one" [style.flex-grow]="1"></span>
+              }
+            </div>
+            <span class="x" [class.hide]="h % 6 !== 0">{{ h % 12 || 12 }}{{ h < 12 ? 'am' : 'pm' }}</span>
+          </div>
+        }
+      </div>
+    </section>
+
+    <div class="cols">
+      <!-- Hot keywords -->
+      <section class="s-card" aria-labelledby="rp-hot">
+        <h3 id="rp-hot"><i class="ti ti-flame" aria-hidden="true"></i> Hot keywords</h3>
+        <p class="lede">What answered customers most.</p>
+        <ol class="rank">
+          @for (h of r.hot; track h.key; let i = $index) {
+            <li>
+              <span class="n" aria-hidden="true">{{ i + 1 }}</span>
+              <div class="grow">
+                <div class="line">
+                  <strong [class.mono]="h.kind === 'keyword'">{{ h.label }}</strong>
+                  <span class="tag">{{ kind[h.kind] }}@if (h.rule) { · {{ h.rule }} }</span>
+                </div>
+                <span class="meter" aria-hidden="true"><span [style.width.%]="pct(h.uses, hotMax())"></span></span>
+              </div>
+              <span class="count"><b>{{ h.uses }}</b><small>{{ h.customers }} customer{{ h.customers === 1 ? '' : 's' }}</small></span>
+            </li>
+          } @empty {
+            <li class="none">Nothing was answered in this period.</li>
+          }
+        </ol>
+      </section>
+
+      <!-- Not answered -->
+      <section class="s-card" aria-labelledby="rp-miss">
+        <h3 id="rp-miss"><i class="ti ti-message-question" aria-hidden="true"></i> Asked, but nothing answered</h3>
+        <p class="lede">Add a reply for the ones that come up often.</p>
+        <ol class="rank">
+          @for (u of r.unanswered; track u.text) {
+            <li>
+              <div class="grow">
+                <div class="line"><strong class="quote">“{{ u.text }}”</strong></div>
+                <small class="muted">{{ u.count }} time{{ u.count === 1 ? '' : 's' }} · {{ u.customers }} customer{{ u.customers === 1 ? '' : 's' }} · last {{ ago(u.lastAt) }}</small>
+              </div>
+              <button type="button" class="btn sm" (click)="answer.emit(u.text)" [attr.aria-label]="'Add a reply for ' + u.text">
+                <i class="ti ti-plus" aria-hidden="true"></i> Add a reply
+              </button>
+            </li>
+          } @empty {
+            <li class="none"><i class="ti ti-circle-check" aria-hidden="true"></i> Everything customers asked got an answer.</li>
+          }
+        </ol>
+      </section>
+    </div>
+
+    <!-- Where customers left -->
+    <section class="s-card" aria-labelledby="rp-left">
+      <h3 id="rp-left"><i class="ti ti-door-exit" aria-hidden="true"></i> Where customers left</h3>
+      <p class="lede">They started a menu or a rule's questions and stopped answering. A step many people leave at usually needs a clearer question.</p>
+      @if (r.leftPartWay.length) {
+        <div class="s-table">
+          <table>
+            <thead><tr><th scope="col">Rule</th><th scope="col">Stopped at</th><th scope="col" class="num">People</th></tr></thead>
+            <tbody>
+              @for (l of r.leftPartWay; track l.ruleId + l.where; let i = $index) {
+                <tr [style.--i]="i"><td><strong>{{ l.rule }}</strong></td><td class="wrap">{{ l.where }}</td><td class="num">{{ l.count }}</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      } @else {
+        <p class="none"><i class="ti ti-circle-check" aria-hidden="true"></i> Nobody stopped part-way through a menu or form.</p>
+      }
+    </section>
+  }
+}

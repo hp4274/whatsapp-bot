@@ -360,6 +360,22 @@ describe('routing and windows', () => {
             { timezone: 'UTC', businessHours: { start: '09:00', end: '17:00', days: ['sat', 'sun'] } }, noonUtc), false,
         'Monday is not in a weekend-only window');
     });
+
+    it('a seeded number waits for the browser zone, and keeps it unset until one is given', () => {
+        const fresh = new Database(path.join(tmp, 'tz.db'));
+        try {
+            const channels = new Channels(fresh.forTenant(1));
+            const seeded = channels.seed({ ...DEFAULTS, transport: TRANSPORT_SANDBOX });
+            assert.equal(seeded.timezone, 'UTC', 'reads as UTC until set');
+            assert.equal(seeded.timezoneAuto, true);
+            assert.equal(channels.update(seeded.id, { displayName: 'Shop' }).timezoneAuto, true, 'other edits keep it unset');
+            const set = channels.update(seeded.id, { timezone: 'Asia/Kolkata' });
+            assert.equal(set.timezone, 'Asia/Kolkata');
+            assert.equal(set.timezoneAuto, false);
+        } finally {
+            fresh.close?.();
+        }
+    });
 });
 
 /** Business hours that are guaranteed to be closed at this instant, in UTC. */

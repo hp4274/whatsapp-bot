@@ -4,15 +4,113 @@
     <h2>Tickets</h2>
     <p>Every customer issue in one queue, with the SLA clock running on each.</p>
   </div>
-  <button
-    class="btn primary"
-    type="button"
-    (click)="startCreate()"
-    [attr.aria-expanded]="creating()"
-  >
-    <i class="ti ti-plus" aria-hidden="true"></i> New ticket
-  </button>
+  <div class="head-actions">
+    <button
+      class="btn"
+      type="button"
+      (click)="settingsOpen.set(!settingsOpen())"
+      [attr.aria-expanded]="settingsOpen()"
+      aria-controls="wa-settings"
+    >
+      <i class="ti ti-brand-whatsapp" aria-hidden="true"></i> WhatsApp settings
+    </button>
+    <button
+      class="btn primary"
+      type="button"
+      (click)="startCreate()"
+      [attr.aria-expanded]="creating()"
+    >
+      <i class="ti ti-plus" aria-hidden="true"></i> New ticket
+    </button>
+  </div>
 </header>
+
+<!-- WhatsApp settings -->
+@if (settingsOpen()) {
+  <section class="s-card wa-settings" id="wa-settings" aria-labelledby="wa-settings-title">
+    <h3 id="wa-settings-title">
+      <i class="ti ti-settings" aria-hidden="true"></i> Tickets from WhatsApp
+    </h3>
+    @if (settings(); as st) {
+      <div class="setting">
+        <div>
+          <b id="set-auto">Open a ticket from the chat</b>
+          <p class="muted" id="set-auto-hint">
+            When a customer asks for a person, or writes one of the words below. One open ticket per
+            customer; their next messages join it.
+          </p>
+          @if (!rules().autoCreate) {
+            <p class="s-banner tone-warn">
+              <i class="ti ti-info-circle" aria-hidden="true"></i> Your plan does not include
+              tickets from WhatsApp, so this has no effect.
+            </p>
+          }
+        </div>
+        <button
+          type="button"
+          role="switch"
+          class="switch"
+          [class.on]="st.autoCreate"
+          [attr.aria-checked]="st.autoCreate"
+          aria-labelledby="set-auto"
+          aria-describedby="set-auto-hint"
+          [disabled]="settingsSaving()"
+          (click)="saveSettings({ autoCreate: !st.autoCreate })"
+        >
+          <span class="thumb"></span>
+        </button>
+      </div>
+      <form class="s-field keywords" (ngSubmit)="saveKeywords()">
+        <label for="set-words">Words that open a ticket</label>
+        <div class="inline">
+          <input
+            id="set-words"
+            name="keywords"
+            maxlength="1500"
+            placeholder="complaint, refund, not working"
+            [ngModel]="keywordsText()"
+            (ngModelChange)="keywordsText.set($event)"
+            aria-describedby="set-words-hint"
+          />
+          <button class="btn sm" type="submit" [disabled]="settingsSaving()">Save words</button>
+        </div>
+        <span class="hint" id="set-words-hint"
+          >Separate with commas. A whole word or phrase must appear in the message.</span
+        >
+      </form>
+      <div class="setting">
+        <div>
+          <b id="set-alerts">Alert me on WhatsApp</b>
+          <p class="muted" id="set-alerts-hint">
+            A message to your contact number for each new WhatsApp ticket, and when a ticket passes
+            its response time.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          class="switch"
+          [class.on]="st.ownerAlerts"
+          [attr.aria-checked]="st.ownerAlerts"
+          aria-labelledby="set-alerts"
+          aria-describedby="set-alerts-hint"
+          [disabled]="settingsSaving()"
+          (click)="saveSettings({ ownerAlerts: !st.ownerAlerts })"
+        >
+          <span class="thumb"></span>
+        </button>
+      </div>
+    } @else if (!settingsError()) {
+      <div class="s-skel" style="width: 60%"></div>
+      <div class="s-skel" style="width: 40%"></div>
+    }
+    @if (settingsError()) {
+      <p class="s-banner" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ settingsError() }}
+      </p>
+    }
+  </section>
+}
 
 <!-- Stats strip -->
 <section class="stats" aria-label="Ticket summary">
@@ -115,7 +213,7 @@
           (ngModelChange)="setDraft({ priority: $event })"
         >
           @for (p of priorities; track p) {
-            <option [value]="p">{{ p | titlecase }} &middot; {{ slaHours[p] }}h SLA</option>
+            <option [value]="p">{{ p | titlecase }} &middot; {{ slaHours()[p] }}h SLA</option>
           }
         </select>
       </div>
@@ -133,17 +231,57 @@
           }
         </select>
       </div>
-      <div class="s-field">
-        <label for="t-contact">Contact ID <span class="opt">(optional)</span></label>
-        <input
-          id="t-contact"
-          name="contact"
-          type="number"
-          min="1"
-          inputmode="numeric"
-          [ngModel]="draft().contactId"
-          (ngModelChange)="setDraft({ contactId: $event ? +$event : null })"
-        />
+      <div class="s-field wide picker">
+        <label for="t-contact">Customer <span class="opt">(optional)</span></label>
+        @if (pickedContact(); as c) {
+          <div class="picked">
+            <i class="ti ti-user" aria-hidden="true"></i>
+            <span>{{ c.name || c.phone }}</span>
+            @if (c.name) {
+              <span class="muted">{{ c.phone }}</span>
+            }
+            <button
+              class="btn icon ghost sm"
+              type="button"
+              aria-label="Remove customer"
+              (click)="clearContact()"
+            >
+              <i class="ti ti-x" aria-hidden="true"></i>
+            </button>
+          </div>
+        } @else {
+          <input
+            id="t-contact"
+            name="contact"
+            type="search"
+            autocomplete="off"
+            placeholder="Search name or phone"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls="t-contact-list"
+            [attr.aria-expanded]="contactResults().length > 0"
+            [ngModel]="contactQuery()"
+            (ngModelChange)="searchContacts($event)"
+          />
+          @if (contactResults().length) {
+            <ul class="options" id="t-contact-list" role="listbox" aria-label="Matching customers">
+              @for (c of contactResults(); track c.id) {
+                <li role="option" aria-selected="false">
+                  <button type="button" (click)="pickContact(c)">
+                    <b>{{ c.name || c.phone }}</b>
+                    @if (c.name) {
+                      <span class="muted">{{ c.phone }}</span>
+                    }
+                  </button>
+                </li>
+              }
+            </ul>
+          } @else if (contactQuery().trim() && !contactSearching()) {
+            <span class="hint">No contact matches. Add them on the Contacts page first.</span>
+          } @else {
+            <span class="hint">Link the customer so you can reply to them on WhatsApp.</span>
+          }
+        }
       </div>
     </div>
     @if (createError()) {
@@ -251,6 +389,9 @@
                 @if (t.category && t.subject) {
                   <span>{{ t.category }}</span> &middot;
                 }
+                @if (t.customer; as cu) {
+                  <span>{{ cu.name || cu.phone }}</span> &middot;
+                }
                 <span class="prio">{{ t.priority }}</span> &middot; {{ ago(t.createdAt) }}
               </span>
             </span>
@@ -328,12 +469,22 @@
       </button>
     </header>
 
+    @if (t.customer; as c) {
+      <div class="customer">
+        <i class="ti ti-user" aria-hidden="true"></i>
+        <div>
+          <b>{{ c.name || 'Customer' }}</b>
+          <span class="muted"><i class="ti ti-phone" aria-hidden="true"></i> {{ c.phone }}</span>
+        </div>
+      </div>
+    }
+
     @if (sla(t); as clock) {
       <div class="sla-bar" [class.over]="clock.overdue">
         <div>
           <i class="ti ti-{{ clock.overdue ? 'alarm' : 'clock-hour-4' }}" aria-hidden="true"></i>
           {{ clock.label }}
-          <span class="muted">&middot; {{ slaHours[t.priority] }}h {{ t.priority }} SLA</span>
+          <span class="muted">&middot; {{ slaHours()[t.priority] }}h {{ t.priority }} SLA</span>
         </div>
         <span
           class="track"
@@ -442,6 +593,55 @@
       </div>
     }
 
+    @if (t.customer; as cust) {
+      <section class="chat-wrap" aria-labelledby="chat-title">
+        <h4 class="label" id="chat-title">
+          <i class="ti ti-messages" aria-hidden="true"></i> Conversation
+        </h4>
+        @if (eventsLoading() && !events().length) {
+          <div class="s-skel"></div>
+        } @else if (conversation().length) {
+          <ol class="chat" aria-live="polite">
+            @for (e of conversation(); track e.id) {
+              <li [class.out]="e.kind === 'message'">
+                <p>{{ e.body }}</p>
+                <time class="muted" [attr.datetime]="e.createdAt"
+                  >{{ e.kind === 'message' ? actor(e) : cust.name || 'Customer' }} &middot;
+                  {{ ago(e.createdAt) }}</time
+                >
+              </li>
+            }
+          </ol>
+        } @else {
+          <p class="muted empty-chat">No WhatsApp messages on this ticket yet.</p>
+        }
+        @if (rules().customerReply) {
+          <form class="composer" (ngSubmit)="sendReply(t)">
+            <label for="d-reply" class="label">Reply on WhatsApp</label>
+            <textarea
+              id="d-reply"
+              name="reply"
+              rows="3"
+              maxlength="4000"
+              placeholder="Write to {{ cust.name || 'the customer' }}..."
+              [ngModel]="reply()"
+              (ngModelChange)="reply.set($event)"
+            ></textarea>
+            <button class="btn primary sm" type="submit" [disabled]="replying() || !reply().trim()">
+              @if (replying()) {
+                <span class="spinner" aria-hidden="true"></span>
+              } @else {
+                <i class="ti ti-send" aria-hidden="true"></i>
+              }
+              Send
+            </button>
+          </form>
+        } @else {
+          <p class="muted">Replying from a ticket is not part of your plan. Use the Inbox instead.</p>
+        }
+      </section>
+    }
+
     <form class="composer" (ngSubmit)="addNote(t)">
       <label for="d-note" class="label">Internal note</label>
       <textarea
@@ -478,6 +678,7 @@
                 @if (
                   e.body &&
                   (e.kind === 'message' ||
+                    e.kind === 'inbound' ||
                     e.kind === 'status' ||
                     (e.kind === 'note' && e.from == null && e.to == null))
                 ) {

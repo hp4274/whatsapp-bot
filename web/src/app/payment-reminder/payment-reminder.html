@@ -1,8 +1,12 @@
+<!--
+  Dues ledger first (who still owes), then the message and UPI link, automatic reminders, and the sheet import
+  with its one-off send and the imported rows.
+-->
 <header class="s-head">
   <div>
     <span class="eyebrow"><i class="ti ti-cash" aria-hidden="true"></i> Payments</span>
     <h2>Payment reminders</h2>
-    <p>Import payment dues from Excel and queue one personalised WhatsApp reminder per person.</p>
+    <p>Import dues from Excel, remind customers on WhatsApp, and keep track of who has paid.</p>
   </div>
 </header>
 
@@ -10,6 +14,259 @@
   <p class="s-banner" role="alert">
     <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ notice() }}
   </p>
+}
+
+<section class="s-card s-enter" aria-labelledby="pr-dues">
+  <div class="card-top">
+    <h3 id="pr-dues"><i class="ti ti-receipt" aria-hidden="true"></i> Dues</h3>
+    @if (ledger()) {
+      <span class="muted compact">{{ summary() }}</span>
+    }
+  </div>
+
+  @if (loadError(); as err) {
+    <p class="s-banner" role="alert">
+      <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ err }}
+    </p>
+  } @else if (!ledger()) {
+    <div aria-busy="true" aria-label="Loading dues">
+      <div class="s-skel"></div>
+      <div class="s-skel"></div>
+      <div class="s-skel"></div>
+    </div>
+  } @else if (!ledger()!.dues.length) {
+    <div class="s-empty">
+      <i class="ti ti-receipt" aria-hidden="true"></i>
+      <strong>No dues yet</strong>
+      <p>Import an Excel sheet below. Every row is kept here until it is paid.</p>
+    </div>
+  } @else {
+    <div class="tools">
+      <label class="search">
+        <i class="ti ti-search" aria-hidden="true"></i>
+        <span class="sr-only">Search dues</span>
+        <input
+          type="search"
+          placeholder="Name, phone or invoice"
+          [value]="query()"
+          (input)="query.set(text($event))"
+        />
+      </label>
+      <div class="s-seg" role="group" aria-label="Show dues">
+        @for (f of filters; track f.key) {
+          <button type="button" [attr.aria-pressed]="filter() === f.key" (click)="filter.set(f.key)">
+            {{ f.label }}
+          </button>
+        }
+      </div>
+    </div>
+
+    @if (filtered().length) {
+      <div class="s-table">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Customer</th>
+              <th scope="col">Invoice</th>
+              <th scope="col" class="num">Amount</th>
+              <th scope="col">Due</th>
+              <th scope="col">Status</th>
+              <th scope="col" class="num">Reminders</th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (d of shownDues(); track d.id; let i = $index) {
+              @let state = stateOf(d);
+              <tr [style.--i]="i">
+                <td>
+                  <span class="who">{{ d.metadata.name || 'No name' }}</span>
+                  <span class="muted sub">+{{ d.metadata.phone }}</span>
+                </td>
+                <td>{{ d.data.invoiceId || '-' }}</td>
+                <td class="num">{{ amountOf(d) }}</td>
+                <td>{{ dueDateOf(d) }}</td>
+                <td>
+                  <span [class]="'s-pill ' + stateTone[state]">{{ stateLabel[state] }}</span>
+                </td>
+                <td class="num">{{ d.metadata.reminders ?? 0 }}</td>
+                <td class="actions">
+                  @if (state === 'pending' || state === 'overdue' || state === 'claimed') {
+                    <button
+                      type="button"
+                      class="btn sm"
+                      [disabled]="moving() === d.id"
+                      (click)="move(d, 'paid')"
+                    >
+                      <i class="ti ti-check" aria-hidden="true"></i> Mark paid
+                    </button>
+                  }
+                  @if (state === 'claimed' || state === 'paid') {
+                    <button
+                      type="button"
+                      class="btn sm ghost"
+                      [disabled]="moving() === d.id"
+                      [attr.aria-label]="'Not received from ' + (d.metadata.name || d.metadata.phone)"
+                      (click)="move(d, 'pending')"
+                    >
+                      <i class="ti ti-arrow-back-up" aria-hidden="true"></i> Not received
+                    </button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <app-pager [total]="filtered().length" [size]="pageSize" [(page)]="duesPage" label="Due pages" />
+    } @else {
+      <p class="muted compact">No dues match.</p>
+    }
+  }
+</section>
+
+@if (ledger(); as l) {
+  <section class="s-card s-enter" aria-labelledby="pr-message">
+    <h3 id="pr-message"><i class="ti ti-message-2" aria-hidden="true"></i> Message and UPI</h3>
+
+    @if (settingsError(); as err) {
+      <p class="s-banner" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i> {{ err }}
+      </p>
+    }
+
+    <div class="form">
+      <div class="s-field">
+        <label for="pr-template">Reminder message</label>
+        <textarea
+          id="pr-template"
+          rows="4"
+          maxlength="1000"
+          [value]="template()"
+          (input)="template.set(text($event))"
+        ></textarea>
+        <span class="hint">
+          Filled for each customer:
+          @for (p of placeholders; track p) {
+            <code>{{ p }}</code>
+          }
+          . A message column in the sheet still wins for its row.
+        </span>
+      </div>
+
+      <div class="pair">
+        <div class="s-field">
+          <label for="pr-upi">UPI ID <span class="opt">(optional)</span></label>
+          <input
+            id="pr-upi"
+            placeholder="yourname@okbank"
+            autocomplete="off"
+            [disabled]="!l.rules.allowUpi"
+            [value]="upiId()"
+            (input)="upiId.set(text($event))"
+          />
+          @if (!l.rules.allowUpi) {
+            <span class="hint">UPI pay links are not part of your plan.</span>
+          }
+        </div>
+        <div class="s-field">
+          <label for="pr-payee">Name shown in the UPI app</label>
+          <input
+            id="pr-payee"
+            maxlength="60"
+            placeholder="Your business name"
+            [disabled]="!l.rules.allowUpi"
+            [value]="payeeName()"
+            (input)="payeeName.set(text($event))"
+          />
+        </div>
+      </div>
+
+      <p class="preview"><span>Preview</span>{{ preview() }}</p>
+    </div>
+  </section>
+
+  <section class="s-card s-enter" aria-labelledby="pr-auto">
+    <div class="card-top">
+      <h3 id="pr-auto"><i class="ti ti-bell-ringing" aria-hidden="true"></i> Automatic reminders</h3>
+      <ar-switch
+        [(checked)]="auto"
+        [disabled]="!l.rules.allowAuto"
+        [label]="auto() ? 'On' : 'Off'"
+      />
+    </div>
+    @if (!l.rules.allowAuto) {
+      <p class="muted compact">Automatic reminders are not part of your plan.</p>
+    } @else {
+      <p class="muted compact">
+        Sent from 10 am, business time, until the due is paid. A customer who replies PAID is not
+        reminded again until you check it.
+      </p>
+      <div class="auto" [class.off]="!auto()">
+        <div class="s-field narrow">
+          <label for="pr-before">Days before the due date</label>
+          <input
+            id="pr-before"
+            type="number"
+            min="0"
+            max="30"
+            [disabled]="!auto()"
+            [value]="daysBefore()"
+            (input)="daysBefore.set(num($event))"
+          />
+          <span class="hint">0 = none before.</span>
+        </div>
+        <div class="s-field narrow">
+          <span class="label">On the due date</span>
+          <ar-switch [(checked)]="onDueDay" [disabled]="!auto()" ariaLabel="Remind on the due date" />
+        </div>
+        <div class="s-field narrow">
+          <label for="pr-every">Then every (days)</label>
+          <input
+            id="pr-every"
+            type="number"
+            min="0"
+            max="60"
+            [disabled]="!auto()"
+            [value]="everyDays()"
+            (input)="everyDays.set(num($event))"
+          />
+          <span class="hint">0 = no follow-ups.</span>
+        </div>
+        <div class="s-field narrow">
+          <label for="pr-max">Follow-ups at most</label>
+          <input
+            id="pr-max"
+            type="number"
+            min="0"
+            [max]="l.rules.maxFollowUps"
+            [disabled]="!auto()"
+            [value]="maxFollowUps()"
+            (input)="maxFollowUps.set(num($event))"
+          />
+          <span class="hint">Your plan allows {{ l.rules.maxFollowUps }}.</span>
+        </div>
+      </div>
+    }
+    @if (l.rules.maxPerMonth !== null) {
+      <p class="muted compact">
+        {{ l.rules.sentThisMonth }} of {{ l.rules.maxPerMonth }} reminders sent this month.
+      </p>
+    }
+  </section>
+
+  @if (dirty()) {
+    <div class="save-bar" role="region" aria-label="Unsaved settings">
+      <span>You have unsaved changes.</span>
+      <button type="button" class="btn ghost" (click)="resetSettings()">Discard</button>
+      <button type="button" class="btn primary" [disabled]="saving()" (click)="saveSettings()">
+        @if (saving()) {
+          <span class="spinner" aria-hidden="true"></span>
+        }
+        Save
+      </button>
+    </div>
+  }
 }
 
 <section class="s-card s-enter" aria-labelledby="pr-import">
@@ -37,7 +294,7 @@
       <span
         ><strong>Required:</strong> phone/mobile/number and remaining/payment_due/due_amount</span
       >
-      <span><strong>Optional:</strong> name, due_date, message</span>
+      <span><strong>Optional:</strong> name, due_date, invoice, message</span>
     </div>
 
     @if (importErrors().length) {
@@ -50,7 +307,7 @@
     }
 
     @if (duplicates() > 0) {
-      <p class="muted compact">{{ duplicates() }} duplicate phone number(s) skipped.</p>
+      <p class="muted compact">{{ duplicates() }} duplicate row(s) skipped.</p>
     }
 
     @if (plan(); as plan) {
@@ -103,7 +360,7 @@
           </tr>
         </thead>
         <tbody>
-          @for (item of shown(); track item.phone) {
+          @for (item of shown(); track item.rowNumber) {
             <tr>
               <td>{{ item.rowNumber }}</td>
               <td>{{ item.name || '-' }}</td>
@@ -119,7 +376,7 @@
     <app-pager [total]="reminders().length" [size]="pageSize" [(page)]="page" label="Imported row pages" />
 
     @if (firstPreview()) {
-      <p class="preview"><span>First preview</span>{{ firstPreview() }}</p>
+      <p class="preview first"><span>First preview</span>{{ firstPreview() }}</p>
     }
   </section>
 }

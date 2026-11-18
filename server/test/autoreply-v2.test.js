@@ -13,7 +13,8 @@ import { after, before, describe, it } from 'node:test';
 
 import { closeApp } from '../src/app.js';
 import { AutoReplyEngine } from '../src/autoreply/engine.js';
-import { fold, matchOne } from '../src/autoreply/match.js';
+import { detectLanguage } from '../src/autoreply/language.js';
+import { fold, matchOne, matchRules } from '../src/autoreply/match.js';
 import { AutoReplyStore } from '../src/autoreply/store.js';
 import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { ContactStore } from '../src/contactStore.js';
@@ -88,6 +89,13 @@ describe('matching', () => {
         assert.equal(matchOne(r, 'this is it'), null, '"hi" inside "this" is not a hit');
         // a v1-style comma list in the single keyword works too
         assert.ok(matchOne({ id: 2, matchType: 'ANY_OF', keyword: 'refund, return' }, 'I want to return it'));
+    });
+
+    it('ALL_OF needs every keyword as a whole word, in any order', () => {
+        const r = rule('ALL_OF', ['price', 'delivery']);
+        assert.ok(matchOne(r, 'What is the delivery price?'));
+        assert.equal(matchOne(r, 'what is the price'), null, 'one of two is not enough');
+        assert.equal(matchOne(r, 'prices and deliveryman'), null, 'whole words only');
     });
 
     it('FUZZY tolerates typos but not on short words', () => {
@@ -251,7 +259,8 @@ describe('system replies', () => {
         conversations.upsertForInbound({ phone: '919800000001', channelId: 0 });
         const jobs = await inbound('I want a human please');
         assert.deepEqual(jobs.map((j) => j.text), ['Connecting you now']);
-        assert.equal(conversations.isBotPaused('919800000001', 0), false);
+        // Paused for the handoff hours (2 by default), then the bot is back by itself.
+        assert.equal(conversations.isBotPaused('919800000001', 0), true);
         assert.ok(conversations.getByPhone('919800000001', 0).tags.includes('handoff'));
     });
 
@@ -259,7 +268,7 @@ describe('system replies', () => {
         const { store, conversations, inbound } = setup();
         store.save({ matchType: 'ANY_OF', keywords: ['complaint'], replyBody: 'Sorry, a manager will call', actions: { escalate: true } });
         await inbound('I have a complaint', { sender: '919800000005' });
-        assert.equal(conversations.isBotPaused('919800000005', 0), false);
+        assert.equal(conversations.isBotPaused('919800000005', 0), true);
     });
 });
 
@@ -333,6 +342,201 @@ describe('analytics', () => {
         const stats = store.stats(MON_10AM, new Date('2026-10-12T00:00:00Z'));
         assert.deepEqual(stats[`rule:${r.id}`], { hits: 3, lastTriggeredAt: MON_10AM.toISOString(), today: 2, week: 2 });
         assert.equal(stats.welcome.hits, 1);
+    });
+});
+
+describe('activity log', () => {
+    it('says what happened to each message: the rule that replied, or why nothing went out', async () => {
+        const { db, store, inbound, engine } = setup();
+        store.save({ name: 'Price', matchType: 'ANY_OF', keywords: ['price'], replyBody: 'Rs 99' });
+        store.save({ name: 'Weekdays', matchType: 'EXACT', keywords: ['open'], replyBody: 'Yes',
+            schedule: { days: ['mon'], start: '09:00', end: '17:00' } });
+        await inbound('price please');
+        await inbound('open', { now: SAT_NOON });
+        await inbound('blah');
+        const log = store.recentLog();
+        assert.deepEqual(log.map((l) => [l.inbound, l.outcome, l.rule]), [
+            ['blah', 'none', ''],
+            ['open', 'none', ''],
+            ['price please', 'replied', 'Price'],
+        ]);
+        assert.equal(log[2].detail, 'Rs 99');
+        assert.match(log[1].detail, /outside its schedule/);
+
+        // A send that throws is a failure, with the reason.
+        engine.service = { send() { throw new Error('queue closed'); } };
+        await inbound('price');
+        assert.deepEqual(store.recentLog({ limit: 1 }).map((l) => [l.outcome, l.detail]), [['failed', 'queue closed']]);
+        assert.equal(store.recentLog({ outcome: 'failed' }).length, 1);
+        assert.ok(db);
+    });
+});
+
+describe('smart replies', () => {
+    it('detects the language, Hinglish and mixed text included', () => {
+        assert.equal(detectLanguage('What is the price?'), 'en');
+        assert.equal(detectLanguage('price kya hai'), 'hinglish');
+        assert.equal(detectLanguage('price कितना है'), 'hi');
+        assert.equal(detectLanguage('મને ભાવ જોઈએ'), 'gu');
+        assert.equal(detectLanguage('👍'), 'en');
+    });
+
+    it('INTENT matches meaning across languages; synonyms widen ANY_OF only when switched on', () => {
+        const intent = { matchType: 'INTENT', keywords: ['price'] };
+        for (const text of ['how much?', 'rate kya hai', 'कीमत बताओ', 'whats the prise']) assert.ok(matchOne(intent, text), text);
+        assert.equal(matchOne(intent, 'hello there'), null);
+        assert.equal(matchOne({ matchType: 'ANY_OF', keywords: ['price'] }, 'what does it cost'), null);
+        assert.ok(matchOne({ matchType: 'ANY_OF', keywords: ['price'], synonyms: true }, 'what does it cost'));
+    });
+
+    it('smart matching forgives spelling mistakes on Contains, Any of and All of; never a different first letter', () => {
+        const smart = (matchType, keywords) => ({ matchType, keywords, synonyms: true });
+        for (const [kw, text] of [['price', 'whats the prise'], ['delivery', 'delivry charges'], ['appointment', 'book an apointment'],
+            ['order status', 'order staus?'], ['hello', 'hellooo'], ['timing', 'timmings']]) {
+            assert.ok(matchOne(smart('CONTAINS', [kw]), text), `${kw} <- ${text}`);
+            assert.ok(matchOne(smart('ANY_OF', [kw]), text), `${kw} <- ${text}`);
+        }
+        assert.ok(matchOne(smart('ALL_OF', ['price', 'delivery']), 'delivry prise?'));
+        assert.equal(matchOne(smart('ANY_OF', ['price']), 'rice please'), null, 'first letter differs');
+        assert.equal(matchOne(smart('ANY_OF', ['book']), 'look here'), null);
+        assert.ok(matchOne({ matchType: 'FUZZY', keywords: ['hi'] }, 'hiiii'), 'stretched letters');
+        // On by default, rules saved before the option too (no flag), Exact included; off when the rule says so.
+        assert.ok(matchOne({ matchType: 'EXACT', keywords: ['thank'] }, 'thankx'));
+        assert.equal(matchOne({ matchType: 'EXACT', keywords: ['thank'] }, 'thank you for the order'), null, 'exact is still the whole message');
+        assert.equal(matchOne({ matchType: 'CONTAINS', keywords: ['pricing'], typos: false }, 'pricng'), null);
+        // An exact keyword beats a typo guess even from a higher rule: "help" is one letter from "helo" (hello).
+        const hits = matchRules('help', [{ id: 1, priority: 1, matchType: 'EXACT', keywords: ['hello'] }, { id: 2, priority: 2, matchType: 'EXACT', keywords: ['help'] }]);
+        assert.deepEqual(hits.map((h) => h.rule.id), [2, 1]);
+    });
+
+    it('replies in the customer language when the rule has a translation', async () => {
+        const { store, inbound } = setup();
+        store.save({ matchType: 'INTENT', keywords: ['price'], replyBody: 'It is Rs 99',
+            translations: { hinglish: 'Sirf Rs 99 hai', hi: 'केवल 99 रुपये' } });
+        assert.equal((await inbound('price kya hai'))[0].text, 'Sirf Rs 99 hai');
+        assert.equal((await inbound('कीमत क्या है'))[0].text, 'केवल 99 रुपये');
+        assert.equal((await inbound('what is the price'))[0].text, 'It is Rs 99');
+    });
+
+    it('asks its questions one by one, re-asks a bad answer and saves each to the contact', async () => {
+        const { store, contacts, inbound } = setup();
+        store.save({ name: 'Callback', matchType: 'ANY_OF', keywords: ['callback'], replyBody: 'Sure.',
+            collect: { questions: [
+                { key: 'name', question: 'Your name?', type: 'name' },
+                { key: 'alt_phone', question: 'Best number to call?', type: 'phone' },
+            ], doneReply: 'Thanks {name}, we will call {alt_phone}.' } });
+        store.save({ matchType: 'ANY_OF', keywords: ['hours'], replyBody: '9 to 6' });
+        assert.equal((await inbound('callback please'))[0].text, 'Sure.\n\nYour name?');
+        assert.match((await inbound('price kya hai'))[0].text, /just your name/, 'a question is not a name');
+        assert.equal((await inbound('my name is Ravi'))[0].text, 'Best number to call?');
+        assert.match((await inbound('soon'))[0].text, /valid phone number[\s\S]*Best number to call\?/);
+        assert.equal((await inbound('98765 43210'))[0].text, 'Thanks Ravi, we will call 9876543210.');
+        const c = contacts.getByPhone(contacts.normalize('919800000001'));
+        assert.equal(c.customFields.alt_phone, '9876543210');
+        assert.equal(c.name, 'Ravi');
+        // Done: rules answer again.
+        assert.equal((await inbound('hours'))[0].text, '9 to 6');
+    });
+
+    it('EXIT leaves the questions (CANCEL is an opt-out word)', async () => {
+        const { store, inbound } = setup();
+        store.save({ matchType: 'ANY_OF', keywords: ['order'], replyBody: 'OK.',
+            collect: { questions: [{ key: 'order_id', question: 'Order id?', type: 'text' }] } });
+        await inbound('order');
+        assert.match((await inbound('exit'))[0].text, /cancelled/);
+        assert.equal(store.session('919800000001'), null);
+    });
+
+    it('the third message in an hour that nothing understands goes to a person', async () => {
+        const { store, conversations, inbound } = setup();
+        store.saveSettings({ fallback: { enabled: true, text: 'Sorry?', throttleHours: 0, handoffAfter: 3 },
+            handoff: { enabled: true, text: 'A person will reply' } });
+        assert.equal((await inbound('zzz'))[0].text, 'Sorry?');
+        assert.equal((await inbound('qqq'))[0].text, 'Sorry?');
+        assert.equal((await inbound('xxx'))[0].text, 'A person will reply');
+        assert.equal(conversations.isBotPaused('919800000001', 0), true);
+    });
+
+    it('detects native, Romanised and international languages from the brief', () => {
+        const cases = {
+            'Kem cho?': 'gujlish', 'કેમ છો?': 'gu', 'Kaise ho?': 'hinglish', 'आप कैसे हैं?': 'hi', 'Hola, como estas?': 'es',
+            'Bonjour': 'fr', 'Guten Morgen': 'de', 'ありがとう': 'ja', 'مرحبا': 'ar', '안녕하세요': 'ko',
+            'Hello bhai, order kyare avse?': 'gujlish', 'Bonjour, I need help with my order.': 'en', 'آپ کیسے ہیں': 'ur',
+        };
+        for (const [text, code] of Object.entries(cases)) assert.equal(detectLanguage(text), code, text);
+    });
+
+    it('a language the contact chose wins; a short message reads their recent ones; fixed mode overrides both', async () => {
+        const { store, contacts, inbound } = setup();
+        store.save({ matchType: 'ANY_OF', keywords: ['ok', 'price', 'kimat'], replyBody: 'English',
+            translations: { gu: 'ગુજરાતી', gujlish: 'Gujlish', hi: 'हिंदी' } });
+        assert.equal((await inbound('kem cho, kimat su chhe?', { sender: '919800000011' }))[0].text, 'Gujlish');
+        assert.equal((await inbound('ok', { sender: '919800000011' }))[0].text, 'Gujlish', 'short: their recent messages');
+        contacts.upsert({ phone: '919800000012', customFields: { language: 'hi' } });
+        assert.equal((await inbound('price', { sender: '919800000012' }))[0].text, 'हिंदी', 'their saved choice');
+        store.saveSettings({ language: { mixed: 'dominant' } });
+        assert.equal((await inbound('kem cho, kimat su chhe?', { sender: '919800000013' }))[0].text, 'ગુજરાતી', 'dominant');
+        store.saveSettings({ language: { mode: 'fixed', fixed: 'gu' } });
+        assert.equal((await inbound('price', { sender: '919800000012' }))[0].text, 'ગુજરાતી', 'fixed');
+    });
+
+    it('a language question lists the choices, saves the pick and answers in it; BACK goes one question back', async () => {
+        const { store, contacts, inbound } = setup();
+        store.save({ matchType: 'ANY_OF', keywords: ['book'], replyBody: 'Sure.',
+            collect: { questions: [
+                { key: 'x', question: 'Which language?', type: 'language', options: ['en', 'gu'] },
+                { key: 'date', question: 'Which date?', type: 'text' },
+            ], doneReply: 'Booked.', doneTranslations: { gu: 'બુક થઈ ગયું.' } } });
+        assert.equal((await inbound('book'))[0].text, 'Sure.\n\nWhich language?\n\n1. English\n2. Gujarati');
+        assert.equal((await inbound('2'))[0].text, 'Which date?');
+        assert.match((await inbound('back'))[0].text, /Which language\?/);
+        await inbound('gujarati');
+        assert.equal((await inbound('Monday'))[0].text, 'બુક થઈ ગયું.');
+        assert.equal(contacts.getByPhone(contacts.normalize('919800000001')).customFields.language, 'gu');
+    });
+
+    it('message-type rules answer photos and locations; a photo with no rule gets no fallback', async () => {
+        const { store, db, engine, jobs } = setup();
+        store.saveSettings({ fallback: { enabled: true, text: 'Sorry?', throttleHours: 0 } });
+        store.save({ matchType: 'MESSAGE_TYPE', keywords: ['image', 'document'], replyBody: 'Got your file, thanks!' });
+        const send = async (mediaType, id) => {
+            const saved = db.insertInbound({ messageId: `mt.${id}`, sender: '919800000021', senderName: '', body: '', mediaType, receivedAt: MON_10AM.toISOString() });
+            const before = jobs.length;
+            await engine.handleInbound(saved, { now: MON_10AM });
+            return jobs.slice(before).map((j) => j.text);
+        };
+        assert.deepEqual(await send('image', 1), ['Got your file, thanks!']);
+        assert.deepEqual(await send('location', 2), []);
+    });
+
+    it('Portuguese finds an English rule, and is told (once a day) which languages we reply in', async () => {
+        const { store, inbound } = setup();
+        store.save({ name: 'Price', matchType: 'CONTAINS', keywords: ['price'], synonyms: true, replyBody: 'From Rs 499.' });
+        const [first] = await inbound('Olá, qual é o preço?', { sender: '919800000031' });
+        assert.match(first.text, /^From Rs 499\.\n\nDesculpe, respondemos em English\.[\s\S]*Sorry, we can reply in English/);
+        const [again] = await inbound('Quanto custa?', { sender: '919800000031' });
+        assert.equal(again.text, 'From Rs 499.', 'once a day');
+        // Nothing matched and no fallback: the note alone, so they are not left with silence.
+        const [alone] = await inbound('Onde fica a loja?', { sender: '919800000032' });
+        assert.match(alone.text, /^Desculpe, respondemos em English/);
+    });
+
+    it('no note when a reply is in their language, or when switched off', async () => {
+        const { store, inbound } = setup();
+        store.save({ matchType: 'INTENT', keywords: ['price'], replyBody: 'From Rs 499.', translations: { pt: 'A partir de R$ 499.' } });
+        assert.deepEqual((await inbound('Quanto custa?', { sender: '919800000033' })).map((j) => j.text), ['A partir de R$ 499.']);
+        store.saveSettings({ language: { askUnknown: false } });
+        assert.deepEqual((await inbound('Bonjour, quel est le prix?', { sender: '919800000034' })).map((j) => j.text), ['From Rs 499.']);
+    });
+
+    it('a reply from the phone pauses the bot for that chat, for the handoff hours only', async () => {
+        const { store, engine, conversations, inbound } = setup();
+        store.save({ matchType: 'ANY_OF', keywords: ['hi'], replyBody: 'Hello' });
+        engine.humanReplied('919800000001', new Date());
+        assert.equal(conversations.isBotPaused('919800000001', 0), true);
+        engine.humanReplied('919800000002', new Date(Date.now() - 3 * 3_600_000));
+        assert.equal(conversations.isBotPaused('919800000002', 0), false, 'a 2 h pause from 3 h ago is over');
+        assert.ok(inbound);
     });
 });
 
@@ -462,7 +666,7 @@ describe('HTTP', () => {
 
         const help = await call('POST', '/api/auto-replies/test', { body: 'help', sender: '919811111111', firstContact: false });
         assert.equal(help.body.replies[0].source, 'help');
-        assert.match(help.body.replies[0].text, /support/);
+        assert.match(help.body.replies[0].text, /^- SUPPORT - Support menu$/m);
 
         assert.equal(db.forTenant(1).history({ limit: 500 }).length, historyBefore, 'nothing was queued');
         const rule = (await call('GET', '/api/auto-replies')).body.rules.find((r) => r.id === menu.body.rule.id);

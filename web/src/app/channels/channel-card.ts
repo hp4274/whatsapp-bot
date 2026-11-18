@@ -83,6 +83,8 @@ export class ChannelCard {
   readonly connect = output<void>();
   /** Open the 2 start questions for this number. */
   readonly ask = output<void>();
+  /** The Catalog button: the page opens the drawer, or the WhatsApp Business explanation. */
+  readonly catalog = output<void>();
 
   protected readonly busy = signal(false);
   protected readonly error = signal('');

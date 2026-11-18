@@ -293,7 +293,8 @@
     </details>
   </section>
 
-  @if (analytics(); as a) {
+  <!-- A draft has sent nothing: its "Not sent yet" card says so, without five panels of zeros below it. -->
+  @if (c.status !== 'draft' && analytics(); as a) {
     <app-campaign-insights
       [analytics]="a"
       [campaignId]="c.id"

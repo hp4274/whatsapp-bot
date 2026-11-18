@@ -11,7 +11,15 @@
 
 import express from 'express';
 
-import { TicketError, TicketStore, CLOSED_STATUSES } from './store.js';
+import { MessageJobError, uniqueKey } from '../messaging/job.js';
+import { ruleCap } from '../policy/modules.js';
+import { TicketError, TicketStore, CLOSED_STATUSES, slaTable } from './store.js';
+
+/** Why the message service did not take a reply, in words for the agent. */
+const NOT_SENT = Object.freeze({
+    opted_out: 'This customer has opted out of messages, so nothing was sent.',
+    duplicate: 'That reply was already sent.',
+});
 
 /** What we say when a ticket is closed out, unless the caller supplies text. */
 const NOTIFY_TEXT = Object.freeze({
@@ -21,13 +29,22 @@ const NOTIFY_TEXT = Object.freeze({
 
 export function createTicketRouter({ db, state }) {
     const router = express.Router();
-    const tickets = new TicketStore(db);
+    const tickets = new TicketStore(db, { sla: () => slaTable(state.platformPolicy?.()?.['tickets.sla']) });
 
     const fail = (res, err) => {
         if (!(err instanceof TicketError)) throw err;
         return res.status(err.status).json({ errors: [err.message] });
     };
-    const announce = (type, ticket) => state.broadcast?.({ type, ticket });
+    const announce = (type, ticket) => {
+        state.broadcast?.({ type, ticket });
+        state.broadcast?.({ type: 'changed', topic: 'tickets' });
+    };
+    const policy = () => state.platformPolicy?.() ?? {};
+    /** The customer on a ticket, for the list and the drawer. */
+    const customer = (ticket) => {
+        const c = ticket.contactId ? state.contacts?.get(ticket.contactId) : null;
+        return c ? { id: c.id, name: c.name ?? '', phone: c.phone } : null;
+    };
 
     /**
      * Tell the customer, if asked to and if there is a customer to tell.
@@ -36,6 +53,8 @@ export function createTicketRouter({ db, state }) {
      */
     const notify = (ticket, { text = null, userId = null } = {}) => {
         if (!CLOSED_STATUSES.includes(ticket.status)) return null;
+        // The platform switched the "resolved" message off (tickets.notifyOnClose).
+        if (state.platformPolicy?.()?.['tickets.notifyOnClose'] === false) return null;
         const contact = ticket.contactId ? state.contacts?.get(ticket.contactId) : null;
         if (!contact?.phone) return null;
 
@@ -59,6 +78,8 @@ export function createTicketRouter({ db, state }) {
     router.get('/tickets', (req, res) => {
         const q = req.query;
         res.json({
+            // The platform's response times (tickets.sla), so the page shows the hours the clock really uses.
+            sla: tickets.sla(),
             tickets: tickets.list({
                 status: q.status && q.status !== 'ALL' ? q.status : undefined,
                 priority: q.priority || undefined,
@@ -68,7 +89,7 @@ export function createTicketRouter({ db, state }) {
                 overdue: q.overdue === 'true' || q.overdue === '1',
                 limit: Number(q.limit) || 200,
                 offset: Number(q.offset) || 0,
-            }),
+            }).map((t) => ({ ...t, customer: customer(t) })),
         });
     });
 
@@ -77,10 +98,31 @@ export function createTicketRouter({ db, state }) {
         res.json({ stats: tickets.stats() });
     });
 
+    router.get('/tickets/settings', (req, res) => {
+        const p = policy();
+        res.json({
+            settings: tickets.settings(),
+            // What the platform allows, so the page can say why a switch does nothing.
+            allowed: { autoCreate: p['tickets.autoCreate'] !== false, customerReply: p['tickets.allowCustomerReply'] !== false },
+        });
+    });
+
+    router.put('/tickets/settings', (req, res) => {
+        // Agents may work tickets (AGENT_WRITE_PREFIXES) but not change how the account behaves.
+        if (req.user?.role === 'agent') return res.status(403).json({ errors: ['Only an admin can change ticket settings.'] });
+        const settings = tickets.saveSettings(req.body ?? {});
+        state.broadcast?.({ type: 'changed', topic: 'tickets' });
+        res.json({ settings });
+    });
+
     router.post('/tickets', (req, res) => {
         const body = req.body ?? {};
         if (!body.subject && !body.category) {
             return res.status(400).json({ errors: ['a ticket needs a subject or a category'] });
+        }
+        const cap = ruleCap(policy(), 'tickets.maxOpen');
+        if (cap && tickets.countOpen() >= cap) {
+            return res.status(403).json({ errors: [`Your plan allows ${cap} open tickets, and you have reached it. Resolve or close one first.`] });
         }
         try {
             const ticket = tickets.create({ ...body, userId: req.user?.id ?? null });
@@ -96,7 +138,7 @@ export function createTicketRouter({ db, state }) {
             ? tickets.get(req.params.id)
             : tickets.getByReference(req.params.id);
         if (!ticket) return res.status(404).json({ errors: ['ticket not found'] });
-        return res.json({ ticket });
+        return res.json({ ticket: { ...ticket, customer: customer(ticket) } });
     });
 
     router.patch('/tickets/:id', (req, res) => {
@@ -119,6 +161,46 @@ export function createTicketRouter({ db, state }) {
         } catch (err) {
             return fail(res, err);
         }
+    });
+
+    /** The agent answers the customer on WhatsApp; it goes on the ticket's thread and starts the response clock. */
+    router.post('/tickets/:id/reply', (req, res) => {
+        if (policy()['tickets.allowCustomerReply'] === false) {
+            return res.status(403).json({ errors: ['Replying to customers from a ticket is not part of your plan.'] });
+        }
+        const text = String(req.body?.text ?? '').trim();
+        if (!text) return res.status(400).json({ errors: ['Write a reply first.'] });
+        if (text.length > 4000) return res.status(400).json({ errors: ['A reply can be up to 4000 characters.'] });
+        const ticket = tickets.get(req.params.id);
+        if (!ticket) return res.status(404).json({ errors: ['ticket not found'] });
+        const contact = ticket.contactId ? state.contacts?.get(ticket.contactId) : null;
+        if (!contact?.phone) return res.status(400).json({ errors: ['This ticket has no customer to reply to.'] });
+        const userId = req.user?.id ?? null;
+        let outcome;
+        try {
+            outcome = state.messages.send({
+                messageType: 'transactional',
+                recipient: contact.phone,
+                name: contact.name,
+                text,
+                contactId: contact.id,
+                conversationId: ticket.conversationId,
+                metadata: { ticketId: ticket.id, reference: ticket.reference },
+                // Two identical replies are two messages; a retried request carries its own key.
+                idempotencyKey: req.body?.idempotencyKey || uniqueKey('ticket'),
+            });
+        } catch (err) {
+            if (err instanceof MessageJobError) return res.status(409).json({ errors: [err.message] });
+            throw err;
+        }
+        if (!outcome.accepted) {
+            return res.status(409).json({ errors: [NOT_SENT[outcome.reason] ?? `Not sent (${outcome.reason ?? 'refused'}).`] });
+        }
+        state.manager?.start?.();
+        const updated = tickets.recordFirstResponse(ticket.id, { userId });
+        const event = tickets.addNote(ticket.id, text, { userId, kind: 'message' });
+        announce('ticketUpdated', updated);
+        return res.status(201).json({ event, ticket: { ...updated, customer: customer(updated) } });
     });
 
     router.get('/tickets/:id/events', (req, res) => {

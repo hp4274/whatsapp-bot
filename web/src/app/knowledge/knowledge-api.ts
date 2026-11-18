@@ -13,7 +13,7 @@ import { catchError } from 'rxjs/operators';
 
 export const MATCH_TYPES = ['CONTAINS', 'EXACT', 'SIMILARITY', 'REGEX', 'FALLBACK'] as const;
 export type MatchType = (typeof MATCH_TYPES)[number];
-export type MatchLevel = 'exact' | 'contains' | 'regex' | 'similarity' | 'fallback' | 'ai';
+export type MatchLevel = 'exact' | 'contains' | 'regex' | 'similarity' | 'synonym' | 'fallback' | 'ai';
 
 export interface FaqCategory {
   id: number;
@@ -67,6 +67,31 @@ export interface KnowledgeDashboard {
   stats: FaqStats;
   misses: FaqMiss[];
   similarityThreshold: number;
+  settings: FaqSettings;
+}
+
+/** What happens when nothing answers a customer. An empty reply means stay silent. */
+export interface FaqSettings {
+  readonly missReply: string;
+  readonly alertOwner: boolean;
+}
+
+/** One question for POST /faq/import; a category is found by name or made. */
+export interface FaqImportRow {
+  question: string;
+  answer: string;
+  category?: string;
+  keywords?: string[];
+  isActive?: boolean;
+}
+
+/** What an import did: questions added, already there, missing a part, and past the plan's limit (null = none). */
+export interface FaqImportResult {
+  readonly created: number;
+  readonly duplicates: number;
+  readonly invalid: number;
+  readonly overLimit: number;
+  readonly limit: number | null;
 }
 
 export interface FaqInput {
@@ -124,6 +149,20 @@ export class KnowledgeApi {
   }
   dismissMiss(id: number) {
     return this.wrap(this.http.delete<{ deleted: boolean }>(`/api/faq/misses/${id}`));
+  }
+
+  saveSettings(body: Partial<FaqSettings>) {
+    return this.wrap(this.http.put<{ settings: FaqSettings }>('/api/faq/settings', body));
+  }
+
+  importItems(items: FaqImportRow[]) {
+    return this.wrap(this.http.post<FaqImportResult>('/api/faq/import', { items }));
+  }
+  /** Reads a CSV/XLSX into rows for the preview; saves nothing. */
+  readFile(file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    return this.wrap(this.http.post<{ items: FaqImportRow[] }>('/api/faq/import/file', form));
   }
 
   /** Dry run: never records analytics, never sends. */

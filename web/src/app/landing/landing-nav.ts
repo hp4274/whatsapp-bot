@@ -43,8 +43,17 @@ export class LandingNav {
   /** True on the landing page, where the sections are on this page. */
   readonly inPage = input(true);
 
-  /** Signed in: the bar's last link goes to the dashboard, not the sign-in form. */
-  protected readonly signedIn = computed(() => !!this.auth.user());
+  /**
+   * What the signed-in link says: "Dashboard" for the platform's super admin (homeGuard sends them to their admin
+   * page), the first name for everyone else, so a business owner sees it is their account.
+   */
+  protected readonly account = computed(() => {
+    const user = this.auth.user();
+    if (!user) return null;
+    if (this.auth.isSuperAdmin()) return { label: 'Dashboard', full: 'Open the admin dashboard', initial: '' };
+    const full = user.name.trim() || user.email.split('@')[0];
+    return { label: full.split(/\s+/)[0], full: `${full} - open your dashboard`, initial: full.charAt(0).toUpperCase() };
+  });
   protected readonly links = LINKS;
   /** Off the top of the page: the bar frosts so it reads over any section. */
   protected readonly scrolled = signal(false);

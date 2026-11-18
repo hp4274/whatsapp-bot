@@ -131,6 +131,26 @@
     scale: 0.97;
   }
 
+  // Signed in: the first name, with its initial; a long name is cut, the full one is in the title.
+  .who {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .avatar {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    margin-left: -10px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: var(--on-primary);
+    font-size: 12.5px;
+    font-weight: 700;
+  }
+
   .solid & {
     background: var(--text-strong);
     color: var(--surface-card);

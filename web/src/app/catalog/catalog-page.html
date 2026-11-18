@@ -1,0 +1,100 @@
+<!--
+  WhatsApp Catalog. Header with what the catalog does; then one row per number with its state and the one action
+  that fits it. The drawer / locked dialog open at the page root (fixed panels must not sit inside a card).
+-->
+<section class="page">
+  <header class="s-head">
+    <div>
+      <p class="eyebrow"><i class="ti ti-building-store" aria-hidden="true"></i> WhatsApp Catalog</p>
+      <h1>Your products inside WhatsApp</h1>
+      <p>
+        The catalog from the WhatsApp Business app: see it here, add products to your Orders list in one go, and orders
+        customers send from their WhatsApp cart land in Orders.
+      </p>
+    </div>
+  </header>
+
+  <ul class="perks" aria-label="What the catalog does">
+    <li><i class="ti ti-photo" aria-hidden="true"></i><span><strong>Photos and prices</strong> customers browse without leaving the chat</span></li>
+    <li><i class="ti ti-shopping-cart" aria-hidden="true"></i><span><strong>Cart orders</strong> become Orders records, and the customer is told you got it</span></li>
+    <li><i class="ti ti-file-import" aria-hidden="true"></i><span><strong>One-click import</strong> into your Orders list, photos included</span></li>
+  </ul>
+
+  @if (error()) {
+    <div class="s-banner" role="alert">
+      <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+      <span class="grow">Couldn't load your numbers: {{ error() }}</span>
+      <button class="btn sm" type="button" (click)="load()">Try again</button>
+    </div>
+  } @else if (loading()) {
+    <div class="list" aria-busy="true" aria-label="Loading your numbers">
+      @for (n of [1, 2]; track n) {
+        <span class="sk"></span>
+      }
+    </div>
+  } @else if (!rows().length) {
+    <div class="s-card s-empty">
+      <i class="ti ti-device-mobile" aria-hidden="true"></i>
+      <strong>No WhatsApp number linked yet</strong>
+      <p>Link a WhatsApp Business number first; its catalog shows up here.</p>
+      <a class="btn primary" routerLink="/whatsapp"><i class="ti ti-qrcode" aria-hidden="true"></i> Link a number</a>
+    </div>
+  } @else {
+    <ul class="list" aria-label="Your numbers">
+      @for (r of rows(); track r.ch.id) {
+        <li class="row s-card" [class.locked]="r.state === 'personal'">
+          <span class="badge" [class.biz]="r.state === 'business'" aria-hidden="true">
+            <i class="ti ti-{{ r.state === 'business' ? 'building-store' : r.state === 'personal' ? 'lock' : 'device-mobile' }}"></i>
+          </span>
+          <div class="who">
+            <strong>{{ r.ch.displayName }}</strong>
+            <span class="muted">
+              {{ r.ch.phoneNumber || r.ch.health?.account || 'Number not added' }}
+              @switch (r.state) {
+                @case ('business') { · WhatsApp Business }
+                @case ('personal') { · Regular WhatsApp }
+              }
+            </span>
+          </div>
+          <div class="state">
+            @switch (r.state) {
+              @case ('business') {
+                <button type="button" class="btn primary" (click)="open.set(r.ch)">
+                  <i class="ti ti-layout-grid" aria-hidden="true"></i> Open catalog
+                </button>
+              }
+              @case ('personal') {
+                <span class="note">Catalog needs the WhatsApp Business app</span>
+                <button type="button" class="btn" (click)="open.set(r.ch)">
+                  <i class="ti ti-lock" aria-hidden="true"></i> Unlock catalog
+                </button>
+              }
+              @case ('unknown') {
+                <span class="note">Reconnect this number once so we can see if it is WhatsApp Business.</span>
+                <a class="btn" routerLink="/whatsapp">Go to WhatsApp</a>
+              }
+              @case ('offline') {
+                <span class="note">This number is offline.</span>
+                <a class="btn" routerLink="/whatsapp">Connect it</a>
+              }
+            }
+          </div>
+        </li>
+      }
+    </ul>
+    @if (allPersonal()) {
+      <p class="hint">
+        <i class="ti ti-info-circle" aria-hidden="true"></i>
+        None of your numbers use WhatsApp Business yet. The app is free: move a number to it, then link it again here.
+      </p>
+    }
+  }
+</section>
+
+@if (open(); as target) {
+  @if (target.health?.accountType === 'business') {
+    <app-catalog-drawer [channel]="target" (closed)="open.set(null)" />
+  } @else {
+    <app-catalog-locked [channel]="target" (closed)="open.set(null)" (relink)="relink(target)" />
+  }
+}

@@ -51,6 +51,35 @@
     </fieldset>
 
     <div class="pane">
+    <div class="find" role="search">
+      <label class="find-box">
+        <i class="ti ti-search" aria-hidden="true"></i>
+        <input
+          type="search"
+          [value]="query()"
+          (input)="query.set($any($event.target).value)"
+          (keydown)="searchKey($event)"
+          placeholder="Find a setting, e.g. daily cap, opt-out, pacing"
+          aria-label="Find a setting"
+          autocomplete="off"
+          [attr.aria-expanded]="!!query().trim()"
+          aria-controls="find-results"
+        />
+      </label>
+      @if (query().trim()) {
+        <ul class="find-results" id="find-results" role="listbox" aria-label="Matching settings">
+          @for (hit of searchHits(); track hit.where + hit.label) {
+            <li role="option" aria-selected="false">
+              <button type="button" (click)="goTo(hit)">
+                <strong>{{ hit.label }}</strong><small>{{ hit.where }}</small>
+              </button>
+            </li>
+          } @empty {
+            <li class="none">No setting matches “{{ query() }}”.</li>
+          }
+        </ul>
+      }
+    </div>
     <nav class="tabs" role="tablist" aria-label="Tenant settings">
       @for (t of tabs(); track t.id) {
         <button
@@ -190,6 +219,11 @@
                     }
                   }
                 </div>
+              } @else {
+                <p class="muted compact">
+                  No plan yet: services and limits below are set by hand. To put this business on a plan, use
+                  Change plan in Plans &amp; billing, Subscriptions.
+                </p>
               }
             }
           </section>

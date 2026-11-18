@@ -24,9 +24,23 @@ import { applySendingPolicy } from './levels.js';
 /** Real sends by one business since `sinceIso`, across all its numbers. */
 export function tenantSentSince(db, tenantId, sinceIso) {
     const marks = SUCCESS_STATUSES.map(() => '?').join(',');
+    const replies = autoRepliesCounted(db) ? '' : " AND message_type != 'auto_reply'";
     return db.prepare(
-        `SELECT COUNT(*) AS n FROM messages WHERE tenant_id = ? AND status IN (${marks}) AND COALESCE(sent_at, created_at) >= ?`,
+        `SELECT COUNT(*) AS n FROM messages WHERE tenant_id = ? AND status IN (${marks}) AND COALESCE(sent_at, created_at) >= ?${replies}`,
     ).get(tenantId, ...SUCCESS_STATUSES, sinceIso).n;
+}
+
+/**
+ * The platform switch autoReplies.countTowardQuota (global only), read straight from the policy table so the
+ * quota, its meter (billing/store.js) and the reply path all agree without being handed the policy.
+ */
+export function autoRepliesCounted(db) {
+    try {
+        const row = db.prepare("SELECT value FROM platform_policy WHERE scope = 'global' AND key = 'autoReplies.countTowardQuota'").get();
+        return row ? JSON.parse(row.value) === true : false;
+    } catch {
+        return false; // no policy table (a bare test db): the default
+    }
 }
 
 /** The UTC month, so the monthly cap resets with the billing period (billing/store.js periodOf). */
@@ -162,7 +176,9 @@ export function attachCampaignPolicy(state, deps) {
     const monthly = cached(quotaLeft);
     // `fresh`: the worker re-checks each row as it goes out, so a fan-out accepted under a stale count stops at the quota.
     // A refused or dropped message is never sent later, so the text says so (capRefusedText), unlike a held campaign's.
-    manager.capBlock = (fresh = false) => {
+    manager.capBlock = (fresh = false, messageType = null) => {
+        // Uncounted auto replies are not held back by a quota they do not use.
+        if (messageType === 'auto_reply' && !autoRepliesCounted(db.db)) return null;
         const cap = fresh ? quotaLeft() : monthly();
         return cap && cap.left <= 0 ? capRefusedText(cap) : null;
     };

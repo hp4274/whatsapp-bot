@@ -12,9 +12,12 @@
 
 .top {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
+
+  h2 { white-space: nowrap; }
 
   h2 {
     display: flex;
@@ -265,4 +268,70 @@ kbd {
 
 @media (prefers-reduced-motion: reduce) {
   .item:hover { transform: none; }
+}
+
+.actions { display: flex; gap: 6px; }
+
+// Ready-made rules: one tap opens the editor filled in.
+.templates {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.tpl {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  text-align: left;
+  cursor: pointer;
+
+  .ti { margin-top: 2px; font-size: 18px; color: var(--primary-text); }
+  span { display: grid; gap: 2px; min-width: 0; }
+  strong { font-size: 13.5px; font-weight: 500; color: var(--text-strong); }
+  small { font-size: 12px; line-height: 1.35; color: var(--text-muted); }
+
+  &:hover { background: var(--primary-tint); border-color: color-mix(in srgb, var(--primary) 45%, transparent); }
+  &:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+}
+
+.empty .templates { margin-top: 8px; text-align: left; }
+
+// One set open: its rules, ticked, then Add.
+.pack {
+  display: grid;
+  gap: var(--space-sm);
+
+  .back { justify-self: start; display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: var(--text-muted); font-size: 13px; cursor: pointer; padding: 0; }
+  .back:hover { color: var(--primary-text); }
+  .pack-title { display: flex; align-items: center; gap: 6px; font-weight: 500; color: var(--text-strong); .ti { color: var(--primary-text); } }
+  li { display: grid; gap: 2px; }
+  .edit-first {
+    justify-self: end;
+    padding: 2px 4px;
+    border: 0;
+    background: none;
+    color: var(--primary-text);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    &:hover { text-decoration: underline; }
+  }
+  > .btn { justify-self: stretch; justify-content: center; }
+}
+
+label.tpl {
+  input { margin-top: 3px; width: 16px; height: 16px; flex: none; }
+  &.done { opacity: 0.6; }
+  .tag { margin-top: 2px; font-weight: 500; color: var(--success); }
+  .tag.warn { color: var(--warning); }
 }

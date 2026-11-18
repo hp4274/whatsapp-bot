@@ -382,6 +382,14 @@ export class ContactStore {
              WHERE contacts.tenant_id = ? ORDER BY key`).all(this.tenantId).map((row) => row.key);
     }
 
+    /** How many contacts have no value for `key` (the name or a custom field), so a template's gap shows before a send. */
+    missingCount(key) {
+        const column = key === 'name' ? 'contacts.name' : null;
+        const value = column ?? "json_extract(contacts.custom_fields, '$.\"' || ? || '\"')";
+        return this.db.prepare(`SELECT COUNT(*) AS n FROM contacts WHERE tenant_id = ? AND COALESCE(TRIM(${value}), '') = ''`)
+            .get(this.tenantId, ...(column ? [] : [String(key)])).n;
+    }
+
     /**
      * Find contacts matching a filter. The same filter object is what a segment
      * stores and what a campaign audience resolves, so a segment never goes

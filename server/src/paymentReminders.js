@@ -16,6 +16,7 @@ const AMOUNT_KEYS = [
 ];
 const DUE_DATE_KEYS = ['due_date', 'date', 'payment_date', 'deadline'];
 const MESSAGE_KEYS = ['message', 'custom_message', 'reminder_message', 'note', 'notes'];
+const INVOICE_KEYS = ['invoice', 'invoice_id', 'invoice_no', 'invoice_number', 'bill', 'bill_no', 'bill_number'];
 
 export const PAYMENT_REMINDER_ALIASES = Object.freeze({
     name: NAME_KEYS,
@@ -23,10 +24,11 @@ export const PAYMENT_REMINDER_ALIASES = Object.freeze({
     remaining: AMOUNT_KEYS,
     dueDate: DUE_DATE_KEYS,
     message: MESSAGE_KEYS,
+    invoiceId: INVOICE_KEYS,
 });
 
 export const DEFAULT_PAYMENT_REMINDER_TEMPLATE =
-    'Hi {name}, this is a reminder that your remaining payment amount is {remaining}.'
+    'Hi {name}, this is a reminder that your remaining payment amount is {amount}.'
     + ' Please complete it at your earliest convenience.';
 
 function pick(row, keys) {
@@ -80,6 +82,12 @@ function assertUsableHeaders(rows) {
     return errors;
 }
 
+/** The number in an amount cell ("Rs. 1,250" -> 1250), or null. */
+export function amountValue(raw) {
+    const amount = normalizeAmount(raw);
+    return amount.error ? null : amount.value;
+}
+
 export function rowsToPaymentReminders(rows, defaultCountryCode = '') {
     const headerErrors = assertUsableHeaders(rows);
     if (headerErrors.length) return { reminders: [], errors: headerErrors, duplicates: 0 };
@@ -111,11 +119,13 @@ export function rowsToPaymentReminders(rows, defaultCountryCode = '') {
             result.errors.push(`Row ${lineNumber}: ${err.message}`);
             return;
         }
-        if (seen.has(phone)) {
+        // Two invoices for one number are two dues; the same number twice without one is a duplicate row.
+        const invoiceId = pick(row, INVOICE_KEYS);
+        if (seen.has(`${phone}|${invoiceId}`)) {
             result.duplicates += 1;
             return;
         }
-        seen.add(phone);
+        seen.add(`${phone}|${invoiceId}`);
 
         const name = pick(row, NAME_KEYS);
         const dueDate = pick(row, DUE_DATE_KEYS);
@@ -127,12 +137,14 @@ export function rowsToPaymentReminders(rows, defaultCountryCode = '') {
             remaining: amount.display,
             remainingValue: amount.value,
             dueDate,
+            invoiceId,
             message: customMessage,
             finalMessage: buildPaymentReminderMessage({
                 name,
                 phone,
                 remaining: amount.display,
                 dueDate,
+                invoiceId,
                 message: customMessage,
             }),
         });
@@ -146,26 +158,40 @@ export async function importPaymentReminders(filename, buffer, defaultCountryCod
         throw new Error('Payment reminders must be imported from an Excel .xlsx, .xls, or .xlsm file');
     }
     const XLSX = await import('xlsx');
-    const book = XLSX.read(buffer, { type: 'buffer' });
+    // Date cells as ISO: Excel's own "m/d/yy" would read 05/11 as 11 May on an Indian sheet.
+    const book = XLSX.read(buffer, { type: 'buffer', cellNF: true });
     const sheetName = book.SheetNames[0];
     if (!sheetName) return { reminders: [], errors: ['workbook has no sheets'], duplicates: 0 };
-    const records = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { defval: '', raw: false });
+    const sheet = book.Sheets[sheetName];
+    const { SSF } = XLSX.default ?? XLSX;
+    for (const [ref, cell] of Object.entries(sheet)) {
+        // From the serial number, not a Date: a JS Date would shift the day by the server's time zone.
+        if (ref.startsWith('!') || cell?.t !== 'n' || !cell.z || !SSF.is_date(cell.z)) continue;
+        const d = SSF.parse_date_code(cell.v);
+        if (d) cell.w = `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
+    }
+    const records = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
     return rowsToPaymentReminders(records, defaultCountryCode);
 }
 
-export function buildPaymentReminderMessage(reminder) {
+/**
+ * The reminder text: the row's own message, else the business's template, else the default. A UPI link the
+ * template has no {upi_link} for goes on its own line at the end, so setting a UPI ID is enough to get it sent.
+ */
+export function buildPaymentReminderMessage(reminder, template = DEFAULT_PAYMENT_REMINDER_TEMPLATE) {
     const context = {
         name: reminder.name || 'there',
         phone: reminder.phone ?? '',
+        amount: reminder.remaining ?? '',
         remaining: reminder.remaining ?? '',
         due_date: reminder.dueDate ?? '',
         dueDate: reminder.dueDate ?? '',
+        invoice: reminder.invoiceId ?? '',
+        upi_link: reminder.upiLink ?? '',
     };
-    const template = String(reminder.message ?? '').trim() || DEFAULT_PAYMENT_REMINDER_TEMPLATE;
-    return template.replace(/\{(\w+)\}/g, (match, key) => {
-        const value = context[key];
-        return value === undefined || value === null || value === '' ? match : String(value);
-    }).trim();
+    const text = String(reminder.message ?? '').trim() || String(template ?? '').trim() || DEFAULT_PAYMENT_REMINDER_TEMPLATE;
+    const filled = text.replace(/\{(\w+)\}/g, (match, key) => (key in context ? String(context[key] ?? '') : match)).trim();
+    return reminder.upiLink && !text.includes('{upi_link}') ? `${filled}\nPay by UPI: ${reminder.upiLink}` : filled;
 }
 
 export function remindersToContacts(reminders) {

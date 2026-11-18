@@ -41,6 +41,8 @@ export const TENANT_SERVICES = Object.freeze([
     'appointments',
     'orders',
     'leads',
+    'otp',
+    'catalog',
     'subscriptions',
     'events',
     'api',
@@ -784,9 +786,9 @@ function cleanUserEmail(email) {
  * nothing and their routes answer "disabled". WHATSAPP_SOON_SERVICES (comma list) overrides; '' opens them all.
  * Keep in step with web/src/app/admin/service-meta.ts SOON_SERVICES, which marks them in the menus.
  */
+// Opened 2026-11-18: payment_reminders, faq, tickets, appointments, orders, leads (super admin switches them per tenant).
 const DEFAULT_SOON_SERVICES = Object.freeze([
-    'school_whatsapp_bot', 'payment_reminders', 'workflows', 'faq', 'tickets', 'appointments', 'orders', 'leads',
-    'subscriptions', 'events', 'api', 'analytics', 'integrations', 'ai',
+    'school_whatsapp_bot', 'workflows', 'subscriptions', 'events', 'api', 'analytics', 'integrations', 'ai',
 ]);
 
 export function soonServices() {

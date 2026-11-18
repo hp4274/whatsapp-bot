@@ -357,3 +357,145 @@
 @media (prefers-reduced-motion: reduce) {
   .mt:hover { transform: none; }
 }
+
+// Intent picker: the match-type card look, several may be on.
+.intents {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-sm);
+}
+
+.intent {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  text-align: left;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  background: var(--surface-card);
+  transition:
+    border-color var(--fast) var(--ease),
+    background var(--fast) var(--ease);
+
+  strong { font-size: 13.5px; font-weight: 500; color: var(--text-strong); }
+  small { font-size: 12px; line-height: 1.35; color: var(--text-muted); }
+
+  &:hover { border-color: var(--border-hover); }
+
+  &[aria-pressed='true'] {
+    border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+    background: var(--primary-tint);
+    box-shadow: 0 0 0 3px var(--primary-glow);
+  }
+}
+
+// One question: number, question, answer type, contact field, remove.
+.ask {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+
+  @media (max-width: 640px) {
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    .q { grid-column: 2 / -1; }
+    select, .key { grid-column: 2 / 3; }
+  }
+
+  .n {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 7px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: var(--surface-sunken);
+  }
+
+  .rm {
+    display: grid;
+    place-items: center;
+    padding: 5px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+
+    &:hover { color: var(--danger-text); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+  }
+}
+
+.add-q {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  padding: 6px 12px;
+  border: 1px dashed var(--border-color);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-color);
+  font-size: 13px;
+
+  .ti { font-size: 15px; }
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+    background: var(--primary-tint);
+    color: var(--primary-text);
+  }
+}
+
+.sec > p.hint, .sub > p.hint { margin: 0; }
+
+.ask .key.fixed {
+  padding: 0 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+// The languages a language question offers, under its row.
+.ask .langs {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-color);
+  font-size: 12.5px;
+
+  &[aria-pressed='true'] {
+    border-color: var(--primary-text);
+    background: var(--primary-tint);
+    color: var(--text-strong);
+  }
+}
+
+// "Customers may also write": what typos are caught, and same-meaning words to add.
+.also {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+
+  .hint { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .ti { font-size: 15px; color: var(--primary-text); }
+}
+
+.suggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  .chip { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .chip:hover { border-color: var(--primary-text); background: var(--primary-tint); }
+}

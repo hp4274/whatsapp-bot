@@ -1312,7 +1312,7 @@ export class CampaignManager extends EventEmitter {
                 return;
             }
             // The plan's message quota ran out after this row was accepted (a fan-out, or a backlog): it does not go.
-            const overQuota = item.messageType !== 'campaign' && this.transport?.realDelivery && this.capBlock?.(true);
+            const overQuota = item.messageType !== 'campaign' && this.transport?.realDelivery && this.capBlock?.(true, item.messageType);
             if (overQuota) {
                 this.#finish(item, Status.CANCELLED, { error: overQuota });
                 return;

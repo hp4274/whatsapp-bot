@@ -12,7 +12,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
-import { ContactsApi, ImportPreview, ImportResult } from '../core/api';
+import { ContactsApi, ImportPreview, ImportResult, PasteResult } from '../core/api';
 import { splitTags } from './contact-util';
 
 type Step = 'upload' | 'map' | 'tags' | 'done';
@@ -111,6 +111,14 @@ export class ImportWizard {
   protected readonly dragging = signal(false);
   protected readonly result = signal<ImportResult | null>(null);
 
+  /** "Paste numbers": text with numbers in it, checked by the server before anything is saved. */
+  protected readonly mode = signal<'file' | 'paste'>('file');
+  protected readonly pasteText = signal('');
+  protected readonly pasteTag = signal('');
+  protected readonly pasteCheck = signal<PasteResult | null>(null);
+  /** A paste's skipped count: its result lists only the first numbers it could not read. */
+  private readonly pastedInvalid = signal<number | null>(null);
+
   private readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
   /** Focus goes back here on close. */
   private readonly opener = document.activeElement as HTMLElement | null;
@@ -171,7 +179,7 @@ export class ImportWizard {
 
   protected readonly invalid = computed(() => {
     const r = this.result();
-    return r ? r.errors.length + (r.saved?.failed.length ?? 0) : 0;
+    return r ? (this.pastedInvalid() ?? r.errors.length + (r.saved?.failed.length ?? 0)) : 0;
   });
 
   protected readonly problems = computed(() => {
@@ -236,6 +244,54 @@ export class ImportWizard {
       },
       error: (err: Error) => {
         if (seq !== this.uploadSeq) return;
+        this.busy.set(false);
+        this.error.set(err.message);
+      },
+    });
+  }
+
+  // ----------------------------------------------------------------- paste --
+  protected setPaste(text: string) {
+    this.pasteText.set(text);
+    this.pasteCheck.set(null);
+  }
+
+  protected checkPaste() {
+    if (this.busy() || !this.pasteText().trim()) return;
+    this.busy.set(true);
+    this.error.set('');
+    this.api.paste(this.pasteText()).subscribe({
+      next: (check) => {
+        this.busy.set(false);
+        if (!check.valid) this.error.set('No phone numbers found in that text.');
+        else this.pasteCheck.set(check);
+      },
+      error: (err: Error) => {
+        this.busy.set(false);
+        this.error.set(err.message);
+      },
+    });
+  }
+
+  protected importPaste() {
+    if (this.busy() || !this.pasteCheck()) return;
+    this.busy.set(true);
+    this.error.set('');
+    this.api.paste(this.pasteText(), splitTags(this.pasteTag()), true).subscribe({
+      next: (r) => {
+        this.busy.set(false);
+        const failed = r.saved?.failed ?? 0;
+        this.result.set({
+          contacts: [],
+          errors: (r.invalidSample ?? []).map((raw) => `"${raw}" is not a valid phone number`),
+          duplicates: r.duplicates,
+          saved: { created: r.saved?.created ?? 0, updated: r.saved?.updated ?? 0, failed: [] },
+        });
+        this.pastedInvalid.set(r.invalid + failed);
+        this.go('done');
+        this.imported.emit();
+      },
+      error: (err: Error) => {
         this.busy.set(false);
         this.error.set(err.message);
       },
@@ -318,6 +374,9 @@ export class ImportWizard {
     this.result.set(null);
     this.tags.set([]);
     this.error.set('');
+    this.pasteText.set('');
+    this.pasteCheck.set(null);
+    this.pastedInvalid.set(null);
     this.go('upload');
   }
 

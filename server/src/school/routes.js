@@ -91,7 +91,7 @@ export function localNow(timeZone, at = new Date()) {
 }
 
 /** The UTC instant of a wall-clock time in `timeZone`. ponytail: ignores the DST-gap hour. */
-function zonedToUtc(date, time, timeZone) {
+export function zonedToUtc(date, time, timeZone) {
     const guess = new Date(`${date}T${time}:00Z`);
     const local = localNow(timeZone, guess);
     return new Date(guess.getTime() - (Date.parse(`${local.date}T${local.time}:00Z`) - guess.getTime()));
@@ -122,10 +122,10 @@ export function render(state, name, vars) {
  * top queue priority, but it is still the manager's queue - pacing and the
  * super admin's daily cap apply exactly as they do to everything else.
  */
-export function deliver(state, { recipient, text, key, messageType = 'transactional', media = null, urgent = false }) {
+export function deliver(state, { recipient, text, key, messageType = 'transactional', media = null, urgent = false, interactive = null }) {
     if (!recipient) return 'skipped';
     try {
-        const input = { messageType, recipient, text, media, idempotencyKey: key };
+        const input = { messageType, recipient, text, media, interactive, idempotencyKey: key };
         // The service accepts a pre-built job verbatim when it carries a priority.
         const outcome = state.messages.send(urgent
             ? { ...messageJob({ ...input, tenantId: state.db.tenantId, channelId: state.channel.id }), priority: 0 }

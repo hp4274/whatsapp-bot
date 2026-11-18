@@ -90,8 +90,8 @@
 
     <!-- The browser's zone is right for nearly everyone; the full list of ~400 zones waits under Advanced. -->
     <p class="zone muted">
-      <i class="ti ti-clock" aria-hidden="true"></i> Sending hours use the time in
-      <strong>{{ draft().timezone.split('_').join(' ') }}</strong>.
+      <i class="ti ti-clock" aria-hidden="true"></i>
+      <span>Sending hours use the time in <strong>{{ draft().timezone.split('_').join(' ') }}</strong>.</span>
     </p>
     <details class="advanced">
       <summary>Advanced</summary>
@@ -191,9 +191,11 @@
         (changed)="refresh()"
         (removed)="removed(ch)"
         (ask)="ask(ch.id)"
+        (catalog)="catalogFor.set(ch)"
       >
         <app-link-card
           [autoStart]="autoLink() === ch.id"
+          [relink]="relinkFor(ch.id)"
           (linked)="linked()"
           (cancelled)="goBack()"
           (recover)="openRecover()"
@@ -242,6 +244,7 @@
           (use)="use(other)"
           (connect)="link(other)"
           (ask)="ask(other.id)"
+          (catalog)="catalogFor.set(other)"
         />
       }
     </div>
@@ -371,4 +374,13 @@
       </div>
     </details>
   </section>
+}
+
+<!-- At the page root: the number cards tilt, and a transformed card would hold a fixed panel inside itself. -->
+@if (catalogFor(); as target) {
+  @if (target.health?.accountType === 'business') {
+    <app-catalog-drawer [channel]="target" (closed)="catalogFor.set(null)" />
+  } @else {
+    <app-catalog-locked [channel]="target" (closed)="catalogFor.set(null)" (relink)="relink(target)" />
+  }
 }

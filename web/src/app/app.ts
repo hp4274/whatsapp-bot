@@ -5,6 +5,7 @@ import {
   computed,
   effect,
   inject,
+  linkedSignal,
   signal,
   untracked,
 } from '@angular/core';
@@ -25,6 +26,8 @@ import { AdminWaiting } from './admin/admin-waiting';
 import { type AdminSection, sectionOfUrl } from './admin/admin-sections';
 import { Store, ThemeMode, isBare } from './core/store';
 import { rememberReferral } from './core/referral';
+import { type Guide, GUIDES, guideFor } from './core/guides';
+import { PageGuide } from './core/page-guide';
 
 type NavItem = {
   path: string;
@@ -72,6 +75,7 @@ const SERVICE_GROUPS = [
       'auto_replies',
       'bulk_messages',
       'campaigns',
+      'otp',
     ],
   },
   {
@@ -80,7 +84,7 @@ const SERVICE_GROUPS = [
   },
   {
     heading: 'Commerce',
-    services: ['orders', 'leads', 'subscriptions', 'events'],
+    services: ['orders', 'catalog', 'leads', 'subscriptions', 'events'],
   },
   {
     heading: 'Platform',
@@ -115,6 +119,17 @@ function readCollapsed(): boolean {
   }
 }
 
+/** The page guide stays open across reloads until the user closes it. */
+const GUIDE_KEY = 'wuzie.guide.open';
+
+function readGuideOpen(): boolean {
+  try {
+    return localStorage.getItem(GUIDE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The signed-in shell: two detached panels on the page ground, after the
  * Kardlyz dashboard layout. The sidebar carries the brand, the workspace and
@@ -128,7 +143,7 @@ function readCollapsed(): boolean {
  */
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, SendIsland, AccountDialog, ConfirmDialog, AdminNotifications, ConnectGate],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, SendIsland, AccountDialog, ConfirmDialog, AdminNotifications, ConnectGate, PageGuide],
   templateUrl: './app.html',
   styleUrl: './app.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -267,6 +282,39 @@ export class App {
   /** The sidebar as a drawer, below `lg`. */
   protected readonly navOpen = signal(false);
 
+  private readonly url = toSignal(
+    this.router.events.pipe(
+      filter((event): event is NavigationEnd => event instanceof NavigationEnd),
+      map((event) => event.urlAfterRedirects),
+    ),
+    { initialValue: location.pathname },
+  );
+
+  /** The written guide for this page (tenant dashboard only), or null when the page has none. */
+  protected readonly guide = computed<Guide | null>(() => {
+    if (this.platformView()) return null;
+    const key = guideFor(this.url());
+    return key ? (GUIDES[key] ?? null) : null;
+  });
+
+  /** The last guide shown, so the panel keeps its words while it slides shut on a page without one. */
+  protected readonly shownGuide = linkedSignal<Guide | null, Guide | null>({
+    source: this.guide,
+    computation: (next, prev) => next ?? prev?.value ?? null,
+  });
+
+  /** Open/closed is the user's choice: clicks in the page never close it, and a reload keeps it. */
+  protected readonly guideOpen = signal(readGuideOpen());
+
+  protected setGuideOpen(open: boolean): void {
+    this.guideOpen.set(open);
+    try {
+      localStorage.setItem(GUIDE_KEY, open ? '1' : '0');
+    } catch {
+      // Storage blocked: it still works for this visit.
+    }
+  }
+
   /**
    * A tenant's sidebar, grouped by what someone came to do: send, look after
    * customers, see results, or set things up. Home stands alone above them.
@@ -283,6 +331,7 @@ export class App {
         { path: '/auto-replies', label: 'Auto-Replies', icon: ICONS.replies, service: 'auto_replies' },
         { path: '/storage', label: 'Storage', icon: 'folders', service: 'bulk_messages' },
         { path: '/school', label: 'School Assistant', icon: ICONS.school, service: 'school_whatsapp_bot' },
+        { path: '/otp', label: 'WhatsApp OTP', icon: 'password', service: 'otp' },
       ],
     },
     {
@@ -294,6 +343,7 @@ export class App {
         { path: '/payment-reminder', label: 'Payment Reminder', icon: ICONS.payment, service: 'payment_reminders' },
         { path: '/records/appointment', label: 'Appointments', icon: 'calendar-event', service: 'appointments' },
         { path: '/records/order', label: 'Orders', icon: 'shopping-cart', service: 'orders' },
+        { path: '/catalog', label: 'WhatsApp Catalog', icon: 'building-store', service: 'catalog' },
         { path: '/records/lead', label: 'Leads', icon: 'user-search', service: 'leads' },
         { path: '/records/subscription', label: 'Subscriptions', icon: 'refresh', service: 'subscriptions' },
         { path: '/records/event', label: 'Events', icon: 'confetti', service: 'events' },

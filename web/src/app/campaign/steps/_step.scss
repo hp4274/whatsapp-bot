@@ -86,6 +86,11 @@
   gap: var(--space-sm);
 
   .grow { flex: 1; }
+
+  // On a phone the send button wraps to its own row: fill it, so it reads as the one thing to press.
+  @media (max-width: 560px) {
+    .go { flex-grow: 1; }
+  }
 }
 
 .btn.small { min-height: 32px; padding: 0 11px; font-size: 12.5px; }

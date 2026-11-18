@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output, signal } f
 import { ArSwitch } from './ar-fields';
 import { AutoReplyRule, ago } from './auto-replies.api';
 import { MATCH_TYPES } from './rule-editor';
+import { RULE_PACKS, RulePack, RuleTemplate, hasPlaceholder, packRules } from './rule-templates';
 
 /**
  * Priority-ordered rules: search, toggle, drag-and-drop or arrow-key reorder.
@@ -23,10 +24,57 @@ export class RuleList {
   readonly creating = input(false);
   readonly select = output<AutoReplyRule>();
   readonly create = output<void>();
+  readonly useTemplate = output<RuleTemplate>();
+  /** Several template rules to save at once (a set). */
+  readonly addTemplates = output<readonly RuleTemplate[]>();
+  /** True while a set is being saved. */
+  readonly adding = input(false);
+  /** The plan's auto-reply rules, so templates it leaves out are not offered. */
+  readonly plan = input<Record<string, unknown>>({});
   readonly toggle = output<{ rule: AutoReplyRule; active: boolean }>();
   readonly reorder = output<number[]>();
 
   protected readonly query = signal('');
+  protected readonly showTemplates = signal(false);
+  protected readonly packs = RULE_PACKS;
+  protected readonly openPack = signal<RulePack | null>(null);
+  /** Rules of the open set the user unticked. */
+  protected readonly skip = signal<ReadonlySet<string>>(new Set());
+  protected readonly packList = computed(() => {
+    const pack = this.openPack();
+    return pack ? packRules(pack, this.plan()) : [];
+  });
+  /** What "Add" will save: ticked, and not already one of the business's rules. */
+  protected readonly chosen = computed(() =>
+    this.packList().filter((t) => !this.added(t) && !this.skip().has(t.key)),
+  );
+  protected readonly needsDetails = hasPlaceholder;
+
+  /** A rule with this template's name is already there (added before, or made by hand). */
+  protected added(t: RuleTemplate): boolean {
+    const name = (t.draft.name ?? t.title).toLowerCase();
+    return this.rules().some((r) => r.name.toLowerCase() === name);
+  }
+
+  protected toggleSkip(key: string): void {
+    const next = new Set(this.skip());
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    this.skip.set(next);
+  }
+
+  protected addChosen(): void {
+    this.addTemplates.emit(this.chosen());
+    this.openPack.set(null);
+    this.skip.set(new Set());
+    this.showTemplates.set(false);
+  }
+
+  protected pickTemplate(t: RuleTemplate): void {
+    this.showTemplates.set(false);
+    this.openPack.set(null);
+    this.useTemplate.emit(t);
+  }
   protected readonly dragId = signal<number | null>(null);
   protected readonly overId = signal<number | null>(null);
   protected readonly ago = ago;

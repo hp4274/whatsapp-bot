@@ -1,8 +1,9 @@
 <!--
   Auto-replies. Kardlyz header (eyebrow, title, lede, hairline rule) with the
   three headline counts on the right; then the error / skeleton / content
-  states. Content is the four system tiles, the rule list beside its editor,
-  and the sandbox console at the bottom. Toasts float bottom-right.
+  states. Content is one tab at a time (?tab= in the URL): Basics (the system
+  replies), Keyword replies (rule list beside its editor), Try it (sandbox
+  console) and Activity. Toasts float bottom-right.
 -->
 <section class="page">
   <header class="s-head">
@@ -10,8 +11,8 @@
       <p class="eyebrow"><i class="ti ti-message-bolt" aria-hidden="true"></i> Auto-replies</p>
       <h1>Replies that run themselves</h1>
       <p>
-        Greet new contacts, cover closed hours, answer keywords with buttons and menus, and hand off
-        to a human when asked.
+        Greet new customers, cover the hours you are closed, and answer the words they send
+        most. Start with the basics; add keyword replies when you need them.
       </p>
     </div>
     @if (!loading() && !loadError()) {
@@ -55,11 +56,32 @@
       </div>
     }
 
+    <nav #tabNav class="tabs s-seg" role="tablist" aria-label="Auto-reply sections">
+      @for (t of tabs; track t.id) {
+        <button
+          type="button"
+          role="tab"
+          [id]="'tab-' + t.id"
+          [attr.aria-selected]="tab() === t.id"
+          [attr.aria-controls]="'panel-' + t.id"
+          (click)="go(t.id)"
+        >
+          <i class="ti ti-{{ t.icon }}" aria-hidden="true"></i> {{ t.label }}
+        </button>
+      }
+    </nav>
+    <p class="tab-lede">{{ lede() }}</p>
+
+    <div class="panel" role="tabpanel" [id]="'panel-' + tab()" [attr.aria-labelledby]="'tab-' + tab()">
+    @switch (tab()) {
+    @case ('basics') {
     @if (settings(); as s) {
       <ar-system-cards
         [settings]="s"
         (settingsChange)="settings.set($event)"
         [stats]="sysStats()"
+        [languages]="languages()"
+        [plan]="planValues()"
       />
     }
 
@@ -79,7 +101,8 @@
         </div>
       </aside>
     }
-
+    }
+    @case ('rules') {
     <div class="main">
       <ar-rule-list
         class="list"
@@ -88,11 +111,15 @@
         [creating]="!!draft() && draft()!.id === null"
         (select)="request($event)"
         (create)="request('new')"
+        (useTemplate)="request($event)"
+        (addTemplates)="addTemplates($event)"
+        [adding]="addingSet()"
+        [plan]="planValues()"
         (toggle)="toggle($event)"
         (reorder)="reorder($event)"
       />
 
-      <div class="edit">
+      <div #editPane class="edit">
         @if (pending()) {
           <div class="unsaved enter" role="alertdialog" aria-label="Unsaved changes">
             <i class="ti ti-alert-triangle" aria-hidden="true"></i>
@@ -109,6 +136,10 @@
             (valueChange)="setDraft($event)"
             [stats]="selectedStats()"
             [businessName]="businessName()"
+            [intents]="intents()"
+            [plan]="planValues()"
+            [messageTypes]="messageTypes()"
+            [languages]="languages()"
             [saving]="saving()"
             [dirty]="dirty()"
             (save)="save()"
@@ -131,7 +162,18 @@
       </div>
     </div>
 
-    <ar-test-console [rules]="rules()" [businessName]="businessName()" />
+    }
+    @case ('report') {
+      <ar-report (answer)="answerFromReport($event)" />
+    }
+    @case ('test') {
+      <ar-test-console [rules]="rules()" [businessName]="businessName()" />
+    }
+    @case ('log') {
+      <ar-activity-log />
+    }
+    }
+    </div>
   }
 </section>
 

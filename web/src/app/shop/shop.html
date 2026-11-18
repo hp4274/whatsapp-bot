@@ -1,0 +1,385 @@
+<!--
+  Orders (mode order) or Appointments (mode booking) on WhatsApp. Top: the on/off card with the words customers
+  type. Then two columns on a wide screen: the list (left) and payment + business info (right), with one Save for
+  the settings. Last: what came in, newest first, each moved along with one control that also messages the customer.
+-->
+@if (notice(); as n) {
+  <p class="s-banner notice" [class.tone-ok]="!n.bad" [attr.role]="n.bad ? 'alert' : 'status'">
+    <i class="ti ti-{{ n.bad ? 'alert-circle' : 'circle-check' }}" aria-hidden="true"></i>
+    <span class="grow">{{ n.text }}</span>
+    <button type="button" class="btn sm icon ghost" aria-label="Dismiss" (click)="notice.set(null)">
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
+  </p>
+}
+
+@if (loadError()) {
+  <div class="s-banner" role="alert">
+    <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+    <span class="grow">Couldn't load {{ booking() ? 'bookings' : 'orders' }}: {{ loadError() }}</span>
+    <button class="link" type="button" (click)="load()">Try again</button>
+  </div>
+} @else if (loading()) {
+  <div class="skel" aria-busy="true" aria-label="Loading orders">
+    <span class="sk hero"></span>
+    <div class="cols"><span class="sk"></span><span class="sk"></span></div>
+  </div>
+} @else if (form(); as f) {
+  @if (!rules().allowWhatsapp) {
+    <p class="s-banner tone-warn" role="status">
+      <i class="ti ti-lock" aria-hidden="true"></i>
+      Taking {{ booking() ? 'bookings' : 'orders' }} on WhatsApp is not part of your plan, so customers are not
+      answered. You can still set it up here.
+    </p>
+  }
+  <section class="s-card hero" [class.on]="f.enabled && rules().allowWhatsapp" aria-labelledby="shop-h">
+    <div class="hero-top">
+      <span class="badge" aria-hidden="true">
+        <i class="ti ti-{{ booking() ? 'calendar-event' : 'shopping-cart' }}" aria-hidden="true"></i>
+      </span>
+      <div class="grow">
+        <h2 id="shop-h">{{ booking() ? 'Take bookings on WhatsApp' : 'Take orders on WhatsApp' }}</h2>
+        <p class="muted">
+          Customers see your list, pick by number, and {{ booking() ? 'choose a time' : 'check out' }} - all in the
+          chat. You get the {{ booking() ? 'booking' : 'order' }} below.
+        </p>
+      </div>
+      <ar-switch [checked]="f.enabled" [label]="f.enabled ? 'On' : 'Off'" (checkedChange)="toggle($event)" />
+    </div>
+
+    <ol class="flow" aria-label="How customers use it">
+      <li><kbd>{{ booking() ? 'BOOK' : 'MENU' }}</kbd><span>sees your list</span></li>
+      <li><kbd>2</kbd><span>{{ booking() ? 'picks a service' : 'adds item 2' }}</span></li>
+      @if (booking()) {
+        <li><kbd>tomorrow 11am</kbd><span>picks a time</span></li>
+      } @else {
+        <li><kbd>CHECKOUT</kbd><span>{{ f.askAddress ? 'sends the address' : 'places it' }}</span></li>
+      }
+      @if (f.payNow && payReady() && rules().allowUpi) {
+        <li><kbd>PAID</kbd><span>after scanning your QR</span></li>
+      }
+      <li><kbd>STATUS</kbd><span>checks it later</span></li>
+    </ol>
+    @if (f.enabled && !(state()?.products ?? []).length) {
+      <p class="s-banner tone-warn" role="status">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i> Add a {{ noun() }} below - until then customers see "our
+        list is being updated".
+      </p>
+    }
+  </section>
+
+  <div class="cols">
+    <!-- Catalogue -->
+    <section class="s-card" aria-labelledby="cat-h">
+      <div class="card-head">
+        <h3 id="cat-h">Your {{ booking() ? 'services' : 'products' }}</h3>
+        <button type="button" class="btn sm" (click)="add()" [disabled]="!!editing() || atCap()">
+          <i class="ti ti-plus" aria-hidden="true"></i> Add {{ noun() }}
+        </button>
+      </div>
+      @if (atCap()) {
+        <p class="hint cap">Your plan allows {{ rules().maxProducts }} {{ booking() ? 'services' : 'products' }}. Delete one to add another.</p>
+      }
+
+      @if (editing(); as e) {
+        <form class="editor" (ngSubmit)="saveProduct()" aria-label="Edit item">
+          <div class="row2">
+            <div class="s-field">
+              <label for="p-name">Name</label>
+              <input id="p-name" name="name" required maxlength="80" [ngModel]="e.draft.name" (ngModelChange)="patch({ name: $event })" />
+            </div>
+            <div class="s-field">
+              <label for="p-price">Price</label>
+              <input id="p-price" name="price" type="number" min="0" step="any" [ngModel]="e.draft.price" (ngModelChange)="patch({ price: +$event })" />
+            </div>
+          </div>
+          <div class="row2">
+            <div class="s-field">
+              <label for="p-cat">Group <span class="opt">optional</span></label>
+              <input id="p-cat" name="category" maxlength="40" placeholder="Cakes, Hair, Drinks..." [ngModel]="e.draft.category" (ngModelChange)="patch({ category: $event })" />
+            </div>
+            <div class="s-field">
+              <label for="p-desc">Short note <span class="opt">optional</span></label>
+              <input id="p-desc" name="description" maxlength="300" placeholder="Eggless, 45 min..." [ngModel]="e.draft.description" (ngModelChange)="patch({ description: $event })" />
+            </div>
+          </div>
+
+          <fieldset class="pics">
+            <legend>Pictures <span class="opt">up to {{ maxImages }} - the first is the cover</span></legend>
+            <ul class="thumbs">
+              @for (id of e.draft.images; track id; let i = $index, first = $first, last = $last) {
+                <li [class.cover]="first">
+                  <img [mediaSrc]="'/api/media/' + id" [alt]="(e.draft.name || noun()) + ', picture ' + (i + 1)" width="88" height="88" />
+                  @if (first) { <span class="tag">Cover</span> }
+                  <div class="thumb-actions">
+                    <button type="button" class="btn sm icon ghost" [disabled]="first" [attr.aria-label]="'Move picture ' + (i + 1) + ' left'" (click)="moveImage(i, -1)">
+                      <i class="ti ti-chevron-left" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" class="btn sm icon ghost" [attr.aria-label]="'Remove picture ' + (i + 1)" (click)="dropImage(i)">
+                      <i class="ti ti-trash" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" class="btn sm icon ghost" [disabled]="last" [attr.aria-label]="'Move picture ' + (i + 1) + ' right'" (click)="moveImage(i, 1)">
+                      <i class="ti ti-chevron-right" aria-hidden="true"></i>
+                    </button>
+                  </div>
+                </li>
+              }
+              @if (uploadingImages()) {
+                <li class="pending" role="status"><span>Uploading {{ uploadingImages() }}...</span></li>
+              }
+              @if (e.draft.images.length + uploadingImages() < maxImages) {
+                <li>
+                  <label class="add-pic">
+                    <i class="ti ti-photo-plus" aria-hidden="true"></i>
+                    <span>Add picture</span>
+                    <input type="file" accept="image/png,image/jpeg" multiple class="sr-only" (change)="addImages($event)" />
+                  </label>
+                </li>
+              }
+            </ul>
+            <p class="hint">With 2 or more pictured {{ booking() ? 'services' : 'products' }}, {{ booking() ? 'BOOK' : 'MENU' }} also sends a swipe carousel of the first 5.</p>
+          </fieldset>
+
+          <fieldset class="variants">
+            <legend>Options <span class="opt">sizes, flavours, durations</span></legend>
+            @for (v of e.draft.variants; track $index; let i = $index) {
+              <div class="variant">
+                <input [attr.aria-label]="'Option ' + (i + 1) + ' name'" placeholder="1 kg" maxlength="40" [value]="v.name" (input)="setVariant(i, { name: text($event) })" />
+                <input [attr.aria-label]="'Option ' + (i + 1) + ' price'" type="number" min="0" step="any" [value]="v.price" (input)="setVariant(i, { price: num($event) })" />
+                <button type="button" class="btn sm icon ghost" [attr.aria-label]="'Remove option ' + (i + 1)" (click)="dropVariant(i)">
+                  <i class="ti ti-x" aria-hidden="true"></i>
+                </button>
+              </div>
+            } @empty {
+              <p class="hint">No options: one price for everyone.</p>
+            }
+            <button type="button" class="btn sm ghost" (click)="addVariant()">
+              <i class="ti ti-plus" aria-hidden="true"></i> Add option
+            </button>
+          </fieldset>
+
+          <div class="actions">
+            <button type="button" class="btn" (click)="editing.set(null)">Cancel</button>
+            <button type="submit" class="btn primary" [disabled]="savingProduct() || uploadingImages() > 0 || !e.draft.name.trim()">
+              {{ savingProduct() ? 'Saving...' : e.id === null ? 'Add' : 'Save' }}
+            </button>
+          </div>
+        </form>
+      }
+
+      <ol class="items">
+        @for (p of state()?.products ?? []; track p.id; let i = $index) {
+          <li [class.off]="!p.active">
+            <span class="n" aria-hidden="true">{{ i + 1 }}</span>
+            @if (p.images[0]; as cover) {
+              <img class="cover" [mediaSrc]="'/api/media/' + cover" [alt]="p.name" width="44" height="44" loading="lazy" />
+            } @else {
+              <span class="cover none" aria-hidden="true"><i class="ti ti-photo"></i></span>
+            }
+            <div class="grow">
+              <strong>{{ p.name }}</strong>
+              <small>
+                {{ priceOf(p) }}
+                @if (p.variants.length) { · {{ p.variants.length }} options }
+                @if (p.category) { · {{ p.category }} }
+              </small>
+            </div>
+            <ar-switch [checked]="p.active" [ariaLabel]="'Show ' + p.name + ' to customers'" (checkedChange)="toggleProduct(p, $event)" />
+            <button type="button" class="btn sm icon ghost" [attr.aria-label]="'Edit ' + p.name" (click)="edit(p)">
+              <i class="ti ti-pencil" aria-hidden="true"></i>
+            </button>
+            <button type="button" class="btn sm icon ghost" [attr.aria-label]="'Delete ' + p.name" (click)="deleting.set(p)">
+              <i class="ti ti-trash" aria-hidden="true"></i>
+            </button>
+          </li>
+        } @empty {
+          @if (!editing()) {
+            <li class="s-empty">
+              <i class="ti ti-{{ booking() ? 'calendar-plus' : 'package' }}" aria-hidden="true"></i>
+              <strong>No {{ booking() ? 'services' : 'products' }} yet</strong>
+              <p>Add what you sell with its price. Customers see them numbered in this order.</p>
+            </li>
+          }
+        }
+      </ol>
+    </section>
+
+    <!-- Payment + info -->
+    <form class="s-card settings" (ngSubmit)="save()" aria-labelledby="pay-h">
+      <h3 id="pay-h">{{ rules().allowUpi ? 'Payment & details' : 'Details' }}</h3>
+
+      @if (rules().allowUpi) {
+      <div class="row2">
+        <div class="s-field">
+          <label for="s-upi">UPI ID</label>
+          <input id="s-upi" name="upiId" placeholder="yourname@okbank" autocomplete="off" [ngModel]="f.upiId" (ngModelChange)="set('upiId', $event.trim())" />
+          <span class="hint">A QR with the exact amount is made for each {{ booking() ? 'booking' : 'order' }}.</span>
+        </div>
+        <div class="s-field">
+          <label for="s-payee">Name on the account</label>
+          <input id="s-payee" name="payeeName" maxlength="60" [ngModel]="f.payeeName" (ngModelChange)="set('payeeName', $event)" />
+        </div>
+      </div>
+
+      <div class="qr">
+        @if (f.qrMediaId) {
+          <img [mediaSrc]="'/api/media/' + f.qrMediaId" alt="Your payment QR" width="64" height="64" />
+          <span class="grow">Your own QR image is sent instead.</span>
+          <button type="button" class="btn sm ghost" (click)="set('qrMediaId', '')">Remove</button>
+        } @else {
+          <label class="btn sm" [class.busy]="uploading()">
+            <i class="ti ti-qrcode" aria-hidden="true"></i> {{ uploading() ? 'Uploading...' : 'Or upload your QR image' }}
+            <input type="file" accept="image/png,image/jpeg" class="sr-only" (change)="uploadQr($event)" />
+          </label>
+        }
+      </div>
+
+      <label class="check">
+        <input type="checkbox" name="payNow" [ngModel]="f.payNow" (ngModelChange)="set('payNow', $event)" />
+        Ask for payment as soon as the {{ booking() ? 'booking' : 'order' }} is placed
+      </label>
+      }
+
+      @if (!booking()) {
+        <label class="check">
+          <input type="checkbox" name="askAddress" [ngModel]="f.askAddress" (ngModelChange)="set('askAddress', $event)" />
+          Ask for a delivery address
+        </label>
+        <div class="s-field narrow">
+          <label for="s-fee">Delivery charge</label>
+          <input id="s-fee" name="deliveryFee" type="number" min="0" step="any" [ngModel]="f.deliveryFee" (ngModelChange)="set('deliveryFee', +$event)" />
+        </div>
+      }
+
+      <div class="s-field">
+        <label for="s-note">Note after every {{ booking() ? 'booking' : 'order' }} <span class="opt">optional</span></label>
+        <input id="s-note" name="note" maxlength="300" placeholder="Delivery in 2 hours. Cash on delivery also OK." [ngModel]="f.note" (ngModelChange)="set('note', $event)" />
+      </div>
+
+      @if (booking() && rules().allowReminders) {
+        <div class="s-field narrow">
+          <label for="s-remind">Remind the customer before <span class="opt">hours, 0 = off</span></label>
+          <input id="s-remind" name="reminderHours" type="number" min="0" max="168" step="1" [ngModel]="f.reminderHours" (ngModelChange)="set('reminderHours', +$event)" />
+          <span class="hint">"Reminder: your Haircut is at Tue, 25 Nov, 4:00 pm. Reply here if you need to change it."</span>
+        </div>
+      }
+
+      <label class="check">
+        <input type="checkbox" name="alertOwner" [ngModel]="f.alertOwner" (ngModelChange)="set('alertOwner', $event)" />
+        Message me on WhatsApp for each new {{ booking() ? 'booking' : 'order' }} and each "PAID"
+      </label>
+
+      <div class="s-field">
+        <label for="s-info">Business info <span class="opt">answered to INFO, ADDRESS, TIMINGS</span></label>
+        <textarea id="s-info" name="info" rows="3" maxlength="1000" placeholder="Open 10am-8pm, Mon-Sat&#10;Shop 4, MG Road, Pune&#10;Call 98xxxxxx10" [ngModel]="f.info" (ngModelChange)="set('info', $event)"></textarea>
+      </div>
+
+      <details class="advanced">
+        <summary>Advanced</summary>
+        <div class="advanced-body row2">
+          <div class="s-field">
+            <label for="s-title">List heading</label>
+            <input id="s-title" name="title" maxlength="60" placeholder="Your business name" [ngModel]="f.title" (ngModelChange)="set('title', $event)" />
+          </div>
+          <div class="s-field">
+            <label for="s-cur">Currency</label>
+            <input id="s-cur" name="currency" maxlength="3" [ngModel]="f.currency" (ngModelChange)="set('currency', $event.toUpperCase())" />
+          </div>
+        </div>
+      </details>
+
+      <div class="actions">
+        <button type="submit" class="btn primary" [disabled]="!dirty() || saving()">
+          {{ saving() ? 'Saving...' : 'Save' }}
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Orders -->
+  <section class="s-card" aria-labelledby="ord-h">
+    <div class="card-head">
+      <h3 id="ord-h">{{ booking() ? 'Bookings' : 'Orders' }}</h3>
+      @if (waiting()) {
+        <span class="s-pill" style="--tone: var(--info)">{{ waiting() }} waiting for a payment check</span>
+      }
+    </div>
+    @if (orders().length) {
+      <div class="s-table">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">{{ booking() ? 'Booking' : 'Order' }}</th>
+              <th scope="col">Customer</th>
+              <th scope="col">{{ booking() ? 'Service & time' : 'Items' }}</th>
+              <th scope="col" class="num">Total</th>
+              <th scope="col">Payment</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (o of orders(); track o.id; let i = $index) {
+              @let pay = payment(o);
+              <tr [style.--i]="i">
+                <td>
+                  <strong>{{ o.reference }}</strong>
+                  <small class="muted block">{{ when(o.createdAt) }}</small>
+                </td>
+                <td>{{ o.metadata.phone ?? '' }}</td>
+                <td class="wrap">
+                  @if (o.type === 'appointment') {
+                    {{ o.data.service }}<small class="muted block">{{ when(o.data.scheduledAt) }}</small>
+                  } @else {
+                    @if (coverOf(o); as cover) {
+                      <img class="line-cover" [mediaSrc]="'/api/media/' + cover" alt="" width="36" height="36" loading="lazy" />
+                    }
+                    <span class="pre">{{ o.data.items }}</span>
+                    @if (o.data.notes) { <small class="muted block">{{ o.data.notes }}</small> }
+                  }
+                </td>
+                <td class="num">{{ money(o.metadata.total ?? o.data.amount) }}</td>
+                <td>
+                  <span class="s-pill" [style.--tone]="pay.tone">{{ pay.label }}</span>
+                  @if (o.metadata.payment === 'pending' || o.metadata.payment === 'claimed') {
+                    <button type="button" class="btn sm ghost" [disabled]="busyOrder() === o.id" (click)="move(o, { payment: 'paid' })">
+                      Mark paid
+                    </button>
+                  }
+                </td>
+                <td>
+                  <select
+                    [attr.aria-label]="'Status of ' + o.reference"
+                    [value]="o.status"
+                    [disabled]="busyOrder() === o.id"
+                    (change)="move(o, { status: text($event) })"
+                  >
+                    @for (s of statuses(); track s) {
+                      <option [value]="s" [selected]="s === o.status">{{ statusLabel(s) }}</option>
+                    }
+                  </select>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <p class="hint">Changing a status or marking it paid messages the customer on WhatsApp.</p>
+    } @else {
+      <div class="s-empty">
+        <i class="ti ti-receipt" aria-hidden="true"></i>
+        <strong>No {{ booking() ? 'bookings' : 'orders' }} yet</strong>
+        <p>Send <b>{{ booking() ? 'BOOK' : 'MENU' }}</b> to your own number from another phone to try it.</p>
+      </div>
+    }
+  </section>
+}
+
+@if (deleting(); as p) {
+  <app-confirm
+    [heading]="'Delete ' + p.name + '?'"
+    text="Customers will no longer see it. Orders that already have it keep it."
+    action="Delete"
+    (confirm)="removeProduct()"
+    (cancel)="deleting.set(null)"
+  />
+}

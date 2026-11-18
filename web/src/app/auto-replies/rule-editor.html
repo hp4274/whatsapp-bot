@@ -50,14 +50,14 @@
     <section class="sec">
       <h3><span class="step">1</span> Trigger</h3>
       <div class="mtypes" role="radiogroup" aria-label="Match type">
-        @for (m of matchTypes; track m.value) {
+        @for (m of shownTypes(); track m.value) {
           <label class="mt" [class.on]="d.matchType === m.value">
             <input
               type="radio"
               name="matchType"
               [value]="m.value"
               [checked]="d.matchType === m.value"
-              (change)="patch({ matchType: m.value })"
+              (change)="setType(m.value)"
             />
             <i class="ti ti-{{ m.icon }}" aria-hidden="true"></i>
             <strong>{{ m.label }}</strong>
@@ -65,7 +65,44 @@
           </label>
         }
       </div>
-      @if (d.matchType !== 'FALLBACK') {
+      @if (d.matchType === 'INTENT') {
+        <div class="field enter">
+          <span class="lbl" id="re-int"
+            >Intents <span class="hint">Any of these meanings, in English, Hinglish, Hindi or Gujarati</span></span
+          >
+          <div class="intents" role="group" aria-labelledby="re-int">
+            @for (it of intents(); track it.id) {
+              <button
+                type="button"
+                class="intent"
+                [attr.aria-pressed]="d.keywords.includes(it.id)"
+                (click)="toggleIntent(it.id)"
+              >
+                <strong>{{ it.label }}</strong>
+                <small>{{ it.examples.join(', ') }}…</small>
+              </button>
+            }
+          </div>
+        </div>
+      } @else if (d.matchType === 'MESSAGE_TYPE') {
+        <div class="field enter">
+          <span class="lbl" id="re-mt"
+            >Message types <span class="hint">Reply when a customer sends one of these</span></span
+          >
+          <div class="intents" role="group" aria-labelledby="re-mt">
+            @for (t of messageTypes(); track t) {
+              <button
+                type="button"
+                class="intent"
+                [attr.aria-pressed]="d.keywords.includes(t)"
+                (click)="toggleIntent(t)"
+              >
+                <strong>{{ typeLabel[t] ?? t }}</strong>
+              </button>
+            }
+          </div>
+        </div>
+      } @else if (d.matchType !== 'FALLBACK') {
         <div class="field enter">
           <label for="re-kw"
             >{{ d.matchType === 'REGEX' ? 'Patterns' : 'Keywords' }}
@@ -77,6 +114,28 @@
             (valueChange)="patch({ keywords: $event })"
             [placeholder]="d.matchType === 'REGEX' ? '^(price|cost)s?$' : 'price, pricing, cost'"
           />
+          <!-- Spelling mistakes are always forgiven; this shows what that catches, and offers words with the same meaning. -->
+          @if (typoHints().length || similarWords().length) {
+            <div class="also enter">
+              <span class="lbl">Customers may also write</span>
+              @if (typoHints().length) {
+                <p class="hint">
+                  <i class="ti ti-wand" aria-hidden="true"></i> Spelling mistakes are caught for you:
+                  {{ typoHints().join(', ') }}…
+                </p>
+              }
+              @if (similarWords().length) {
+                <p class="hint">Words that mean the same. Tap to add them as keywords:</p>
+                <div class="suggest" role="group" aria-label="Similar words to add">
+                  @for (w of similarWords(); track w) {
+                    <button type="button" class="chip" (click)="addKeyword(w)">
+                      <i class="ti ti-plus" aria-hidden="true"></i>{{ w }}
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+          }
         </div>
       } @else {
         <p class="note">
@@ -95,6 +154,20 @@
         placeholder="Hi {first_name|there}! Our plans start at ₹499."
       />
       <ar-media [value]="d.media" (valueChange)="patch({ media: $event })" />
+      @if (languages().length && allows().translations) {
+        <div class="sub">
+          <h4><i class="ti ti-language" aria-hidden="true"></i> Other languages</h4>
+          <p class="hint">
+            Customers who write in one of these get this text instead. Everyone else gets the reply
+            above.
+          </p>
+          <ar-translations
+            [languages]="languages()"
+            [value]="d.translations"
+            (valueChange)="patch({ translations: $event })"
+          />
+        </div>
+      }
     </section>
 
     <!-- 3 Buttons & menu -->
@@ -119,9 +192,97 @@
       }
     </section>
 
-    <!-- 4 When & who -->
+    <!-- 4 Ask questions (when the plan includes it, or this rule already asks) -->
+    @if (allows().questions || d.collect) {
     <section class="sec">
-      <h3><span class="step">4</span> When &amp; who</h3>
+      <h3><span class="step">4</span> Ask questions <span class="opt">optional</span></h3>
+      <p class="hint">
+        Collect a name, phone number, order ID and more, one question at a time. Each answer is saved
+        to the contact. Customers can reply EXIT to stop (STOP or CANCEL unsubscribes them).
+      </p>
+      @for (q of questions(); track $index; let i = $index) {
+        <div class="ask enter">
+          <span class="n" aria-hidden="true">{{ i + 1 }}</span>
+          <input
+            class="q"
+            [value]="q.question"
+            (input)="setQuestion(i, { question: v($event) })"
+            placeholder="What is your order ID?"
+            [attr.aria-label]="'Question ' + (i + 1)"
+          />
+          <select
+            [value]="q.type"
+            (change)="setQuestion(i, { type: $any(v($event)) })"
+            [attr.aria-label]="'Answer type for question ' + (i + 1)"
+          >
+            @for (t of collectTypes; track t.value) {
+              <option [value]="t.value" [selected]="q.type === t.value">{{ t.label }}</option>
+            }
+          </select>
+          @if (q.type === 'language') {
+            <span class="key fixed" title="Replies use this as the contact's language">language</span>
+          } @else {
+            <input
+              class="key"
+              [value]="q.key"
+              (input)="setQuestion(i, { key: v($event) })"
+              placeholder="order_id"
+              [attr.aria-label]="'Save answer ' + (i + 1) + ' to contact field'"
+            />
+          }
+          <button
+            type="button"
+            class="rm"
+            [attr.aria-label]="'Remove question ' + (i + 1)"
+            (click)="setQuestions(questions().filter((_, j) => j !== i))"
+          >
+            <i class="ti ti-x" aria-hidden="true"></i>
+          </button>
+          @if (q.type === 'language') {
+            <div class="langs" role="group" [attr.aria-label]="'Languages offered in question ' + (i + 1)">
+              @for (l of languages(); track l.code) {
+                <button
+                  type="button"
+                  class="chip"
+                  [attr.aria-pressed]="(q.options ?? ['en', 'hi', 'gu']).includes(l.code)"
+                  (click)="toggleOption(i, l.code)"
+                >
+                  {{ l.label }}
+                </button>
+              }
+            </div>
+          }
+        </div>
+      }
+      <button
+        type="button"
+        class="add-q"
+        [disabled]="questions().length >= allows().maxQuestions || !allows().questions"
+        (click)="addQuestion()"
+      >
+        <i class="ti ti-plus" aria-hidden="true"></i> Add a question
+      </button>
+      @if (d.collect) {
+        <div class="field enter">
+          <label for="re-done"
+            >After the last answer
+            <span class="hint">Answers work as variables, e.g. {{ '{' + (questions()[0]?.key || 'name') + '}' }}</span></label
+          >
+          <input
+            id="re-done"
+            [value]="d.collect.doneReply"
+            (input)="setDone(v($event))"
+            placeholder="Thank you! We have your details and will get back to you."
+          />
+        </div>
+      }
+    </section>
+
+    }
+
+    <!-- 5 When & who -->
+    <section class="sec">
+      <h3><span class="step">5</span> When &amp; who</h3>
       <ar-schedule-editor [value]="d.schedule" (valueChange)="patch({ schedule: $event })" />
       <div class="field">
         <span class="lbl" id="re-aud">Audience</span>
@@ -160,9 +321,9 @@
       </div>
     </section>
 
-    <!-- 5 Actions -->
+    <!-- 6 Actions -->
     <section class="sec">
-      <h3><span class="step">5</span> Actions</h3>
+      <h3><span class="step">6</span> Actions</h3>
       <div class="grid2">
         <div class="field">
           <label for="re-tag">Add tag to contact</label>

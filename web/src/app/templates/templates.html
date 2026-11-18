@@ -147,7 +147,7 @@
         <div class="top">
           <i class="ti ti-{{ meta[t.templateType].icon }} ico" aria-hidden="true"></i>
           <div class="ttl">
-            <h3>{{ t.name }}</h3>
+            <h3 [title]="t.name">{{ t.name }}</h3>
             <span class="muted">v{{ t.currentVersion }} · edited {{ ago(t.updatedAt) }}</span>
           </div>
           <span class="s-pill" [class]="cat[t.category].tone">{{ cat[t.category].label }}</span>
@@ -598,11 +598,74 @@
         <div class="side" #side>
           <span class="plabel">Live preview</span>
           <app-template-preview
-            [text]="draft().body"
-            [samples]="draft().sampleValues"
+            [text]="asPreview()?.body ?? draft().body"
+            [samples]="asPreview() ? null : draft().sampleValues"
             [media]="draft().headerMediaId ? media() : null"
             [interactive]="draft().interactive"
           />
+          <div class="as-contact">
+            <label for="tp-as">Preview as a contact</label>
+            <div class="as-search">
+              <i class="ti ti-user-search" aria-hidden="true"></i>
+              <input
+                id="tp-as"
+                type="search"
+                autocomplete="off"
+                placeholder="Search a name or number"
+                [ngModel]="asQuery()"
+                [ngModelOptions]="{ standalone: true }"
+                (ngModelChange)="searchAs($event)"
+                (keydown.enter)="$event.preventDefault()"
+              />
+              @if (asContact()) {
+                <button
+                  class="btn sm ghost"
+                  type="button"
+                  aria-label="Back to the example values"
+                  (click)="previewAs(null)"
+                >
+                  <i class="ti ti-x" aria-hidden="true"></i>
+                </button>
+              }
+            </div>
+            @if (asMatches().length) {
+              <ul class="as-matches" aria-label="Matching contacts">
+                @for (c of asMatches(); track c.id) {
+                  <li>
+                    <button type="button" (click)="previewAs(c)">
+                      <b>{{ c.name || 'No name' }}</b> <small>+{{ c.phone }}</small>
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+            @if (asError()) {
+              <small class="as-note tone-bad" role="alert">{{ asError() }}</small>
+            } @else if (asContact()) {
+              @if (asPreview(); as ap) {
+                @if (ap.missing.length) {
+                  <small class="as-note tone-warn">
+                    <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+                    This contact has no
+                    @for (m of ap.missing; track m; let last = $last) {
+                      <code>{{ '{' + m + '}' }}</code>{{ last ? '' : ',' }}
+                    }
+                  </small>
+                } @else {
+                  <small class="as-note muted">Exactly what {{ asContact()?.name || 'this contact' }} gets.</small>
+                }
+              } @else {
+                <small class="as-note muted" aria-live="polite">Loading…</small>
+              }
+            }
+            @for (g of gaps(); track g.key) {
+              <small class="as-note tone-warn">
+                <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+                {{ g.count }} {{ g.count === 1 ? 'contact is' : 'contacts are' }} missing
+                <code>{{ '{' + g.key + '}' }}</code>
+              </small>
+            }
+          </div>
         </div>
 
         <div class="foot">

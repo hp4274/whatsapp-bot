@@ -175,7 +175,9 @@ describe('school assistant', () => {
         const text = sentTo(who).join('\n');
         assert.match(text, /ATTENDANCE/);
         assert.match(text, /Quick replies/);
-        assert.match(text, /hi, hello|hello, hi|pricing/i);
+        // One line per rule: the word, then what it is for.
+        assert.match(text, /^- HI - .+/m);
+        assert.match(text, /^- PRICING - .+/m);
         assert.match(text, /STOP/);
     });
 

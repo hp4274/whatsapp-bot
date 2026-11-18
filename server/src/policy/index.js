@@ -34,9 +34,15 @@ import { BILLING_POLICY } from './billing.js';
 import { BULK_POLICY, PLAN_SPEEDS } from './bulk.js';
 import { CAMPAIGN_POLICY } from './campaigns.js';
 import { CHANNEL_POLICY, PLAN_DAILY_CAPS } from './channels.js';
+import { CONTACT_POLICY } from './contacts.js';
+import { FAQ_POLICY } from './faq.js';
 import { LEVELS_POLICY } from './levels.js';
+import { MODULE_POLICY } from './modules.js';
+import { PAYMENT_REMINDER_POLICY } from './paymentReminders.js';
+import { RECORDS_POLICY } from './records.js';
 import { SECURITY_POLICY } from './security.js';
 import { TEMPLATE_POLICY } from './templates.js';
+import { TICKET_POLICY } from './tickets.js';
 
 export { POLICY_SCHEMA } from './schema.js';
 
@@ -44,9 +50,15 @@ export const POLICY_FIELDS = Object.freeze([
     ...CHANNEL_POLICY,
     ...LEVELS_POLICY,
     ...TEMPLATE_POLICY,
+    ...CONTACT_POLICY,
     ...AUTOREPLY_POLICY,
     ...BULK_POLICY,
     ...CAMPAIGN_POLICY,
+    ...MODULE_POLICY,
+    ...PAYMENT_REMINDER_POLICY,
+    ...TICKET_POLICY,
+    ...FAQ_POLICY,
+    ...RECORDS_POLICY,
     ...BILLING_POLICY,
     ...SECURITY_POLICY,
 ]);
