@@ -119,6 +119,20 @@ describe('limit increase requests', () => {
         assert.equal(no.body.request.reason, 'Not now');
         assert.deepEqual(await limits(), before);
     });
+    it('a sending speed can be asked for: approved it sets only the speed, and goes back to automatic after', async () => {
+        assert.equal((await call(owner, 'GET', '/api/limit-requests')).body.limits.find((l) => l.key === 'sendSpeed').now, null, 'automatic');
+        assert.equal((await call(owner, 'POST', '/api/limit-requests', { items: [{ key: 'sendSpeed', value: 250001, days: 7 }] })).status, 400);
+        const made = await call(owner, 'POST', '/api/limit-requests', { items: [{ key: 'sendSpeed', value: 3000, days: 7 }] });
+        assert.equal(made.body.request.items[0].label, 'Sending speed, per number');
+        const day = async () => (await call(sup, 'GET', `/api/admin/tenants/${tenantId}/safety`)).body.safety.dailyLimit;
+        const before = await day();
+        await call(sup, 'POST', `/api/admin/tenants/${tenantId}/limit-requests/${made.body.request.id}/approve`);
+        assert.equal((await limits()).sendSpeed, 3000);
+        assert.equal(await day(), before, 'the daily limit is a separate setting');
+        app.locals.expireLimitRequests(new Date(Date.now() + 8 * 864e5));
+        assert.equal((await limits()).sendSpeed, null);
+    });
+
     it('shows what waits on the admin in the bell, until it is answered', async () => {
         const made = await call(owner, 'POST', '/api/limit-requests', { items: [{ key: 'maxChannels', value: 4, days: 7 }] });
         let bell = (await call(sup, 'GET', '/api/admin/notifications')).body;

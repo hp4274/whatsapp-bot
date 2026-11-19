@@ -32,7 +32,6 @@ export const TENANT_SERVICES = Object.freeze([
     'contacts',
     'templates',
     'auto_replies',
-    'bulk_messages',
     'campaigns',
     'payment_reminders',
     'workflows',
@@ -802,10 +801,15 @@ export function openServices() {
     return TENANT_SERVICES.filter((service) => !soon.includes(service));
 }
 
+/**
+ * Bulk messages and Campaigns are one service, `campaigns`, since 2026-11-19: a list saved with the old
+ * `bulk_messages` (a tenant's or a plan's) keeps its sending as `campaigns`.
+ */
 export function normalizeTenantServices(services) {
     const open = openServices();
     if (!Array.isArray(services)) return open;
-    return open.filter((service) => services.includes(service));
+    const has = (service) => services.includes(service) || (service === 'campaigns' && services.includes('bulk_messages'));
+    return open.filter(has);
 }
 
 /**
@@ -827,6 +831,9 @@ export const LIMIT_SPEC = Object.freeze({
     // True: safety.dailyLimit replaces the plan's per-number day (channels.dailyCap) instead of only lowering it;
     // with it 0 there is no day cap at all. Sending levels still apply. Absent = the plan's day, as before.
     ownDailyLimit: 'bool',
+    // Its own sending speed, messages a day per number: only how fast messages go (campaign/safety.js speedRow), never
+    // how many. Absent, null or 0 = automatic: spaced by the number's level, or to fit an own day.
+    sendSpeed: [0, 250000],
 });
 /** A numeric tenant limit as a cap: null when there is none, else the number (0 is a cap of zero). */
 export function capOf(value) {

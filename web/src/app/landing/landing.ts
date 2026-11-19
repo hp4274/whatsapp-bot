@@ -167,7 +167,7 @@ const FAQS: readonly { readonly q: string; readonly a: string }[] = [
   },
   {
     q: 'Will my number get banned?',
-    a: 'No tool can promise that. Wuzie lowers the risk: it caps how much a number sends a day, leaves random gaps between messages, holds bulk sends until your customers’ daytime and pauses a campaign when too many messages fail.',
+    a: 'No tool can promise that. Wuzie lowers the risk: it caps how much a number sends a day, leaves random gaps between messages, spreads a day’s sends over the whole day and pauses a campaign when too many messages fail.',
   },
   {
     q: 'Do I need the WhatsApp Business API?',

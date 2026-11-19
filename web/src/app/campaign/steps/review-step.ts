@@ -241,7 +241,7 @@ export class ReviewStep {
           const u = c.health?.usage;
           const why =
             u?.asked === false
-              ? 'until its 2 questions are answered on the WhatsApp page'
+              ? 'until its 4 questions are answered on the WhatsApp page'
               : u?.blocked
                 ? `while it is paused (${u.blocked})`
                 : 'until its daily limit resets tomorrow';
@@ -505,9 +505,6 @@ export class ReviewStep {
     // A draft from before the rules loaded (or changed) is pulled back inside them.
     effect(() => {
       const d = this.draft;
-      // The plan sets the speed; the draft follows it so the estimate matches what the server does.
-      const planned = this.policy.maxSpeed();
-      if (d.pacing() !== planned) untracked(() => d.pacing.set(planned));
       const mode = d.scheduleMode();
       const offPlan = !this.policy.allowScheduling() && mode !== 'now';
       // Switching the audience away from the file makes a spread impossible.
@@ -592,8 +589,7 @@ export class ReviewStep {
 
   private loadSafety(size: number, preset: PacingPreset): Subscription {
     this.loadingSafety.set(true);
-    // Only the estimate is shown. The server answers at the plan's speed (bulk.maxSpeed), as the run
-    // will send, whatever preset is asked for here.
+    // Only the estimate is shown. A number is spaced from its messages per day, whatever preset is asked here.
     return this.campaignsApi
       .safetyFor(size, preset)
       .pipe(
@@ -732,7 +728,7 @@ export class ReviewStep {
         if (n.error) return [`${name} did not start: ${n.error}`];
         if (!n.queued) return [];
         if (n.safety?.enabled && n.safety.asked === false) {
-          return [`${name} holds its share until its 2 questions are answered.`];
+          return [`${name} holds its share until its 4 questions are answered.`];
         }
         if (n.safety?.remaining === 0) return [`${name} has no messages left today; its share goes tomorrow.`];
         return [];

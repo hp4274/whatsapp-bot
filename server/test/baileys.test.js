@@ -1060,6 +1060,115 @@ it('says why WhatsApp refused the catalog', async () => {
     assert.equal(empty.truncated, false);
 });
 
+it('creates a catalog product over the same HTTPS catalog endpoint', async () => {
+    const saved = process.env.WHATSAPP_CATALOG_WRITE_DOC_ID;
+    process.env.WHATSAPP_CATALOG_WRITE_DOC_ID = 'WRITE_DOC_1';
+    try {
+        const { transport, queries } = await catalogTransport({
+            platform: 'smba',
+            answer: ({ kind, node }) => {
+                const fields = kind === 'product_catalog' ? (node.product_catalog ?? node) : null;
+                if (kind === 'product_catalog' && fields?.name) return { id: 'new1', name: fields.name, price: fields.price };
+                return { products: [product('p1')], collections: [] };
+            },
+        });
+        const made = await transport.createProduct({ name: 'New item', price: 50, currency: 'INR', url: '', retailerId: '', availability: 'in stock', hidden: false, salePrice: 0 });
+        assert.deepEqual(made, { id: 'new1', name: 'New item', price: 50000 });
+        const write = queries.find((q) => q.sent.doc_id === 'WRITE_DOC_1');
+        assert.ok(write, 'sent a write GraphQL call');
+        assert.equal(write.kind, 'product_catalog');
+        assert.equal(write.node.biz_jid, '15550000001@s.whatsapp.net');
+        assert.equal(write.node.name, 'New item');
+        assert.equal(write.node.price, 50000); // thousandths
+        assert.equal(write.node.currency, 'INR');
+        // pictures: one already on WhatsApp's CDN is kept as it is, and none named means none sent
+        assert.equal(write.node.media, undefined);
+        await transport.createProduct({ name: 'With photo', price: 50, currency: 'INR', images: [{ url: 'https://media.cdn.whatsapp.net/v/p1.jpg' }] });
+        assert.deepEqual(queries.at(-1).node.media, { images: [{ url: 'https://media.cdn.whatsapp.net/v/p1.jpg' }] });
+    } finally {
+        process.env.WHATSAPP_CATALOG_WRITE_DOC_ID = saved;
+    }
+});
+
+it('updates a catalog product with its id in the request', async () => {
+    const saved = process.env.WHATSAPP_CATALOG_WRITE_DOC_ID;
+    process.env.WHATSAPP_CATALOG_WRITE_DOC_ID = 'WRITE_DOC_1';
+    try {
+        const { transport, queries } = await catalogTransport({
+            platform: 'smba',
+            answer: ({ kind, node }) => {
+                const fields = kind === 'product_catalog' ? (node.product_catalog ?? node) : null;
+                return { id: fields?.id, name: fields?.name };
+            },
+        });
+        const made = await transport.updateProduct('p1', { name: 'Renamed', price: 70, currency: 'INR', url: '', retailerId: '', availability: 'in stock', hidden: false, salePrice: 0 });
+        assert.deepEqual(made, { id: 'p1', name: 'Renamed' });
+        const write = queries.find((q) => q.sent.doc_id === 'WRITE_DOC_1');
+        assert.equal(write.node.id, 'p1');
+        assert.equal(write.node.name, 'Renamed');
+        assert.equal(write.node.price, 70000);
+    } finally {
+        process.env.WHATSAPP_CATALOG_WRITE_DOC_ID = saved;
+    }
+});
+
+it('deletes a catalog product with the delete doc id', async () => {
+    const savedWrite = process.env.WHATSAPP_CATALOG_WRITE_DOC_ID;
+    const savedDelete = process.env.WHATSAPP_CATALOG_DELETE_DOC_ID;
+    process.env.WHATSAPP_CATALOG_WRITE_DOC_ID = 'WRITE_DOC_1';
+    process.env.WHATSAPP_CATALOG_DELETE_DOC_ID = 'DELETE_DOC_1';
+    try {
+        const { transport, queries } = await catalogTransport({
+            platform: 'smba',
+            answer: ({ kind, node }) => {
+                const fields = kind === 'product_catalog' ? (node.product_catalog ?? node) : null;
+                return { deleted: true, id: fields?.id };
+            },
+        });
+        const made = await transport.deleteProduct('p1');
+        assert.deepEqual(made, { deleted: true, id: 'p1' });
+        const del = queries.find((q) => q.sent.doc_id === 'DELETE_DOC_1');
+        assert.ok(del, 'sent a delete GraphQL call');
+        assert.equal(del.node.id, 'p1');
+        assert.equal(del.node.biz_jid, '15550000001@s.whatsapp.net');
+    } finally {
+        process.env.WHATSAPP_CATALOG_WRITE_DOC_ID = savedWrite;
+        process.env.WHATSAPP_CATALOG_DELETE_DOC_ID = savedDelete;
+    }
+});
+
+it('refuses catalog writes when not connected', async () => {
+    const { transport } = await catalogTransport({ platform: 'smba', answer: () => ({ products: [] }) });
+    transport.connected = false;
+    transport.sock = null;
+    await assert.rejects(transport.createProduct({ name: 'x', price: 1, currency: 'INR', url: '', retailerId: '', availability: 'in stock', hidden: false, salePrice: 0 }),
+        (err) => err.code === 'not_connected');
+});
+
+it('refuses catalog writes on a personal number', async () => {
+    const saved = process.env.WHATSAPP_CATALOG_WRITE_DOC_ID;
+    process.env.WHATSAPP_CATALOG_WRITE_DOC_ID = 'WRITE_DOC_1';
+    try {
+        const { transport } = await catalogTransport({ platform: 'android', answer: () => ({ products: [] }) });
+        await assert.rejects(transport.createProduct({ name: 'x', price: 1, currency: 'INR', url: '', retailerId: '', availability: 'in stock', hidden: false, salePrice: 0 }),
+            (err) => err.code === 'not_business');
+    } finally {
+        process.env.WHATSAPP_CATALOG_WRITE_DOC_ID = saved;
+    }
+});
+
+it('refuses catalog writes when the write doc id is not configured', async () => {
+    const saved = process.env.WHATSAPP_CATALOG_WRITE_DOC_ID;
+    process.env.WHATSAPP_CATALOG_WRITE_DOC_ID = '';
+    try {
+        const { transport } = await catalogTransport({ platform: 'smba', answer: () => ({ products: [] }) });
+        await assert.rejects(transport.createProduct({ name: 'x', price: 1, currency: 'INR', url: '', retailerId: '', availability: 'in stock', hidden: false, salePrice: 0 }),
+            (err) => err.code === 'catalog_failed' && /not configured/.test(err.message));
+    } finally {
+        process.env.WHATSAPP_CATALOG_WRITE_DOC_ID = saved;
+    }
+});
+
 it('ownJid is the phone jid without the device, the LID only as a last resort', () => {
     assert.equal(ownJid({ user: { id: '15550000001:7@s.whatsapp.net' } }), '15550000001@s.whatsapp.net');
     assert.equal(ownJid({ authState: { creds: { me: { id: '99887766:3@lid' } } }, user: { id: '15550000001:7@s.whatsapp.net' } }), '15550000001@s.whatsapp.net');

@@ -271,7 +271,7 @@ export async function seedTenant(state, { services = [], tenantName = '' } = {})
 
     if (on('school_whatsapp_bot')) await seedSchool(state, { objects, createObject, made, had, tenantName });
 
-    if (on('campaigns') || on('bulk_messages')) {
+    if (on('campaigns')) {
         if (!state.campaigns) skipped.push('campaigns: campaign store not available');
         else {
             const name = 'Diwali offer (demo)';

@@ -149,6 +149,11 @@ const useNumber = async (h, id) => {
 
 export default {
     async setup(h) {
+        // One earlier request, so the form's Earlier requests and the page's "View" line have something to show.
+        await h.api('POST', '/api/limit-requests', {
+            items: [{ key: 'messagesPerMonth', value: 20000, days: 30 }],
+            note: 'Diwali sale next month',
+        });
         // A third number, linked, so there is another card to use, make main, pause and delete.
         const made = await h.api('POST', '/api/channels', {
             displayName: 'Support line', phoneNumber: '919810000222', settings: { transport: 'sandbox' },
@@ -438,7 +443,6 @@ export default {
                     act: async (h) => {
                         await click('app-safety-controls .sc-actions button', 800)(h);
                         await click('aside.sc-drawer .sc-check input', 200)(h);
-                        await h.type('#sc-name', 'Asha Verma');
                         await h.type('#sc-confirm', 'I ACCEPT');
                     },
                     ring: { selector: 'aside.sc-drawer footer .btn.danger' },
@@ -460,8 +464,38 @@ export default {
                 4: { ring: { selector: 'aside.sc-drawer footer > .btn:first-child' }, click: false },
             },
         },
-        // ------------------------------------------------ 12. ban checklist
+        // ------------------------------------------------ 12-13. request higher limits
         12: {
+            steps: {
+                1: { ring: { selector: 'section.raise' }, click: false, after: click('section.raise button', 800) },
+                2: {
+                    act: async (h) => {
+                        await h.page.select('select[id^=lr-key-]', 'sendSpeed').catch(() => {});
+                        await h.type('input[id^=lr-value-]', '2500');
+                        const days = await h.page.$$eval('select[id^=lr-days-] option', (o) => o.map((x) => x.value));
+                        if (days[1]) await h.page.select('select[id^=lr-days-]', days[1]).catch(() => {});
+                        await h.settle(300);
+                    },
+                    ring: { selector: 'app-limit-request li.ask' },
+                    click: false,
+                },
+                3: { ring: { selector: 'app-limit-request button.add' }, click: false },
+                4: {
+                    act: (h) => h.type('#lr-note', 'More staff for the festive season'),
+                    ring: { selector: 'app-limit-request footer button.primary' },
+                    click: false,
+                    after: (h) => h.page.keyboard.press('Escape'),
+                },
+            },
+        },
+        13: {
+            steps: {
+                1: { ring: { selector: 'section.raise button' }, click: true, after: (h) => h.settle(800) },
+                2: { ring: { selector: 'app-limit-request section.earlier' }, click: false, after: (h) => h.page.keyboard.press('Escape') },
+            },
+        },
+        // ------------------------------------------------ 14. ban checklist
+        14: {
             steps: {
                 1: { ring: { selector: 'section.recover summary' }, click: true },
                 2: { ring: { selector: 'ol.recover-steps li:nth-child(1)' }, click: false },

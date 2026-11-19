@@ -30,8 +30,7 @@
 .head-end {
   gap: var(--space-sm) var(--space-md);
 }
-// The newest limit request, the notice that one was just sent, and the "subscription ended" note.
-.ask-line,
+// The "subscription ended" note.
 .note {
   display: flex;
   flex-wrap: wrap;
@@ -39,13 +38,9 @@
   gap: 8px;
   font-size: 13px;
 }
-.ask-line,
 .note,
 .card-head + .s-banner {
   margin: 0 0 var(--space-md);
-}
-.ask-line {
-  color: var(--text-color);
 }
 .note {
   color: var(--danger-text);

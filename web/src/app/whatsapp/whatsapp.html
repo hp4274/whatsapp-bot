@@ -14,6 +14,17 @@
     </p>
   </div>
   <div class="head-side">
+    <!-- Ban protection's state up here too, so nobody has to scroll to learn it is off; it jumps to its card. -->
+    @if (!loading() && channels().length) {
+      <a
+        class="s-pill shield {{ safetyOff() ? 'tone-bad' : customSafety() ? 'tone-warn' : 'tone-ok' }}"
+        href="/whatsapp#safety-title"
+        (click)="$event.preventDefault(); toSafety()"
+      >
+        <i class="ti ti-{{ safetyOff() ? 'shield-off' : 'shield-check' }}" aria-hidden="true"></i>
+        {{ safetyOff() ? 'Ban protection off' : customSafety() ? 'Ban protection on, your own limits' : 'Ban protection on' }}
+      </a>
+    }
     <span class="s-pill {{ st.tone }}">{{ st.text }}</span>
     @if (canAdd()) {
       <button
@@ -27,10 +38,42 @@
         {{ showForm() ? 'Cancel' : 'Add number' }}
       </button>
     } @else if (cap(); as n) {
-      <p class="plan-line muted">Your plan includes {{ n }} number{{ n === 1 ? '' : 's' }}</p>
+      <!-- At the plan's cap Add used to vanish, and with it any sign that a business can link several numbers. -->
+      @if (canAsk()) {
+        <button class="btn add" type="button" aria-haspopup="dialog" aria-describedby="plan-line" (click)="openAsk('maxChannels')">
+          <i class="ti ti-plus" aria-hidden="true"></i>
+          Get more numbers
+        </button>
+      }
+      <p id="plan-line" class="plan-line muted">
+        {{ channels().length }} of {{ n }} number{{ n === 1 ? '' : 's' }} used on your plan
+      </p>
     }
   </div>
 </header>
+
+<!-- Ask the platform for more (moved here from Home): a full-width strip, because a small header button was missed. -->
+@if (canAsk()) {
+  <section class="raise" aria-labelledby="raise-title">
+    <i class="ti ti-trending-up" aria-hidden="true"></i>
+    <div class="grow">
+      <strong id="raise-title">Need to send more, or faster?</strong>
+      <p role="status">
+        @if (sentNotice()) {
+          <i class="ti ti-circle-check" aria-hidden="true"></i> Request sent. We'll let you know when it is answered.
+        } @else if (latestAsk(); as r) {
+          <span class="s-pill {{ r.tone }}">{{ r.label }}</span> Your request from {{ r.createdAt | date: 'd MMM' }}
+        } @else {
+          Ask for a higher daily limit, a faster sending speed or more numbers.
+        }
+      </p>
+    </div>
+    <button #askButton class="btn primary" type="button" aria-haspopup="dialog" (click)="openAsk()">
+      <i class="ti ti-trending-up" aria-hidden="true"></i>
+      Request higher limits
+    </button>
+  </section>
+}
 
 @if (!loading() && multi()) {
   @let s = summary();
@@ -91,7 +134,7 @@
     <!-- The browser's zone is right for nearly everyone; the full list of ~400 zones waits under Advanced. -->
     <p class="zone muted">
       <i class="ti ti-clock" aria-hidden="true"></i>
-      <span>Sending hours use the time in <strong>{{ draft().timezone.split('_').join(' ') }}</strong>.</span>
+      <span>Sending hours use the time in <strong>{{ zoneLabel(draft().timezone) }}</strong>.</span>
     </p>
     <details class="advanced">
       <summary>Advanced</summary>
@@ -104,8 +147,8 @@
             [ngModel]="draft().timezone"
             (ngModelChange)="setDraft('timezone', $event)"
           >
-            @for (z of zones; track z) {
-              <option [value]="z">{{ z.split('_').join(' ') }}</option>
+            @for (z of zones; track z.value) {
+              <option [value]="z.value">{{ z.label }}</option>
             }
           </select>
         </div>
@@ -191,6 +234,7 @@
         (changed)="refresh()"
         (removed)="removed(ch)"
         (ask)="ask(ch.id)"
+        (check)="ask(ch.id, true)"
         (catalog)="catalogFor.set(ch)"
       >
         <app-link-card
@@ -244,6 +288,7 @@
           (use)="use(other)"
           (connect)="link(other)"
           (ask)="ask(other.id)"
+          (check)="ask(other.id, true)"
           (catalog)="catalogFor.set(other)"
         />
       }
@@ -251,10 +296,11 @@
   }
 }
 
-<!-- The one questions popup on the page: it asks after a link here, or from a card's "Answer 2 questions". -->
+<!-- The one questions popup on the page: it asks after a link here, from a card's "Answer 4 questions", or again
+     from its "Check daily limit". -->
 @if (asking(); as a) {
   @for (item of [a]; track item.n) {
-    <app-number-questions popup [channelId]="item.id" (done)="refresh()" />
+    <app-number-questions popup [channelId]="item.id" [recheck]="item.recheck" (done)="refresh()" />
   }
 }
 
@@ -364,7 +410,7 @@
             <span>
               <strong>Once it's back</strong>
               <small class="muted"
-                >Link it again and answer its 2 questions again; daily sending starts low and rises as people
+                >Link it again and answer its 4 questions again; daily sending starts low and rises as people
                 reply. Send only to people who opted in, and vary your messages.</small
               >
             </span>
@@ -383,4 +429,8 @@
   } @else {
     <app-catalog-locked [channel]="target" (closed)="catalogFor.set(null)" (relink)="relink(target)" />
   }
+}
+
+@if (raising()) {
+  <app-limit-request [preset]="raisePreset()" (sent)="asked($event)" (closed)="closeAsk()" />
 }

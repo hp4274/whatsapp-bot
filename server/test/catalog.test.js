@@ -49,6 +49,7 @@ before(async () => {
     const rt = app.locals.runtimeFor(1);
     channelId = rt.channels.getDefault().id;
     state = rt.runtimeFor(rt.channels.getDefault()).state;
+    state.transport.connected = true;
     owner = sessionFor(app, { tenantId: 1, role: 'owner' });
 });
 
@@ -201,6 +202,7 @@ describe('WhatsApp catalog', () => {
     });
 
     it('another number linked on the channel is not shown the last number\'s catalog', async () => {
+        state.transport.connected = true;
         let calls = 0;
         state.transport.catalog = async () => { calls += 1; return FULL; };
         state.info = { ...state.info, account: '919800000002' };
@@ -210,6 +212,7 @@ describe('WhatsApp catalog', () => {
     });
 
     it('imports every picture up to the shop limit, falling back to the resized one', async () => {
+        state.transport.connected = true;
         const real = globalThis.fetch;
         const asked = [];
         globalThis.fetch = async (url, ...rest) => {
@@ -232,6 +235,7 @@ describe('WhatsApp catalog', () => {
     });
 
     it('passes on why WhatsApp refused, and an empty catalog is not an error', async () => {
+        state.transport.connected = true;
         state.transport.catalog = async () => { throw Object.assign(new Error('WhatsApp refused the catalog request (403 forbidden).'), { code: 'catalog_failed' }); };
         const refused = await call('GET', `/api/channels/${channelId}/catalog?refresh=1`);
         assert.equal(refused.status, 502);
@@ -242,5 +246,95 @@ describe('WhatsApp catalog', () => {
         const empty = await call('GET', `/api/channels/${channelId}/catalog?refresh=1`);
         assert.equal(empty.status, 200);
         assert.deepEqual([empty.body.products, empty.body.total, empty.body.truncated, empty.body.business], [[], 0, false, null]);
+    });
+
+    it('creates, updates and deletes a catalog product through WhatsApp', async () => {
+        state.info = { ...state.info, accountType: 'business' };
+        state.transport.connected = true;
+        state.transport.createProduct = async (p) => ({ id: 'w1', name: p.name, price: 50000, currency: 'INR' });
+        state.transport.updateProduct = async (id, p) => ({ id, name: p.name, price: 60000, currency: 'INR' });
+        state.transport.deleteProduct = async (id) => ({ deleted: true, id });
+        let cacheCleared = false;
+        const origBroadcast = state.broadcast;
+        state.broadcast = (msg) => { if (msg.topic === 'catalog') cacheCleared = true; origBroadcast(msg); };
+
+        const created = await call('POST', `/api/channels/${channelId}/catalog/products`, {
+            name: 'Brownie', description: 'Fudgy', price: 50, currency: 'INR', url: '', retailerId: '', availability: 'in stock', hidden: false, salePrice: 0,
+        });
+        assert.equal(created.status, 201);
+        assert.deepEqual(created.body, { id: 'w1', name: 'Brownie', description: '', price: 50, salePrice: null, currency: 'INR' });
+        assert.ok(cacheCleared, 'cleared the catalog cache');
+
+        const updated = await call('PUT', `/api/channels/${channelId}/catalog/products/w1`, {
+            name: 'Brownie', description: 'Fudgy', price: 60, currency: 'INR', url: '', retailerId: '', availability: 'in stock', hidden: false, salePrice: 0,
+        });
+        assert.equal(updated.status, 200);
+        assert.deepEqual(updated.body, { id: 'w1', name: 'Brownie', description: '', price: 60, salePrice: null, currency: 'INR' });
+
+        const deleted = await call('DELETE', `/api/channels/${channelId}/catalog/products/w1`);
+        assert.equal(deleted.status, 204);
+        assert.equal(deleted.body, null);
+
+        state.broadcast = origBroadcast;
+    });
+
+    it('saves a product with its pictures: uploaded ones by file, kept ones by their catalog address', async () => {
+        state.info = { ...state.info, accountType: 'business' };
+        state.transport.connected = true;
+        const mediaId = 'med_0123456789ab';
+        fs.mkdirSync(state.media.uploadDir, { recursive: true });
+        fs.writeFileSync(path.join(state.media.uploadDir, `${mediaId}_new.jpg`), Buffer.from([0xff, 0xd8, 0xff]));
+        state.media.claim(mediaId);
+        state.catalogCache = null;
+        state.transport.catalog = async () => ({ business: null, collections: [], truncated: false, products: [
+            { id: 'k1', name: 'Kept', price: 1000, currency: 'INR', images: [{ original: 'https://cdn.whatsapp.net/a.jpg', requested: '' }, { original: 'https://cdn.whatsapp.net/b.jpg', requested: '' }] },
+        ] });
+        const sent = [];
+        state.transport.createProduct = async (p) => { sent.push(p.images); return { id: 'n1', name: p.name, price: 1000, currency: 'INR' }; };
+        state.transport.updateProduct = async (id, p) => { sent.push(p.images); return { id, name: p.name, price: 1000, currency: 'INR' }; };
+        const base = { name: 'Brownie', price: 1, currency: 'INR' };
+
+        assert.equal((await call('POST', `/api/channels/${channelId}/catalog/products`, { ...base, images: [mediaId] })).status, 201);
+        assert.equal(sent[0].length, 1);
+        assert.ok(sent[0][0].path.endsWith(`${mediaId}_new.jpg`));
+        // editing: the second picture first, then a new one; the first is dropped
+        const kept = `/api/channels/${channelId}/catalog/image?p=k1&i=1`;
+        assert.equal((await call('PUT', `/api/channels/${channelId}/catalog/products/k1`, { ...base, images: [kept, mediaId] })).status, 200);
+        assert.equal(sent[1][0].url, 'https://cdn.whatsapp.net/b.jpg');
+        assert.ok(sent[1][1].path);
+        // no pictures named: WhatsApp keeps what the product has
+        await call('PUT', `/api/channels/${channelId}/catalog/products/k1`, base);
+        assert.equal(sent[2], undefined);
+        // refused: not an upload, a picture the product does not have, too many
+        for (const images of [['med_ffffffffffff'], [`/api/channels/${channelId}/catalog/image?p=k1&i=7`], Array(11).fill(mediaId)]) {
+            const res = await call('POST', `/api/channels/${channelId}/catalog/products`, { ...base, images });
+            assert.equal(res.status, 400, JSON.stringify(res.body));
+        }
+        // a server with no write set up says so in words, not a 500
+        state.transport.createProduct = async () => { throw Object.assign(new Error('catalog writes are not configured'), { code: 'catalog_failed' }); };
+        const off = await call('POST', `/api/channels/${channelId}/catalog/products`, base);
+        assert.equal(off.status, 501);
+        assert.match(off.body.errors[0], /not set up on this server yet/);
+    });
+
+    it('refuses catalog writes when the number is not a business', async () => {
+        state.info = { ...state.info, accountType: 'personal' };
+        state.transport.connected = true;
+        const res = await call('POST', `/api/channels/${channelId}/catalog/products`, { name: 'x', price: 1 });
+        assert.equal(res.status, 409);
+        assert.equal(res.body.code, 'not_business');
+    });
+
+    it('refuses catalog writes when the catalog service is off', async () => {
+        state.info = { ...state.info, accountType: 'business' };
+        const before = tenantServices();
+        services(before.filter((s) => s !== 'catalog'));
+        try {
+            const res = await call('POST', `/api/channels/${channelId}/catalog/products`, { name: 'x', price: 1 });
+            assert.equal(res.status, 403);
+            assert.equal(res.body.code, 'catalog_disabled');
+        } finally {
+            services(before);
+        }
     });
 });

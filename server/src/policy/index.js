@@ -31,7 +31,7 @@
 import { BillingStore } from '../billing/store.js';
 import { AUTOREPLY_POLICY } from './autoreplies.js';
 import { BILLING_POLICY } from './billing.js';
-import { BULK_POLICY, PLAN_SPEEDS } from './bulk.js';
+import { BULK_POLICY } from './bulk.js';
 import { CAMPAIGN_POLICY } from './campaigns.js';
 import { CHANNEL_POLICY, PLAN_DAILY_CAPS } from './channels.js';
 import { CONTACT_POLICY } from './contacts.js';
@@ -192,11 +192,11 @@ export class PolicyStore {
         this.database = database;
         this.db = database.db;
         this.now = now;
-        // Each built-in plan starts with its own sending speed and per-number day; an admin's value is never overwritten.
+        // Each built-in plan starts with its own per-number day; an admin's value is never overwritten.
         // shortcut: an override the admin removes comes back at the next start; add a seeded flag if that matters.
         const seed = this.db.prepare(
             'INSERT OR IGNORE INTO platform_policy (scope, key, value, updated_at) VALUES (?, ?, ?, ?)');
-        for (const [key, perPlan] of [['bulk.maxSpeed', PLAN_SPEEDS], ['channels.dailyCap', PLAN_DAILY_CAPS]]) {
+        for (const [key, perPlan] of [['channels.dailyCap', PLAN_DAILY_CAPS]]) {
             for (const [plan, value] of Object.entries(perPlan)) seed.run(`plan:${plan}`, key, JSON.stringify(value), now().toISOString());
         }
     }

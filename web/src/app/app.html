@@ -65,6 +65,17 @@
           ></span>
           <span class="status-text">{{ subtitle() }}</span>
         </span>
+        <!-- Several numbers: which one the pages are working on, switchable from anywhere. -->
+        @if (numbers().length > 1) {
+          <label class="ws-number">
+            Working on number
+            <select (change)="useNumber($any($event.target).value)">
+              @for (n of numbers(); track n.id) {
+                <option [value]="n.id" [selected]="n.id === numberId()">{{ n.name }}{{ n.main ? ' (main)' : '' }}</option>
+              }
+            </select>
+          </label>
+        }
         <!-- Only when it adds something: connected, it repeats the pill word for word. -->
         @if (store.statusLine() !== 'Ready.' && store.statusLine() !== subtitle()) {
           <p class="ws-line">{{ store.statusLine() }}</p>

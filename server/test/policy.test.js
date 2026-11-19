@@ -57,15 +57,10 @@ describe('PolicyStore', () => {
         db.db.prepare("DELETE FROM platform_policy WHERE scope = 'tenant:1' AND key = 'channels.dailyCap'").run();
     });
 
-    it('starts each built-in plan at its own speed, keeping an admin value', () => {
-        assert.equal(store.values('plan:starter')['bulk.maxSpeed'], 'safe');
-        assert.equal(store.values('plan:business')['bulk.maxSpeed'], 'balanced');
-        assert.equal(store.values('plan:enterprise')['bulk.maxSpeed'], 'fast');
-        assert.equal(store.resolve(1).values['bulk.maxSpeed'], 'safe', 'tenant 1 is on starter');
-        store.set('plan:business', { 'bulk.maxSpeed': 'fast' });
-        new PolicyStore(db);
-        assert.equal(store.values('plan:business')['bulk.maxSpeed'], 'fast');
-        // The plan's per-number day, the same way.
+    it('starts each built-in plan at its own per-number day, keeping an admin value; there is no plan speed', () => {
+        // Messages per day is the one speed control: the old plan speed is not a rule any more.
+        assert.equal(store.resolve(1).values['bulk.maxSpeed'], undefined);
+        assert.throws(() => store.set('plan:business', { 'bulk.maxSpeed': 'fast' }), /unknown policy field/);
         assert.deepEqual(['starter', 'business', 'enterprise'].map((p) => store.values(`plan:${p}`)['channels.dailyCap']), [250, 500, 1000]);
         store.set('plan:enterprise', { 'channels.dailyCap': 800 });
         new PolicyStore(db);

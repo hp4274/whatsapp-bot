@@ -26,7 +26,6 @@ const DEFAULT_TENANT_SERVICES_JSON = JSON.stringify([
     'contacts',
     'templates',
     'auto_replies',
-    'bulk_messages',
     'campaigns',
     'payment_reminders',
     'workflows',

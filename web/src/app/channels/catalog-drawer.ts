@@ -14,12 +14,13 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
+import { FormsModule } from '@angular/forms';
 import type { Subscription } from 'rxjs';
 
 import type { Channel } from '../core/api';
 import { Store } from '../core/store';
 import { MediaSrc } from '../campaign/interactive/media-src';
-import { Catalog, CatalogApi, CatalogError } from './catalog-api';
+import { Catalog, CatalogApi, CatalogError, CatalogProduct, CatalogProductInput, MAX_CATALOG_IMAGES } from './catalog-api';
 import { filterProducts, formatPrice, hoursRows, isOutOfStock, reviewLabel, sentence, updatedAgo } from './catalog-meta';
 
 /**
@@ -35,7 +36,7 @@ import { filterProducts, formatPrice, hoursRows, isOutOfStock, reviewLabel, sent
  */
 @Component({
   selector: 'app-catalog-drawer',
-  imports: [MediaSrc, RouterLink],
+  imports: [MediaSrc, RouterLink, FormsModule],
   templateUrl: './catalog-drawer.html',
   styleUrl: './catalog-drawer.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -69,8 +70,17 @@ export class CatalogDrawer {
   protected readonly photo = signal(0);
   /** What was just copied ('link' or 'product'), for the two seconds its button says so. */
   protected readonly copied = signal<string | null>(null);
-  /** The profile starts folded on a phone, where it would push every product off the first screen. */
-  protected readonly profileOpen = signal(typeof matchMedia === 'function' && matchMedia('(min-width: 640px)').matches);
+  /** The product being added or edited, or null. */
+  protected readonly editingProduct = signal<{ id: string | null; draft: CatalogProductInput } | null>(null);
+  /** Saving a new or edited product. */
+  protected readonly savingProduct = signal(false);
+  /** Why a create/update/delete failed. */
+  protected readonly writeError = signal('');
+  /** Pictures still uploading for the product being edited. */
+  protected readonly uploadingImages = signal(0);
+  protected readonly maxImages = MAX_CATALOG_IMAGES;
+  /** The profile starts folded: open, it pushed every product off the first screen. */
+  protected readonly profileOpen = signal(false);
 
   protected readonly price = formatPrice;
   protected readonly review = reviewLabel;
@@ -287,5 +297,119 @@ export class CatalogDrawer {
           else this.importError.set(err.message);
         },
       });
+  }
+
+  /** Start adding a new product: an empty draft form. */
+  protected startAdd() {
+    this.writeError.set('');
+    this.editingProduct.set({ id: null, draft: { name: '', description: '', price: 0, currency: 'INR', url: '', retailerId: '', availability: 'in stock', hidden: false, salePrice: 0, images: [] } });
+  }
+
+  /** Change one field of the draft being edited. */
+  protected patchDraft(change: Partial<CatalogProductInput>) {
+    const e = this.editingProduct();
+    if (e) this.editingProduct.set({ id: e.id, draft: { ...e.draft, ...change } });
+  }
+
+  /** Start editing an existing product: pre-fill the draft from it. */
+  protected startEdit(product: CatalogProduct) {
+    this.writeError.set('');
+    this.editingProduct.set({ id: product.id, draft: {
+      name: product.name, description: product.description, price: product.price, currency: product.currency,
+      url: product.url, retailerId: product.retailerId, availability: product.availability, hidden: product.hidden,
+      salePrice: product.salePrice ?? 0, images: product.images,
+    } });
+  }
+
+  /** Where a draft picture loads from: an uploaded one by its media id, one the product already has by its own path. */
+  protected pictureSrc(entry: string): string {
+    return entry.startsWith('/') ? entry : '/api/media/' + entry;
+  }
+
+  /** Each picked file uploads on its own and joins the end of the list as it lands. */
+  protected addImages(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    const ok = files.filter((f) => f.type === 'image/jpeg' || f.type === 'image/png');
+    const room = MAX_CATALOG_IMAGES - (this.editingProduct()?.draft.images.length ?? 0) - this.uploadingImages();
+    this.writeError.set(
+      ok.length < files.length ? 'Pictures must be JPG or PNG.' : ok.length > room ? `A product can have up to ${MAX_CATALOG_IMAGES} pictures.` : '',
+    );
+    for (const file of ok.slice(0, Math.max(0, room))) {
+      this.uploadingImages.update((n) => n + 1);
+      this.api.upload(file).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: ({ mediaId }) => {
+          this.uploadingImages.update((n) => n - 1);
+          const e = this.editingProduct();
+          if (e && e.draft.images.length < MAX_CATALOG_IMAGES) this.patchDraft({ images: [...e.draft.images, mediaId] });
+        },
+        error: (err: CatalogError) => {
+          this.uploadingImages.update((n) => n - 1);
+          this.writeError.set(err.message);
+        },
+      });
+    }
+  }
+
+  protected dropImage(i: number) {
+    const e = this.editingProduct();
+    if (e) this.patchDraft({ images: e.draft.images.filter((_, j) => j !== i) });
+  }
+
+  /** One place left or right; the first picture is the cover. */
+  protected moveImage(i: number, by: -1 | 1) {
+    const images = [...(this.editingProduct()?.draft.images ?? [])];
+    if (!images[i + by]) return;
+    [images[i], images[i + by]] = [images[i + by], images[i]];
+    this.patchDraft({ images });
+  }
+
+  /** Close the add/edit form without saving. */
+  protected cancelEdit() {
+    this.editingProduct.set(null);
+    this.writeError.set('');
+  }
+
+  /** Create or update the draft product, then refresh the catalog and close the form. */
+  protected saveProduct() {
+    const e = this.editingProduct();
+    if (!e || this.savingProduct() || this.uploadingImages()) return;
+    const { id, draft } = e;
+    this.savingProduct.set(true);
+    this.writeError.set('');
+    const req = id === null
+      ? this.api.createProduct(this.channel().id, draft)
+      : this.api.updateProduct(this.channel().id, id, draft);
+    req.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.savingProduct.set(false);
+        this.editingProduct.set(null);
+        this.load(true); // refresh: WhatsApp may have reordered or renamed things
+      },
+      error: (err: CatalogError) => {
+        this.savingProduct.set(false);
+        this.writeError.set(err.message);
+      },
+    });
+  }
+
+  /** Delete one product, after the owner confirms. */
+  protected deleteProduct(id: string) {
+    const product = this.catalog()?.products.find((p) => p.id === id);
+    if (!window.confirm(`Delete "${product?.name ?? id}" from the catalog?`)) return;
+    this.savingProduct.set(true);
+    this.writeError.set('');
+    this.api.deleteProduct(this.channel().id, id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.savingProduct.set(false);
+        if (this.editingProduct()?.id === product?.id) this.editingProduct.set(null);
+        this.load(true);
+      },
+      error: (err: CatalogError) => {
+        this.savingProduct.set(false);
+        this.writeError.set(err.message);
+      },
+    });
   }
 }

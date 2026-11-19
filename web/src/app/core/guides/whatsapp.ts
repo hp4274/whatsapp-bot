@@ -16,9 +16,9 @@ export const whatsapp: Guide = {
       tip: 'No WhatsApp Business account is needed. Keep your phone on and online.',
     },
     {
-      title: 'Answer the 2 questions to start sending',
+      title: 'Answer the 4 questions to start sending',
       steps: [
-        'After linking, a popup asks Answer 2 questions to start sending (or click Answer 2 questions on the card).',
+        'After linking, a popup asks Answer 4 questions to start sending (or click Answer 4 questions on the card).',
         'Pick How old is this number on WhatsApp? and How often do you use WhatsApp on this number?',
         'Click Start sending.',
         'The card then shows how many messages a day the number may send, and how high it will rise.',
@@ -33,7 +33,7 @@ export const whatsapp: Guide = {
         'Check the time zone shown (change it under Advanced if needed).',
         'Click Add number, then link it with Link with QR code on its card.',
       ],
-      tip: 'If you do not see Add number, your plan line shows how many numbers your plan includes.',
+      tip: 'If you see Get more numbers instead of Add number, your plan is full: click it to ask for more. With two or more numbers, the sidebar shows Working on number so you can switch from any page.',
     },
     {
       title: 'Switch between your numbers',
@@ -106,11 +106,28 @@ export const whatsapp: Guide = {
       title: 'Change the sending limits',
       steps: [
         'Under Ban protection, open Advanced: sending limits.',
-        'Click Change limits, read the warning, type your full name and I ACCEPT, then click Accept and continue.',
+        'Click Change limits, read the warning, tick the box and type I ACCEPT, then click Accept and continue.',
         'Change the values (risky ones are flagged in red) and click Save limits.',
         'To undo, click Go back to our standard limits, then click again to reset.',
       ],
       tip: 'Our standard limits keep your number safe. Turning off ban protection is how numbers get banned.',
+    },
+    {
+      title: 'Ask for a higher limit or sending speed',
+      steps: [
+        'On the WhatsApp page, under the title, find Need to send more, or faster? and click Request higher limits.',
+        'Pick the Limit (for example Messages per day or Sending speed), type the New limit and choose a Duration.',
+        'Click Add another limit to ask for more than one at once.',
+        'Optionally say Why do you need it?, then click Send request.',
+      ],
+      tip: 'Sending speed is how fast messages go out; Messages per day is how many. The answer shows in the same box, under the page title.',
+    },
+    {
+      title: 'See your earlier limit requests',
+      steps: [
+        'Click Request higher limits.',
+        'Scroll to Earlier requests to see each one, its status and how long a raised limit lasts.',
+      ],
     },
     {
       title: 'If WhatsApp bans your number',

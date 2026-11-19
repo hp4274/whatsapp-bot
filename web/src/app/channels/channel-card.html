@@ -178,8 +178,8 @@
     <!-- The one place the daily allowance is said; the ban protection card below no longer repeats it. -->
     <p class="meter-foot" [class.held]="u.asked === false || !!u.blocked">
       @if (u.asked === false) {
-        <span><i class="ti ti-help-circle" aria-hidden="true"></i>Answer 2 questions to start sending</span>
-        <button type="button" class="btn sm answer" (click)="ask.emit()">Answer 2 questions</button>
+        <span><i class="ti ti-help-circle" aria-hidden="true"></i>Answer 4 questions to start sending</span>
+        <button type="button" class="btn sm answer" (click)="ask.emit()">Answer 4 questions</button>
       } @else if (u.blocked) {
         <span><i class="ti ti-hand-stop" aria-hidden="true"></i>{{ u.blocked }}</span>
       } @else if (u.todayLimit === null) {
@@ -187,8 +187,14 @@
       } @else {
         <span class="limit"
           ><strong>{{ u.todayLimit }} messages a day</strong
-          >{{ u.growing ? ' · rises gradually to ' + u.planLimit + ' a day' : '' }}</span
+          >{{ u.growing ? ' · rises gradually to ' + u.planLimit + ' a day' : '' }}{{ u.trust ? ' · trust score ' + u.trust.score + ' of 100' : '' }}</span
         >
+        <!-- Only a number that answered its questions (asked) has a limit they can change. -->
+        @if (u.asked === true) {
+          <button type="button" class="btn sm answer" (click)="check.emit()">
+            <i class="ti ti-gauge" aria-hidden="true"></i>Check daily limit
+          </button>
+        }
       }
     </p>
   </section>
@@ -199,7 +205,7 @@
     <i class="ti ti-clock" aria-hidden="true"></i>
     <span>Sending hours: {{ windowText() }}</span>
     @if (ch.businessHours) {
-      <span class="tz">{{ ch.timezone.split('_').join(' ') }}</span>
+      <span class="tz">{{ zoneLabel(ch.timezone) }}</span>
       <span class="now-chip">{{ ch.health?.withinSendingWindow ? 'Can send now' : 'Outside sending hours' }}</span>
     }
   </p>

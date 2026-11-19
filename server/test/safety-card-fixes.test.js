@@ -220,15 +220,14 @@ describe('pacing on a QR number', () => {
         }
     });
 
-    it('takes the plan\'s speed in the status, as the run does (M2)', async () => {
+    it('shows a QR number its row\'s spacing in the status, whatever preset is asked (M2)', async () => {
         const db = freshDb();
         const manager = new CampaignManager(db, new FakeLive(), qr({ humanTiming: false }));
-        manager.bulkPolicy = () => ({ maxSpeed: 'safe' });
         try {
-            const status = manager.safetyStatus(20, 'balanced');
-            assert.equal(status.pacing, 'safe');
+            const status = manager.safetyStatus(20, 'safe');
+            assert.equal(status.pacing, 'balanced');
             const row = manager.quota.tier();
-            assert.deepEqual([status.minSeconds, status.maxSeconds], [row.minSeconds * 1.5, row.maxSeconds * 1.5]);
+            assert.deepEqual([status.minSeconds, status.maxSeconds], [row.minSeconds, row.maxSeconds]);
         } finally {
             await manager.shutdown();
             db.close();

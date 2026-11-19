@@ -38,6 +38,17 @@ describe('startLevelFor', () => {
         assert.deepEqual([2, 3, 4, 5, 6, 7].map((l) => LEVELS[l].dailyLimit), [35, 55, 80, 100, 150, 200]);
     });
 
+    it('two more answers move the start: who it messages, and a past WhatsApp restriction', () => {
+        const base = { age: 2, usage: 2 }; // level 5 on its own
+        assert.equal(startLevelFor(base), 5);
+        assert.deepEqual([0, 1, 2, 3].map((audience) => startLevelFor({ ...base, audience })), [4, 5, 5, 6]);
+        assert.deepEqual([0, 1, 2].map((banned) => startLevelFor({ ...base, banned })), [3, 4, 5]);
+        // an old busy number that messages its own chats reaches level 8; nothing goes under level 2
+        assert.equal(startLevelFor({ age: 3, usage: 3, audience: 3, banned: 2 }), 8);
+        assert.equal(startLevelFor({ age: 0, usage: 0, audience: 0, banned: 0 }), 2);
+        for (const bad of [{ ...base, audience: 4 }, { ...base, banned: 3 }, { ...base, audience: '1' }]) assert.equal(startLevelFor(bad), null, JSON.stringify(bad));
+    });
+
     it('refuses an answer outside 0-3', () => {
         for (const bad of [{}, { age: 1 }, { age: 4, usage: 0 }, { age: -1, usage: 0 }, { age: 1.5, usage: 1 }, { age: '1', usage: 1 }]) {
             assert.equal(startLevelFor(bad), null, JSON.stringify(bad));
@@ -225,8 +236,8 @@ describe('POST/GET /api/channels/:id/start', () => {
     it('answers start the number at their level, once', async () => {
         const res = await call(owner, 'POST', `/api/channels/${qrId}/start`, { age: 1, usage: 2 });
         assert.equal(res.status, 200, JSON.stringify(res.body));
-        assert.deepEqual(res.body, { todayLimit: LEVELS[4].dailyLimit, planLimit: 250 });
-        assert.deepEqual((await card(qrId)).usage, { todayLimit: 80, sentToday: 0, planLimit: 250, growing: true, asked: true });
+        assert.deepEqual(res.body, { todayLimit: LEVELS[4].dailyLimit, planLimit: 250, trust: { score: 47, full: null } });
+        assert.deepEqual((await card(qrId)).usage, { todayLimit: 80, sentToday: 0, planLimit: 250, growing: true, asked: true, trust: { score: 47, full: null } });
         assert.equal((await call(owner, 'GET', `/api/channels/${qrId}/start`)).body.asked, true);
         assert.equal(audits('channel.start').length, 1);
         assert.equal((await call(owner, 'POST', `/api/channels/${qrId}/start`, { age: 3, usage: 3 })).status, 409, 'no re-answering upward');
@@ -242,7 +253,7 @@ describe('POST/GET /api/channels/:id/start', () => {
 
         const res = await call(owner, 'POST', `/api/channels/${skipId}/start`, { skip: true, accept: true });
         assert.equal(res.status, 200, JSON.stringify(res.body));
-        assert.deepEqual(res.body, { todayLimit: 250, planLimit: 250 });
+        assert.deepEqual(res.body, { todayLimit: 250, planLimit: 250, trust: null });
         const [row] = consents();
         assert.deepEqual([row.tenant_id, row.channel_id, row.text_version], [tenant.id, skipId, NUMBER_SKIP_VERSION]);
         assert.throws(() => db.db.prepare('UPDATE safety_consents SET kind = ? WHERE id = ?').run('x', row.id), /immutable/);
@@ -255,7 +266,7 @@ describe('POST/GET /api/channels/:id/start', () => {
     it('a just-linked new number shows the day it starts at, and when', async () => {
         const res = await call(owner, 'POST', `/api/channels/${freshId}/start`, { age: 0, usage: 0 });
         assert.equal(res.status, 200, JSON.stringify(res.body));
-        assert.deepEqual(res.body, { todayLimit: 35, planLimit: 250 });
+        assert.deepEqual(res.body, { todayLimit: 35, planLimit: 250, trust: { score: 20, full: null } });
         const { usage, quality } = await card(freshId);
         assert.deepEqual([usage.todayLimit, usage.planLimit, usage.growing], [35, 250, true]);
         assert.match(usage.blocked, /newly linked number waits before bulk sending\. It starts \w{3} \d\d:\d\d/);
@@ -309,11 +320,30 @@ describe('POST/GET /api/channels/:id/start', () => {
         const day = await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/safety`, { dailyLimit: 250000 });
         assert.equal(day.status, 200, JSON.stringify(day.body));
         await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/limits`, { ownDailyLimit: true });
-        const { usage } = await card(freshId); // safety on, level 2 (35 a day), just linked
-        assert.deepEqual([usage.todayLimit, usage.planLimit, usage.growing, usage.blocked], [250000, 250000, false, undefined]);
+        // freshId answered at the lowest trust (20 of 100): it gets a fifth of the business's day, from day one
+        const { usage } = await card(freshId);
+        assert.deepEqual([usage.todayLimit, usage.planLimit, usage.growing, usage.blocked], [50000, 50000, false, undefined]);
+        assert.deepEqual(usage.trust, { score: 20, full: 250000 });
+        // checked again with top answers: the whole day
+        const top = await call(owner, 'POST', `/api/channels/${freshId}/start`, { age: 3, usage: 3, audience: 3, banned: 2, recheck: true });
+        assert.deepEqual(top.body, { todayLimit: 250000, planLimit: 250000, trust: { score: 100, full: 250000 } });
+        // the admin sees the speed a day means before saving it; a business cannot ask
+        const speed = await call(sup, 'GET', `/api/admin/tenants/${tenant.id}/speed?perDay=2500`);
+        assert.equal(speed.status, 200, JSON.stringify(speed.body));
+        assert.ok(speed.body.reachable >= 2500 && speed.body.gapSeconds[0] >= 2 && speed.body.hours === 24);
+        assert.equal((await call(sup, 'GET', `/api/admin/tenants/${tenant.id}/speed`)).body.perDay, null, 'blank = no limit');
+        assert.notEqual((await call(owner, 'GET', `/api/admin/tenants/${tenant.id}/speed?perDay=2500`)).status, 200);
+        // its own speed is a separate setting: saving one leaves the day's limit alone, and clearing it is automatic again
+        const slow = await call(sup, 'GET', `/api/admin/tenants/${tenant.id}/speed?perDay=250000&speed=250`);
+        assert.deepEqual([slow.body.speed, slow.body.perDay, slow.body.reachable < 400], [250, 250000, true]);
+        const sped = await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/limits`, { ownDailyLimit: true, sendSpeed: 250 });
+        assert.equal(sped.body.limits.sendSpeed, 250);
+        assert.equal((await card(freshId)).usage.todayLimit, 250000, 'the speed changes no limit');
+        const auto = await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/limits`, { ownDailyLimit: true, sendSpeed: null });
+        assert.equal(auto.body.limits.sendSpeed, null);
         await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/limits`, { ownDailyLimit: false });
         await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/safety`, { dailyLimit: null });
-        assert.equal((await card(freshId)).usage.todayLimit, 35, 'back to the warm-up');
+        assert.equal((await card(freshId)).usage.todayLimit, 250, 'back to the warm-up, at the start its new answers give');
     });
 
     it('skipped questions can be answered later, but not skipped twice', async () => {
@@ -325,6 +355,12 @@ describe('POST/GET /api/channels/:id/start', () => {
         assert.deepEqual(app.locals.channelOps.startOf(skipId).answers, { age: 0, usage: 1 });
         assert.equal((await card(skipId)).usage.skipped, undefined);
         assert.equal((await call(owner, 'POST', `/api/channels/${skipId}/start`, { age: 1, usage: 1 })).status, 409, 'answered now');
+        // "Check daily limit": the same number answers again on purpose, with all four questions
+        const again = await call(owner, 'POST', `/api/channels/${skipId}/start`, { age: 3, usage: 3, audience: 3, banned: 2, recheck: true });
+        assert.equal(again.status, 200, JSON.stringify(again.body));
+        assert.deepEqual(app.locals.channelOps.startOf(skipId).answers, { age: 3, usage: 3, audience: 3, banned: 2 });
+        assert.equal(app.locals.channelOps.startOf(skipId).level, 8);
+        assert.equal((await call(owner, 'POST', `/api/channels/${skipId}/start`, { skip: true, accept: true, recheck: true })).status, 409, 'a recheck never skips');
     });
 });
 

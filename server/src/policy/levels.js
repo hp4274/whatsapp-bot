@@ -95,10 +95,6 @@ export const LEVELS_POLICY = Object.freeze([
     { ...brake('blockPausePercent', 'Pause campaigns at blocks + reports (%)', BLOCK_PAUSE_PERCENT, 100), min: 1 },
     brake('blockPauseMinSent', 'Pause campaigns: minimum sent (7 days)', BLOCK_PAUSE_MIN_SENT, 100000),
     { ...brake('qrVaryAbove', 'QR: identical text to at most', DEFAULT_SENDING.qrVaryAbove, 100000, 'A bigger QR campaign must vary its message.'), min: 1 },
-    brake('daytimeFrom', 'Recipient daytime from (hour)', BRAKES.daytimeFrom, 23, 'Bulk waits for the recipient’s daytime.'),
-    { ...brake('daytimeTo', 'Recipient daytime until (hour)', BRAKES.daytimeTo, 24),
-      // A backwards window would hold every bulk message forever.
-      check: (v) => (v['sending.daytimeFrom'] >= v['sending.daytimeTo'] ? 'Recipient daytime must start before it ends' : null) },
 ]);
 
 /**
@@ -135,8 +131,6 @@ export function sendingTables(values = {}) {
     const v = (key, fallback) => values[`sending.${key}`] ?? fallback;
     const brakes = { ...BRAKES };
     for (const key of Object.keys(BRAKES)) if (key !== 'restHours') brakes[key] = v(key, BRAKES[key]);
-    // A backwards window would hold every bulk message forever: fall back to the built-in one.
-    if (brakes.daytimeFrom >= brakes.daytimeTo) Object.assign(brakes, { daytimeFrom: BRAKES.daytimeFrom, daytimeTo: BRAKES.daytimeTo });
     const stored = v('levels', LEVELS);
     // shortcut: a table saved before the levels grew (9 rows) keeps running as saved, with numbers held at its old
     // top (the built-in rows above it are out of reach) until the admin saves it again; GET /admin/policy lists it
@@ -158,6 +152,11 @@ export function sendingTables(values = {}) {
         carouselImages: values['sending.carouselImages'] === true,
         // Not a policy key: set by the runtime for a business whose own day replaces the plan's (limits.ownDailyLimit).
         ownDay: values['sending.ownDay'] === true,
+        // Not a policy key either: the business's own sending speed (limits.sendSpeed), apart from its day.
+        speed: Number(values['sending.speed']) > 0 ? Number(values['sending.speed']) : null,
+        // The business's own sending window narrows the hours an own day is spaced over (campaign/safety.js sendingHours).
+        bulkWindow: values['bulk.windowEnabled'] === true
+            ? { start: values['bulk.windowStart'] || '09:00', end: values['bulk.windowEnd'] || '21:00' } : null,
     };
 }
 
@@ -165,11 +164,18 @@ export function sendingTables(values = {}) {
  * The number questions. `age`: 0 under a month on WhatsApp, 1 one to six months, 2 six to 24 months, 3 over
  * two years. `usage` (how often WhatsApp is used on it): 0 rarely or never, 1 a few times a week, 2 every day, 3 all day for business.
  * Their sum picks the start: 0-1 level 2 (20 a day) up to 6 level 7 (200 a day). Null when an answer is not 0-3.
+ * Two more, optional (a client from before them sends neither) but checked when sent:
+ * `audience` (who it messages): 0 people who do not know the number (one level down), 1 a mix, 2 mostly its own
+ * customers, 3 customers who already chat with it (one level up, so level 8 is in reach);
+ * `banned` (restricted by WhatsApp before): 0 in the last 3 months (two levels down), 1 longer ago (one down), 2 never.
  */
-export function startLevelFor({ age, usage } = {}) {
-    const ok = (n) => Number.isInteger(n) && n >= 0 && n <= 3;
+export function startLevelFor({ age, usage, audience, banned } = {}) {
+    const ok = (n, max = 3) => Number.isInteger(n) && n >= 0 && n <= max;
     if (!ok(age) || !ok(usage)) return null;
-    return Math.min(7, Math.max(2, age + usage + 1));
+    if ((audience !== undefined && !ok(audience)) || (banned !== undefined && !ok(banned, 2))) return null;
+    const known = audience === undefined ? 0 : [-1, 0, 0, 1][audience];
+    const history = banned === undefined ? 0 : [-2, -1, 0][banned];
+    return Math.min(8, Math.max(2, age + usage + 1 + known + history));
 }
 
 /**

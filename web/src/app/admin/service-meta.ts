@@ -6,7 +6,7 @@ export const SERVICE_META: Record<string, { label: string; icon: string; sends?:
   templates: { label: 'Templates', icon: 'file-text' },
   // Sends, but answers someone who wrote in: no daily cap, no pacing (and off the quota unless the platform says so).
   auto_replies: { label: 'Auto replies', icon: 'message-bolt', sends: true, uncapped: true },
-  bulk_messages: { label: 'Bulk message', icon: 'send', sends: true },
+  // Bulk messages and campaigns are one service: its rules cover both.
   campaigns: { label: 'Campaigns', icon: 'speakerphone', sends: true },
   // A code someone is waiting for: never held back by the daily cap or pacing.
   otp: { label: 'WhatsApp OTP', icon: 'password', sends: true, uncapped: true },

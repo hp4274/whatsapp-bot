@@ -30,7 +30,7 @@ import { capReachedText } from '../policy/campaignOps.js';
 import { logger, runDetached } from '../observability/logger.js';
 import {
     BLOCK_SUSPECT_AFTER_SECONDS, HALTING_BRAKES, HALT_HOURS, HELD_TYPES, MEDIA_GAP_FACTOR,
-    contactZone, contentError, dayPlan, deliveryBrakes, isDaytimeFor, shuffle, typingMs,
+    contactZone, contentError, dayPlan, deliveryBrakes, shuffle, typingMs,
 } from './humanize.js';
 import { dayKey } from './spread.js';
 
@@ -40,7 +40,7 @@ const between = (min, max) => min + Math.random() * (max - min);
 const digits = (phone) => String(phone ?? '').replace(/\D/g, '');
 /** Someone is waiting on these: the daily cap counts them but never pauses the queue for them. */
 const QUOTA_EXEMPT = new Set(['auto_reply', 'transactional']);
-/** Bulk: waits for the recipient's daytime, and on a QR number for the hourly and new-chat budgets. */
+/** Bulk: on a QR number it waits for the hourly and new-chat budgets. It goes out at night too (2026-11-19). */
 const HELD = new Set(HELD_TYPES);
 /** How often a daily-cap pause looks whether the budget has room again (it lifts itself). */
 const QUOTA_RECHECK_MS = 30_000;
@@ -198,8 +198,7 @@ export class CampaignManager extends EventEmitter {
 
     /** Change the speed preset of the current run (live): recomputes the gap range. */
     setPace(preset, batchSize = this.pace.batchSize) {
-        // Under platform policy the plan sets the speed; the requested preset only counts without one.
-        this.pacePreset = this.bulkPolicy?.()?.maxSpeed ?? pickPreset(preset);
+        this.pacePreset = pickPreset(preset);
         this.pace = this.#paceFor(batchSize, this.pacePreset);
         this.#emitStats();
         return this.pace;
@@ -310,8 +309,7 @@ export class CampaignManager extends EventEmitter {
 
     /** Everything the UI needs to explain the pacing and the daily budget. */
     safetyStatus(batchSize = this.pace.batchSize, preset = this.pacePreset) {
-        // The plan's speed wins over the one asked for, as it does for the run itself (enqueueContacts, setPace).
-        const pace = this.#paceFor(batchSize, this.bulkPolicy?.()?.maxSpeed ?? pickPreset(preset));
+        const pace = this.#paceFor(batchSize, pickPreset(preset));
         return {
             ...this.quota.status(),
             pacingMode: this.#fixedPace() ? 'fixed' : 'adaptive',
@@ -400,8 +398,6 @@ export class CampaignManager extends EventEmitter {
                 throw new SafetyError(`This send has ${contacts.length} recipients, but your business has only ${cap.left} `
                     + `messages left of its ${cap.period} cap of ${cap.cap}.`, 403);
             }
-            // The plan's speed, whatever was asked for.
-            pacing = rules.maxSpeed;
         }
         const bodies = versions ? versions.map((v) => v.body) : [template];
         // A QR number's level sets how much a campaign must vary.
@@ -836,9 +832,7 @@ export class CampaignManager extends EventEmitter {
     }
 
     /**
-     * Can this item go now? A retry waits out its 5-10s timer, and bulk to a
-     * number whose local time is outside 9:00-21:00 waits for their morning:
-     * it stays queued while everyone else goes first. On a QR number bulk also
+     * Can this item go now? A retry waits out its 5-10s timer. On a QR number bulk
      * waits for the hourly budget, and a message to someone this number never
      * talked to (bulk or transactional) for the new-chat budget; replies and
      * people who know the number keep flowing. The budgets refill by themselves: no pause, no resume.
@@ -854,12 +848,6 @@ export class CampaignManager extends EventEmitter {
         if (item.messageType !== 'campaign' && this.sendBlock?.(item.messageType)) return false;
         if (this.#onLane(item)) return true;
         const held = HELD.has(item.messageType);
-        // Every held type on a QR number; elsewhere campaigns only, so a school's early notice is not held till 9.
-        const daytime = item.messageType === 'campaign' || (held && this.#onLevels());
-        if (daytime && this.transport?.realDelivery && this.config.safetyEnabled && this.config.humanTiming !== false) {
-            const { daytimeFrom: from, daytimeTo: to } = this.quota.tables().brakes;
-            if (!isDaytimeFor(item.recipient, new Date(), { from, to, zone: item.timezone })) return false;
-        }
         if (!this.#onLevels() || !(held || item.messageType === 'transactional')) return true;
         const { budgets } = this.quota.allowance();
         // Bulk with nothing left today goes on to #quotaBlocked, which pauses the run and says until when.
@@ -1170,7 +1158,7 @@ export class CampaignManager extends EventEmitter {
             return `Today's plan limit of ${status.limit} is used. Sending continues automatically at ${clockAt(status.resetsAt, zone)}.`;
         }
         if (status.asked === false) {
-            return 'Answer 2 questions about this number on the WhatsApp page to start sending. Sending continues by itself once they are answered.';
+            return 'Answer the questions about this number on the WhatsApp page to start sending. Sending continues by itself once they are answered.';
         }
         if (status.level?.resting.active) {
             return `This number is resting after being linked. Bulk sending starts automatically at ${clockAt(status.level.resting.endsAt, zone)}.`;

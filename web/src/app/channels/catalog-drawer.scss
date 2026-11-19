@@ -9,6 +9,7 @@
 @include s.empty;
 @include s.skeleton;
 @include s.banner;
+@include s.pics;
 
 .scrim { @include s.scrim; }
 .drawer {
@@ -31,6 +32,8 @@
   border-bottom: 1px solid var(--border-color);
 
   .eyebrow { margin: 0; font-size: 13px; font-weight: 500; color: var(--primary-text); }
+  // "Add product" sits by the close button, not adrift in the middle.
+  > div { flex: 1; min-width: 0; }
   h2 {
     display: flex;
     align-items: baseline;
@@ -119,7 +122,7 @@
   padding: 0;
   list-style: none;
 
-  @media (min-width: 640px) { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+  @media (min-width: 640px) { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 }
 
 // The card is a button that opens the product; the pick checkbox sits over its corner as a sibling, because a
@@ -153,14 +156,36 @@
     text-align: left;
     outline: 0;
   }
+  // Drawn, not the browser's: a bare white box sat on every photo. A round badge that fills when picked.
   .pick {
     position: absolute;
     top: 8px;
     left: 8px;
-    width: 22px;
-    height: 22px;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
     margin: 0;
+    appearance: none;
+    border: 1.5px solid var(--border-hover);
+    border-radius: 999px;
+    background: var(--surface-card);
+    box-shadow: var(--shadow-sm);
     cursor: pointer;
+    transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+
+    &::after {
+      content: '';
+      width: 11px;
+      height: 6px;
+      margin-top: -2px;
+      border: solid var(--on-primary);
+      border-width: 0 0 2px 2px;
+      opacity: 0;
+      transform: rotate(-45deg);
+    }
+    &:hover { border-color: var(--primary); }
+    &:checked { border-color: var(--primary); background: var(--primary); &::after { opacity: 1; } }
     // Its own ring too: on the card alone, a keyboard user could not tell the checkbox from the card.
     &:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
   }
@@ -211,9 +236,15 @@
   .s-skel { width: 80%; margin: 4px 0; &.short { width: 45%; } }
 }
 
+// Two lines at most, so a long name never makes one card taller than its row.
 .name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   font-size: 13.5px;
   font-weight: 500;
+  line-height: 1.4;
   color: var(--text-strong);
   overflow-wrap: anywhere;
 }
@@ -462,7 +493,69 @@
   .btn { min-height: 40px; }
 }
 
+// Add/edit product form.
+.editor {
+  display: grid;
+  gap: var(--space-md);
+  margin: 0;
+  h3 { margin: 0 0 var(--space-xs); font-size: 19px; font-weight: 500; color: var(--text-strong); }
+  // The form is a grid, which would stretch the back button across it.
+  .back { justify-self: start; }
+  .row2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-md);
+  }
+  .s-field {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-strong);
+      .req { color: var(--danger-text); }
+      .opt { color: var(--hint); font-weight: 400; }
+    }
+    input, textarea {
+      width: 100%;
+      min-width: 0;
+      min-height: 40px;
+      padding: 7px 10px;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      background: var(--surface-input);
+      color: var(--text-strong);
+      font: inherit;
+      font-size: 13.5px;
+      &:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; border-color: var(--primary); }
+    }
+    textarea { resize: vertical; min-height: 72px; }
+    .hint { margin: 4px 0 0; font-size: 11.5px; color: var(--hint); }
+  }
+  .check {
+    align-self: end;
+    min-height: 40px;
+    font-size: 13px;
+    label { justify-content: flex-start; align-items: center; gap: 8px; font-weight: 400; cursor: pointer; }
+    input { flex: none; width: 16px; min-height: 0; height: 16px; margin: 0; padding: 0; cursor: pointer; }
+  }
+  .pics legend .opt { margin-left: 6px; font-weight: 400; color: var(--hint); }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+    margin-top: var(--space-md);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--border-color);
+  }
+}
+
 @media (max-width: 520px) {
   .drawer-head, .drawer-body, .drawer-foot { padding-left: var(--space-lg); padding-right: var(--space-lg); }
   .foot-actions .btn { flex: 1 1 auto; }
+  .editor .row2 { grid-template-columns: 1fr; }
 }

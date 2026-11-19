@@ -47,13 +47,6 @@ const pick = (fieldset, n) => async (h) => {
 };
 
 export default {
-    async setup(h) {
-        // One earlier request, so the panel's Earlier requests and the Home "View" line have something to show.
-        await h.api('POST', '/api/limit-requests', {
-            items: [{ key: 'messagesPerMonth', value: 20000, days: 30 }],
-            note: 'Diwali sale next month',
-        });
-    },
     tasks: {
         1: {
             async before(h) {
@@ -101,45 +94,17 @@ export default {
         },
         4: {
             steps: {
-                1: { ring: { selector: 'app-plan-usage .head-end button' }, click: true, after: (h) => h.settle(800) },
-                2: {
-                    act: async (h) => {
-                        await h.page.select('select[id^=lr-key-]', 'dailyLimit').catch(() => {});
-                        await h.type('input[id^=lr-value-]', '1000');
-                        const days = await h.page.$$eval('select[id^=lr-days-] option', (o) => o.map((x) => x.value));
-                        if (days[1]) await h.page.select('select[id^=lr-days-]', days[1]).catch(() => {});
-                        await h.settle(300);
-                    },
-                    ring: { selector: 'app-limit-request li.ask' },
-                    click: false,
-                },
-                3: { ring: { selector: 'app-limit-request button.add' }, click: false },
-                4: {
-                    act: (h) => h.type('#lr-note', 'More staff for the festive season'),
-                    ring: { selector: 'app-limit-request footer button.primary' },
-                    click: false,
-                },
-            },
-        },
-        5: {
-            steps: {
-                1: { ring: { selector: 'app-plan-usage .head-end button' }, click: true, after: (h) => h.settle(800) },
-                2: { ring: { selector: 'app-limit-request section.earlier' }, click: false },
-            },
-        },
-        6: {
-            steps: {
                 1: { ring: { selector: 'section.stats' } },
                 2: { ring: { selector: 'section.stats' } },
             },
         },
-        7: {
+        5: {
             steps: {
                 1: { ring: { selector: 'ul.recent li a' }, click: false },
                 2: { ring: { selector: 'section[aria-labelledby=recent-title] .card-head a' }, click: false },
             },
         },
-        8: {
+        6: {
             steps: {
                 1: { ring: { selector: 'header.s-head a.btn.primary' }, click: true, after: (h) => h.settle(800) },
                 2: { ring: { selector: 'nav[aria-label="Campaign steps"]' } },

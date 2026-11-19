@@ -30,11 +30,22 @@ const USAGE_CHOICES: readonly string[] = [
   'All day, for business',
 ];
 
+// Who the number messages (server startLevelFor `audience`): strangers start lower, people already chatting higher.
+const AUDIENCE_CHOICES: readonly string[] = [
+  'People who do not know this number',
+  'A mix of new people and customers',
+  'Mostly my own customers',
+  'Customers who already chat with it',
+];
+// 0-2 (server `banned`): a recent restriction starts the number lower.
+const BANNED_CHOICES: readonly string[] = ['Yes, in the last 3 months', 'Yes, longer ago', 'No, never'];
+
 /** Each instance numbers its own ids, so two on one page (Home, or a card beside the popup) never share one. */
 let nextUid = 0;
 
 /**
- * The 2 questions a newly linked QR number answers before it sends in bulk.
+ * The 4 questions a newly linked QR number answers before it sends in bulk, and answers again from the WhatsApp
+ * page's "Check daily limit" (`recheck`) when its use has changed.
  *
  * An old, busy number can start at a higher daily limit than a fresh SIM, and
  * only the business knows which it linked. Bulk is held until the questions are
@@ -64,6 +75,8 @@ export class NumberQuestions {
   readonly popup = input(false, { transform: booleanAttribute });
   /** Also ask a number whose questions were skipped, so they can be answered later (Home). */
   readonly reanswer = input(false, { transform: booleanAttribute });
+  /** Ask a number that already answered: its daily limit is worked out again from fresh answers. */
+  readonly recheck = input(false, { transform: booleanAttribute });
   /** The questions are settled (answered, skipped or answered elsewhere): the parent should refresh. */
   readonly done = output<NumberStartResult>();
 
@@ -77,6 +90,8 @@ export class NumberQuestions {
 
   protected readonly ageChoices = AGE_CHOICES;
   protected readonly usageChoices = USAGE_CHOICES;
+  protected readonly audienceChoices = AUDIENCE_CHOICES;
+  protected readonly bannedChoices = BANNED_CHOICES;
 
   protected readonly info = signal<NumberStart | null>(null);
   protected readonly loading = signal(true);
@@ -84,6 +99,8 @@ export class NumberQuestions {
 
   protected readonly age = signal<number | null>(null);
   protected readonly usage = signal<number | null>(null);
+  protected readonly audience = signal<number | null>(null);
+  protected readonly banned = signal<number | null>(null);
   protected readonly saving = signal(false);
   protected readonly saveError = signal<string | null>(null);
   /** Set once the start is applied; `already` when another session answered first. */
@@ -96,7 +113,7 @@ export class NumberQuestions {
   /** The questions to show: unanswered, or skipped when this view may re-ask them. */
   protected readonly asking = computed(() => {
     const i = this.info();
-    return !!i && (!i.asked || (this.reanswer() && !!i.skipped));
+    return !!i && (!i.asked || (this.reanswer() && !!i.skipped) || this.recheck());
   });
   /** Answered before this view opened: nothing to show. */
   protected readonly blank = computed(
@@ -109,7 +126,7 @@ export class NumberQuestions {
     () => this.popup() && !this.loading() && !this.blank() && !this.dismissed(),
   );
   protected readonly canSubmit = computed(
-    () => this.age() !== null && this.usage() !== null && !this.saving(),
+    () => this.age() !== null && this.usage() !== null && this.audience() !== null && this.banned() !== null && !this.saving(),
   );
   /** The second sentence only makes sense while the limit still has room to grow. */
   protected readonly grows = computed(() => {
@@ -169,10 +186,9 @@ export class NumberQuestions {
 
   protected submit(event: Event): void {
     event.preventDefault();
-    const age = this.age();
-    const usage = this.usage();
-    if (age === null || usage === null) return;
-    this.send({ age, usage }, this.saveError);
+    const [age, usage, audience, banned] = [this.age(), this.usage(), this.audience(), this.banned()];
+    if (age === null || usage === null || audience === null || banned === null) return;
+    this.send({ age, usage, audience, banned, ...(this.recheck() ? { recheck: true } : {}) }, this.saveError);
   }
 
   protected openSkip(): void {
@@ -221,7 +237,7 @@ export class NumberQuestions {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (info) =>
-          this.settle({ todayLimit: info.todayLimit, planLimit: info.planLimit, already: true }),
+          this.settle({ todayLimit: info.todayLimit, planLimit: info.planLimit, trust: info.trust, already: true }),
         error: () => this.settle({ todayLimit: null, planLimit: null, already: true }),
       });
   }

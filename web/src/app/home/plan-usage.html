@@ -9,29 +9,15 @@
       @if (subscription(); as sub) {
         <span class="muted">{{ sub.plan.name }} · {{ periodLabel() }}</span>
       }
+      <!-- Asking for more moved to the WhatsApp page (2026-11-19), beside the numbers its limits are about. -->
       @if (canAsk()) {
-        <button #askButton class="btn sm" type="button" aria-haspopup="dialog" (click)="openAsk()">
+        <a class="btn sm" routerLink="/whatsapp" [queryParams]="{ raise: 1 }">
           <i class="ti ti-trending-up" aria-hidden="true"></i>
           Request more
-        </button>
+        </a>
       }
     </div>
   </div>
-
-  @if (sentNotice()) {
-    <p class="s-banner tone-ok" role="status">
-      <i class="ti ti-circle-check" aria-hidden="true"></i>
-      Request sent. We'll let you know when it is answered.
-    </p>
-  } @else if (latest(); as r) {
-    <p class="ask-line">
-      <span class="s-pill {{ r.tone }}">{{ r.label }}</span>
-      Your limit request from {{ r.createdAt | date: 'd MMM' }}
-      <button class="btn sm ghost" type="button" aria-haspopup="dialog" (click)="openAsk()">
-        View
-      </button>
-    </p>
-  }
 
   @if (error(); as message) {
     <p class="s-banner" role="alert">
@@ -96,7 +82,3 @@
     }
   </li>
 </ng-template>
-
-@if (asking()) {
-  <app-limit-request (sent)="asked($event)" (closed)="closeAsk()" />
-}

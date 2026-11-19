@@ -124,7 +124,7 @@ export function overCap(channelDb, channel, limits, policy) {
 
 /**
  * Starting safety settings for a new number. A tenant may start stricter than
- * the policy, never looser: lower retries and longer gaps win. The plan's
+ * the policy, never looser: lower retries win. The plan's
  * per-number day (channels.dailyCap) is not copied: sendingTables reads it live.
  * So a QR number keeps only a day the tenant asked for (0 = none), which can
  * only lower its level; the sandbox falls back to the plain default.
@@ -135,8 +135,8 @@ export function newNumberSafety(policy = {}, asked = {}) {
     const qr = QR_TRANSPORTS.includes(mergeConfig(DEFAULTS, asked).transport);
     return {
         dailyLimit: n('dailyLimit') || (qr ? 0 : DEFAULTS.dailyLimit),
-        minDelaySeconds: Math.max(v('minGapSeconds'), n('minDelaySeconds')),
-        maxDelaySeconds: Math.max(v('maxGapSeconds'), n('maxDelaySeconds'), v('minGapSeconds')),
+        minDelaySeconds: n('minDelaySeconds'),
+        maxDelaySeconds: n('maxDelaySeconds'),
         maxRetries: asked.maxRetries == null ? v('retryLimit') : Math.min(n('maxRetries'), v('retryLimit')),
     };
 }

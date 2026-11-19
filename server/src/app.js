@@ -138,7 +138,7 @@ import {
     blockedWordIn, capOf, roleRank, tighterCap,
 } from './tenancy.js';
 import { sendingTables, skipStartLevel, startLevelFor, suggestStart } from './policy/levels.js';
-import { PACING_PRESETS, bulkWindowOpen } from './campaign/safety.js';
+import { PACING_PRESETS, bulkWindowOpen, sendingHours, speedRow } from './campaign/safety.js';
 import { auditCsv, createAdminOps } from './adminOps.js';
 import { lastBackup, runBackupIfDue } from './backup.js';
 import { encryptionStatus } from './security/keyGate.js';
@@ -327,7 +327,7 @@ function capabilityForPath(path) {
 
 function serviceForPath(path) {
     path = routeKey(path);
-    if (path === '/messages') return 'bulk_messages';
+    if (path === '/messages') return 'campaigns';
     return SERVICE_ROUTE_PREFIXES.find(([prefix]) => path === prefix || path.startsWith(`${prefix}/`))?.[1] ?? null;
 }
 
@@ -2364,6 +2364,7 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         const suggested = chats == null ? null : suggestStart(chats);
         return {
             asked: usage.asked !== false, skipped: usage.skipped === true, todayLimit: usage.todayLimit, planLimit: usage.planLimit,
+            trust: usage.trust ?? null,
             suggested: suggested && { ...suggested, chats },
         };
     };
@@ -2374,7 +2375,11 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         return res.json({ ...startView(channel), skipWarning: { version: NUMBER_SKIP_VERSION, text: NUMBER_SKIP_TEXT } });
     });
 
-    /** `{ age, usage }` (0-3 each), or `{ skip: true, accept: true }` to start at the plan's day, recorded as a consent. */
+    /**
+     * `{ age, usage, audience?, banned? }` (policy/levels.js startLevelFor), or `{ skip: true, accept: true }` to start
+     * at the plan's day, recorded as a consent. `recheck: true` answers again a number that already answered (the
+     * WhatsApp page's "Check daily limit"): its use changed, so its start is worked out afresh.
+     */
     app.post('/channels/:id/start', (req, res) => {
         const channel = channels.get(req.params.id);
         if (!channel) return res.status(404).json({ errors: ['channel not found'] });
@@ -2382,8 +2387,10 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
         if (asked === undefined || !deps.setChannelStart) return res.status(400).json({ errors: ['Only QR-login numbers with sending safety on are asked these questions.'] });
         const body = req.body ?? {};
         const skip = body.skip === true;
-        // A skipped start may still be answered (from Home), never skipped twice.
-        if (asked && !(skipped && !skip)) return res.status(409).json({ errors: ["This number's questions are already answered."] });
+        // A skipped start may still be answered (from Home), never skipped twice; a recheck answers again on purpose.
+        if (asked && !(skipped && !skip) && !(body.recheck === true && !skip)) {
+            return res.status(409).json({ errors: ["This number's questions are already answered."] });
+        }
         let level;
         let answers;
         if (skip) {
@@ -2397,16 +2404,17 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
                 userAgent: req.get('user-agent') ?? '', kind: 'number_skip_questions', channelId: channel.id,
             });
         } else {
-            level = startLevelFor({ age: body.age, usage: body.usage });
-            if (level == null) return res.status(400).json({ errors: ['Answer both questions: age and usage, each 0 to 3.'] });
-            answers = { age: body.age, usage: body.usage };
+            answers = Object.fromEntries(['age', 'usage', 'audience', 'banned'].filter((k) => body[k] !== undefined).map((k) => [k, body[k]]));
+            level = startLevelFor(answers);
+            if (level == null) return res.status(400).json({ errors: ['Answer every question about this number.'] });
         }
         deps.setChannelStart(channel.id, level, answers);
         runtimes.get(channel.id)?.state.manager?.quota.invalidate(); // a held run picks up within its 30s recheck
         audit?.(req, skip ? 'channel.start_skip' : 'channel.start', channel.id,
-            skip ? `skipped the questions (version ${NUMBER_SKIP_VERSION}), start level ${level}` : `age ${body.age}, usage ${body.usage}, start level ${level}`);
-        const { todayLimit, planLimit } = startView(channel);
-        return res.json({ todayLimit, planLimit });
+            skip ? `skipped the questions (version ${NUMBER_SKIP_VERSION}), start level ${level}`
+                : `${body.recheck === true ? 'checked again: ' : ''}${Object.entries(answers).map(([k, v]) => `${k} ${v}`).join(', ')}, start level ${level}`);
+        const { todayLimit, planLimit, trust } = startView(channel);
+        return res.json({ todayLimit, planLimit, trust });
     });
 
     app.delete('/channels/:id', async (req, res) => {
@@ -2449,10 +2457,12 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
      * every number's campaigns, so an action on one must reach its own number whatever number the page has
      * selected: through another number's store, a pause would leave the run sending and a resume would send it twice.
      */
+    // The same for a conversation and a ticket: their lists show every number's, and a reply or a status notice
+    // from whatever number the page had selected would reach the customer from a number they never wrote to.
     const campaignChannel = (path) => {
-        const id = /^\/campaigns\/(\d+)(?:\/|$)/.exec(path)?.[1];
+        const [, table, id] = /^\/(campaigns|conversations|tickets)\/(\d+)(?:\/|$)/.exec(path) ?? [];
         if (!id) return null;
-        const row = db.db.prepare('SELECT channel_id FROM campaigns WHERE id = ? AND tenant_id = ?').get(Number(id), db.tenantId);
+        const row = db.db.prepare(`SELECT channel_id FROM ${table} WHERE id = ? AND tenant_id = ?`).get(Number(id), db.tenantId);
         // A paused number's engine holds no run: its campaigns (one moved off it by failover) read through the page's.
         return row?.channel_id != null && channels.get(row.channel_id)?.status === 'active' ? row.channel_id : null;
     };
@@ -2684,8 +2694,12 @@ export function createApp({
     const policyStore = new PolicyStore(db);
     // A business with its own day (limits.ownDailyLimit): no plan day (planDaily null = no cap) and no warm-up
     // (sending.ownDay, campaign/safety.js), for every reader: the engine, the cards and the admin views.
-    policyStore.adjust = (tenantId) => (tenancy.getTenant(tenantId)?.limits?.ownDailyLimit
-        ? { 'channels.dailyCap': null, 'sending.ownDay': true } : null);
+    // Its own sending speed (limits.sendSpeed) is apart from the day: it only spaces the messages (sending.speed).
+    policyStore.adjust = (tenantId) => {
+        const limits = tenancy.getTenant(tenantId)?.limits;
+        const own = limits?.ownDailyLimit ? { 'channels.dailyCap': null, 'sending.ownDay': true } : null;
+        return Number(limits?.sendSpeed) > 0 ? { ...own, 'sending.speed': Number(limits.sendSpeed) } : own;
+    };
     // Each tenant's security.* values (policy/security.js), read on every request by the rate
     // limits and the session check, so cached for 5s. An admin policy save clears it.
     const securityCache = new Map();
@@ -3327,8 +3341,6 @@ export function createApp({
                     const n = Number(value);
                     const patch = {
                         'channels.dailyCap': { dailyLimit: safety.dailyLimit > 0 ? Math.min(safety.dailyLimit, n) : n },
-                        'channels.minGapSeconds': { minDelaySeconds: Math.max(Number(safety.minDelaySeconds) || 0, n) },
-                        'channels.maxGapSeconds': { maxDelaySeconds: Math.max(Number(safety.maxDelaySeconds) || 0, n) },
                         'channels.retryLimit': { maxRetries: safety.maxRetries == null ? n : Math.min(safety.maxRetries, n) },
                     }[key];
                     if (patch) tenancy.setSafety(tenantId, patch);
@@ -4542,6 +4554,25 @@ export function createApp({
         }
     });
 
+    // What a sending speed means for the engine: the spacing it will run at (speedRow), so the admin sees it before
+    // saving. `speed`: the business's own speed, messages a day per number. Without one the spacing is automatic,
+    // fitted to `perDay` (its messages per day; blank or 0 = no limit, the fastest spacing).
+    admin.get('/tenants/:id/speed', (req, res) => {
+        const tenant = tenancy.getTenant(req.params.id);
+        if (!tenant) return res.status(404).json({ errors: ['tenant not found'] });
+        const whole = (raw) => (Math.floor(Number(raw)) > 0 ? Math.floor(Number(raw)) : null);
+        const perDay = whole(req.query.perDay) ?? Infinity;
+        const speed = whole(req.query.speed);
+        const { levels, bulkWindow } = sendingTables(policyStore.resolve(tenant.id).values);
+        const hours = sendingHours(bulkWindow);
+        const row = speed ? speedRow(levels.at(-1), speed, hours, true) : speedRow(levels.at(-1), perDay, hours);
+        return res.json({
+            speed, perDay: Number.isFinite(perDay) ? perDay : null, reachable: row.reachable, perHour: row.perHour,
+            gapSeconds: [row.minSeconds, row.maxSeconds], restEvery: row.restEvery, restMinutes: [row.restMinMinutes, row.restMaxMinutes],
+            hours, window: bulkWindow,
+        });
+    });
+
     admin.get('/tenants/:id/safety', (req, res) => {
         const tenant = tenancy.getTenant(req.params.id);
         return tenant ? res.json(safetyView(tenant)) : res.status(404).json({ errors: ['tenant not found'] });
@@ -4807,12 +4838,13 @@ export function createApp({
         if (!tenant.limits.allowCustomSafety) {
             return res.status(403).json({ errors: ['Your platform admin has not enabled custom sending limits.'] });
         }
-        const { accept, version, fullName, confirmation } = req.body ?? {};
+        const { accept, version, confirmation } = req.body ?? {};
+        // Who accepted is the signed-in account (2026-11-19: the form no longer asks for a typed name).
+        const fullName = req.user?.name || req.user?.email || '';
         if (accept !== true) return res.status(400).json({ errors: ['Tick the box to accept the risk.'] });
         if (version !== CONSENT_VERSION) {
             return res.status(409).json({ errors: ['The terms changed. Reload and read them again.'] });
         }
-        if (!String(fullName ?? '').trim()) return res.status(400).json({ errors: ['Type your full name.'] });
         const typed = String(confirmation ?? '').trim().toLowerCase();
         if (typed !== 'i accept' && typed !== tenant.name.trim().toLowerCase()) {
             return res.status(400).json({ errors: ['Type I ACCEPT (or your business name) to confirm.'] });
@@ -4851,12 +4883,13 @@ export function createApp({
     custom.post('/exit', (req, res) => {
         const tenant = tenantOr404(req, res);
         if (!tenant) return undefined;
-        const { accept, version, fullName, confirmation } = req.body ?? {};
+        const { accept, version, confirmation } = req.body ?? {};
+        // Who accepted is the signed-in account (2026-11-19: the form no longer asks for a typed name).
+        const fullName = req.user?.name || req.user?.email || '';
         if (accept !== true) return res.status(400).json({ errors: ['Tick the box to accept the risk.'] });
         if (version !== SAFETY_EXIT_VERSION) {
             return res.status(409).json({ errors: ['The terms changed. Reload and read them again.'] });
         }
-        if (!String(fullName ?? '').trim()) return res.status(400).json({ errors: ['Type your full name.'] });
         if (String(confirmation ?? '').trim().toLowerCase() !== 'i accept') {
             return res.status(400).json({ errors: ['Type I ACCEPT to confirm.'] });
         }

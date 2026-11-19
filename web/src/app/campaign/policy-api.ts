@@ -8,10 +8,8 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 
-import type { PacingPreset } from '../core/api';
 
 /** Slowest to fastest, as the server's PACING_PRESETS orders them. */
-const SPEEDS: readonly PacingPreset[] = ['safe', 'balanced', 'fast'];
 
 interface PolicyResponse {
   readonly values: Readonly<Record<string, unknown>>;
@@ -29,11 +27,6 @@ export class CampaignPolicy {
   /** False until the load says otherwise, so the checkbox is never offered on a guess. */
   readonly linkTracking = this.tracking.asReadonly();
 
-  /** The fastest preset the plan allows. */
-  readonly maxSpeed = computed<PacingPreset>(() => {
-    const v = this.values()['bulk.maxSpeed'];
-    return SPEEDS.includes(v as PacingPreset) ? (v as PacingPreset) : 'fast';
-  });
   readonly allowScheduling = computed(() => this.values()['campaigns.allowScheduling'] !== false);
   readonly allowFollowUps = computed(() => this.values()['campaigns.allowFollowUps'] !== false);
   readonly allowInteractive = computed(() => this.values()['campaigns.allowInteractive'] !== false);
@@ -53,10 +46,5 @@ export class CampaignPolicy {
         this.requested = false;
       },
     });
-  }
-
-  /** True when `preset` is faster than the plan's ceiling. */
-  tooFast(preset: PacingPreset): boolean {
-    return SPEEDS.indexOf(preset) > SPEEDS.indexOf(this.maxSpeed());
   }
 }

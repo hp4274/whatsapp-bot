@@ -2,15 +2,14 @@ import { SafetyPolicy } from './api';
 
 /**
  * The anti-ban fields, grouped. Shared by the super admin drawer and the tenant's own controls.
- * `qrIgnored`: a QR number's own sending level sets this (server campaign/safety.js paceFor), so the value
- * does nothing there; the tenant drawer leaves it out and the admin drawer shows it disabled.
+ * Gaps, rests and the pacing mode are not here: messages per day is the one speed control, and the engine spaces
+ * a number from it (server campaign/safety.js paceFor).
  */
 export type SafetyField = {
   key: keyof SafetyPolicy;
   label: string;
   help: string;
   step?: number;
-  qrIgnored?: boolean;
 };
 
 /** Order is the order shown; each field's `help` is the plain-language hint under it. */
@@ -26,25 +25,7 @@ export const SAFETY_GROUPS: { title: string; fields: SafetyField[] }[] = [
     ],
   },
   {
-    title: 'Pacing between messages',
-    fields: [
-      {
-        key: 'minDelaySeconds',
-        label: 'Shortest gap between messages (seconds)',
-        help: "0 = the number's own gap. A value here can only slow it down",
-      },
-      {
-        key: 'maxDelaySeconds',
-        label: 'Longest gap between messages (seconds)',
-        help: "0 = the number's own gap. A value only ever slows it",
-      },
-      { key: 'restEvery', label: 'Rest every N messages', help: '0 = never rest', qrIgnored: true },
-      { key: 'restMinMinutes', label: 'Rest min (min)', help: 'Shortest long pause', qrIgnored: true },
-      { key: 'restMaxMinutes', label: 'Rest max (min)', help: 'Longest long pause', qrIgnored: true },
-    ],
-  },
-  {
-    title: 'Speed and retries',
+    title: 'Burst limit and retries',
     fields: [
       {
         key: 'rateLimitPerSecond',

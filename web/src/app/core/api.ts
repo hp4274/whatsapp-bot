@@ -488,7 +488,6 @@ export class Api {
   acceptSafetyRisk(body: {
     accept: boolean;
     version: string;
-    fullName: string;
     confirmation: string;
   }): Observable<CustomSafetyView> {
     return this.http
@@ -504,7 +503,6 @@ export class Api {
   exitSafety(body: {
     accept: boolean;
     version: string;
-    fullName: string;
     confirmation: string;
   }): Observable<CustomSafetyView> {
     return this.http
@@ -657,6 +655,8 @@ export interface TenantLimits {
   messagesPerMonth?: number | null;
   /** True: its own messages a day per number (safety.dailyLimit, 0 = no limit) replaces the plan's day. */
   ownDailyLimit?: boolean;
+  /** Its own sending speed, messages a day per number: how fast, never how many. Absent, null or 0 = automatic. */
+  sendSpeed?: number | null;
 }
 
 /** A recorded acceptance of the sending-risk terms. Immutable on the server. */
@@ -753,6 +753,24 @@ export interface TenantDetails {
 }
 
 /** Tenant, user and platform-admin endpoints. Super-admin calls carry the acting tenant via `authInterceptor`. */
+/** The spacing a business's numbers run at (server campaign/safety.js speedRow). */
+export interface SendingSpeed {
+  /** The business's own speed, messages a day per number; null = automatic, fitted to `perDay`. */
+  readonly speed: number | null;
+  /** Its messages per day (the limit); null = no limit. */
+  readonly perDay: number | null;
+  /** What one number can really send in a day at this spacing. */
+  readonly reachable: number;
+  readonly perHour: number;
+  readonly gapSeconds: readonly [number, number];
+  readonly restEvery: number;
+  readonly restMinutes: readonly [number, number];
+  /** Hours a day bulk may go out: 24, or the length of the business's own sending window. */
+  readonly hours: number;
+  /** That sending window (the bulk rules), when the business has one. */
+  readonly window: { readonly start: string; readonly end: string } | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class TenancyApi {
   private readonly http = inject(HttpClient);
@@ -836,6 +854,13 @@ export class TenancyApi {
   revokeKeys(id: number): Observable<{ count: number }> {
     return this.http
       .post<{ count: number }>(`/api/admin/tenants/${id}/api-keys/revoke`, {})
+      .pipe(catchError(toMessage));
+  }
+
+  /** What a speed (0 = automatic, fitted to `perDay`, 0 = no limit) means for the engine; the server's own sum. */
+  speed(id: number, perDay: number, speed: number): Observable<SendingSpeed> {
+    return this.http
+      .get<SendingSpeed>(`/api/admin/tenants/${id}/speed`, { params: { perDay, speed } })
       .pipe(catchError(toMessage));
   }
 
@@ -994,6 +1019,8 @@ export interface ChannelUsage {
   planLimit: number | null;
   /** The daily limit is still below `planLimit` and rises as people reply. */
   growing: boolean;
+  /** The number's trust score from its answers; absent until it answers. */
+  trust?: NumberTrust;
   /** QR numbers with safety on only: false while the 2 questions are unanswered (bulk is held). */
   asked?: boolean;
   /** The questions were skipped; they can still be answered from Home. */
@@ -1012,16 +1039,32 @@ export interface NumberStart {
   skipWarning: { version: string; text: string[] };
   /** Answers pre-selected from the one-to-one chats the number already has; null when too few or not synced. */
   suggested: { age: number; usage: number; chats: number } | null;
+  trust?: NumberTrust | null;
 }
 
-/** `POST /api/channels/:id/start`: answers (each 0-3) or an accepted skip. */
-export type NumberStartBody = { age: number; usage: number } | { skip: true; accept: true };
+/**
+ * A number's trust score (20-100) from its answers. `full`: the whole day set for the business, which a score of
+ * 100 gives; null when the number is on its plan's day (its limit is then its level's).
+ */
+export interface NumberTrust {
+  score: number;
+  full: number | null;
+}
+
+/**
+ * `POST /api/channels/:id/start`: answers (age, usage and audience 0-3, banned 0-2) or an accepted skip.
+ * `recheck`: answering again a number that already answered ("Check daily limit").
+ */
+export type NumberStartBody =
+  | { age: number; usage: number; audience: number; banned: number; recheck?: boolean }
+  | { skip: true; accept: true };
 
 /** The limits after a start; `already` when the questions were answered elsewhere first (409). */
 export interface NumberStartResult {
   todayLimit: number | null;
   planLimit: number | null;
   already?: boolean;
+  trust?: NumberTrust | null;
 }
 
 export type QualityLevel = 'ok' | 'info' | 'warn' | 'bad';
