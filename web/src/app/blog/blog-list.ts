@@ -5,12 +5,7 @@ import { Router, RouterLink } from '@angular/router';
 import { LandingFooter } from '../landing/landing-footer';
 import { LandingNav } from '../landing/landing-nav';
 import { PageMeta } from '../landing/page-meta';
-import { POSTS, type Post, readingMinutes } from './posts';
-
-/** The tab title (the route gives the same one) and the line search results show under it. */
-const TITLE = 'Blog - Wuzie';
-const DESCRIPTION =
-  'Practical guides for small businesses on WhatsApp: bulk messages customers want, keeping your number safe, and auto-replies that help.';
+import { BLOG_DESCRIPTION, BLOG_TITLE, POSTS, type Post, readingMinutes } from './posts';
 
 /**
  * Every guide, newest first, under the landing page's nav and close, so the blog reads as part of the
@@ -31,7 +26,7 @@ export class BlogList {
 
   constructor() {
     const meta = inject(PageMeta);
-    meta.set({ title: TITLE, description: DESCRIPTION, path: '/blog' });
+    meta.set({ title: BLOG_TITLE, description: BLOG_DESCRIPTION, path: '/blog' });
     inject(DestroyRef).onDestroy(() => meta.clear());
     // The router keeps the last page's scroll (no scroll restoration in app.config.ts); a fresh load keeps the browser's.
     if (inject(Router).navigated) afterNextRender(() => window.scrollTo(0, 0));

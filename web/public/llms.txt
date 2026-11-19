@@ -8,12 +8,12 @@ Wuzie is made for small businesses: shops and online brands, schools and coachin
 
 - Link your WhatsApp or WhatsApp Business number by scanning a QR code, the same way WhatsApp Web works. No WhatsApp Business API and no Meta approval are needed.
 - Upload your contacts, write one message with the customer's name in it, and send it to everyone.
-- Wuzie spaces the messages out with random gaps, caps how many a number sends a day and pauses a campaign when too many messages fail.
+- Wuzie spaces the messages out with random gaps over the whole day, caps how many a number sends a day and pauses a campaign when too many messages fail.
 - Replies arrive on your own WhatsApp number, so you answer them on your phone as usual.
 
 ## Facts
 
-- Message types: text, images, documents and video. Native WhatsApp buttons and lists are not available on linked numbers; options are numbered replies the customer answers with a digit.
+- Message types: text, images, documents and video, plus WhatsApp reply buttons, list menus and carousels the customer taps to answer.
 - Daily limit: a new number starts with a small daily limit that grows as the number becomes established, up to 1,000 messages a day per number. More numbers can be linked to send more.
 - Ban risk: no tool can promise a number will never be banned. Wuzie lowers the risk with daily caps, random gaps and automatic pauses.
 - Also included: contacts with message history, message templates, multiple numbers under one login and team roles.
@@ -22,6 +22,7 @@ Wuzie is made for small businesses: shops and online brands, schools and coachin
 
 ## Pages
 
+- [Full text](https://wuzie.in/llms-full.txt): every question, answer and guide on the public site as plain text
 - [Home](https://wuzie.in/): what Wuzie does, how sending works, safety, FAQ and the Free Access form
 - [Blog](https://wuzie.in/blog): guides to bulk WhatsApp messaging for small businesses
 

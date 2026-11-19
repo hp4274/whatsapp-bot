@@ -46,6 +46,7 @@ for (const envPath of envPaths) {
 
 import { Tenancy, hashPassword, verifyPassword } from './tenancy.js';
 import { trackIndexHashes } from './security/headers.js';
+import { publicPageFile } from './publicPages.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -80,6 +81,12 @@ const webDist = path.join(HERE, '..', '..', 'web', 'dist', 'web', 'browser');
 if (fs.existsSync(webDist)) {
     // The CSP must allow the build's inline bootstrap script by hash (see security/headers.js).
     trackIndexHashes(app, path.join(webDist, 'index.html'));
+    // The landing page, the blog and each post have their own prerendered HTML (web/scripts/seo.mjs): a crawler that
+    // runs no JavaScript reads the page's title, canonical, schema and text there. The browser starts the app as usual.
+    app.use((req, res, next) => {
+        const file = req.method === 'GET' ? publicPageFile(webDist, req.path) : null;
+        return file ? res.set('Cache-Control', 'no-cache').sendFile(file) : next();
+    });
     // Built chunks carry a content hash in their name, so a browser may keep them for a year; index.html and
     // anything unhashed (icons, favicon) are checked each time so a deploy shows up at once.
     app.use(express.static(webDist, {
@@ -91,9 +98,13 @@ if (fs.existsSync(webDist)) {
     app.get('/llm.txt', (req, res) => res.redirect(301, '/llms.txt'));
     // A missing file (robots.txt before a deploy, an old asset) is a 404, not the app's page: a crawler reading
     // HTML as robots.txt or a sitemap is worse than one told it is not there. App routes have no extension.
-    app.get(/^(?!\/api\/).*/, (req, res) => (path.extname(req.path)
-        ? res.status(404).type('text/plain').send('Not found')
-        : res.sendFile(path.join(webDist, 'index.html'))));
+    app.get(/^(?!\/api\/).*/, (req, res) => {
+        if (path.extname(req.path)) return res.status(404).type('text/plain').send('Not found');
+        // What is left is the app (sign-in, the dashboard) or a blog address with no post: none of it belongs in
+        // search results. Only said when the build has its public pages, or a build without them would hide the blog.
+        if (fs.existsSync(path.join(webDist, 'seo'))) res.set('X-Robots-Tag', 'noindex');
+        return res.sendFile(path.join(webDist, 'index.html'));
+    });
 }
 
 // First run: there is nobody to sign in as, so create the platform admin.

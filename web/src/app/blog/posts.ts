@@ -1,11 +1,17 @@
 /**
  * The blog's posts, written here rather than fetched: three short guides do not need a CMS.
  * shortcut: move these to the server (or Markdown files) once non-developers write posts.
- * A new post also needs a line in public/sitemap.xml, public/llms.txt and the <noscript> list in index.html.
+ * A new post reaches its own crawlable page, sitemap.xml and llms-full.txt by itself at build (web/scripts/seo.mjs);
+ * add one line for it to public/llms.txt by hand.
  *
- * Every claim about Wuzie here must match what the product does today. Linked (QR) numbers send plain text, so
- * no post promises WhatsApp buttons or lists; there are no customer figures, so no post quotes any.
+ * Every claim about Wuzie here must match what the product does today; there are no customer figures, so no post
+ * quotes any.
  */
+
+/** The blog list's tab title and the line search results show under it. */
+export const BLOG_TITLE = 'Blog - Wuzie';
+export const BLOG_DESCRIPTION =
+  'Practical guides for small businesses on WhatsApp: bulk messages customers want, keeping your number safe, and auto-replies that help.';
 
 /** One piece of a post's body, in reading order. `example` is a sample WhatsApp message, drawn as a chat bubble. */
 export type Block =

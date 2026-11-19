@@ -9,6 +9,7 @@
   <!--
     What a crawler that runs no JavaScript sees (link previews, AI assistants); the public pages then set their own
     (landing/page-meta.ts). No canonical here: this file is served for every route, and it would point them all at `/`.
+    The build writes a copy per public page with its own title, canonical and schema (web/scripts/seo.mjs).
   -->
   <meta name="description" content="Send bulk WhatsApp messages from the number you already use: personal to each customer, paced to protect your number, with replies straight back to you.">
   <meta property="og:site_name" content="Wuzie">
@@ -58,8 +59,8 @@
   <!--
     The page for a reader that runs no JavaScript: AI assistants and simple crawlers otherwise get an empty body.
     Keep it true to the landing page's copy (landing/landing.ts) and to public/llms.txt.
-    shortcut: every route serves this same text, blog posts included; prerender the public routes when each
-    post must be readable without JavaScript.
+    The build rewrites the Questions and Guides below from the page's own data, and gives the blog and each post
+    their own text (web/scripts/seo.mjs), so edit the FAQ in landing/faq.ts, not here.
   -->
   <noscript>
     <h1>Wuzie: send bulk WhatsApp messages from your own number</h1>
@@ -68,7 +69,7 @@
     <ul>
       <li>Link your WhatsApp or WhatsApp Business number by scanning a QR code, the same way WhatsApp Web works. There is no Meta approval to wait for.</li>
       <li>Upload your contacts and write one message with each customer's name in it.</li>
-      <li>Wuzie sends it with random gaps between messages and a daily cap for each number.</li>
+      <li>Wuzie sends it with random gaps between messages, spread over the day, and a daily cap for each number.</li>
       <li>Replies arrive on your own WhatsApp number.</li>
     </ul>
     <h2>Who it is for</h2>
@@ -81,7 +82,7 @@
     <h3>Do I need the WhatsApp Business API?</h3>
     <p>No. You link the number you already use by scanning a QR code.</p>
     <h3>Can I send images, PDFs and buttons?</h3>
-    <p>Text, images, documents and video, yes. Native WhatsApp buttons and lists are not available on linked numbers, so options are numbered replies.</p>
+    <p>Yes. Text, images, documents and video, plus WhatsApp reply buttons, list menus and carousels your customers tap to answer.</p>
     <h3>How do I get an account?</h3>
     <p>Accounts are set up for you: ask through the Free Access form on this page. Every paid plan starts with a 14-day free trial.</p>
     <h2>Guides</h2>
