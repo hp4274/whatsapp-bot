@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- One <url> per public page. Add a line here when a post is added to web/src/app/blog/posts.ts. -->
+<!-- The copy for a build made without `npm run build`'s SEO step, which writes this file from the posts (web/scripts/seo.mjs). -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://wuzie.in/</loc></url>
   <url><loc>https://wuzie.in/blog</loc></url>
