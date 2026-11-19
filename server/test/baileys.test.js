@@ -12,7 +12,7 @@ import { DEFAULTS } from '../src/config.js';
 import { Database } from '../src/db.js';
 import { applySendingPolicy } from '../src/policy/levels.js';
 import { Status } from '../src/protocol.js';
-import { BaileysTransport, extractContent, mediaCache, ownDeviceCopy, quietLogger, toJid } from '../src/transports/baileys.js';
+import { BaileysTransport, extractContent, mediaCache, ownDeviceCopy, ownJid, quietLogger, toJid } from '../src/transports/baileys.js';
 
 class FakeSock {
     ev = new EventEmitter();
@@ -823,4 +823,246 @@ it('mediaCache returns an upload until it expires, and drops the oldest when ful
         Object.assign(mediaCache, { ttlMs, max });
         mediaCache.entries.clear();
     }
+});
+
+// --- WhatsApp Business catalog: the profile over the socket (raw nodes), products and collections over HTTPS ------
+
+const n = (tag, content, attrs = {}) => ({ tag, attrs, content: typeof content === 'string' ? Buffer.from(content) : content });
+const waError = (code, text) => Object.assign(new Error(text), { data: code, output: { statusCode: 500 } });
+const product = (id, extra = {}) => ({ id, name: `Item ${id}`, price: '60000', currency: 'INR', is_hidden: 'ISHIDDEN_FALSE', ...extra });
+const PROFILE = n('iq', [n('business_profile', [n('profile', [
+    n('description', 'Home bakery'), n('address', '12 MG Road'), n('email', 'hi@bakes.test'),
+    n('website', 'https://bakes.test'), n('website', 'https://instagram.com/bakes'),
+    n('categories', [n('category', 'Bakery', { id: '1' })]),
+    n('business_hours', [
+        { tag: 'business_hours_config', attrs: { day_of_week: 'mon', mode: 'specific_hours', open_time: '540', close_time: '1080' } },
+        { tag: 'business_hours_config', attrs: { day_of_week: 'sun', mode: 'open_24h' } },
+    ], { timezone: 'Asia/Kolkata' }),
+], { jid: '15550000001@s.whatsapp.net' })])]);
+
+/**
+ * A connected transport, `platform` as paired. `answer({ kind, node })` answers both wires: the socket's
+ * business_profile query (node = the raw request node) and the HTTPS catalog calls (kind 'product_catalog' or
+ * 'collections', node = that request's variables). A thrown waError becomes WhatsApp's GraphQL error body.
+ */
+async function catalogTransport({ platform, answer }) {
+    const queries = [];
+    const made = makeTransport({
+        createSocket: async () => {
+            const sock = new FakeSock();
+            sock.authState = { creds: { platform, me: { id: '15550000001:7@s.whatsapp.net', lid: '99887766:7@lid', name: 'Bakes' } } };
+            sock.query = async (iq) => {
+                const node = iq.content[0];
+                queries.push({ kind: node.tag, node });
+                return answer({ kind: node.tag, node });
+            };
+            setImmediate(() => sock.ev.emit('connection.update', { connection: 'open' }));
+            return sock;
+        },
+        catalogFetch: async (url, init) => {
+            const sent = JSON.parse(init.body);
+            const [kind, node] = Object.entries(sent.variables.request)[0];
+            queries.push({ kind, node, url, sent });
+            let data;
+            try {
+                data = await answer({ kind, node });
+            } catch (err) {
+                if (!err.data) throw err; // a network failure, not an answer
+                return { ok: false, status: 400, json: async () => ({ error: { code: err.data, message: err.message } }) };
+            }
+            return { ok: true, status: 200, json: async () => ({ data: { xwa_answer: kind === 'collections' ? data : { product_catalog: data } } }) };
+        },
+    });
+    const info = await made.transport.connect();
+    return { transport: made.transport, info, queries };
+}
+
+it('reads the whole catalog over HTTPS: every picture, sale price, review status, collections and the business profile', async () => {
+    const { transport, queries } = await catalogTransport({
+        platform: 'smba',
+        answer: ({ kind, node }) => {
+            if (kind === 'business_profile') return PROFILE;
+            if (kind === 'collections') {
+                return { collections: [
+                    { id: 'c1', name: 'Bakes', status_info: { status: 'APPROVED', can_appeal: false }, products: [{ id: 'p1' }, { id: 'p3' }] },
+                    { id: 'c2', name: 'Big', products: [{ id: 'p2' }], paging: { after: 'more' } },
+                ] };
+            }
+            if (!node.after) {
+                return { products: [
+                    product('p1', {
+                        description: 'Fudgy', retailer_id: 'BR1', url: 'https://bakes.test/p1', availability: 'in stock',
+                        sale_price: { price: '45000' }, status_info: { status: 'REJECTED', can_appeal: true },
+                        media: { images: [
+                            { request_image_url: 'https://cdn.test/p1-800.jpg', original_image_url: 'https://cdn.test/p1.jpg' },
+                            { request_image_url: 'https://cdn.test/p1b-800.jpg' },
+                            { original_image_url: 'https://cdn.test/p1c.jpg' },
+                        ] },
+                    }),
+                    product('p2'),
+                ], paging: { after: 'CUR1' } };
+            }
+            assert.equal(node.after, 'CUR1');
+            return { products: [product('p3', { is_hidden: 'ISHIDDEN_TRUE' })], paging: { after: null } };
+        },
+    });
+    const catalog = await transport.catalog();
+    assert.deepEqual(catalog.products.map((p) => p.id), ['p1', 'p2', 'p3']);
+    assert.equal(catalog.truncated, false);
+    const [p1, , p3] = catalog.products;
+    assert.deepEqual(p1.images, [
+        { original: 'https://cdn.test/p1.jpg', requested: 'https://cdn.test/p1-800.jpg' },
+        { original: '', requested: 'https://cdn.test/p1b-800.jpg' },
+        { original: 'https://cdn.test/p1c.jpg', requested: '' },
+    ]);
+    assert.deepEqual(
+        { price: p1.price, salePrice: p1.salePrice, currency: p1.currency, retailerId: p1.retailerId, url: p1.url, description: p1.description },
+        { price: 60000, salePrice: 45000, currency: 'INR', retailerId: 'BR1', url: 'https://bakes.test/p1', description: 'Fudgy' });
+    assert.deepEqual([p1.reviewStatus.whatsapp, p1.canAppeal, p1.availability, p1.isHidden], ['REJECTED', true, 'in stock', false]);
+    assert.deepEqual([p3.isHidden, p3.salePrice, p3.images], [true, null, []]);
+    assert.deepEqual(catalog.collections, [
+        { id: 'c1', name: 'Bakes', productIds: ['p1', 'p3'], status: 'APPROVED', canAppeal: false, truncated: false },
+        { id: 'c2', name: 'Big', productIds: ['p2'], status: '', canAppeal: false, truncated: true },
+    ]);
+    assert.deepEqual(catalog.business, {
+        name: 'Bakes', description: 'Home bakery', address: '12 MG Road', email: 'hi@bakes.test', category: 'Bakery',
+        websites: ['https://bakes.test', 'https://instagram.com/bakes'],
+        hours: { timezone: 'Asia/Kolkata', days: [
+            { day: 'mon', mode: 'specific_hours', open: '09:00', close: '18:00' },
+            { day: 'sun', mode: 'open_24h', open: null, close: null },
+        ] },
+    });
+    // the request WhatsApp Web sends: its endpoint, token and query id, the phone jid (no device part, not the LID)
+    const first = queries.find((q) => q.kind === 'product_catalog');
+    assert.equal(first.url, 'https://graph.whatsapp.com/graphql/catalog');
+    assert.match(first.sent.access_token, /^WA\|/);
+    assert.equal(first.sent.doc_id, '30445081048424116');
+    assert.equal(first.node.jid, '15550000001@s.whatsapp.net');
+    assert.equal(first.node.allow_shop_source, 'ALLOWSHOPSOURCE_TRUE');
+    assert.equal(queries.find((q) => q.kind === 'collections').node.biz_jid, '15550000001@s.whatsapp.net');
+    // never the socket request WhatsApp no longer answers
+    assert.deepEqual([...new Set(queries.filter((q) => !q.url).map((q) => q.kind))], ['business_profile']);
+});
+
+it('pages the catalog to its end, and says so when it stops early', async () => {
+    let pages = 0;
+    const paged = (failAt) => catalogTransport({
+        platform: 'smbi',
+        answer: ({ kind, node }) => {
+            if (kind !== 'product_catalog') return kind === 'collections' ? { collections: [] } : n('iq', []);
+            const page = Number(node.after ?? 0);
+            pages = page + 1;
+            if (page === failAt) throw waError(500, 'internal-server-error');
+            return { products: [product(`p${page}`)], paging: { after: page < 6 ? String(page + 1) : null } };
+        },
+    });
+    const all = await (await paged(-1)).transport.catalog();
+    assert.equal(all.products.length, 7);
+    assert.equal(all.truncated, false);
+    assert.equal(pages, 7);
+    // a page that fails later keeps what was read
+    const part = await (await paged(3)).transport.catalog();
+    assert.deepEqual(part.products.map((p) => p.id), ['p0', 'p1', 'p2']);
+    assert.equal(part.truncated, true);
+    // a cursor that never ends stops at the cap instead of looping
+    const endless = await catalogTransport({
+        platform: 'smba',
+        answer: ({ kind, node }) => {
+            if (kind !== 'product_catalog') return kind === 'collections' ? { collections: [] } : n('iq', []);
+            const page = Number(node.after ?? 0);
+            return { products: [product(`e${page}`)], paging: { after: String(page + 1) } };
+        },
+    });
+    const capped = await endless.transport.catalog();
+    assert.equal(capped.products.length, 20);
+    assert.equal(capped.truncated, true);
+});
+
+it('an account WhatsApp knows by its LID only is asked again by the LID', async () => {
+    const { transport, queries } = await catalogTransport({
+        platform: 'smba',
+        answer: ({ kind, node }) => {
+            if (kind === 'business_profile') return PROFILE;
+            if (kind === 'collections') return { collections: [] };
+            if (!node.jid.endsWith('@lid')) throw waError(400, 'Invalid parameter');
+            return { products: [product('p1')] };
+        },
+    });
+    assert.deepEqual((await transport.catalog()).products.map((p) => p.id), ['p1']);
+    assert.deepEqual(queries.filter((q) => q.kind === 'product_catalog').map((q) => q.node.jid), ['15550000001@s.whatsapp.net', '99887766@lid']);
+    assert.equal(queries.find((q) => q.kind === 'collections').node.biz_jid, '99887766@lid');
+});
+
+it('a failing collections call still returns the products', async () => {
+    const { transport } = await catalogTransport({
+        platform: 'smba',
+        answer: ({ kind }) => {
+            if (kind === 'collections') throw waError(400, 'bad-request');
+            if (kind === 'business_profile') throw new Error('Timed Out');
+            return { products: [product('p1')] };
+        },
+    });
+    const catalog = await transport.catalog();
+    assert.deepEqual(catalog.products.map((p) => p.id), ['p1']);
+    assert.deepEqual(catalog.collections, []);
+    assert.equal(catalog.business.name, 'Bakes');
+    assert.equal(catalog.business.hours, null);
+});
+
+it('a login with no platform on record is a business when WhatsApp has a business profile for it', async () => {
+    const business = await catalogTransport({
+        platform: undefined,
+        answer: ({ kind }) => (kind === 'business_profile' ? PROFILE : kind === 'collections' ? { collections: [] } : { products: [product('p1')] }),
+    });
+    await tick();
+    assert.equal(business.info.accountType, 'business');
+    assert.equal(business.queries[0].node.content[0].attrs.jid, '15550000001@s.whatsapp.net');
+    assert.equal(business.queries.filter((q) => q.kind === 'business_profile').length, 1, 'asked once as it opens');
+    assert.equal((await business.transport.catalog()).products.length, 1);
+
+    // no profile and WhatsApp refuses the catalog: not a business number
+    const unknown = await catalogTransport({
+        platform: undefined,
+        answer: ({ kind }) => {
+            if (kind === 'business_profile') return n('iq', [n('business_profile', [])]);
+            throw waError(404, 'item-not-found');
+        },
+    });
+    await tick();
+    assert.equal(unknown.info.accountType, null);
+    await assert.rejects(unknown.transport.catalog(), (err) => err.code === 'not_business');
+
+    // regular WhatsApp by its platform: WhatsApp is not even asked
+    const personal = await catalogTransport({ platform: 'android', answer: () => { throw new Error('must not ask'); } });
+    assert.equal(personal.info.accountType, 'personal');
+    await assert.rejects(personal.transport.catalog(), (err) => err.code === 'not_business');
+    assert.equal(personal.queries.length, 0);
+});
+
+it('says why WhatsApp refused the catalog', async () => {
+    const refusing = (error) => catalogTransport({
+        platform: 'smba',
+        answer: ({ kind }) => {
+            if (kind === 'product_catalog') throw error;
+            return kind === 'collections' ? { collections: [] } : n('iq', []);
+        },
+    });
+    await assert.rejects((await refusing(waError(403, 'forbidden'))).transport.catalog(),
+        (err) => err.code === 'catalog_failed' && /refused the catalog request \(403 forbidden\)/.test(err.message));
+    await assert.rejects((await refusing(waError(429, 'rate-overlimit'))).transport.catalog(),
+        (err) => err.code === 'catalog_failed' && /limiting catalog requests/.test(err.message));
+    // the HTTPS call itself timing out or failing
+    await assert.rejects((await refusing(Object.assign(new Error('aborted'), { name: 'TimeoutError' }))).transport.catalog(),
+        (err) => err.code === 'catalog_failed' && /did not answer the catalog request in time/.test(err.message));
+    // a business with no catalog yet: empty, not an error
+    const empty = await (await refusing(waError(404, 'item-not-found'))).transport.catalog();
+    assert.deepEqual(empty.products, []);
+    assert.equal(empty.truncated, false);
+});
+
+it('ownJid is the phone jid without the device, the LID only as a last resort', () => {
+    assert.equal(ownJid({ user: { id: '15550000001:7@s.whatsapp.net' } }), '15550000001@s.whatsapp.net');
+    assert.equal(ownJid({ authState: { creds: { me: { id: '99887766:3@lid' } } }, user: { id: '15550000001:7@s.whatsapp.net' } }), '15550000001@s.whatsapp.net');
+    assert.equal(ownJid({ user: { id: '99887766:3@lid' } }), '99887766@lid');
+    assert.equal(ownJid({}), '');
 });

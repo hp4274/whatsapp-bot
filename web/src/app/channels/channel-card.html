@@ -124,16 +124,18 @@
   </div>
 </div>
 
-<!-- Only once the phone said which app it runs: a Business number opens its catalog, a regular one says how to get one. -->
-@if (state() === 'connected' && ch.health?.accountType; as kind) {
+<!-- A regular WhatsApp number says how to get a catalog; any other (Business, or not known yet) opens it and
+     WhatsApp answers. -->
+@if (state() === 'connected') {
+  @let locked = ch.health?.accountType === 'personal';
   <button
     type="button"
     class="btn catalog"
-    [class.locked]="kind !== 'business'"
-    [attr.aria-label]="kind === 'business' ? null : 'Catalog, needs WhatsApp Business'"
+    [class.locked]="locked"
+    [attr.aria-label]="locked ? 'Catalog, needs WhatsApp Business' : null"
     (click)="catalog.emit()"
   >
-    <i class="ti ti-{{ kind === 'business' ? 'building-store' : 'lock' }}" aria-hidden="true"></i>Catalog
+    <i class="ti ti-{{ locked ? 'lock' : 'building-store' }}" aria-hidden="true"></i>Catalog
   </button>
 }
 
