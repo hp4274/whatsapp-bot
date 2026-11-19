@@ -13,8 +13,8 @@ type CatalogState = 'business' | 'personal' | 'unknown' | 'offline';
 /**
  * WhatsApp Catalog: every linked number and whether its catalog can be used. The catalog belongs to the WhatsApp
  * Business app, so a Business number opens it here (browse, import into Orders); a regular WhatsApp number shows it
- * locked with the way to switch; a number whose app type is not known yet is asked to reconnect, because the phone
- * only reports its app when it connects.
+ * locked with the way to switch; a number whose app type is not known yet can still open it, and WhatsApp's answer
+ * decides.
  *
  * The drawer and the locked dialog are the same ones the WhatsApp page uses. "Link a WhatsApp Business number"
  * hands off to that page (?relink=<id>), which owns the sign-out + new QR flow.
@@ -58,7 +58,8 @@ export class CatalogPage {
           this.loading.set(false);
         },
         error: (err: Error) => {
-          this.error.set(err.message);
+          // A live refresh that fails keeps the list it has; with no list yet there is only the error to show.
+          if (!quiet || !this.channels().length) this.error.set(err.message);
           this.loading.set(false);
         },
       });

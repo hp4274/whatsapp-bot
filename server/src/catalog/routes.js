@@ -25,7 +25,11 @@ const IMAGE_CACHE_MAX = 200;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const IMAGE_EXT = { 'image/jpeg': '.jpg', 'image/png': '.png' };
 
-/** shortcut: WhatsApp keeps money in thousandths (orderMessage.totalAmount1000); verify against a real catalog. */
+/**
+ * shortcut: WhatsApp keeps catalog money in thousandths, as its message protos name it (ProductSnapshot.priceAmount1000,
+ * salePriceAmount1000, orderMessage.totalAmount1000); the catalog query's bare <price> is the same field. Still to be
+ * seen on a real catalog.
+ */
 export const major = (amount) => Math.round((Number(amount) || 0) / 10) / 100;
 
 class CatalogError extends Error {
@@ -57,11 +61,15 @@ async function loadCatalog(state, refresh = false) {
         throw new CatalogError(403, 'catalog_disabled', 'The WhatsApp catalog is switched off on this platform.');
     }
     if (!state.transport?.isConnected?.()) throw new CatalogError(409, 'not_connected', 'This number is offline. Connect it to see its catalog.');
-    if (state.info?.accountType !== 'business' || typeof state.transport.catalog !== 'function') {
+    // Only a number known to be regular WhatsApp is refused here. An unknown one (a login with no platform on record)
+    // is asked: the transport says not_business when WhatsApp does.
+    if (state.info?.accountType === 'personal' || typeof state.transport.catalog !== 'function') {
         throw new CatalogError(409, 'not_business', NOT_BUSINESS);
     }
+    const account = String(state.info?.account ?? '');
     const cached = state.catalogCache;
-    if (!refresh && cached && Date.now() - cached.at < CACHE_MS) return cached;
+    // another number linked on this channel must not be shown the last one's catalog
+    if (!refresh && cached && cached.account === account && Date.now() - cached.at < CACHE_MS) return cached;
     let raw;
     try {
         raw = await state.transport.catalog();
@@ -69,22 +77,31 @@ async function loadCatalog(state, refresh = false) {
         if (err.code === 'not_business') throw new CatalogError(409, 'not_business', NOT_BUSINESS);
         if (err.code === 'not_connected') throw new CatalogError(409, 'not_connected', 'This number is offline. Connect it to see its catalog.');
         logger.warn('could not read the WhatsApp catalog', { error: err.message });
-        throw new CatalogError(502, 'catalog_failed', 'WhatsApp did not send the catalog. Try again in a minute.');
+        // the transport's own catalog_failed message says what WhatsApp answered
+        throw new CatalogError(502, 'catalog_failed', err.code === 'catalog_failed' ? err.message : 'WhatsApp did not send the catalog. Try again in a minute.');
     }
-    state.catalogCache = { at: Date.now(), products: raw?.products ?? [], collections: raw?.collections ?? [] };
+    state.catalogCache = {
+        at: Date.now(), account, business: raw?.business ?? null, products: raw?.products ?? [],
+        collections: raw?.collections ?? [], truncated: Boolean(raw?.truncated),
+    };
     return state.catalogCache;
 }
 
-/** Baileys parses one picture per product (original, else the small requested one). */
-const imageUrlsOf = (p) => [p.imageUrls?.original || p.imageUrls?.requested].filter((u) => /^https:\/\//i.test(String(u ?? '')));
+/** Each picture of a product as the URLs to try for it: the original, then the resized one WhatsApp made for us. */
+const imageUrlsOf = (p) => (p.images ?? [p.imageUrls])
+    .map((img) => [img?.original, img?.requested].filter((u) => /^https:\/\//i.test(String(u ?? ''))))
+    .filter((urls) => urls.length);
 
-function view(channelId, p) {
+function view(channelId, p, collections) {
     const id = String(p.id);
     const images = imageUrlsOf(p).map((_, i) => `/api/channels/${channelId}/catalog/image?p=${encodeURIComponent(id)}&i=${i}`);
     return {
         id, name: String(p.name ?? ''), description: String(p.description ?? ''), price: major(p.price),
+        salePrice: p.salePrice ? major(p.salePrice) : null,
         currency: String(p.currency ?? ''), image: images[0] ?? null, images, url: String(p.url ?? ''),
         retailerId: String(p.retailerId ?? ''), hidden: Boolean(p.isHidden), status: String(p.reviewStatus?.whatsapp ?? ''),
+        canAppeal: Boolean(p.canAppeal), availability: String(p.availability ?? ''),
+        collectionIds: collections.filter((c) => c.productIds?.includes(id)).map((c) => String(c.id)),
     };
 }
 
@@ -97,17 +114,33 @@ async function productImage(state, productId, index) {
     if (hit && Date.now() - hit.at < IMAGE_CACHE_MS) return hit;
     const { products } = await loadCatalog(state);
     const product = products.find((p) => String(p.id) === productId);
-    const url = product && imageUrlsOf(product)[index];
-    if (!url) throw new CatalogError(404, 'not_found', 'That picture is not in the catalog.');
-    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-    const type = String(res.headers.get('content-type') ?? '').split(';')[0].trim();
-    if (!res.ok || !type.startsWith('image/')) throw new CatalogError(502, 'catalog_failed', 'WhatsApp did not send the picture.');
-    const bytes = Buffer.from(await res.arrayBuffer());
-    if (bytes.length > MAX_IMAGE_BYTES) throw new CatalogError(502, 'catalog_failed', 'The picture is too large.');
-    if (imageCache.size >= IMAGE_CACHE_MAX) imageCache.delete(imageCache.keys().next().value);
-    const entry = { at: Date.now(), type, bytes };
-    imageCache.set(key, entry);
-    return entry;
+    const urls = product && imageUrlsOf(product)[index];
+    if (!urls) throw new CatalogError(404, 'not_found', 'That picture is not in the catalog.');
+    let failure = new CatalogError(502, 'catalog_failed', 'WhatsApp did not send the picture.');
+    for (const url of urls) {
+        let res;
+        try {
+            res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+        } catch (err) {
+            logger.warn('could not fetch a catalog picture', { error: err.message });
+            continue;
+        }
+        const type = String(res.headers.get('content-type') ?? '').split(';')[0].trim();
+        if (!res.ok || !type.startsWith('image/')) {
+            logger.warn('WhatsApp did not send a catalog picture', { status: res.status, type });
+            continue;
+        }
+        const bytes = Buffer.from(await res.arrayBuffer());
+        if (bytes.length > MAX_IMAGE_BYTES) {
+            failure = new CatalogError(502, 'catalog_failed', 'The picture is too large.');
+            continue; // the resized one may fit
+        }
+        if (imageCache.size >= IMAGE_CACHE_MAX) imageCache.delete(imageCache.keys().next().value);
+        const entry = { at: Date.now(), type, bytes };
+        imageCache.set(key, entry);
+        return entry;
+    }
+    throw failure;
 }
 
 /** A catalog picture saved into uploads as a media id the shop can use, or null when it is not a JPG/PNG. */
@@ -146,8 +179,12 @@ export function createCatalogRouter({ channels, runtimes }) {
             const state = stateOf(req);
             const catalog = await loadCatalog(state, req.query.refresh === '1');
             res.json({
-                products: catalog.products.map((p) => view(state.channel.id, p)),
+                business: catalog.business,
+                link: `https://wa.me/c/${catalog.account.replace(/\D/g, '')}`,
+                products: catalog.products.map((p) => view(state.channel.id, p, catalog.collections)),
                 collections: catalog.collections,
+                total: catalog.products.length,
+                truncated: catalog.truncated,
                 fetchedAt: new Date(catalog.at).toISOString(),
             });
         } catch (err) {

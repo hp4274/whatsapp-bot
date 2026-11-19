@@ -165,4 +165,82 @@ describe('WhatsApp catalog', () => {
         const replies = db.db.prepare('SELECT message FROM messages WHERE recipient LIKE ?').all(`%${buyer.slice(-10)}%`).map((r) => r.message);
         assert.equal(replies.filter((m) => m.includes(`We received your order ${orders[0].reference}`)).length, 1);
     });
+
+    // What the Baileys transport returns (transports/baileys.js catalog()): every picture, sale price, profile.
+    const image = (name) => ({ original: `https://cdn.test/${name}.jpg`, requested: `https://cdn.test/${name}-800.jpg` });
+    const FULL = {
+        business: { name: 'Bakes', description: 'Home bakery', category: 'Bakery', address: '', email: '', websites: ['https://bakes.test'], hours: null },
+        products: [
+            {
+                id: 'f1', name: 'Tart', description: 'Lemon', price: 250000, salePrice: 199000, currency: 'INR', url: 'https://bakes.test/tart',
+                retailerId: 'T1', isHidden: false, reviewStatus: { whatsapp: 'REJECTED' }, canAppeal: true, availability: 'out of stock',
+                images: ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(image),
+            },
+            { id: 'f2', name: 'Bun', description: '', price: 20000, salePrice: null, currency: 'INR', images: [], isHidden: false, reviewStatus: { whatsapp: '' } },
+        ],
+        collections: [{ id: 'c1', name: 'Sweet', productIds: ['f1'], status: 'APPROVED', canAppeal: false, truncated: false }],
+        truncated: true,
+    };
+
+    it('returns everything the catalog holds: profile, link, every picture, sale price, review and collections', async () => {
+        state.info = { ...state.info, accountType: null, account: '919800000001' }; // unknown is asked, not refused
+        state.transport.catalog = async () => FULL;
+        const { status, body } = await call('GET', `/api/channels/${channelId}/catalog?refresh=1`);
+        assert.equal(status, 200);
+        assert.deepEqual(body.business, FULL.business);
+        assert.equal(body.link, 'https://wa.me/c/919800000001');
+        assert.deepEqual([body.total, body.truncated], [2, true]);
+        assert.deepEqual(body.collections, FULL.collections);
+        const [tart, bun] = body.products;
+        assert.equal(tart.images.length, 7);
+        assert.equal(tart.images[6], `/api/channels/${channelId}/catalog/image?p=f1&i=6`);
+        assert.deepEqual(
+            [tart.price, tart.salePrice, tart.status, tart.canAppeal, tart.availability, tart.url, tart.retailerId, tart.collectionIds],
+            [250, 199, 'REJECTED', true, 'out of stock', 'https://bakes.test/tart', 'T1', ['c1']]);
+        assert.deepEqual([bun.salePrice, bun.canAppeal, bun.availability, bun.collectionIds, bun.image], [null, false, '', [], null]);
+    });
+
+    it('another number linked on the channel is not shown the last number\'s catalog', async () => {
+        let calls = 0;
+        state.transport.catalog = async () => { calls += 1; return FULL; };
+        state.info = { ...state.info, account: '919800000002' };
+        assert.equal((await call('GET', `/api/channels/${channelId}/catalog`)).body.link, 'https://wa.me/c/919800000002');
+        await call('GET', `/api/channels/${channelId}/catalog`);
+        assert.equal(calls, 1);
+    });
+
+    it('imports every picture up to the shop limit, falling back to the resized one', async () => {
+        const real = globalThis.fetch;
+        const asked = [];
+        globalThis.fetch = async (url, ...rest) => {
+            if (!String(url).startsWith('https://cdn.test/')) return real(url, ...rest);
+            asked.push(String(url));
+            // the first picture's original is gone from the CDN
+            if (String(url) === 'https://cdn.test/a.jpg') return new Response('gone', { status: 404, headers: { 'content-type': 'text/plain' } });
+            return new Response(Buffer.from('ffd8ffe0', 'hex'), { headers: { 'content-type': 'image/jpeg' } });
+        };
+        try {
+            const res = await call('POST', `/api/channels/${channelId}/catalog/import`, { ids: ['f1'] });
+            assert.deepEqual(res.body, { created: 1, skipped: 0 });
+            const tart = (await call('GET', '/api/shop/order')).body.products.find((p) => p.name === 'Tart');
+            assert.equal(tart.images.length, 5);
+            assert.equal(tart.price, 250);
+            assert.deepEqual(asked.slice(0, 3), ['https://cdn.test/a.jpg', 'https://cdn.test/a-800.jpg', 'https://cdn.test/b.jpg']);
+        } finally {
+            globalThis.fetch = real;
+        }
+    });
+
+    it('passes on why WhatsApp refused, and an empty catalog is not an error', async () => {
+        state.transport.catalog = async () => { throw Object.assign(new Error('WhatsApp refused the catalog request (403 forbidden).'), { code: 'catalog_failed' }); };
+        const refused = await call('GET', `/api/channels/${channelId}/catalog?refresh=1`);
+        assert.equal(refused.status, 502);
+        assert.deepEqual(refused.body, { errors: ['WhatsApp refused the catalog request (403 forbidden).'], code: 'catalog_failed' });
+        state.transport.catalog = async () => { throw Object.assign(new Error('not a WhatsApp Business number'), { code: 'not_business' }); };
+        assert.equal((await call('GET', `/api/channels/${channelId}/catalog?refresh=1`)).body.code, 'not_business');
+        state.transport.catalog = async () => ({ business: null, products: [], collections: [], truncated: false });
+        const empty = await call('GET', `/api/channels/${channelId}/catalog?refresh=1`);
+        assert.equal(empty.status, 200);
+        assert.deepEqual([empty.body.products, empty.body.total, empty.body.truncated, empty.body.business], [[], 0, false, null]);
+    });
 });

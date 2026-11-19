@@ -30,7 +30,7 @@ import NodeCache from '@cacheable/node-cache';
 
 import { SESSION_DIR } from '../config.js';
 import { carouselCaptions } from '../messaging/interactive.js';
-import { maskPhone, maskText } from '../observability/logger.js';
+import { logger, maskPhone, maskText } from '../observability/logger.js';
 import { fileKeyId } from '../security/crypto.js';
 import { STATUS_RANK, Status } from '../protocol.js';
 import { NOT_ON_WHATSAPP_CODE, Transport, TransportConnectionError, TransportSendError } from './base.js';
@@ -169,6 +169,7 @@ export class BaileysTransport extends Transport {
         setTimeoutFn = setTimeout,
         clearTimeoutFn = clearTimeout,
         randomFn = Math.random,
+        catalogFetch = (...args) => fetch(...args),
         reconnectBaseMs = RECONNECT_BASE_MS,
         reconnectMaxMs = RECONNECT_MAX_MS,
     } = {}) {
@@ -185,6 +186,7 @@ export class BaileysTransport extends Transport {
         this.setTimeoutFn = setTimeoutFn;
         this.clearTimeoutFn = clearTimeoutFn;
         this.randomFn = randomFn;
+        this.catalogFetch = catalogFetch;
         this.reconnectBaseMs = reconnectBaseMs;
         this.reconnectMaxMs = reconnectMaxMs;
         this.sock = null;
@@ -364,10 +366,13 @@ export class BaileysTransport extends Transport {
         this.reconnectAttempt = 0;
         this.badSessions = 0;
         this.account = accountOf(sock);
+        const transport = this;
+        if (!accountTypeOf(sock) && this.probed?.sock !== sock) this.#probeBusiness(sock);
         return {
             connected: true,
             account: this.account,
-            accountType: accountTypeOf(sock),
+            // A getter: a session with no creds.platform learns its type a moment after it opens (#probeBusiness).
+            get accountType() { return accountTypeOf(sock) ?? (transport.probed?.sock === sock ? transport.probed.type : null); },
             detail: `QR session, no access token, no browser. ${TOS_WARNING}`,
             realDelivery: true,
         };
@@ -1165,33 +1170,92 @@ export class BaileysTransport extends Transport {
         return this.receipts.get(providerId) ?? null;
     }
 
+    /** Business or not, asked of WhatsApp itself: only a business number has a business profile. Never throws. */
+    async #probeBusiness(sock) {
+        if (typeof sock.query !== 'function') return;
+        this.probed = { sock, type: null };
+        try {
+            if (await businessProfile(sock, ownJid(sock))) this.probed = { sock, type: 'business' };
+        } catch (err) {
+            logger.warn('could not ask WhatsApp for the business profile', waReason(err));
+        }
+    }
+
     /**
-     * This number's own WhatsApp Business catalog: `{ products, collections: [{ id, name, productIds }] }`, products
-     * as Baileys parses them (price in thousandths). Throws an error tagged `code` 'not_connected' / 'not_business'.
+     * This number's own WhatsApp Business catalog, read off the wire because Baileys' parser keeps one 100px picture
+     * per product and drops the sale price and review details:
+     * `{ business, products, collections: [{ id, name, productIds, status, canAppeal, truncated }], truncated }`,
+     * money in thousandths. Throws an error tagged `code` 'not_connected' / 'not_business' / 'catalog_failed' (its
+     * message says what WhatsApp answered).
      */
     async catalog() {
         if (!this.connected || !this.sock) throw Object.assign(new Error('WhatsApp is not connected'), { code: 'not_connected' });
-        if (accountTypeOf(this.sock) !== 'business' || typeof this.sock.getCatalog !== 'function') {
-            throw Object.assign(new Error('not a WhatsApp Business number'), { code: 'not_business' });
-        }
         const sock = this.sock;
-        const products = [];
-        let cursor;
-        // 4 pages of 50: enough for a small business's catalog without hammering WhatsApp.
-        for (let page = 0; page < 4; page += 1) {
-            const result = await sock.getCatalog({ limit: 50, cursor });
-            products.push(...(result?.products ?? []));
-            cursor = result?.nextPageCursor;
-            if (!cursor) break;
+        const notBusiness = () => Object.assign(new Error('not a WhatsApp Business number'), { code: 'not_business' });
+        if (accountTypeOf(sock) === 'personal' || typeof sock.query !== 'function') throw notBusiness();
+        const jid = ownJid(sock);
+        let profile = null;
+        try {
+            profile = await businessProfile(sock, jid);
+            if (profile) this.probed = { sock, type: 'business' };
+        } catch (err) {
+            logger.warn('could not read the WhatsApp business profile', waReason(err)); // the catalog still stands
         }
+        const business = accountTypeOf(sock) === 'business' || Boolean(profile);
+
+        // Products and collections come over HTTPS, as WhatsApp Web reads them: WhatsApp no longer answers the
+        // socket's w:biz:catalog requests at all (Baileys issue #2717; production here, 2026-11-19).
+        const ask = (docId, request) => catalogGraphql(this.catalogFetch, docId, request);
+        const lid = lidJid(sock);
+        let owner = jid;
+        const products = new Map();
+        const cursors = new Set();
+        let truncated = false;
+        let cursor = null;
+        for (let page = 0; ; page += 1) {
+            let node;
+            try {
+                node = holderOf(await ask(CATALOG_DOC_ID, { product_catalog: { ...CATALOG_REQUEST, jid: owner, after: cursor } }), 'product_catalog')?.product_catalog;
+            } catch (err) {
+                const reason = waReason(err);
+                logger.warn('WhatsApp refused the catalog', { ...reason, page, jid: owner });
+                if (page) {
+                    truncated = true; // the pages already read are still worth showing
+                    break;
+                }
+                // WhatsApp knows some accounts by their LID only: ask once more by it.
+                if (reason.code && lid && owner !== lid) {
+                    owner = lid;
+                    page -= 1;
+                    continue;
+                }
+                // WhatsApp answered with an error: to a number that is not known to be a business, that is the answer.
+                if (reason.code && !business) throw notBusiness();
+                if (reason.code === 404) break; // a business that has not made a catalog yet
+                throw Object.assign(new Error(catalogRefusal(reason)), { code: 'catalog_failed' });
+            }
+            for (const p of (Array.isArray(node?.products) ? node.products : []).map(catalogProduct)) if (p.id) products.set(p.id, p);
+            cursor = String(node?.paging?.after ?? '') || null;
+            if (!cursor) break;
+            // the same cursor twice would loop for ever
+            if (cursors.has(cursor) || page + 1 >= CATALOG_MAX_PAGES) {
+                truncated = true;
+                break;
+            }
+            cursors.add(cursor);
+        }
+
         let collections = [];
         try {
-            collections = ((await sock.getCollections(undefined, 50))?.collections ?? [])
-                .map((c) => ({ id: String(c.id ?? ''), name: String(c.name ?? ''), productIds: (c.products ?? []).map((p) => String(p.id)) }));
-        } catch {
+            collections = await catalogCollections(ask, owner);
+        } catch (err) {
             // collections are a nicety: the products alone are still the catalog
+            logger.warn('WhatsApp refused the catalog collections', waReason(err));
         }
-        return { products, collections };
+        return {
+            business: { name: String(sock.authState?.creds?.me?.name ?? sock.user?.name ?? ''), ...(profile ?? EMPTY_PROFILE) },
+            products: [...products.values()], collections, truncated,
+        };
     }
 
     /** A catalog cart's lines and total (`sock.getOrderDetails`), or null when WhatsApp will not say. */
@@ -1218,6 +1282,167 @@ export function accountTypeOf(sock) {
     const platform = String(sock?.authState?.creds?.platform ?? '').toLowerCase();
     if (!platform) return null;
     return platform.startsWith('smb') ? 'business' : 'personal';
+}
+
+/** This number's phone jid without the device part; the LID only when WhatsApp gave nothing else. */
+export function ownJid(sock) {
+    const ids = [sock?.authState?.creds?.me?.id, sock?.user?.id, sock?.user?.lid].map((id) => String(id ?? '')).filter((id) => id.includes('@'));
+    const id = ids.find((x) => !x.endsWith('@lid')) ?? ids[0] ?? '';
+    const [user, server] = id.split('@');
+    return id ? `${user.split(':')[0]}@${server === 'c.us' ? 's.whatsapp.net' : server}` : '';
+}
+
+const CATALOG_MAX_PAGES = 20; // 1,000 products: twice what the Business app lets a catalog hold
+const COLLECTION_MAX_PAGES = 10;
+const CATALOG_TIMEOUT_MS = 20_000;
+
+const children = (node, tag) => (Array.isArray(node?.content) ? node.content.filter((c) => c?.tag === tag) : []);
+const child = (node, tag) => children(node, tag)[0];
+const plain = (content) => (typeof content === 'string' ? content : (content instanceof Uint8Array ? Buffer.from(content).toString('utf8') : ''));
+const text = (node, tag) => plain(child(node, tag)?.content);
+/**
+ * WhatsApp Web's own catalog reader: a plain HTTPS GraphQL call with the app token and query ids its bundle ships
+ * (no login, no cookie). They are WhatsApp's to change, so each can be overridden without a release.
+ */
+const CATALOG_URL = process.env.WHATSAPP_CATALOG_URL || 'https://graph.whatsapp.com/graphql/catalog';
+const CATALOG_TOKEN = process.env.WHATSAPP_CATALOG_TOKEN || 'WA|787118555984857|7bb1544a3599aa180ac9a3f7688ba243';
+const CATALOG_DOC_ID = process.env.WHATSAPP_CATALOG_DOC_ID || '30445081048424116';
+const COLLECTIONS_DOC_ID = process.env.WHATSAPP_COLLECTIONS_DOC_ID || '9430970660362540';
+/** The size is of the "requested" picture only; the original comes whatever is asked. */
+const CATALOG_REQUEST = {
+    allow_shop_source: 'ALLOWSHOPSOURCE_TRUE', width: '800', height: '800', limit: '50',
+    catalog_session_id: null, direct_connection_encrypted_info: null, variant_info_fields: null,
+    variant_thumbnail_height: null, variant_thumbnail_width: null,
+};
+
+/** One catalog GraphQL call: its `data`, or an error carrying WhatsApp's code in `data` as a socket error does. */
+async function catalogGraphql(fetchFn, docId, request) {
+    let res;
+    try {
+        res = await fetchFn(CATALOG_URL, {
+            method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
+            body: JSON.stringify({ access_token: CATALOG_TOKEN, doc_id: docId, lang: 'en_US', variables: { request } }),
+        });
+    } catch (err) {
+        throw Object.assign(new Error(err?.name === 'TimeoutError' ? 'Timed Out' : String(err?.message ?? err)), { output: { statusCode: 408 } });
+    }
+    const body = await res.json().catch(() => null);
+    const error = body?.error ?? body?.errors?.[0];
+    if (!res.ok || error || !body?.data) {
+        throw Object.assign(new Error(String(error?.message ?? error?.summary ?? `HTTP ${res.status}`)), { data: Number(error?.code) || res.status });
+    }
+    return body.data;
+}
+
+/** The first object holding `key` anywhere in a GraphQL answer: the envelope's names are WhatsApp's to change. */
+function holderOf(value, key, depth = 4) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || depth < 0) return undefined;
+    if (key in value) return value;
+    for (const inner of Object.values(value)) {
+        const found = holderOf(inner, key, depth - 1);
+        if (found) return found;
+    }
+    return undefined;
+}
+
+/** The number's LID as a jid ('' when WhatsApp gave none): some accounts are known to the catalog by it only. */
+function lidJid(sock) {
+    const lid = String(sock?.user?.lid ?? sock?.authState?.creds?.me?.lid ?? '');
+    return lid.includes('@') ? `${lid.split('@')[0].split(':')[0]}@lid` : '';
+}
+
+/** What a failed query says: WhatsApp's own <error code text> (Baileys puts the code in `data`), else the Boom status. */
+function waReason(err) {
+    return { code: Number(err?.data) || null, status: err?.output?.statusCode ?? null, error: String(err?.message ?? err) };
+}
+
+function catalogRefusal({ code, status, error }) {
+    if (code === 429) return 'WhatsApp is limiting catalog requests for this number. Try again in a few minutes.';
+    if (status === 408 || /timed out/i.test(error)) return 'WhatsApp did not answer the catalog request in time. Try again in a minute.';
+    return `WhatsApp refused the catalog request (${[code, error].filter(Boolean).join(' ')}).`;
+}
+
+/** One <product> of a product_catalog answer, with everything WhatsApp sends about it. */
+function catalogProduct(p) {
+    const yes = (v) => v === true || /true$/i.test(String(v ?? '')); // true, 'true' or an enum such as ISHIDDEN_TRUE
+    const sale = p?.sale_price;
+    const images = (Array.isArray(p?.media?.images) ? p.media.images : [])
+        .map((img) => ({ original: String(img?.original_image_url ?? ''), requested: String(img?.request_image_url ?? '') }))
+        .filter((img) => img.original || img.requested);
+    return {
+        id: String(p?.id ?? ''), name: String(p?.name ?? ''), description: String(p?.description ?? ''), url: String(p?.url ?? ''),
+        retailerId: String(p?.retailer_id ?? ''), currency: String(p?.currency ?? ''),
+        price: Number(p?.price) || 0,
+        // { price } or the bare number
+        salePrice: Number(sale?.price ?? sale) || null,
+        images,
+        isHidden: yes(p?.is_hidden),
+        reviewStatus: { whatsapp: String(p?.status_info?.status ?? '') }, canAppeal: yes(p?.status_info?.can_appeal),
+        availability: String(p?.availability ?? ''),
+    };
+}
+
+/**
+ * Every collection with the ids of its products; `truncated` on one whose product list WhatsApp cut short.
+ * shortcut: the request's field names follow the old socket request (nobody has published this query's variables);
+ * if WhatsApp refuses them the warning logged by catalog() carries its message, which names the right ones.
+ */
+async function catalogCollections(ask, jid) {
+    const byId = new Map();
+    const cursors = new Set();
+    let cursor = null;
+    for (let page = 0; page < COLLECTION_MAX_PAGES; page += 1) {
+        let holder;
+        try {
+            holder = holderOf(await ask(COLLECTIONS_DOC_ID, { collections: { biz_jid: jid, collection_limit: '50', item_limit: '200', width: '800', height: '800', after: cursor } }), 'collections');
+        } catch (err) {
+            if (!page) throw err;
+            logger.warn('WhatsApp refused a page of catalog collections', { ...waReason(err), page });
+            break;
+        }
+        for (const c of Array.isArray(holder?.collections) ? holder.collections : []) {
+            const id = String(c?.id ?? '');
+            if (!id) continue;
+            const productIds = (Array.isArray(c.products) ? c.products : []).map((x) => String(x?.id ?? '')).filter(Boolean);
+            byId.set(id, {
+                id, name: String(c.name ?? ''), productIds: [...new Set([...(byId.get(id)?.productIds ?? []), ...productIds])],
+                status: String(c.status_info?.status ?? ''), canAppeal: /true$/i.test(String(c.status_info?.can_appeal ?? '')),
+                truncated: Boolean(c.paging?.after),
+            });
+        }
+        cursor = String(holder?.paging?.after ?? '') || null;
+        if (!cursor || cursors.has(cursor)) break;
+        cursors.add(cursor);
+    }
+    return [...byId.values()];
+}
+
+const EMPTY_PROFILE = { description: '', category: '', address: '', email: '', websites: [], hours: null };
+/** Minutes after midnight -> 'HH:MM'; null for a day with no set hours. */
+const clock = (minutes) => (/^\d+$/.test(String(minutes ?? ''))
+    ? `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}` : null);
+
+/**
+ * A number's WhatsApp Business profile, or null when it has none (regular WhatsApp). Own query: Baileys'
+ * getBusinessProfile keeps one website and one category.
+ */
+async function businessProfile(sock, jid) {
+    const result = await sock.query({
+        tag: 'iq', attrs: { to: 's.whatsapp.net', type: 'get', xmlns: 'w:biz' },
+        content: [{ tag: 'business_profile', attrs: { v: '244' }, content: [{ tag: 'profile', attrs: { jid } }] }],
+    }, CATALOG_TIMEOUT_MS);
+    const profile = child(child(result, 'business_profile'), 'profile');
+    if (!profile) return null;
+    const hours = child(profile, 'business_hours');
+    const days = children(hours, 'business_hours_config').map(({ attrs = {} }) => ({
+        day: String(attrs.day_of_week ?? ''), mode: String(attrs.mode ?? ''), open: clock(attrs.open_time), close: clock(attrs.close_time),
+    }));
+    return {
+        description: text(profile, 'description'), address: text(profile, 'address'), email: text(profile, 'email'),
+        category: children(child(profile, 'categories'), 'category').map((c) => plain(c.content)).filter(Boolean).join(', '),
+        websites: children(profile, 'website').map((w) => plain(w.content)).filter(Boolean),
+        hours: days.length ? { timezone: String(hours.attrs?.timezone ?? ''), days } : null,
+    };
 }
 
 function accountOf(sock) {

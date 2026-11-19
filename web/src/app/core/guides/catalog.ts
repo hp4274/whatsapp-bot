@@ -9,14 +9,14 @@ export const catalog: Guide = {
       steps: [
         'Open WhatsApp Catalog. Each linked number is listed with its state.',
         'On a number marked WhatsApp Business, click Open catalog.',
-        'Your products show with photos, prices and descriptions; hidden ones are marked Hidden.',
+        'Your products show with photos and prices; hidden ones are marked Hidden. Click a product to see all its photos and details.',
       ],
       tip: 'The catalog is made in the WhatsApp Business app: Settings, Business tools, Catalog.',
     },
     {
       title: 'Find a product',
       steps: [
-        'In the open catalog, type in Search products.',
+        'In the open catalog, type in Search name or SKU.',
         'Click a collection chip to show only that collection, or All to show everything.',
         'Click Refresh after you change the catalog in the WhatsApp Business app.',
       ],
@@ -50,7 +50,7 @@ export const catalog: Guide = {
       title: 'Fix a number that does not show its catalog',
       steps: [
         'If a number says This number is offline, click Connect it.',
-        'If it asks you to reconnect so we can see the app type, click Go to WhatsApp and link it again once.',
+        'If it says we could not tell yet if it is WhatsApp Business, click Open catalog to check.',
         'With no number linked yet, click Link a number.',
       ],
     },

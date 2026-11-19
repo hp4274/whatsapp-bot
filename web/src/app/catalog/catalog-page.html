@@ -70,8 +70,10 @@
                 </button>
               }
               @case ('unknown') {
-                <span class="note">Reconnect this number once so we can see if it is WhatsApp Business.</span>
-                <a class="btn" routerLink="/whatsapp">Go to WhatsApp</a>
+                <span class="note">We could not tell yet if this is WhatsApp Business. Open it to check.</span>
+                <button type="button" class="btn" (click)="open.set(r.ch)">
+                  <i class="ti ti-layout-grid" aria-hidden="true"></i> Open catalog
+                </button>
               }
               @case ('offline') {
                 <span class="note">This number is offline.</span>
@@ -92,7 +94,7 @@
 </section>
 
 @if (open(); as target) {
-  @if (target.health?.accountType === 'business') {
+  @if (target.health?.accountType !== 'personal') {
     <app-catalog-drawer [channel]="target" (closed)="open.set(null)" />
   } @else {
     <app-catalog-locked [channel]="target" (closed)="open.set(null)" (relink)="relink(target)" />

@@ -3200,11 +3200,16 @@ export function createApp({
      * is on.  `setLimits` merges, so the operator's blockedWords and custom
      * safety switch survive a plan change. On a change, a limit moves only
      * while it still equals the old plan's value: an admin override stays.
+     * So does a service the admin switched on beyond the old plan (WhatsApp Catalog, Orders: no plan sells them):
+     * a renewal or plan change must not quietly switch it off again.
      */
-    const applyPlan = (tenantId, plan, trialDays, services = plan.services) => {
+    const applyPlan = (tenantId, plan, trialDays, picked) => {
         const days = Math.max(0, Math.min(365, Math.floor(Number(trialDays) || 0)));
         const store = new BillingStore(db.forTenant(tenantId));
-        const old = store.subscription()?.plan.tenantLimits ?? null;
+        const before = store.subscription()?.plan ?? null;
+        const old = before?.tenantLimits ?? null;
+        const extras = before ? (tenancy.getTenant(tenantId)?.services ?? []).filter((s) => !before.services.includes(s)) : [];
+        const services = picked ?? [...plan.services, ...extras];
         const subscription = store.subscribe(tenantId, plan.key, {
             trialEndsAt: days ? new Date(Date.now() + days * 24 * 3600 * 1000) : null,
         });
