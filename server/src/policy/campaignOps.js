@@ -15,7 +15,7 @@
 import express from 'express';
 
 import { withinSendingWindow } from '../channels.js';
-import { PACING_PRESETS, dayEnd, dayStart } from '../campaign/safety.js';
+import { dayEnd, dayStart } from '../campaign/safety.js';
 /** Same as campaigns/store.js campaignKey; local so the two modules do not import each other. */
 const campaignKey = (id) => `camp-${Number(id)}`;
 import { SUCCESS_STATUSES } from '../protocol.js';
@@ -97,7 +97,6 @@ export function bulkRules(values = {}, limits = {}, billingCap = null) {
         quotaBlocked: quota === 0,
         maxRecipients: caps.length ? Math.min(...caps) : 0,
         requireOptIn: values['bulk.requireOptIn'] !== false,
-        maxSpeed: PACING_PRESETS.includes(values['bulk.maxSpeed']) ? values['bulk.maxSpeed'] : 'fast',
         windowEnabled: values['bulk.windowEnabled'] === true,
         windowStart: values['bulk.windowStart'] || '09:00',
         windowEnd: values['bulk.windowEnd'] || '21:00',

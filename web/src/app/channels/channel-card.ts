@@ -15,7 +15,7 @@ import { Observable } from 'rxjs';
 
 import { Channel, ChannelPatch, ChannelsApi } from '../core/api';
 import { ChannelSettings } from './channel-settings';
-import { LIVE_LABEL, describeDays, liveState, plainError, transportMeta } from './channel-meta';
+import { LIVE_LABEL, describeDays, liveState, plainError, transportMeta, zoneLabel } from './channel-meta';
 import { PhoneInput } from '../core/phone-input';
 
 type Editing = 'name' | 'phone' | null;
@@ -81,8 +81,10 @@ export class ChannelCard {
   readonly use = output<void>();
   /** Link this (unlinked) number with a QR code. */
   readonly connect = output<void>();
-  /** Open the 2 start questions for this number. */
+  /** Open the start questions for this number. */
   readonly ask = output<void>();
+  /** Answer them again to check the daily limit (a number that already answered). */
+  readonly check = output<void>();
   /** The Catalog button: the page opens the drawer, or the WhatsApp Business explanation. */
   readonly catalog = output<void>();
 
@@ -122,6 +124,7 @@ export class ChannelCard {
     return share >= 0.9 ? 'hot' : share >= 0.7 ? 'warm' : 'cool';
   });
 
+  protected readonly zoneLabel = zoneLabel;
   protected readonly windowText = computed(() => {
     const hours = this.channel().businessHours;
     if (!hours) return 'Any time';

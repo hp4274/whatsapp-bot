@@ -42,6 +42,42 @@ h3 {
   gap: var(--space-md);
 }
 
+// The ban-protection pill is a link (to its card): it leads with its own icon, so no status dot.
+.s-pill.shield {
+  gap: 6px;
+  text-decoration: none;
+  cursor: pointer;
+
+  &::before { display: none; }
+  .ti { font-size: 15px; }
+  &:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+}
+
+// Request higher limits: a tinted strip under the header with the newest request's status, hard to miss.
+.raise {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 14px 18px;
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border-color));
+  border-radius: var(--radius-lg);
+  background: var(--primary-tint);
+
+  > .ti { font-size: 22px; color: var(--primary-text); }
+  strong { display: block; font-size: 14.5px; font-weight: 600; color: var(--text-strong); }
+
+  p {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    margin: 2px 0 0;
+    font-size: 13px;
+    color: var(--text-color);
+  }
+}
+
 .plan-line {
   margin: 0;
   font-size: 13px;

@@ -9,6 +9,7 @@
 @include s.pill;
 @include s.table;
 @include s.advanced;
+@include s.pics;
 
 :host {
   display: grid;
@@ -146,87 +147,6 @@ h2 { margin: 0; font-size: 19px; font-weight: 500; letter-spacing: -0.3px; color
   grid-template-columns: minmax(0, 1fr) 110px auto;
   gap: var(--space-sm);
   align-items: center;
-}
-
-.pics {
-  display: grid;
-  gap: var(--space-sm);
-  margin: 0;
-  padding: 0;
-  border: 0;
-
-  legend { margin-bottom: 7px; padding: 0; font-size: 13px; font-weight: 500; color: var(--text-strong); }
-}
-
-.thumbs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-
-  > li {
-    position: relative;
-    display: grid;
-    gap: 4px;
-    width: 88px;
-  }
-
-  img {
-    display: block;
-    width: 88px;
-    height: 88px;
-    border-radius: 12px;
-    border: 1px solid var(--border-color);
-    background: var(--surface-card);
-    object-fit: cover;
-  }
-  .cover img { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
-
-  .tag {
-    position: absolute;
-    top: 6px;
-    left: 6px;
-    padding: 1px 7px;
-    border-radius: 999px;
-    background: var(--primary);
-    color: var(--on-primary);
-    font-size: 11px;
-    font-weight: 500;
-  }
-
-  .thumb-actions {
-    display: flex;
-    justify-content: space-between;
-
-    .btn { width: 28px; height: 28px; min-height: 28px; padding: 0; }
-  }
-
-  .pending,
-  .add-pic {
-    display: grid;
-    place-items: center;
-    align-content: center;
-    gap: 4px;
-    width: 88px;
-    height: 88px;
-    border-radius: 12px;
-    border: 1px dashed var(--border-color);
-    font-size: 12px;
-    color: var(--text-muted);
-  }
-  .pending { animation: s-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-
-  .add-pic {
-    cursor: pointer;
-    background: var(--surface-card);
-    transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease);
-
-    i { font-size: 22px; }
-    &:hover { border-color: var(--primary); color: var(--primary-text); }
-    &:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
-  }
 }
 
 /* Product list ------------------------------------------------------------ */

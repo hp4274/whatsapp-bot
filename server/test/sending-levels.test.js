@@ -624,7 +624,7 @@ describe('scope and API', () => {
             assert.equal('warmup' in card, false);
             // The business sees today's day and a plain reason, never the level or its brakes.
             assert.equal('level' in card, false);
-            assert.deepEqual(Object.keys(card.usage).sort(), ['asked', 'blocked', 'growing', 'planLimit', 'sentToday', 'todayLimit']);
+            assert.deepEqual(Object.keys(card.usage).sort(), ['asked', 'blocked', 'growing', 'planLimit', 'sentToday', 'todayLimit', 'trust']);
             assert.match(card.usage.blocked, /WhatsApp is limiting/);
 
             // A 403 repeated by a reconnect is the same day's ban.

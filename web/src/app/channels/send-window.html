@@ -78,8 +78,8 @@
       [ngModel]="zone()"
       (ngModelChange)="zone.set($event)"
     >
-      @for (z of zones(); track z) {
-        <option [value]="z">{{ z.split('_').join(' ') }}</option>
+      @for (z of zones(); track z.value) {
+        <option [value]="z.value">{{ z.label }}</option>
       }
     </select>
   </div>
@@ -87,7 +87,7 @@
   <p class="now" [class.closed]="!openNow()" aria-live="polite">
     <i class="ti ti-{{ openNow() ? 'circle-dot' : 'circle-minus' }}" aria-hidden="true"></i>
     <span>
-      It is <strong>{{ now().time }}</strong> in {{ zone().split('_').join(' ') }} -
+      It is <strong>{{ now().time }}</strong> in {{ zoneLabel(zone()) }} -
       @if (!enabled()) {
         messages can go out any time.
       } @else if (openNow()) {

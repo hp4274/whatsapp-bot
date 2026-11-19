@@ -89,7 +89,6 @@ export const POLICY_SERVICES: readonly string[] = [
   'templates',
   'contacts',
   'auto_replies',
-  'bulk_messages',
   'campaigns',
   'orders',
   'appointments',

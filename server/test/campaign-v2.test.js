@@ -110,16 +110,16 @@ describe('the engine', () => {
 });
 
 describe('speed presets', () => {
-    it('balanced is the level\'s gaps, safe stretches them, fast never goes under the level or the policy floor', () => {
+    it('on a level the row is the spacing, whatever preset or policy gap; off one they still count', () => {
         assert.deepEqual(PACING_PRESETS, ['safe', 'balanced', 'fast']);
         const row = LEVELS[3];
         const balanced = paceFor(120, DEFAULTS, 'balanced', row);
         assert.deepEqual([balanced.minSeconds, balanced.maxSeconds], [row.minSeconds, row.maxSeconds]);
         assert.deepEqual({ ...paceFor(5000, DEFAULTS, 'balanced', row), batchSize: 120 }, balanced, 'batch size changes nothing');
 
-        const safe = paceFor(120, DEFAULTS, 'safe', row);
-        assert.deepEqual([safe.minSeconds, safe.maxSeconds], [row.minSeconds * 1.5, row.maxSeconds * 1.5]);
-        assert.deepEqual({ ...paceFor(120, DEFAULTS, 'fast', row), preset: 'balanced' }, balanced, 'on a level fast runs as balanced');
+        // One speed control (messages per day picks the row): no preset and no policy gap changes a level's spacing.
+        for (const preset of ['safe', 'fast']) assert.deepEqual(paceFor(120, DEFAULTS, preset, row), balanced, `${preset} runs as balanced`);
+        assert.deepEqual(paceFor(120, { ...DEFAULTS, minDelaySeconds: 500, maxDelaySeconds: 900 }, 'safe', row), balanced, 'nor a policy gap');
 
         // Without a level (the sandbox, which never waits) only a policy gap applies, and fast never goes under it.
         assert.deepEqual([paceFor(120, DEFAULTS).minSeconds, paceFor(120, DEFAULTS).maxSeconds], [0, 0]);
@@ -504,8 +504,8 @@ describe('campaigns over HTTP', () => {
         const speed = await api('POST', `/api/campaigns/${id}/speed`, { pacing: 'safe' });
         assert.equal(speed.status, 200);
         assert.equal(speed.body.campaign.options.pacing, 'safe');
-        // The run goes at the plan's speed (bulk.maxSpeed, 'fast' by default), and so does what it reports.
-        assert.equal(speed.body.safety.pacing, 'fast');
+        // Off a level (the sandbox) the preset asked for is the one that runs; a QR number ignores it.
+        assert.equal(speed.body.safety.pacing, 'safe');
         assert.equal((await api('POST', `/api/campaigns/${id}/speed`, { pacing: 'warp' })).status, 400);
         assert.equal((await api('POST', `/api/campaigns/${id}/resume`)).body.campaign.status, 'running');
         assert.equal((await api('POST', `/api/campaigns/${id}/cancel`)).body.campaign.status, 'cancelled');
@@ -522,7 +522,7 @@ describe('campaigns over HTTP', () => {
         assert.equal(speed.body.stats.safety.pacing, 'fast');
         assert.equal((await api('POST', '/api/campaign/speed', { pacing: 'nope' })).status, 400);
         const safety = await api('GET', '/api/safety?contacts=120&pacing=safe');
-        assert.equal(safety.body.safety.pacing, 'fast', 'the plan\'s speed, as the run would use it');
+        assert.equal(safety.body.safety.pacing, 'safe', 'the preset asked for, as the run would use it');
         assert.equal(safety.body.safety.minSeconds, 0, 'the sandbox has no level, so no gap to stretch');
         await api('POST', '/api/campaign/speed', { pacing: 'balanced' });
     });

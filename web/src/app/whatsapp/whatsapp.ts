@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -18,16 +19,19 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 
 import { Channel, ChannelsApi, TenancyApi } from '../core/api';
+import { Auth } from '../core/auth';
 import { PhoneInput } from '../core/phone-input';
 import { Store } from '../core/store';
 import { CatalogDrawer } from '../channels/catalog-drawer';
 import { CatalogLocked } from '../channels/catalog-locked';
 import { ChannelCard } from '../channels/channel-card';
-import { liveState, localZone, plainError, timeZones } from '../channels/channel-meta';
+import { liveState, localZone, plainError, timeZones, zoneLabel } from '../channels/channel-meta';
 import { LinkCard } from '../connection/link-card';
 import { NumberQuestions } from '../connection/number-questions';
 import { SafetyControls } from '../connection/safety-controls';
 import { SendingHealth } from '../connection/sending-health';
+import { LimitRequestDrawer } from '../home/limit-request';
+import { type LimitKey, type LimitRequest, LimitRequestsApi, REQUEST_STATUS } from '../home/limit-requests-api';
 
 /** Only the selected number streams live events; the rest are polled this often. */
 const POLL_MS = 30_000;
@@ -37,6 +41,9 @@ const POLL_MS = 30_000;
  * one asked for the whole list several times a second; the cards' figures do not need to move faster.
  */
 const REFRESH_EVERY_MS = 10_000;
+
+/** An answered limit request stays on the page this long; a pending one until it is answered. */
+const ANSWER_SHOWN_MS = 14 * 864e5;
 
 const emptyDraft = () => ({
   displayName: '',
@@ -56,10 +63,12 @@ const emptyDraft = () => ({
 @Component({
   selector: 'app-whatsapp',
   imports: [
+    DatePipe,
     FormsModule,
     CatalogDrawer,
     CatalogLocked,
     ChannelCard,
+    LimitRequestDrawer,
     LinkCard,
     NumberQuestions,
     PhoneInput,
@@ -78,6 +87,53 @@ export class WhatsApp {
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
+  private readonly auth = inject(Auth);
+  private readonly asksApi = inject(LimitRequestsApi);
+
+  /**
+   * Request higher limits (daily limit, sending speed, numbers...): owners and admins ask the platform here (the
+   * server 403s agents). A super admin inside a business sees it too, as the business does (the server lets them
+   * ask). Home's "Request more" opens it with `?raise=1`.
+   */
+  protected readonly canAsk = computed(() => this.auth.atLeast('admin'));
+  protected readonly raising = signal(false);
+  /** The limit the form opens on: 'maxChannels' from "Get more numbers", else its first. */
+  protected readonly raisePreset = signal<LimitKey | null>(null);
+  protected readonly sentNotice = signal(false);
+  private readonly newestAsk = signal<LimitRequest | null>(null);
+  /** The newest request while it is pending or freshly answered, so the answer is seen without opening the drawer. */
+  protected readonly latestAsk = computed(() => {
+    const r = this.newestAsk();
+    if (!r) return null;
+    const shown = r.status === 'pending' || Date.now() - Date.parse(r.decidedAt ?? '') < ANSWER_SHOWN_MS;
+    return shown ? { ...r, ...REQUEST_STATUS[r.status] } : null;
+  });
+  private readonly askButton = viewChild<ElementRef<HTMLButtonElement>>('askButton');
+
+  protected openAsk(preset: LimitKey | null = null): void {
+    this.raisePreset.set(preset);
+    this.sentNotice.set(false);
+    this.raising.set(true);
+  }
+
+  protected closeAsk(): void {
+    this.raising.set(false);
+    this.askButton()?.nativeElement.focus();
+  }
+
+  protected asked(request: LimitRequest): void {
+    this.newestAsk.set(request);
+    this.sentNotice.set(true);
+    this.closeAsk();
+  }
+
+  private loadLatestAsk(): void {
+    this.asksApi.list().subscribe({
+      next: ({ requests }) => this.newestAsk.set(requests[0] ?? null),
+      // The status line is extra: without it the page still works.
+      error: () => undefined,
+    });
+  }
 
   /** `?channel=` (withComponentInputBinding): an old link, or another page, naming the number to work on. */
   readonly channel = input<string>();
@@ -93,7 +149,8 @@ export class WhatsApp {
   protected readonly busy = signal(false);
   protected readonly showForm = signal(false);
   protected readonly draft = signal(emptyDraft());
-  protected readonly zones = timeZones(localZone());
+  protected readonly zones = timeZones(localZone()).map((value) => ({ value, label: zoneLabel(value) }));
+  protected readonly zoneLabel = zoneLabel;
   /** The plan's number cap (null = none); undefined until /plan-usage answers. */
   protected readonly cap = signal<number | null | undefined>(undefined);
 
@@ -101,8 +158,16 @@ export class WhatsApp {
   protected readonly customSafety = signal(false);
   protected readonly safetyOff = signal(false);
 
-  /** The number the 2 questions are asked for; `n` makes each ask a fresh popup, even for the same number. */
-  protected readonly asking = signal<{ id: number; n: number } | null>(null);
+  /** The header's ban-protection pill: down to its card. */
+  protected toSafety(): void {
+    document.getElementById('safety-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  /**
+   * The number the questions are asked for; `n` makes each ask a fresh popup, even for the same number.
+   * `recheck`: it answered before and is checking its daily limit again.
+   */
+  protected readonly asking = signal<{ id: number; n: number; recheck: boolean } | null>(null);
   /** The number to go back to once another number's link finishes or is called off. */
   private readonly returnTo = signal<number | null>(null);
   /** A send was going out when the detour started, so the notice can say it keeps going (and not claim one otherwise). */
@@ -212,13 +277,28 @@ export class WhatsApp {
 
   constructor() {
     this.refresh();
-    this.tenancy.planUsage().subscribe({
-      next: ({ usage }) => this.cap.set(usage.metrics.find((m) => m.metric === 'channels')?.limit ?? null),
-      // Unknown: offer Add, and let the server's own plan message answer if it is over.
-      error: () => this.cap.set(null),
-    });
+    // The plan's number cap, again whenever the admin changes the plan or the limits ('tenant' / 'config'): an open
+    // page must offer Add number the moment more numbers are allowed.
+    const loadCap = () =>
+      this.tenancy.planUsage().subscribe({
+        next: ({ usage }) => this.cap.set(usage.metrics.find((m) => m.metric === 'channels')?.limit ?? null),
+        // Unknown: offer Add, and let the server's own plan message answer if it is over.
+        error: () => this.cap.set(null),
+      });
+    loadCap();
+    this.store.watch(['tenant', 'config'], loadCap, 1000);
     // Connection events notify 'channels' too (Store.handle), so linking on this page lands here.
     this.store.watch(['channels', 'campaign'], () => this.refreshSoon(), 0);
+    if (this.canAsk()) {
+      this.loadLatestAsk();
+      // An admin's answer reaches open pages as `tenant` / `config`.
+      this.store.watch(['tenant', 'config'], () => this.loadLatestAsk(), 1000);
+      // ?raise=1 (Home's "Request more"): open the form, then drop the parameter so a reload does not reopen it.
+      if (this.route.snapshot.queryParamMap.has('raise')) {
+        this.raising.set(true);
+        void this.router.navigate([], { relativeTo: this.route, queryParams: { raise: null }, queryParamsHandling: 'merge', replaceUrl: true });
+      }
+    }
 
     // ?relink=<id> (the Catalog page's "Link a WhatsApp Business number"): once the list is in, start that number's
     // sign-out + new QR, then drop the parameter so a reload does not do it again.
@@ -429,8 +509,8 @@ export class WhatsApp {
     return ask?.id === id ? ask.n : 0;
   }
 
-  protected ask(id: number) {
-    this.asking.set({ id, n: (this.asking()?.n ?? 0) + 1 });
+  protected ask(id: number, recheck = false) {
+    this.asking.set({ id, recheck, n: (this.asking()?.n ?? 0) + 1 });
   }
 
   /** The ban card's "how to ask for a review": open the checklist and bring it into view. */

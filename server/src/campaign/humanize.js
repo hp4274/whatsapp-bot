@@ -12,7 +12,7 @@ const HOUR = 3600;
 
 // ------------------------------------------------------------ sending levels --
 
-/** Bulk traffic: the daily and hourly budgets count these, and they wait for the recipient's daytime. */
+/** Bulk traffic: the daily and hourly budgets count these. */
 export const HELD_TYPES = Object.freeze(['campaign', 'workflow', 'reminder']);
 
 /**
@@ -36,7 +36,7 @@ export const LEVELS = Object.freeze([
     { level: 6, name: 'Trusted', dailyLimit: 150, newChats: 80, perHour: 20, minSeconds: 30, maxSeconds: 90, restEvery: 20, restMinMinutes: 35, restMaxMinutes: 45, links: 1, media: true, need: { days: 17, delivered: 500, bulk: 200 } },
     { level: 7, name: 'Established', dailyLimit: 200, newChats: 80, perHour: 30, minSeconds: 20, maxSeconds: 90, restEvery: 30, restMinMinutes: 30, restMaxMinutes: 40, links: 1, media: true, need: { days: 24, delivered: 1000, bulk: 400 } },
     { level: 8, name: 'Proven', dailyLimit: 250, newChats: 80, perHour: 30, minSeconds: 20, maxSeconds: 60, restEvery: 30, restMinMinutes: 35, restMaxMinutes: 45, links: 1, media: true, need: { days: 40, delivered: 2500, bulk: 1000 } },
-    // 9-11 are sized so a full day fits the 12-hour recipient daytime: gaps (typing included) and rests. About 30% of a day may go to new chats.
+    // 9-11 are sized so a full day fits in 12 hours: gaps (typing included) and rests. About 30% of a day may go to new chats.
     // Days never drop below level 8's 40 (needs must not go down); delivered and bulk do the gating.
     { level: 9, name: 'Reliable', dailyLimit: 400, newChats: 120, perHour: 45, minSeconds: 20, maxSeconds: 50, restEvery: 40, restMinMinutes: 20, restMaxMinutes: 30, links: 1, media: true, need: { days: 40, delivered: 3000, bulk: 1500 } },
     { level: 10, name: 'Strong', dailyLimit: 650, newChats: 200, perHour: 70, minSeconds: 20, maxSeconds: 40, restEvery: 60, restMinMinutes: 15, restMaxMinutes: 25, links: 1, media: true, need: { days: 40, delivered: 6000, bulk: 3000 } },
@@ -44,7 +44,7 @@ export const LEVELS = Object.freeze([
 ]);
 
 /**
- * Brake thresholds for QR numbers, plus the recipient daytime window bulk waits for.
+ * Brake thresholds for QR numbers.
  * `restUntilDelivered`: the rest after linking lifts early once this much was delivered since the anchor (an old
  * number relinked). `restHours`: rest after linking or a ban; a 2nd / 3rd ban within 30 days rests longer.
  * Platform policy can replace any of them (policy/levels.js).
@@ -63,8 +63,6 @@ export const BRAKES = Object.freeze({
     deliveryMinSent: 20,
     deliveryMinPercent: 85,
     stuckMaxPercent: 20,
-    daytimeFrom: 9,
-    daytimeTo: 21,
     // 'shadow': the delivery, stuck and unstable brakes are logged (safety_events kind 'shadow') but never slow
     // sending; 'enforce': they apply. The brakes above always apply.
     brakesMode: 'shadow',
@@ -464,18 +462,6 @@ export function contactZone(extra) {
     } catch {
         return null;
     }
-}
-
-/**
- * Is it a sensible time to message this number? 9:00-21:00 where they live.
- * Unknown country = always yes. Outside it the message waits, it does not fail.
- * `zone` (a contact's own, see contactZone) beats the country code: a US or Brazil code spans several zones.
- */
-export function isDaytimeFor(phone, at = new Date(), { from = BRAKES.daytimeFrom, to = BRAKES.daytimeTo, zone = null } = {}) {
-    return (zone ? [zone] : zonesOf(phone)).every((each) => {
-        const hour = localHour(each, at);
-        return hour >= from && hour < to;
-    });
 }
 
 // ------------------------------------------------------------ content check --

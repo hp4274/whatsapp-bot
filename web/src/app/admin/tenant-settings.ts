@@ -11,8 +11,9 @@ import {
   signal,
   untracked,
 } from '@angular/core';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Observable, concat, defer, forkJoin, last, map, switchMap } from 'rxjs';
+import { Observable, catchError, concat, debounceTime, defer, forkJoin, last, map, of, switchMap } from 'rxjs';
 
 import { CustomSafetyState, SafetyPolicy, TenancyApi, TenantLimits } from '../core/api';
 import { Auth, Tenant, TenantControls, TenantSubscriptionSummary } from '../core/auth';
@@ -307,6 +308,8 @@ export class TenantSettings {
   protected readonly activation = signal<Activation | null>(null);
   /** Limits tab: what the business has used against each limit (null while loading or if it failed). */
   protected readonly usage = signal<UsageRow[] | null>(null);
+  /** WhatsApp numbers the business has linked, beside the box that caps them; null until the usage loads. */
+  protected readonly numbersLinked = computed(() => this.usage()?.find((r) => r.key === 'numbers')?.used ?? null);
   protected readonly uploadMb = signal(10);
   /** Plan tab: its history, newest first. */
   protected readonly history = signal<PlanLogEntry[]>([]);
@@ -766,6 +769,7 @@ export class TenantSettings {
       // Absent in the working copy = follow the plan, which the server is told as 'plan'.
       messagesPerMonth: messagesPerMonth === undefined ? 'plan' : messagesPerMonth,
       ownDailyLimit: ownDailyLimit === true,
+      sendSpeed: cur.limits.sendSpeed || null,
     });
     // The per-number day is the anti-ban daily limit, sent as a reset (null) when 0: the plan's day, or with
     // ownDailyLimit no limit at all.
@@ -795,6 +799,62 @@ export class TenantSettings {
    * no limit). A day saved before ownDailyLimit existed still shows as its own.
    */
   protected readonly followDay = computed(() => !this.settings()?.limits.ownDailyLimit && !this.settings()?.safety?.dailyLimit);
+
+  /** Quick sending speeds, messages a day per number. A speed is apart from Messages per day: how fast, never how many. */
+  protected readonly speedPresets: readonly number[] = [250, 1000, 2500, 5000];
+  /** The business's own speed; 0 = automatic. */
+  protected readonly ownSpeed = computed(() => this.settings()?.limits.sendSpeed || 0);
+  /** Custom was clicked: its box is open, also while still blank. */
+  private readonly customOpen = signal(false);
+  /** Custom is the choice: clicked, or a saved speed that is none of the presets. */
+  protected readonly customSpeed = computed(
+    () => this.customOpen() || (this.ownSpeed() > 0 && !this.speedPresets.includes(this.ownSpeed())),
+  );
+
+  /**
+   * The speed and the day as they stand (0 = automatic / no limit); null while both are automatic on the plan's day,
+   * where each number is spaced by its warm-up level.
+   */
+  private readonly speedAsk = computed(() => {
+    const s = this.settings();
+    if (!s?.safety || (this.followDay() && !this.ownSpeed())) return null;
+    const perDay = this.followDay() ? (this.currentPlan()?.dailyCap ?? 0) : s.safety.dailyLimit || 0;
+    return { id: s.tenant.id, perDay, speed: this.ownSpeed() };
+  });
+  /** What that means for the engine, asked of the server as the boxes change; null while there is nothing to show. */
+  protected readonly speed = toSignal(
+    toObservable(this.speedAsk).pipe(
+      debounceTime(250),
+      switchMap((ask) => (ask ? this.api.speed(ask.id, ask.perDay, ask.speed).pipe(catchError(() => of(null))) : of(null))),
+    ),
+    { initialValue: null },
+  );
+  /** Hours a number needs to send its whole day at the shown speed, when that is under the hours it may send. */
+  protected readonly dayHours = computed(() => {
+    const sp = this.speed();
+    if (!sp?.speed || !sp.perDay || sp.perDay > sp.reachable) return null;
+    return Math.max(1, Math.round((sp.perDay / sp.reachable) * sp.hours));
+  });
+
+  /** A preset (0 = automatic) is saved at once: a button never gets a box's click-away save. Messages per day stays. */
+  protected pickSpeed(perDay: number) {
+    this.customOpen.set(false);
+    this.setLimit('sendSpeed', perDay || null);
+    this.savePlanLimits();
+  }
+
+  /** Custom opens a blank box under the choices; the speed already saved stays until one is typed. */
+  protected openCustomSpeed() {
+    this.customOpen.set(true);
+  }
+
+  /** The custom box, saved on click-away or Enter. Blank = automatic. */
+  protected setCustomSpeed(raw: string) {
+    const n = Math.floor(Number(raw));
+    this.customOpen.set(false);
+    this.setLimit('sendSpeed', raw.trim() === '' || !(n > 0) ? null : Math.min(250000, n));
+    this.savePlanLimits();
+  }
 
   protected setMonthFollow(follow: boolean) {
     this.settings.update((cur) => {

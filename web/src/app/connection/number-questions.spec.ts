@@ -54,11 +54,14 @@ describe('NumberQuestions', () => {
     expect([checked('nq-age'), checked('nq-usage')]).toEqual([3, 2]);
     expect(el.textContent).toContain('Picked from the 240 chats already on this number.');
 
+    // The two newer questions have no history to guess from: they are answered by hand.
+    click(el.querySelectorAll('input[name="nq-audience"]')[2]);
+    click(el.querySelectorAll('input[name="nq-banned"]')[2]);
     click(el.querySelector('button[type="submit"]'));
-    expect(api.start).toHaveBeenCalledWith(4, { age: 3, usage: 2 });
+    expect(api.start).toHaveBeenCalledWith(4, { age: 3, usage: 2, audience: 2, banned: 2 });
   });
 
-  it('keeps Start disabled until both questions are answered, then posts the answers', () => {
+  it('keeps Start disabled until all four questions are answered, then posts the answers', () => {
     const { el, api, click } = setup();
     const submit = () => el.querySelector<HTMLButtonElement>('button[type="submit"]')!;
     expect(submit().disabled).toBe(true);
@@ -66,10 +69,14 @@ describe('NumberQuestions', () => {
     click(el.querySelectorAll('input[name="nq-age"]')[1]);
     expect(submit().disabled).toBe(true);
     click(el.querySelectorAll('input[name="nq-usage"]')[2]);
+    expect(submit().disabled).toBe(true);
+    click(el.querySelectorAll('input[name="nq-audience"]')[3]);
+    expect(submit().disabled).toBe(true);
+    click(el.querySelectorAll('input[name="nq-banned"]')[1]);
     expect(submit().disabled).toBe(false);
 
     click(submit());
-    expect(api.start).toHaveBeenCalledWith(4, { age: 1, usage: 2 });
+    expect(api.start).toHaveBeenCalledWith(4, { age: 1, usage: 2, audience: 3, banned: 1 });
     expect(el.querySelector('[role="status"]')?.textContent).toContain(
       'This number runs at 60 messages a day.',
     );
@@ -100,10 +107,12 @@ describe('NumberQuestions', () => {
     const { el, click } = setup(INFO, true);
     const ask = el.querySelector<HTMLDialogElement>('dialog.ask')!;
     expect(ask.open).toBe(true);
-    expect(ask.textContent).toContain('Answer 2 questions to start sending');
+    expect(ask.textContent).toContain('Answer 4 questions to start sending');
 
     click(ask.querySelectorAll('input[name="nq-age"]')[3]);
     click(ask.querySelectorAll('input[name="nq-usage"]')[3]);
+    click(ask.querySelectorAll('input[name="nq-audience"]')[2]);
+    click(ask.querySelectorAll('input[name="nq-banned"]')[2]);
     click(ask.querySelector('button[type="submit"]'));
     expect(ask.querySelector('[role="status"]')?.textContent).toContain('60 messages a day');
 

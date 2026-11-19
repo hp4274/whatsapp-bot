@@ -7,6 +7,7 @@ import {
   afterNextRender,
   computed,
   inject,
+  input,
   output,
   signal,
   viewChild,
@@ -46,7 +47,7 @@ const MAX_VALUE = 1_000_000_000;
 /**
  * Request more: a business asks the platform admin for higher limits, each for a while or until changed. One column
  * of asks (as the product owner asked), then an optional note; earlier requests and their answers sit underneath so
- * the business sees what it already asked before asking again. Opened from Plan usage, owners and admins only.
+ * the business sees what it already asked before asking again. Opened from the WhatsApp page, owners and admins only.
  */
 @Component({
   selector: 'app-limit-request',
@@ -61,6 +62,8 @@ export class LimitRequestDrawer {
   private readonly destroyRef = inject(DestroyRef);
   private readonly store = inject(Store);
 
+  /** The limit the first ask starts on (the WhatsApp page's "Get more numbers"); null = the first in the list. */
+  readonly preset = input<LimitKey | null>(null);
   /** Sent: the parent closes the drawer and says so in the panel. */
   readonly sent = output<LimitRequest>();
   readonly closed = output<void>();
@@ -86,9 +89,14 @@ export class LimitRequestDrawer {
   protected readonly nowText = computed(() => {
     const text = new Map<string, string>();
     for (const { key, now } of this.limits()) {
+      // A speed is how fast messages go, in messages a day; none set = the engine picks it.
+      const speed = key === 'sendSpeed';
       text.set(
         key,
-        now === null ? 'no limit' : now === 'plan' || (key === 'dailyLimit' && now === 0) ? "the plan's limit" : now.toLocaleString(),
+        speed && !now ? 'automatic'
+          : now === null ? 'no limit'
+          : now === 'plan' || (key === 'dailyLimit' && now === 0) ? "the plan's limit"
+          : now.toLocaleString() + (speed ? ' messages a day' : ''),
       );
     }
     return text;
@@ -147,7 +155,8 @@ export class LimitRequestDrawer {
 
   protected add(): void {
     if (!this.canAdd()) return;
-    const key = this.limits().find((l) => !this.picked().has(l.key))?.key ?? '';
+    const first = this.asks().length ? null : this.limits().find((l) => l.key === this.preset())?.key;
+    const key = first ?? this.limits().find((l) => !this.picked().has(l.key))?.key ?? '';
     const days = this.durations().includes(DEFAULT_DAYS) ? DEFAULT_DAYS : (this.durations()[0] ?? 0);
     this.asks.update((asks) => [...asks, { id: this.nextId++, key, value: null, days }]);
   }

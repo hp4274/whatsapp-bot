@@ -12,7 +12,7 @@ import {
 import { FormsModule } from '@angular/forms';
 
 import { Channel, ChannelPatch } from '../core/api';
-import { WEEKDAYS, nowIn, timeZones, toMinutes } from './channel-meta';
+import { WEEKDAYS, nowIn, timeZones, toMinutes, zoneLabel } from './channel-meta';
 
 /**
  * Edit when a number may send: weekdays, opening hours and the timezone they
@@ -34,7 +34,8 @@ export class SendWindow {
   readonly save = output<ChannelPatch>();
 
   protected readonly weekdays = WEEKDAYS;
-  protected readonly zones = computed(() => timeZones(this.channel().timezone));
+  protected readonly zones = computed(() => timeZones(this.channel().timezone).map((value) => ({ value, label: zoneLabel(value) })));
+  protected readonly zoneLabel = zoneLabel;
 
   protected readonly enabled = linkedSignal(() => Boolean(this.channel().businessHours));
   protected readonly start = linkedSignal(() => this.channel().businessHours?.start ?? '09:00');

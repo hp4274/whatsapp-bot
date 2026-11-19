@@ -185,16 +185,6 @@
         </label>
 
         <div class="field">
-          <label for="sc-name">Your full name</label>
-          <input
-            id="sc-name"
-            type="text"
-            autocomplete="name"
-            [value]="fullName()"
-            (input)="fullName.set($any($event.target).value)"
-          />
-        </div>
-        <div class="field">
           <label for="sc-confirm">Type <strong>I ACCEPT</strong> to confirm</label>
           <input
             id="sc-confirm"
@@ -246,14 +236,8 @@
         @for (group of groups; track group.title) {
           <fieldset class="sc-group">
             <legend>{{ group.title }}</legend>
-            @if (hasQrIgnored(group.fields)) {
-              <p class="hint sc-group-note">
-                Long pauses follow each number's own daily rhythm, so they are not set here.
-              </p>
-            }
             <div class="sc-rows">
               @for (f of group.fields; track f.key) {
-                @if (!f.qrIgnored) {
                   <div
                     class="sc-row"
                     [class.risky]="risks()[f.key]"
@@ -285,7 +269,6 @@
                       >
                     }
                   </div>
-                }
               }
             </div>
           </fieldset>

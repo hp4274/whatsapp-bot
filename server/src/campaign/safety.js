@@ -53,6 +53,10 @@ export const DEFAULT_SENDING = Object.freeze({
     carouselImages: false,
     /** The business's own day replaces the plan's (tenant limits.ownDailyLimit): no warm-up, no growth cap. */
     ownDay: false,
+    /** The business's own sending speed, messages a day per number (tenant limits.sendSpeed), or null: spaced by the day. */
+    speed: null,
+    /** The business's own sending window (`{ start, end }`, the bulk.window rules), or null: an own day is spaced to fit it. */
+    bulkWindow: null,
 });
 
 /** A safety rule refused the request. `status` is what the HTTP layer answers. */
@@ -109,28 +113,29 @@ export const SAFETY_DEFAULTS = Object.freeze({
 });
 
 /**
- * Operator-facing speed presets. `balanced` is the level's gaps as-is; `safe`
- * stretches every gap by half again; `fast` halves them but never goes under
- * the policy floor (`config.minDelaySeconds`, set by tenant/platform policy).
- * On a sending level (QR numbers) the level's gap is the floor: `fast` runs as `balanced`.
+ * Speed presets for a number that is not on a level (the sandbox): `balanced` is the gaps as-is, `safe` stretches
+ * every gap by half again, `fast` halves them but never goes under `config.minDelaySeconds`.
+ * A QR number is spaced by its row alone: every preset runs as `balanced` there.
  */
 export const PACING_PRESETS = Object.freeze(['safe', 'balanced', 'fast']);
 
 export const pickPreset = (preset) => (PACING_PRESETS.includes(preset) ? preset : 'balanced');
 
 /**
- * The pacing that applies to a batch of `batchSize` messages. A QR number's level row (humanize.js) sets the gap
- * and the rests; batch size does not. Without one (the sandbox, which never waits) only a policy gap applies.
+ * The pacing that applies to a batch of `batchSize` messages. A QR number's row (its level's, humanize.js, or its
+ * business's own day's, speedRow) sets the gap and the rests, and nothing else changes them. Without one (the
+ * sandbox, which never waits) a policy gap and the speed preset apply.
  */
 export function paceFor(batchSize, config = {}, preset = 'balanced', sendTier = null) {
     const onLevel = sendTier?.level !== undefined;
-    if (onLevel && preset === 'fast') preset = 'balanced';
+    // A QR number has one speed control, its messages per day: that picks its row (a level's, or speedRow for a
+    // business's own day), and the row is the spacing. A speed preset and a policy gap both used to slow it on top
+    // (a 5,000-a-day number ran at 861), so on a level neither counts; off one (the sandbox) they still do.
+    if (onLevel) preset = 'balanced';
     const tier = sendTier ?? { minSeconds: 0, maxSeconds: 0 };
-    // A policy gap replaces the tier's; on a level it only ever slows it down.
-    let min = config.minDelaySeconds > 0 ? Math.max(config.minDelaySeconds, onLevel ? tier.minSeconds : 0) : tier.minSeconds;
-    let max = config.maxDelaySeconds > 0
-        ? Math.max(config.maxDelaySeconds, min, onLevel ? tier.maxSeconds : 0)
-        : Math.max(tier.maxSeconds, min);
+    const gap = onLevel ? { minDelaySeconds: 0, maxDelaySeconds: 0 } : config;
+    let min = gap.minDelaySeconds > 0 ? gap.minDelaySeconds : tier.minSeconds;
+    let max = gap.maxDelaySeconds > 0 ? Math.max(gap.maxDelaySeconds, min) : Math.max(tier.maxSeconds, min);
     if (preset === 'safe') {
         min *= 1.5;
         max *= 1.5;
@@ -202,6 +207,81 @@ export function dayEnd(at = new Date(), zone = null) {
     return end;
 }
 
+/** The typing shown before each message (humanize.js typingMs), on top of the gap: about this long. */
+const TYPING_SECONDS = 4;
+/** The gap no speed goes under: the system number's own small delay (manager.js PLATFORM_LANE). */
+const FASTEST_GAP = Object.freeze({ minSeconds: 2, maxSeconds: 5 });
+
+/**
+ * The top level's row re-spaced so a business's own day (set by the super admin) can really be sent inside the
+ * day: gaps, rests and the hour follow it. Only ever faster than `top`, and never under
+ * FASTEST_GAP: a day beyond that is not reachable on one number, and `reachable` says what is.
+ * Gaps stay random (0.6-1.4 of their mean) and the rests stay: 1-2 minutes after about every 10 minutes of sending.
+ * `perDay` Infinity (no limit) is the fastest spacing. `hours`: the hours a day bulk may go out (sendingHours).
+ * `exact` (a speed the super admin set, apart from the day): the row is spaced to it both ways, slower too.
+ */
+export function speedRow(top, perDay, hours = sendingHours(), exact = false) {
+    const window = Math.max(1, hours) * 3600;
+    // What one message costs in seconds: its gap, its typing, and its share of the rests.
+    const cost = (row) => (row.minSeconds + row.maxSeconds) / 2 + TYPING_SECONDS
+        + (row.restEvery > 0 ? ((row.restMinMinutes + row.restMaxMinutes) * 30) / row.restEvery : 0);
+    const reach = (row) => Math.floor(window / cost(row));
+    if (!exact && !(perDay > reach(top))) return { ...top, reachable: reach(top) };
+    // 85% of each message's share of the day is its gap and typing; the rest of it goes to the rests.
+    const mean = Math.max((FASTEST_GAP.minSeconds + FASTEST_GAP.maxSeconds) / 2, (window / perDay) * 0.85 - TYPING_SECONDS);
+    const tenth = (n) => Math.round(n * 10) / 10;
+    const row = {
+        ...top,
+        minSeconds: Math.max(FASTEST_GAP.minSeconds, tenth(mean * 0.6)),
+        maxSeconds: Math.max(FASTEST_GAP.maxSeconds, tenth(mean * 1.4)),
+        restEvery: Math.max(top.restEvery, Math.round(600 / (mean + TYPING_SECONDS))),
+        restMinMinutes: 1,
+        restMaxMinutes: 2,
+    };
+    // The hour cap bounds a burst, with room so it never bites before the spacing does.
+    return { ...row, perHour: Math.ceil((3600 / cost(row)) * 1.1), reachable: reach(row) };
+}
+
+/**
+ * Hours a day bulk may go out: all 24 (nights included, by the user's choice of 2026-11-19; a day's messages are
+ * spread over the whole day instead of held till morning), or the business's own sending window (`{ start, end }`
+ * as HH:MM, the bulk.window rules) when it has one. Never under an hour.
+ */
+export function sendingHours(window = null) {
+    if (!window) return 24;
+    const clock = (hhmm) => { const [h, m] = String(hhmm).split(':').map(Number); return h + (m || 0) / 60; };
+    const hours = clock(window.end) - clock(window.start);
+    return Math.max(1, hours > 0 ? hours : hours + 24); // a window past midnight (21:00-06:00) is 9 hours
+}
+
+/**
+ * A number's trust score, 20 to 100, from the level its answers gave (policy/levels.js startLevelFor, 2 to 8):
+ * an old, busy number that messages its own chats scores 100, a fresh one writing to strangers 20.
+ * `share` is the part of a business's own day the number may send.
+ */
+export function trustOf(level) {
+    const score = Math.round(20 + ((Math.min(8, Math.max(2, level)) - 2) / 6) * 80);
+    return { score, share: score / 100 };
+}
+
+/** A business's own day for one number: all of it, or its trust's share once the number answered its questions. */
+const ownDayOf = (config, planDaily, share = 1) => {
+    const day = dayCeiling(config, planDaily);
+    return Number.isFinite(day) ? Math.max(1, Math.round(day * share)) : day;
+};
+
+/**
+ * `levels` as the number is spaced. The business's own speed (tables.speed, set apart from its messages per day)
+ * spaces every level, and each keeps its own day. Without one, an own day re-spaces the top row so the day can be
+ * reached (speedRow); otherwise unchanged.
+ */
+function ownLevels(tables, config, share = 1) {
+    const hours = sendingHours(tables.bulkWindow);
+    if (tables.speed > 0) return tables.levels.map((row) => (row.level >= 1 ? speedRow(row, tables.speed, hours, true) : row));
+    if (tables.ownDay !== true) return tables.levels;
+    return [...tables.levels.slice(0, -1), speedRow(tables.levels.at(-1), ownDayOf(config, tables.planDaily, share), hours)];
+}
+
 /** Brakes that close new chats (and `restricted` number checks too); the halting ones hold bulk as well. */
 const CLOSES_NEW_CHATS = ['reports', 'blocks', 'failures', 'restricted', ...HALTING_BRAKES];
 
@@ -249,11 +329,12 @@ export function growthFrom(ledger = {}, { startDaily = LEVELS[1].dailyLimit, flo
  */
 export function allowanceFrom(lv, ledger, config = {}, {
     resetsAt = null, levels = LEVELS, planDaily = null, held = false, startDaily = levels[1].dailyLimit, skipGrowth = false,
-    ownDay = false,
+    ownDay = false, ownShare = 1,
 } = {}) {
     const has = (code) => lv.brakes.some((b) => b.code === code);
     const half = (n) => (has('reply_rate') && n > 0 ? Math.max(1, Math.floor(n / 2)) : n);
-    const ceiling = dayCeiling(config, planDaily);
+    // An own day is the number's trust's share of it (ownShare, 1 until it answers its questions).
+    const ceiling = ownDay ? ownDayOf(config, planDaily, ownShare) : dayCeiling(config, planDaily);
     const planRow = levels[Math.max(1, lv.level)];
     // An admin cap of level 0 stops the number; level 0 otherwise borrows level 1's day (the rest after linking).
     // ownDay (the business's own day, set by the super admin): that day from day one, not the level's.
@@ -344,7 +425,15 @@ export class DailyQuota {
             const state = this.qr ? this.db.levelState?.() ?? null : null;
             const ledger = this.db.sendingLedger?.({ dayStart: start, now, healthSince: state?.demotedAt ?? null }) ?? EMPTY_LEDGER;
             const tables = this.tables();
-            const { levels } = tables;
+            // The questions' start level, voided by a ban or a different number after them: those ask again.
+            const answered = this.levelStart?.() ?? null;
+            const startVoid = !Number.isInteger(answered?.level) || answered.level < 1
+                || Date.parse(ledger.anchor ?? ledger.lastBanAt ?? '') > (Date.parse(answered.at ?? '') || 0);
+            // Its trust score, once it really answered (a skip gives none): a business's own day is scaled by it.
+            const trust = startVoid || answered.answers?.skipped === true ? null : trustOf(answered.level);
+            const ownShare = trust?.share ?? 1;
+            // The business's own day sets its own spacing too (speedRow), so the day can be reached.
+            const levels = ownLevels(tables, this.config, ownShare);
             // A ban or a different number after the pin was set voids it (the ledger's anchor is the later
             // of the two): the number starts again from its history.
             // The business's own day (sending.ownDay): no warm-up, the number runs at the top level at once.
@@ -353,10 +442,6 @@ export class DailyQuota {
             // A malformed pin (negative, fractional, a string) is no pin; levelFor clamps one above the top.
             const pinVoid = !own && (!Number.isInteger(pin?.level) || pin.level < 0
                 || Date.parse(ledger.anchor ?? ledger.lastBanAt ?? '') > (Date.parse(pin.at ?? '') || 0));
-            // The questions' start level, voided the same way: a ban or a new number asks them again.
-            const answered = this.levelStart?.() ?? null;
-            const startVoid = !Number.isInteger(answered?.level) || answered.level < 1
-                || Date.parse(ledger.anchor ?? ledger.lastBanAt ?? '') > (Date.parse(answered.at ?? '') || 0);
             const held = !own && Boolean(this.levelStart) && startVoid;
             // The day ceiling caps the level (and so a pin), not only the count: see ceilingLevel.
             // The business's 2nd ban in 30 days (db.tenantBanHold): each number stays at the level it had reached.
@@ -381,9 +466,12 @@ export class DailyQuota {
             this.allowanceCache = {
                 at: t,
                 value: {
-                    ...allowanceFrom(lv, ledger, this.config, { resetsAt, levels, planDaily: tables.planDaily, held, startDaily, skipGrowth: tables.skipGrowth, ownDay: own }),
+                    ...allowanceFrom(lv, ledger, this.config, { resetsAt, levels, planDaily: tables.planDaily, held, startDaily, skipGrowth: tables.skipGrowth, ownDay: own, ownShare }),
                     // The most a day can reach: the plan, the number's own limit and the top allowed level.
-                    ceiling: own ? dayCeiling(this.config, tables.planDaily) : Math.min(dayCeiling(this.config, tables.planDaily), levels[Math.min(levels.length - 1, tables.maxLevel ?? Infinity)].dailyLimit),
+                    ceiling: own ? ownDayOf(this.config, tables.planDaily, ownShare) : Math.min(dayCeiling(this.config, tables.planDaily), levels[Math.min(levels.length - 1, tables.maxLevel ?? Infinity)].dailyLimit),
+                    // The number's trust score from its answers (null until it answers); `full`: the business's whole
+                    // own day, which a score of 100 gives.
+                    trust: trust && { score: trust.score, full: own && Number.isFinite(dayCeiling(this.config, tables.planDaily)) ? dayCeiling(this.config, tables.planDaily) : null },
                     // Unanswered questions hold bulk (null while nothing is asked).
                     asked: this.levelStart ? !held : null,
                     row: lv.row,
@@ -444,7 +532,8 @@ export class DailyQuota {
      * day reaches the plan's (channels.dailyCap; the top one without a plan) and is paced by that level's gaps.
      */
     #planRow() {
-        const { levels, planDaily } = this.tables();
+        const { planDaily } = this.tables();
+        const levels = ownLevels(this.tables(), this.config);
         const row = (Number(planDaily) > 0 ? levels.find((r) => r.level >= 1 && r.dailyLimit >= Number(planDaily)) : null) ?? levels.at(-1);
         return { ...row, level: undefined }; // not "on a level": the plan's own speed applies, fast included
     }
@@ -504,7 +593,7 @@ export class DailyQuota {
             return {
                 enabled, limit: plan ? plan.limit : bulk.limit, used: bulk.used,
                 remaining: plan ? (plan.limit ? plan.left : null) : bulk.left, resetsAt: bulk.resetsAt,
-                level: a.level, budgets: a.budgets, brakes: a.brakes, content: a.content, ceiling: a.ceiling, asked: a.asked, growth: a.growth,
+                level: a.level, budgets: a.budgets, brakes: a.brakes, content: a.content, ceiling: a.ceiling, asked: a.asked, growth: a.growth, trust: a.trust,
             };
         }
         const used = this.usedToday(now);

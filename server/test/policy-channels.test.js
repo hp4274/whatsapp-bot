@@ -127,10 +127,7 @@ describe('safety defaults for new numbers', () => {
 
     it('a new number starts with the policy values; existing numbers keep theirs', async (t) => {
         const before = rowOf(1).settings;
-        const rules = {
-            'channels.dailyCap': 100, 'channels.minGapSeconds': 6,
-            'channels.maxGapSeconds': 20, 'channels.retryLimit': 1,
-        };
+        const rules = { 'channels.dailyCap': 100, 'channels.retryLimit': 1 };
         // Per business these are its own anti-ban safety (PUT /api/admin/tenants/:id/safety), not a rule.
         assert.throws(() => policy(`tenant:${tenant.id}`, rules), /is not set here/);
         policy('global', rules);
@@ -140,7 +137,7 @@ describe('safety defaults for new numbers', () => {
         const { settings } = made.body.channel;
         assert.deepEqual(
             [settings.dailyLimit, settings.minDelaySeconds, settings.maxDelaySeconds, settings.maxRetries],
-            [DEFAULTS.dailyLimit, 6, 20, 1]);
+            [DEFAULTS.dailyLimit, 0, 0, 1]);
         const health = (await call(owner, 'GET', `/api/channels/${made.body.channel.id}`)).body.health;
         assert.equal(health.usage.todayLimit, DEFAULTS.dailyLimit, 'the plan day is a QR limit; the sandbox keeps its own');
         assert.equal(rowOf(1).settings, before, 'tenant 1 channel untouched');

@@ -34,7 +34,7 @@ const call = async (token, method, url, body) => {
     return { status: res.status, body: text ? JSON.parse(text) : null };
 };
 const consent = (token, extra = {}) => call(token, 'POST', '/api/safety/custom/consent', {
-    accept: true, version: CONSENT_VERSION, fullName: 'Asha Owner', confirmation: 'I ACCEPT', ...extra,
+    accept: true, version: CONSENT_VERSION, confirmation: 'I ACCEPT', ...extra,
 });
 /** The live channel config the campaign engine actually uses. */
 const liveConfig = async () => (await call(tokens.owner, 'GET', '/api/config')).body.config;
@@ -85,15 +85,15 @@ describe('tenant-owned sending limits', () => {
         assert.equal((await consent(tokens.owner, { accept: false })).status, 400);
         assert.equal((await consent(tokens.owner, { confirmation: 'yes' })).status, 400);
         assert.equal((await consent(tokens.owner, { version: 'old' })).status, 409);
-        assert.equal((await consent(tokens.owner, { fullName: ' ' })).status, 400);
     });
 
     it('records consent with who, when and which version', async () => {
-        const res = await consent(tokens.admin, { confirmation: 'shop co' }); // business name also works
+        const res = await consent(tokens.admin, { confirmation: 'shop co', fullName: 'Typed Name' }); // business name also works; a typed name is ignored
         assert.equal(res.status, 201);
         assert.equal(res.body.consent.version, CONSENT_VERSION);
         assert.match(res.body.consent.email, /^admin-/);
-        assert.equal(res.body.consent.fullName, 'Asha Owner');
+        assert.ok(res.body.consent.fullName, 'the signed-in account names who accepted; nobody types a name');
+        assert.notEqual(res.body.consent.fullName, 'Typed Name');
         assert.ok(res.body.consent.acceptedAt);
         assert.ok(res.body.consent.textHash);
         assert.ok(tenancy.listAudit({ tenantId: tenant.id }).some((l) => l.action === 'safety.consent'));
@@ -174,7 +174,7 @@ describe('tenant-owned sending limits', () => {
 
 describe('leaving sending safety', () => {
     const exit = (token, extra = {}) => call(token, 'POST', '/api/safety/custom/exit', {
-        accept: true, version: SAFETY_EXIT_VERSION, fullName: 'Asha Owner', confirmation: 'I ACCEPT', ...extra,
+        accept: true, version: SAFETY_EXIT_VERSION, confirmation: 'I ACCEPT', ...extra,
     });
 
     it('asks for the warning on every exit, turns safety off, and rejoins', async () => {
@@ -184,7 +184,7 @@ describe('leaving sending safety', () => {
 
         const left = await exit(tokens.owner);
         assert.equal(left.status, 201);
-        assert.equal(left.body.exited.fullName, 'Asha Owner');
+        assert.ok(left.body.exited.fullName);
         assert.equal(left.body.policy.safetyEnabled, false);
         assert.equal((await liveConfig()).safetyEnabled, false);
 

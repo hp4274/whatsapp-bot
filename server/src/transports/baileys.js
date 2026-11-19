@@ -1258,6 +1258,87 @@ export class BaileysTransport extends Transport {
         };
     }
 
+    /** One product's fields in WhatsApp's thousandths, for a catalog write GraphQL call. */
+    static catalogWriteFields(p) {
+        const sale = p.salePrice ? { price: Math.round((Number(p.salePrice) || 0) * 1000) } : null;
+        return {
+            name: String(p.name ?? ''),
+            description: String(p.description ?? ''),
+            price: Math.round((Number(p.price) || 0) * 1000),
+            currency: String(p.currency ?? 'INR'),
+            url: String(p.url ?? ''),
+            retailer_id: String(p.retailerId ?? ''),
+            availability: String(p.availability ?? 'in stock'),
+            is_hidden: Boolean(p.hidden),
+            sale_price: sale,
+            // Only when the pictures were sent: left out, WhatsApp keeps the ones the product has.
+            ...(Array.isArray(p.images) ? { media: { images: p.images } } : {}),
+        };
+    }
+
+    /**
+     * A product's pictures as WhatsApp wants them, `[{ url }]`: one already in the catalog (`{ url }`, on its CDN) is
+     * kept as it is; a new one (`{ path }`, an uploaded JPG or PNG) goes up as a catalog image first, the way the
+     * WhatsApp apps upload them (Baileys' uploadingNecessaryImages). Undefined stays undefined: pictures untouched.
+     */
+    async #catalogImages(images) {
+        if (!Array.isArray(images)) return undefined;
+        const { uploadingNecessaryImages } = await import('@whiskeysockets/baileys/lib/Utils/business.js');
+        try {
+            return await uploadingNecessaryImages(images.map((img) => ({ url: img.url ?? img.path })), this.sock.waUploadToServer);
+        } catch (err) {
+            logger.warn('could not upload a catalog picture', { error: String(err?.message ?? err) });
+            throw Object.assign(new Error('WhatsApp did not take a picture. Try again in a minute.'), { code: 'catalog_failed' });
+        }
+    }
+
+    /** Create one product in this number's WhatsApp Business catalog. Returns WhatsApp's answer. */
+    async createProduct(product) {
+        if (!this.connected || !this.sock) throw Object.assign(new Error('WhatsApp is not connected'), { code: 'not_connected' });
+        if (accountTypeOf(this.sock) === 'personal') throw Object.assign(new Error('not a WhatsApp Business number'), { code: 'not_business' });
+        if (!CATALOG_WRITE_DOC_ID()) throw Object.assign(new Error('catalog writes are not configured'), { code: 'catalog_failed' });
+        const images = await this.#catalogImages(product.images);
+        try {
+            return holderOf(await catalogGraphql(this.catalogFetch, CATALOG_WRITE_DOC_ID(), {
+                product_catalog: { ...BaileysTransport.catalogWriteFields({ ...product, images }), biz_jid: ownJid(this.sock) },
+            }), 'product_catalog')?.product_catalog;
+        } catch (err) {
+            const reason = waReason(err);
+            throw Object.assign(new Error(catalogRefusal(reason)), { code: 'catalog_failed', data: reason.code });
+        }
+    }
+
+    /** Update one catalog product by id. Returns WhatsApp's answer. */
+    async updateProduct(id, product) {
+        if (!this.connected || !this.sock) throw Object.assign(new Error('WhatsApp is not connected'), { code: 'not_connected' });
+        if (accountTypeOf(this.sock) === 'personal') throw Object.assign(new Error('not a WhatsApp Business number'), { code: 'not_business' });
+        if (!CATALOG_WRITE_DOC_ID()) throw Object.assign(new Error('catalog writes are not configured'), { code: 'catalog_failed' });
+        const images = await this.#catalogImages(product.images);
+        try {
+            return holderOf(await catalogGraphql(this.catalogFetch, CATALOG_WRITE_DOC_ID(), {
+                product_catalog: { id: String(id), ...BaileysTransport.catalogWriteFields({ ...product, images }), biz_jid: ownJid(this.sock) },
+            }), 'product_catalog')?.product_catalog;
+        } catch (err) {
+            const reason = waReason(err);
+            throw Object.assign(new Error(catalogRefusal(reason)), { code: 'catalog_failed', data: reason.code });
+        }
+    }
+
+    /** Delete one catalog product by id. Returns WhatsApp's answer. */
+    async deleteProduct(id) {
+        if (!this.connected || !this.sock) throw Object.assign(new Error('WhatsApp is not connected'), { code: 'not_connected' });
+        if (accountTypeOf(this.sock) === 'personal') throw Object.assign(new Error('not a WhatsApp Business number'), { code: 'not_business' });
+        if (!CATALOG_DELETE_DOC_ID()) throw Object.assign(new Error('catalog deletes are not configured'), { code: 'catalog_failed' });
+        try {
+            return holderOf(await catalogGraphql(this.catalogFetch, CATALOG_DELETE_DOC_ID(), {
+                product_catalog: { id: String(id), biz_jid: ownJid(this.sock) },
+            }), 'product_catalog')?.product_catalog;
+        } catch (err) {
+            const reason = waReason(err);
+            throw Object.assign(new Error(catalogRefusal(reason)), { code: 'catalog_failed', data: reason.code });
+        }
+    }
+
     /** A catalog cart's lines and total (`sock.getOrderDetails`), or null when WhatsApp will not say. */
     async getOrderDetails(orderId, token) {
         if (!this.connected || typeof this.sock?.getOrderDetails !== 'function' || !orderId || !token) return null;
@@ -1308,6 +1389,10 @@ const CATALOG_URL = process.env.WHATSAPP_CATALOG_URL || 'https://graph.whatsapp.
 const CATALOG_TOKEN = process.env.WHATSAPP_CATALOG_TOKEN || 'WA|787118555984857|7bb1544a3599aa180ac9a3f7688ba243';
 const CATALOG_DOC_ID = process.env.WHATSAPP_CATALOG_DOC_ID || '30445081048424116';
 const COLLECTIONS_DOC_ID = process.env.WHATSAPP_COLLECTIONS_DOC_ID || '9430970660362540';
+/** WhatsApp's bundle ships its own doc ids for catalog writes; they differ from the read doc id and WhatsApp can
+ * change them, so each can be overridden without a release via env vars. Empty means "writes not configured". */
+const CATALOG_WRITE_DOC_ID = () => process.env.WHATSAPP_CATALOG_WRITE_DOC_ID || '';
+const CATALOG_DELETE_DOC_ID = () => process.env.WHATSAPP_CATALOG_DELETE_DOC_ID || '';
 /** The size is of the "requested" picture only; the original comes whatever is asked. */
 const CATALOG_REQUEST = {
     allow_shop_source: 'ALLOWSHOPSOURCE_TRUE', width: '800', height: '800', limit: '50',

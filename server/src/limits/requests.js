@@ -32,6 +32,7 @@ export const REQUESTABLE = Object.freeze({
     maxTemplates: 'Templates',
     messagesPerMonth: 'Messages per month',
     dailyLimit: 'Messages per day, per number',
+    sendSpeed: 'Sending speed, per number',
 });
 
 /** How long an increase lasts, in days; 0 = until changed. */
@@ -75,7 +76,8 @@ export class LimitRequests {
             if (seen.has(key)) throw new LimitRequestError(`${REQUESTABLE[key]} is asked for twice.`);
             seen.add(key);
             const value = Number(item?.value);
-            if (!Number.isInteger(value) || value < 1 || value > 1e9) {
+            // A speed is stored as a tenant limit (tenancy.js LIMIT_SPEC sendSpeed): one above its top would not save.
+            if (!Number.isInteger(value) || value < 1 || value > (key === 'sendSpeed' ? 250000 : 1e9)) {
                 throw new LimitRequestError(`Enter the ${REQUESTABLE[key].toLowerCase()} you need as a whole number.`);
             }
             const days = Number(item?.days);

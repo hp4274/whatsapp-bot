@@ -73,7 +73,7 @@ export const POSTS: readonly Post[] = [
       },
       {
         kind: 'p',
-        text: 'Send in the daytime, when people can read and answer. Wuzie holds bulk messages until it is daytime for each person on the list, so a campaign you schedule at night does not wake anyone.',
+        text: 'Send in the daytime, when people can read and answer. Wuzie sends at any hour, so schedule a campaign for the morning, or ask for sending hours to be set on your account, if you do not want messages going out at night.',
       },
       { kind: 'h2', text: 'Make it easy to say no' },
       {

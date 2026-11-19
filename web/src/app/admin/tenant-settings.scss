@@ -347,6 +347,40 @@ h4 { margin: 0; font-size: 14.5px; font-weight: 500; color: var(--text-strong); 
 .drawer.pushed { translate: calc(-1 * min(420px, 100vw)) 0; }
 
 // "The plan's quota / day" under a message limit box.
+// Sending speed under the limits: automatic, a preset or a typed one, and what the engine will do with it.
+.speed {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--surface-sunken);
+
+  p { margin: 0; line-height: 1.55; }
+  .pay-opts { background: var(--surface-card); }
+  .pay-opts { flex-wrap: wrap; }
+  .pay-opts button[aria-pressed='true'] { background: var(--primary-tint); color: var(--primary-text); font-weight: 600; }
+  .field { max-width: 280px; }
+}
+.speed-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13.5px;
+
+  .ti { color: var(--primary-text); }
+}
+.speed-note {
+  display: flex;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-strong);
+
+  .ti { flex: none; margin-top: 2px; color: var(--warning); }
+}
+
 .follow { display: flex; align-items: center; gap: 8px; margin-top: 2px; font-size: 12.5px; font-weight: 400; color: var(--text-muted); }
 
 // Only a switch: the box itself is not drawn, so the layout is the one without it.

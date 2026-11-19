@@ -19,6 +19,11 @@
         }
       </h2>
     </div>
+    @if (!detail() && !editingProduct()) {
+      <button type="button" class="btn" (click)="startAdd()">
+        <i class="ti ti-plus" aria-hidden="true"></i> Add product
+      </button>
+    }
     <button type="button" class="icon-btn" (click)="closed.emit()" aria-label="Close catalog">
       <i class="ti ti-x" aria-hidden="true"></i>
     </button>
@@ -66,9 +71,118 @@
           </button>
         </div>
       }
+      @if (writeError()) {
+        <div class="s-banner" role="alert">
+          <i class="ti ti-alert-circle" aria-hidden="true"></i>
+          <span class="grow">{{ writeError() }}</span>
+          <button type="button" class="btn sm" (click)="writeError.set('')">
+            <i class="ti ti-x" aria-hidden="true"></i>
+          </button>
+        </div>
+      }
 
       @let d = detail();
-      @if (d) {
+      @if (editingProduct(); as e) {
+        <!-- Add or edit one product in the catalog. -->
+        <form class="editor" (ngSubmit)="saveProduct()" aria-label="Catalog product">
+          <button type="button" class="btn back" (click)="cancelEdit()">
+            <i class="ti ti-arrow-left" aria-hidden="true"></i>All products
+          </button>
+          <h3>{{ e.id === null ? 'Add product' : 'Edit product' }}</h3>
+          <div class="row2">
+            <div class="s-field">
+              <label for="cp-name">Name <span class="req">*</span></label>
+              <input id="cp-name" name="name" required maxlength="100" [ngModel]="e.draft.name" (ngModelChange)="patchDraft({ name: $event })" />
+            </div>
+            <div class="s-field">
+              <label for="cp-price">Price <span class="req">*</span></label>
+              <input id="cp-price" name="price" type="number" min="0" step="any" [ngModel]="e.draft.price" (ngModelChange)="patchDraft({ price: +$event })" />
+              <span class="hint">in {{ e.draft.currency }}</span>
+            </div>
+          </div>
+          <div class="row2">
+            <div class="s-field">
+              <label for="cp-currency">Currency</label>
+              <input id="cp-currency" name="currency" maxlength="3" [ngModel]="e.draft.currency" (ngModelChange)="patchDraft({ currency: $event.toUpperCase() })" />
+            </div>
+            <div class="s-field">
+              <label for="cp-availability">Availability</label>
+              <input id="cp-availability" name="availability" maxlength="40" placeholder="in stock" [ngModel]="e.draft.availability" (ngModelChange)="patchDraft({ availability: $event })" />
+            </div>
+          </div>
+          <div class="s-field">
+            <label for="cp-description">Description <span class="opt">optional</span></label>
+            <textarea id="cp-description" name="description" rows="3" maxlength="500" placeholder="What it is, size, material..." [ngModel]="e.draft.description" (ngModelChange)="patchDraft({ description: $event })"></textarea>
+          </div>
+          <fieldset class="pics">
+            <legend>Pictures <span class="opt">up to {{ maxImages }}, JPG or PNG - the first is the cover</span></legend>
+            <ul class="thumbs">
+              @for (entry of e.draft.images; track entry; let i = $index, first = $first, last = $last) {
+                <li [class.cover]="first">
+                  <img [mediaSrc]="pictureSrc(entry)" [alt]="(e.draft.name || 'Product') + ', picture ' + (i + 1)" width="88" height="88" />
+                  @if (first) { <span class="tag">Cover</span> }
+                  <div class="thumb-actions">
+                    <button type="button" class="btn sm icon ghost" [disabled]="first" [attr.aria-label]="'Move picture ' + (i + 1) + ' left'" (click)="moveImage(i, -1)">
+                      <i class="ti ti-chevron-left" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" class="btn sm icon ghost" [attr.aria-label]="'Remove picture ' + (i + 1)" (click)="dropImage(i)">
+                      <i class="ti ti-trash" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" class="btn sm icon ghost" [disabled]="last" [attr.aria-label]="'Move picture ' + (i + 1) + ' right'" (click)="moveImage(i, 1)">
+                      <i class="ti ti-chevron-right" aria-hidden="true"></i>
+                    </button>
+                  </div>
+                </li>
+              }
+              @if (uploadingImages()) {
+                <li class="pending" role="status"><span>Uploading {{ uploadingImages() }}...</span></li>
+              }
+              @if (e.draft.images.length + uploadingImages() < maxImages) {
+                <li>
+                  <label class="add-pic">
+                    <i class="ti ti-photo-plus" aria-hidden="true"></i>
+                    <span>Add picture</span>
+                    <input type="file" accept="image/png,image/jpeg" multiple class="sr-only" (change)="addImages($event)" />
+                  </label>
+                </li>
+              }
+            </ul>
+          </fieldset>
+          <div class="row2">
+            <div class="s-field">
+              <label for="cp-url">Product link <span class="opt">optional</span></label>
+              <input id="cp-url" name="url" type="url" maxlength="200" placeholder="https://..." [ngModel]="e.draft.url" (ngModelChange)="patchDraft({ url: $event })" />
+            </div>
+            <div class="s-field">
+              <label for="cp-retailer">SKU / retailer id <span class="opt">optional</span></label>
+              <input id="cp-retailer" name="retailerId" maxlength="40" placeholder="BR-101" [ngModel]="e.draft.retailerId" (ngModelChange)="patchDraft({ retailerId: $event })" />
+            </div>
+          </div>
+          <div class="row2">
+            <div class="s-field">
+              <label for="cp-sale">Sale price <span class="opt">optional</span></label>
+              <input id="cp-sale" name="salePrice" type="number" min="0" step="any" [ngModel]="e.draft.salePrice" (ngModelChange)="patchDraft({ salePrice: +$event })" />
+            </div>
+            <div class="s-field check">
+              <label>
+                <input type="checkbox" name="hidden" [ngModel]="e.draft.hidden" (ngModelChange)="patchDraft({ hidden: $event })" />
+                Hide from customers
+              </label>
+            </div>
+          </div>
+          <div class="actions">
+            <button type="button" class="btn" (click)="cancelEdit()">Cancel</button>
+            @if (e.id) {
+              <button type="button" class="btn ghost" (click)="deleteProduct(e.id)">
+                <i class="ti ti-trash" aria-hidden="true"></i> Delete
+              </button>
+            }
+            <button type="submit" class="btn primary" [disabled]="savingProduct() || uploadingImages() > 0 || !e.draft.name.trim()">
+              {{ savingProduct() ? 'Saving…' : e.id === null ? 'Add' : 'Save' }}
+            </button>
+          </div>
+        </form>
+      } @else if (d) {
         <!-- One product in full. -->
         <article class="detail" aria-labelledby="detail-name">
           <button type="button" class="btn back" (click)="back()">
@@ -224,6 +338,12 @@
                 {{ picked().has(d.id) ? 'Picked for my Orders list' : 'Pick for my Orders list' }}
               </button>
             }
+            <button type="button" class="btn ghost" (click)="startEdit(d)">
+              <i class="ti ti-pencil" aria-hidden="true"></i> Edit in this catalog
+            </button>
+            <button type="button" class="btn ghost" (click)="deleteProduct(d.id)">
+              <i class="ti ti-trash" aria-hidden="true"></i> Delete from this catalog
+            </button>
           </div>
         </article>
       } @else if (catalog(); as c) {
@@ -442,7 +562,7 @@
     }
   </div>
 
-  @if (catalog()?.products?.length) {
+  @if (catalog()?.products?.length && !editingProduct()) {
     <footer class="drawer-foot">
       @if (ordersOff()) {
         <p class="note"><i class="ti ti-info-circle" aria-hidden="true"></i>Your business has no Orders service, so products can't be added to an Orders list.</p>

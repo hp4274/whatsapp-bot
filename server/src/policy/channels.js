@@ -28,10 +28,6 @@ export const CHANNEL_POLICY = Object.freeze([
       label: 'Daily limit per number', hint: 'QR numbers climb their sending levels up to this, never above. Applies to every number at once.' },
 
     // ---------------------------------------------- safety for new numbers --
-    { key: 'channels.minGapSeconds', scopes: ['global','plan'], service: S, group: 'Safety defaults for new numbers', type: 'int', default: 0, min: 0, max: 3600,
-      label: 'Minimum gap between messages (s)', hint: '0 = adaptive: the gap grows with the size of the send.' },
-    { key: 'channels.maxGapSeconds', scopes: ['global','plan'], service: S, group: 'Safety defaults for new numbers', type: 'int', default: 0, min: 0, max: 3600,
-      label: 'Maximum gap between messages (s)', hint: '0 = adaptive.' },
     { key: 'channels.retryLimit', scopes: ['global','plan'], service: S, group: 'Safety defaults for new numbers', type: 'int', default: 3, min: 0, max: 10,
       label: 'Retry limit', hint: 'Attempts after the first for a retryable failure.' },
 

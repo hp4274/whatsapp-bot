@@ -37,7 +37,6 @@ const DEFAULT_SERVICES: readonly string[] = [
   'contacts',
   'templates',
   'auto_replies',
-  'bulk_messages',
   'campaigns',
   'otp',
   'catalog',

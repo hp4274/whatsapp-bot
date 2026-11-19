@@ -283,7 +283,7 @@ describe('tenant lifecycle', () => {
             controls: { sendingEnabled: false },
         });
         assert.equal(updated.status, 200);
-        assert.ok(updated.body.tenant.services.includes('bulk_messages'));
+        assert.deepEqual(updated.body.tenant.services, ['contacts', 'campaigns'], 'the old bulk service is saved as Campaigns');
         const blockedSend = await call(token, 'POST', '/api/messages', { recipient: '+919876543210', message: 'x' });
         assert.equal(blockedSend.status, 403);
         assert.match(blockedSend.body.errors[0], /sending is disabled/);

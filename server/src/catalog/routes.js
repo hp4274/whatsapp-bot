@@ -159,9 +159,48 @@ async function saveImage(state, productId, index) {
     }
 }
 
+/** Pictures per catalog product: WhatsApp's own limit. */
+const MAX_CATALOG_IMAGES = 10;
+
+/**
+ * The pictures of a product being saved, for the transport: `{ path }` for a newly uploaded JPG or PNG (a media
+ * id), `{ url }` for one the product already has (its catalog picture path, which carries its index `i`).
+ * Undefined when the request names no pictures: WhatsApp then keeps what the product has.
+ */
+async function writeImages(state, list, productId = null) {
+    if (!Array.isArray(list)) return undefined;
+    if (list.length > MAX_CATALOG_IMAGES) throw new CatalogError(400, 'catalog_failed', `A catalog product can have up to ${MAX_CATALOG_IMAGES} pictures.`);
+    const product = productId ? (await loadCatalog(state)).products.find((p) => String(p.id) === String(productId)) : null;
+    const current = product ? imageUrlsOf(product) : [];
+    return list.map((entry) => {
+        const kept = /[?&]i=(\d+)/.exec(String(entry));
+        if (kept) {
+            const url = current[Number(kept[1])]?.[0];
+            if (!url) throw new CatalogError(400, 'catalog_failed', 'A picture is no longer in the catalog. Refresh and try again.');
+            return { url };
+        }
+        const media = state.media?.get(String(entry));
+        if (!media || !IMAGE_EXT[media.mimetype]) throw new CatalogError(400, 'catalog_failed', 'A picture must be an uploaded JPG or PNG.');
+        return { path: media.filePath };
+    });
+}
+
+/** What the transport said about a failed save, as an answer the drawer can show. */
+function writeError(err) {
+    if (err instanceof CatalogError || typeof err?.code !== 'string') return err;
+    if (err.code === 'not_connected') return new CatalogError(409, 'not_connected', 'This number is offline. Connect it and try again.');
+    if (err.code === 'not_business') return new CatalogError(409, 'not_business', NOT_BUSINESS);
+    if (/not configured/.test(err.message)) {
+        return new CatalogError(501, 'catalog_failed',
+            'Saving to the WhatsApp catalog is not set up on this server yet. Until it is, change the catalog in the WhatsApp Business app.');
+    }
+    return new CatalogError(502, 'catalog_failed', err.message);
+}
+
 export function createCatalogRouter({ channels, runtimes }) {
     const app = express.Router();
-    const fail = (res, err) => {
+    const fail = (res, error) => {
+        const err = writeError(error);
         if (err instanceof CatalogError) return res.status(err.status).json({ errors: [err.message], code: err.code });
         throw err;
     };
@@ -235,6 +274,81 @@ export function createCatalogRouter({ channels, runtimes }) {
             skipped += [...ids].filter((id) => !products.some((p) => String(p.id) === id)).length;
             if (created) state.broadcast?.({ type: 'changed', topic: 'shop' });
             res.json({ created, skipped });
+        } catch (err) {
+            fail(res, err);
+        }
+    });
+
+    /** Create, update or delete one product in this number's WhatsApp catalog. */
+    app.post('/channels/:id/catalog/products', async (req, res) => {
+        try {
+            const state = stateOf(req);
+            if (state.tenancy && !services(state).includes('catalog')) {
+                throw new CatalogError(403, 'catalog_disabled', 'WhatsApp Catalog is not switched on for your account. Ask your provider to turn it on.');
+            }
+            if (state.platformPolicy?.()['channels.allowCatalog'] === false) {
+                throw new CatalogError(403, 'catalog_disabled', 'The WhatsApp catalog is switched off on this platform.');
+            }
+            if (state.info?.accountType === 'personal' || typeof state.transport.catalog !== 'function') {
+                throw new CatalogError(409, 'not_business', NOT_BUSINESS);
+            }
+            const product = await state.transport.createProduct({ ...req.body, images: await writeImages(state, req.body?.images) });
+            state.catalogCache = null;
+            state.broadcast?.({ type: 'changed', topic: 'catalog' });
+            res.status(201).json({
+                id: String(product.id ?? ''), name: String(product.name ?? ''),
+                description: String(product.description ?? ''), price: major(product.price),
+                salePrice: product.salePrice ? major(product.salePrice) : null,
+                currency: String(product.currency ?? ''),
+            });
+        } catch (err) {
+            fail(res, err);
+        }
+    });
+
+    app.put('/channels/:id/catalog/products/:productId', async (req, res) => {
+        try {
+            const state = stateOf(req);
+            if (state.tenancy && !services(state).includes('catalog')) {
+                throw new CatalogError(403, 'catalog_disabled', 'WhatsApp Catalog is not switched on for your account. Ask your provider to turn it on.');
+            }
+            if (state.platformPolicy?.()['channels.allowCatalog'] === false) {
+                throw new CatalogError(403, 'catalog_disabled', 'The WhatsApp catalog is switched off on this platform.');
+            }
+            if (state.info?.accountType === 'personal' || typeof state.transport.catalog !== 'function') {
+                throw new CatalogError(409, 'not_business', NOT_BUSINESS);
+            }
+            const product = await state.transport.updateProduct(req.params.productId,
+                { ...req.body, images: await writeImages(state, req.body?.images, req.params.productId) });
+            state.catalogCache = null;
+            state.broadcast?.({ type: 'changed', topic: 'catalog' });
+            res.json({
+                id: String(product.id ?? ''), name: String(product.name ?? ''),
+                description: String(product.description ?? ''), price: major(product.price),
+                salePrice: product.salePrice ? major(product.salePrice) : null,
+                currency: String(product.currency ?? ''),
+            });
+        } catch (err) {
+            fail(res, err);
+        }
+    });
+
+    app.delete('/channels/:id/catalog/products/:productId', async (req, res) => {
+        try {
+            const state = stateOf(req);
+            if (state.tenancy && !services(state).includes('catalog')) {
+                throw new CatalogError(403, 'catalog_disabled', 'WhatsApp Catalog is not switched on for your account. Ask your provider to turn it on.');
+            }
+            if (state.platformPolicy?.()['channels.allowCatalog'] === false) {
+                throw new CatalogError(403, 'catalog_disabled', 'The WhatsApp catalog is switched off on this platform.');
+            }
+            if (state.info?.accountType === 'personal' || typeof state.transport.catalog !== 'function') {
+                throw new CatalogError(409, 'not_business', NOT_BUSINESS);
+            }
+            await state.transport.deleteProduct(req.params.productId);
+            state.catalogCache = null;
+            state.broadcast?.({ type: 'changed', topic: 'catalog' });
+            res.status(204).end();
         } catch (err) {
             fail(res, err);
         }

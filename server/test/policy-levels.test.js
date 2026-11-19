@@ -13,7 +13,7 @@ import { after, before, describe, it } from 'node:test';
 import { closeApp } from '../src/app.js';
 import { BillingStore } from '../src/billing/store.js';
 import { BRAKES, LEVELS, levelFor } from '../src/campaign/humanize.js';
-import { DEFAULT_SENDING, DailyQuota, estimateSeconds, paceFor } from '../src/campaign/safety.js';
+import { DEFAULT_SENDING, DailyQuota, estimateSeconds, paceFor, sendingHours, speedRow, trustOf } from '../src/campaign/safety.js';
 import { Channels } from '../src/channels.js';
 import { DEFAULTS, TRANSPORT_BAILEYS, TRANSPORT_SANDBOX } from '../src/config.js';
 import { Database } from '../src/db.js';
@@ -86,28 +86,17 @@ describe('table policy fields', () => {
         const store = new PolicyStore(db);
         const rows = copy(LEVELS);
         rows[1].dailyLimit = 3;
-        store.set('tenant:1', { 'sending.levels': rows, 'sending.daytimeFrom': 8 });
+        store.set('tenant:1', { 'sending.levels': rows, 'sending.replyMinPercent': 9 });
         const tables = sendingTables(store.resolve(1).values);
         assert.equal(tables.levels[1].dailyLimit, 3);
-        assert.equal(tables.brakes.daytimeFrom, 8);
+        assert.equal(tables.brakes.replyMinPercent, 9);
         assert.deepEqual(sendingTables(store.resolve(2).values).levels, LEVELS);
     });
 
-    it('refuses a backwards daytime window against the scope, a 0% pause and a fuzzy bool cell', () => {
+    it('has no recipient daytime rule any more; refuses a 0% pause and a fuzzy bool cell', () => {
         const store = new PolicyStore(freshDb('x.db'));
-        assert.throws(() => store.set('global', { 'sending.daytimeFrom': 21 }), /start before it ends/);
-        store.set('global', { 'sending.daytimeTo': 23 });
-        assert.throws(() => store.set('global', { 'sending.daytimeFrom': 23 }), /start before it ends/);
-        store.set('global', { 'sending.daytimeFrom': 22 });
-        assert.throws(() => store.set('global', { 'sending.daytimeTo': null }), /start before it ends/, 'reset to 21 would run backwards');
+        assert.throws(() => store.set('global', { 'sending.daytimeFrom': 21 }), /unknown policy field/);
         assert.throws(() => store.set('global', { 'sending.blockPausePercent': 0 }), /between 1 and 100/);
-        // Checked over the layers beneath, not built-in defaults.
-        store.set('global', { 'sending.daytimeFrom': null, 'sending.daytimeTo': 24 });
-        store.set('plan:pro', { 'sending.daytimeFrom': 22 });
-        store.set('tenant:7', { 'sending.daytimeFrom': 22 });
-        store.set('global', { 'sending.daytimeTo': 18 });
-        assert.throws(() => store.set('tenant:9', { 'sending.daytimeFrom': 19 }), /start before it ends/);
-        assert.throws(() => store.set('tenant:9', { 'sending.daytimeTo': 8 }), /start before it ends/);
         const rows = copy(LEVELS);
         for (const [v, want] of [[true, true], ['false', false], ['1', true], ['0', false]]) {
             rows[2].media = v;
@@ -312,8 +301,8 @@ describe('the ladder to 1000 a day', () => {
         assert.equal(cleanValue(field('sending.levels'), copy(LEVELS)).length, 12, 'the built-in table passes its own checks');
     });
 
-    it('a full day of levels 9-11 fits the 12-hour recipient daytime', () => {
-        const daytime = (BRAKES.daytimeTo - BRAKES.daytimeFrom) * 3600;
+    it('a full day of levels 9-11 fits in 12 hours', () => {
+        const daytime = 12 * 3600;
         for (const row of LEVELS.slice(9)) {
             // Typical gaps and rests, and the average day multiplier (0.8-1.3).
             const pace = paceFor(row.dailyLimit, {}, 'balanced', row);
@@ -415,6 +404,94 @@ describe('the ladder to 1000 a day', () => {
         // A business's own day is its anti-ban safety (enforced dailyLimit), not a tenant-scope rule.
         assert.throws(() => store.set('tenant:2', { 'channels.dailyCap': 300 }), /is not set here/);
         assert.equal(quotaFor(TOP, store.resolve(2).values, { ...qr, dailyLimit: 300 }).limitOn(), 300, 'the business’s own day wins over the plan');
+    });
+
+    it("a business's own day sets its own spacing: fast enough to reach the day, never under the 2-5 s floor", () => {
+        const top = LEVELS.at(-1);
+        // a day the top level already reaches keeps the top level's spacing
+        // (bulk goes out round the clock, so a day is 24 hours of sending)
+        assert.deepEqual(speedRow(top, 2000), { ...top, reachable: 2251 });
+        // a bigger day: tighter random gaps, short rests kept, an hour cap with room, and the day fits
+        const fast = speedRow(top, 5000);
+        assert.ok(fast.minSeconds < fast.maxSeconds && fast.maxSeconds < top.maxSeconds, 'random, and faster');
+        assert.ok(fast.restEvery > 0 && fast.restMinMinutes >= 1, 'the rests stay');
+        assert.ok(fast.reachable >= 5000 && fast.perHour * 24 >= 5000);
+        // beyond the floor: the fastest spacing, and what one number can really do
+        const most = speedRow(top, 250000);
+        assert.deepEqual([most.minSeconds >= 2, most.maxSeconds], [true, 5]);
+        assert.ok(most.reachable < 250000);
+        assert.deepEqual(speedRow(top, Infinity), most, 'no limit is the fastest spacing');
+
+        // the engine paces by it: the row, the hour budget, and safety off too
+        const own = { 'sending.ownDay': true, 'channels.dailyCap': null };
+        const quota = quotaFor(TOP, own, { ...qr, dailyLimit: 5000 });
+        assert.deepEqual([quota.tier().minSeconds, quota.tier().maxSeconds], [fast.minSeconds, fast.maxSeconds]);
+        assert.equal(quota.allowance().budgets.hour.limit, fast.perHour);
+        assert.equal(quota.limitOn(), 5000);
+        assert.equal(quotaFor(TOP, own, { ...qr, dailyLimit: 5000, safetyEnabled: false }).tier().maxSeconds, fast.maxSeconds);
+        // without an own day nothing changes
+        assert.equal(quotaFor(TOP, ENTERPRISE).tier().maxSeconds, top.maxSeconds);
+
+        // one control: a speed preset and an anti-ban gap slow neither an own speed nor a level (5,000 a day ran at 861)
+        const gapped = { ...DEFAULTS, minDelaySeconds: 20, maxDelaySeconds: 40 };
+        for (const row of [most, top]) {
+            const paced = paceFor(0, gapped, 'safe', row);
+            assert.deepEqual([paced.minSeconds, paced.maxSeconds, paced.preset], [row.minSeconds, row.maxSeconds, 'balanced']);
+        }
+        // the business's own sending window: the same day in fewer hours needs tighter gaps, and fewer fit
+        const short = { 'sending.ownDay': true, 'channels.dailyCap': null, 'bulk.windowEnabled': true, 'bulk.windowStart': '10:00', 'bulk.windowEnd': '16:00' };
+        assert.equal(sendingTables(short).bulkWindow.end, '16:00');
+        assert.deepEqual([sendingHours(), sendingHours({ start: '10:00', end: '16:00' }), sendingHours({ start: '21:00', end: '06:00' })], [24, 6, 9]);
+        const sixHours = quotaFor(TOP, short, { ...qr, dailyLimit: 5000 }).tier();
+        assert.ok(sixHours.maxSeconds < fast.maxSeconds);
+        assert.ok(speedRow(top, Infinity, 6).reachable < most.reachable);
+    });
+
+    it("a business's own speed is apart from its messages per day: it spaces every level and changes no limit", () => {
+        const top = LEVELS.at(-1);
+        // slower than the level too: 250 a day is a message every few minutes, where the day alone kept the top's gaps
+        const slow = speedRow(top, 250, 24, true);
+        assert.ok(slow.minSeconds > top.maxSeconds && slow.reachable < 400, JSON.stringify(slow));
+        assert.deepEqual(speedRow(top, 250), { ...top, reachable: 2251 }, 'automatic: unchanged');
+        // an own day of 5,000 at a speed of 1,000: the limit stays 5,000, the spacing is the speed's
+        const own = { 'sending.ownDay': true, 'channels.dailyCap': null };
+        const paced = speedRow(top, 1000, 24, true);
+        const quota = quotaFor(TOP, { ...own, 'sending.speed': 1000 }, { ...qr, dailyLimit: 5000 });
+        assert.equal(quota.limitOn(), 5000);
+        assert.deepEqual([quota.tier().minSeconds, quota.tier().maxSeconds], [paced.minSeconds, paced.maxSeconds]);
+        assert.equal(quota.allowance().budgets.hour.limit, paced.perHour);
+        // and the other way: a fast speed does not raise a small day, on a warm-up level either
+        const fast = speedRow(top, 5000, 24, true);
+        const small = quotaFor(TOP, { ...own, 'sending.speed': 5000 }, { ...qr, dailyLimit: 300 });
+        assert.deepEqual([small.limitOn(), small.tier().maxSeconds], [300, fast.maxSeconds]);
+        const warming = quotaFor(TOP, { ...ENTERPRISE, 'sending.speed': 5000 });
+        assert.equal(warming.limitOn(), quotaFor(TOP, ENTERPRISE).limitOn(), "the plan's day, untouched");
+        assert.equal(warming.tier().maxSeconds, fast.maxSeconds);
+        // no speed (0, blank): as before
+        assert.equal(sendingTables({ 'sending.speed': 0 }).speed, null);
+    });
+
+    it("a number's answers are a trust score, and a business's own day is that share of it", () => {
+        assert.deepEqual([2, 5, 8].map((level) => trustOf(level).score), [20, 60, 100]);
+        const own = { 'sending.ownDay': true, 'channels.dailyCap': null };
+        const config = { ...qr, dailyLimit: 5000 };
+        const withStart = (start) => applySendingPolicy(
+            new DailyQuota({ sendingLedger: () => ({ bulkToday: 0, lastHour: 0, newChatsToday: 0, ...TOP }) }, config), own, null, () => start);
+        const at = new Date().toISOString();
+        // never answered, or skipped: the whole day, as before
+        assert.equal(withStart(null).limitOn(), 5000);
+        assert.equal(withStart({ level: 8, answers: { skipped: true }, at }).limitOn(), 5000);
+        assert.equal(withStart(null).allowance().trust, null);
+        // answered: high trust the whole day, low trust a fifth of it, and the spacing slows to match
+        const high = withStart({ level: 8, answers: { age: 3, usage: 3, audience: 3, banned: 2 }, at });
+        const low = withStart({ level: 2, answers: { age: 0, usage: 0, audience: 0, banned: 0 }, at });
+        assert.deepEqual([high.limitOn(), low.limitOn()], [5000, 1000]);
+        assert.deepEqual([high.allowance().trust, low.allowance().trust], [{ score: 100, full: 5000 }, { score: 20, full: 5000 }]);
+        assert.ok(low.tier().maxSeconds > high.tier().maxSeconds, 'a fifth of the day goes out slower');
+        assert.equal(low.status().ceiling, 1000);
+        // a number on its plan's day gets the score too; its limit stays its level's
+        const planned = applySendingPolicy(new DailyQuota({ sendingLedger: () => ({ bulkToday: 0, lastHour: 0, newChatsToday: 0, ...TOP }) }, qr), ENTERPRISE, null, () => ({ level: 5, answers: { age: 2, usage: 2 }, at }));
+        assert.deepEqual(planned.allowance().trust, { score: 60, full: null });
     });
 
     it('runs a levels table saved with the old row count as saved, held at its old top, and reports it', () => {

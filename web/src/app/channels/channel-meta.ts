@@ -115,6 +115,33 @@ export function timeZones(current?: string): string[] {
 
 export const localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
+/** Old IANA names browsers still report (Chrome says Asia/Calcutta for India), under the city's name today. */
+const RENAMED: Readonly<Record<string, string>> = {
+  'Asia/Calcutta': 'Asia/Kolkata',
+  'Asia/Katmandu': 'Asia/Kathmandu',
+  'Asia/Rangoon': 'Asia/Yangon',
+  'Asia/Saigon': 'Asia/Ho_Chi_Minh',
+  'Asia/Dacca': 'Asia/Dhaka',
+  'Europe/Kiev': 'Europe/Kyiv',
+  'America/Buenos_Aires': 'America/Argentina/Buenos_Aires',
+};
+
+/**
+ * A zone as people know it: "Asia/Kolkata (GMT+5:30)". The stored value stays what the browser gave (both names
+ * mean the same zone to the server); only what is shown changes. The offset is today's, so it follows daylight saving.
+ */
+export function zoneLabel(zone: string, at = new Date()): string {
+  const name = (RENAMED[zone] ?? zone).split('_').join(' ');
+  try {
+    const offset = new Intl.DateTimeFormat('en-GB', { timeZone: zone, timeZoneName: 'shortOffset' })
+      .formatToParts(at)
+      .find((p) => p.type === 'timeZoneName')?.value;
+    return offset ? `${name} (${offset === 'GMT' ? 'GMT+0' : offset})` : name;
+  } catch {
+    return name;
+  }
+}
+
 /** The weekday and HH:MM it is right now in `zone`. */
 export function nowIn(
   zone: string,

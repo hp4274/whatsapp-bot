@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { type Observable, catchError, throwError } from 'rxjs';
 
 /** The limits a business can ask more of (server limits/requests.js REQUESTABLE). */
-export type LimitKey = 'maxChannels' | 'maxUsers' | 'maxTemplates' | 'messagesPerMonth' | 'dailyLimit';
+export type LimitKey = 'maxChannels' | 'maxUsers' | 'maxTemplates' | 'messagesPerMonth' | 'dailyLimit' | 'sendSpeed';
 
 export interface LimitAskItem {
   readonly key: LimitKey;
@@ -31,7 +31,7 @@ export interface LimitRequest {
 export interface RequestableLimit {
   readonly key: LimitKey;
   readonly label: string;
-  /** null = no limit; 'plan' = follows the plan; for dailyLimit 0 = the plan's day. */
+  /** null = no limit (sendSpeed: automatic); 'plan' = follows the plan; for dailyLimit 0 = the plan's day. */
   readonly now: number | 'plan' | null;
 }
 

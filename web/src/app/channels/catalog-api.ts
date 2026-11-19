@@ -66,9 +66,53 @@ export interface Catalog {
   readonly fetchedAt: string;
 }
 
-type Loose<T> = { readonly [K in keyof T]?: T[K] | null };
+/** What the server sends back for a created/updated product: same shape as a catalog product. */
+export function toCatalogProduct(raw: any): CatalogProduct {
+  return {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    description: String(raw.description ?? ''),
+    price: Number(raw.price ?? 0),
+    salePrice: raw.salePrice ?? null,
+    currency: String(raw.currency ?? ''),
+    image: raw.image ?? null,
+    images: Array.isArray(raw.images) ? raw.images : (raw.image ? [raw.image] : []),
+    url: String(raw.url ?? ''),
+    retailerId: String(raw.retailerId ?? ''),
+    hidden: Boolean(raw.hidden),
+    status: String(raw.status ?? ''),
+    canAppeal: Boolean(raw.canAppeal),
+    availability: String(raw.availability ?? ''),
+    collectionIds: Array.isArray(raw.collectionIds) ? raw.collectionIds : [],
+  };
+}
+
+/** The fields the owner can set when creating or editing a catalog product. Price is in major units (rupees). */
+export interface CatalogProductInput {
+  readonly name: string;
+  readonly description: string;
+  /** In the currency's main unit (e.g. rupees, not paise). */
+  readonly price: number;
+  readonly currency: string;
+  readonly url: string;
+  readonly retailerId: string;
+  readonly availability: string;
+  readonly hidden: boolean;
+  /** What the customer pays while the product is on sale; leave 0 for no sale. */
+  readonly salePrice: number;
+  /**
+   * The product's pictures in order, the first its cover: an uploaded picture's media id, or the `/api/...` path of
+   * one the product already has (kept as it is).
+   */
+  readonly images: readonly string[];
+}
+
+/** Pictures per catalog product: WhatsApp's own limit (server catalog/routes.js MAX_CATALOG_IMAGES). */
+export const MAX_CATALOG_IMAGES = 10;
 
 /** What the route may really send: any field can be missing. */
+type Loose<T> = { readonly [K in keyof T]?: T[K] | null };
+
 export type RawCatalog = Loose<Omit<Catalog, 'products' | 'collections' | 'business'>> & {
   readonly business?: Loose<CatalogBusiness> | null;
   readonly products?: readonly Loose<CatalogProduct>[] | null;
@@ -176,6 +220,34 @@ export class CatalogApi {
   import(channelId: number, ids: readonly string[]): Observable<{ created: number; skipped: number }> {
     return this.http
       .post<{ created: number; skipped: number }>(`/api/channels/${channelId}/catalog/import`, { ids })
+      .pipe(catchError(toCatalogError));
+  }
+
+  /** Create one product in this number's WhatsApp catalog. */
+  createProduct(channelId: number, product: CatalogProductInput): Observable<CatalogProduct> {
+    return this.http
+      .post<CatalogProduct>(`/api/channels/${channelId}/catalog/products`, product)
+      .pipe(map(toCatalogProduct), catchError(toCatalogError));
+  }
+
+  /** Update one catalog product by id. */
+  updateProduct(channelId: number, id: string, product: CatalogProductInput): Observable<CatalogProduct> {
+    return this.http
+      .put<CatalogProduct>(`/api/channels/${channelId}/catalog/products/${id}`, product)
+      .pipe(map(toCatalogProduct), catchError(toCatalogError));
+  }
+
+  /** A picture for a product: the file becomes a media id the save names. */
+  upload(file: File): Observable<{ mediaId: string }> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http.post<{ mediaId: string }>('/api/media/upload', form).pipe(catchError(toCatalogError));
+  }
+
+  /** Delete one catalog product by id. */
+  deleteProduct(channelId: number, id: string): Observable<{ deleted: boolean }> {
+    return this.http
+      .delete<{ deleted: boolean }>(`/api/channels/${channelId}/catalog/products/${id}`)
       .pipe(catchError(toCatalogError));
   }
 }

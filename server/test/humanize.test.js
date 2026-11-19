@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-    contactZone, contentError, dayPlan, isDaytimeFor, seeded, shuffle, typingMs, zoneOf,
+    contactZone, contentError, dayPlan, seeded, shuffle, typingMs, zoneOf,
 } from '../src/campaign/humanize.js';
 import { MessageQueue, queueItem } from '../src/campaign/queue.js';
 
@@ -36,31 +36,14 @@ describe('typing and order', () => {
 });
 
 describe('recipient local time', () => {
-    it('maps a number to its zone and checks 9-21 there', () => {
+    it('maps a number to its zone, and a contact\'s own timezone field is checked', () => {
         assert.equal(zoneOf('919876543210'), 'Asia/Kolkata');
         assert.equal(zoneOf('4420712345678'), 'Europe/London');
         assert.equal(zoneOf('0000'), null);
-        const noonUtc = new Date('2026-06-01T06:30:00Z');   // 12:00 in India, 07:30 in London
-        assert.ok(isDaytimeFor('919876543210', noonUtc));
-        assert.ok(!isDaytimeFor('447207123456', noonUtc));
-        // US spans coasts: 07:00 in London is 02:00 in New York, so it waits; 18:30 UTC is 14:30 / 11:30 there.
-        assert.ok(!isDaytimeFor('12125550100', new Date('2026-06-01T07:00:00Z')));
-        assert.ok(isDaytimeFor('12125550100', new Date('2026-06-01T18:30:00Z')));
-        assert.ok(!isDaytimeFor('12125550100', new Date('2026-06-01T14:00:00Z')), '07:00 in Los Angeles is too early');
-        assert.ok(isDaytimeFor('0000', noonUtc), 'unknown country is never held');
-    });
-
-    it('uses a contact\'s own timezone field over the country code, and ignores a bad one', () => {
-        const at = new Date('2026-06-01T14:00:00Z'); // 10:00 in New York, 07:00 in Los Angeles
-        assert.ok(!isDaytimeFor('12125550100', at), 'the country code waits for the west coast');
         assert.equal(contactZone({ timezone: ' America/New_York ' }), 'America/New_York');
-        assert.ok(isDaytimeFor('12125550100', at, { zone: contactZone({ timezone: 'America/New_York' }) }));
-        // 23:30 in India, 14:00 in New York: an Indian number living in New York is messaged now.
-        assert.ok(isDaytimeFor('919876543210', new Date('2026-06-01T18:00:00Z'), { zone: 'America/New_York' }));
         assert.equal(contactZone({ timezone: 'Mars/Olympus' }), null);
         assert.equal(contactZone({}), null);
         assert.equal(contactZone(null), null);
-        assert.ok(!isDaytimeFor('12125550100', at, { zone: contactZone({ timezone: 'Mars/Olympus' }) }), 'a bad zone falls back');
     });
 });
 
@@ -161,49 +144,15 @@ describe('campaign manager', () => {
         fs.rmSync(tmp, { recursive: true, force: true });
     });
 
-    it('holds a number whose local time is night and sends the rest first', async () => {
-        // Pick one country that is in its day and one in its night right now.
-        const day = ['91', '44', '81', '1', '61', '55'].find((cc) => isDaytimeFor(`${cc}9855550001`));
-        const night = ['91', '44', '81', '1', '61', '55'].find((cc) => !isDaytimeFor(`${cc}9855550001`));
-        if (!day || !night) return;   // the clock put every sample zone in daylight
-        const contacts = [
-            { name: 'Night', phone: `${night}9855550001` },
-            { name: 'Day', phone: `${day}9855550002` },
-        ];
-        const { sent, result } = await run(contacts, { config: { humanTiming: true }, waitFor: 1 });
-        assert.equal(result.queued, 2);
-        assert.deepEqual(sent.map((s) => s.to), [`${day}9855550002`], 'night number waits for its morning');
-    });
-
-    it('holds only campaigns at night off QR numbers: a school reminder goes now', async () => {
-        const night = ['91', '44', '81', '1', '61', '55'].find((cc) => !isDaytimeFor(`${cc}9855550001`));
-        if (!night) return;   // every sample zone is in daylight (the nightly rest holds campaigns only)
-        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-human-'));
-        const db = new Database(path.join(tmp, 'h.db'));
-        const sent = [];
-        const transport = {
-            name: 'fake', realDelivery: true, supportsReceipts: false, isConnected: () => true,
-            async sendMessage(to) { sent.push(to); return { providerId: `p${sent.length}`, status: Status.SENT }; },
-            getStatus: () => null,
-            async disconnect() {},
-        };
-        const manager = new CampaignManager(db, transport, { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000, pacingMode: 'fixed', humanTiming: true });
-        try {
-            manager.enqueueJob({ recipient: `${night}9855550001`, text: 'Class cancelled today', messageType: 'reminder' });
-            manager.start();
-            const deadline = Date.now() + 3000;
-            while (Date.now() < deadline && !sent.length) await new Promise((x) => setTimeout(x, 20));
-            assert.deepEqual(sent, [`${night}9855550001`]);
-        } finally {
-            await manager.shutdown();
-            db.close();
-            fs.rmSync(tmp, { recursive: true, force: true });
-        }
+    it('sends at night too: nobody is held for their morning (2026-11-19)', async () => {
+        // India, the US and Japan are never all in daytime at once, so at least one of these is asleep right now.
+        const contacts = ['91', '1', '81'].map((cc, i) => ({ name: `P${i}`, phone: `${cc}985555000${i}` }));
+        const { sent, result } = await run(contacts, { config: { humanTiming: true } });
+        assert.equal(result.queued, 3);
+        assert.deepEqual(sent.map((s) => s.to).sort(), contacts.map((c) => c.phone).sort());
     });
 
     it('shows typing for 2s+ on real sends', async () => {
-        // Bulk to a +91 number waits for the recipient's daytime: outside it nothing is sent to measure.
-        if (!isDaytimeFor(sheet[0].phone)) return;
         const { sent } = await run(sheet.slice(0, 1), { config: { humanTiming: true } });
         assert.ok(sent[0].opts.typingMs >= 2000);
     });

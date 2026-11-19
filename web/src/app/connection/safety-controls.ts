@@ -15,12 +15,11 @@ import { Store } from '../core/store';
 import { plainError } from '../channels/channel-meta';
 
 /**
- * Policy keys this drawer does not offer: a QR number's own level sets them (SafetyField.qrIgnored),
- * and its gaps never switch off, so the pacing mode is no choice either (server manager.js #fixedPace).
+ * Policy keys this drawer does not offer: a number is spaced from its messages per day alone, so its gaps, rests
+ * and pacing mode are no choice (server campaign/safety.js paceFor).
  */
 const HIDDEN_KEYS: ReadonlySet<keyof SafetyPolicy> = new Set<keyof SafetyPolicy>([
-  'pacingMode',
-  ...SAFETY_GROUPS.flatMap((g) => g.fields.filter((f) => f.qrIgnored).map((f) => f.key)),
+  'pacingMode', 'minDelaySeconds', 'maxDelaySeconds', 'restEvery', 'restMinMinutes', 'restMaxMinutes',
 ]);
 
 /**
@@ -57,14 +56,12 @@ export class SafetyControls {
   protected readonly resetConfirm = signal(false);
   protected readonly groups = SAFETY_GROUPS;
 
-  // Consent form: all three must be filled before the API is even called.
+  // Consent form: both must be filled before the API is even called. The signed-in account is who accepted.
   protected readonly understood = signal(false);
-  protected readonly fullName = signal('');
   protected readonly confirmation = signal('');
   protected readonly consentReady = computed(
     () =>
       this.understood() &&
-      this.fullName().trim().length > 1 &&
       this.confirmation().trim().toLowerCase() === 'i accept',
   );
 
@@ -132,7 +129,6 @@ export class SafetyControls {
     this.error.set('');
     this.resetConfirm.set(false);
     this.understood.set(false);
-    this.fullName.set('');
     this.confirmation.set('');
     this.draft.set({ ...view.policy });
     this.blanks.set(new Set());
@@ -153,7 +149,6 @@ export class SafetyControls {
       .acceptSafetyRisk({
         accept: true,
         version: view.consentVersion,
-        fullName: this.fullName().trim(),
         confirmation: this.confirmation().trim(),
       })
       .subscribe({
@@ -179,7 +174,6 @@ export class SafetyControls {
       .exitSafety({
         accept: true,
         version: view.exitVersion,
-        fullName: this.fullName().trim(),
         confirmation: this.confirmation().trim(),
       })
       .subscribe({
@@ -235,10 +229,6 @@ export class SafetyControls {
 
   protected platformValue(key: keyof SafetyPolicy): string {
     return String(this.view()?.platform[key] ?? '');
-  }
-
-  protected hasQrIgnored(fields: readonly SafetyField[]): boolean {
-    return fields.some((f) => f.qrIgnored);
   }
 
   protected changedFromPlatform(field: SafetyField): boolean {
