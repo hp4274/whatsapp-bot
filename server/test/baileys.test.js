@@ -149,17 +149,30 @@ it('sends reply buttons as WhatsApp reply buttons, never a text menu', async () 
     assert.equal(sock().sends.length, 0);
     assert.equal(sock().relays.length, 1);
     const { message, opts } = sock().relays[0];
-    const msg = message.interactiveMessage;
-    assert.equal(msg.header.title, 'Order 7');
-    assert.equal(msg.body.text, 'Confirm?');
-    assert.equal(msg.footer.text, 'Reply soon');
-    assert.deepEqual(msg.nativeFlowMessage.buttons.map((b) => [b.name, JSON.parse(b.buttonParamsJson)]), [
-        ['quick_reply', { display_text: 'Yes', id: 'YES' }],
-        ['quick_reply', { display_text: 'No', id: 'NO' }],
-    ]);
-    assert.equal(opts.additionalNodes[0].tag, 'biz');
+    // the classic buttons message: the form phones and Web all draw
+    const msg = message.buttonsMessage;
+    assert.deepEqual([msg.text, msg.headerType, msg.contentText, msg.footerText], ['Order 7', 2, 'Confirm?', 'Reply soon']);
+    assert.deepEqual(msg.buttons.map((b) => [b.buttonId, b.buttonText.displayText, b.type]), [['YES', 'Yes', 1], ['NO', 'No', 1]]);
+    assert.equal(message.messageContextInfo.messageSecret.length, 32, 'a secret, as every ordinary message has');
     assert.equal(result.providerId, opts.messageId);
     assert.equal(result.parts, undefined);
+});
+
+it('marks a tappable message the way phones need: the biz node with its attributes, and no AI bot node', async () => {
+    const { transport, sock } = makeTransport();
+    await transport.connect();
+    await transport.sendMessage('919800000005', 'Confirm?', { interactive: { type: 'buttons', buttons: [{ id: 'Y', title: 'Yes' }] } });
+    await transport.sendMessage('919800000005', 'Pick', { interactive: { type: 'list', list: { button: 'Slots', sections: [{ rows: [{ id: 'A', title: '9 AM' }] }] } } });
+    const [buttons, list] = sock().relays.map((r) => r.opts.additionalNodes);
+    for (const nodes of [buttons, list]) {
+        assert.deepEqual(nodes.map((n) => n.tag), ['biz'], 'one node: a bot node would mark the message as an AI reply');
+        const { actual_actors: actors, host_storage: storage, privacy_mode_ts: ts } = nodes[0].attrs;
+        assert.deepEqual([actors, storage], ['2', '2']);
+        assert.ok(Math.abs(Number(ts) - Date.now() / 1000) < 5, 'the time, in seconds');
+        assert.deepEqual(nodes[0].content[1], { tag: 'quality_control', attrs: { source_type: 'third_party' } });
+    }
+    assert.deepEqual(buttons[0].content[0], { tag: 'interactive', attrs: { type: 'native_flow', v: '1' }, content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }] });
+    assert.deepEqual(list[0].content[0], { tag: 'list', attrs: { v: '2', type: 'product_list' } });
 });
 
 it('sends lists and link buttons as native messages, and media as the header', async () => {
@@ -171,21 +184,31 @@ it('sends lists and link buttons as native messages, and media as the header', a
     await transport.sendMessage('919800000005', 'Pick', { interactive: { type: 'list', list: { button: 'Slots', sections: [
         { title: 'Morning', rows: [{ id: 'A', title: '9 AM', description: 'Early' }] },
     ] } } });
-    await transport.sendMessage('919800000005', 'Look', { media: png(), interactive: { type: 'buttons', buttons: [{ id: 'Y', title: 'Yes' }] } });
+    await transport.sendMessage('919800000005', 'Look', { media: png(), interactive: { type: 'buttons', header: 'New', buttons: [{ id: 'Y', title: 'Yes' }] } });
     assert.equal(sock().sends.length, 0);
-    const [cta, list, media] = sock().relays.map((r) => r.message.interactiveMessage);
-    assert.deepEqual(cta.nativeFlowMessage.buttons.map((b) => [b.name, JSON.parse(b.buttonParamsJson)]), [
+    const [cta, list, media] = sock().relays.map((r) => r.message);
+    // link and call buttons exist only as a native-flow interactive message
+    assert.deepEqual(cta.interactiveMessage.nativeFlowMessage.buttons.map((b) => [b.name, JSON.parse(b.buttonParamsJson)]), [
         ['cta_url', { display_text: 'Open', url: 'https://x.test', merchant_url: 'https://x.test' }],
         ['cta_call', { display_text: 'Call', phone_number: '+919800000001' }],
     ]);
-    assert.equal(list.body.text, 'Pick');
-    assert.equal(list.nativeFlowMessage.buttons[0].name, 'single_select');
-    assert.deepEqual(JSON.parse(list.nativeFlowMessage.buttons[0].buttonParamsJson), {
-        title: 'Slots', sections: [{ title: 'Morning', rows: [{ title: '9 AM', description: 'Early', id: 'A' }] }],
+    // a list menu: the classic list message
+    assert.deepEqual(list.listMessage, {
+        title: '', description: 'Pick', buttonText: 'Slots', footerText: '', listType: 1,
+        sections: [{ title: 'Morning', rows: [{ title: '9 AM', description: 'Early', rowId: 'A' }] }],
     });
-    assert.equal(media.header.hasMediaAttachment, true);
-    assert.ok(media.header.imageMessage);
-    assert.equal(media.body.text, 'Look');
+    // a picture is the buttons message's header, so a title goes into the text
+    assert.equal(media.buttonsMessage.headerType, 4);
+    assert.ok(media.buttonsMessage.imageMessage);
+    assert.equal(media.buttonsMessage.contentText, '*New*\n\nLook');
+});
+
+it('a list menu with a picture sends the picture first, then the list', async () => {
+    const { transport, sock } = makeTransport();
+    await transport.connect();
+    await transport.sendMessage('919800000005', 'Pick', { media: png(), interactive: { type: 'list', list: { button: 'Slots', sections: [{ rows: [{ id: 'A', title: '9 AM' }] }] } } });
+    assert.equal(sock().sends.length, 1, 'the picture, as its own message');
+    assert.ok(sock().relays[0].message.listMessage);
 });
 
 it('a carousel sends the main text, then one captioned image per card, and counts every message as a part', async () => {

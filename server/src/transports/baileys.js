@@ -8,8 +8,8 @@
  * wiring is unchanged: 'qr' | 'state' | 'ready' | 'disconnected' | 'receipt' | 'inbound',
  * plus 'restricted' { code, until } when WhatsApp caps messages to new people (463 / 475).
  *
- * Buttons, link buttons and lists go out as WhatsApp's own interactive messages
- * (the user's 2026-11-19 choice; some phones may not draw them), carousels too unless
+ * Buttons, link buttons and lists go out as WhatsApp's own tappable messages, each in the form reported to show
+ * on Android, iOS and Web (#deliverNativeFlow; the user's 2026-11-19 choice, no text menu), carousels too unless
  * the admin picked separate images, and every sent message is kept (`messageStore`) so a device that asks for a
  * retry later still gets it instead of "Waiting for this message".
  *
@@ -21,6 +21,7 @@
  * official API: the ToS warning applies and the UI shows it.
  */
 
+import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -968,36 +969,28 @@ export class BaileysTransport extends Transport {
     }
 
     /**
-     * Reply buttons, link/call/copy buttons or a list menu as one WhatsApp interactive message. A tap comes back as
-     * interactiveResponseMessage with the option's id, which the inbound parser and matchReply read.
-     * An image, video or document rides as the header; anything else (audio) goes first as its own message.
-     * shortcut: a phone that does not draw native-flow messages shows nothing of the options (no text fallback, by
-     * the user's choice), and Baileys' retry resend leaves the biz node out.
+     * Reply buttons, link/call/copy buttons or a list menu as WhatsApp's own tappable messages, in the form each
+     * is reported to show on Android, iOS and Web alike (2026-11-19; the interactive form of all three was sent
+     * before, and buttons did not show):
+     *  - reply buttons: the classic buttons message;
+     *  - a list menu: the classic list message (it shows in 1:1 chats only, which is all this transport sends to);
+     *  - link, call and copy buttons: a native-flow interactive message, the only form that has them.
+     * A tap comes back as buttonsResponseMessage, listResponseMessage or interactiveResponseMessage with the
+     * option's id, which the inbound parser and matchReply read.
+     * An image, video or document rides as the header where the form has one (not a list); anything else goes
+     * first as its own message.
+     * shortcut: none of this could be tried on real phones here, and a phone that does not draw one shows nothing of
+     * the options (no text fallback, by the user's choice); Baileys' retry resend leaves the biz node out.
      */
     async #deliverNativeFlow(jid, message, attachment, interactive) {
         const { generateWAMessageFromContent, prepareWAMessageMedia } = await import('@whiskeysockets/baileys');
-        const json = (name, params) => ({ name, buttonParamsJson: JSON.stringify(params) });
-        const CTA = {
-            url: (c) => json('cta_url', { display_text: c.title, url: c.value, merchant_url: c.value }),
-            call: (c) => json('cta_call', { display_text: c.title, phone_number: c.value }),
-            copy: (c) => json('cta_copy', { display_text: c.title, copy_code: c.value }),
-        };
-        const buttons = interactive.type === 'buttons'
-            ? interactive.buttons.map((b) => json('quick_reply', { display_text: b.title, id: b.id }))
-            : interactive.type === 'cta'
-                ? interactive.cta.map((c) => (CTA[c.kind] ?? CTA.url)(c))
-                : [json('single_select', {
-                    title: interactive.list.button,
-                    sections: interactive.list.sections.map((s) => ({
-                        title: s.title ?? '',
-                        rows: s.rows.map((r) => ({ title: r.title, description: r.description ?? '', id: r.id })),
-                    })),
-                })];
-        let header = interactive.header ? { title: interactive.header, hasMediaAttachment: false } : undefined;
-        if (attachment && (attachment.image || attachment.video || attachment.document)) {
+        const text = String(message ?? '');
+        const list = interactive.type === 'list';
+        let media = null;
+        // A list has no header for a picture: its attachment goes first, as its own message.
+        if (attachment && !list && (attachment.image || attachment.video || attachment.document)) {
             try {
-                const media = await prepareWAMessageMedia(attachment, { upload: this.sock.waUploadToServer, mediaCache });
-                header = { ...(interactive.header ? { title: interactive.header } : {}), hasMediaAttachment: true, ...media };
+                media = await prepareWAMessageMedia(attachment, { upload: this.sock.waUploadToServer, mediaCache });
             } catch (err) {
                 // Nothing has gone to the recipient yet: an upload hiccup is safe to try again.
                 throw new TransportSendError(`media upload failed: ${err?.message ?? err}`, { retryable: true });
@@ -1005,17 +998,64 @@ export class BaileysTransport extends Transport {
         } else if (attachment) {
             await this.#send(jid, attachment);
         }
-        const content = {
-            interactiveMessage: {
-                ...(header ? { header } : {}),
-                body: { text: String(message ?? '') },
-                ...(interactive.footer ? { footer: { text: interactive.footer } } : {}),
-                nativeFlowMessage: { buttons, messageParamsJson: '' },
-            },
-        };
-        const msg = generateWAMessageFromContent(jid, content, { userJid: this.sock.user?.id });
-        const sent = await this.#send(jid, null, () => this.sock.relayMessage(jid, msg.message, { messageId: msg.key.id, additionalNodes: nativeFlowNodes(jid) }).then(() => msg));
+        let content;
+        if (interactive.type === 'buttons') {
+            // ButtonsMessage.HeaderType: 1 no header, 2 text, 3 document, 4 image, 5 video. One header only, so a
+            // title beside a picture goes into the text, in bold.
+            const kind = media?.imageMessage ? 4 : media?.videoMessage ? 5 : media ? 3 : interactive.header ? 2 : 1;
+            content = {
+                buttonsMessage: {
+                    ...(media ?? (interactive.header ? { text: interactive.header } : {})),
+                    headerType: kind,
+                    contentText: media && interactive.header ? `*${interactive.header}*\n\n${text}` : text,
+                    ...(interactive.footer ? { footerText: interactive.footer } : {}),
+                    // Button.Type 1: a reply button.
+                    buttons: interactive.buttons.map((b) => ({ buttonId: b.id, buttonText: { displayText: b.title }, type: 1 })),
+                },
+            };
+        } else if (list) {
+            content = {
+                listMessage: {
+                    title: interactive.header ?? '',
+                    description: text,
+                    buttonText: interactive.list.button,
+                    footerText: interactive.footer ?? '',
+                    listType: 1, // ListMessage.ListType.SINGLE_SELECT
+                    sections: interactive.list.sections.map((s) => ({
+                        title: s.title ?? '',
+                        rows: s.rows.map((r) => ({ title: r.title, description: r.description ?? '', rowId: r.id })),
+                    })),
+                },
+            };
+        } else {
+            const json = (name, params) => ({ name, buttonParamsJson: JSON.stringify(params) });
+            const CTA = {
+                url: (c) => json('cta_url', { display_text: c.title, url: c.value, merchant_url: c.value }),
+                call: (c) => json('cta_call', { display_text: c.title, phone_number: c.value }),
+                copy: (c) => json('cta_copy', { display_text: c.title, copy_code: c.value }),
+            };
+            const buttons = interactive.cta.map((c) => (CTA[c.kind] ?? CTA.url)(c));
+            const header = media
+                ? { ...(interactive.header ? { title: interactive.header } : {}), hasMediaAttachment: true, ...media }
+                : interactive.header ? { title: interactive.header, hasMediaAttachment: false } : undefined;
+            content = {
+                interactiveMessage: {
+                    ...(header ? { header } : {}),
+                    body: { text },
+                    ...(interactive.footer ? { footer: { text: interactive.footer } } : {}),
+                    nativeFlowMessage: { buttons, messageParamsJson: '' },
+                },
+            };
+        }
+        const sent = await this.#relayTappable(jid, content, generateWAMessageFromContent);
         return this.#accepted(sent?.key?.id);
+    }
+
+    /** Relay a buttons, list, interactive or carousel message with what a phone needs to draw it (bizNode). */
+    #relayTappable(jid, content, generateWAMessageFromContent) {
+        // Every ordinary message carries a secret; one without it stands out, and replies to it cannot be tied back.
+        const msg = generateWAMessageFromContent(jid, { ...content, messageContextInfo: { messageSecret: randomBytes(32) } }, { userJid: this.sock.user?.id });
+        return this.#send(jid, null, () => this.sock.relayMessage(jid, msg.message, { messageId: msg.key.id, additionalNodes: [bizNode(content)] }).then(() => msg));
     }
 
     /**
@@ -1087,8 +1127,7 @@ export class BaileysTransport extends Transport {
         const content = {
             interactiveMessage: { ...(message ? { body: { text: String(message) } } : {}), carouselMessage: { cards: built, messageVersion: 1, carouselCardType: 'UNKNOWN' } }
         };
-        const msg = generateWAMessageFromContent(jid, content, { userJid: this.sock.user?.id });
-        const sent = await this.#send(jid, null, () => this.sock.relayMessage(jid, msg.message, { messageId: msg.key.id, additionalNodes: nativeFlowNodes(jid) }).then(() => msg));
+        const sent = await this.#relayTappable(jid, content, generateWAMessageFromContent);
         return { ...this.#accepted(sent?.key?.id), parts: 1 };
     }
 
@@ -1736,14 +1775,21 @@ async function defaultSocketFactory({ authDir, qrTimeoutMs, getMessage, msgRetry
 }
 
 /**
- * The extra stanza nodes a native-flow message (buttons, list, carousel) needs: phones drop one whose stanza lacks
- * the biz node; Web renders it either way.
+ * The stanza node a buttons, list, interactive or carousel message needs: phones drop one whose stanza lacks it,
+ * while Web draws it either way. The shape, attributes included, is the one the Baileys forks that send buttons
+ * attach (itsukichan's getButtonArgs): a classic list is marked as a list, everything else as a native flow.
+ * No `bot` node: that one marks a message as written by an AI, and was sent here by mistake until 2026-11-19.
  * shortcut: Baileys' retry resend leaves the node out, so a phone that asks for a retry still sees nothing.
- * shortcut: the bot node is a 1:1 trick seen in Baileys helpers, unverified; drop it if phones still show nothing.
  */
-function nativeFlowNodes(jid) {
-    const bizNode = { tag: 'biz', attrs: {}, content: [{ tag: 'interactive', attrs: { type: 'native_flow', v: '1' }, content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }] }] };
-    return jid.endsWith('@g.us') ? [bizNode] : [bizNode, { tag: 'bot', attrs: { biz_bot: '1' } }];
+export function bizNode(content) {
+    const kind = content.listMessage
+        ? { tag: 'list', attrs: { v: '2', type: 'product_list' } }
+        : { tag: 'interactive', attrs: { type: 'native_flow', v: '1' }, content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }] };
+    return {
+        tag: 'biz',
+        attrs: { actual_actors: '2', host_storage: '2', privacy_mode_ts: String(Math.floor(Date.now() / 1000)) },
+        content: [kind, { tag: 'quality_control', attrs: { source_type: 'third_party' } }],
+    };
 }
 
 /**
