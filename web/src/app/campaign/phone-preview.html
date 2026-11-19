@@ -121,25 +121,21 @@
               }
             }
           }
-          @if (menuHtml(); as menu) {
-            <p class="body" [innerHTML]="menu"></p>
+          @if (block?.header) {
+            <p class="hdr">{{ fill(block?.header).text }}</p>
+          }
+          @if (r.text) {
+            <p class="body" [innerHTML]="bodyHtml()"></p>
           } @else {
-            @if (block?.header && !textMenu()) {
-              <p class="hdr">{{ fill(block?.header).text }}</p>
-            }
-            @if (r.text) {
-              <p class="body" [innerHTML]="bodyHtml()"></p>
-            } @else {
-              <p class="body empty">Your message appears here</p>
-            }
-            @if (block?.footer && !textMenu()) {
-              <p class="ftr">{{ fill(block?.footer).text }}</p>
-            }
+            <p class="body empty">Your message appears here</p>
+          }
+          @if (block?.footer) {
+            <p class="ftr">{{ fill(block?.footer).text }}</p>
           }
           <span class="meta">{{ time }}</span>
         </div>
 
-        @if (textMenu() && !nativeCarousel()) {
+        @if (cardMessages().length) {
           @if (cardMessages().length > 3) {
             <!-- 4+ photos in a row: WhatsApp groups them into a grid that opens into a swipe viewer. -->
             <div class="bubble next album" [attr.aria-label]="cardMessages().length + ' photos'">

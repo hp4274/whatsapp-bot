@@ -55,7 +55,7 @@
               [text]="r.text"
               [interactive]="r.interactive"
               [showToggle]="false"
-              [fallback]="fallback() || textMenu()"
+              [fallback]="fallback()"
             />
           }
         }
@@ -67,18 +67,3 @@
     </div>
   </div>
 </div>
-
-@if (showToggle() && !textMenu()) {
-  <label class="webview">
-    <button
-      type="button"
-      role="switch"
-      class="switch"
-      [attr.aria-checked]="fallback()"
-      (click)="fallback.set(!fallback())"
-    >
-      <span class="thumb"></span>
-    </button>
-    <span>WhatsApp Web view <small>(numbered text)</small></span>
-  </label>
-}

@@ -122,6 +122,20 @@ function readCollapsed(): boolean {
 /** The page guide stays open across reloads until the user closes it. */
 const GUIDE_KEY = 'wuzie.guide.open';
 
+/** The guide's width when the user has dragged it; without one the stylesheet's own width applies. */
+const GUIDE_WIDTH_KEY = 'wuzie.guide.width';
+const GUIDE_MIN = 300;
+const GUIDE_MAX = 760;
+
+function readGuideWidth(): number | null {
+  try {
+    const n = Number(localStorage.getItem(GUIDE_WIDTH_KEY));
+    return n >= GUIDE_MIN && n <= GUIDE_MAX ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 function readGuideOpen(): boolean {
   try {
     return localStorage.getItem(GUIDE_KEY) === '1';
@@ -313,6 +327,41 @@ export class App {
     } catch {
       // Storage blocked: it still works for this visit.
     }
+  }
+
+  /** Dragged width of the guide in px (null: the default). The page panel is its flex sibling, so it takes the rest. */
+  protected readonly guideWidth = signal(readGuideWidth());
+  protected readonly guideResizing = signal(false);
+
+  protected setGuideWidth(px: number): void {
+    const width = Math.round(Math.min(GUIDE_MAX, Math.max(GUIDE_MIN, px)));
+    this.guideWidth.set(width);
+    try {
+      localStorage.setItem(GUIDE_WIDTH_KEY, String(width));
+    } catch {
+      // Storage blocked: it still works for this visit.
+    }
+  }
+
+  /** Drag the guide's left edge: its right edge stays put, so the width is the distance from the pointer to it. */
+  protected startGuideResize(event: PointerEvent, guide: HTMLElement): void {
+    const grip = event.currentTarget as HTMLElement;
+    grip.setPointerCapture(event.pointerId);
+    this.guideResizing.set(true);
+    const right = guide.getBoundingClientRect().right;
+    const move = (e: PointerEvent): void => this.setGuideWidth(right - e.clientX);
+    const stop = (): void => {
+      this.guideResizing.set(false);
+      grip.removeEventListener('pointermove', move);
+    };
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', stop, { once: true });
+    grip.addEventListener('pointercancel', stop, { once: true });
+  }
+
+  /** The same with the keyboard: left widens, right narrows. */
+  protected nudgeGuide(guide: HTMLElement, by: number): void {
+    this.setGuideWidth(guide.getBoundingClientRect().width + by);
   }
 
   /**

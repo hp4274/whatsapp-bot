@@ -41,7 +41,7 @@ export const templates: Guide = {
         'List menu: set the Menu button text, then click Add option for each choice.',
         'Use the arrows to reorder and the x to remove one.',
       ],
-      tip: 'Numbers linked by QR code send buttons and menus as numbered text the customer replies to.',
+      tip: 'Buttons and menus are sent as real WhatsApp buttons. A few phones may not show them.',
     },
     {
       title: 'Preview a template as a real contact',
