@@ -49,17 +49,6 @@
   </div>
   }
 
-  <!-- WhatsApp shows tap buttons only from its paid Business API, never from a QR-linked number;
-       links (call-to-action) stay tappable, so the note is only for replies and menus. -->
-  @if (qrNumber() && (draft.type === 'buttons' || draft.type === 'list')) {
-    <p class="note" role="note">
-      <i class="ti ti-list-numbers" aria-hidden="true"></i>
-      <span
-        ><strong>Sent as a numbered menu.</strong> Customers see your options as 1, 2, 3 and reply
-        with a number. The preview shows what they get.</span
-      >
-    </p>
-  }
 
   @switch (draft.type) {
     @case ('buttons') {

@@ -6,6 +6,16 @@
       <button type="button" class="row" [attr.aria-pressed]="feature() === f" (click)="feature.set(f)">
         <i class="ti ti-{{ f.icon }}" aria-hidden="true"></i>{{ f.label }}
       </button>
+      <!-- Bulk's kinds, here under it and as tabs below the phone: both drive the same chat. -->
+      @if (f.key === 'bulk' && feature() === f) {
+        <div class="variants" role="group" aria-label="Kinds of bulk message">
+          @for (v of variations; track v.key) {
+            <button type="button" class="sub" [attr.aria-pressed]="variation() === v" (click)="show(v)">
+              <i class="ti ti-{{ v.icon }}" aria-hidden="true"></i>{{ v.label }}
+            </button>
+          }
+        </div>
+      }
     }
   </div>
   <div class="group">
@@ -52,24 +62,30 @@
             }
             @if (line.text) {
               <span class="text">{{ line.text }}</span>
-              <!-- Buttons and lists as a linked number delivers them: plain numbered lines. Each line answers for the
-                   customer, with its number, so the visitor can try the menu. -->
-              @if (menuOf(line); as menu) {
-                <span class="menu" role="group" [attr.aria-label]="'Options: ' + menu.ask">
-                  <span class="text" [class.bold]="menu.bold">{{ menu.ask }}</span>
-                  @for (option of menu.options; track option.title; let n = $index) {
-                    <button type="button" class="menu-row" (click)="pick(option, '' + (n + 1))">
-                      {{ n + 1 }}. {{ option.title }}@if (option.note) { - {{ option.note }}}
-                    </button>
-                  }
-                </span>
-              }
               <span class="meta">
                 {{ line.time }}
                 @if (line.side === 'out') {
                   <i class="ti ti-checks" aria-label="Read"></i>
                 }
               </span>
+              <!-- WhatsApp's own reply buttons and list button, under the bubble's text. A tap answers for the
+                   customer, so the visitor can try it. -->
+              @if (line.buttons; as buttons) {
+                <span class="acts" role="group" aria-label="Reply buttons">
+                  @for (option of buttons; track option.title) {
+                    <button type="button" class="act" (click)="pick(option)">
+                      <i class="ti ti-arrow-back-up" aria-hidden="true"></i>{{ option.title }}
+                    </button>
+                  }
+                </span>
+              }
+              @if (line.list; as list) {
+                <span class="acts">
+                  <button type="button" class="act" aria-haspopup="dialog" (click)="sheet.set(list)">
+                    <i class="ti ti-list" aria-hidden="true"></i>{{ list.button }}
+                  </button>
+                </span>
+              }
             }
             @if (line.cards; as cards) {
               <div class="cards" #strip>
@@ -105,6 +121,28 @@
           </li>
         }
       </ol>
+      <!-- The list's options, as WhatsApp slides them up over the chat. -->
+      @if (sheet(); as list) {
+        <div class="sheet" role="dialog" [attr.aria-label]="list.button" (keydown.escape)="sheet.set(null)">
+          <div class="sheet-top">
+            <button type="button" class="sheet-x" aria-label="Close the list" (click)="sheet.set(null)">
+              <i class="ti ti-x" aria-hidden="true"></i>
+            </button>
+            <strong>{{ list.button }}</strong>
+          </div>
+          @for (option of list.rows; track option.title) {
+            <button type="button" class="sheet-row" (click)="pick(option)">
+              <span>
+                <strong>{{ option.title }}</strong>
+                @if (option.note) {
+                  <small>{{ option.note }}</small>
+                }
+              </span>
+              <span class="radio" aria-hidden="true"></span>
+            </button>
+          }
+        </div>
+      }
       <div class="composer" aria-hidden="true">
         <span class="field"><i class="ti ti-mood-smile"></i>Message<i class="ti ti-paperclip"></i></span>
         <span class="mic"><i class="ti ti-microphone"></i></span>
@@ -126,12 +164,6 @@
             <li><i class="ti ti-check" aria-hidden="true"></i>{{ point }}</li>
           }
         </ul>
-      }
-      @if (hasMenu()) {
-        <p class="note">
-          <i class="ti ti-info-circle" aria-hidden="true"></i>
-          From your own number, options arrive as a numbered menu and customers reply with the number. Tap one to try it.
-        </p>
       }
       <a class="cta" href="#access">Free Access</a>
     </div>

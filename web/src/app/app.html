@@ -252,7 +252,28 @@
       nothing in the page closes it - only its own close button or the Guide button.
     -->
     @let open = guideOpen() && !!guide();
-    <div class="guide" id="page-guide" [class.open]="open" [attr.inert]="open ? null : ''">
+    <div
+      #guideEl
+      class="guide"
+      id="page-guide"
+      [class.open]="open"
+      [class.resizing]="guideResizing()"
+      [style.--guide-w.px]="guideWidth()"
+      [attr.inert]="open ? null : ''"
+    >
+      <div
+        class="guide-grip"
+        role="separator"
+        tabindex="0"
+        aria-orientation="vertical"
+        aria-label="Resize the guide"
+        [attr.aria-valuenow]="guideWidth()"
+        aria-valuemin="300"
+        aria-valuemax="760"
+        (pointerdown)="startGuideResize($event, guideEl)"
+        (keydown.arrowLeft)="nudgeGuide(guideEl, 24)"
+        (keydown.arrowRight)="nudgeGuide(guideEl, -24)"
+      ></div>
       @if (shownGuide(); as g) {
         <app-page-guide class="guide-inner" [guide]="g" (closed)="setGuideOpen(false)" />
       }

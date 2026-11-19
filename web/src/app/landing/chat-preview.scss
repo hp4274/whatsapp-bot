@@ -80,6 +80,56 @@
   }
 }
 
+// Bulk's kinds, indented under its row.
+.variants {
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 6px 21px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-color);
+}
+
+.sub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+
+  .ti {
+    font-size: 17px;
+  }
+
+  &:hover {
+    background: var(--surface-sunken);
+    color: var(--text-color);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-text);
+    outline-offset: -2px;
+  }
+
+  &[aria-pressed='true'] {
+    color: var(--text-strong);
+
+    .ti {
+      color: var(--primary-text);
+    }
+  }
+}
+
 // A coming-soon feature: a plain line, nothing to press.
 .row.later {
   color: var(--text-muted);
@@ -144,26 +194,6 @@
       margin-top: 2px;
       color: var(--primary-text);
       font-size: 18px;
-    }
-
-    // How buttons and lists really arrive: a quiet aside, not another selling point.
-    .note {
-      display: flex;
-      gap: 8px;
-      max-width: 46ch;
-      margin-top: 20px;
-      padding: 12px 14px;
-      border-radius: 12px;
-      background: var(--surface-sunken);
-      color: var(--text-muted);
-      font-size: 14px;
-      line-height: 1.5;
-
-      .ti {
-        flex: none;
-        margin-top: 1px;
-        font-size: 17px;
-      }
     }
   }
 
@@ -601,38 +631,120 @@
   width: 82%;
 }
 
-// A buttons or list message as a linked number sends it: plain lines. Each one answers for the visitor, so it is a
-// button that reads as the text it stands for, underlined on hover.
-.menu {
+// WhatsApp's reply buttons and list button: full-width rows under the bubble's text, edge to edge.
+.acts {
   display: grid;
-  justify-items: start;
-  margin-top: 8px;
+  margin: 8px -9px -7px;
+  overflow: hidden;
+  border-radius: 0 0 7.5px 7.5px;
+}
 
-  .bold {
-    font-weight: 600;
+// A message with buttons is as wide as a bubble gets, so the rows read as buttons.
+.msg:has(.acts) {
+  width: 82%;
+}
+
+// A list's options, slid up over the chat as WhatsApp does.
+.sheet {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 2;
+  display: grid;
+  max-height: 78%;
+  overflow-y: auto;
+  padding-bottom: 10px;
+  border-radius: 16px 16px 0 0;
+  background: var(--wa-in);
+  box-shadow: 0 -8px 28px color-mix(in srgb, var(--wa-ink) 28%, transparent);
+  animation: sheet-up 260ms var(--ease) both;
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
   }
 }
 
-.menu-row {
-  padding: 1px 0;
+.sheet-top {
+  display: grid;
+  grid-template-columns: 40px 1fr 40px;
+  align-items: center;
+  min-height: 52px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--wa-hair);
+  text-align: center;
+  font-size: 15px;
+}
+
+.sheet-x {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
   border: 0;
-  background: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--wa-meta);
+  font-size: 19px;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--wa-link);
+    outline-offset: -2px;
+  }
+}
+
+.sheet-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 16px;
+  border: 0;
+  background: transparent;
   color: var(--wa-ink);
   font: inherit;
+  font-size: 14.2px;
   text-align: left;
-  text-decoration: underline transparent;
-  text-underline-offset: 3px;
   cursor: pointer;
-  transition: text-decoration-color var(--fast) var(--ease);
+
+  strong,
+  small {
+    display: block;
+  }
+
+  strong {
+    font-weight: 500;
+  }
+
+  small {
+    color: var(--wa-meta);
+    font-size: 12.5px;
+  }
 
   &:hover {
-    text-decoration-color: var(--wa-link);
+    background: color-mix(in srgb, var(--wa-link) 8%, transparent);
   }
 
   &:focus-visible {
-    border-radius: 4px;
     outline: 2px solid var(--wa-link);
-    outline-offset: 1px;
+    outline-offset: -2px;
+  }
+}
+
+// WhatsApp's empty radio circle at the end of each option.
+.radio {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--wa-meta);
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    animation: none;
   }
 }
 
@@ -778,6 +890,11 @@
     gap: 8px;
     border: 1px solid var(--border-color);
     border-radius: 999px;
+  }
+
+  // The rail is a row to swipe here: the kinds stay as the tabs below the phone only.
+  .variants {
+    display: none;
   }
 
   .soon {

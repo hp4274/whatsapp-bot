@@ -35,8 +35,8 @@ interface Card {
 
 /**
  * One WhatsApp message: plain text, a photo with a caption, reply buttons, a list menu, or a carousel of cards.
- * Buttons and lists are drawn the way a linked (QR) number delivers them: a numbered text menu the customer
- * answers with a digit (`renderFallbackText` in `server/src/messaging/interactive.js`).
+ * Buttons and lists are drawn as WhatsApp's own, which is how they are sent (`#deliverNativeFlow` in
+ * `server/src/transports/baileys.js`).
  */
 interface ChatLine {
   readonly side: 'in' | 'out';
@@ -46,14 +46,6 @@ interface ChatLine {
   readonly buttons?: readonly Option[];
   readonly list?: { readonly button: string; readonly rows: readonly Option[] };
   readonly cards?: readonly Card[];
-}
-
-/** A buttons or list message as the customer's phone shows it: a heading line, then the numbered options. */
-interface Menu {
-  readonly ask: string;
-  /** A list's button title arrives in WhatsApp bold; a buttons message asks "Reply 1 or 2:". */
-  readonly bold: boolean;
-  readonly options: readonly Option[];
 }
 
 /** What the customer sent back in the chat, and the business's answer to it. */
@@ -307,10 +299,9 @@ const COMING_SOON: readonly Feature[] = [
 
 /**
  * The landing page's tour of the product: every feature down the side, and for the one picked, what it does and a
- * scene of it at work (FeatureScene). Bulk messages is a WhatsApp chat instead, with its kinds listed under it; tapping
- * a menu option or a card plays the customer's choice and the answer. Names and figures are samples.
- * Buttons and lists are drawn as the numbered text menu a QR number really delivers, not WhatsApp's native buttons,
- * so the page never shows a customer something their phone will not. The carousel stays native: it is the sending default.
+ * scene of it at work (FeatureScene). Bulk messages is a WhatsApp chat instead, with its kinds listed under it in the
+ * rail and again as tabs below the phone; tapping a reply button, a list option or a card plays the customer's choice
+ * and the answer. Names and figures are samples. Buttons, lists and the carousel are WhatsApp's own, as they are sent.
  */
 @Component({
   selector: 'app-chat-preview',
@@ -333,8 +324,8 @@ export class ChatPreview {
   protected readonly variation = linkedSignal<Feature, Variation>({ source: this.feature, computation: () => BULK_VARIATIONS[0] });
   /** What the customer answered in this chat; another variation starts clean. */
   protected readonly picked = linkedSignal<Variation, Answer | null>({ source: this.variation, computation: () => null });
-  /** A buttons or list message on show: the description then says how those arrive. */
-  protected readonly hasMenu = computed(() => this.variation().lines.some((line) => line.buttons || line.list));
+  /** The list whose options are open over the chat; another variation closes it. */
+  protected readonly sheet = linkedSignal<Variation, ChatLine['list'] | null>({ source: this.variation, computation: () => null });
   protected readonly lastTime = computed(() => this.variation().lines.at(-1)?.time ?? '');
   private readonly thread = viewChild<ElementRef<HTMLElement>>('thread');
   /** Which way the last change of kind went, so the chat slides in from that side. */
@@ -423,19 +414,10 @@ export class ChatPreview {
     this.variation.set(BULK_VARIATIONS[(BULK_VARIATIONS.indexOf(this.variation()) + by + n) % n]);
   }
 
-  /** The numbered menu a buttons or list message arrives as; null for any other message. */
-  protected menuOf(line: ChatLine): Menu | null {
-    if (line.buttons) {
-      const nums = line.buttons.map((_, i) => String(i + 1));
-      const ask = nums.length > 1 ? `${nums.slice(0, -1).join(', ')} or ${nums.at(-1)}` : nums[0];
-      return { ask: `Reply ${ask}:`, bold: false, options: line.buttons };
-    }
-    return line.list ? { ask: line.list.button, bold: true, options: line.list.rows } : null;
-  }
-
-  /** The customer answers: a menu with the option's number, a carousel card with its button. */
-  protected pick(option: Option, said: string = option.title): void {
-    this.picked.set({ said, reply: option.reply });
+  /** The customer answers with the button, list option or card they tapped. */
+  protected pick(option: Option): void {
+    this.sheet.set(null);
+    this.picked.set({ said: option.title, reply: option.reply });
     // After Angular has drawn the two new bubbles.
     setTimeout(() => this.thread()?.nativeElement.scrollTo({ top: 1e6 }));
   }

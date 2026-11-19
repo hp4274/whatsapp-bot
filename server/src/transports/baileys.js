@@ -8,9 +8,9 @@
  * wiring is unchanged: 'qr' | 'state' | 'ready' | 'disconnected' | 'receipt' | 'inbound',
  * plus 'restricted' { code, until } when WhatsApp caps messages to new people (463 / 475).
  *
- * Visible on every device: buttons, lists and carousels go out as the numbered
- * text menu plus captioned images (native buttons render on some phones only),
- * and every sent message is kept (`messageStore`) so a device that asks for a
+ * Buttons, link buttons and lists go out as WhatsApp's own interactive messages
+ * (the user's 2026-11-19 choice; some phones may not draw them), carousels too unless
+ * the admin picked separate images, and every sent message is kept (`messageStore`) so a device that asks for a
  * retry later still gets it instead of "Waiting for this message".
  *
  * Status mapping (proto.WebMessageInfo.Status):
@@ -29,7 +29,7 @@ import path from 'node:path';
 import NodeCache from '@cacheable/node-cache';
 
 import { SESSION_DIR } from '../config.js';
-import { carouselCaptions, renderFallbackText } from '../messaging/interactive.js';
+import { carouselCaptions } from '../messaging/interactive.js';
 import { maskPhone, maskText } from '../observability/logger.js';
 import { fileKeyId } from '../security/crypto.js';
 import { STATUS_RANK, Status } from '../protocol.js';
@@ -950,15 +950,66 @@ export class BaileysTransport extends Transport {
     }
 
     async #deliver(jid, message, attachment, interactive, typingMs, nativeCarousel = false, progress = {}) {
-        // No native buttons: they render on some devices only, and Baileys' retry resend drops the node they need.
-        // A carousel is the one exception, by the user's choice: native unless the admin picked separate images.
+        // A carousel is native unless the admin picked separate images.
         if (interactive?.type === 'carousel') {
             return nativeCarousel
                 ? this.#deliverCarouselNative(jid, message, interactive)
                 : this.#deliverCarouselText(jid, message, attachment, interactive, typingMs, progress);
         }
-        const text = interactive ? renderFallbackText(message, interactive) : message;
-        const sent = await this.#send(jid, attachment ? { ...attachment, caption: text } : { text });
+        // Buttons, links and lists always go as WhatsApp's own (the user's 2026-11-19 choice): no text menu.
+        if (interactive) return this.#deliverNativeFlow(jid, message, attachment, interactive);
+        const sent = await this.#send(jid, attachment ? { ...attachment, caption: message } : { text: message });
+        return this.#accepted(sent?.key?.id);
+    }
+
+    /**
+     * Reply buttons, link/call/copy buttons or a list menu as one WhatsApp interactive message. A tap comes back as
+     * interactiveResponseMessage with the option's id, which the inbound parser and matchReply read.
+     * An image, video or document rides as the header; anything else (audio) goes first as its own message.
+     * shortcut: a phone that does not draw native-flow messages shows nothing of the options (no text fallback, by
+     * the user's choice), and Baileys' retry resend leaves the biz node out.
+     */
+    async #deliverNativeFlow(jid, message, attachment, interactive) {
+        const { generateWAMessageFromContent, prepareWAMessageMedia } = await import('@whiskeysockets/baileys');
+        const json = (name, params) => ({ name, buttonParamsJson: JSON.stringify(params) });
+        const CTA = {
+            url: (c) => json('cta_url', { display_text: c.title, url: c.value, merchant_url: c.value }),
+            call: (c) => json('cta_call', { display_text: c.title, phone_number: c.value }),
+            copy: (c) => json('cta_copy', { display_text: c.title, copy_code: c.value }),
+        };
+        const buttons = interactive.type === 'buttons'
+            ? interactive.buttons.map((b) => json('quick_reply', { display_text: b.title, id: b.id }))
+            : interactive.type === 'cta'
+                ? interactive.cta.map((c) => (CTA[c.kind] ?? CTA.url)(c))
+                : [json('single_select', {
+                    title: interactive.list.button,
+                    sections: interactive.list.sections.map((s) => ({
+                        title: s.title ?? '',
+                        rows: s.rows.map((r) => ({ title: r.title, description: r.description ?? '', id: r.id })),
+                    })),
+                })];
+        let header = interactive.header ? { title: interactive.header, hasMediaAttachment: false } : undefined;
+        if (attachment && (attachment.image || attachment.video || attachment.document)) {
+            try {
+                const media = await prepareWAMessageMedia(attachment, { upload: this.sock.waUploadToServer, mediaCache });
+                header = { ...(interactive.header ? { title: interactive.header } : {}), hasMediaAttachment: true, ...media };
+            } catch (err) {
+                // Nothing has gone to the recipient yet: an upload hiccup is safe to try again.
+                throw new TransportSendError(`media upload failed: ${err?.message ?? err}`, { retryable: true });
+            }
+        } else if (attachment) {
+            await this.#send(jid, attachment);
+        }
+        const content = {
+            interactiveMessage: {
+                ...(header ? { header } : {}),
+                body: { text: String(message ?? '') },
+                ...(interactive.footer ? { footer: { text: interactive.footer } } : {}),
+                nativeFlowMessage: { buttons, messageParamsJson: '' },
+            },
+        };
+        const msg = generateWAMessageFromContent(jid, content, { userJid: this.sock.user?.id });
+        const sent = await this.#send(jid, null, () => this.sock.relayMessage(jid, msg.message, { messageId: msg.key.id, additionalNodes: nativeFlowNodes(jid) }).then(() => msg));
         return this.#accepted(sent?.key?.id);
     }
 
@@ -1032,12 +1083,7 @@ export class BaileysTransport extends Transport {
             interactiveMessage: { ...(message ? { body: { text: String(message) } } : {}), carouselMessage: { cards: built, messageVersion: 1, carouselCardType: 'UNKNOWN' } }
         };
         const msg = generateWAMessageFromContent(jid, content, { userJid: this.sock.user?.id });
-        // Phones drop a native-flow message whose stanza lacks this biz node; Web renders it either way.
-        // shortcut: Baileys' retry resend leaves the node out, so a phone that asks for a retry still sees nothing.
-        const bizNode = { tag: 'biz', attrs: {}, content: [{ tag: 'interactive', attrs: { type: 'native_flow', v: '1' }, content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }] }] };
-        // shortcut: the bot node is a 1:1 trick seen in Baileys helpers, unverified; drop it if phones still show nothing.
-        const additionalNodes = jid.endsWith('@g.us') ? [bizNode] : [bizNode, { tag: 'bot', attrs: { biz_bot: '1' } }];
-        const sent = await this.#send(jid, null, () => this.sock.relayMessage(jid, msg.message, { messageId: msg.key.id, additionalNodes }).then(() => msg));
+        const sent = await this.#send(jid, null, () => this.sock.relayMessage(jid, msg.message, { messageId: msg.key.id, additionalNodes: nativeFlowNodes(jid) }).then(() => msg));
         return { ...this.#accepted(sent?.key?.id), parts: 1 };
     }
 
@@ -1377,6 +1423,17 @@ async function defaultSocketFactory({ authDir, qrTimeoutMs, getMessage, msgRetry
     });
     sock.ev.on('creds.update', saveCreds);
     return sock;
+}
+
+/**
+ * The extra stanza nodes a native-flow message (buttons, list, carousel) needs: phones drop one whose stanza lacks
+ * the biz node; Web renders it either way.
+ * shortcut: Baileys' retry resend leaves the node out, so a phone that asks for a retry still sees nothing.
+ * shortcut: the bot node is a 1:1 trick seen in Baileys helpers, unverified; drop it if phones still show nothing.
+ */
+function nativeFlowNodes(jid) {
+    const bizNode = { tag: 'biz', attrs: {}, content: [{ tag: 'interactive', attrs: { type: 'native_flow', v: '1' }, content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }] }] };
+    return jid.endsWith('@g.us') ? [bizNode] : [bizNode, { tag: 'bot', attrs: { biz_bot: '1' } }];
 }
 
 /**

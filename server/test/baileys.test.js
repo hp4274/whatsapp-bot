@@ -1,4 +1,4 @@
-/** Baileys transport: media, text, the interactive text menu, inbound, receipts, reconnect, retries - no network. */
+/** Baileys transport: media, text, native interactive messages, inbound, receipts, reconnect, retries - no network. */
 
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
@@ -141,30 +141,51 @@ it('sends 3gp and other non-mp4 video as a document, so it opens on every device
     assert.equal(content.caption, 'Clip');
 });
 
-it('sends reply buttons as the numbered text menu, never native buttons', async () => {
+it('sends reply buttons as WhatsApp reply buttons, never a text menu', async () => {
     const { transport, sock } = makeTransport();
     await transport.connect();
     const interactive = { type: 'buttons', header: 'Order 7', buttons: [{ id: 'YES', title: 'Yes' }, { id: 'NO', title: 'No' }], footer: 'Reply soon' };
     const result = await transport.sendMessage('919800000005', 'Confirm?', { interactive });
-    assert.equal(sock().sends.length, 1);
-    assert.deepEqual(sock().sends[0].content, { text: '*Order 7*\n\nConfirm?\n\nReply 1 or 2:\n1. Yes\n2. No\n\n_Reply soon_' });
-    assert.equal(result.providerId, 'BAE51');
+    assert.equal(sock().sends.length, 0);
+    assert.equal(sock().relays.length, 1);
+    const { message, opts } = sock().relays[0];
+    const msg = message.interactiveMessage;
+    assert.equal(msg.header.title, 'Order 7');
+    assert.equal(msg.body.text, 'Confirm?');
+    assert.equal(msg.footer.text, 'Reply soon');
+    assert.deepEqual(msg.nativeFlowMessage.buttons.map((b) => [b.name, JSON.parse(b.buttonParamsJson)]), [
+        ['quick_reply', { display_text: 'Yes', id: 'YES' }],
+        ['quick_reply', { display_text: 'No', id: 'NO' }],
+    ]);
+    assert.equal(opts.additionalNodes[0].tag, 'biz');
+    assert.equal(result.providerId, opts.messageId);
     assert.equal(result.parts, undefined);
 });
 
-it('sends lists and CTAs as text, and media with the menu as its caption', async () => {
+it('sends lists and link buttons as native messages, and media as the header', async () => {
     const { transport, sock } = makeTransport();
     await transport.connect();
-    await transport.sendMessage('919800000005', 'Links', { interactive: { type: 'cta', cta: [{ kind: 'url', title: 'Open', value: 'https://x.test' }] } });
+    await transport.sendMessage('919800000005', 'Links', { interactive: { type: 'cta', cta: [
+        { kind: 'url', title: 'Open', value: 'https://x.test' }, { kind: 'call', title: 'Call', value: '+919800000001' },
+    ] } });
     await transport.sendMessage('919800000005', 'Pick', { interactive: { type: 'list', list: { button: 'Slots', sections: [
-        { title: 'Morning', rows: [{ id: 'A', title: '9 AM' }] },
+        { title: 'Morning', rows: [{ id: 'A', title: '9 AM', description: 'Early' }] },
     ] } } });
     await transport.sendMessage('919800000005', 'Look', { media: png(), interactive: { type: 'buttons', buttons: [{ id: 'Y', title: 'Yes' }] } });
-    const [cta, list, media] = sock().sends.map((s) => s.content);
-    assert.deepEqual(cta, { text: 'Links\n\n\u{1F517} Open: https://x.test' });
-    assert.deepEqual(list, { text: 'Pick\n\n*Slots*\n\n_Morning_\n1. 9 AM' });
-    assert.ok(Buffer.isBuffer(media.image));
-    assert.equal(media.caption, 'Look\n\nReply 1:\n1. Yes');
+    assert.equal(sock().sends.length, 0);
+    const [cta, list, media] = sock().relays.map((r) => r.message.interactiveMessage);
+    assert.deepEqual(cta.nativeFlowMessage.buttons.map((b) => [b.name, JSON.parse(b.buttonParamsJson)]), [
+        ['cta_url', { display_text: 'Open', url: 'https://x.test', merchant_url: 'https://x.test' }],
+        ['cta_call', { display_text: 'Call', phone_number: '+919800000001' }],
+    ]);
+    assert.equal(list.body.text, 'Pick');
+    assert.equal(list.nativeFlowMessage.buttons[0].name, 'single_select');
+    assert.deepEqual(JSON.parse(list.nativeFlowMessage.buttons[0].buttonParamsJson), {
+        title: 'Slots', sections: [{ title: 'Morning', rows: [{ title: '9 AM', description: 'Early', id: 'A' }] }],
+    });
+    assert.equal(media.header.hasMediaAttachment, true);
+    assert.ok(media.header.imageMessage);
+    assert.equal(media.body.text, 'Look');
 });
 
 it('a carousel sends the main text, then one captioned image per card, and counts every message as a part', async () => {

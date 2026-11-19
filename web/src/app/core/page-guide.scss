@@ -115,6 +115,44 @@ summary {
   li::marker { color: var(--primary-text); font-weight: 600; }
 }
 
+.shot {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 0;
+  cursor: zoom-in;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--surface-card);
+  transition: border-color var(--fast) var(--ease);
+
+  img { display: block; width: 100%; height: auto; }
+
+  &:hover { border-color: var(--border-hover); }
+  &:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+}
+
+.viewer {
+  width: min(92vw, 1100px);
+  max-height: 92vh;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: var(--surface-card);
+  color: var(--text-color);
+  box-shadow: var(--shadow-float);
+
+  &::backdrop { background: var(--overlay); }
+
+  figure { margin: 0; }
+  img { display: block; width: 100%; height: auto; }
+  figcaption { padding: 12px 16px 14px; font-size: 13.5px; line-height: 1.5; }
+
+  .x { position: absolute; top: 10px; right: 10px; }
+}
+
 .tip {
   display: flex;
   gap: 8px;

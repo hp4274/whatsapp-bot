@@ -1,11 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 
 import { Auth } from '../core/auth';
-import {
-  InteractiveDraft,
-  carouselCaptions,
-  renderFallbackText,
-} from './interactive/interactive.model';
+import { InteractiveDraft, carouselCaptions } from './interactive/interactive.model';
 import { MediaSrc } from './interactive/media-src';
 import { DraftAttachment, VariantKey } from './draft';
 import { formatBytes, linkify, substitute, waToHtml } from './wa-format';
@@ -47,9 +43,8 @@ function fillBlock(block: InteractiveDraft, fill: (text: string) => string): Int
  * so the bubble is the real text, not an approximation. The chat itself keeps
  * WhatsApp's own colours on purpose; only the frame follows the app theme.
  *
- * `textMenu` (QR numbers) shows what such a number really sends: buttons and
- * lists as the numbered menu text, a carousel as its text then one captioned
- * image per card, each its own message.
+ * Buttons, links and lists are drawn as WhatsApp's own, which is how they are sent. `textMenu` (QR numbers) with
+ * `carouselImages` shows a carousel as its text then one captioned image per card, each its own message.
  */
 @Component({
   selector: 'app-phone-preview',
@@ -73,15 +68,10 @@ export class PhonePreview {
   readonly seed = input(1);
   /** True when there is no audience yet and the preview uses a made-up contact. */
   readonly sample = input(false);
-  /** QR number: buttons go as a numbered text menu. */
+  /** QR number: with `carouselImages`, a carousel goes card by card. */
   readonly textMenu = input(false);
   /** A carousel goes as one captioned image per card instead of WhatsApp's swipe carousel. */
   readonly carouselImages = input(false);
-  /** Text-menu mode, but the carousel still goes as the native swipe slider. */
-  protected readonly nativeCarousel = computed(
-    () => this.interactive()?.type === 'carousel' && !this.carouselImages(),
-  );
-
   /** A/B test versions on offer (`['A', 'B']`); empty hides the switch. */
   readonly versions = input<readonly VariantKey[]>([]);
   /** The version `text` is showing. */
@@ -108,12 +98,6 @@ export class PhonePreview {
   private readonly filledBlock = computed(() => {
     const block = this.interactive();
     return block ? fillBlock(block, (t) => this.fill(t).text) : null;
-  });
-  /** Text-menu mode, buttons or a list: the one message the server sends (renderFallbackText). */
-  protected readonly menuHtml = computed(() => {
-    const block = this.filledBlock();
-    if (!this.textMenu() || !block || block.type === 'carousel') return null;
-    return linkify(waToHtml(renderFallbackText(this.rendered().text, block)));
   });
   /** Text-menu mode, a carousel: one image message per card, captioned as the server does. */
   protected readonly cardMessages = computed(() => {
