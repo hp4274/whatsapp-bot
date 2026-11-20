@@ -65,7 +65,7 @@ describe('admin plans & subscriptions', () => {
         assert.equal(starter.price, 999);
         assert.equal(starter.currency, 'INR');
         assert.equal(starter.interval, 'month');
-        assert.equal(starter.trialDays, 14);
+        assert.equal(starter.trialDays, 0, 'no trials since 2026-11-20');
         assert.equal(starter.active, true);
         assert.equal(starter.subscribers, 0);
         assert.equal(starter.tenantLimits.maxChannels, 1);
@@ -106,7 +106,7 @@ describe('admin plans & subscriptions', () => {
         assert.equal((await call(sup, 'PUT', '/api/admin/billing/plans/Bad%20Key', { name: 'x' })).status, 400);
     });
 
-    it('creates a tenant on a plan: services, limits and a trial', async () => {
+    it('creates a tenant on a plan: services and limits, active at once (no trial)', async () => {
         const res = await createTenant({ planKey: 'starter' });
         assert.equal(res.status, 201);
         const { tenant } = res.body;
@@ -117,9 +117,9 @@ describe('admin plans & subscriptions', () => {
         assert.equal(tenant.limits.maxChannels, 1);
         assert.equal(tenant.limits.maxUsers, 2);
         assert.equal(tenant.subscription.planKey, 'starter');
-        assert.equal(tenant.subscription.state, 'trialing');
+        assert.equal(tenant.subscription.state, 'active');
         assert.equal(tenant.subscription.price, 999);
-        assert.ok(tenant.subscription.trialEndsAt > new Date().toISOString());
+        assert.equal(tenant.subscription.trialEndsAt, null);
 
         const list = await call(sup, 'GET', '/api/admin/tenants');
         assert.equal(list.body.tenants.find((t) => t.id === tenant.id).subscription.planName, 'Starter');

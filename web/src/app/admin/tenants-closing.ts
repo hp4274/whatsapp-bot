@@ -14,7 +14,6 @@ export function nextEnd(sub: TenantSubscriptionSummary | null | undefined, now: 
   };
   // Already past its end and in grace: the grace running out is what comes next.
   if (sub.state === 'grace') add(sub.graceEndsAt, 'Grace ends');
-  if (sub.state === 'trialing') add(sub.trialEndsAt, 'Trial ends');
   if (sub.cancelAtPeriodEnd) add(sub.currentPeriodEnd, 'Cancels');
   add(sub.validUntil, 'Plan ends');
   const upcoming = ends.filter((e) => e.at >= now).sort((a, b) => a.at - b.at);
@@ -22,8 +21,8 @@ export function nextEnd(sub: TenantSubscriptionSummary | null | undefined, now: 
 }
 
 /**
- * What ends within the next 7 days for a business, soonest first (a trial, an end date, an end of period, or the
- * grace after one), with a line for its card: "Trial ends 10 Nov, in 3 days". Null when nothing does.
+ * What ends within the next 7 days for a business, soonest first (an end date, an end of period, or the
+ * grace after one), with a line for its card: "Ends 10 Nov, in 3 days". Null when nothing does.
  */
 export function closingSoon(sub: TenantSubscriptionSummary | null | undefined, now: number): { at: number; note: string } | null {
   const end = nextEnd(sub, now);

@@ -15,6 +15,32 @@
     />
   </label>
 
+  <!-- Whose entries: the whole platform by default, or the super admin, the businesses or the system alone. -->
+  <div class="row">
+    <div class="seg who" role="radiogroup" aria-label="Who did it">
+      @for (w of whos; track w.k) {
+        <button
+          type="button"
+          role="radio"
+          [attr.aria-checked]="(filter().who ?? '') === w.k"
+          [class.on]="(filter().who ?? '') === w.k"
+          (click)="set('who', w.k)"
+        >
+          <i class="ti ti-{{ w.icon }}" aria-hidden="true"></i> {{ w.l }}
+        </button>
+      }
+    </div>
+    <button
+      class="btn problems"
+      type="button"
+      [attr.aria-pressed]="filter().problems === '1'"
+      [class.on]="filter().problems === '1'"
+      (click)="set('problems', filter().problems === '1' ? '' : '1')"
+    >
+      <i class="ti ti-alert-triangle" aria-hidden="true"></i> Problems only
+    </button>
+  </div>
+
   <div class="seg" role="radiogroup" aria-label="Type of change">
     @for (v of verbs; track v.k) {
       <button
@@ -172,7 +198,7 @@
           {{
             active()
               ? 'Loosen a filter or clear them.'
-              : 'Admin actions show up here as they happen.'
+              : 'What the super admin, the businesses and the system do shows up here as it happens.'
           }}
         </p>
       </div>

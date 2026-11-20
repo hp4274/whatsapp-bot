@@ -63,6 +63,14 @@ export class OpsAudit {
     { k: 'other', l: 'Other' },
   ];
 
+  /** Whose entries: everything that happened on the platform, or one side of it. */
+  protected readonly whos: { k: string; l: string; icon: string }[] = [
+    { k: '', l: 'Everyone', icon: 'world' },
+    { k: 'admin', l: 'Super admin', icon: 'shield-lock' },
+    { k: 'business', l: 'Businesses', icon: 'building-store' },
+    { k: 'system', l: 'System', icon: 'robot' },
+  ];
+
   /** Bumped per request so a slow older page cannot overwrite a newer filter. */
   private seq = 0;
   private typing?: ReturnType<typeof setTimeout>;

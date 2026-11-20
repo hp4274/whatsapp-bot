@@ -21,7 +21,7 @@ import express from 'express';
 
 import { Database } from '../src/db.js';
 import { createBillingRouter } from '../src/billing/routes.js';
-import { BILLING_SCHEMA } from '../src/billing/schema.js';
+import { BILLING_SCHEMA, migrateTrials } from '../src/billing/schema.js';
 import { DEFAULT_PLANS, METRICS, normalizePlan } from '../src/billing/plans.js';
 import { BillingError, BillingStore, GRACE_DAYS, periodEnd, periodOf } from '../src/billing/store.js';
 import { capRemaining } from '../src/policy/campaignOps.js';
@@ -135,10 +135,11 @@ describe('subscribing', () => {
         assert.equal(sub.plan.limits.messagesPerMonth, 1000);
     });
 
-    it('marks a trial and refuses an unknown plan', () => {
+    it('starts active, with no trial (removed 2026-11-20), and refuses an unknown plan', () => {
         const sub = B.subscribe(2, 'business', { trialEndsAt: '2026-10-20T00:00:00Z' });
-        assert.equal(sub.status, 'trialing');
-        assert.equal(sub.state, 'trialing');
+        assert.equal(sub.status, 'active');
+        assert.equal(sub.state, 'active');
+        assert.equal(sub.trialEndsAt, null, 'an old caller asking for a trial gets none');
         assert.equal(sub.entitled, undefined);
         assert.equal(B.entitled('tickets'), true);
         assert.throws(() => B.subscribe(2, 'ghost'), /unknown plan/);
@@ -353,17 +354,22 @@ describe('cancellation and grace', () => {
         assert.equal(A.entitled('workflows'), false);
     });
 
-    it('expires a trial that nobody converted, after grace', () => {
+    it('a trial running when trials were removed becomes its end date: every day kept, then grace, then expired', () => {
         at('2027-07-01T10:00:00Z');
-        B.subscribe(2, 'business', { trialEndsAt: '2027-07-10T00:00:00Z' });
-        assert.equal(B.subscription().state, 'trialing');
+        B.subscribe(2, 'business');
+        db.db.prepare("UPDATE subscriptions SET status = 'trialing', trial_ends_at = '2027-07-10T00:00:00Z', valid_until = NULL WHERE tenant_id = 2").run();
+        migrateTrials(db.db);
+        migrateTrials(db.db); // a second boot changes nothing
+        const sub = B.subscription();
+        assert.deepEqual([sub.status, sub.state, sub.trialEndsAt, sub.validUntil], ['active', 'active', null, '2027-07-10T00:00:00Z']);
         at('2027-07-12T10:00:00Z');
         assert.equal(B.subscription().state, 'grace');
         assert.equal(B.entitled('tickets'), true);
         at('2027-07-20T10:00:00Z');
         assert.equal(B.subscription().state, 'expired');
         assert.equal(B.entitled('tickets'), false);
-        // Upgrading out of a dead trial revives it immediately.
+        // A new plan runs again at once, with no end date until one is set.
+        db.db.prepare('UPDATE subscriptions SET valid_until = NULL WHERE tenant_id = 2').run();
         assert.equal(B.changePlan('enterprise').state, 'active');
     });
 });

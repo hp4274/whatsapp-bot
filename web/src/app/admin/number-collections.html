@@ -1,4 +1,7 @@
-<!-- Saved number collections: one row per business, readable and copyable by the super admin. -->
+<!--
+  Saved number collections, laid out like the business's Contacts page: totals, the businesses down the left (as
+  Contacts lists its segments), and every saved number in one table with its country.
+-->
 <header class="s-head">
   <div>
     <p class="eyebrow"><i class="ti ti-address-book" aria-hidden="true"></i> Platform</p>
@@ -8,9 +11,11 @@
       its numbers to save or replace its collection.
     </p>
   </div>
-  <button class="btn sm" type="button" (click)="load()" [disabled]="loading()">
-    <i class="ti ti-refresh" aria-hidden="true"></i> Refresh
-  </button>
+  <div class="head-actions">
+    <button class="btn" type="button" (click)="load()" [disabled]="loading()">
+      <i class="ti ti-refresh" aria-hidden="true"></i> Refresh
+    </button>
+  </div>
 </header>
 
 @if (notice()) {
@@ -24,111 +29,201 @@
     <i class="ti ti-alert-circle" aria-hidden="true"></i><span class="msg">{{ error() }}</span>
     <button type="button" class="btn sm" (click)="load()">Try again</button>
   </p>
-} @else if (loading()) {
-  <div class="card" aria-busy="true" aria-label="Loading number collections">
-    @for (i of [1, 2, 3]; track i) {
-      <div class="s-skel" style="height: 18px"></div>
+}
+
+<section class="stats" aria-label="Collection summary">
+  @if (!loading()) {
+    @let t = totals();
+    <div class="s-stat tone-info s-enter" style="--i: 0">
+      <small>Businesses</small><b>{{ t.businesses.toLocaleString() }}</b>
+      <span class="muted">with a saved collection</span>
+    </div>
+    <div class="s-stat tone-ok s-enter" style="--i: 1">
+      <small>Numbers</small><b>{{ t.numbers.toLocaleString() }}</b>
+      <span class="muted">across every collection</span>
+    </div>
+    <div class="s-stat tone-warn s-enter" style="--i: 2">
+      <small>Countries</small><b>{{ t.countries.toLocaleString() }}</b>
+      <span class="muted">from the calling codes</span>
+    </div>
+    <div class="s-stat tone-mute s-enter" style="--i: 3">
+      <small>Last saved</small><b class="small-b">{{ t.latest ? when(t.latest) : '—' }}</b>
+      <span class="muted">newest collection</span>
+    </div>
+  } @else {
+    @for (i of [0, 1, 2, 3]; track i) {
+      <div class="s-skel stat-skel"></div>
     }
-  </div>
-} @else if (!rows().length) {
-  <div class="card s-empty">
-    <i class="ti ti-address-book" aria-hidden="true"></i>
-    <strong>No numbers saved yet</strong>
-    <p>Open a business, go to Accounts, fetch its numbers and save them as a collection.</p>
-  </div>
-} @else {
-  <div class="card">
-    <div class="s-table">
-      <table>
-        <thead>
-          <tr>
-            <th scope="col">Business</th>
-            <th scope="col">Account</th>
-            <th scope="col" class="num">Numbers</th>
-            <th scope="col">Saved</th>
-            <th scope="col" class="acts"><span class="sr-only">Actions</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of rows(); track row.tenantId) {
+  }
+</section>
+
+<div class="board">
+  <!-- Rail: the businesses, as Contacts lists its segments ------------------>
+  <aside class="s-card rail" aria-label="Businesses">
+    <section>
+      <h4>Businesses</h4>
+      <div class="segments">
+        <button type="button" class="seg-item" [attr.aria-pressed]="tenantId() === null" (click)="pick(null)">
+          <i class="ti ti-building-community" aria-hidden="true"></i>
+          <span class="name">All businesses</span>
+          <em>{{ totals().numbers.toLocaleString() }}</em>
+        </button>
+        @for (c of collections(); track c.tenantId) {
+          <div class="seg-row">
+            @if (confirmDelete() === c.tenantId) {
+              <div class="seg-confirm" role="alertdialog" [attr.aria-label]="'Delete the collection of ' + name(c)">
+                <span>Delete {{ name(c) }}'s {{ c.count }} numbers?</span>
+                <button class="btn danger sm" type="button" (click)="remove(c)" [disabled]="deleting()">
+                  {{ deleting() ? 'Deleting…' : 'Delete' }}
+                </button>
+                <button class="btn sm" type="button" (click)="confirmDelete.set(null)" [disabled]="deleting()">Keep</button>
+              </div>
+            } @else {
+              <button
+                type="button"
+                class="seg-item"
+                [attr.aria-pressed]="tenantId() === c.tenantId"
+                (click)="pick(c.tenantId)"
+                [title]="(c.account ? 'Account ' + spacedPhone(c.account) + ' · ' : '') + 'saved ' + when(c.createdAt)"
+              >
+                <i class="ti ti-building-store" aria-hidden="true"></i>
+                <span class="name">{{ name(c) }}</span>
+                <em>{{ c.count.toLocaleString() }}</em>
+              </button>
+              <button
+                type="button"
+                class="x"
+                [attr.aria-label]="'Delete the collection of ' + name(c)"
+                (click)="confirmDelete.set(c.tenantId)"
+              >
+                <i class="ti ti-trash" aria-hidden="true"></i>
+              </button>
+            }
+          </div>
+        } @empty {
+          @if (!loading()) {
+            <p class="muted small">Saved collections show up here.</p>
+          }
+        }
+      </div>
+    </section>
+    @if (selected(); as c) {
+      <section class="facts">
+        <h4>This collection</h4>
+        <dl>
+          <dt>Account</dt>
+          <dd class="mono">{{ c.account ? spacedPhone(c.account) : '—' }}</dd>
+          <dt>Saved</dt>
+          <dd>{{ when(c.createdAt) }}</dd>
+        </dl>
+      </section>
+    }
+  </aside>
+
+  <!-- Table ----------------------------------------------------------------->
+  <section class="s-card list" aria-label="Saved numbers">
+    <div class="toolbar">
+      <div class="search">
+        <i class="ti ti-search" aria-hidden="true"></i>
+        <input
+          type="search"
+          aria-label="Search saved numbers"
+          placeholder="Search name, number, country or business"
+          [value]="typed()"
+          (input)="typed.set($any($event.target).value)"
+          (keydown.escape)="clearFilters()"
+        />
+      </div>
+      <div class="tools">
+        <button class="btn sm" type="button" (click)="copy()" [disabled]="!matches().length">
+          <i class="ti ti-copy" aria-hidden="true"></i> Copy
+        </button>
+        <button class="btn sm" type="button" (click)="download()" [disabled]="!matches().length">
+          <i class="ti ti-download" aria-hidden="true"></i> CSV
+        </button>
+        <button class="btn sm" type="button" (click)="pdf()" [disabled]="!matches().length">
+          <i class="ti ti-file-type-pdf" aria-hidden="true"></i> PDF
+        </button>
+      </div>
+    </div>
+
+    @if (countryChips().length > 1 || country()) {
+      <div class="s-seg countries" role="group" aria-label="Country">
+        <button type="button" [attr.aria-pressed]="!country()" (click)="country.set('')">Any</button>
+        @for (c of countryChips(); track c.name) {
+          <button type="button" [attr.aria-pressed]="country() === c.name" (click)="setCountry(c.name)">
+            {{ c.name }} <em>{{ c.count.toLocaleString() }}</em>
+          </button>
+        }
+      </div>
+    }
+
+    @if (loading()) {
+      <div class="skel-list" aria-busy="true" aria-label="Loading number collections">
+        @for (k of [0, 1, 2, 3, 4, 5]; track k) {
+          <div class="skel-row">
+            <span class="s-skel avatar"></span><span class="s-skel" [style.width.%]="30 + k * 7"></span>
+          </div>
+        }
+      </div>
+    } @else if (!collections().length) {
+      <div class="s-empty">
+        <i class="ti ti-address-book" aria-hidden="true"></i>
+        <strong>No numbers saved yet</strong>
+        <p>Open a business, go to Accounts, fetch its numbers and save them as a collection.</p>
+      </div>
+    } @else if (!matches().length) {
+      <div class="s-empty">
+        <i class="ti ti-user-search" aria-hidden="true"></i>
+        <strong>No numbers match</strong>
+        <p>Try a different search, or clear the filters to see every number.</p>
+        <button class="btn sm" type="button" (click)="clearFilters()">Clear filters</button>
+      </div>
+    } @else {
+      <p class="count" aria-live="polite">
+        {{ matches().length.toLocaleString() }} number{{ matches().length === 1 ? '' : 's' }}
+        @if (filtered()) {
+          of {{ (selected()?.count ?? totals().numbers).toLocaleString() }}
+        }
+        @if (matches().length > shown().length) {
+          · showing the first {{ shown().length }}, search to narrow
+        }
+      </p>
+      <div class="table-wrap">
+        <table>
+          <caption class="sr-only">Saved WhatsApp numbers</caption>
+          <thead>
             <tr>
-              <td class="name"><span class="strong">{{ name(row) }}</span></td>
-              <td class="mono">{{ row.account || '—' }}</td>
-              <td class="num"><span class="strong">{{ row.count }}</span></td>
-              <td class="when">{{ when(row.createdAt) }}</td>
-              <td class="acts">
-                @if (confirmDelete() === row.tenantId) {
-                  <span class="when">Delete this collection?</span>
-                  <button class="btn sm" type="button" (click)="confirmDelete.set(null)" [disabled]="deleting()">Keep</button>
-                  <button class="btn sm danger" type="button" (click)="remove(row)" [disabled]="deleting()">
-                    <i class="ti ti-trash" aria-hidden="true"></i> {{ deleting() ? 'Deleting…' : 'Delete' }}
-                  </button>
-                } @else {
-                  <button
-                    class="btn sm"
-                    type="button"
-                    (click)="toggle(row)"
-                    [attr.aria-expanded]="openId() === row.tenantId"
-                    [attr.aria-controls]="'nums-' + row.tenantId"
-                  >
-                    <i class="ti ti-{{ openId() === row.tenantId ? 'eye-off' : 'eye' }}" aria-hidden="true"></i>
-                    {{ openId() === row.tenantId ? 'Hide' : 'View' }}
-                  </button>
-                  <button class="btn sm" type="button" (click)="copy(row)">
-                    <i class="ti ti-copy" aria-hidden="true"></i> Copy
-                  </button>
-                  <button class="btn sm" type="button" (click)="download(row)">
-                    <i class="ti ti-download" aria-hidden="true"></i> CSV
-                  </button>
-                  <button class="btn sm" type="button" (click)="pdf(row)">
-                    <i class="ti ti-file-type-pdf" aria-hidden="true"></i> PDF
-                  </button>
-                  <button
-                    class="btn sm icon"
-                    type="button"
-                    (click)="confirmDelete.set(row.tenantId)"
-                    [attr.aria-label]="'Delete the collection of ' + name(row)"
-                  >
-                    <i class="ti ti-trash" aria-hidden="true"></i>
-                  </button>
-                }
-              </td>
+              <th scope="col">Contact</th>
+              <th scope="col" class="c-phone">Number</th>
+              <th scope="col">Country</th>
+              @if (tenantId() === null) {
+                <th scope="col" class="c-biz">Business</th>
+              }
             </tr>
-            @if (openId() === row.tenantId) {
-              <tr class="open">
-                <td colspan="5" [id]="'nums-' + row.tenantId">
-                  <label class="search">
-                    <i class="ti ti-search" aria-hidden="true"></i>
-                    <span class="sr-only">Search {{ name(row) }}'s numbers by name or number</span>
-                    <input
-                      type="search"
-                      placeholder="Search by name or number"
-                      [value]="typed()"
-                      (input)="typed.set($any($event.target).value)"
-                    />
-                  </label>
-                  <p class="hint" aria-live="polite">
-                    {{ matches().length }} of {{ row.count }} numbers
-                    @if (matches().length > shown().length) {
-                      · showing the first {{ shown().length }}, search to narrow
-                    }
-                  </p>
-                  @if (shown().length) {
-                    <ul class="nums">
-                      @for (c of shown(); track c.phone) {
-                        <li>
-                          <span class="strong">{{ c.name || '—' }}</span>
-                          <span class="mono">{{ spacedPhone(c.phone) }}</span>
-                        </li>
-                      }
-                    </ul>
-                  }
+          </thead>
+          <tbody>
+            @for (r of shown(); track r.tenantId + ':' + r.phone; let i = $index) {
+              <tr [style.--i]="i">
+                <td>
+                  <div class="who">
+                    <span class="avatar" [style.--h]="hue(r.phone)" aria-hidden="true">{{ initials(r.name, r.phone) }}</span>
+                    <span class="who-text">
+                      <span class="name">{{ r.name || 'No name' }}</span>
+                      <span class="sub">{{ spacedPhone(r.phone) }}</span>
+                    </span>
+                  </div>
                 </td>
+                <td class="c-phone mono">{{ spacedPhone(r.phone) }}</td>
+                <td><span class="tag">{{ r.country }}</span></td>
+                @if (tenantId() === null) {
+                  <td class="c-biz">{{ r.business }}</td>
+                }
               </tr>
             }
-          }
-        </tbody>
-      </table>
-    </div>
-  </div>
-}
+          </tbody>
+        </table>
+      </div>
+    }
+  </section>
+</div>

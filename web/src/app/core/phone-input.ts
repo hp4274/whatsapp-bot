@@ -68,6 +68,12 @@ const DEFAULT_CODE = '91';
 /** Longest first, so +971 is not read as +97 or +9. */
 const BY_LENGTH = [...COUNTRY_CODES].sort((a, b) => b.code.length - a.code.length);
 
+/** The country a number's calling code belongs to ("India"); '' when the code is not in COUNTRY_CODES. */
+export function countryOf(phone: string): string {
+  const digits = String(phone).replace(/\D/g, '');
+  return BY_LENGTH.find((c) => digits.startsWith(c.code))?.name ?? '';
+}
+
 /** The most digits a number in that country takes (15, the world maximum, for a code not in the list). */
 export function maxDigits(code: string): number {
   return COUNTRY_CODES.find((c) => c.code === code)?.digits ?? 15;

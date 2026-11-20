@@ -127,6 +127,10 @@ export interface AuditEntry {
 
 export interface AuditFilter {
   tenant?: string;
+  /** Who did it: 'admin' (super admin), 'business' (its own people), 'system'; empty = everyone. */
+  who?: string;
+  /** '1': alerts only (bans, logouts, brakes, messages not showing on phones). */
+  problems?: string;
   user?: string;
   verb?: string;
   from?: string;

@@ -175,7 +175,8 @@ export class BillingStore {
      * this for someone else - but only through `db.forTenant(id)`, so a
      * mismatch is a bug rather than a privilege.
      */
-    subscribe(tenantId = this.tenantId, planKey, { startsAt = null, trialEndsAt = null } = {}) {
+    /** No trials since 2026-11-20 (the user's call): a plan runs to its end date (valid_until), nothing before it. */
+    subscribe(tenantId = this.tenantId, planKey, { startsAt = null } = {}) {
         if (Number(tenantId) !== Number(this.tenantId)) {
             throw new BillingError('subscription belongs to another tenant', 403);
         }
@@ -183,20 +184,18 @@ export class BillingStore {
         if (!plan) throw new BillingError('unknown plan', 404);
 
         const start = iso(startsAt) ?? this.now().toISOString();
-        const trial = iso(trialEndsAt);
         const now = utcNow();
         this.db.prepare(
             `INSERT INTO subscriptions (tenant_id, plan_key, status, starts_at, trial_ends_at,
                                         current_period_end, pending_plan_key, cancel_at_period_end,
                                         cancelled_at, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, NULL, 0, NULL, ?, ?)
+             VALUES (?, ?, 'active', ?, NULL, ?, NULL, 0, NULL, ?, ?)
              ON CONFLICT (tenant_id) DO UPDATE SET
                 plan_key = excluded.plan_key, status = excluded.status, starts_at = excluded.starts_at,
                 trial_ends_at = excluded.trial_ends_at, current_period_end = excluded.current_period_end,
                 pending_plan_key = NULL, cancel_at_period_end = 0, cancelled_at = NULL,
                 updated_at = excluded.updated_at`)
-            .run(Number(tenantId), plan.key, trial ? 'trialing' : 'active', start, trial,
-                periodEnd(periodOf(start)), now, now);
+            .run(Number(tenantId), plan.key, start, periodEnd(periodOf(start)), now, now);
         return this.subscription();
     }
 

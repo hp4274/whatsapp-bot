@@ -15,7 +15,7 @@ import { MODULE_SCHEMAS } from './schema.js';
 import { migrateReferrals } from './referrals.js';
 import { migrateTemplates } from './templates/schema.js';
 import { migrateAutoReplies } from './autoreply/schema.js';
-import { migratePlans } from './billing/schema.js';
+import { migratePlans, migrateTrials } from './billing/schema.js';
 import { AutoReplyStore } from './autoreply/store.js';
 import { HELD_TYPES } from './campaign/humanize.js';
 import { STATUS_RANK, SUCCESS_STATUSES, Status, utcNow } from './protocol.js';
@@ -620,6 +620,7 @@ export class Database {
         migrateTemplates(this.db);
         migrateAutoReplies(this.db);
         migratePlans(this.db);
+        migrateTrials(this.db);
         migrateReferrals(this.db);
         if (old.length) finishLegacy(this.db, old);
         dropCloudChannels(this.db);

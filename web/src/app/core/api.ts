@@ -1858,6 +1858,13 @@ export class CampaignsApi {
       .pipe(catchError(toMessage));
   }
 
+  /** The campaign with its counts read fresh from its messages (the list holds the last saved ones). */
+  stats(id: number): Observable<{ campaign: Campaign }> {
+    return this.http
+      .get<{ campaign: Campaign }>(`/api/campaigns/${id}/stats`)
+      .pipe(catchError(toMessage));
+  }
+
   create(body: CampaignCreate): Observable<{ campaign: Campaign }> {
     return this.http
       .post<{ campaign: Campaign }>('/api/campaigns', body)

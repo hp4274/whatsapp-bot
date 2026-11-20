@@ -285,12 +285,16 @@ const RULES = {
     'ops.alert': (c) => describeAlert(c),
 };
 
-const ALERT_SEVERITY = { ban: 'danger', tenant_bans: 'danger', logout: 'danger', backup_failed: 'danger', reencrypt_failed: 'danger', encryption_key: 'danger' };
+const ALERT_SEVERITY = { ban: 'danger', tenant_bans: 'danger', logout: 'danger', backup_failed: 'danger', reencrypt_failed: 'danger', encryption_key: 'danger',
+    unseen_buttons: 'danger', unseen_list: 'danger', unseen_cta: 'danger', unseen_carousel: 'danger' };
 const ALERT_TITLE = {
     ban: 'WhatsApp banned', logout: 'Unexpected logout of', tenant_bans: 'Second ban in 30 days at', dead_man: 'Nothing sent for hours on',
     unstable: 'Unstable connection brake on', delivery: 'Delivery brake on', stuck: 'Stuck-messages brake on',
     backup_failed: 'Daily backup failed', reencrypt_failed: 'Re-encryption failed', encryption_key: 'Encryption key problem',
     held_back: 'Alerts held back',
+    // messaging/unseen.js: delivered, but nobody saw them on a phone.
+    unseen_buttons: 'Reply buttons not showing on', unseen_list: 'List menus not showing on',
+    unseen_cta: 'Call or link buttons not showing on', unseen_carousel: 'Carousels not showing on',
 };
 
 function describeAlert(c) {

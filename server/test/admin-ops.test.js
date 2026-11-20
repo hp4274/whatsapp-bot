@@ -184,6 +184,31 @@ describe('admin ops endpoints', () => {
         assert.equal(auditCsv([{ id: 1, detail: 'say "hi"' }]).split('\r\n')[1], '"1","","","","","","","","","","","","say ""hi"""');
     });
 
+    it('audit-logs: whose entries (super admin, businesses, system) and problems only', async () => {
+        const { tenancy } = app.locals;
+        const users = db.db.prepare('SELECT id, role FROM users').all();
+        const sa = users.find((u) => u.role === 'super_admin');
+        const own = users.find((u) => u.role === 'owner');
+        assert.ok(sa && own, 'the test sessions made a super admin and an owner');
+        tenancy.audit({ tenantId: tenantB.id, userId: sa.id, action: 'tenant.safety', target: 'x' });
+        tenancy.audit({ tenantId: 1, userId: own.id, action: 'campaign.start', target: '7' });
+        tenancy.audit({ tenantId: 1, userId: null, action: 'ops.alert', target: `unseen_buttons:channel-${ch.a1.id}`,
+            detail: JSON.stringify({ kind: 'unseen_buttons', tenantId: 1, channelId: ch.a1.id, text: 'nobody saw them' }) });
+        const who = async (q) => (await call(sup, `/api/admin/audit-logs?${q}`)).body.logs;
+        const byAdmin = await who('who=admin');
+        assert.ok(byAdmin.some((l) => l.action === 'tenant.safety' && l.tenantId === tenantB.id), 'a super admin inside a business counts as the super admin');
+        assert.ok(byAdmin.every((l) => l.actor !== 'System' && l.actor.role === 'super_admin'));
+        const byBusiness = await who('who=business');
+        assert.ok(byBusiness.some((l) => l.action === 'campaign.start'));
+        assert.ok(byBusiness.every((l) => l.actor !== 'System' && l.actor.role !== 'super_admin'));
+        assert.ok((await who('who=system')).every((l) => l.actor === 'System'));
+        const problems = await who('problems=1');
+        assert.deepEqual(problems.map((l) => l.action), ['ops.alert']);
+        assert.equal(problems[0].severity, 'danger');
+        assert.match(problems[0].summary, /^Reply buttons not showing on .*: nobody saw them$/);
+        assert.equal((await who('problems=1&who=business')).length, 0);
+    });
+
     it('audit-logs: every row reads as a sentence with severity, category and actor', async () => {
         const { logs } = (await call(sup, '/api/admin/audit-logs')).body;
         const del = logs.find((l) => l.action === 'tenant.delete');

@@ -13,9 +13,10 @@ import {
   viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { catchError, forkJoin, map, of } from 'rxjs';
 
 import { WuzieFeed } from '../admin/wuzie-feed';
-import { Api, CampaignsApi, type Campaign, type MessageRecord, type QueuedNext } from './api';
+import { Api, CampaignsApi, type Campaign, type CampaignStats, type MessageRecord, type QueuedNext } from './api';
 import { Auth } from './auth';
 import { Store } from './store';
 
@@ -37,7 +38,10 @@ const RECENT_COUNT = 5;
  * so nobody loses it mid-read (WCAG 2.2.1, adjustable timing).
  *
  * Mounted once by the shell rather than by the campaign page, so it survives
- * navigation. With `wuzie` it follows Wuzie's own number instead (WuzieFeed): the
+ * navigation. Two or more campaigns at once: one card each. The first stays open; each newer one stacks above it as
+ * a slim bar (name, status, progress), and clicking a bar opens that campaign and folds the one that was open. The
+ * open card then shows that campaign's own counts and controls.
+ * With `wuzie` it follows Wuzie's own number instead (WuzieFeed): the
  * platform view mounts that one, so a message Wuzie sends shows here too. The template stays inline: it is the one component file this
  * folder owns, and the card is small.
  */
@@ -47,8 +51,18 @@ const RECENT_COUNT = 5;
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (visible()) {
+      <div #island class="stack">
+      <!-- Other campaigns running now, newest on top: one line each, click to open. -->
+      @for (c of folded(); track c.id) {
+        <button type="button" class="mini" (click)="expand(c.id)" [attr.aria-label]="'Show ' + c.name + ', ' + runLabel(c)">
+          <i class="ti ti-{{ c.status === 'paused' ? 'player-pause' : 'send' }} lead" aria-hidden="true"></i>
+          <span class="mini-name">{{ c.name }}</span>
+          <span class="st st-{{ c.status === 'paused' ? 'mute' : 'run' }}">{{ runLabel(c) }}</span>
+          <i class="ti ti-chevron-up mini-open" aria-hidden="true"></i>
+          <span class="mini-bar" aria-hidden="true"><span [style.width.%]="percentOf(c)"></span></span>
+        </button>
+      }
       <aside
-        #island
         class="island"
         [class.done]="phase() === 'done'"
         [class.bad]="phase() === 'stopped'"
@@ -112,7 +126,9 @@ const RECENT_COUNT = 5;
                 <b>{{ stats().pending }}</b> waiting
               </li>
             </ul>
-            @if (upNextRows().length) {
+            @if (multi()) {
+              <!-- Each campaign's own lines would need the queue split by campaign: the counts above are its own. -->
+            } @else if (upNextRows().length) {
               <ol class="recent" aria-label="Up next">
                 @for (m of upNextRows(); track m.messageId) {
                   <li>
@@ -168,6 +184,7 @@ const RECENT_COUNT = 5;
           </div>
         }
       </aside>
+      </div>
     }
   `,
   styles: `
@@ -186,12 +203,17 @@ const RECENT_COUNT = 5;
 
     /* Kardlyz card language, floated: card surface, hairline, 20px radius, a
        soft lifted shadow so it reads as above the page rather than on it. */
-    .island {
+    /* What floats: the open card at the bottom, other running campaigns as bars above it. */
+    .stack {
       position: fixed;
       right: 24px;
       bottom: 24px;
       z-index: 50;
+      display: grid;
+      gap: 8px;
       width: min(360px, calc(100vw - 24px));
+    }
+    .island {
       padding: 14px 16px 16px;
       border: 1px solid var(--border-color);
       border-radius: 20px;
@@ -430,15 +452,82 @@ const RECENT_COUNT = 5;
       background: rgba(239, 68, 68, 0.08);
     }
 
+    /* A folded campaign: one line, its status, and a hairline of progress along the bottom. */
+    .mini {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      min-height: 48px;
+      padding: 8px 12px 10px;
+      overflow: hidden;
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      color: var(--text-color);
+      background: color-mix(in srgb, var(--surface-card) 92%, transparent);
+      backdrop-filter: blur(14px);
+      text-align: left;
+      cursor: pointer;
+      animation: island-in 260ms var(--ease) both;
+      transition:
+        border-color var(--fast) var(--ease),
+        translate var(--fast) var(--ease);
+    }
+    .mini:hover {
+      border-color: color-mix(in srgb, var(--primary) 45%, var(--border-color));
+      translate: 0 -1px;
+    }
+    .mini:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+    .mini .lead {
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    .mini-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      font-size: 13.5px;
+      font-weight: 500;
+      color: var(--text-strong);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .mini-open {
+      font-size: 16px;
+      color: var(--text-muted);
+    }
+    .mini-bar {
+      position: absolute;
+      inset: auto 0 0;
+      height: 3px;
+      background: var(--surface-sunken);
+    }
+    .mini-bar span {
+      display: block;
+      height: 100%;
+      background: var(--brand-gradient);
+      transition: width 400ms var(--ease);
+    }
+
     @media (max-width: 520px) {
-      .island {
+      .stack {
         right: 12px;
         bottom: 12px;
       }
     }
     @media (prefers-reduced-motion: reduce) {
-      .island {
+      .island,
+      .mini {
         animation: none;
+      }
+      .mini-bar span {
+        transition: none;
       }
       .bar span {
         transition: none;
@@ -483,7 +572,19 @@ export class SendIsland {
    * The campaign being sent. The engine-wide stats carry no id, so the live
    * campaign is looked up once per run; null (no name, no link) if that fails.
    */
-  protected readonly current = signal<Pick<Campaign, 'id' | 'name'> | null>(null);
+  private readonly named = signal<Pick<Campaign, 'id' | 'name'> | null>(null);
+  protected readonly current = computed<Pick<Campaign, 'id' | 'name'> | null>(() => (this.multi() ? this.focused() : this.named()));
+
+  /** The business's campaigns running or paused now, oldest first; from two up each has its own card. */
+  private readonly runs = signal<Campaign[]>([]);
+  protected readonly multi = computed(() => !this.wuzie() && this.runs().length > 1);
+  /** The campaign whose card is open: the one clicked, else the first one that started. */
+  private readonly expandedId = signal<number | null>(null);
+  private readonly focused = computed(() => this.runs().find((c) => c.id === this.expandedId()) ?? this.runs()[0] ?? null);
+  /** The other running campaigns, newest on top, as bars above the open card. */
+  protected readonly folded = computed(() =>
+    this.multi() ? this.runs().filter((c) => c.id !== this.focused()?.id).reverse() : [],
+  );
   /** First Stop click arms it; the second sends it. Resets on blur. */
   protected readonly confirmStop = signal(false);
   /** Seconds left before a finished run closes; null while running or held. */
@@ -495,7 +596,17 @@ export class SendIsland {
   private sawLive = false;
   private recentTimer: ReturnType<typeof setTimeout> | undefined;
 
-  protected readonly stats = computed(() => (this.wuzie() ? this.feed.stats() : this.store.stats()));
+  /** The open card's counts: the focused campaign's own while several run, else the number's whole run. */
+  protected readonly stats = computed<CampaignStats>(() => {
+    const c = this.multi() ? this.focused() : null;
+    if (!c) return this.wuzie() ? this.feed.stats() : this.store.stats();
+    const total = c.stats.total ?? 0;
+    const pending = c.stats.pending ?? 0;
+    return {
+      total, pending, processed: total - pending, successful: c.stats.sent ?? 0, failed: c.stats.failed ?? 0, duplicates: 0,
+      state: c.status === 'paused' ? 'PAUSED' : 'RUNNING',
+    };
+  });
   private readonly pacing = computed(() => (this.wuzie() ? this.feed.pacing() : this.store.pacing()));
   private readonly pacingLeft = computed(() => (this.wuzie() ? this.feed.pacingLeft() : this.store.pacingLeft()));
   private readonly historyRevision = computed(() => (this.wuzie() ? this.feed.historyRevision() : this.store.historyRevision()));
@@ -551,17 +662,12 @@ export class SendIsland {
     effect(() => {
       if (!liveTotal()) return;
       // Wuzie's number has no campaign pages: its sends are its account messages and broadcasts.
-      if (this.wuzie()) return this.current.set({ id: 0, name: 'Wuzie WhatsApp' });
-      untracked(() => {
-        this.campaignsApi.list().subscribe({
-          next: ({ campaigns }) =>
-            this.current.set(
-              campaigns.find((c) => c.status === 'running' || c.status === 'paused') ?? null,
-            ),
-          error: () => this.current.set(null),
-        });
-      });
+      if (this.wuzie()) return this.named.set({ id: 0, name: 'Wuzie WhatsApp' });
+      untracked(() => this.loadRuns());
     });
+    // Every campaign's sends and state changes (any number of the business), at most every 1.5 s.
+    // (Wuzie's island skips it: loadRuns checks, as inputs are not set yet here.)
+    this.store.watch(['campaign', 'campaigns'], () => this.loadRuns(), 1500);
 
     // Every send bumps historyRevision; coalesce a burst into one small fetch.
     effect(() => {
@@ -611,6 +717,8 @@ export class SendIsland {
   });
 
   protected readonly visible = computed(() => {
+    // Several campaigns running: the stack stays while any of them does, whatever one card did.
+    if (this.multi()) return true;
     const s = this.stats();
     if (s.total <= 0) return false;
     const gone = this.dismissed();
@@ -656,6 +764,44 @@ export class SendIsland {
     if (this.phase() === 'sending') return 'Keeps running on the server if you close this tab.';
     return '';
   });
+
+  /**
+   * The campaigns running or paused now. With two or more, each one's counts are read fresh (the list keeps the
+   * last saved ones), so every card is live.
+   */
+  private loadRuns(): void {
+    if (this.wuzie()) return;
+    this.campaignsApi.list().subscribe({
+      next: ({ campaigns }) => {
+        const live = campaigns
+          .filter((c) => c.status === 'running' || c.status === 'paused')
+          .sort((a, b) => (a.startedAt ?? a.createdAt).localeCompare(b.startedAt ?? b.createdAt) || a.id - b.id);
+        this.named.set(live[0] ?? null);
+        if (live.length < 2) return this.runs.set(live);
+        forkJoin(live.map((c) => this.campaignsApi.stats(c.id).pipe(map((r) => r.campaign), catchError(() => of(c))))).subscribe(
+          (fresh) => this.runs.set(fresh.filter((c) => c.status === 'running' || c.status === 'paused')),
+        );
+      },
+      error: () => undefined, // the card keeps what it shows; the next send tries again
+    });
+  }
+
+  /** Open a folded campaign's card; the one that was open folds into a bar. */
+  protected expand(id: number): void {
+    this.expandedId.set(id);
+    this.open.set(true);
+    this.confirmStop.set(false);
+    this.error.set('');
+  }
+
+  protected percentOf(c: Campaign): number {
+    const total = c.stats.total ?? 0;
+    return total > 0 ? Math.round(Math.min(1, (total - (c.stats.pending ?? 0)) / total) * 100) : 0;
+  }
+
+  protected runLabel(c: Campaign): string {
+    return `${c.status === 'paused' ? 'Paused' : 'Sending'} · ${this.percentOf(c)}%`;
+  }
 
   protected hold(on: boolean): void {
     this.held.set(on);
@@ -723,6 +869,15 @@ export class SendIsland {
 
   protected act(action: 'pause' | 'resume' | 'stop'): void {
     this.error.set('');
+    // Several running: the buttons act on the open card's campaign alone, not on the whole number.
+    const one = this.multi() ? this.focused() : null;
+    if (one) {
+      this.campaignsApi.action(one.id, action === 'stop' ? 'cancel' : action).subscribe({
+        next: () => this.loadRuns(),
+        error: (err: Error) => this.error.set(err.message),
+      });
+      return;
+    }
     // One HTTP call that completes on its own; nothing to tear down.
     (this.wuzie() ? this.feed.action(action) : this.api.campaignAction(action)).subscribe({
       next: ({ stats }) => (this.wuzie() ? this.feed.stats : this.store.stats).set(stats),

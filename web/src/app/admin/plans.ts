@@ -43,7 +43,7 @@ const BLANK_PLAN: Plan = {
   price: 0,
   currency: 'INR',
   interval: 'month',
-  trialDays: 14,
+  trialDays: 0,
   services: [],
   // null = no limit; 0 would allow none.
   tenantLimits: {
@@ -233,7 +233,7 @@ export class PlansView {
     this.editor.update((e) => (e ? { ...e, plan: { ...e.plan, ...change } } : e));
   }
 
-  protected patchNumber(key: 'tier' | 'price' | 'trialDays', raw: string) {
+  protected patchNumber(key: 'tier' | 'price', raw: string) {
     this.patch({ [key]: Math.max(0, Number(raw) || 0) });
   }
 

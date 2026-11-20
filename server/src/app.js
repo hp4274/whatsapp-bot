@@ -120,7 +120,8 @@ import { SCHOOL_TEMPLATES, STUDENT_CSV_COLUMNS } from './school/templates.js';
 import { handleSchoolCommand } from './school/commands.js';
 import { helpText, isHelp } from './help.js';
 import { createSchoolRouter, schoolSweep } from './school/routes.js';
-import { MODULE_SWEEPS } from './moduleSweeps.js';
+import { MODULE_SWEEPS, ownerAlert } from './moduleSweeps.js';
+import { unseenKinds, unseenText } from './messaging/unseen.js';
 import { getGreetings, saveGreetings } from './contactGreetings.js';
 import { ruleCap } from './policy/modules.js';
 import { handleShopCommand } from './shop/bot.js';
@@ -2656,7 +2657,7 @@ export function createApp({
             date: day(subscription.validUntil ?? subscription.currentPeriodEnd),
         }, `plan:${tenantId}:${subscription.startsAt}`);
     /**
-     * "Ends in 3 days" and "ended" for every active business with an end date (or a trial). Run hourly; the key
+     * "Ends in 3 days" and "ended" for every active business with an end date. Run hourly; the key
      * (business, end date, stage) sends each once, and an unlinked number simply sends it on a later run.
      */
     const notifyPlanEnds = (now = new Date()) => {
@@ -2665,7 +2666,7 @@ export function createApp({
             if (tenant.status !== 'active') continue;
             try {
                 const sub = new BillingStore(db.forTenant(tenant.id)).subscription();
-                const end = sub?.validUntil ?? (sub?.status === 'trialing' ? sub.trialEndsAt : null);
+                const end = sub?.validUntil ?? null;
                 if (!end) continue;
                 const left = Math.ceil((Date.parse(end) - now.getTime()) / 864e5);
                 const stage = left <= 0 ? 'plan_expired' : left <= 3 ? 'plan_ending' : null;
@@ -3217,16 +3218,14 @@ export function createApp({
      * So does a service the admin switched on beyond the old plan (WhatsApp Catalog, Orders: no plan sells them):
      * a renewal or plan change must not quietly switch it off again.
      */
-    const applyPlan = (tenantId, plan, trialDays, picked) => {
-        const days = Math.max(0, Math.min(365, Math.floor(Number(trialDays) || 0)));
+    // No trial (removed 2026-11-20): a plan runs from now to the end date set for it.
+    const applyPlan = (tenantId, plan, picked) => {
         const store = new BillingStore(db.forTenant(tenantId));
         const before = store.subscription()?.plan ?? null;
         const old = before?.tenantLimits ?? null;
         const extras = before ? (tenancy.getTenant(tenantId)?.services ?? []).filter((s) => !before.services.includes(s)) : [];
         const services = picked ?? [...plan.services, ...extras];
-        const subscription = store.subscribe(tenantId, plan.key, {
-            trialEndsAt: days ? new Date(Date.now() + days * 24 * 3600 * 1000) : null,
-        });
+        const subscription = store.subscribe(tenantId, plan.key);
         // A business's own plan is its own settings: renewing it must not reset what was set for it.
         if (plan.tenantId !== Number(tenantId)) {
             tenancy.updateTenant(tenantId, { services });
@@ -3400,15 +3399,12 @@ export function createApp({
             if (!tenant || tenant.status === 'archived') return res.status(404).json({ errors: ['tenant not found'] });
             const before = new BillingStore(db.forTenant(tenant.id)).subscription();
             const plan = planOr404(req.body?.planKey, before?.planKey, tenant.id);
-            // A first assignment gets the plan's trial; a change or renewal is
-            // paid-for, so no fresh trial unless the admin asks for one.
-            const hadOne = before !== null;
             const payment = paymentOr400(req.body?.payment);
             // What this business pays on a plan with no list price (Enterprise, custom), checked before anything is written.
             const raw = req.body?.amount;
             const agreed = raw === undefined || raw === null || raw === '' ? null : amountOr400(raw);
             if (agreed !== null && plan.price) throw new BillingError(`${plan.name} has a list price; an amount is only for plans without one.`);
-            let subscription = applyPlan(tenant.id, plan, req.body?.trialDays ?? (hadOne ? 0 : plan.trialDays));
+            let subscription = applyPlan(tenant.id, plan);
             if (payment) subscription = new BillingStore(db.forTenant(tenant.id)).setPayment(payment);
             if (agreed !== null) subscription = new BillingStore(db.forTenant(tenant.id)).setCustomPrice(agreed);
             const charged = chargeIfActive(req, tenant.id, subscription, before?.planKey === plan.key);
@@ -3545,7 +3541,7 @@ export function createApp({
             const plan = catalogue().savePlan({
                 key, name: 'Own plan', tier: from?.tier ?? 0, description: `Made for ${tenant.name}`,
                 // No list price: what it pays is the amount set for it (Billing).
-                price: 0, currency: from?.currency ?? 'INR', interval: from?.interval ?? 'month', trialDays: 0,
+                price: 0, currency: from?.currency ?? 'INR', interval: from?.interval ?? 'month',
                 services: tenant.services, limits: from?.limits ?? {}, features: from?.features ?? {},
                 tenantLimits: from?.tenantLimits ?? {}, active: false, tenantId: tenant.id,
             });
@@ -3554,10 +3550,7 @@ export function createApp({
                 const rules = policyStore.values(`plan:${before.planKey}`);
                 if (Object.keys(rules).length) policyStore.set(`plan:${key}`, rules);
             }
-            let subscription = store.subscribe(tenant.id, key, {
-                startsAt: before?.startsAt ?? null,
-                trialEndsAt: before?.state === 'trialing' ? before.trialEndsAt : null,
-            });
+            let subscription = store.subscribe(tenant.id, key, { startsAt: before?.startsAt ?? null });
             const price = before ? (before.plan.price || before.customPrice || 0) : 0;
             if (price) subscription = store.setCustomPrice(price);
             const charged = chargeIfActive(req, tenant.id, subscription);
@@ -3703,7 +3696,7 @@ export function createApp({
         const services = Array.isArray(body.services) ? body.services : plan?.services;
         const { tenant: created, owner: user } = await tenancy.createTenantWithOwner(
             plan ? { ...body, services } : body);
-        if (plan) applyPlan(created.id, plan, body.trialDays ?? plan.trialDays, services);
+        if (plan) applyPlan(created.id, plan, services);
         if (plan && payment) new BillingStore(db.forTenant(created.id)).setPayment(payment);
         if (plan) chargeIfActive(req, created.id);
         const tenant = tenancy.getTenant(created.id);
@@ -4138,15 +4131,11 @@ export function createApp({
             const password = String(req.body?.password ?? '');
             await tenancy.setPassword(tenant.id, owner.id, password);
             const active = tenancy.setTenantStatus(tenant.id, 'active');
-            // Its plan starts now, not when it was added: a trial gets its full length from today.
+            // Its plan starts now, not when it was added.
             const plans = new BillingStore(db.forTenant(tenant.id));
             const sub = plans.subscription();
-            if (sub) {
-                const trialMs = sub.status === 'trialing' && sub.trialEndsAt ? Date.parse(sub.trialEndsAt) - Date.parse(sub.startsAt) : 0;
-                const now = Date.now();
-                plans.subscribe(tenant.id, sub.planKey, { startsAt: new Date(now), trialEndsAt: trialMs > 0 ? new Date(now + trialMs) : null });
-            }
-            // The plan is live from now: a paying business out of trial owes its price at once.
+            if (sub) plans.subscribe(tenant.id, sub.planKey, { startsAt: new Date() });
+            // The plan is live from now: a paying business owes its price at once.
             const charged = chargeIfActive(req, tenant.id);
             audit(req, 'tenant.activate', tenant.id, { slug: tenant.slug, charged });
             const signIn = siteUrl(req);
@@ -5222,6 +5211,36 @@ export function createApp({
         }, 3_600_000);
         planEndsBoot.unref();
         planEndsTimer.unref();
+        // "Delivered" is not "shown" (messaging/unseen.js): hourly, a kind of message nobody on a number reads, taps
+        // or answers is raised to the super admin (ops alert, so Audit logs and the webhook) and told to the business
+        // owner on WhatsApp, once a day per number and kind.
+        const checkUnseen = () => {
+            try {
+                const day = utcNow().slice(0, 10);
+                for (const u of unseenKinds(db.db)) {
+                    const tenant = tenancy.getTenant(u.tenantId);
+                    if (tenant?.status !== 'active') continue;
+                    const kind = `unseen_${u.kind}`;
+                    const target = `${kind}:channel-${u.channelId}`;
+                    const told = db.db.prepare("SELECT 1 FROM audit_logs WHERE action = 'ops.alert' AND tenant_id = ? AND target = ? AND created_at >= ?")
+                        .get(u.tenantId, target, day);
+                    if (told) continue;
+                    const runtime = runtimeFor(u.tenantId);
+                    const channel = runtime.channels.get(u.channelId);
+                    const name = channel?.displayName || 'this number';
+                    const text = unseenText(u, name);
+                    void opsAlert({ kind, tenantId: u.tenantId, channelId: u.channelId, number: channel?.phoneNumber ?? '', text, detail: JSON.stringify(u) });
+                    if (channel?.status === 'active') ownerAlert(runtime.runtimeFor(channel).state, `Wuzie: ${text}`, `unseen.${u.channelId}.${u.kind}.${day}`);
+                }
+            } catch (err) {
+                console.error('[unseen] check failed:', err.message);
+            }
+        };
+        const unseenBoot = setTimeout(checkUnseen, 120_000);
+        const unseenTimer = setInterval(checkUnseen, 3_600_000);
+        unseenBoot.unref();
+        unseenTimer.unref();
+        app.locals.checkUnseen = checkUnseen;
 
         // Outbound webhooks are durable jobs, not a second retry loop.
         const jobs = new JobStore(db);

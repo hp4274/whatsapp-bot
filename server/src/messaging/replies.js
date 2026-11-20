@@ -33,6 +33,9 @@ CREATE TABLE IF NOT EXISTS interactive_sends (
     sent_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_interactive_sends_recipient ON interactive_sends(tenant_id, recipient, sent_at);
+-- The "delivered but never shown" check (unseen.js) joins sends to messages and taps by message id.
+CREATE INDEX IF NOT EXISTS idx_interactive_sends_sent ON interactive_sends(sent_at);
+CREATE INDEX IF NOT EXISTS idx_interactive_sends_message ON interactive_sends(message_id);
 CREATE TABLE IF NOT EXISTS button_clicks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER NOT NULL,
@@ -49,6 +52,7 @@ CREATE TABLE IF NOT EXISTS button_clicks (
     UNIQUE (tenant_id, inbound_message_id)
 );
 CREATE INDEX IF NOT EXISTS idx_button_clicks_campaign ON button_clicks(tenant_id, campaign_id, at);
+CREATE INDEX IF NOT EXISTS idx_button_clicks_message ON button_clicks(tenant_id, message_id);
 CREATE TABLE IF NOT EXISTS campaign_reply_rules (
     tenant_id INTEGER NOT NULL,
     campaign_id TEXT NOT NULL,

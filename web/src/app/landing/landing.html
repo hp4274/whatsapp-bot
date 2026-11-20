@@ -70,7 +70,7 @@
         </div>
         <ul class="hero-facts">
           <li><i class="ti ti-check" aria-hidden="true"></i>No Business API approval</li>
-          <li><i class="ti ti-check" aria-hidden="true"></i>14-day free trial</li>
+          <li><i class="ti ti-check" aria-hidden="true"></i>Replies straight to your phone</li>
           <li><i class="ti ti-check" aria-hidden="true"></i>Set up for you in a day</li>
         </ul>
 
@@ -535,9 +535,9 @@
             <a
               class="btn"
               [class.go]="plan.featured"
-              [href]="mail(plan.price === 'Custom' ? 'Wuzie Enterprise enquiry' : 'Start a ' + plan.name + ' trial')"
+              [href]="mail(plan.price === 'Custom' ? 'Wuzie Enterprise enquiry' : 'Start the ' + plan.name + ' plan')"
             >
-              {{ plan.price === 'Custom' ? 'Talk to us' : 'Start free trial' }}
+              {{ plan.price === 'Custom' ? 'Talk to us' : 'Get started' }}
             </a>
           </article>
         }
