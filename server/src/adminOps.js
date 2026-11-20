@@ -301,7 +301,9 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
 
     /**
      * Audit search, newest first, keyset-paginated by id (`before`).
-     * Filters: tenant (id or "platform"), user (id), verb, from/to (YYYY-MM-DD, inclusive), q (text), requestId.
+     * Filters: tenant (id or "platform"), user (id), verb, from/to (YYYY-MM-DD, inclusive), q (text), requestId,
+     * who ("admin": a super admin did it, also inside a business; "business": the business's own people; "system":
+     * nobody pressed anything) and problems (alerts only: bans, logouts, brakes, messages not showing...).
      * `after` (an id) returns only newer rows, so a live page can prepend them without reloading what it shows.
      * Each row carries the raw record plus `summary`, `severity`, `category` and `actor` (auditText.js).
      */
@@ -311,6 +313,9 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
         if (query.tenant === 'platform') where.push('tenant_id IS NULL');
         else if (query.tenant) { where.push('tenant_id = ?'); args.push(Number(query.tenant)); }
         if (query.user) { where.push('user_id = ?'); args.push(Number(query.user)); }
+        const WHO = { admin: "user_role = 'super_admin'", business: "user_role IN ('owner', 'admin', 'agent')", system: 'user_id IS NULL' };
+        if (WHO[query.who]) where.push(WHO[query.who]);
+        if (query.problems === '1' || query.problems === 'true') where.push("action = 'ops.alert'");
         if (AUDIT_VERBS.includes(query.verb)) { where.push('verb = ?'); args.push(query.verb); }
         if (DATE_RE.test(query.from ?? '')) { where.push('created_at >= ?'); args.push(query.from); }
         if (DATE_RE.test(query.to ?? '')) {

@@ -13,7 +13,12 @@
   border-radius: var(--radius-xl);
   background: var(--surface-card);
 
-  .search, .seg { grid-column: 1 / -1; margin: 0; }
+  .search, .seg, .row { grid-column: 1 / -1; margin: 0; }
+  // Who, and the problems switch beside it.
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm) var(--space-md); }
+  .seg.who .ti { font-size: 15px; }
+  .problems.on { border-color: var(--warning); background: var(--warning-soft); color: var(--text-strong); }
+  .problems.on .ti { color: var(--warning); }
   .search { max-width: none; }
   .seg { justify-self: start; }
   .seg .create.on { color: var(--success); }

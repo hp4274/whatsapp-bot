@@ -183,7 +183,7 @@
                    thing saved below makes it its own plan if it is still on a shared one. -->
               <h4>{{ s.tenant.status === 'pending' && !ownPlan() ? 'Create plan' : 'Plan' }}</h4>
               @if (sub() || s.tenant.status === 'pending') {
-                <!-- Pending while being set up, Active while running (trial too), Plan ended once ended. -->
+                <!-- Pending while being set up, Active while running, Plan ended once ended. -->
                 <span class="s-pill {{ status().tone }}">{{ status().label }}</span>
               }
             </div>
@@ -526,12 +526,6 @@
                   <dt>Next renewal</dt>
                   <dd>{{ cur.renewsAt ? (cur.renewsAt | date: 'd MMM y') : '—' }}</dd>
                 </div>
-                @if (cur.trialEndsAt) {
-                  <div>
-                    <dt>Trial ends</dt>
-                    <dd>{{ cur.trialEndsAt | date: 'd MMM y' }}</dd>
-                  </div>
-                }
                 <div>
                   <dt>Ends</dt>
                   <dd>{{ cur.validUntil ? (cur.validUntil | date: 'd MMM y') : 'No end date' }}</dd>

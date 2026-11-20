@@ -97,6 +97,17 @@ CREATE INDEX IF NOT EXISTS idx_billing_ledger_tenant ON billing_ledger(tenant_id
  * the same reason as `limits` - the commercial fields are the catalogue's
  * shape, not the database's.
  */
+/**
+ * Trials were removed on 2026-11-20 (the user's call: the end date is what counts). A business still in one keeps
+ * every day of it: its trial end becomes its end date (unless it already had an earlier one), and it is active.
+ * Idempotent: nothing is 'trialing' after the first run.
+ */
+export function migrateTrials(db) {
+    db.prepare(`UPDATE subscriptions SET status = 'active',
+        valid_until = CASE WHEN valid_until IS NOT NULL AND (trial_ends_at IS NULL OR valid_until < trial_ends_at) THEN valid_until ELSE trial_ends_at END,
+        trial_ends_at = NULL WHERE status = 'trialing'`).run();
+}
+
 export function migratePlans(db) {
     const cols = db.prepare('PRAGMA table_info(plans)').all().map((c) => c.name);
     if (!cols.includes('details')) db.exec("ALTER TABLE plans ADD COLUMN details TEXT NOT NULL DEFAULT '{}'");

@@ -26,6 +26,6 @@ export const FAQS: readonly { readonly q: string; readonly a: string }[] = [
   },
   {
     q: 'How do I get an account?',
-    a: 'Accounts are set up for you. Choose Free Access, tell us about your business, and we create your workspace and send the sign-in details. Every paid plan starts with a 14-day free trial.',
+    a: 'Accounts are set up for you. Choose Free Access, tell us about your business, and we create your workspace and send the sign-in details. Your plan runs until the end date set for it.',
   },
 ];

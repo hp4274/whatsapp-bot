@@ -48,11 +48,11 @@ export const PLATFORM_EVENTS = Object.freeze([
         text: 'Hi {name}, we received {amount} for {business}. Thank you! Still due: {due}.',
     },
     {
-        kind: 'plan_ending', label: 'Plan ending soon', when: '3 days before a plan or trial ends.',
+        kind: 'plan_ending', label: 'Plan ending soon', when: '3 days before a plan ends.',
         text: 'Hi {name}, the {plan} plan for {business} ends on {date} ({days} days left). Reply here to renew.',
     },
     {
-        kind: 'plan_expired', label: 'Plan ended', when: 'The day a plan or trial ends.',
+        kind: 'plan_expired', label: 'Plan ended', when: 'The day a plan ends.',
         text: 'Hi {name}, the {plan} plan for {business} ended on {date}. Sending is paused after 7 days of grace. Reply here to renew.',
     },
 ]);

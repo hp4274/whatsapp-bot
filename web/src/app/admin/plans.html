@@ -67,11 +67,6 @@
             @if (p.key === featuredKey()) {
               <span class="s-pill tone-ok badge">Popular</span>
             }
-            @if (p.trialDays) {
-              <span class="s-pill tone-info"
-                ><i class="ti ti-gift" aria-hidden="true"></i>{{ p.trialDays }}-day trial</span
-              >
-            }
           </div>
           <h3>{{ p.name }}</h3>
           <p class="desc">{{ p.description || 'No description yet.' }}</p>
@@ -186,14 +181,6 @@
       <small>Active</small><b>{{ counts().active }}</b>
     </button>
     <button
-      class="s-stat tone-info"
-      type="button"
-      [attr.aria-pressed]="filter() === 'trialing'"
-      (click)="filter.set(filter() === 'trialing' ? 'all' : 'trialing')"
-    >
-      <small>Trialing</small><b>{{ counts().trialing }}</b>
-    </button>
-    <button
       class="s-stat tone-warn"
       type="button"
       [attr.aria-pressed]="filter() === 'grace'"
@@ -227,7 +214,7 @@
     <div class="subs-head">
       <h3><i class="ti ti-list-details" aria-hidden="true"></i> Businesses</h3>
       <div class="s-seg" role="group" aria-label="Filter by state">
-        @for (f of ['all', 'active', 'trialing', 'grace', 'expired', 'none']; track f) {
+        @for (f of ['all', 'active', 'grace', 'expired', 'none']; track f) {
           <button
             type="button"
             [attr.aria-pressed]="filter() === f"
@@ -468,16 +455,6 @@
           <option value="month">Monthly</option>
           <option value="year">Yearly</option>
         </select>
-      </div>
-      <div class="s-field">
-        <label for="p-trial">Trial days <small class="muted">0 = none</small></label>
-        <input
-          id="p-trial"
-          type="number"
-          min="0"
-          [value]="e.plan.trialDays"
-          (input)="patchNumber('trialDays', $any($event.target).value)"
-        />
       </div>
       <div class="s-field">
         <label for="p-tier">Tier <small class="muted">order</small></label>

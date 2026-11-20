@@ -17,7 +17,7 @@ Wuzie is made for small businesses: shops and online brands, schools and coachin
 - Daily limit: a new number starts with a small daily limit that grows as the number becomes established, up to 1,000 messages a day per number. More numbers can be linked to send more.
 - Ban risk: no tool can promise a number will never be banned. Wuzie lowers the risk with daily caps, random gaps and automatic pauses.
 - Also included: contacts with message history, message templates, multiple numbers under one login and team roles.
-- Accounts: set up on request through the Free Access form on the home page. Paid plans start with a 14-day free trial.
+- Accounts: set up on request through the Free Access form on the home page. A plan runs until the end date set for it.
 - Wuzie is not affiliated with WhatsApp or Meta.
 
 ## Pages

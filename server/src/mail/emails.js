@@ -348,8 +348,8 @@ export const AUTOMATIC_EMAILS = Object.freeze([
     { kind: 'plan_renewed', label: 'Plan renewed', when: 'A business renews the plan it is on.', to: OWNER, sample: (appUrl) => accountEmail('plan_renewed', SAMPLE, appUrl) },
     { kind: 'topup_added', label: 'Top-up added', when: 'Days or messages are topped up.', to: OWNER, sample: (appUrl) => accountEmail('topup_added', SAMPLE, appUrl) },
     { kind: 'payment_received', label: 'Payment received', when: 'You record a payment.', to: OWNER, sample: (appUrl) => accountEmail('payment_received', SAMPLE, appUrl) },
-    { kind: 'plan_ending', label: 'Plan expires soon', when: '3 days before a plan or trial ends.', to: OWNER, sample: (appUrl) => accountEmail('plan_ending', SAMPLE, appUrl) },
-    { kind: 'plan_expired', label: 'Plan expired', when: 'The day a plan or trial ends.', to: OWNER, sample: (appUrl) => accountEmail('plan_expired', SAMPLE, appUrl) },
+    { kind: 'plan_ending', label: 'Plan expires soon', when: '3 days before a plan ends.', to: OWNER, sample: (appUrl) => accountEmail('plan_ending', SAMPLE, appUrl) },
+    { kind: 'plan_expired', label: 'Plan expired', when: 'The day a plan ends.', to: OWNER, sample: (appUrl) => accountEmail('plan_expired', SAMPLE, appUrl) },
     {
         kind: 'staff_welcome', label: 'Staff sign-in', when: 'You add someone to your platform staff.', to: 'The new staff member',
         sample: (appUrl) => staffWelcomeEmail({ ...SAMPLE_LOGIN, roleName: 'Support', loginUrl: appUrl && `${appUrl}/login` }),

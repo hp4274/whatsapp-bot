@@ -117,13 +117,13 @@ describe('tenant details', () => {
     it('charges a plan without a list price as soon as its price is set, once a period', async () => {
         const bill = async () => (await call(sup, 'GET', `/api/admin/tenants/${id}/payments`)).body;
         await call(sup, 'POST', `/api/admin/tenants/${id}/activate`, { password: 'password123', sendWelcome: false });
-        assert.equal((await bill()).charged, 0, "activated on its first plan's trial: not live yet");
+        assert.equal((await bill()).charged, 999, 'no trial: activated, its plan is owed at once');
         await call(sup, 'PUT', `/api/admin/tenants/${id}/subscription`, { planKey: 'enterprise' });
-        assert.equal((await bill()).charged, 0, 'no price yet, nothing to charge');
+        assert.equal((await bill()).charged, 999, 'no price yet: nothing more to charge');
         const priced = await call(sup, 'PUT', `/api/admin/tenants/${id}/price`, { amount: 25000 });
-        assert.equal(priced.body.tenant.balance.charged, 25000);
+        assert.equal(priced.body.tenant.balance.charged, 999 + 25000);
         await call(sup, 'PUT', `/api/admin/tenants/${id}/price`, { amount: 30000 });
-        assert.equal((await bill()).charged, 25000, 'a new price is charged from the next period');
+        assert.equal((await bill()).charged, 999 + 25000, 'a new price is charged from the next period');
     });
 
     it("keeps Wuzie's own system tenant out of every business list", async () => {
