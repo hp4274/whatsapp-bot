@@ -314,6 +314,7 @@
       }
     }
 
+    <!-- The plan's dates where the buttons were; Open, Settings and Delete are in the ⋮ menu. -->
     <div class="actions">
       @if (tenant.status === 'pending') {
         <!-- Nothing to open yet: the next step is setting it up and activating it. -->
@@ -321,38 +322,25 @@
           <i class="ti ti-settings-check" aria-hidden="true"></i>
           Set up and activate
         </button>
+      } @else if (tenant.subscription; as sub) {
+        <button
+          type="button"
+          class="dates"
+          (click)="openSettings(tenant, 'plan')"
+          [attr.aria-label]="'Subscription dates of ' + tenant.name + ': ' + datesText(sub) + '. Open the plan'"
+        >
+          <span class="date">
+            <small>Started</small>
+            <b>{{ sub.startsAt ? (sub.startsAt | date: 'd MMM y') : '—' }}</b>
+          </span>
+          <i class="ti ti-arrow-right" aria-hidden="true"></i>
+          <span class="date" [class.bad]="sub.state === 'expired'" [class.warn]="sub.state === 'grace'">
+            <small>{{ endLabel(sub) }}</small>
+            <b>{{ endDate(sub) ? (endDate(sub) | date: 'd MMM y') : 'No end date' }}</b>
+          </span>
+        </button>
       } @else {
-        <button
-          class="btn primary open"
-          type="button"
-          (click)="open(tenant)"
-          [disabled]="tenant.status !== 'active'"
-        >
-          <i class="ti ti-arrow-up-right" aria-hidden="true"></i>
-          Open as tenant
-        </button>
-      }
-      <button
-        class="btn square"
-        type="button"
-        (click)="openSettings(tenant)"
-        aria-label="Tenant settings"
-        title="Controls and sending safety"
-        [disabled]="savingId() === tenant.id"
-      >
-        <i class="ti ti-settings" aria-hidden="true"></i>
-      </button>
-      @if (canDelete()) {
-        <button
-          class="btn square danger-ghost"
-          type="button"
-          (click)="askDelete(tenant)"
-          [disabled]="savingId() === tenant.id"
-          aria-label="Delete tenant"
-          title="Delete tenant"
-        >
-          <i class="ti ti-trash" aria-hidden="true"></i>
-        </button>
+        <p class="dates none">No plan yet</p>
       }
       @if (listMode()) {
         <ng-container *ngTemplateOutlet="moreMenu; context: { $implicit: tenant }" />
@@ -362,8 +350,8 @@
 </ng-template>
 
 <ng-template #moreMenu let-tenant>
-  <!-- Suspend, activate and demo data all change the business. -->
-  @if (canEdit()) {
+  <!-- Open and Settings for every admin; suspend, activate and demo data change the business; Delete last. -->
+  @if (true) {
     <div class="menu-wrap">
       <button
         class="icon-btn"
@@ -378,10 +366,25 @@
       @if (menuId() === tenant.id) {
         <div class="menu-backdrop" (click)="menuId.set(null)"></div>
         <div class="menu" role="menu">
-          @if (tenant.status === 'pending') {
+          @if (tenant.status !== 'pending') {
+            <button
+              type="button"
+              role="menuitem"
+              (click)="menuId.set(null); open(tenant)"
+              [disabled]="tenant.status !== 'active'"
+            >
+              <i class="ti ti-arrow-up-right" aria-hidden="true"></i> Open as tenant
+            </button>
+          }
+          <button type="button" role="menuitem" (click)="menuId.set(null); openSettings(tenant)" [disabled]="savingId() === tenant.id">
+            <i class="ti ti-settings" aria-hidden="true"></i> Tenant settings
+          </button>
+          @if (!canEdit()) {
+            <!-- A view-only admin: nothing below changes anything it may change. -->
+          } @else if (tenant.status === 'pending') {
             <!-- Activating sets the owner's password, so it happens in the settings drawer, not from here. -->
             <button type="button" role="menuitem" (click)="menuId.set(null); openSettings(tenant)">
-              Set up and activate
+              <i class="ti ti-settings-check" aria-hidden="true"></i> Set up and activate
             </button>
           } @else {
             <button
@@ -390,17 +393,31 @@
               (click)="toggleStatus(tenant)"
               [disabled]="savingId() === tenant.id"
             >
+              <i class="ti ti-{{ tenant.status === 'active' ? 'player-pause' : 'player-play' }}" aria-hidden="true"></i>
               {{ tenant.status === 'active' ? 'Suspend tenant' : 'Activate tenant' }}
             </button>
           }
-          <button
-            type="button"
-            role="menuitem"
-            (click)="askSeed(tenant)"
-            [disabled]="seedingId() === tenant.id"
-          >
-            Fill with demo data
-          </button>
+          @if (canEdit()) {
+            <button
+              type="button"
+              role="menuitem"
+              (click)="askSeed(tenant)"
+              [disabled]="seedingId() === tenant.id"
+            >
+              <i class="ti ti-database-import" aria-hidden="true"></i> Fill with demo data
+            </button>
+          }
+          @if (canDelete()) {
+            <button
+              type="button"
+              role="menuitem"
+              class="danger"
+              (click)="menuId.set(null); askDelete(tenant)"
+              [disabled]="savingId() === tenant.id"
+            >
+              <i class="ti ti-trash" aria-hidden="true"></i> Delete tenant
+            </button>
+          }
         </div>
       }
     </div>

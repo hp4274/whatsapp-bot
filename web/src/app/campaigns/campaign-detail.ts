@@ -1,5 +1,6 @@
 import {
   ChangeDetectionStrategy,
+  type ElementRef,
   Component,
   computed,
   DestroyRef,
@@ -122,6 +123,12 @@ export class CampaignDetailView {
   });
   private readonly recipientsTable = viewChild(CampaignRecipients);
   protected readonly campaign = signal<Campaign | null>(null);
+  /** The name being typed while renaming; null when not renaming. Any state may be renamed, running included. */
+  protected readonly renaming = signal<string | null>(null);
+  protected readonly savingName = signal(false);
+  /** A refused rename, shown under the box (the page-wide error would replace the whole page). */
+  protected readonly nameError = signal('');
+  private readonly nameBox = viewChild<ElementRef<HTMLInputElement>>('nameBox');
   protected readonly analytics = signal<CampaignAnalytics | null>(null);
   protected readonly loading = signal(true);
   protected readonly notFound = signal(false);
@@ -242,6 +249,28 @@ export class CampaignDetailView {
     const waiting = c?.status === 'draft' || c?.status === 'scheduled';
     return waiting && !c?.audienceSize ? (c?.segmentId ?? null) : null;
   });
+
+  protected startRename(c: Campaign): void {
+    this.nameError.set('');
+    this.renaming.set(c.name);
+    // Focus and select the name once the box is drawn.
+    setTimeout(() => this.nameBox()?.nativeElement.select());
+  }
+
+  protected saveName(): void {
+    const c = this.campaign();
+    const name = this.renaming()?.trim();
+    if (!c || !name) return;
+    if (name === c.name) return this.renaming.set(null);
+    this.savingName.set(true);
+    this.api.rename(c.id, name).pipe(finalize(() => this.savingName.set(false))).subscribe({
+      next: ({ campaign }) => {
+        this.campaign.update((cur) => (cur ? { ...cur, name: campaign.name } : cur));
+        this.renaming.set(null);
+      },
+      error: (err: Error) => this.nameError.set(err.message),
+    });
+  }
 
   constructor() {
     effect(() => {

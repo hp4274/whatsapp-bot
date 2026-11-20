@@ -119,6 +119,17 @@ export class CampaignStore {
     }
 
     /** Content and audience are editable until the campaign has started. */
+    /** A new name, in any state: running, paused or finished ones too (only the label changes, nothing that sends). */
+    rename(id, name) {
+        const campaign = this.require(id);
+        const next = String(name ?? '').trim();
+        if (!next) throw new CampaignError('a campaign needs a name');
+        if (next.length > 120) throw new CampaignError('a campaign name can be up to 120 characters');
+        this.db.prepare('UPDATE campaigns SET name = ?, updated_at = ? WHERE id = ? AND tenant_id = ?')
+            .run(next, this.now(), campaign.id, this.tenantId);
+        return this.get(campaign.id);
+    }
+
     update(id, patch = {}) {
         const campaign = this.require(id);
         if (!['draft', 'scheduled'].includes(campaign.status)) {

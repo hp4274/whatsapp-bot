@@ -7,12 +7,12 @@ import {
   linkedSignal,
   signal,
 } from '@angular/core';
-import { NgTemplateOutlet } from '@angular/common';
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 
 import { TenancyApi } from '../core/api';
-import { Auth, Tenant } from '../core/auth';
+import { Auth, Tenant, type TenantSubscriptionSummary } from '../core/auth';
 import { ConfirmDialog } from '../core/confirm-dialog';
 import { Pager, pageOf } from '../core/pager';
 import { Store } from '../core/store';
@@ -76,7 +76,7 @@ const VIEW_KEY = 'wsender.tenantView';
  */
 @Component({
   selector: 'app-admin-tenants',
-  imports: [ConfirmDialog, NgTemplateOutlet, Pager, TenantActivity, TenantNew, TenantSettings],
+  imports: [ConfirmDialog, DatePipe, NgTemplateOutlet, Pager, TenantActivity, TenantNew, TenantSettings],
   templateUrl: './tenants.html',
   styleUrl: './tenants.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -474,6 +474,27 @@ export class TenantsView {
     this.auth.actAs(tenant.id);
     this.store.start();
     this.router.navigate(['/home']);
+  }
+
+  /** The card's end date: the plan's own end, else (ending at period end) the period's, else the next renewal. */
+  protected endDate(sub: TenantSubscriptionSummary): string | null {
+    if (sub.state === 'grace' && sub.graceEndsAt) return sub.graceEndsAt;
+    if (sub.validUntil) return sub.validUntil;
+    if (sub.cancelAtPeriodEnd) return sub.currentPeriodEnd ?? null;
+    return sub.renewsAt ?? null;
+  }
+
+  protected endLabel(sub: TenantSubscriptionSummary): string {
+    if (sub.state === 'expired') return 'Ended';
+    if (sub.state === 'grace') return 'Grace until';
+    return sub.validUntil || sub.cancelAtPeriodEnd ? 'Ends' : sub.renewsAt ? 'Renews' : 'Ends';
+  }
+
+  /** The dates as one sentence, for screen readers. */
+  protected datesText(sub: TenantSubscriptionSummary): string {
+    const d = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+    const end = this.endDate(sub);
+    return `started ${d(sub.startsAt) || 'not set'}, ${this.endLabel(sub).toLowerCase()} ${end ? d(end) : 'no end date'}`;
   }
 }
 

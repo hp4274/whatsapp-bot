@@ -12,6 +12,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { catchError, forkJoin, map, of } from 'rxjs';
 
@@ -47,21 +48,39 @@ const RECENT_COUNT = 5;
  */
 @Component({
   selector: 'app-send-island',
-  imports: [RouterLink],
+  imports: [NgTemplateOutlet, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (visible()) {
       <div #island class="stack">
-      <!-- Other campaigns running now, newest on top: one line each, click to open. -->
-      @for (c of folded(); track c.id) {
-        <button type="button" class="mini" (click)="expand(c.id)" [attr.aria-label]="'Show ' + c.name + ', ' + runLabel(c)">
-          <i class="ti ti-{{ c.status === 'paused' ? 'player-pause' : 'send' }} lead" aria-hidden="true"></i>
-          <span class="mini-name">{{ c.name }}</span>
-          <span class="st st-{{ c.status === 'paused' ? 'mute' : 'run' }}">{{ runLabel(c) }}</span>
-          <i class="ti ti-chevron-up mini-open" aria-hidden="true"></i>
-          <span class="mini-bar" aria-hidden="true"><span [style.width.%]="percentOf(c)"></span></span>
-        </button>
+      @if (multi()) {
+        <!-- Like FAQ answers: every campaign keeps its place (newest on top); opening one folds the open one where it is. -->
+        @for (c of order(); track c.id) {
+          @if (c.id === focused()?.id) {
+            <ng-container *ngTemplateOutlet="card" />
+          } @else {
+            <button
+              type="button"
+              class="mini"
+              (click)="expand(c.id)"
+              [attr.aria-expanded]="false"
+              [attr.aria-label]="'Show ' + c.name + ', ' + runLabel(c)"
+            >
+              <i class="ti ti-{{ c.status === 'paused' ? 'player-pause' : 'send' }} lead" aria-hidden="true"></i>
+              <span class="mini-name">{{ c.name }}</span>
+              <span class="st st-{{ c.status === 'paused' ? 'mute' : 'run' }}">{{ runLabel(c) }}</span>
+              <i class="ti ti-chevron-up mini-open" aria-hidden="true"></i>
+              <span class="mini-bar" aria-hidden="true"><span [style.width.%]="percentOf(c)"></span></span>
+            </button>
+          }
+        }
+      } @else {
+        <ng-container *ngTemplateOutlet="card" />
       }
+      </div>
+    }
+
+    <ng-template #card>
       <aside
         class="island"
         [class.done]="phase() === 'done'"
@@ -80,11 +99,11 @@ const RECENT_COUNT = 5;
           <button
             type="button"
             class="ic"
-            (click)="open.set(!open())"
-            [attr.aria-label]="open() ? 'Collapse' : 'Expand'"
-            [attr.aria-expanded]="open()"
+            (click)="toggleCard()"
+            [attr.aria-label]="open() || multi() ? 'Collapse' : 'Expand'"
+            [attr.aria-expanded]="open() || multi()"
           >
-            <i class="ti ti-{{ open() ? 'chevron-down' : 'chevron-up' }}" aria-hidden="true"></i>
+            <i class="ti ti-{{ open() || multi() ? 'chevron-down' : 'chevron-up' }}" aria-hidden="true"></i>
           </button>
           @if (phase() === 'done' || phase() === 'stopped') {
             <button type="button" class="ic" (click)="dismiss()" aria-label="Close">
@@ -103,7 +122,7 @@ const RECENT_COUNT = 5;
           <span [style.width.%]="percent()"></span>
         </div>
 
-        @if (open()) {
+        @if (open() || multi()) {
           <div class="body">
             @if (current(); as c) {
               <p class="line">
@@ -184,8 +203,7 @@ const RECENT_COUNT = 5;
           </div>
         }
       </aside>
-      </div>
-    }
+    </ng-template>
   `,
   styles: `
     @keyframes island-in {
@@ -580,11 +598,15 @@ export class SendIsland {
   protected readonly multi = computed(() => !this.wuzie() && this.runs().length > 1);
   /** The campaign whose card is open: the one clicked, else the first one that started. */
   private readonly expandedId = signal<number | null>(null);
-  private readonly focused = computed(() => this.runs().find((c) => c.id === this.expandedId()) ?? this.runs()[0] ?? null);
-  /** The other running campaigns, newest on top, as bars above the open card. */
-  protected readonly folded = computed(() =>
-    this.multi() ? this.runs().filter((c) => c.id !== this.focused()?.id).reverse() : [],
+  /** The open card was folded by the user: every campaign shows as a bar until one is clicked. */
+  private readonly allFolded = signal(false);
+  protected readonly focused = computed(() =>
+    this.allFolded() ? null : (this.runs().find((c) => c.id === this.expandedId()) ?? this.runs()[0] ?? null),
   );
+  /** Every running campaign in a fixed order, newest on top: opening or folding one never moves the others. */
+  protected readonly order = computed(() => (this.multi() ? [...this.runs()].reverse() : []));
+  /** A campaign was seen running since the card last closed: only campaigns open the card, not other sends. */
+  private readonly campaignSeen = signal(false);
   /** First Stop click arms it; the second sends it. Resets on blur. */
   protected readonly confirmStop = signal(false);
   /** Seconds left before a finished run closes; null while running or held. */
@@ -642,13 +664,20 @@ export class SendIsland {
       });
     });
 
-    // A new run brings the card back even if the last one was closed.
+    // The card opens when a campaign starts, once; after that only the user opens or folds it (a send, an
+    // auto-reply or a refresh never pops it open again). A second campaign arrives folded, as a bar.
+    let openedFor: number | null = null;
     effect(() => {
-      if (this.phase() === 'sending' || this.phase() === 'paused') {
-        if (this.stats().total > 0) this.sawLive = true; // empty stats read as "sending" before the first answer
+      const live = this.phase() === 'sending' || this.phase() === 'paused';
+      if (live && this.stats().total > 0) this.sawLive = true; // empty stats read as "sending" before the first answer
+      const id = this.wuzie() ? 0 : (this.named()?.id ?? null);
+      if (id !== null && !this.wuzie()) this.campaignSeen.set(true);
+      if (!live || id === null || id === openedFor) return;
+      openedFor = id;
+      untracked(() => {
         this.dismissed.set(null);
         this.open.set(true);
-      }
+      });
     });
 
     // Name the live campaign when a run begins (or a different one replaces it).
@@ -719,6 +748,8 @@ export class SendIsland {
   protected readonly visible = computed(() => {
     // Several campaigns running: the stack stays while any of them does, whatever one card did.
     if (this.multi()) return true;
+    // Only a campaign brings the card: auto-replies, OTPs and single messages go out without it.
+    if (!this.wuzie() && !this.campaignSeen()) return false;
     const s = this.stats();
     if (s.total <= 0) return false;
     const gone = this.dismissed();
@@ -789,6 +820,7 @@ export class SendIsland {
   /** Open a folded campaign's card; the one that was open folds into a bar. */
   protected expand(id: number): void {
     this.expandedId.set(id);
+    this.allFolded.set(false);
     this.open.set(true);
     this.confirmStop.set(false);
     this.error.set('');
@@ -854,7 +886,14 @@ export class SendIsland {
     this.closesIn.set(null);
   }
 
+  /** The card's chevron: several campaigns fold the open one into a bar in its place; one campaign folds its body. */
+  protected toggleCard(): void {
+    if (this.multi()) this.allFolded.set(true);
+    else this.open.set(!this.open());
+  }
+
   protected dismiss(): void {
+    this.campaignSeen.set(false);
     this.dismissed.set({ total: this.stats().total });
   }
 

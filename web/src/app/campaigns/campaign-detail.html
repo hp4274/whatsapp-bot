@@ -36,7 +36,33 @@
         <i class="ti ti-speakerphone" aria-hidden="true"></i>Campaign #{{ c.id }}
       </p>
       <div class="title">
-        <h2>{{ c.name || 'Untitled campaign' }}</h2>
+        @if (renaming() !== null) {
+          <!-- Rename in place, in any state: Enter saves, Escape cancels. -->
+          <form class="rename" (submit)="$event.preventDefault(); saveName()">
+            <label class="sr-only" for="cd-name">Campaign name</label>
+            <input
+              id="cd-name"
+              #nameBox
+              maxlength="120"
+              [value]="renaming()"
+              (input)="renaming.set($any($event.target).value)"
+              (keydown.escape)="renaming.set(null)"
+              [disabled]="savingName()"
+            />
+            <button class="btn sm primary" type="submit" [disabled]="savingName() || !renaming()?.trim()">
+              {{ savingName() ? 'Saving…' : 'Save' }}
+            </button>
+            <button class="btn sm" type="button" (click)="renaming.set(null)" [disabled]="savingName()">Cancel</button>
+            @if (nameError()) {
+              <small class="name-err" role="alert">{{ nameError() }}</small>
+            }
+          </form>
+        } @else {
+          <h2>{{ c.name || 'Untitled campaign' }}</h2>
+          <button class="btn sm icon ghost" type="button" (click)="startRename(c)" aria-label="Rename campaign" title="Rename">
+            <i class="ti ti-pencil" aria-hidden="true"></i>
+          </button>
+        }
         <app-campaign-status [status]="c.status" />
       </div>
       @if (numbers().length > 1) {
