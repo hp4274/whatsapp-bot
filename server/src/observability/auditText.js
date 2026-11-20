@@ -180,6 +180,7 @@ const RULES = {
     'campaign.cancel': (c) => [`Cancelled campaign ${c.campaign()}`, 'warn'],
     'campaign.retry': (c) => `Retried the failed messages of campaign ${c.campaign()}`,
     'campaign.delete': (c) => [`Deleted campaign ${c.campaign()}`, 'warn'],
+    'campaign.rename': (c) => `Renamed campaign "${field(c.detail, 'from') ?? ''}" to "${field(c.detail, 'to') ?? ''}"`,
     'campaign.auto_paused': (c) => [`Campaign ${c.campaign()} was paused automatically${c.reason()}`, 'warn'],
     'campaign.auto_failover': (c) => [`Campaign ${c.campaign()} moved to another number${c.reason()}`, 'warn'],
     'campaign.auto_cancelled': (c) => [`Campaign ${c.campaign()} was cancelled automatically${c.reason()}`, 'danger'],

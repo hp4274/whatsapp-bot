@@ -306,6 +306,23 @@ export function createCampaignRouter({ db, state }) {
         }
     });
 
+    // Rename in any state; a campaign shared over several numbers renames its copies too.
+    router.put('/campaigns/:id/name', (req, res) => {
+        try {
+            const before = campaigns.require(req.params.id);
+            const campaign = campaigns.rename(before.id, req.body?.name);
+            for (const { other, copy } of sharesOf(campaign)) {
+                other.campaigns.rename(copy.id, campaign.name);
+                other.broadcast?.({ type: 'changed', topic: 'campaigns' });
+            }
+            userAudit(req, 'campaign.rename', campaign, { from: before.name, to: campaign.name });
+            announce('campaignUpdated', campaign);
+            return res.json({ campaign: whole(campaign) });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
     router.delete('/campaigns/:id', (req, res) => {
         try {
             const campaign = campaigns.require(req.params.id);

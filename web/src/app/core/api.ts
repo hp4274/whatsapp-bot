@@ -1858,6 +1858,13 @@ export class CampaignsApi {
       .pipe(catchError(toMessage));
   }
 
+  /** A new name, in any state (running and finished campaigns too). */
+  rename(id: number, name: string): Observable<{ campaign: Campaign }> {
+    return this.http
+      .put<{ campaign: Campaign }>(`/api/campaigns/${id}/name`, { name })
+      .pipe(catchError(toMessage));
+  }
+
   /** The campaign with its counts read fresh from its messages (the list holds the last saved ones). */
   stats(id: number): Observable<{ campaign: Campaign }> {
     return this.http

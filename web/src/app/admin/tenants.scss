@@ -198,7 +198,13 @@
     font-size: 13px;
     font-weight: 500;
     text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 9px;
     &:hover:not(:disabled) { background: var(--surface-sunken); }
+    .ti { font-size: 16px; color: var(--text-muted); }
+    &.danger { color: var(--danger-text); .ti { color: var(--danger-text); } }
+    &.danger:hover:not(:disabled) { background: var(--danger-soft); }
   }
 }
 
@@ -292,13 +298,44 @@
   from { opacity: 0; transform: translateY(-4px); }
 }
 
+// Card: the dates (or Set up) fill the row; in the list the ⋮ menu sits after them.
 .actions {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
+  display: flex;
+  align-items: center;
   gap: var(--space-sm);
 
+  > .dates, > .open { flex: 1; min-width: 0; }
   .btn { white-space: nowrap; }
-  .square { width: 38px; padding: 0; }
+}
+
+// The plan's dates, where the buttons were: started -> ends (or renews), opening the Plan tab.
+.dates {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+
+  &:hover { border-color: color-mix(in srgb, var(--primary) 40%, var(--border-color)); background: var(--surface-card); }
+  &:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  > .ti { flex: none; font-size: 15px; color: var(--hint); }
+  &.none { cursor: default; font-size: 13px; color: var(--hint); }
+
+  .date { display: grid; flex: 1; min-width: 0; line-height: 1.25; }
+  .date + .ti + .date, > .ti + .date { text-align: right; }
+  small { font-size: 11.5px; color: var(--hint); }
+  b { font-size: 13px; font-weight: 600; color: var(--text-strong); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .warn b { color: var(--warning); }
+  .bad b { color: var(--danger-text); }
 }
 
 /* List layout: a table, one row per tenant, every column under one header. ------ */
@@ -356,7 +393,7 @@ $list-cols: minmax(300px, 3fr) repeat(4, minmax(52px, 0.5fr)) minmax(116px, 1fr)
   // Confirmations and results take the whole row under the tenant.
   .seed-confirm, .seed-result { grid-column: 1 / -1; }
 
-  .actions { grid-template-columns: repeat(4, auto); }
+  .actions > .dates { flex: none; }
 }
 
 /* Rows: list view below 1101px (rowMode in tenants.ts), where the table has no room. --------- */

@@ -489,6 +489,24 @@ describe('campaigns over HTTP', () => {
         assert.deepEqual(sentOn, [made.body.channel.id]);
     });
 
+    it('renames a campaign while it runs and after it ends, never to an empty name', async () => {
+        const created = await api('POST', '/api/campaigns', {
+            name: 'Old name', body: 'Hi {name}',
+            audience: Array.from({ length: 3 }, (_, i) => ({ name: `R${i}`, phone: `91986661000${i}` })),
+        });
+        const { id } = created.body.campaign;
+        await api('POST', `/api/campaigns/${id}/start`);
+        await api('POST', `/api/campaigns/${id}/pause`);
+        const running = await api('PUT', `/api/campaigns/${id}/name`, { name: '  Diwali offer  ' });
+        assert.equal(running.status, 200, JSON.stringify(running.body));
+        assert.deepEqual([running.body.campaign.name, running.body.campaign.status], ['Diwali offer', 'paused'], 'renamed, still paused');
+        assert.equal((await api('PUT', `/api/campaigns/${id}`, { name: 'x' })).status, 409, 'the full edit stays drafts-only');
+        await api('POST', `/api/campaigns/${id}/cancel`);
+        assert.equal((await api('PUT', `/api/campaigns/${id}/name`, { name: 'Diwali offer (ended)' })).body.campaign.name, 'Diwali offer (ended)');
+        assert.equal((await api('PUT', `/api/campaigns/${id}/name`, { name: '   ' })).status, 400);
+        assert.equal((await api('GET', `/api/campaigns/${id}`)).body.campaign.name, 'Diwali offer (ended)');
+    });
+
     it('pauses, resumes, re-paces and cancels; lists without the audience', async () => {
         const created = await api('POST', '/api/campaigns', {
             name: 'Controls', body: 'Hi {name}',
