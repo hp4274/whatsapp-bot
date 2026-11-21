@@ -54,7 +54,7 @@ export async function captureLead(state, message, now = new Date()) {
     if (cap && state.objects.count({ type: 'lead', filter: { source: 'whatsapp' }, createdSince: today }) >= cap) return null;
     if (objectCapError(policy, state.objects, 'lead', now)) return null;
 
-    const contact = existing ?? state.contacts.upsert({ phone, name: message.senderName || undefined, source: 'whatsapp' });
+    const contact = existing ?? state.contacts.upsert({ phone, name: message.senderName || undefined, source: 'whatsapp', channelId: state.channel?.id });
     const name = contact?.name || message.senderName || '';
     return state.objects.create('lead', {
         contactId: contact?.id ?? null, source: 'whatsapp', metadata: { auto: true },

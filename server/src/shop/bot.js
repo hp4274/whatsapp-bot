@@ -210,7 +210,7 @@ async function place(ctx, cart, { address = '', scheduledAt = null }) {
     const total = round(subtotal + delivery);
     const lines = cart.items.map((l) => `${l.qty} x ${label(l)} - ${money(l.price * l.qty)}`);
     const contact = state.contacts?.getByPhone(phone)
-        ?? state.contacts?.upsert({ phone, name: ctx.message.senderName || undefined, source: 'shop' });
+        ?? state.contacts?.upsert({ phone, name: ctx.message.senderName || undefined, source: 'shop', channelId: state.channel?.id });
     const metadata = { source: 'whatsapp', phone, lines: cart.items, address, payment: total > 0 && payable(settings) && rule(state, settings.mode, 'allowUpi') !== false ? 'pending' : 'none', total };
 
     let object = null;

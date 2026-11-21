@@ -46,7 +46,7 @@ const REFRESH_EVERY_MS = 10_000;
 const ANSWER_SHOWN_MS = 14 * 864e5;
 
 /** A number's phone as digits: the one WhatsApp linked, else the one typed in. */
-const phoneKey = (c: Channel): string => (c.providerAccountId || c.phoneNumber || '').replace(/D/g, '');
+const phoneKey = (c: Channel): string => (c.providerAccountId || c.phoneNumber || '').replace(/\D/g, '');
 
 const emptyDraft = () => ({
   displayName: '',
@@ -59,7 +59,7 @@ const emptyDraft = () => ({
  * and ban protection. It replaced two pages ("Connection" and "WhatsApp Numbers") that showed the same number
  * twice; a business with one number now sees one number.
  *
- * Several numbers: the selected one is expanded, the others compact. Linking another number selects it for the
+ * Several numbers: every one gets the same card; the selected one's link panel sits under them. Linking another number selects it for the
  * length of the link (the server links the selected number) and then goes back, so a send running on the
  * first keeps its live progress on screen.
  */
@@ -198,7 +198,6 @@ export class WhatsApp {
   /** The selected number: the stored pick, else the main number. */
   protected readonly activeId = computed(() => this.store.channelId() ?? this.defaultId());
   protected readonly selected = computed(() => this.channels().find((c) => c.id === this.activeId()) ?? null);
-  protected readonly others = computed(() => this.channels().filter((c) => c.id !== this.activeId()));
   protected readonly multi = computed(() => this.channels().length > 1);
   /** id -> the name of another number with the same phone digits. Names may repeat; a phone may not. */
   protected readonly duplicates = computed(() => {
@@ -432,7 +431,7 @@ export class WhatsApp {
       this.firstField()?.nativeElement.focus();
       return;
     }
-    const typed = d.phoneNumber.replace(/D/g, '');
+    const typed = d.phoneNumber.replace(/\D/g, '');
     const taken = typed && this.channels().find((c) => phoneKey(c) === typed);
     if (taken) {
       this.formError.set(`This phone number is already added as ${taken.displayName}.`);

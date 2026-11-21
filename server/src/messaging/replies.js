@@ -290,7 +290,7 @@ async function runAction(state, { action, i, phone, saved, option, campaignId, c
             }
         }
         case 'add_tag':
-            return { contactId: state.contacts.upsert({ phone, normalized: true, name: contactFor()?.name ?? saved.senderName, tags: action.tags }).id };
+            return { contactId: state.contacts.upsert({ phone, normalized: true, name: contactFor()?.name ?? saved.senderName, tags: action.tags, channelId: state.channel?.id }).id };
         case 'remove_tag': {
             const contact = contactFor();
             if (contact) state.contacts.removeTags(contact.id, action.tags);
@@ -299,7 +299,7 @@ async function runAction(state, { action, i, phone, saved, option, campaignId, c
         case 'set_field':
             return {
                 contactId: state.contacts.upsert({
-                    phone, normalized: true, name: contactFor()?.name ?? saved.senderName,
+                    phone, normalized: true, name: contactFor()?.name ?? saved.senderName, channelId: state.channel?.id,
                     customFields: { [action.key]: personalize(action.value, { option: option.title, payload: option.payload }) },
                 }).id,
             };

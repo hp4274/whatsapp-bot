@@ -13,6 +13,7 @@ import { Router } from '@angular/router';
 
 import {
   BulkAction,
+  ChannelsApi,
   Contact2,
   ContactFilter,
   ContactSort,
@@ -104,6 +105,7 @@ const VERB: Record<BulkAction, string> = {
 })
 export class ContactsView {
   private readonly api = inject(ContactsApi);
+  private readonly channelsApi = inject(ChannelsApi);
   private readonly store = inject(Store);
   private readonly auth = inject(Auth);
   private readonly destroyRef = inject(DestroyRef);
@@ -130,6 +132,16 @@ export class ContactsView {
   protected readonly searchInput = signal('');
   private readonly search = signal('');
   protected readonly tagFilter = signal<string[]>([]);
+  /** Contacts from one WhatsApp number ('none' = uploaded or added by hand); null = from anywhere. */
+  protected readonly channelFilter = signal<number | 'none' | null>(null);
+  /** How many contacts each number brought in, from the last list. */
+  protected readonly channelCounts = signal<{ channelId: number | null; count: number }[]>([]);
+  /** The business's numbers by id: name and phone, for the rail and the table. */
+  private readonly numberNames = signal<ReadonlyMap<number, { name: string; phone: string }>>(new Map());
+  /** The rail's "Saved from" list: only worth showing once a WhatsApp number brought someone in. */
+  protected readonly sources = computed(() =>
+    this.channelCounts().some((c) => c.channelId !== null) ? this.channelCounts() : [],
+  );
   protected readonly segmentId = signal<number | null>(null);
   protected readonly consent = signal<ConsentFilter>('');
   /** "detail = value" on a custom field (server buildWhere `custom`); the inputs below build it. */
@@ -192,6 +204,8 @@ export class ContactsView {
     if (term) base.search = term;
     const tags = [...new Set([...(base.tags ?? []), ...this.tagFilter()])];
     if (tags.length) base.tags = tags;
+    const channel = this.channelFilter();
+    if (channel !== null) base.channel = channel;
     const consent = this.consent();
     if (consent === 'messageable') base.optedOut = false;
     else if (consent === 'opted_out') base.optedOut = true;
@@ -275,6 +289,7 @@ export class ContactsView {
   private noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
+    this.loadNumbers();
     this.load();
     this.loadMeta();
     this.store.watch(['contacts', 'segments', 'optouts'], () => {
@@ -298,7 +313,7 @@ export class ContactsView {
         dir: this.dir(),
       })
       .subscribe({
-        next: ({ contacts, total, tags, fieldKeys }) => {
+        next: ({ contacts, total, tags, fieldKeys, channels }) => {
           if (seq !== this.seq) return; // a newer request owns the table
           // Deleting the last rows of the last page: step back instead of showing nothing.
           if (!contacts.length && total > 0 && this.page() > 0) {
@@ -309,6 +324,7 @@ export class ContactsView {
           this.rows.set(contacts);
           this.total.set(total);
           this.tags.set(tags);
+          this.channelCounts.set(channels ?? []);
           this.fieldKeys.set(fieldKeys);
           this.error.set('');
           this.loading.set(false);
@@ -385,6 +401,30 @@ export class ContactsView {
     this.refilter();
   }
 
+  protected setChannel(value: number | 'none' | null) {
+    this.channelFilter.set(this.channelFilter() === value ? null : value);
+    this.refilter();
+  }
+
+  /** "Sales line" or "+91 98765 43210" for a number id; "Added by you" (uploaded or typed in) for none. */
+  protected numberLabel(id: number | null | undefined): string {
+    if (id === null || id === undefined) return 'Added by you';
+    const n = this.numberNames().get(id);
+    return n ? n.name || n.phone || `Number #${id}` : `Number #${id}`;
+  }
+
+  private loadNumbers() {
+    this.channelsApi.list().subscribe({
+      next: ({ channels }) => {
+        const linked = (c: (typeof channels)[number]) => c.providerAccountId?.replace(/\D/g, '');
+        this.numberNames.set(
+          new Map(channels.map((c) => [c.id, { name: c.displayName, phone: c.phoneNumber || (linked(c) ? '+' + linked(c) : '') }])),
+        );
+      },
+      error: () => undefined, // names are extra: the rail falls back to "Number #id"
+    });
+  }
+
   protected setConsent(value: ConsentFilter) {
     this.consent.set(value);
     this.refilter();
@@ -400,6 +440,7 @@ export class ContactsView {
     this.searchInput.set('');
     this.search.set('');
     this.tagFilter.set([]);
+    this.channelFilter.set(null);
     this.segmentId.set(null);
     this.consent.set('');
     this.fieldFilter.set(null);

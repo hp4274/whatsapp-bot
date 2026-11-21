@@ -356,7 +356,7 @@ th[aria-sort='descending'] .sort { color: var(--text-strong); .ti { opacity: 1; 
 }
 
 @media (max-width: 720px) {
-  .c-tags, .c-added, .c-phone { display: none; }
+  .c-tags, .c-added, .c-phone, .c-from { display: none; }
   .who-text .name { max-width: 18ch; }
   .dupe-banner { flex-wrap: wrap; }
 }
@@ -368,3 +368,22 @@ th[aria-sort='descending'] .sort { color: var(--text-strong); .ti { opacity: 1; 
   .pager { justify-content: center; }
 }
 
+
+/* Where a contact came in: the WhatsApp number (orange) or an upload (grey), as Number collections shows it. */
+.c-from { white-space: nowrap; }
+.from {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  color: var(--primary-text);
+  background: var(--primary-tint);
+  .ti { flex: none; font-size: 13px; }
+  &.up { color: var(--text-muted); background: var(--surface-sunken); }
+}

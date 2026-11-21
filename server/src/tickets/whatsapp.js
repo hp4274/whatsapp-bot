@@ -39,7 +39,7 @@ function contactOf(state, msg, create = false) {
     }
     const found = contacts.getByPhone(phone) ?? contacts.getByPhone(msg.sender);
     if (found || !create) return found;
-    return contacts.upsert({ phone, normalized: true, name: String(msg.senderName ?? '').trim() || undefined });
+    return contacts.upsert({ phone, normalized: true, name: String(msg.senderName ?? '').trim() || undefined, channelId: state.channel?.id });
 }
 
 /** Add the message to the contact's open ticket, reopening a recent resolved one. */

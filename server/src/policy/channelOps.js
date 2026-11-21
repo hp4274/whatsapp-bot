@@ -279,7 +279,7 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
      * number_since does not void them) unless the channel saw a ban since. Otherwise the new phone is asked.
      */
     const switchPhone = (channelId, from, to) => {
-        const key = (phone) => String(phone ?? '').replace(/D/g, '');
+        const key = (phone) => String(phone ?? '').replace(/\D/g, '');
         const row = raw.prepare('SELECT start_level, start_answers, started_at, start_by_phone FROM channel_ops WHERE channel_id = ?')
             .get(Number(channelId));
         let known = {};

@@ -1183,6 +1183,8 @@ export interface Contact2 {
   customFields: Record<string, string>;
   tags: string[];
   source: string;
+  /** The WhatsApp number it first came in through (a chat, a group import); null = uploaded or added by hand. */
+  channelId?: number | null;
   optedOut: boolean;
   messageable: boolean;
   /** Why and when the number opted out, when it has. */
@@ -1283,6 +1285,8 @@ export interface ContactFilter {
   /** The last send to the number found no WhatsApp account (and nothing has been delivered since). */
   notOnWhatsapp?: boolean;
   source?: string;
+  /** The WhatsApp number contacts came in through; 'none' = uploaded or added by hand. */
+  channel?: number | 'none';
   search?: string;
   custom?: Record<string, string>;
   /** Hand-picked contacts; combines with the other keys, and an empty list matches nobody. */
@@ -1322,6 +1326,8 @@ export interface ContactList {
   contacts: Contact2[];
   total: number;
   tags: { tag: string; count: number }[];
+  /** Contacts per WhatsApp number they came in through; channelId null = uploaded or added by hand. */
+  channels?: { channelId: number | null; count: number }[];
   fieldKeys: string[];
 }
 

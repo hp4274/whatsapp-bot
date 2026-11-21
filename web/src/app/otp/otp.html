@@ -347,7 +347,7 @@
                 placeholder="123456"
                 [disabled]="r.status !== 'pending'"
                 [ngModel]="testCode()"
-                (ngModelChange)="testCode.set($event.replace(/D/g, ''))"
+                (ngModelChange)="testCode.set($event.replace(/\D/g, ''))"
               />
             </div>
             <button type="submit" class="btn primary" [disabled]="!testCode() || checking() || r.status !== 'pending'">

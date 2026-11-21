@@ -379,7 +379,7 @@ export async function handleCatalogOrder(state, saved, order) {
         ? lines.map((l) => `${l.qty} x ${l.name} - ${money(l.price * l.qty)}`).join('\n')
         : `${order.itemCount} item${order.itemCount === 1 ? '' : 's'} from the WhatsApp catalog`;
     const phone = saved.sender;
-    const contact = state.contacts?.getByPhone(phone) ?? state.contacts?.upsert({ phone, name: saved.senderName || undefined, source: 'shop' });
+    const contact = state.contacts?.getByPhone(phone) ?? state.contacts?.upsert({ phone, name: saved.senderName || undefined, source: 'shop', channelId: state.channel?.id });
     const metadata = { source: 'whatsapp', phone, lines, total, payment: 'none', catalogOrderId: order.orderId };
 
     let object = null;

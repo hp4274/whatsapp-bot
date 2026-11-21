@@ -15,6 +15,7 @@ import { Observable } from 'rxjs';
 
 import { Channel, ChannelPatch, ChannelsApi } from '../core/api';
 import { Auth } from '../core/auth';
+import { spacedPhone } from '../contacts/contact-util';
 import { ChannelSettings } from './channel-settings';
 import { LIVE_LABEL, describeDays, liveState, plainError, transportMeta, zoneLabel } from './channel-meta';
 import { PhoneInput } from '../core/phone-input';
@@ -40,8 +41,6 @@ const REDUCED =
   styleUrl: './channel-card.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    '[class.active]': 'active() && multi()',
-    '[class.expanded]': 'expanded()',
     '[class.off]': "channel().status !== 'active'",
     '[attr.data-state]': 'state()',
     '(pointermove)': 'tilt($event)',
@@ -58,8 +57,6 @@ export class ChannelCard {
   readonly capabilities = input<string[]>([]);
   /** The number later requests act on. */
   readonly active = input(false);
-  /** The full card: link card, allowance and hours. Off, the compact card of another number. */
-  readonly expanded = input(false);
   /** The business has several numbers: only then do "main number" and "recommended" mean anything. */
   readonly multi = input(false);
   /** The page's pick of the number to send on next (whatsapp.ts recommendedId). */
@@ -81,8 +78,6 @@ export class ChannelCard {
   readonly changed = output<void>();
   /** Deleted on the server. */
   readonly removed = output<void>();
-  /** Make this the number later requests run against. */
-  readonly use = output<void>();
   /** Link this (unlinked) number with a QR code. */
   readonly connect = output<void>();
   /** Open the start questions for this number. */
@@ -103,8 +98,10 @@ export class ChannelCard {
   /** The number typed in, else the one WhatsApp reported when it linked. */
   protected readonly phone = computed(() => {
     const c = this.channel();
-    const linked = c.providerAccountId?.replace(/D/g, '');
-    return c.phoneNumber || (linked ? '+' + linked : '');
+    const linked = c.providerAccountId?.replace(/\D/g, '');
+    // One format on every card, whether typed ("+917435054304") or read from WhatsApp.
+    const raw = (c.phoneNumber || linked || '').replace(/\D/g, '');
+    return raw ? spacedPhone(raw) : '';
   });
   /** Catalog only when the platform switched the service on for this business (super admins see everything). */
   protected readonly catalogOn = computed(
@@ -233,9 +230,9 @@ export class ChannelCard {
   }
 
   // --------------------------------------------------------------- tilt --
-  /** A few degrees of perspective toward the pointer; not on the expanded card, nor with reduced motion. */
+  /** A few degrees of perspective toward the pointer; not with reduced motion. */
   protected tilt(event: PointerEvent) {
-    if (REDUCED || this.expanded() || event.pointerType !== 'mouse') return;
+    if (REDUCED || event.pointerType !== 'mouse') return;
     const el = this.host.nativeElement;
     const rect = el.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width - 0.5;

@@ -286,6 +286,30 @@
       }
     </section>
 
+    <!-- Which WhatsApp number each contact came in through, as Number collections separates them. -->
+    @if (sources().length) {
+      <section>
+        <h4>Saved from</h4>
+        <div class="segments">
+          <button type="button" class="seg-item" [attr.aria-pressed]="channelFilter() === null" (click)="setChannel(null)">
+            <i class="ti ti-devices" aria-hidden="true"></i> Everywhere
+          </button>
+          @for (s of sources(); track s.channelId) {
+            <button
+              type="button"
+              class="seg-item"
+              [attr.aria-pressed]="channelFilter() === (s.channelId ?? 'none')"
+              (click)="setChannel(s.channelId ?? 'none')"
+            >
+              <i class="ti ti-{{ s.channelId === null ? 'upload' : 'brand-whatsapp' }}" aria-hidden="true"></i>
+              <span class="name">{{ numberLabel(s.channelId) }}</span>
+              <em>{{ s.count.toLocaleString() }}</em>
+            </button>
+          }
+        </div>
+      </section>
+    }
+
     <section>
       <h4>Tags</h4>
       <div class="tagcloud">
@@ -365,7 +389,7 @@
       }
     </div>
 
-    @if (segment() || tagFilter().length || fieldFilter()) {
+    @if (segment() || tagFilter().length || fieldFilter() || channelFilter() !== null) {
       <div class="active-filters" aria-label="Active filters">
         @if (fieldFilter(); as f) {
           <button
@@ -385,6 +409,17 @@
             [attr.aria-label]="'Remove segment ' + s.name"
           >
             <i class="ti ti-filter" aria-hidden="true"></i> {{ s.name }}
+            <i class="ti ti-x" aria-hidden="true"></i>
+          </button>
+        }
+        @if (channelFilter(); as ch) {
+          <button
+            type="button"
+            class="s-chip on"
+            (click)="setChannel(null)"
+            [attr.aria-label]="'Remove filter saved from ' + numberLabel(ch === 'none' ? null : ch)"
+          >
+            <i class="ti ti-brand-whatsapp" aria-hidden="true"></i> {{ numberLabel(ch === 'none' ? null : ch) }}
             <i class="ti ti-x" aria-hidden="true"></i>
           </button>
         }
@@ -533,6 +568,9 @@
                 </button>
               </th>
               <th scope="col" class="c-tags">Tags</th>
+              @if (sources().length) {
+                <th scope="col" class="c-from">Saved from</th>
+              }
               <th scope="col" [attr.aria-sort]="ariaSort('optInStatus')">
                 <button type="button" class="sort" (click)="sortBy('optInStatus')">
                   Consent
@@ -609,6 +647,14 @@
                     }
                   </span>
                 </td>
+                @if (sources().length) {
+                  <td class="c-from">
+                    <span class="from" [class.up]="!c.channelId">
+                      <i class="ti ti-{{ c.channelId ? 'brand-whatsapp' : 'upload' }}" aria-hidden="true"></i>
+                      {{ numberLabel(c.channelId) }}
+                    </span>
+                  </td>
+                }
                 <td>
                   <span class="s-pill" [class]="consentTone(c)">{{ consentLabel(c) }}</span>
                 </td>

@@ -1,6 +1,6 @@
 <!--
-  WhatsApp: the header (status, plan line or Add), the summary strip with several numbers, the add form, then the
-  selected number's card expanded around its link card, the other numbers compact, the one questions popup,
+  WhatsApp: the header (status, plan line or Add), the summary strip with several numbers, the add form, then every
+  number as the same card, the selected number's link panel under them, the one questions popup,
   ban protection, and the ban checklist folded away. Error, then skeleton, then content.
 -->
 @let st = status();
@@ -218,38 +218,6 @@
     </p>
   }
 
-  <!-- Keyed on the selected id: the link card, health and limits all read the selected number, so a switch
-       builds them afresh instead of showing the last number's state while the new one loads. -->
-  @for (id of [activeId()]; track id) {
-    @if (selected(); as ch) {
-      <app-channel-card
-        [expanded]="true"
-        [channel]="ch"
-        [capabilities]="capabilities()"
-        [active]="true"
-        [sending]="sendRunning()"
-        [multi]="multi()"
-        [recommended]="recommendedId() === ch.id"
-        [duplicateOf]="duplicates()[ch.id] ?? ''"
-        [canDelete]="multi()"
-        (updated)="replace($event)"
-        (changed)="refresh()"
-        (removed)="removed(ch)"
-        (ask)="ask(ch.id)"
-        (check)="ask(ch.id, true)"
-        (catalog)="catalogFor.set(ch)"
-      >
-        <app-link-card
-          [autoStart]="autoLink() === ch.id"
-          [relink]="relinkFor(ch.id)"
-          (linked)="linked()"
-          (cancelled)="goBack()"
-          (recover)="openRecover()"
-        />
-      </app-channel-card>
-    }
-  }
-
   @if (!channels().length) {
     <div class="card state s-empty">
       <i class="ti ti-message" aria-hidden="true"></i>
@@ -274,28 +242,49 @@
     </div>
   }
 
-  @if (others().length) {
+  <!-- Every number, the same card each. -->
+  @if (channels().length) {
     <div class="rack">
-      @for (other of others(); track other.id) {
+      @for (c of channels(); track c.id) {
         <app-channel-card
-          [channel]="other"
+          [channel]="c"
           [capabilities]="capabilities()"
-          [multi]="true"
-          [recommended]="recommendedId() === other.id"
-          [duplicateOf]="duplicates()[other.id] ?? ''"
-          [canDelete]="true"
+          [active]="c.id === activeId()"
+          [sending]="c.id === activeId() && sendRunning()"
+          [multi]="multi()"
+          [recommended]="recommendedId() === c.id"
+          [duplicateOf]="duplicates()[c.id] ?? ''"
+          [canDelete]="multi()"
           [linkBusy]="store.connecting()"
           (updated)="replace($event)"
           (changed)="refresh()"
-          (removed)="removed(other)"
-          (use)="use(other)"
-          (connect)="link(other)"
-          (ask)="ask(other.id)"
-          (check)="ask(other.id, true)"
-          (catalog)="catalogFor.set(other)"
+          (removed)="removed(c)"
+          (connect)="link(c)"
+          (ask)="ask(c.id)"
+          (check)="ask(c.id, true)"
+          (catalog)="catalogFor.set(c)"
         />
       }
     </div>
+  }
+
+  <!-- The selected number's link panel: steps and QR, or who it is linked as. Keyed on the id, so a switch builds it
+       afresh instead of showing the last number's state while the new one loads. -->
+  @for (id of [activeId()]; track id) {
+    @if (selected(); as ch) {
+      <section class="link-panel" [attr.aria-label]="'Link ' + ch.displayName">
+        @if (multi()) {
+          <p class="link-for"><i class="ti ti-qrcode" aria-hidden="true"></i>{{ ch.displayName }}</p>
+        }
+        <app-link-card
+          [autoStart]="autoLink() === ch.id"
+          [relink]="relinkFor(ch.id)"
+          (linked)="linked()"
+          (cancelled)="goBack()"
+          (recover)="openRecover()"
+        />
+      </section>
+    }
   }
 }
 
