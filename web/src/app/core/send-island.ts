@@ -67,7 +67,7 @@ function labelled(rows: readonly QueuedNext[]) {
     @if (visible()) {
       <div #island class="stack">
       @if (multi()) {
-        <!-- Side by side, newest on the right: a new campaign slides the others left. Each opens and folds on its own. -->
+        <!-- Opened campaigns side by side, newest on the right; each opens and folds on its own. -->
         @for (c of order(); track c.id) {
           @if (isOpen(c.id)) {
             @let total = c.stats.total ?? 0;
@@ -133,22 +133,28 @@ function labelled(rows: readonly QueuedNext[]) {
                 }
               </div>
             </aside>
-          } @else {
-            <button
-              type="button"
-              class="mini"
-              [attr.data-run]="c.id"
-              (click)="toggleRun(c.id)"
-              [attr.aria-expanded]="false"
-              [attr.aria-label]="'Show ' + c.name + ', ' + runLabel(c)"
-            >
-              <i class="ti ti-{{ c.status === 'paused' ? 'player-pause' : 'send' }} lead" aria-hidden="true"></i>
-              <span class="mini-name">{{ c.name }}</span>
-              <span class="st st-{{ c.status === 'paused' ? 'mute' : 'run' }}">{{ runLabel(c) }}</span>
-              <i class="ti ti-chevron-up mini-open" aria-hidden="true"></i>
-              <span class="mini-bar" aria-hidden="true"><span [style.width.%]="percentOf(c)"></span></span>
-            </button>
           }
+        }
+        <!-- Folded campaigns pile up on each other at the right edge; an opened one moves out beside the pile. -->
+        @if (folded().length) {
+          <div class="pile">
+            @for (c of folded(); track c.id) {
+                <button
+                  type="button"
+                  class="mini"
+                  [attr.data-run]="c.id"
+                  (click)="toggleRun(c.id)"
+                  [attr.aria-expanded]="false"
+                  [attr.aria-label]="'Show ' + c.name + ', ' + runLabel(c)"
+                >
+                  <i class="ti ti-{{ c.status === 'paused' ? 'player-pause' : 'send' }} lead" aria-hidden="true"></i>
+                  <span class="mini-name">{{ c.name }}</span>
+                  <span class="st st-{{ c.status === 'paused' ? 'mute' : 'run' }}">{{ runLabel(c) }}</span>
+                  <i class="ti ti-chevron-up mini-open" aria-hidden="true"></i>
+                  <span class="mini-bar" aria-hidden="true"><span [style.width.%]="percentOf(c)"></span></span>
+                </button>
+            }
+          </div>
         }
       } @else {
         <ng-container *ngTemplateOutlet="card" />
@@ -315,6 +321,13 @@ function labelled(rows: readonly QueuedNext[]) {
     .slot {
       width: min(360px, calc(100vw - 24px));
       flex: none;
+    }
+    /* The folded campaigns, one on another. */
+    .pile {
+      display: grid;
+      gap: 6px;
+      flex: none;
+      pointer-events: auto;
     }
     .slot .island {
       width: 100%;
@@ -564,7 +577,7 @@ function labelled(rows: readonly QueuedNext[]) {
       display: flex;
       align-items: center;
       gap: 10px;
-      width: 220px;
+      width: 280px;
       flex: none;
       min-height: 48px;
       padding: 8px 12px 10px;
@@ -630,7 +643,8 @@ function labelled(rows: readonly QueuedNext[]) {
         width: min(360px, calc(100vw - 24px));
       }
       .mini,
-      .slot {
+      .slot,
+      .pile {
         width: 100%;
       }
     }
@@ -701,8 +715,10 @@ export class SendIsland {
   protected readonly runError = signal<{ id: number; text: string } | null>(null);
   /** Every running campaign in a fixed order, oldest first (left), newest on the right edge. */
   protected readonly order = computed(() => (this.multi() ? this.runs() : []));
-  /** Each run's left edge at the last render, for sliding it to its new place (FLIP). */
-  private readonly lastLeft = new Map<string, number>();
+  /** The folded ones, for the pile: newest on top. */
+  protected readonly folded = computed(() => [...this.order()].reverse().filter((c) => !this.isOpen(c.id)));
+  /** Each run's place at the last render, for sliding it to its new one (FLIP). */
+  private readonly lastAt = new Map<string, { x: number; y: number }>();
   /** A campaign was seen running since the card last closed: only campaigns open the card, not other sends. */
   private readonly campaignSeen = signal(false);
   /** First Stop click arms it; the second sends it. Resets on blur. */
@@ -734,22 +750,23 @@ export class SendIsland {
       this.order();
       this.opened();
       const stack = this.islandRef()?.nativeElement;
-      if (!stack) return this.lastLeft.clear();
+      if (!stack) return this.lastAt.clear();
       const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
       const seen = new Set<string>();
       for (const el of Array.from(stack.querySelectorAll<HTMLElement>('[data-run]'))) {
         const id = el.dataset['run'] ?? '';
-        const left = el.getBoundingClientRect().left;
-        const before = this.lastLeft.get(id);
+        const box = el.getBoundingClientRect();
+        const now = { x: box.left, y: box.top };
+        const before = this.lastAt.get(id);
         seen.add(id);
-        this.lastLeft.set(id, left);
-        if (reduce || before === undefined || Math.abs(before - left) < 1) continue;
-        el.animate([{ transform: `translateX(${before - left}px)` }, { transform: 'none' }], {
+        this.lastAt.set(id, now);
+        if (reduce || !before || (Math.abs(before.x - now.x) < 1 && Math.abs(before.y - now.y) < 1)) continue;
+        el.animate([{ transform: `translate(${before.x - now.x}px, ${before.y - now.y}px)` }, { transform: 'none' }], {
           duration: 420,
           easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
         });
       }
-      for (const id of [...this.lastLeft.keys()]) if (!seen.has(id)) this.lastLeft.delete(id);
+      for (const id of [...this.lastAt.keys()]) if (!seen.has(id)) this.lastAt.delete(id);
     });
 
     // Wuzie's stream is opened for this island alone, and closed with it.

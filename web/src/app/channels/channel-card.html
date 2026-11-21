@@ -1,13 +1,8 @@
 <!--
-  One number. Expanded: name, the projected link card, today's meter and allowance, sending hours, hints.
-  Compact: name, status, today's meter, the one action that applies. Both end in the Advanced fold.
+  One number, the same card for every number: name, status, today's meter and allowance, sending hours, hints, the
+  one action that applies, then the Advanced fold. The selected number's QR / link panel sits under the cards.
 -->
 @let ch = channel();
-@if (active() && multi()) {
-  <div class="ribbon">
-    <i class="ti ti-current-location" aria-hidden="true"></i> Selected number
-  </div>
-}
 
 <header class="head">
   <span class="status" role="status">
@@ -151,11 +146,6 @@
   </p>
 }
 
-@if (expanded()) {
-  <!-- The link card for this number: steps and QR, or who it is linked as. -->
-  <ng-content />
-}
-
 @if (usage(); as u) {
   <section class="meter" [attr.data-tone]="meterTone()" aria-label="Today's sends">
     <div class="meter-top">
@@ -206,8 +196,7 @@
   </section>
 }
 
-@if (expanded()) {
-  <p class="window" [class.closed]="ch.businessHours && !ch.health?.withinSendingWindow">
+<p class="window" [class.closed]="ch.businessHours && !ch.health?.withinSendingWindow">
     <i class="ti ti-clock" aria-hidden="true"></i>
     <span>Sending hours: {{ windowText() }}</span>
     @if (ch.businessHours) {
@@ -225,7 +214,6 @@
       }
     </ul>
   }
-}
 
 <!-- The server's own words are for support; the business gets what to do about it. -->
 @if (ch.health?.error && state() !== 'connected' && ch.status === 'active') {
@@ -234,18 +222,13 @@
   </p>
 }
 
-@if (!expanded()) {
+<!-- An unlinked number links from here; the one whose panel is open under the cards links there instead. -->
+@if (needsConnect() && !active()) {
   <div class="actions">
-    @if (needsConnect()) {
-      <button class="btn primary cta" type="button" (click)="connect.emit()" [disabled]="linkBusy()">
-        <i class="ti ti-{{ transport().qr ? 'qrcode' : 'link' }}" aria-hidden="true"></i>
-        {{ transport().qr ? 'Link with QR code' : 'Link number' }}
-      </button>
-    } @else if (!active()) {
-      <button class="btn" type="button" (click)="use.emit()" [disabled]="ch.status !== 'active'">
-        <i class="ti ti-click" aria-hidden="true"></i> Use this number
-      </button>
-    }
+    <button class="btn primary cta" type="button" (click)="connect.emit()" [disabled]="linkBusy()">
+      <i class="ti ti-{{ transport().qr ? 'qrcode' : 'link' }}" aria-hidden="true"></i>
+      {{ transport().qr ? 'Link with QR code' : 'Link number' }}
+    </button>
   </div>
 }
 

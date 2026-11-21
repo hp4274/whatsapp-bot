@@ -9,6 +9,7 @@
  * `db.forTenant(id)`.
  */
 
+import { addUploaded, readEntries, saveFetched } from './numberCollections.js';
 import fs from 'node:fs';
 import { isIP } from 'node:net';
 import path from 'node:path';
@@ -979,6 +980,9 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         if (room) return res.status(403).json({ errors: [room] });
         const tags = (Array.isArray(req.body.tags) ? req.body.tags : []).map((t) => String(t).trim()).filter(Boolean);
         const saved = contacts.importMany(valid.map((phone) => ({ phone })), { source: 'paste', tags, normalized: true });
+        // Uploaded numbers join the business's number collection too (the super admin's Number collections).
+        addUploaded(db.db, db.tenantId, valid.map((phone) => ({ phone })));
+        broadcast(state, { type: 'changed', topic: 'contacts' });
         return res.json({ ...counts, saved: { created: saved.created, updated: saved.updated, failed: saved.failed.length } });
     });
 
@@ -1020,6 +1024,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
                 const room = contactRoomError(result.contacts.map((c) => c.phone));
                 if (room) return res.status(403).json({ errors: [room] });
                 result.saved = contacts.importMany(result.contacts, { source: 'import', tags, normalized: true });
+                addUploaded(db.db, db.tenantId, result.contacts);
+                broadcast(state, { type: 'changed', topic: 'contacts' });
             }
             return res.json(result);
         } catch (err) {
@@ -1124,6 +1130,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             const saved = req.body?.save === true
                 ? contacts.importMany(valid, { source: 'import', normalized: true })
                 : null;
+            if (saved) addUploaded(db.db, db.tenantId, valid);
             // The route's own topic is `campaign`: open Contacts pages need telling too.
             if (saved && (saved.created || saved.updated)) broadcast(state, { type: 'changed', topic: 'contacts' });
             return res.json({ counts, issues, ...(saved && { saved: { created: saved.created, updated: saved.updated } }),
@@ -1149,6 +1156,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         if (query.status) filter.status = query.status;
         if (query.optInStatus) filter.optInStatus = query.optInStatus;
         if (query.source) filter.source = query.source;
+        if (query.channel) filter.channel = query.channel;
         if (query.search) filter.search = query.search;
         if (query.optedOut !== undefined) filter.optedOut = query.optedOut === 'true';
         if (query.filter) {
@@ -1169,6 +1177,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             }),
             total: contacts.count(filter),
             tags: contacts.tags(),
+            channels: contacts.channelCounts(),
             fieldKeys: contacts.fieldKeys(),
         });
     });
@@ -1294,7 +1303,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         // WhatsApp numbers are already international digits.
         const room = contactRoomError([...rows.keys()]);
         if (room) return res.status(403).json({ errors: [room] });
-        const saved = contacts.importMany([...rows.values()], { source: 'whatsapp_group', normalized: true });
+        const saved = contacts.importMany([...rows.values()], { source: 'whatsapp_group', normalized: true, channelId: state.channel?.id });
         return res.json({
             created: saved.created, updated: saved.updated, failed: saved.failed.length,
             hidden: picked.reduce((n, g) => n + g.hidden, 0),
@@ -4486,28 +4495,18 @@ export function createApp({
         // `contacts` is [{ phone, name }]; plain `numbers` (digits only) still saves, with no names.
         const entries = Array.isArray(req.body?.contacts) ? req.body.contacts
             : Array.isArray(req.body?.numbers) ? req.body.numbers : [];
-        const byPhone = new Map();
-        for (const entry of entries) {
-            const phone = String((typeof entry === 'string' ? entry : entry?.phone) ?? '').replace(/\D/g, '');
-            if (phone.length < 7 || phone.length > 15 || byPhone.has(phone)) continue;
-            // The linked numbers it was fetched from, as digits; kept so the collection can tell the numbers apart.
-            const from = (Array.isArray(entry?.from) ? entry.from : [])
-                .map((a) => String(a).replace(/\D/g, '').slice(0, 15)).filter(Boolean).slice(0, 20);
-            byPhone.set(phone, { phone, name: String(entry?.name ?? '').trim().slice(0, 100), ...(from.length ? { from } : {}) });
+        // A fetched entry may only say WhatsApp numbers: 'upload' is the server's own marker for uploaded lists.
+        const fetched = entries.map((entry) => (typeof entry === 'string' ? entry
+            : { ...entry, from: (Array.isArray(entry?.from) ? entry.from : []).filter((a) => String(a) !== 'upload') }));
+        if (!fetched.some((e) => String((typeof e === 'string' ? e : e?.phone) ?? '').replace(/\D/g, '').length >= 7)) {
+            return res.status(400).json({ errors: ['There are no numbers to save.'] });
         }
-        const numbers = [...byPhone.values()];
-        if (!numbers.length) return res.status(400).json({ errors: ['There are no numbers to save.'] });
-        if (numbers.length > NUMBER_COLLECTION_MAX) {
+        if (fetched.length > NUMBER_COLLECTION_MAX) {
             return res.status(400).json({ errors: [`Save at most ${NUMBER_COLLECTION_MAX} numbers at a time.`] });
         }
         // Digits only, so a number typed with spaces or a + is stored the same way as the rest.
         const account = String(req.body?.account ?? '').replace(/\D/g, '').slice(0, 15);
-        const createdAt = new Date().toISOString();
-        db.db.prepare(`
-            INSERT INTO number_collections (tenant_id, account, numbers, created_at) VALUES (?, ?, ?, ?)
-            ON CONFLICT(tenant_id) DO UPDATE SET
-                account = excluded.account, numbers = excluded.numbers, created_at = excluded.created_at`)
-            .run(tenant.id, account, JSON.stringify(numbers), createdAt);
+        const { entries: numbers, createdAt } = saveFetched(db.db, tenant.id, account, fetched);
         audit(req, 'number_collection.save', tenant.id, { count: numbers.length });
         return res.status(201).json({ collection: numberCollection(tenant.id, account, numbers, createdAt) });
     });
@@ -4517,13 +4516,7 @@ export function createApp({
             SELECT c.tenant_id AS tenantId, c.account, c.numbers, c.created_at AS createdAt, t.name AS tenantName
             FROM number_collections c LEFT JOIN tenants t ON t.id = c.tenant_id
             ORDER BY lower(t.name), c.tenant_id`).all().map((row) => {
-            let contacts = [];
-            try {
-                // Rows saved before names were kept hold plain digit strings.
-                contacts = JSON.parse(row.numbers).map((c) => (typeof c === 'string' ? { phone: c, name: '' } : c));
-            } catch {
-                // a damaged row still lists, with no numbers
-            }
+            const contacts = readEntries(row.numbers);
             return { ...row, numbers: contacts.map((c) => c.phone), contacts, count: contacts.length };
         }),
     }));

@@ -26,6 +26,8 @@ interface NumberRow {
   readonly name: string;
   readonly country: string;
   readonly tenantId: number;
+  /** Every business that saved this number (one, inside a business). */
+  readonly tenantIds: readonly number[];
   readonly business: string;
   /** The business's linked WhatsApp numbers this one was fetched from (digits); one row per phone, never per name. */
   readonly from: readonly string[];
@@ -81,8 +83,8 @@ export class NumberCollectionsView {
   protected readonly hue = hue;
   protected readonly initials = initials;
 
-  /** Every saved number, each with its business and country. */
-  private readonly all = computed<NumberRow[]>(() =>
+  /** Every saved number, each with its business and country: one row per business. */
+  private readonly perBusiness = computed<NumberRow[]>(() =>
     this.collections().flatMap((c) =>
       c.contacts.map((n) => ({
         ...n,
@@ -90,14 +92,37 @@ export class NumberCollectionsView {
         from: n.from?.length ? n.from : c.account ? [c.account] : [],
         country: countryLabel(n.phone),
         tenantId: c.tenantId,
+        tenantIds: [c.tenantId],
         business: this.name(c),
       })),
     ),
   );
-  /** The shown business's numbers (all of them when none is picked). */
+  /**
+   * Every business together: one row per phone, never per name. A number several businesses (or several of their
+   * WhatsApp numbers) know is one person: the first name it was saved with, every source and every business.
+   */
+  private readonly all = computed<NumberRow[]>(() => {
+    const byPhone = new Map<string, NumberRow>();
+    for (const r of this.perBusiness()) {
+      const seen = byPhone.get(r.phone);
+      if (!seen) {
+        byPhone.set(r.phone, r);
+        continue;
+      }
+      byPhone.set(r.phone, {
+        ...seen,
+        name: seen.name || r.name,
+        from: [...new Set([...seen.from, ...r.from])],
+        business: seen.business.split(', ').includes(r.business) ? seen.business : `${seen.business}, ${r.business}`,
+        tenantIds: [...seen.tenantIds, r.tenantId],
+      });
+    }
+    return [...byPhone.values()];
+  });
+  /** The shown business's numbers (every business's, merged by phone, when none is picked). */
   private readonly inScope = computed(() => {
     const id = this.tenantId();
-    return id === null ? this.all() : this.all().filter((r) => r.tenantId === id);
+    return id === null ? this.all() : this.perBusiness().filter((r) => r.tenantId === id);
   });
   protected readonly selected = computed(() => this.collections().find((c) => c.tenantId === this.tenantId()) ?? null);
 
@@ -220,7 +245,7 @@ export class NumberCollectionsView {
   /** What the table shows (search and country applied), for copy, CSV and PDF. */
   private exportTitle(): string {
     const who = this.selected() ? this.name(this.selected()!) : 'All businesses';
-    const from = this.source() ? ` · from ${spacedPhone(this.source())}` : '';
+    const from = this.source() ? ` · from ${this.sourceLabel(this.source())}` : '';
     return (this.country() ? `${who} · ${this.country()}` : who) + from;
   }
 
@@ -296,6 +321,11 @@ export class NumberCollectionsView {
 
   private fileName(): string {
     return `numbers-${this.tenantId() ?? 'all'}-${today()}`;
+  }
+
+  /** "+91 98765 43210" for a WhatsApp number, "CSV upload" for numbers the business uploaded. */
+  protected sourceLabel(source: string): string {
+    return source === 'upload' ? 'CSV upload' : spacedPhone(source);
   }
 
   protected name(row: NumberCollection): string {

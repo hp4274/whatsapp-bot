@@ -229,7 +229,8 @@ h3 {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
   gap: var(--space-lg);
-  align-items: start;
+  /* Same height in a row: no big card next to a small one. */
+  align-items: stretch;
   padding-top: 6px;
 }
 
@@ -424,4 +425,21 @@ h3 {
   .recover > :is(details.advanced, .fine) {
     margin-inline: 20px;
   }
+}
+
+/* The selected number's link panel, under the cards. */
+.link-panel {
+  display: grid;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+.link-for {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary-text);
+  .ti { font-size: 15px; }
 }

@@ -11,10 +11,10 @@
   --ry: 0deg;
   --lift: 0px;
   position: relative;
-  display: grid;
-  @include s.fit-grid;
+  /* A column, so the Advanced fold sits at the bottom and every card in a row lines up, whatever it holds. */
+  display: flex;
+  flex-direction: column;
   gap: var(--space-md);
-  align-content: start;
   min-width: 0;
   padding: var(--space-xl);
   border: 1px solid var(--border-color);
@@ -35,50 +35,19 @@
   box-shadow: var(--shadow-lift);
 }
 
-/* The selected number: room for the link card, and no lean while someone reads the QR steps. */
-:host(.expanded) {
-  --rx: 0deg;
-  --ry: 0deg;
-  gap: var(--space-lg);
-}
-
-:host(.active) {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--input-focus);
-}
-
-:host(.active:hover) {
-  box-shadow: 0 0 0 3px var(--input-focus);
+:host > * {
+  min-width: 0;
 }
 
 :host(.off) {
   opacity: 0.72;
 }
 
-.ribbon {
-  position: absolute;
-  top: -12px;
-  left: var(--space-xl);
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 11px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--on-primary);
-  background: var(--primary);
-
-  .ti {
-    font-size: 14px;
-  }
-}
-
+/* Every card the same: the live state on its own line, the badges in a row under it. */
 .head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
   gap: var(--space-sm);
 }
 
@@ -410,11 +379,10 @@
   from { transform: scaleX(0); }
 }
 
+/* The allowance sentence, then its button on its own line at the right: the same on every card. */
 .meter-foot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px var(--space-md);
+  display: grid;
+  gap: var(--space-sm);
   margin: 0;
   font-size: 12.5px;
   color: var(--text-muted);
@@ -445,7 +413,7 @@
   }
 
   .answer {
-    margin-left: auto;
+    justify-self: end;
   }
 }
 
@@ -564,7 +532,7 @@
 
 /* The fold sits flush with the card edge; its body breathes like the card. */
 details.advanced {
-  margin-top: 4px;
+  margin-top: auto;
 }
 
 @media (max-width: 560px) {
@@ -575,15 +543,14 @@ details.advanced {
 
 @media (prefers-reduced-motion: reduce) {
   :host,
-  :host(:hover),
-  :host(.active) {
+  :host(:hover) {
     transform: none;
   }
 }
 
 /* Catalog: a regular WhatsApp number shows it locked, muted, and explains instead of opening. */
 .catalog {
-  justify-self: start;
+  align-self: flex-start;
   min-height: 40px;
 
   &.locked {

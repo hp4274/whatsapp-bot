@@ -123,8 +123,8 @@
               [attr.aria-pressed]="source() === s.account"
               (click)="setSource(s.account)"
             >
-              <i class="ti ti-brand-whatsapp" aria-hidden="true"></i>
-              <span class="name mono">{{ spacedPhone(s.account) }}</span>
+              <i class="ti ti-{{ s.account === 'upload' ? 'upload' : 'brand-whatsapp' }}" aria-hidden="true"></i>
+              <span class="name" [class.mono]="s.account !== 'upload'">{{ sourceLabel(s.account) }}</span>
               <em>{{ s.count.toLocaleString() }}</em>
             </button>
           }
@@ -228,7 +228,7 @@
             </tr>
           </thead>
           <tbody>
-            @for (r of shown(); track r.tenantId + ':' + r.phone; let i = $index) {
+            @for (r of shown(); track r.phone; let i = $index) {
               <tr [style.--i]="i">
                 <td>
                   <div class="who">
@@ -244,7 +244,9 @@
                 <td data-label="Fetched from">
                   <span class="from">
                     @for (a of r.from; track a) {
-                      <span class="tag src"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i>{{ spacedPhone(a) }}</span>
+                      <span class="tag src" [class.up]="a === 'upload'"
+                        ><i class="ti ti-{{ a === 'upload' ? 'upload' : 'brand-whatsapp' }}" aria-hidden="true"></i>{{ sourceLabel(a) }}</span
+                      >
                     } @empty {
                       <span class="muted">—</span>
                     }

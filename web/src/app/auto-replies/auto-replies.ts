@@ -31,6 +31,7 @@ import { RuleTemplate, hasPlaceholder } from './rule-templates';
 import { ReportPanel } from './report';
 import { SystemCards } from './system-cards';
 import { TestConsole } from './test-console';
+import { ReplyNumbers } from './reply-numbers';
 
 type TabId = 'basics' | 'rules' | 'report' | 'test' | 'log';
 
@@ -81,7 +82,7 @@ function toDraft(r: AutoReplyRule): RuleDraft {
  */
 @Component({
   selector: 'app-auto-replies',
-  imports: [SystemCards, RuleList, RuleEditor, TestConsole, ActivityLog, ReportPanel],
+  imports: [SystemCards, RuleList, RuleEditor, TestConsole, ActivityLog, ReportPanel, ReplyNumbers],
   templateUrl: './auto-replies.html',
   styleUrl: './auto-replies.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

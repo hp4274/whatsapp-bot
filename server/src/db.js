@@ -345,6 +345,8 @@ function addTenantControlColumns(db) {
     // Session idle timeout (see Tenancy.resolveSession).
     if (!columnsOf(db, 'sessions').includes('last_seen_at')) db.exec('ALTER TABLE sessions ADD COLUMN last_seen_at TEXT');
     if (!columnsOf(db, 'whatsapp_channels').includes('number_since')) db.exec('ALTER TABLE whatsapp_channels ADD COLUMN number_since TEXT');
+    // The WhatsApp number a contact first came in through (a chat, a group import); null = uploaded or added by hand.
+    if (!columnsOf(db, 'contacts').includes('channel_id')) db.exec('ALTER TABLE contacts ADD COLUMN channel_id INTEGER');
     // What a consent is to (tenancy.js CONSENT_KINDS) and, for a number's skipped questions, which number.
     const consentCols = columnsOf(db, 'safety_consents');
     if (consentCols.length && !consentCols.includes('kind')) db.exec("ALTER TABLE safety_consents ADD COLUMN kind TEXT NOT NULL DEFAULT 'custom_safety'");

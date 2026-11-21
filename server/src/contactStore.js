@@ -65,7 +65,7 @@ export class ContactStore {
 
     #upsert({
         phone, name, email, tags, customFields,
-        source, status, optInStatus, consent, normalized: isNormalized = false,
+        source, status, optInStatus, consent, normalized: isNormalized = false, channelId = null,
     }, { merge = true } = {}) {
         // No destructuring defaults on the updatable fields: `undefined` has to
         // stay meaningful so an update that only sets tags does not blank the
@@ -89,16 +89,21 @@ export class ContactStore {
         };
 
         if (!existing) {
+            // Only the first arrival names the number: a later chat on another number does not move it. Written only
+            // when there is one, so an upload never needs the column.
+            const via = Number.isSafeInteger(Number(channelId)) && Number(channelId) > 0 ? Number(channelId) : null;
             const info = this.db.prepare(
                 `INSERT INTO contacts (tenant_id, phone, name, email, status, opt_in_status,
-                                       custom_fields, tags, source, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+                                       custom_fields, tags, source, ${via ? 'channel_id, ' : ''}created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${via ? '?, ' : ''}?, ?)`)
                 .run(
                     this.tenantId, normalized, String(name ?? '').trim(), String(email ?? '').trim(),
                     pick(status, CONTACT_STATUSES, 'active'),
                     pick(optInStatus, OPT_IN_STATUSES, 'unknown'),
                     JSON.stringify(cleanFields(customFields)), JSON.stringify(cleanTags(tags)),
-                    String(source ?? 'manual'), now, now,
+                    String(source ?? 'manual'),
+                    ...(via ? [via] : []),
+                    now, now,
                 );
             return proved(this.get(Number(info.lastInsertRowid)));
         }
@@ -125,7 +130,7 @@ export class ContactStore {
     }
 
     /** Bulk upsert, e.g. from an imported sheet. Returns a per-row tally. */
-    importMany(contacts, { source = 'import', tags = [], merge = true, normalized = false } = {}) {
+    importMany(contacts, { source = 'import', tags = [], merge = true, normalized = false, channelId = null } = {}) {
         const result = { created: 0, updated: 0, failed: [], ids: [] };
         // One commit for the whole sheet; a savepoint per row keeps a rejected row's writes out, as before.
         return this.#atomic(() => {
@@ -146,6 +151,7 @@ export class ContactStore {
                         // importer never sets them, so its behaviour is unchanged.
                         tags: rowTags(tags, raw.tags),
                         source,
+                        channelId,
                         // A mapped consent column (contacts.js): the cell's own words are the proof.
                         optInStatus: raw.optInStatus,
                         consent: { text: raw.consentText },
@@ -366,6 +372,14 @@ export class ContactStore {
     }
 
     /** Every distinct tag in use, with how many contacts carry it. */
+    /** How many contacts each WhatsApp number brought in; channelId null = uploaded or added by hand. */
+    channelCounts() {
+        return this.db.prepare(
+            `SELECT channel_id AS channelId, COUNT(*) AS n FROM contacts WHERE tenant_id = ?
+             GROUP BY channel_id ORDER BY n DESC`).all(this.tenantId)
+            .map((row) => ({ channelId: row.channelId ?? null, count: row.n }));
+    }
+
     tags() {
         return this.db.prepare(
             `SELECT value AS tag, COUNT(*) AS n
@@ -676,6 +690,14 @@ export function buildWhere(filter = {}, tenantId) {
         clauses.push('contacts.source = ?');
         args.push(String(filter.source));
     }
+    // 'none' = uploaded or added by hand; a number = the WhatsApp number it came in through.
+    if (filter.channel !== undefined && filter.channel !== null && filter.channel !== '') {
+        if (String(filter.channel) === 'none') clauses.push('contacts.channel_id IS NULL');
+        else {
+            clauses.push('contacts.channel_id = ?');
+            args.push(Number(filter.channel) || 0);
+        }
+    }
     if (filter.optedOut !== undefined) {
         clauses.push(`${filter.optedOut ? '' : 'NOT '}EXISTS (
             SELECT 1 FROM opt_outs
@@ -798,6 +820,7 @@ function toContact(row) {
         customFields: parse(row.custom_fields, {}),
         tags: parse(row.tags, []),
         source: row.source ?? '',
+        channelId: row.channel_id ?? null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };
