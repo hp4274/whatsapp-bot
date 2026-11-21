@@ -480,7 +480,7 @@ export class CampaignStore {
         const live = this.#isLive(campaign);
         // Unlinked: every message would fail on no connection. The relink carries the run on by itself.
         if (live && this.manager.heldForLink) {
-            throw new CampaignError('This WhatsApp number is unlinked. Link it again on the WhatsApp page and sending carries on.', 409);
+            throw new CampaignError('This WhatsApp number is not connected. Connect it on the WhatsApp page and sending carries on by itself.', 409);
         }
         if (live) {
             // The manager refuses when today's budget is spent; that is its call.

@@ -458,11 +458,19 @@ export class Api {
       .pipe(catchError(toMessage));
   }
 
-  /** The next bulk messages in the order the server will send them. `channelId`: that number's queue; omitted, the selected one. */
-  queueNext(limit = 5, channelId?: number | null): Observable<{ next: QueuedNext[]; pending: number }> {
+  /**
+   * The next bulk messages in the order the server will send them. `channelId`: that number's queue; omitted, the
+   * selected one. `campaign`: that campaign's only. `waitingSeconds`: until the number sends again.
+   */
+  queueNext(
+    limit = 5,
+    channelId?: number | null,
+    campaign?: number,
+  ): Observable<{ next: QueuedNext[]; pending: number; waitingSeconds?: number }> {
     const headers = channelId ? { 'x-channel-id': String(channelId) } : undefined;
+    const params: Record<string, number> = campaign ? { limit, campaign } : { limit };
     return this.http
-      .get<{ next: QueuedNext[]; pending: number }>('/api/campaign/queue', { params: { limit }, headers })
+      .get<{ next: QueuedNext[]; pending: number; waitingSeconds?: number }>('/api/campaign/queue', { params, headers })
       .pipe(catchError(toMessage));
   }
 
