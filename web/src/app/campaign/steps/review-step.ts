@@ -194,10 +194,15 @@ export class ReviewStep {
 
   protected readonly connected = computed(() => this.store.connection().connected);
   /**
-   * "Now" needs this number connected: its own share would otherwise stay a draft that nothing starts when it
-   * reconnects, while the shared numbers send theirs. Schedule it instead.
+   * "Now" needs a connected number to send from. With the business's numbers listed, that is the numbers switched
+   * on (a disconnected one is never among them for "Now"), not the main number: a second number that is connected
+   * sends even while the main one is not. Before the list loads, the number this page streams decides.
    */
-  protected readonly canSendNow = computed(() => this.connected());
+  protected readonly canSendNow = computed(() => {
+    const list = this.numbers();
+    if (!list.length) return this.connected();
+    return this.sendIds().some((id) => list.find((c) => c.id === id)?.health?.connected);
+  });
   /** Only admins may open the WhatsApp page; agents are told to ask one. */
   protected readonly isAdmin = computed(() => this.auth.atLeast('admin'));
   /** This number's queue still holds another campaign's messages: Send now joins it and they take turns. */
@@ -560,7 +565,9 @@ export class ReviewStep {
     effect((onCleanup) => {
       const size = this.perNumber();
       const preset = this.draft.pacing();
-      const sub = untracked(() => this.loadSafety(size, preset));
+      // The estimate and the "answer 4 questions" hold are the first sending number's, not the main one's.
+      const lead = this.numbers().length > 1 ? this.ownId() : null;
+      const sub = untracked(() => this.loadSafety(size, preset, lead));
       onCleanup(() => sub.unsubscribe());
     });
     /**
@@ -586,11 +593,11 @@ export class ReviewStep {
     });
   }
 
-  private loadSafety(size: number, preset: PacingPreset): Subscription {
+  private loadSafety(size: number, preset: PacingPreset, channelId: number | null = null): Subscription {
     this.loadingSafety.set(true);
     // Only the estimate is shown. A number is spaced from its messages per day, whatever preset is asked here.
     return this.campaignsApi
-      .safetyFor(size, preset)
+      .safetyFor(size, preset, channelId)
       .pipe(
         map((r) => r.safety),
         // Older servers ignore `pacing`; fall back to the plain preview.

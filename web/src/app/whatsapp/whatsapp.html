@@ -260,6 +260,7 @@
           (changed)="refresh()"
           (removed)="removed(c)"
           (connect)="link(c)"
+          (unlink)="unlinkAsk.set(c)"
           (ask)="ask(c.id)"
           (check)="ask(c.id, true)"
           (catalog)="catalogFor.set(c)"
@@ -268,24 +269,48 @@
     </div>
   }
 
-  <!-- The selected number's link panel: steps and QR, or who it is linked as. Keyed on the id, so a switch builds it
-       afresh instead of showing the last number's state while the new one loads. -->
-  @for (id of [activeId()]; track id) {
-    @if (selected(); as ch) {
-      <section class="link-panel" [attr.aria-label]="'Link ' + ch.displayName">
-        @if (multi()) {
-          <p class="link-for"><i class="ti ti-qrcode" aria-hidden="true"></i>{{ ch.displayName }}</p>
-        }
+}
+
+@if (unlinkAsk(); as ch) {
+  <app-confirm
+    heading="Unlink this number?"
+    [text]="ch.displayName + ' is signed out of WhatsApp here. Its campaigns and replies stop until you connect it again with a new QR code.'"
+    action="Unlink"
+    [busy]="unlinking()"
+    (confirm)="unlink(ch)"
+    (cancel)="unlinkAsk.set(null)"
+  />
+}
+
+<!-- Connect on a card opens the link steps here, as a popup. Keyed on the number, so a switch builds it afresh
+     instead of showing the last number's state. -->
+@if (linkFor(); as ch) {
+  <div class="dialog-wrap link-pop" (click)="closeLink()">
+    <div
+      class="dialog"
+      role="dialog"
+      aria-modal="true"
+      [attr.aria-label]="'Link ' + ch.displayName"
+      (click)="$event.stopPropagation()"
+      (keydown.escape)="closeLink()"
+    >
+      <header class="pop-head">
+        <span class="pop-title"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i>{{ ch.displayName }}</span>
+        <button #closePop type="button" class="btn sm icon ghost" aria-label="Close" (click)="closeLink()">
+          <i class="ti ti-x" aria-hidden="true"></i>
+        </button>
+      </header>
+      @for (id of [ch.id]; track id) {
         <app-link-card
           [autoStart]="autoLink() === ch.id"
           [relink]="relinkFor(ch.id)"
           (linked)="linked()"
-          (cancelled)="goBack()"
-          (recover)="openRecover()"
+          (cancelled)="closeLink()"
+          (recover)="closeLink(); openRecover()"
         />
-      </section>
-    }
-  }
+      }
+    </div>
+  </div>
 }
 
 <!-- The one questions popup on the page: it asks after a link here, from a card's "Answer 4 questions", or again

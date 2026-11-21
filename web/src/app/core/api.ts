@@ -354,9 +354,11 @@ export class Api {
       .pipe(catchError(toMessage));
   }
 
-  disconnect(): Observable<ConnectionState> {
+  /** `channelId`: the number to sign out; omitted, the selected (or main) number. */
+  disconnect(channelId?: number): Observable<ConnectionState> {
+    const headers = channelId ? { 'x-channel-id': String(channelId) } : undefined;
     return this.http
-      .post<ConnectionState>('/api/connection/disconnect', {})
+      .post<ConnectionState>('/api/connection/disconnect', {}, { headers })
       .pipe(catchError(toMessage));
   }
 
@@ -1968,13 +1970,16 @@ export class CampaignsApi {
   }
 
   /** Safety preview for a batch under a pacing preset. */
+  /** `channelId`: the number to estimate for; omitted, the selected (or main) number. */
   safetyFor(
     contacts: number,
     pacing: PacingPreset = 'balanced',
+    channelId?: number | null,
   ): Observable<{ safety: SafetyStatus }> {
     return this.http
       .get<{ safety: SafetyStatus }>('/api/safety', {
         params: new HttpParams().set('contacts', contacts).set('pacing', pacing),
+        headers: channelId ? { 'x-channel-id': String(channelId) } : undefined,
       })
       .pipe(catchError(toMessage));
   }
