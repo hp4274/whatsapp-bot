@@ -24,6 +24,9 @@ import { Store } from './store';
 
 /** How long a finished run stays on screen before the card closes itself. */
 const AUTO_CLOSE_SECONDS = 10;
+/** How often the island looks for running campaigns on any of the business's numbers. */
+const RUNS_POLL_MS = 10_000;
+
 /** How many messages the card lists: the next ones while sending, the last ones after. */
 const RECENT_COUNT = 5;
 
@@ -706,7 +709,18 @@ export class SendIsland {
 
   /** The business's campaigns running or paused now, oldest first; from two up each has its own card. */
   private readonly runs = signal<Campaign[]>([]);
-  protected readonly multi = computed(() => !this.wuzie() && this.runs().length > 1);
+  /**
+   * One card per campaign: with two or more running, or with one that runs on another of the business's numbers
+   * (the live stats only follow the selected number, so its own card reads the campaign's counts instead).
+   */
+  protected readonly multi = computed(
+    () => !this.wuzie() && (this.runs().length > 1 || (this.runs().length === 1 && !this.liveHere())),
+  );
+  /** The number this page streams is sending or paused right now. */
+  private readonly liveHere = computed(() => {
+    const s = this.store.stats();
+    return s.total > 0 && s.pending > 0 && (s.state === 'RUNNING' || s.state === 'PAUSED');
+  });
   /** The campaigns whose cards are open, any number at once; null until the user opens or folds one (the oldest is open). */
   private readonly opened = signal<ReadonlySet<number> | null>(null);
   /** The campaign whose Stop was clicked once; the second click stops it. */
@@ -826,6 +840,12 @@ export class SendIsland {
     // Every campaign's sends and state changes (any number of the business), at most every 1.5 s.
     // (Wuzie's island skips it: loadRuns checks, as inputs are not set yet here.)
     this.store.watch(['campaign', 'campaigns'], () => this.loadRuns(), 1500);
+    // A campaign on another number sends no events to this page: look for running campaigns now and then too.
+    this.loadRuns();
+    const poll = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') this.loadRuns();
+    }, RUNS_POLL_MS);
+    this.destroyRef.onDestroy(() => clearInterval(poll));
 
     // Every send bumps historyRevision; coalesce a burst into one small fetch.
     effect(() => {
@@ -937,7 +957,8 @@ export class SendIsland {
           .filter((c) => c.status === 'running' || c.status === 'paused')
           .sort((a, b) => (a.startedAt ?? a.createdAt).localeCompare(b.startedAt ?? b.createdAt) || a.id - b.id);
         this.named.set(live[0] ?? null);
-        if (live.length < 2) return this.runs.set(live);
+        if (!live.length) return this.runs.set([]);
+        // Each one's counts fresh (the list keeps the last saved ones), so every card is live.
         forkJoin(live.map((c) => this.campaignsApi.stats(c.id).pipe(map((r) => r.campaign), catchError(() => of(c))))).subscribe(
           (fresh) => this.runs.set(fresh.filter((c) => c.status === 'running' || c.status === 'paused')),
         );

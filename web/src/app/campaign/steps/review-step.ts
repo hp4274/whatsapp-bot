@@ -27,6 +27,7 @@ import {
 import { Auth } from '../../core/auth';
 import type { SpreadPlan } from '../../core/api';
 import { ConfirmDialog } from '../../core/confirm-dialog';
+import { spacedPhone } from '../../contacts/contact-util';
 import { Store } from '../../core/store';
 import { CampaignDraft, addDays, today } from '../draft';
 import { CampaignPolicy } from '../policy-api';
@@ -723,6 +724,15 @@ export class ReviewStep {
   protected channelName(id: number | null): string {
     const c = this.numbers().find((n) => n.id === id);
     return c ? this.numberName(c) : 'Another number';
+  }
+
+  /** "Harsh-9773444404": the number's name and its national number, for the start popup's From line. */
+  protected fromLabel(id: number | null): string {
+    const c = this.numbers().find((n) => n.id === id);
+    if (!c) return 'Your WhatsApp number';
+    const digits = (c.phoneNumber || c.providerAccountId || c.health?.account || '').split('').filter((ch) => ch >= '0' && ch <= '9').join('');
+    const national = digits ? (spacedPhone(digits).split(' ')[1] ?? digits) : '';
+    return c.displayName && national ? `${c.displayName}-${national}` : c.displayName || national || `Number #${c.id}`;
   }
 
   /** Which shared number is held or did not start: without it, it looks as if only one number sends. */

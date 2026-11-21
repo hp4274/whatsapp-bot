@@ -520,7 +520,7 @@
         <dt>From</dt>
         <dd>
           @for (id of sendIds(); track id) {
-            <span class="chip">{{ channelName(id) }}@if (sharedIds().length) { · {{ shareOf(id) | number }} }</span>
+            <span class="chip">{{ fromLabel(id) }}@if (sharedIds().length) { · {{ shareOf(id) | number }} }</span>
           } @empty {
             Your WhatsApp number
           }
