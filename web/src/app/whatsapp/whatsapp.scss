@@ -427,19 +427,27 @@ h3 {
   }
 }
 
-/* The selected number's link panel, under the cards. */
-.link-panel {
-  display: grid;
-  gap: var(--space-sm);
-  min-width: 0;
+/* The link popup: the link card in a dimmed dialog, wide enough for the steps beside the QR phone. */
+@include s.confirm;
+.link-pop .dialog {
+  width: min(880px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: var(--space-lg);
 }
-.link-for {
+.pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+.pop-title {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin: 0;
   font-size: 13px;
   font-weight: 500;
   color: var(--primary-text);
-  .ti { font-size: 15px; }
+  .ti { font-size: 16px; }
 }

@@ -18,7 +18,8 @@ import {
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 
-import { Channel, ChannelsApi, TenancyApi } from '../core/api';
+import { Api, Channel, ChannelsApi, TenancyApi } from '../core/api';
+import { ConfirmDialog } from '../core/confirm-dialog';
 import { Auth } from '../core/auth';
 import { PhoneInput } from '../core/phone-input';
 import { Store } from '../core/store';
@@ -71,6 +72,7 @@ const emptyDraft = () => ({
     CatalogDrawer,
     CatalogLocked,
     ChannelCard,
+    ConfirmDialog,
     LimitRequestDrawer,
     LinkCard,
     NumberQuestions,
@@ -84,6 +86,7 @@ const emptyDraft = () => ({
 })
 export class WhatsApp {
   private readonly api = inject(ChannelsApi);
+  private readonly connectionApi = inject(Api);
   private readonly tenancy = inject(TenancyApi);
   protected readonly store = inject(Store);
   private readonly router = inject(Router);
@@ -179,6 +182,9 @@ export class WhatsApp {
   protected readonly autoLink = signal<number | null>(null);
   /** "Link with QR code" while a send runs on the selected number: waiting for the inline confirm. */
   protected readonly confirmLink = signal<Channel | null>(null);
+  /** The number whose link popup is open (its QR, or who it is linked as and Unlink); null = closed. */
+  protected readonly linkFor = signal<Channel | null>(null);
+  private readonly closePop = viewChild<ElementRef<HTMLButtonElement>>('closePop');
   /** One status line after switching back ("Back on Sales desk"). */
   protected readonly notice = signal('');
   /** The number whose Catalog button was clicked: its drawer, or the WhatsApp Business explanation. */
@@ -499,11 +505,48 @@ export class WhatsApp {
     this.returnTo.set(previous !== channel.id ? previous : null);
     this.autoLink.set(channel.id);
     this.store.useChannel(channel.id);
+    this.openPop(channel);
+  }
+
+  /** The number whose Unlink is waiting on its confirm. */
+  protected readonly unlinkAsk = signal<Channel | null>(null);
+  protected readonly unlinking = signal(false);
+
+  /** Sign one number out, whichever it is; the page streams the selected one, so that one's state follows at once. */
+  protected unlink(channel: Channel) {
+    if (this.unlinking()) return;
+    this.unlinking.set(true);
+    this.connectionApi.disconnect(channel.id).subscribe({
+      next: (state) => {
+        this.unlinking.set(false);
+        this.unlinkAsk.set(null);
+        if (channel.id === this.activeId()) this.store.connection.set(state);
+        this.notice.set(`${channel.displayName} is unlinked. Connect it again with a new QR code.`);
+        this.refresh();
+      },
+      error: (err: Error) => {
+        this.unlinking.set(false);
+        this.unlinkAsk.set(null);
+        this.loadError.set(plainError(err.message));
+      },
+    });
+  }
+
+  private openPop(channel: Channel) {
+    this.linkFor.set(channel);
+    afterNextRender(() => this.closePop()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  /** The popup closed (X, Escape, outside, or the link was called off): back to the number before. */
+  protected closeLink() {
+    this.linkFor.set(null);
+    this.goBack();
   }
 
   /** The selected number just linked: ask its 2 questions, then go back if this was a detour. */
   protected linked() {
     const id = this.activeId();
+    this.linkFor.set(null);
     if (id !== null) this.ask(id);
     this.goBack();
   }
@@ -526,6 +569,7 @@ export class WhatsApp {
     this.catalogFor.set(null);
     if (channel.id !== this.activeId()) this.use(channel);
     this.relinkAsk.set({ id: channel.id, n: (this.relinkAsk()?.n ?? 0) + 1 });
+    this.openPop(channel);
   }
 
   protected relinkFor(id: number): number {

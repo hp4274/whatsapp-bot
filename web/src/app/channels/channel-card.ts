@@ -80,6 +80,8 @@ export class ChannelCard {
   readonly removed = output<void>();
   /** Link this (unlinked) number with a QR code. */
   readonly connect = output<void>();
+  /** A linked number's Unlink: the page asks first, then signs it out. */
+  readonly unlink = output<void>();
   /** Open the start questions for this number. */
   readonly ask = output<void>();
   /** Answer them again to check the daily limit (a number that already answered). */

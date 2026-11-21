@@ -559,3 +559,9 @@ details.advanced {
     border-style: dashed;
   }
 }
+
+/* Unlink ends the session on the phone: red words, so it never reads as a harmless button. */
+.btn.unlink {
+  color: var(--danger-text);
+  &:hover:not(:disabled) { border-color: color-mix(in srgb, var(--danger) 40%, var(--border-color)); }
+}

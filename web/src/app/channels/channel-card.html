@@ -222,13 +222,18 @@
   </p>
 }
 
-<!-- An unlinked number links from here; the one whose panel is open under the cards links there instead. -->
-@if (needsConnect() && !active()) {
+<!-- Connect opens the link steps as a popup; Unlink signs a linked number out (the page asks first). -->
+@if (ch.status === 'active') {
   <div class="actions">
-    <button class="btn primary cta" type="button" (click)="connect.emit()" [disabled]="linkBusy()">
-      <i class="ti ti-{{ transport().qr ? 'qrcode' : 'link' }}" aria-hidden="true"></i>
-      {{ transport().qr ? 'Link with QR code' : 'Link number' }}
-    </button>
+    @if (needsConnect()) {
+      <button class="btn primary cta" type="button" (click)="connect.emit()" [disabled]="linkBusy()">
+        <i class="ti ti-plug-connected" aria-hidden="true"></i> Connect
+      </button>
+    } @else if (state() === 'connected') {
+      <button class="btn unlink" type="button" (click)="unlink.emit()" [disabled]="linkBusy()">
+        <i class="ti ti-plug-connected-x" aria-hidden="true"></i> Unlink
+      </button>
+    }
   </div>
 }
 
