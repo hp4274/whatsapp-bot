@@ -708,7 +708,8 @@ export class SendIsland {
 
   /** One campaign's next messages, labelled on their own (its first waiting one is its "Next"). */
   protected rowsFor(id: number) {
-    return labelled(this.cardQueues().get(id)?.rows ?? []).slice(0, 3);
+    // Filtered here too: a server without the `campaign` filter answers with the whole number's queue.
+    return labelled((this.cardQueues().get(id)?.rows ?? []).filter((m) => m.campaign === id)).slice(0, 3);
   }
 
   protected cardNote(id: number): string {
