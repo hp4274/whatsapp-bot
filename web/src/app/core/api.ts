@@ -458,10 +458,11 @@ export class Api {
       .pipe(catchError(toMessage));
   }
 
-  /** The next bulk messages in the order the server will send them. */
-  queueNext(limit = 5): Observable<{ next: QueuedNext[]; pending: number }> {
+  /** The next bulk messages in the order the server will send them. `channelId`: that number's queue; omitted, the selected one. */
+  queueNext(limit = 5, channelId?: number | null): Observable<{ next: QueuedNext[]; pending: number }> {
+    const headers = channelId ? { 'x-channel-id': String(channelId) } : undefined;
     return this.http
-      .get<{ next: QueuedNext[]; pending: number }>('/api/campaign/queue', { params: { limit } })
+      .get<{ next: QueuedNext[]; pending: number }>('/api/campaign/queue', { params: { limit }, headers })
       .pipe(catchError(toMessage));
   }
 

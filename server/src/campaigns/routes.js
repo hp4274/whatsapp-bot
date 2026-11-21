@@ -110,6 +110,16 @@ export function createCampaignRouter({ db, state }) {
             }
             return;
         }
+        if (event.type === 'linkLost' || event.type === 'linkBack') {
+            // The number was unlinked (or linked again): every run it holds reads paused with the cause, then running.
+            for (const key of keys) {
+                const campaign = event.type === 'linkLost' ? campaigns.holdForLink(key, event.reason) : campaigns.relinked(key, event.reason);
+                if (!campaign) continue;
+                announce('campaignUpdated', campaign);
+                if (event.type === 'linkLost') engineAudit('campaign.auto_paused', campaign, { reason: event.reason, resumesByItself: true });
+            }
+            return;
+        }
         const halt = { failureStop: 'paused', policyStop: 'cancelled' }[event.type];
         if (!halt) return;
         const reason = event.type === 'failureStop' ? `Auto-paused: ${event.message.replace(/^Paused: /, '')}` : event.reason;

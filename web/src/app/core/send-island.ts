@@ -100,6 +100,9 @@ function labelled(rows: readonly QueuedNext[]) {
                   <span class="st st-{{ c.status === 'paused' ? 'mute' : 'run' }}">{{ c.status === 'paused' ? 'Paused' : 'Sending' }}</span>
                   <a class="link" [routerLink]="['/campaigns', c.id]">Details</a>
                 </p>
+                @if (c.status === 'paused' && reasonOf(c); as why) {
+                  <p class="note">{{ why }}</p>
+                }
                 @let next = rowsFor(c.id);
                 @if (next.length) {
                   <ol class="recent" aria-label="Up next">
@@ -940,7 +943,11 @@ export class SendIsland {
     if (this.phase() === 'sending' && pacing && left) {
       return `${pacing.resting ? 'Resting between batches' : 'Spacing messages'}, next in ${left}s`;
     }
-    if (this.phase() === 'paused') return 'Waiting for you, or for the daily limit to reset.';
+    if (this.phase() === 'paused') {
+      // Paused for a cause (the number unlinked, an auto-pause): say it rather than the generic line.
+      const run = this.runs().find((c) => c.id === this.current()?.id);
+      return (run && this.reasonOf(run)) || 'Waiting for you, or for the daily limit to reset.';
+    }
     if (this.phase() === 'sending') return 'Keeps running on the server if you close this tab.';
     return '';
   });
@@ -960,7 +967,11 @@ export class SendIsland {
         if (!live.length) return this.runs.set([]);
         // Each one's counts fresh (the list keeps the last saved ones), so every card is live.
         forkJoin(live.map((c) => this.campaignsApi.stats(c.id).pipe(map((r) => r.campaign), catchError(() => of(c))))).subscribe(
-          (fresh) => this.runs.set(fresh.filter((c) => c.status === 'running' || c.status === 'paused')),
+          (fresh) => {
+            this.runs.set(fresh.filter((c) => c.status === 'running' || c.status === 'paused'));
+            // A campaign on another number bumps no history here: its cards' "Up next" refresh with their counts.
+            if (this.multi()) this.loadRecent();
+          },
         );
       },
       error: () => undefined, // the card keeps what it shows; the next send tries again
@@ -999,6 +1010,11 @@ export class SendIsland {
     return total > 0 ? Math.round(Math.min(1, (total - (c.stats.pending ?? 0)) / total) * 100) : 0;
   }
 
+  /** Why the server paused or held it (its number unlinked, an auto-pause), or null. */
+  protected reasonOf(c: Campaign): string | null {
+    return (c.options as { statusReason?: string | null } | undefined)?.statusReason ?? null;
+  }
+
   protected runLabel(c: Campaign): string {
     return `${c.status === 'paused' ? 'Paused' : 'Sending'} · ${this.percentOf(c)}%`;
   }
@@ -1028,7 +1044,15 @@ export class SendIsland {
 
   private loadRecent(): void {
     // One HTTP call that completes on its own; failures just keep the last list.
-    if (this.phase() === 'sending' || this.phase() === 'paused') {
+    if (this.multi()) {
+      // One card per campaign: each campaign's next few come from its own number's queue, not the selected one's.
+      const runs = this.runs();
+      const limit = Math.min(20, RECENT_COUNT * Math.max(1, runs.length));
+      const numbers = [...new Set(runs.map((c) => c.channelId ?? null))];
+      forkJoin(numbers.map((ch) => this.api.queueNext(limit, ch).pipe(map((r) => r.next), catchError(() => of([]))))).subscribe(
+        (lists) => this.upNext.set(lists.flat()),
+      );
+    } else if (this.phase() === 'sending' || this.phase() === 'paused') {
       // Several campaigns share the queue in turns: ask for enough that each card gets its own next few.
       const limit = Math.min(20, RECENT_COUNT * Math.max(1, this.runs().length));
       (this.wuzie() ? this.feed.queueNext(RECENT_COUNT) : this.api.queueNext(limit)).subscribe({

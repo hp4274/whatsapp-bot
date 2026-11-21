@@ -159,6 +159,9 @@ const MAX_VIDEO_BYTES = 64 * 1024 * 1024;
 const MAX_MEDIA_BYTES = 16 * 1024 * 1024;
 /** Opt-outs per 100 sent in a week that count as a danger sign (the health panel's line). */
 const OPT_OUT_WARN_PERCENT = 2;
+/** Why a campaign paused when its number dropped out; a relink carries it on (campaigns/store.js relinked). */
+const UNLINKED_HOLD = 'Paused: the WhatsApp number was unlinked. Link it again on the WhatsApp page and sending carries on.';
+const BANNED_HOLD = 'Paused: WhatsApp banned this number. Its messages wait until a number is linked again.';
 const mediaUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: MAX_VIDEO_BYTES },
@@ -683,10 +686,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
                 }
                 if (payload.state === 'auth_failure' || payload.state === 'banned') {
                     // Hold the rest QUEUED instead of failing each row on the NullTransport; relinking resumes it.
-                    if (!manager.queue.isPaused && !manager.queue.isStopped) {
-                        manager.pause();
-                        manager.heldForLink = true;
-                    }
+                    holdForLink(payload.state === 'banned' ? BANNED_HOLD : UNLINKED_HOLD);
                     manager.setTransport(new NullTransport());
                     autoReply.setTransport(new NullTransport());
                 }
@@ -812,7 +812,19 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     state.connect = connectChannel;
     // Only the hold a ban / logged-out session put on; an operator's pause since then (it clears the flag) stays.
     const resumeHeld = () => {
-        if (manager.heldForLink) manager.resume();
+        if (!manager.heldForLink) return;
+        // Records read running first, so a daily-limit hold the resume may hit lands on them.
+        manager.emit('event', { type: 'linkBack', reason: heldReason });
+        manager.resume();
+    };
+    /** The number is unlinked (or banned): hold its queue for the relink, and its campaigns read paused with `reason`. */
+    let heldReason = null;
+    const holdForLink = (reason) => {
+        if (manager.queue.isPaused || manager.queue.isStopped) return;
+        manager.pause();
+        manager.heldForLink = true;
+        heldReason = reason;
+        manager.emit('event', { type: 'linkLost', reason });
     };
 
     app.post('/connection/connect', async (req, res) => {
@@ -849,6 +861,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         state.transport = null;
         state.info = null;
         state.qr = null;
+        holdForLink(UNLINKED_HOLD);
         manager.setTransport(new NullTransport());
         autoReply.setTransport(new NullTransport());
         broadcast(state, { type: 'connection', connected: false, qr: null });
@@ -1957,6 +1970,10 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             errors: [manager.resumeRefusal ?? `Daily limit of ${manager.quota.limit} reached - resume after midnight.`],
             stats: manager.statsSnapshot(),
         });
+        // Unlinked: every message would fail on no connection. The relink carries the run on by itself.
+        if (action === 'resume' && manager.heldForLink) {
+            return res.status(409).json({ errors: [UNLINKED_HOLD.replace(/^Paused: t/, 'T')], stats: manager.statsSnapshot() });
+        }
         if (record && ['running', 'paused'].includes(record.status)) {
             const store = state.campaigns;
             try {
