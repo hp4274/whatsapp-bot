@@ -5387,7 +5387,12 @@ async function handleInbound(state, message) {
         // A text-only welcome/away comes back unsent as `early.greeting`: the
         // first stage below that answers puts it in front of its own text, so
         // the contact gets one message; handleInbound sends it alone otherwise.
-        const early = await state.autoReply.handlePre({ ...saved, replyId: message.replyId ?? null });
+        // The business's own rules (menus, welcome/away, keywords) only run when the platform gave it Auto replies;
+        // shop, payments, HELP, school and FAQ below check their own services.
+        const rulesOn = state.tenancy?.getTenant(state.db.tenantId)?.services.includes('auto_replies') ?? true;
+        const early = rulesOn
+            ? await state.autoReply.handlePre({ ...saved, replyId: message.replyId ?? null })
+            : { handled: false, greeted: false, greeting: null, replies: [], actions: [] };
         if (early.replies.some((r) => r.accepted)) {
             state.db.markInboundReplied(saved.messageId, early.replies.find((r) => r.accepted).source);
             broadcast(state, { type: 'auto_reply', sender: saved.sender, rule: early.replies.map((r) => r.ruleName).join(', ') });
@@ -5463,7 +5468,7 @@ async function handleInbound(state, message) {
                 return saved;
             }
         }
-        const reply = await state.autoReply.handleInbound(saved, { greeted: early.greeted, greeting });
+        const reply = rulesOn ? await state.autoReply.handleInbound(saved, { greeted: early.greeted, greeting }) : null;
         if (reply?.rule) {
             state.db.markInboundReplied(saved.messageId, reply.rule.keyword);
             broadcast(state, {

@@ -748,6 +748,20 @@ describe('live path: one message per inbound', () => {
         const rows = db.db.prepare("SELECT COUNT(*) AS n FROM inbound_messages WHERE message_id = 'wamid.live.dup'").get();
         assert.equal(rows.n, 1);
     });
+
+    it('a business the platform did not give Auto replies gets no welcome or keyword reply; FAQ still answers', async () => {
+        const tenancy = app.locals.tenancy;
+        const before = tenancy.getTenant(1).services;
+        tenancy.updateTenant(1, { services: before.filter((s) => s !== 'auto_replies') });
+        try {
+            await inbound('919822200004', 'price');
+            assert.deepEqual(await settle('919822200004', 1), [], 'its rules stay quiet');
+            await inbound('919822200005', 'where are you');
+            assert.deepEqual(await settle('919822200005', 1), ['MG Road'], 'FAQ is its own service: no welcome in front');
+        } finally {
+            tenancy.updateTenant(1, { services: before });
+        }
+    });
 });
 
 after(() => {
