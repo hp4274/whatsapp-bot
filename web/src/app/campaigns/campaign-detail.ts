@@ -184,18 +184,23 @@ export class CampaignDetailView {
     return outcome(c.status, this.audience(), funnel ?? listCounts(c.stats));
   });
 
-  /** Live engine progress; only meaningful while this campaign is the running one. */
+  /**
+   * Live progress from this campaign's own counts (re-read every few seconds while it runs). Not the selected
+   * number's engine totals: those miss a campaign on another number and mix campaigns sharing one.
+   */
   protected readonly live = computed(() => {
     if (this.status() !== 'running') return null;
-    const s = this.store.stats();
-    const total = s.total || this.audience();
+    const s = this.campaign()?.stats;
+    const total = s?.total || this.audience();
+    const pending = s?.pending ?? total;
+    const processed = Math.max(0, total - pending);
     return {
-      processed: s.processed,
+      processed,
       total,
-      successful: s.successful,
-      failed: s.failed,
-      pending: s.pending,
-      pct: percent(s.processed, total),
+      successful: s?.sent ?? 0,
+      failed: s?.failed ?? 0,
+      pending,
+      pct: percent(processed, total),
     };
   });
 

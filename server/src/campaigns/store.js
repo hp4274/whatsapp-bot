@@ -478,6 +478,10 @@ export class CampaignStore {
         const campaign = this.#own(this.require(id));
         if (campaign.status !== 'paused') throw new CampaignError(`a ${campaign.status} campaign cannot be resumed`, 409);
         const live = this.#isLive(campaign);
+        // Unlinked: every message would fail on no connection. The relink carries the run on by itself.
+        if (live && this.manager.heldForLink) {
+            throw new CampaignError('This WhatsApp number is unlinked. Link it again on the WhatsApp page and sending carries on.', 409);
+        }
         if (live) {
             // The manager refuses when today's budget is spent; that is its call.
             if (this.manager.resume() === false) {
@@ -544,6 +548,24 @@ export class CampaignStore {
         const campaign = id ? this.get(id) : null;
         if (campaign?.status !== 'running' || (campaign.options?.statusReason ?? null) === reason) return null;
         return this.#reason(id, reason);
+    }
+
+    /** Its number was unlinked mid-run: the engine holds the rest until a relink, and the record reads paused, saying why. */
+    holdForLink(key, reason) {
+        const id = Number(/^camp-(\d+)$/.exec(String(key ?? ''))?.[1]);
+        const campaign = id ? this.get(id) : null;
+        if (campaign?.status !== 'running') return null;
+        this.#set(id, { status: 'paused' });
+        return this.#reason(id, reason);
+    }
+
+    /** Linked again and the engine carries on: a run paused only for the link (`reason`) reads running again. */
+    relinked(key, reason) {
+        const id = Number(/^camp-(\d+)$/.exec(String(key ?? ''))?.[1]);
+        const campaign = id ? this.get(id) : null;
+        if (campaign?.status !== 'paused' || campaign.options?.statusReason !== reason) return null;
+        this.#set(id, { status: 'running' });
+        return this.#reason(id, null);
     }
 
     /** A new note also ends an older version's `options.waiting` marker. */
