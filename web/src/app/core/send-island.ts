@@ -1,5 +1,6 @@
 import {
   ChangeDetectionStrategy,
+  afterRenderEffect,
   Component,
   DestroyRef,
   ElementRef,
@@ -25,6 +26,18 @@ import { Store } from './store';
 const AUTO_CLOSE_SECONDS = 10;
 /** How many messages the card lists: the next ones while sending, the last ones after. */
 const RECENT_COUNT = 5;
+
+/** Queue rows with their tag: the one in flight, then the first waiting one is Next, the rest Queued or Later. */
+function labelled(rows: readonly QueuedNext[]) {
+  let nextTaken = false;
+  return rows.map((m) => {
+    if (m.sending) return { ...m, label: 'Sending', tone: 'run' as const };
+    if (m.later) return { ...m, label: 'Later', tone: 'mute' as const };
+    const label = nextTaken ? 'Queued' : 'Next';
+    nextTaken = true;
+    return { ...m, label, tone: label === 'Next' ? ('ok' as const) : ('mute' as const) };
+  });
+}
 
 /**
  * A small floating card that follows a bulk send around the app, like an upload
@@ -54,15 +67,78 @@ const RECENT_COUNT = 5;
     @if (visible()) {
       <div #island class="stack">
       @if (multi()) {
-        <!-- Like FAQ answers: every campaign keeps its place (newest on top); opening one folds the open one where it is. -->
+        <!-- Side by side, newest on the right: a new campaign slides the others left. Each opens and folds on its own. -->
         @for (c of order(); track c.id) {
-          @if (c.id === focused()?.id) {
-            <ng-container *ngTemplateOutlet="card" />
+          @if (isOpen(c.id)) {
+            @let total = c.stats.total ?? 0;
+            @let pending = c.stats.pending ?? 0;
+            <aside class="island slot" [attr.data-run]="c.id" role="status" [attr.aria-label]="c.name + ' progress'">
+              <header>
+                <i class="ti ti-{{ c.status === 'paused' ? 'player-pause' : 'send' }} lead" aria-hidden="true"></i>
+                <strong>{{ c.name }}</strong>
+                <button type="button" class="ic" (click)="toggleRun(c.id)" aria-label="Collapse" aria-expanded="true">
+                  <i class="ti ti-chevron-down" aria-hidden="true"></i>
+                </button>
+              </header>
+              <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="percentOf(c)">
+                <span [style.width.%]="percentOf(c)"></span>
+              </div>
+              <div class="body">
+                <p class="line">
+                  <span>{{ total - pending }} of {{ total }} done</span>
+                  <b>{{ percentOf(c) }}%</b>
+                </p>
+                <ul class="counts">
+                  <li class="ok"><b>{{ c.stats.sent ?? 0 }}</b> sent</li>
+                  <li [class.bad]="(c.stats.failed ?? 0) > 0"><b>{{ c.stats.failed ?? 0 }}</b> failed</li>
+                  <li><b>{{ pending }}</b> waiting</li>
+                </ul>
+                <p class="line">
+                  <span class="st st-{{ c.status === 'paused' ? 'mute' : 'run' }}">{{ c.status === 'paused' ? 'Paused' : 'Sending' }}</span>
+                  <a class="link" [routerLink]="['/campaigns', c.id]">Details</a>
+                </p>
+                @let next = rowsFor(c.id);
+                @if (next.length) {
+                  <ol class="recent" aria-label="Up next">
+                    @for (m of next; track m.messageId) {
+                      <li>
+                        <span class="av" aria-hidden="true">{{ initials(m) }}</span>
+                        <span class="who">
+                          <b>{{ m.name || m.recipient }}</b>
+                          <small>{{ m.message || 'Media' }}</small>
+                        </span>
+                        <span class="st st-{{ m.tone }}">{{ m.label }}</span>
+                      </li>
+                    }
+                  </ol>
+                  <!-- The countdown is the number's: shown on the cards whose messages are in its queue. -->
+                  @if (c.status !== 'paused' && note()) {
+                    <p class="note">{{ note() }}</p>
+                  }
+                }
+                @if (canControl()) {
+                  <div class="actions">
+                    @if (c.status === 'paused') {
+                      <button type="button" class="b" (click)="actOn(c.id, 'resume')">Resume</button>
+                    } @else {
+                      <button type="button" class="b" (click)="actOn(c.id, 'pause')">Pause</button>
+                    }
+                    <button type="button" class="b danger" (click)="stopRun(c.id)" (blur)="stopArmed.set(null)">
+                      {{ stopArmed() === c.id ? 'Stop sending?' : 'Stop' }}
+                    </button>
+                  </div>
+                }
+                @if (runError()?.id === c.id) {
+                  <p class="err">{{ runError()?.text }}</p>
+                }
+              </div>
+            </aside>
           } @else {
             <button
               type="button"
               class="mini"
-              (click)="expand(c.id)"
+              [attr.data-run]="c.id"
+              (click)="toggleRun(c.id)"
               [attr.aria-expanded]="false"
               [attr.aria-label]="'Show ' + c.name + ', ' + runLabel(c)"
             >
@@ -100,10 +176,10 @@ const RECENT_COUNT = 5;
             type="button"
             class="ic"
             (click)="toggleCard()"
-            [attr.aria-label]="open() || multi() ? 'Collapse' : 'Expand'"
-            [attr.aria-expanded]="open() || multi()"
+            [attr.aria-label]="open() ? 'Collapse' : 'Expand'"
+            [attr.aria-expanded]="open()"
           >
-            <i class="ti ti-{{ open() || multi() ? 'chevron-down' : 'chevron-up' }}" aria-hidden="true"></i>
+            <i class="ti ti-{{ open() ? 'chevron-down' : 'chevron-up' }}" aria-hidden="true"></i>
           </button>
           @if (phase() === 'done' || phase() === 'stopped') {
             <button type="button" class="ic" (click)="dismiss()" aria-label="Close">
@@ -122,7 +198,7 @@ const RECENT_COUNT = 5;
           <span [style.width.%]="percent()"></span>
         </div>
 
-        @if (open() || multi()) {
+        @if (open()) {
           <div class="body">
             @if (current(); as c) {
               <p class="line">
@@ -145,9 +221,7 @@ const RECENT_COUNT = 5;
                 <b>{{ stats().pending }}</b> waiting
               </li>
             </ul>
-            @if (multi()) {
-              <!-- Each campaign's own lines would need the queue split by campaign: the counts above are its own. -->
-            } @else if (upNextRows().length) {
+            @if (upNextRows().length) {
               <ol class="recent" aria-label="Up next">
                 @for (m of upNextRows(); track m.messageId) {
                   <li>
@@ -227,9 +301,23 @@ const RECENT_COUNT = 5;
       right: 24px;
       bottom: 24px;
       z-index: 50;
-      display: grid;
-      gap: 8px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: flex-end;
+      gap: 12px;
+      max-width: calc(100vw - 48px);
+      pointer-events: none;
+    }
+    .stack > * {
+      pointer-events: auto;
+    }
+    .island,
+    .slot {
       width: min(360px, calc(100vw - 24px));
+      flex: none;
+    }
+    .slot .island {
+      width: 100%;
     }
     .island {
       padding: 14px 16px 16px;
@@ -476,7 +564,8 @@ const RECENT_COUNT = 5;
       display: flex;
       align-items: center;
       gap: 10px;
-      width: 100%;
+      width: 220px;
+      flex: none;
       min-height: 48px;
       padding: 8px 12px 10px;
       overflow: hidden;
@@ -533,6 +622,18 @@ const RECENT_COUNT = 5;
       transition: width 400ms var(--ease);
     }
 
+    /* No room side by side: they stack upwards instead, newest at the bottom. */
+    @media (max-width: 900px) {
+      .stack {
+        flex-direction: column;
+        align-items: stretch;
+        width: min(360px, calc(100vw - 24px));
+      }
+      .mini,
+      .slot {
+        width: 100%;
+      }
+    }
     @media (max-width: 520px) {
       .stack {
         right: 12px;
@@ -576,35 +677,32 @@ export class SendIsland {
   protected readonly recent = signal<MessageRecord[]>([]);
   /** The queue's head while a run is live, in the order the server will send it. */
   private readonly upNext = signal<QueuedNext[]>([]);
-  protected readonly upNextRows = computed(() => {
-    let nextTaken = false;
-    return this.upNext().map((m) => {
-      if (m.sending) return { ...m, label: 'Sending', tone: 'run' as const };
-      if (m.later) return { ...m, label: 'Later', tone: 'mute' as const };
-      const label = nextTaken ? 'Queued' : 'Next';
-      nextTaken = true;
-      return { ...m, label, tone: label === 'Next' ? ('ok' as const) : ('mute' as const) };
-    });
-  });
+  protected readonly upNextRows = computed(() => labelled(this.upNext()));
+
+  /** One campaign's next messages, labelled on their own (its first waiting one is its "Next"). */
+  protected rowsFor(id: number) {
+    return labelled(this.upNext().filter((m) => m.campaign === id)).slice(0, 3);
+  }
   /**
    * The campaign being sent. The engine-wide stats carry no id, so the live
    * campaign is looked up once per run; null (no name, no link) if that fails.
    */
   private readonly named = signal<Pick<Campaign, 'id' | 'name'> | null>(null);
-  protected readonly current = computed<Pick<Campaign, 'id' | 'name'> | null>(() => (this.multi() ? this.focused() : this.named()));
+  protected readonly current = computed<Pick<Campaign, 'id' | 'name'> | null>(() => this.named());
 
   /** The business's campaigns running or paused now, oldest first; from two up each has its own card. */
   private readonly runs = signal<Campaign[]>([]);
   protected readonly multi = computed(() => !this.wuzie() && this.runs().length > 1);
-  /** The campaign whose card is open: the one clicked, else the first one that started. */
-  private readonly expandedId = signal<number | null>(null);
-  /** The open card was folded by the user: every campaign shows as a bar until one is clicked. */
-  private readonly allFolded = signal(false);
-  protected readonly focused = computed(() =>
-    this.allFolded() ? null : (this.runs().find((c) => c.id === this.expandedId()) ?? this.runs()[0] ?? null),
-  );
-  /** Every running campaign in a fixed order, newest on top: opening or folding one never moves the others. */
-  protected readonly order = computed(() => (this.multi() ? [...this.runs()].reverse() : []));
+  /** The campaigns whose cards are open, any number at once; null until the user opens or folds one (the oldest is open). */
+  private readonly opened = signal<ReadonlySet<number> | null>(null);
+  /** The campaign whose Stop was clicked once; the second click stops it. */
+  protected readonly stopArmed = signal<number | null>(null);
+  /** The last failed action, shown on its own card. */
+  protected readonly runError = signal<{ id: number; text: string } | null>(null);
+  /** Every running campaign in a fixed order, oldest first (left), newest on the right edge. */
+  protected readonly order = computed(() => (this.multi() ? this.runs() : []));
+  /** Each run's left edge at the last render, for sliding it to its new place (FLIP). */
+  private readonly lastLeft = new Map<string, number>();
   /** A campaign was seen running since the card last closed: only campaigns open the card, not other sends. */
   private readonly campaignSeen = signal(false);
   /** First Stop click arms it; the second sends it. Resets on blur. */
@@ -618,17 +716,8 @@ export class SendIsland {
   private sawLive = false;
   private recentTimer: ReturnType<typeof setTimeout> | undefined;
 
-  /** The open card's counts: the focused campaign's own while several run, else the number's whole run. */
-  protected readonly stats = computed<CampaignStats>(() => {
-    const c = this.multi() ? this.focused() : null;
-    if (!c) return this.wuzie() ? this.feed.stats() : this.store.stats();
-    const total = c.stats.total ?? 0;
-    const pending = c.stats.pending ?? 0;
-    return {
-      total, pending, processed: total - pending, successful: c.stats.sent ?? 0, failed: c.stats.failed ?? 0, duplicates: 0,
-      state: c.status === 'paused' ? 'PAUSED' : 'RUNNING',
-    };
-  });
+  /** The single card's counts: the number's whole run (several campaigns each show their own on their cards). */
+  protected readonly stats = computed<CampaignStats>(() => (this.wuzie() ? this.feed.stats() : this.store.stats()));
   private readonly pacing = computed(() => (this.wuzie() ? this.feed.pacing() : this.store.pacing()));
   private readonly pacingLeft = computed(() => (this.wuzie() ? this.feed.pacingLeft() : this.store.pacingLeft()));
   private readonly historyRevision = computed(() => (this.wuzie() ? this.feed.historyRevision() : this.store.historyRevision()));
@@ -640,6 +729,29 @@ export class SendIsland {
   private readonly islandRef = viewChild<ElementRef<HTMLElement>>('island');
 
   constructor() {
+    // A campaign added, removed, opened or folded: every other one slides from where it was to its new place.
+    afterRenderEffect(() => {
+      this.order();
+      this.opened();
+      const stack = this.islandRef()?.nativeElement;
+      if (!stack) return this.lastLeft.clear();
+      const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const seen = new Set<string>();
+      for (const el of Array.from(stack.querySelectorAll<HTMLElement>('[data-run]'))) {
+        const id = el.dataset['run'] ?? '';
+        const left = el.getBoundingClientRect().left;
+        const before = this.lastLeft.get(id);
+        seen.add(id);
+        this.lastLeft.set(id, left);
+        if (reduce || before === undefined || Math.abs(before - left) < 1) continue;
+        el.animate([{ transform: `translateX(${before - left}px)` }, { transform: 'none' }], {
+          duration: 420,
+          easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+        });
+      }
+      for (const id of [...this.lastLeft.keys()]) if (!seen.has(id)) this.lastLeft.delete(id);
+    });
+
     // Wuzie's stream is opened for this island alone, and closed with it.
     effect((onCleanup) => {
       if (!this.wuzie()) return;
@@ -817,13 +929,31 @@ export class SendIsland {
     });
   }
 
-  /** Open a folded campaign's card; the one that was open folds into a bar. */
-  protected expand(id: number): void {
-    this.expandedId.set(id);
-    this.allFolded.set(false);
-    this.open.set(true);
-    this.confirmStop.set(false);
-    this.error.set('');
+  protected isOpen(id: number): boolean {
+    return this.opened()?.has(id) ?? id === this.runs()[0]?.id;
+  }
+
+  /** Open or fold one campaign's card; the others stay as they are. */
+  protected toggleRun(id: number): void {
+    const first = this.runs()[0]?.id;
+    const next = new Set(this.opened() ?? (first === undefined ? [] : [first]));
+    if (!next.delete(id)) next.add(id);
+    this.opened.set(next);
+  }
+
+  protected stopRun(id: number): void {
+    if (this.stopArmed() !== id) return this.stopArmed.set(id);
+    this.stopArmed.set(null);
+    this.actOn(id, 'stop');
+  }
+
+  /** Pause, resume or stop one campaign alone, not the whole number. */
+  protected actOn(id: number, action: 'pause' | 'resume' | 'stop'): void {
+    this.runError.set(null);
+    this.campaignsApi.action(id, action === 'stop' ? 'cancel' : action).subscribe({
+      next: () => this.loadRuns(),
+      error: (err: Error) => this.runError.set({ id, text: err.message }),
+    });
   }
 
   protected percentOf(c: Campaign): number {
@@ -861,7 +991,9 @@ export class SendIsland {
   private loadRecent(): void {
     // One HTTP call that completes on its own; failures just keep the last list.
     if (this.phase() === 'sending' || this.phase() === 'paused') {
-      (this.wuzie() ? this.feed.queueNext(RECENT_COUNT) : this.api.queueNext(RECENT_COUNT)).subscribe({
+      // Several campaigns share the queue in turns: ask for enough that each card gets its own next few.
+      const limit = Math.min(20, RECENT_COUNT * Math.max(1, this.runs().length));
+      (this.wuzie() ? this.feed.queueNext(RECENT_COUNT) : this.api.queueNext(limit)).subscribe({
         next: ({ next }) => this.upNext.set(next),
         error: () => undefined,
       });
@@ -886,10 +1018,9 @@ export class SendIsland {
     this.closesIn.set(null);
   }
 
-  /** The card's chevron: several campaigns fold the open one into a bar in its place; one campaign folds its body. */
+  /** The single card's chevron: folds its body. */
   protected toggleCard(): void {
-    if (this.multi()) this.allFolded.set(true);
-    else this.open.set(!this.open());
+    this.open.set(!this.open());
   }
 
   protected dismiss(): void {
@@ -908,15 +1039,6 @@ export class SendIsland {
 
   protected act(action: 'pause' | 'resume' | 'stop'): void {
     this.error.set('');
-    // Several running: the buttons act on the open card's campaign alone, not on the whole number.
-    const one = this.multi() ? this.focused() : null;
-    if (one) {
-      this.campaignsApi.action(one.id, action === 'stop' ? 'cancel' : action).subscribe({
-        next: () => this.loadRuns(),
-        error: (err: Error) => this.error.set(err.message),
-      });
-      return;
-    }
     // One HTTP call that completes on its own; nothing to tear down.
     (this.wuzie() ? this.feed.action(action) : this.api.campaignAction(action)).subscribe({
       next: ({ stats }) => (this.wuzie() ? this.feed.stats : this.store.stats).set(stats),

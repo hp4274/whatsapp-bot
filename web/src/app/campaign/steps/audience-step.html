@@ -131,7 +131,6 @@
                 <tr>
                   <th>Keep</th>
                   <th>Column</th>
-                  <th>Example</th>
                   <th>Use as</th>
                   <th>In your message</th>
                 </tr>
@@ -148,8 +147,10 @@
                         [attr.aria-label]="'Keep the ' + c.header + ' column'"
                       />
                     </td>
-                    <td class="col-name">{{ c.header }}</td>
-                    <td class="sample">{{ c.sample || '—' }}</td>
+                    <td>
+                      <span class="col-name">{{ c.header }}</span>
+                      <span class="sample">{{ c.sample || '—' }}</span>
+                    </td>
                     <td>
                       <select
                         [ngModel]="c.role"

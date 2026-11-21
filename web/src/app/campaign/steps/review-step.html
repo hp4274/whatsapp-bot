@@ -148,74 +148,67 @@
       <span class="badge"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i></span>
       <div>
         <h3 id="send-from-title">Send from</h3>
-        <p class="muted">Switch on more numbers to share the people out. Each number sends its own share, under its own daily limit.</p>
+        <p class="muted">Pick the numbers that send. With more than one, people are shared out and each number sends its share under its own daily limit.</p>
       </div>
     </div>
 
-    <!-- Collapsed unless the page itself switched another number on: then the user must see it. -->
-    <details class="advanced" [open]="autoOn() !== null">
-      <summary>Choose numbers</summary>
-      <div class="advanced-body">
-        <ul class="numbers">
-          @for (c of numbers(); track c.id) {
-            @let own = c.id === ownId();
-            @let on = own || sharedIds().includes(c.id);
-            @let warmText = warmLabel(c);
-            <li [class.on]="on">
-              <span class="who">
-                <span class="name">
-                  <strong>{{ numberName(c) }}</strong>
-                  @if (c.id === recommendedId()) {
-                    <span class="pill rec"><i class="ti ti-star" aria-hidden="true"></i> Recommended</span>
-                  }
-                </span>
-                <span class="muted">
-                  @if (own) {
-                    This number
-                  } @else if (!c.health?.connected) {
-                    Not connected{{ canShare(c) ? ' - it must be by the send time' : '' }}
-                  } @else {
-                    Connected
-                  }
-                  @if (warmText) {
-                    · {{ warmText }}
-                  }
-                  @if (on && sharedIds().length) {
-                    · <strong class="gets">gets {{ shareOf(c.id) }}</strong>
-                  }
-                </span>
-              </span>
-              <button
-                type="button"
-                role="switch"
-                class="switch"
-                [attr.aria-checked]="on"
-                [attr.aria-label]="'Send from ' + numberName(c)"
-                [disabled]="own || !canShare(c)"
-                (click)="toggleNumber(c.id)"
-              >
-                <span class="thumb"></span>
-              </button>
-            </li>
-          }
-        </ul>
+    <ul class="numbers">
+      @for (c of numbers(); track c.id) {
+        @let on = sendIds().includes(c.id);
+        @let last = on && sendIds().length === 1;
+        @let warmText = warmLabel(c);
+        <li [class.on]="on">
+          <span class="who">
+            <span class="name">
+              <strong>{{ numberName(c) }}</strong>
+              @if (c.isDefault) {
+                <span class="pill">Main</span>
+              }
+              @if (c.id === recommendedId()) {
+                <span class="pill rec"><i class="ti ti-star" aria-hidden="true"></i> Recommended</span>
+              }
+            </span>
+            <span class="muted">
+              @if (c.phoneNumber || c.providerAccountId) {
+                {{ c.phoneNumber || '+' + c.providerAccountId }} ·
+              }
+              @if (!c.health?.connected) {
+                Not connected{{ canShare(c) ? ' - it must be by the send time' : '' }}
+              } @else {
+                Connected
+              }
+              @if (warmText) {
+                · {{ warmText }}
+              }
+              @if (on && sharedIds().length) {
+                · <strong class="gets">gets {{ shareOf(c.id) }}</strong>
+              }
+            </span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            class="switch"
+            [attr.aria-checked]="on"
+            [attr.aria-label]="'Send from ' + numberName(c)"
+            [attr.title]="last ? 'At least one number must send' : null"
+            [disabled]="last || !canShare(c)"
+            (click)="toggleNumber(c.id)"
+          >
+            <span class="thumb"></span>
+          </button>
+        </li>
+      }
+    </ul>
 
-        @if (autoOn(); as id) {
-          @if (sharedIds().includes(id)) {
-            <p class="muted share-note">
-              <i class="ti ti-bulb" aria-hidden="true"></i>
-              This number is not connected, so {{ channelName(id) }} is switched on to send with it.
-            </p>
-          }
-        }
-        @if (sharedIds().length) {
-          <p class="muted share-note">
-            <i class="ti ti-arrows-split" aria-hidden="true"></i>
-            People are shared evenly over the numbers switched on; each sends its share under its own limit.
-          </p>
-        }
-      </div>
-    </details>
+    @if (autoOn(); as id) {
+      @if (sendIds().includes(id)) {
+        <p class="muted share-note">
+          <i class="ti ti-bulb" aria-hidden="true"></i>
+          Your main number is not connected, so {{ channelName(id) }} is switched on instead.
+        </p>
+      }
+    }
   </section>
 }
 
@@ -499,15 +492,44 @@
     >
   </p>
 }
-@if (confirmSend() && d.scheduleMode() === 'now') {
-  <p class="banner info" role="alertdialog" aria-label="Confirm sending">
-    <i class="ti ti-send" aria-hidden="true"></i>
-    <span>{{ confirmText() }}</span>
-    <button type="button" class="btn small" (click)="confirmSend.set(false)">Not yet</button>
-    <button type="button" class="btn small primary" [disabled]="busy()" (click)="send(true)">
-      Yes, send now
-    </button>
-  </p>
+@if (confirmSend()) {
+  @let now = d.scheduleMode() === 'now';
+  <app-confirm
+    [wide]="true"
+    tone="primary"
+    [heading]="now ? 'Start this campaign?' : 'Schedule this campaign?'"
+    [text]="now && numberBusy() ? 'This number is already sending another campaign: they take turns.' : 'Check the details before it goes out.'"
+    [action]="now ? 'Yes, send now' : 'Yes, schedule it'"
+    [busy]="busy()"
+    (confirm)="send(true)"
+    (cancel)="confirmSend.set(false)"
+  >
+    <dl class="confirm-sum">
+      <div><dt>Name</dt><dd>{{ d.name() || 'Untitled campaign' }}</dd></div>
+      <div>
+        <dt>Recipients</dt>
+        <dd>
+          @if (d.source() === 'retarget') {
+            Up to {{ size() | number }} (worked out at send time)
+          } @else {
+            {{ size() | number }} {{ size() === 1 ? 'person' : 'people' }}
+          }
+        </dd>
+      </div>
+      <div>
+        <dt>From</dt>
+        <dd>
+          @for (id of sendIds(); track id) {
+            <span class="chip">{{ channelName(id) }}@if (sharedIds().length) { · {{ shareOf(id) | number }} }</span>
+          } @empty {
+            Your WhatsApp number
+          }
+        </dd>
+      </div>
+      <div><dt>When</dt><dd>{{ whenText() }}</dd></div>
+      <div class="msg"><dt>Message</dt><dd>{{ d.message() }}</dd></div>
+    </dl>
+  </app-confirm>
 }
 <div class="foot">
   <button type="button" class="btn" (click)="d.goTo(2)">

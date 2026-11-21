@@ -67,6 +67,10 @@ export class TenantAccounts {
   protected readonly contacts = signal<AccountNumber[]>([]);
   protected readonly groups = signal<AccountGroup[]>([]);
   protected readonly account = signal('');
+  /** Every linked number the read came from; a picker shows from two up. */
+  protected readonly accounts = signal<string[]>([]);
+  /** The linked number picked in the "Fetched from" dropdown; '' shows every number's. */
+  protected readonly source = signal('');
   protected readonly savedCount = signal(0);
   protected readonly hiddenCount = signal(0);
   protected readonly fetching = signal(false);
@@ -82,13 +86,21 @@ export class TenantAccounts {
   protected readonly group = signal('');
   // shortcut: contacts carry group names, not ids, so two groups with one name show together.
   protected readonly shownContacts = computed(() =>
-    this.group() ? this.contacts().filter((c) => c.groups.includes(this.group())) : this.contacts(),
+    this.contacts().filter(
+      (c) =>
+        (!this.group() || c.groups.includes(this.group())) && (!this.source() || (c.from ?? []).includes(this.source())),
+    ),
   );
+  /** How many numbers each linked number knows, for its dropdown option. */
+  protected countFrom(account: string): number {
+    return this.contacts().filter((c) => (c.from ?? []).includes(account)).length;
+  }
   protected readonly pageSize = PAGE_SIZE;
   /** Back to the first page whenever the business or the picked group changes. */
   protected readonly contactsPage = linkedSignal(() => {
     this.tenantId();
     this.group();
+    this.source();
     return 0;
   });
   protected readonly contactsShown = computed(() => pageOf(this.shownContacts(), this.contactsPage(), PAGE_SIZE));
@@ -156,6 +168,8 @@ export class TenantAccounts {
         next: (details) => {
           if (this.tenantId() !== id) return; // another business was opened meanwhile
           this.account.set(details.account);
+          this.accounts.set(details.accounts ?? (details.account ? [details.account] : []));
+          if (!this.accounts().includes(this.source())) this.source.set('');
           this.contacts.set(details.contacts);
           this.groups.set(details.groups);
           if (!details.groups.some((g) => g.name === this.group())) this.group.set('');
@@ -179,6 +193,8 @@ export class TenantAccounts {
     this.groups.set([]);
     this.group.set('');
     this.account.set('');
+    this.accounts.set([]);
+    this.source.set('');
     this.savedCount.set(0);
     this.hiddenCount.set(0);
     this.fetched.set(false);
@@ -196,7 +212,7 @@ export class TenantAccounts {
     this.http
       .post(`/api/admin/tenants/${id}/number-collections`, {
         account: this.account(),
-        contacts: this.contacts().map(({ phone, name }) => ({ phone, name })),
+        contacts: this.contacts().map(({ phone, name, from }) => ({ phone, name, from })),
       })
       .pipe(catchError(toMessage))
       .subscribe({

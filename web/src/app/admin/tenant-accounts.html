@@ -172,6 +172,18 @@
 
       <div class="wa-numbers-head">
         <h4 id="wa-numbers-title">Numbers</h4>
+        @if (accounts().length > 1) {
+          <select
+            aria-label="Show the numbers fetched from one WhatsApp number"
+            [value]="source()"
+            (change)="source.set($any($event.target).value)"
+          >
+            <option value="">From all {{ accounts().length }} WhatsApp numbers</option>
+            @for (a of accounts(); track a) {
+              <option [value]="a">From {{ spacedPhone(a) }} ({{ countFrom(a) }})</option>
+            }
+          </select>
+        }
         @if (groups().length) {
           <select
             aria-label="Show the numbers in one group"
@@ -203,6 +215,13 @@
               </span>
               @if (!contact.saved) {
                 <span class="s-pill tone-mute">Not saved</span>
+              }
+              @if (accounts().length > 1) {
+                @for (a of contact.from ?? []; track a) {
+                  <span class="s-pill tone-info" [title]="'Fetched from ' + spacedPhone(a)">
+                    <i class="ti ti-brand-whatsapp" aria-hidden="true"></i>{{ spacedPhone(a) }}
+                  </span>
+                }
               }
               @if (contact.groups.length) {
                 <span class="wa-tags muted">{{ contact.groups.join(', ') }}</span>

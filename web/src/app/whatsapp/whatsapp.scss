@@ -145,9 +145,13 @@ h3 {
 
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: var(--space-lg);
+    align-items: start;
   }
+
+  // A field without a hint must not stretch its label and box to the next one's height.
+  .field { align-content: start; }
 
   .opt {
     font-weight: 400;

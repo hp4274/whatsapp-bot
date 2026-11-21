@@ -12,6 +12,8 @@ export interface AccountNumber {
   readonly saved: boolean;
   /** Names of the groups and communities this number is a member of. */
   readonly groups: string[];
+  /** The business's linked WhatsApp numbers (digits) it was found on: one row per phone, never per name. */
+  readonly from?: string[];
 }
 
 /** One group or community the linked number has joined. */
@@ -32,8 +34,10 @@ export interface AccountGroup {
 
 export interface NumberDetails {
   readonly source: 'whatsapp_account';
-  /** The linked number itself. */
+  /** The linked number itself (the first, with several). */
   readonly account: string;
+  /** Every linked number that answered, as digits. */
+  readonly accounts?: string[];
   /** Every readable number, one row each, sorted by number. */
   readonly contacts: AccountNumber[];
   /** The same numbers as plain digits. */

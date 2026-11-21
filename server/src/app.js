@@ -4371,31 +4371,45 @@ export function createApp({
         const reads = (await Promise.all(transports.map(async (transport) => [
             transport.supportsGroups ? await read(() => transport.listGroups(), null) : [],
             transport.supportsContacts ? await read(() => transport.listContacts(), null) : { contacts: [], hidden: 0 },
+            // Which linked number this read came from, so every row says where it was found.
+            String(transport.account ?? '').replace(/\D/g, ''),
         ]))).filter(([groups, book]) => groups || book);
         if (!reads.length) return null;
+        const blank = (phone) => ({ phone, name: '', saved: false, groups: [], from: [] });
+        const foundOn = (row, account) => {
+            if (account && !row.from.includes(account)) row.from.push(account);
+        };
         // A group both numbers joined is listed once.
         const byId = new Map();
         for (const g of reads.flatMap(([groups]) => groups ?? [])) if (!byId.has(g.id)) byId.set(g.id, g);
         const groups = [...byId.values()];
         const books = reads.map(([, book]) => book).filter(Boolean);
+        // One row per phone (never per name): a person both numbers know is listed once, with both numbers in `from`.
         const numbers = new Map();
-        for (const c of books.flatMap((book) => book.contacts)) {
-            const row = numbers.get(c.phone) ?? { phone: c.phone, name: '', saved: false, groups: [] };
-            row.name ||= c.name ?? '';
-            row.saved ||= Boolean(c.saved);
-            numbers.set(c.phone, row);
+        for (const [, book, account] of reads) {
+            for (const c of book?.contacts ?? []) {
+                const row = numbers.get(c.phone) ?? blank(c.phone);
+                row.name ||= c.name ?? '';
+                row.saved ||= Boolean(c.saved);
+                foundOn(row, account);
+                numbers.set(c.phone, row);
+            }
         }
         const saved = numbers.size;
-        for (const g of groups) {
-            for (const m of g.members ?? []) {
-                const row = numbers.get(m.phone) ?? { phone: m.phone, name: '', saved: false, groups: [] };
-                // Not in the address book: fall back to the profile name / username the group shows.
-                if (!row.name && m.name) row.name = m.name;
-                if (g.name && !row.groups.includes(g.name)) row.groups.push(g.name);
-                numbers.set(m.phone, row);
+        for (const [readGroups, , account] of reads) {
+            for (const g of readGroups ?? []) {
+                for (const m of g.members ?? []) {
+                    const row = numbers.get(m.phone) ?? blank(m.phone);
+                    // Not in the address book: fall back to the profile name / username the group shows.
+                    if (!row.name && m.name) row.name = m.name;
+                    if (g.name && !row.groups.includes(g.name)) row.groups.push(g.name);
+                    foundOn(row, account);
+                    numbers.set(m.phone, row);
+                }
             }
         }
         return {
+            accounts: reads.map(([, , account]) => account).filter(Boolean),
             contacts: [...numbers.values()].sort((a, b) => a.phone.localeCompare(b.phone)),
             groups,
             saved,
@@ -4434,6 +4448,8 @@ export function createApp({
         return res.json({
             source: 'whatsapp_account',
             account: transport.account ?? '',
+            // Every linked number that answered; each contact's `from` names the ones it was found on.
+            accounts: account.accounts,
             total: account.contacts.length,
             saved: account.saved,
             hidden: account.hidden,
@@ -4474,7 +4490,10 @@ export function createApp({
         for (const entry of entries) {
             const phone = String((typeof entry === 'string' ? entry : entry?.phone) ?? '').replace(/\D/g, '');
             if (phone.length < 7 || phone.length > 15 || byPhone.has(phone)) continue;
-            byPhone.set(phone, { phone, name: String(entry?.name ?? '').trim().slice(0, 100) });
+            // The linked numbers it was fetched from, as digits; kept so the collection can tell the numbers apart.
+            const from = (Array.isArray(entry?.from) ? entry.from : [])
+                .map((a) => String(a).replace(/\D/g, '').slice(0, 15)).filter(Boolean).slice(0, 20);
+            byPhone.set(phone, { phone, name: String(entry?.name ?? '').trim().slice(0, 100), ...(from.length ? { from } : {}) });
         }
         const numbers = [...byPhone.values()];
         if (!numbers.length) return res.status(400).json({ errors: ['There are no numbers to save.'] });

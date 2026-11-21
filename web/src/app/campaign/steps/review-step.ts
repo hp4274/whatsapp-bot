@@ -26,6 +26,7 @@ import {
 } from '../../core/api';
 import { Auth } from '../../core/auth';
 import type { SpreadPlan } from '../../core/api';
+import { ConfirmDialog } from '../../core/confirm-dialog';
 import { Store } from '../../core/store';
 import { CampaignDraft, addDays, today } from '../draft';
 import { CampaignPolicy } from '../policy-api';
@@ -123,7 +124,7 @@ export function sharedFinish(
  */
 @Component({
   selector: 'app-review-step',
-  imports: [DecimalPipe, FormsModule, RouterLink],
+  imports: [ConfirmDialog, DecimalPipe, FormsModule, RouterLink],
   templateUrl: './review-step.html',
   styleUrl: './review-step.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -148,7 +149,7 @@ export class ReviewStep {
   protected readonly loadingSafety = signal(false);
   protected readonly busy = signal(false);
   protected readonly error = signal('');
-  /** Armed by the first "Send now" click; "Yes, send now" sends. */
+  /** Armed by the first Send / Schedule click: the popup with the campaign's details; its button sends. */
   protected readonly confirmSend = signal(false);
   /** Set after "Save draft", so the page can link to the saved campaign. */
   protected readonly draftSaved = signal<Campaign | null>(null);
@@ -204,16 +205,21 @@ export class ReviewStep {
 
   /** The business's numbers that may send campaigns. */
   protected readonly numbers = signal<Channel[]>([]);
-  /** Other numbers switched on: the people are shared out and each number sends its own share. */
-  protected readonly alsoFrom = signal<number[]>([]);
-  /** The number this page is on; it always sends. */
-  protected readonly ownId = computed(
+  /** The numbers switched on, in the order they were. The first starts on; any can be switched off but the last. */
+  protected readonly picked = signal<number[]>([]);
+  /** The selected (else main) number: the one a campaign sends from when nothing else is picked. */
+  private readonly homeId = computed(
     () => this.auth.channelId() ?? this.numbers().find((c) => c.isDefault)?.id ?? null,
   );
-  /** The switched-on numbers that can take a share right now (a disconnected one cannot for "Now"). */
-  protected readonly sharedIds = computed(() =>
-    this.alsoFrom().filter((id) => this.numbers().some((c) => c.id === id && this.canShare(c))),
-  );
+  /** The switched-on numbers that can send (a disconnected one cannot for "Now"); the home number when none. */
+  protected readonly sendIds = computed(() => {
+    const on = this.picked().filter((id) => this.numbers().some((c) => c.id === id && this.canShare(c)));
+    const home = this.homeId();
+    return on.length ? on : home === null ? [] : [home];
+  });
+  /** The campaign is saved on this number; the others get a copy with their own share. */
+  protected readonly ownId = computed(() => this.sendIds()[0] ?? null);
+  protected readonly sharedIds = computed(() => this.sendIds().slice(1));
   /** Each sending number's room today (this one, then the switched-on ones); Infinity = no cap or not known. */
   private readonly rooms = computed(() =>
     [this.ownId(), ...this.sharedIds()].map((id) => {
@@ -308,7 +314,9 @@ export class ReviewStep {
   }
 
   protected toggleNumber(id: number): void {
-    this.alsoFrom.update((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+    this.picked.update((ids) =>
+      ids.includes(id) ? (ids.length > 1 ? ids.filter((x) => x !== id) : ids) : [...ids, id],
+    );
   }
 
   private loadNumbers(): void {
@@ -322,16 +330,15 @@ export class ReviewStep {
   }
 
   /**
-   * Once, on the first list: this number cannot send right now, so the recommended one is switched on to send
-   * with it. Later reloads never touch the switches again, so the user's own choice stands. The campaign stays
-   * this number's.
+   * Once, on the first list: the selected (else main) number starts on. Not connected, the recommended one starts
+   * on instead. Later reloads never touch the switches again, so the user's own choice stands.
    */
   private defaultNumber(): void {
     this.defaulted = true;
-    const own = this.numbers().find((c) => c.id === this.ownId());
+    const home = this.numbers().find((c) => c.id === this.homeId()) ?? this.numbers()[0];
     const pick = this.recommendedId();
-    if (!own || own.health?.connected || pick === null || pick === own.id || this.alsoFrom().includes(pick)) return;
-    this.alsoFrom.update((ids) => [...ids, pick]);
+    if (home.health?.connected || pick === null || pick === home.id) return this.picked.set([home.id]);
+    this.picked.set([pick]);
     this.autoOn.set(pick);
   }
 
@@ -417,21 +424,13 @@ export class ReviewStep {
     return `${{ buttons: 'Reply buttons', cta: 'Call-to-action', list: 'List menu', carousel: 'Carousel' }[block.type]} (${n})`;
   });
 
-  protected readonly confirmText = computed(() => {
-    const who =
-      this.draft.source() === 'retarget'
-        ? 'this audience'
-        : `${this.size().toLocaleString()} ${this.size() === 1 ? 'person' : 'people'}`;
-    const s = this.current();
-    // No pacing (typical 0) has no duration worth stating: "about 0s" reads as broken.
-    const took =
-      s && this.perNumber() > 1 && s.estimateSeconds.typical >= 1
-        ? ` It will take about ${formatDuration(s.estimateSeconds.typical)}.`
-        : '';
-    const together = this.numberBusy()
-      ? ' This number is already sending another campaign: they take turns, so each goes at about half its pace.'
-      : '';
-    return `Send to ${who} now?${took}${together}`;
+  /** When, in the popup's words. */
+  protected readonly whenText = computed(() => {
+    const spread = this.spreadSummary();
+    if (spread) return `Daily at ${spread.time}, ${spread.from} to ${spread.to}`;
+    if (this.draft.scheduleMode() === 'later') return this.sendsAt()?.zoned ?? 'Later';
+    const t = this.current()?.estimateSeconds.typical ?? 0;
+    return this.perNumber() > 1 && t >= 1 ? `Now, takes about ${formatDuration(t)}` : 'Now';
   });
 
   protected readonly sendsAt = computed(() => {
@@ -669,19 +668,22 @@ export class ReviewStep {
       this.error.set('Link a WhatsApp number before sending now - or schedule it instead.');
       return;
     }
-    if (now && !confirmed) {
+    if (!confirmed) {
       this.confirmSend.set(true);
       return;
     }
     this.confirmSend.set(false);
     this.busy.set(true);
-    const shared = this.sharedIds();
-    d.save()
+    const ids = this.sendIds();
+    // An edited campaign keeps its own number, so every other one switched on gets a copy.
+    d.save(this.numbers().length > 1 ? ids[0] : null)
       .pipe(
-        // Shared: this number keeps the first share, every other one gets a copy with its own.
-        switchMap((campaign) =>
-          shared.length ? this.campaignsApi.split(campaign.id, shared).pipe(map((r) => r.campaigns)) : of([campaign]),
-        ),
+        switchMap((campaign) => {
+          const shared = ids.filter((id) => id !== campaign.channelId);
+          return shared.length
+            ? this.campaignsApi.split(campaign.id, shared).pipe(map((r) => r.campaigns))
+            : of([campaign]);
+        }),
         switchMap((all) => this.checkMissing(all[0].id).pipe(map(() => all))),
       )
       .subscribe({

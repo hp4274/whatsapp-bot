@@ -149,7 +149,7 @@ const withTimeout = (promise, ms) => {
 };
 
 export class BaileysTransport extends Transport {
-    static name_ = 'WhatsApp (QR login, no browser, no access token)';
+    static name_ = 'WhatsApp';
     realDelivery = true;
     supportsReceipts = true;
     supportsGroups = true;

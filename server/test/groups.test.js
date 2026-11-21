@@ -298,10 +298,11 @@ describe('groups routes', () => {
         ]);
         assert.ok(!res.body.numbers.includes('919999999999'), 'the platform contact is not part of the account');
         const meera = res.body.contacts.find((c) => c.phone === '919800000009');
-        assert.deepEqual(meera, { phone: '919800000009', name: 'Meera', saved: true, groups: [] });
+        assert.deepEqual(meera, { phone: '919800000009', name: 'Meera', saved: true, groups: [], from: ['15550000001'] });
+        assert.deepEqual(res.body.accounts, ['15550000001'], 'every linked number that answered');
         const classmate = res.body.contacts.find((c) => c.phone === '919800000004');
         assert.deepEqual(classmate, {
-            phone: '919800000004', name: 'Classmate', saved: false, groups: ['Class 10A'],
+            phone: '919800000004', name: 'Classmate', saved: false, groups: ['Class 10A'], from: ['15550000001'],
         });
         assert.equal(res.body.contacts.find((c) => c.phone === '919800000003').name, 'Bowler',
             'an unsaved member keeps the profile name the group shows');
@@ -341,6 +342,14 @@ describe('groups routes', () => {
             { contacts: [{ phone: '919800000009', name: ' Meera ' }, { phone: '91 98000 00009', name: 'dup' }] }, sup);
         const named = (await call('GET', '/api/admin/number-collections', null, sup)).body.collections[0];
         assert.deepEqual(named.contacts, [{ phone: '919800000009', name: 'Meera' }]);
+
+        // Which linked number each came from is kept, so two numbers' lists never read as one.
+        await call('POST', '/api/admin/tenants/1/number-collections', { contacts: [
+            { phone: '919800000001', name: 'A', from: ['+1 555 000 0001', '15550000002'] },
+            { phone: '919800000002', name: 'B', from: ['15550000002'] },
+        ] }, sup);
+        const split = (await call('GET', '/api/admin/number-collections', null, sup)).body.collections[0];
+        assert.deepEqual(split.contacts.map((c) => c.from), [['15550000001', '15550000002'], ['15550000002']]);
 
         assert.equal((await call('DELETE', '/api/admin/number-collections/1', null, owner)).status, 403);
         assert.equal((await call('DELETE', '/api/admin/number-collections/1', null, sup)).status, 204);

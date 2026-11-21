@@ -198,6 +198,18 @@ export class CampaignStore {
         return rows.map((row) => ({ ...toCampaign(row), audience: null }));
     }
 
+    /**
+     * The campaign's place among this business's campaigns, the oldest being 1 (a shared campaign's copies are part
+     * of it, not counted). Deleting one moves the later ones down.
+     */
+    numberOf(campaign) {
+        const id = campaign.options?.parentId ?? campaign.id;
+        return this.db.prepare(
+            `SELECT COUNT(*) AS n FROM campaigns WHERE tenant_id = ? AND id <= ?
+               AND NOT (json_valid(options) AND json_extract(options, '$.parentId') IS NOT NULL)`)
+            .get(this.tenantId, Number(id)).n;
+    }
+
     remove(id) {
         const campaign = this.#own(this.require(id));
         if (campaign.status === 'running') throw new CampaignError('cancel the campaign before deleting it', 409);

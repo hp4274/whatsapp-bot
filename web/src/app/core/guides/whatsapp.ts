@@ -33,7 +33,7 @@ export const whatsapp: Guide = {
         'Check the time zone shown (change it under Advanced if needed).',
         'Click Add number, then link it with Link with QR code on its card.',
       ],
-      tip: 'If you see Get more numbers instead of Add number, your plan is full: click it to ask for more. With two or more numbers, the sidebar shows Working on number so you can switch from any page.',
+      tip: 'If you see Get more numbers instead of Add number, your plan is full: click it to ask for more. With two or more numbers, a new campaign lets you pick which numbers send it.',
     },
     {
       title: 'Switch between your numbers',

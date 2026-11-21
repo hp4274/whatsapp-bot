@@ -16,7 +16,7 @@ import {
 @Component({
   selector: 'app-confirm',
   template: `
-    <div class="dialog-wrap" (click)="cancel.emit()" (keydown.escape)="cancel.emit()">
+    <div class="dialog-wrap" [class.wide]="wide()" (click)="cancel.emit()" (keydown.escape)="cancel.emit()">
       <div
         class="dialog"
         role="alertdialog"
@@ -27,9 +27,10 @@ import {
       >
         <h3 id="confirm-title">{{ heading() }}</h3>
         <p id="confirm-desc">{{ text() }}</p>
+        <ng-content />
         <div class="dialog-actions">
           <button #cancelBtn class="btn" type="button" (click)="cancel.emit()">Cancel</button>
-          <button class="btn" [class.danger-fill]="tone() === 'danger'" [class.primary]="tone() === 'primary'" type="button" (click)="confirm.emit()">
+          <button class="btn" [disabled]="busy()" [class.danger-fill]="tone() === 'danger'" [class.primary]="tone() === 'primary'" type="button" (click)="confirm.emit()">
             {{ action() }}
           </button>
         </div>
@@ -46,6 +47,9 @@ export class ConfirmDialog {
   readonly action = input.required<string>();
   /** Red for what removes or ends something; primary for a plain "yes, go ahead". */
   readonly tone = input<'danger' | 'primary'>('danger');
+  readonly busy = input(false);
+  /** Wider, for a popup that carries a summary in its slot. */
+  readonly wide = input(false);
   readonly confirm = output<void>();
   readonly cancel = output<void>();
 

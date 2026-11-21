@@ -45,6 +45,9 @@ const REFRESH_EVERY_MS = 10_000;
 /** An answered limit request stays on the page this long; a pending one until it is answered. */
 const ANSWER_SHOWN_MS = 14 * 864e5;
 
+/** A number's phone as digits: the one WhatsApp linked, else the one typed in. */
+const phoneKey = (c: Channel): string => (c.providerAccountId || c.phoneNumber || '').replace(/D/g, '');
+
 const emptyDraft = () => ({
   displayName: '',
   phoneNumber: '',
@@ -197,6 +200,22 @@ export class WhatsApp {
   protected readonly selected = computed(() => this.channels().find((c) => c.id === this.activeId()) ?? null);
   protected readonly others = computed(() => this.channels().filter((c) => c.id !== this.activeId()));
   protected readonly multi = computed(() => this.channels().length > 1);
+  /** id -> the name of another number with the same phone digits. Names may repeat; a phone may not. */
+  protected readonly duplicates = computed(() => {
+    const byPhone = new Map<string, Channel>();
+    const out: Record<number, string> = {};
+    for (const c of this.channels()) {
+      const key = phoneKey(c);
+      if (!key) continue;
+      const first = byPhone.get(key);
+      if (!first) byPhone.set(key, c);
+      else {
+        out[c.id] = first.displayName;
+        out[first.id] ??= c.displayName;
+      }
+    }
+    return out;
+  });
   /** Add only while the plan has room; unknown (still loading) shows nothing rather than a button that may 403. */
   protected readonly canAdd = computed(() => {
     const cap = this.cap();
@@ -411,6 +430,12 @@ export class WhatsApp {
     if (!d.displayName.trim()) {
       this.formError.set('Give the number a name your team will recognise.');
       this.firstField()?.nativeElement.focus();
+      return;
+    }
+    const typed = d.phoneNumber.replace(/D/g, '');
+    const taken = typed && this.channels().find((c) => phoneKey(c) === typed);
+    if (taken) {
+      this.formError.set(`This phone number is already added as ${taken.displayName}.`);
       return;
     }
     this.busy.set(true);

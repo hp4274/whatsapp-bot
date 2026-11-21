@@ -252,7 +252,7 @@ export function createCampaignRouter({ db, state }) {
     router.get('/campaigns', (req, res) => res.json({
         // A number's share of a shared campaign is listed as part of that campaign, not on its own.
         campaigns: campaigns.list({ status: req.query.status || null, limit: Number(req.query.limit) || 200 })
-            .filter((c) => !c.options?.parentId).map((c) => whole(c)),
+            .filter((c) => !c.options?.parentId).map((c) => ({ ...whole(c), number: campaigns.numberOf(c) })),
     }));
 
     // Spread sending: can this many go out between two dates under today's cap?
@@ -290,7 +290,8 @@ export function createCampaignRouter({ db, state }) {
 
     router.get('/campaigns/:id', (req, res) => {
         try {
-            return res.json({ campaign: whole(campaigns.require(req.params.id)) });
+            const campaign = campaigns.require(req.params.id);
+            return res.json({ campaign: { ...whole(campaign), number: campaigns.numberOf(campaign) } });
         } catch (err) {
             return fail(res, err);
         }
@@ -418,6 +419,7 @@ export function createCampaignRouter({ db, state }) {
     router.get('/campaigns/:id/analytics', (req, res) => {
         try {
             const own = campaigns.analytics(req.params.id);
+            own.campaign = { ...own.campaign, number: campaigns.numberOf(own.campaign) };
             const shares = sharesOf(own.campaign);
             if (!shares.length) return res.json(own);
             // One report: every number's people in one list, each tagged with the number that sends to them.

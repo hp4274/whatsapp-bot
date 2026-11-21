@@ -33,7 +33,7 @@
   <header class="s-head s-enter">
     <div>
       <p class="eyebrow">
-        <i class="ti ti-speakerphone" aria-hidden="true"></i>Campaign #{{ c.id }}
+        <i class="ti ti-speakerphone" aria-hidden="true"></i>Campaign #{{ c.number ?? c.id }}
       </p>
       <div class="title">
         @if (renaming() !== null) {

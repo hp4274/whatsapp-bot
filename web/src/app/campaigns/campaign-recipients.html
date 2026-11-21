@@ -79,7 +79,14 @@
             }
             <td class="st"><app-campaign-status [status]="r.status" /></td>
             <td class="when" data-label="Updated">{{ localTime(r.updatedAt) }}</td>
-            <td class="err" data-label="Failure reason" [title]="r.error || ''">{{ reason(r) }}</td>
+            <td class="err" data-label="Failure reason" [title]="r.error || ''">
+              {{ reason(r) }}
+              @if (r.status === 'FAILED') {
+                <button type="button" class="learn" (click)="helpFor.set(r)">
+                  <i class="ti ti-help-circle" aria-hidden="true"></i>Learn more
+                </button>
+              }
+            </td>
             <td data-label="Button">
               @if (r.clicked) {
                 <span class="tag">{{ r.clicked }}</span>
@@ -132,3 +139,7 @@
     </div>
   }
 </section>
+
+@if (helpFor(); as r) {
+  <app-error-help [code]="r.errorCode" [text]="r.error" (closed)="helpFor.set(null)" />
+}

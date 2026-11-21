@@ -104,7 +104,7 @@
       </form>
     } @else {
       <p class="phone">
-        <span class="mono">{{ ch.phoneNumber || 'Phone number not added' }}</span>
+        <span class="mono">{{ phone() || 'Phone number not added' }}</span>
         @if (ch.health?.accountType; as kind) {
           <span class="kind" [class.biz]="kind === 'business'" [title]="kind === 'business' ? 'Linked from the WhatsApp Business app' : 'Linked from the regular WhatsApp app'">
             <i class="ti ti-{{ kind === 'business' ? 'building-store' : 'brand-whatsapp' }}" aria-hidden="true"></i>
@@ -126,7 +126,7 @@
 
 <!-- A regular WhatsApp number says how to get a catalog; any other (Business, or not known yet) opens it and
      WhatsApp answers. -->
-@if (state() === 'connected') {
+@if (state() === 'connected' && catalogOn()) {
   @let locked = ch.health?.accountType === 'personal';
   <button
     type="button"
@@ -137,6 +137,12 @@
   >
     <i class="ti ti-{{ locked ? 'lock' : 'building-store' }}" aria-hidden="true"></i>Catalog
   </button>
+}
+
+@if (duplicateOf(); as other) {
+  <p class="alert" role="alert">
+    <i class="ti ti-copy" aria-hidden="true"></i>Same WhatsApp number as {{ other }}. Unlink one of them, or both send as one number.
+  </p>
 }
 
 @if (error()) {

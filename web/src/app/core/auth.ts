@@ -280,7 +280,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const token = auth.token();
   const tenantId = auth.isSuperAdmin() ? auth.actingTenantId() : null;
   // Channel CRUD is tenant-level; addressing it to one channel would be a lie.
-  const channelId = req.url.startsWith('/api/channels') ? null : auth.channelId();
+  // A request that names its own number (a campaign created on a picked number) keeps it.
+  const channelId =
+    req.url.startsWith('/api/channels') || req.headers.has('x-channel-id') ? null : auth.channelId();
 
   const authed = token
     ? req.clone({
