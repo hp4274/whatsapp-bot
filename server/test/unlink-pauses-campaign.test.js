@@ -58,9 +58,15 @@ describe('a number unlinked mid-campaign', () => {
         assert.match(held.options.statusReason, /unlinked/);
         assert.equal(db.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE status = 'FAILED'").get().n, 0, 'nothing failed');
 
+        // The island card's own next ones, whatever else the number holds.
+        const own = (await api('GET', `/api/campaign/queue?limit=3&campaign=${campaign.id}`)).body;
+        assert.ok(own.next.length > 0 && own.next.every((m) => m.campaign === campaign.id));
+        assert.equal((await api('GET', `/api/campaign/queue?limit=3&campaign=${campaign.id + 99}`)).body.next.length, 0);
+        assert.equal(typeof own.waitingSeconds, 'number');
+
         const resume = await api('POST', `/api/campaigns/${campaign.id}/resume`, {});
         assert.equal(resume.status, 409);
-        assert.match(resume.body.errors[0], /unlinked/);
+        assert.match(resume.body.errors[0], /not connected/);
         assert.equal((await api('POST', '/api/campaign/resume')).status, 409, 'the island Resume is refused too');
 
         assert.equal((await api('POST', '/api/connection/connect')).body.connected, true);

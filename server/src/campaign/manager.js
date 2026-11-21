@@ -289,14 +289,15 @@ export class CampaignManager extends EventEmitter {
      * flight, then those it would send now, then those waiting for their
      * recipient's morning (`later`). Names and text only, for the progress card.
      */
-    upNext(limit = 5) {
+    upNext(limit = 5, campaign = null) {
         const ready = [];
         const later = [];
+        const wanted = (item) => item?.messageType === 'campaign' && (!campaign || item.campaignId === `camp-${campaign}`);
         for (const item of this.queue.snapshot()) {
-            if (item.messageType !== 'campaign') continue;
+            if (!wanted(item)) continue;
             (this.#ready(item) ? ready : later).push(item);
         }
-        const current = this.current?.messageType === 'campaign' ? [this.current] : [];
+        const current = wanted(this.current) ? [this.current] : [];
         return [...current, ...ready, ...later].slice(0, limit).map((item) => ({
             messageId: item.messageId,
             name: item.name,

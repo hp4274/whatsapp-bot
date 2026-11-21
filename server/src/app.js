@@ -162,6 +162,10 @@ const OPT_OUT_WARN_PERCENT = 2;
 /** Why a campaign paused when its number dropped out; a relink carries it on (campaigns/store.js relinked). */
 const UNLINKED_HOLD = 'Paused: the WhatsApp number was unlinked. Link it again on the WhatsApp page and sending carries on.';
 const BANNED_HOLD = 'Paused: WhatsApp banned this number. Its messages wait until a number is linked again.';
+const OFFLINE_HOLD = 'Paused: the WhatsApp number is not connected. Sending carries on by itself once it is back online.';
+/** How long a number may be offline before its campaigns read paused: a short drop reconnects by itself. */
+const OFFLINE_GRACE_MS = 30_000;
+const NOT_CONNECTED_RESUME = 'This WhatsApp number is not connected. Connect it on the WhatsApp page and sending carries on by itself.';
 const mediaUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: MAX_VIDEO_BYTES },
@@ -826,6 +830,15 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         heldReason = reason;
         manager.emit('event', { type: 'linkLost', reason });
     };
+    // Offline for longer than a drop (lost signal, a failed reconnect, not back after a restart) while it holds a
+    // campaign: hold it the same way. The next 'ready' carries it on (resumeHeld).
+    let offlineSince = null;
+    state.offlineWatch = setInterval(() => {
+        if (state.transport?.isConnected?.()) return void (offlineSince = null);
+        offlineSince ??= Date.now();
+        if (Date.now() - offlineSince >= OFFLINE_GRACE_MS && manager.runKeys().size) holdForLink(OFFLINE_HOLD);
+    }, 5000);
+    state.offlineWatch.unref?.();
 
     app.post('/connection/connect', async (req, res) => {
         const result = await connectChannel();
@@ -1972,7 +1985,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         });
         // Unlinked: every message would fail on no connection. The relink carries the run on by itself.
         if (action === 'resume' && manager.heldForLink) {
-            return res.status(409).json({ errors: [UNLINKED_HOLD.replace(/^Paused: t/, 'T')], stats: manager.statsSnapshot() });
+            return res.status(409).json({ errors: [NOT_CONNECTED_RESUME], stats: manager.statsSnapshot() });
         }
         if (record && ['running', 'paused'].includes(record.status)) {
             const store = state.campaigns;
@@ -2056,8 +2069,11 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
 
     /** Who goes out next, in the worker's own order (the progress card's "up next"). */
     app.get('/campaign/queue', (req, res) => res.json({
-        next: manager.upNext(Math.min(20, Math.max(1, Number(req.query.limit) || 5))),
+        // `campaign`: that saved campaign's next ones only, so each island card lists its own however the queue is ordered.
+        next: manager.upNext(Math.min(20, Math.max(1, Number(req.query.limit) || 5)), Number(req.query.campaign) || null),
         pending: manager.queue.pending,
+        // Seconds until this number sends again: the card's countdown when the page streams another number.
+        waitingSeconds: Math.max(0, Math.round(((manager.waitingUntil ?? 0) - Date.now()) / 1000)),
     }));
 
     /** Phase 3 queue observability: depth, what is in it, and how it is going. */
@@ -5516,6 +5532,7 @@ export async function closeApp(app) {
 }
 
 async function closeState(state) {
+    clearInterval(state.offlineWatch);
     unregisterQueue(state.channel?.id);
     await state.manager.shutdown();
     if (state.transport) {

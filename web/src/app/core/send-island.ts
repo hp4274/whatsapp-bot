@@ -26,6 +26,8 @@ import { Store } from './store';
 const AUTO_CLOSE_SECONDS = 10;
 /** How often the island looks for running campaigns on any of the business's numbers. */
 const RUNS_POLL_MS = 10_000;
+/** One island card's next messages and when its number sends again (ms epoch). */
+type CardQueue = [number, { rows: QueuedNext[]; until: number }];
 
 /** How many messages the card lists: the next ones while sending, the last ones after. */
 const RECENT_COUNT = 5;
@@ -117,9 +119,9 @@ function labelled(rows: readonly QueuedNext[]) {
                       </li>
                     }
                   </ol>
-                  <!-- The countdown is the number's: shown on the cards whose messages are in its queue. -->
-                  @if (c.status !== 'paused' && note()) {
-                    <p class="note">{{ note() }}</p>
+                  <!-- The countdown is its own number's, read with its queue. -->
+                  @if (c.status !== 'paused') {
+                    <p class="note">{{ cardNote(c.id) }}</p>
                   }
                 }
                 @if (canControl()) {
@@ -699,9 +701,19 @@ export class SendIsland {
   private readonly upNext = signal<QueuedNext[]>([]);
   protected readonly upNextRows = computed(() => labelled(this.upNext()));
 
+  /** Each card's own next messages, and when its number sends again (ms epoch), read from that campaign's number. */
+  private readonly cardQueues = signal<ReadonlyMap<number, { rows: QueuedNext[]; until: number }>>(new Map());
+  /** Ticks each second while cards show, for their countdowns. */
+  private readonly now = signal(Date.now());
+
   /** One campaign's next messages, labelled on their own (its first waiting one is its "Next"). */
   protected rowsFor(id: number) {
-    return labelled(this.upNext().filter((m) => m.campaign === id)).slice(0, 3);
+    return labelled(this.cardQueues().get(id)?.rows ?? []).slice(0, 3);
+  }
+
+  protected cardNote(id: number): string {
+    const left = Math.ceil(((this.cardQueues().get(id)?.until ?? 0) - this.now()) / 1000);
+    return left > 0 ? `Next message in ${left}s` : 'Keeps running on the server if you close this tab.';
   }
   /**
    * The campaign being sent. The engine-wide stats carry no id, so the live
@@ -724,8 +736,8 @@ export class SendIsland {
     const s = this.store.stats();
     return s.total > 0 && s.pending > 0 && (s.state === 'RUNNING' || s.state === 'PAUSED');
   });
-  /** The campaigns whose cards are open, any number at once; null until the user opens or folds one (the oldest is open). */
-  private readonly opened = signal<ReadonlySet<number> | null>(null);
+  /** The campaigns whose cards the user opened, any number at once; all start folded. */
+  private readonly opened = signal<ReadonlySet<number>>(new Set());
   /** The campaign whose Stop was clicked once; the second click stops it. */
   protected readonly stopArmed = signal<number | null>(null);
   /** The last failed action, shown on its own card. */
@@ -754,7 +766,8 @@ export class SendIsland {
   private readonly pacing = computed(() => (this.wuzie() ? this.feed.pacing() : this.store.pacing()));
   private readonly pacingLeft = computed(() => (this.wuzie() ? this.feed.pacingLeft() : this.store.pacingLeft()));
   private readonly historyRevision = computed(() => (this.wuzie() ? this.feed.historyRevision() : this.store.historyRevision()));
-  protected readonly open = signal(true);
+  /** The single card's body; folded until the user opens it. */
+  protected readonly open = signal(false);
   protected readonly error = signal('');
   /** A finished run the user closed; a new run (more total, or less processed) reopens it. */
   private readonly dismissed = signal<{ total: number } | null>(null);
@@ -810,8 +823,8 @@ export class SendIsland {
       });
     });
 
-    // The card opens when a campaign starts, once; after that only the user opens or folds it (a send, an
-    // auto-reply or a refresh never pops it open again). A second campaign arrives folded, as a bar.
+    // The card shows (folded) when a campaign starts, once; only the user opens or folds it (a send, an
+    // auto-reply or a refresh never pops it open). Every campaign arrives folded, as a bar.
     let openedFor: number | null = null;
     effect(() => {
       const live = this.phase() === 'sending' || this.phase() === 'paused';
@@ -820,10 +833,8 @@ export class SendIsland {
       if (id !== null && !this.wuzie()) this.campaignSeen.set(true);
       if (!live || id === null || id === openedFor) return;
       openedFor = id;
-      untracked(() => {
-        this.dismissed.set(null);
-        this.open.set(true);
-      });
+      // A new run shows the card again (folded: only the user opens it).
+      untracked(() => this.dismissed.set(null));
     });
 
     // Name the live campaign when a run begins (or a different one replaces it).
@@ -848,7 +859,13 @@ export class SendIsland {
     const poll = setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') this.loadRuns();
     }, RUNS_POLL_MS);
-    this.destroyRef.onDestroy(() => clearInterval(poll));
+    const tick = setInterval(() => {
+      if (this.multi()) this.now.set(Date.now());
+    }, 1000);
+    this.destroyRef.onDestroy(() => {
+      clearInterval(poll);
+      clearInterval(tick);
+    });
 
     // Every send bumps historyRevision; coalesce a burst into one small fetch.
     effect(() => {
@@ -979,13 +996,12 @@ export class SendIsland {
   }
 
   protected isOpen(id: number): boolean {
-    return this.opened()?.has(id) ?? id === this.runs()[0]?.id;
+    return this.opened().has(id);
   }
 
   /** Open or fold one campaign's card; the others stay as they are. */
   protected toggleRun(id: number): void {
-    const first = this.runs()[0]?.id;
-    const next = new Set(this.opened() ?? (first === undefined ? [] : [first]));
+    const next = new Set(this.opened());
     if (!next.delete(id)) next.add(id);
     this.opened.set(next);
   }
@@ -1045,13 +1061,16 @@ export class SendIsland {
   private loadRecent(): void {
     // One HTTP call that completes on its own; failures just keep the last list.
     if (this.multi()) {
-      // One card per campaign: each campaign's next few come from its own number's queue, not the selected one's.
-      const runs = this.runs();
-      const limit = Math.min(20, RECENT_COUNT * Math.max(1, runs.length));
-      const numbers = [...new Set(runs.map((c) => c.channelId ?? null))];
-      forkJoin(numbers.map((ch) => this.api.queueNext(limit, ch).pipe(map((r) => r.next), catchError(() => of([]))))).subscribe(
-        (lists) => this.upNext.set(lists.flat()),
-      );
+      // One card per campaign: its own next few and countdown, from its own number's queue (not the selected one's).
+      const asked = Date.now();
+      forkJoin(
+        this.runs().map((c) =>
+          this.api.queueNext(RECENT_COUNT, c.channelId, c.id).pipe(
+            map((r): CardQueue => [c.id, { rows: r.next, until: asked + (r.waitingSeconds ?? 0) * 1000 }]),
+            catchError(() => of<CardQueue>([c.id, { rows: [], until: 0 }])),
+          ),
+        ),
+      ).subscribe((entries) => this.cardQueues.set(new Map(entries)));
     } else if (this.phase() === 'sending' || this.phase() === 'paused') {
       // Several campaigns share the queue in turns: ask for enough that each card gets its own next few.
       const limit = Math.min(20, RECENT_COUNT * Math.max(1, this.runs().length));
