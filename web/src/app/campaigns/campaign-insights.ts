@@ -13,6 +13,7 @@ import { Router } from '@angular/router';
 import type { CampaignAnalytics } from '../core/api';
 import { Store } from '../core/store';
 import { count, pct, percent, reportRates } from './campaign-format';
+import { ErrorHelpDialog } from './error-help';
 
 type Tone = 'info' | 'good' | 'accent' | 'warn' | 'bad';
 
@@ -29,6 +30,7 @@ type Tone = 'info' | 'good' | 'accent' | 'warn' | 'bad';
  */
 @Component({
   selector: 'app-campaign-insights',
+  imports: [ErrorHelpDialog],
   templateUrl: './campaign-insights.html',
   styleUrl: './campaign-insights.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -61,6 +63,8 @@ export class CampaignInsights {
 
   /** Bars start at 0 and grow once painted, so the width transition plays. */
   protected readonly ready = signal(false);
+  /** The failure whose "Learn more" is open. */
+  protected readonly helpFor = signal<{ code: string; label: string } | null>(null);
 
   /**
    * Each stage is a share of the stage it follows (see `reportRates`), so the

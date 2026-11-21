@@ -98,8 +98,11 @@
         @for (f of failures(); track f.code; let i = $index) {
           <li [style.--i]="i">
             <div class="row">
-              <span class="t">{{ f.label }}</span
-              ><span class="n bad">{{ count(f.count) }}</span>
+              <span class="t">{{ f.label }}</span>
+              <button type="button" class="learn" (click)="helpFor.set(f)">
+                <i class="ti ti-help-circle" aria-hidden="true"></i>Learn more
+              </button>
+              <span class="n bad">{{ count(f.count) }}</span>
             </div>
             <div class="bar">
               <div class="bar-fill danger" [style.width.%]="ready() ? f.width : 0"></div>
@@ -184,3 +187,7 @@
     }
   </div>
 </section>
+
+@if (helpFor(); as f) {
+  <app-error-help [code]="f.code" [text]="f.label" (closed)="helpFor.set(null)" />
+}

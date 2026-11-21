@@ -15,7 +15,7 @@ import { type Subscription, filter, map } from 'rxjs';
 
 import { type ChannelDetail, OpsApi } from './admin/ops-api';
 import { SERVICE_META, SOON_SERVICES } from './admin/service-meta';
-import { ChannelsApi, TenancyApi } from './core/api';
+import { TenancyApi } from './core/api';
 import { Auth, Role, Tenant } from './core/auth';
 import { AccountDialog } from './core/account-dialog';
 import { ConnectGate } from './core/connect-gate';
@@ -172,7 +172,6 @@ export class App {
   private readonly router = inject(Router);
   private readonly tenancy = inject(TenancyApi);
   private readonly ops = inject(OpsApi);
-  private readonly channelsApi = inject(ChannelsApi);
   private readonly destroyRef = inject(DestroyRef);
 
   /** The tenant a super admin has opened, so the rail can show what that tenant sees. */
@@ -217,17 +216,6 @@ export class App {
       const state = this.auth.tenant()?.subscription?.state;
       if (state && state !== 'expired') untracked(() => this.auth.blocked.set(null));
     });
-
-    // The numbers for the switcher: on sign-in, on entering or leaving a business, and when a number is added,
-    // renamed, paused or made main ('channels').
-    effect(() => {
-      this.auth.user();
-      this.auth.actingTenantId();
-      this.platformView();
-      this.bare();
-      untracked(() => this.loadNumbers());
-    });
-    this.store.watch(['channels'], () => this.loadNumbers(), 2000);
 
     // The theme belongs to the dashboard: the landing page and sign-in stay light whatever was picked here.
     effect(() => this.store.setPublicPage(this.bare()));
@@ -303,31 +291,6 @@ export class App {
 
   /** Folded to an icon rail; only honoured at `lg` and up, where the sidebar is in the flow. */
   protected readonly collapsed = signal(readCollapsed());
-
-  /**
-   * The business's active WhatsApp numbers, for the sidebar's switcher (shown from two up). Analytics, the OTP test,
-   * a new campaign and more act on the selected number; it could only be changed on the WhatsApp page before.
-   */
-  protected readonly numbers = signal<readonly { id: number; name: string; main: boolean }[]>([]);
-  /** The number in use: the stored pick, else the main number (what the server takes when none is named). */
-  protected readonly numberId = computed(() => this.store.channelId() ?? this.numbers().find((n) => n.main)?.id ?? null);
-
-  private loadNumbers(): void {
-    if (!this.auth.user() || this.platformView() || this.bare()) return this.numbers.set([]);
-    this.channelsApi.list().subscribe({
-      next: ({ channels }) =>
-        this.numbers.set(
-          channels.filter((c) => c.status === 'active').map((c) => ({ id: c.id, name: c.displayName, main: c.isDefault })),
-        ),
-      // The switcher is extra: without it the WhatsApp page still switches numbers.
-      error: () => undefined,
-    });
-  }
-
-  protected useNumber(raw: string): void {
-    const id = Number(raw);
-    if (id) this.store.useChannel(id);
-  }
 
   /** The sidebar as a drawer, below `lg`. */
   protected readonly navOpen = signal(false);

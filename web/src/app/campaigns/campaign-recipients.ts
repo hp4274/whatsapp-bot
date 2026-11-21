@@ -11,6 +11,7 @@ import {
 import type { CampaignAnalytics } from '../core/api';
 import { scrollToTop } from '../core/scroll';
 import { count, localTime, statusLabel } from './campaign-format';
+import { ErrorHelpDialog } from './error-help';
 import { CampaignStatusPill } from './status-pill';
 
 type Recipient = CampaignAnalytics['recipients'][number];
@@ -32,7 +33,7 @@ function friendlyError(error: string | null): string {
  */
 @Component({
   selector: 'app-campaign-recipients',
-  imports: [CampaignStatusPill],
+  imports: [CampaignStatusPill, ErrorHelpDialog],
   templateUrl: './campaign-recipients.html',
   styleUrl: './campaign-recipients.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -47,6 +48,8 @@ export class CampaignRecipients {
   readonly numbers = input<{ channelId: number; label: string }[]>([]);
 
   protected readonly status = signal('ALL');
+  /** The failed row whose "Learn more" is open. */
+  protected readonly helpFor = signal<Recipient | null>(null);
   protected readonly search = signal('');
   protected readonly limit = signal(PAGE);
   /** One number's list, or every number's ('ALL'). */

@@ -282,3 +282,21 @@ h3 {
   .count { font-size: 26px; }
   .rt { flex: 1 1 100%; }
 }
+
+// "Learn more" beside a failure reason: opens what it means and what to do.
+.learn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 auto 0 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--primary-text);
+  cursor: pointer;
+  .ti { font-size: 14px; }
+  &:hover { text-decoration: underline; }
+  &:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+}

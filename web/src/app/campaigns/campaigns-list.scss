@@ -83,18 +83,16 @@ td.num { font-variant-numeric: tabular-nums; }
 .idx { width: 1%; color: var(--hint); text-align: right; font-variant-numeric: tabular-nums; }
 /* The flex row lives in a wrapper: display:flex on the <td> itself drops it out of the table row and breaks borders/heights. */
 .actions-cell { width: 1%; }
+/* Right-aligned, one gap: Open and Duplicate sit at the same x on every row, whatever else the row offers. */
 .actions {
-  display: grid;
-  grid-template-columns: 88px 88px repeat(3, 32px);
-  grid-template-areas: 'run stop edit copy open';
+  display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
+  white-space: nowrap;
 
-  .a-run { grid-area: run; justify-self: start; }
-  .a-stop { grid-area: stop; justify-self: start; }
-  .a-edit { grid-area: edit; }
-  .a-copy { grid-area: copy; }
-  .a-open { grid-area: open; }
+  .btn.icon { flex: none; width: 32px; height: 32px; padding: 0; justify-content: center; }
+  .a-del:not(.danger):hover { color: var(--danger-text); border-color: color-mix(in srgb, var(--danger) 40%, var(--border-color)); }
 }
 .actions-col { width: 1%; }
 

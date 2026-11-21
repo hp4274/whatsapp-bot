@@ -128,6 +128,7 @@
           [value]="draft().phoneNumber"
           (valueChange)="setDraft('phoneNumber', $event)"
         />
+        <span class="hint">Filled in by itself when you link it with a QR code.</span>
       </div>
     </div>
 
@@ -229,6 +230,7 @@
         [sending]="sendRunning()"
         [multi]="multi()"
         [recommended]="recommendedId() === ch.id"
+        [duplicateOf]="duplicates()[ch.id] ?? ''"
         [canDelete]="multi()"
         (updated)="replace($event)"
         (changed)="refresh()"
@@ -280,6 +282,7 @@
           [capabilities]="capabilities()"
           [multi]="true"
           [recommended]="recommendedId() === other.id"
+          [duplicateOf]="duplicates()[other.id] ?? ''"
           [canDelete]="true"
           [linkBusy]="store.connecting()"
           (updated)="replace($event)"

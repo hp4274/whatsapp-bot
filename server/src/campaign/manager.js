@@ -304,6 +304,8 @@ export class CampaignManager extends EventEmitter {
             message: item.message,
             sending: item === this.current,
             later: later.includes(item),
+            // The saved campaign it belongs to (campaignKey 'camp-<id>'), so each campaign's card lists its own.
+            campaign: Number(/^camp-(\d+)$/.exec(item.campaignId ?? '')?.[1]) || null,
         }));
     }
 

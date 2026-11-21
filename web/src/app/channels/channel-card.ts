@@ -14,6 +14,7 @@ import {
 import { Observable } from 'rxjs';
 
 import { Channel, ChannelPatch, ChannelsApi } from '../core/api';
+import { Auth } from '../core/auth';
 import { ChannelSettings } from './channel-settings';
 import { LIVE_LABEL, describeDays, liveState, plainError, transportMeta, zoneLabel } from './channel-meta';
 import { PhoneInput } from '../core/phone-input';
@@ -51,6 +52,7 @@ export class ChannelCard {
   private readonly api = inject(ChannelsApi);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
+  private readonly auth = inject(Auth);
 
   readonly channel = input.required<Channel>();
   readonly capabilities = input<string[]>([]);
@@ -70,6 +72,8 @@ export class ChannelCard {
   readonly sending = input(false);
   /** Linking starts a session: held off while a number is mid-link. */
   readonly linkBusy = input(false);
+  /** Another card on the page carries the same WhatsApp number (by digits, never by name): its name. */
+  readonly duplicateOf = input('');
 
   /** Saved: the server's copy of this number, so the page updates its list without reloading it. */
   readonly updated = output<Channel>();
@@ -96,6 +100,16 @@ export class ChannelCard {
   private readonly editor = viewChild('editor', { read: ElementRef<HTMLElement> });
 
   protected readonly state = computed(() => liveState(this.channel()));
+  /** The number typed in, else the one WhatsApp reported when it linked. */
+  protected readonly phone = computed(() => {
+    const c = this.channel();
+    const linked = c.providerAccountId?.replace(/D/g, '');
+    return c.phoneNumber || (linked ? '+' + linked : '');
+  });
+  /** Catalog only when the platform switched the service on for this business (super admins see everything). */
+  protected readonly catalogOn = computed(
+    () => this.auth.isSuperAdmin() || !!this.auth.tenant()?.services.includes('catalog'),
+  );
   protected readonly stateLabel = computed(() => LIVE_LABEL[this.state()]);
   protected readonly transport = computed(() =>
     transportMeta(this.channel().health?.transport || this.channel().provider),

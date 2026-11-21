@@ -405,7 +405,7 @@ export class CampaignDetailView {
     call().subscribe({
       next: (res) => {
         this.busy.set(null);
-        this.campaign.set(res.campaign);
+        this.keep(res.campaign);
         this.store.setStatus(typeof ok === 'string' ? ok : ok(res), 'primary');
         this.reload();
       },
@@ -448,13 +448,18 @@ export class CampaignDetailView {
     );
   }
 
+  /** An action's answer carries no list number: keep the one the page has. */
+  private keep(campaign: Campaign): void {
+    this.campaign.set({ ...campaign, number: campaign.number ?? this.campaign()?.number });
+  }
+
   protected retry(): void {
     if (this.busy()) return;
     this.busy.set('retry');
     this.api.retryFailed(this.numericId()).subscribe({
       next: ({ campaign, queued }) => {
         this.busy.set(null);
-        this.campaign.set(campaign);
+        this.keep(campaign);
         this.store.setStatus(
           `Re-queued ${queued} failed recipient${queued === 1 ? '' : 's'}.`,
           'primary',

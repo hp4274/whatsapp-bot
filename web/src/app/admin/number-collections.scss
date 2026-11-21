@@ -256,3 +256,17 @@
 @media (prefers-reduced-motion: reduce) {
   .table-wrap tbody tr { animation: none; }
 }
+
+/* The linked number(s) a saved number came from: one chip each, so two numbers never read as one list. */
+.from { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.tag.src {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+  color: var(--primary-text);
+  background: var(--primary-tint);
+  .ti { font-size: 13px; }
+}

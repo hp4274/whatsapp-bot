@@ -291,6 +291,8 @@ export interface QueuedNext {
   readonly message: string;
   readonly sending: boolean;
   readonly later: boolean;
+  /** The saved campaign it belongs to; null for one sent outside a campaign. */
+  readonly campaign?: number | null;
 }
 
 export interface HistoryPage {
@@ -1691,6 +1693,8 @@ export type CampaignStatus = 'draft' | 'scheduled' | 'running' | 'paused' | 'don
 
 export interface Campaign {
   id: number;
+  /** Its place among the business's campaigns, oldest = 1 (list and detail only). */
+  number?: number;
   /** The number it sends from. */
   channelId: number | null;
   /** Shared over several numbers: each number's status, this one first. Absent for a one-number campaign. */
@@ -1872,9 +1876,11 @@ export class CampaignsApi {
       .pipe(catchError(toMessage));
   }
 
-  create(body: CampaignCreate): Observable<{ campaign: Campaign }> {
+  /** `channelId`: the number it sends from; omitted, the selected (or main) number. */
+  create(body: CampaignCreate, channelId?: number | null): Observable<{ campaign: Campaign }> {
+    const headers = channelId ? { 'x-channel-id': String(channelId) } : undefined;
     return this.http
-      .post<{ campaign: Campaign }>('/api/campaigns', body)
+      .post<{ campaign: Campaign }>('/api/campaigns', body, { headers })
       .pipe(catchError(toMessage));
   }
 

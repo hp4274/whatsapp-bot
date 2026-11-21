@@ -950,11 +950,12 @@ export class CampaignDraft {
    * or a second "Save draft" never makes another campaign. Reply rules go in
    * a second call because they are keyed by the saved campaign's id.
    */
-  save(): Observable<Campaign> {
+  /** `channelId`: the number a new campaign sends from; an edited one keeps its own. */
+  save(channelId?: number | null): Observable<Campaign> {
     const id = this.editingId();
     const body = this.buildCreate();
     const request =
-      id !== null ? this.campaignsApi.update(id, body) : this.campaignsApi.create(body);
+      id !== null ? this.campaignsApi.update(id, body) : this.campaignsApi.create(body, channelId);
     return request.pipe(
       tap(({ campaign }) => this.editingId.set(campaign.id)),
       switchMap((res) => this.keepFileContacts().pipe(map(() => res))),

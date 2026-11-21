@@ -89,7 +89,7 @@ export class CampaignsListView {
     const q = this.search().trim().toLowerCase();
     return this.campaigns()
       .filter((c) => f === 'all' || c.status === f)
-      .filter((c) => !q || c.name.toLowerCase().includes(q) || String(c.id) === q);
+      .filter((c) => !q || c.name.toLowerCase().includes(q) || String(c.number ?? c.id) === q.replace(/^#/, ''));
   });
 
   protected readonly pageSize = 10;

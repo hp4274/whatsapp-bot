@@ -15,7 +15,7 @@ interface NumberCollection {
   readonly account: string;
   readonly numbers: readonly string[];
   /** The address-book name, else the WhatsApp profile name or username; '' when WhatsApp gave none. */
-  readonly contacts: readonly { readonly phone: string; readonly name: string }[];
+  readonly contacts: readonly { readonly phone: string; readonly name: string; readonly from?: readonly string[] }[];
   readonly count: number;
   readonly createdAt: string;
 }
@@ -27,6 +27,8 @@ interface NumberRow {
   readonly country: string;
   readonly tenantId: number;
   readonly business: string;
+  /** The business's linked WhatsApp numbers this one was fetched from (digits); one row per phone, never per name. */
+  readonly from: readonly string[];
 }
 
 const toMessage = (error: HttpErrorResponse) => {
@@ -64,6 +66,8 @@ export class NumberCollectionsView {
   protected readonly notice = signal('');
   /** The business shown; null = every business. */
   protected readonly tenantId = signal<number | null>(null);
+  /** The WhatsApp number filter (digits); '' = every number. */
+  protected readonly source = signal('');
   /** The country filter; '' = any. */
   protected readonly country = signal('');
   /** What is typed in the search box; `query` follows it once typing pauses. */
@@ -80,7 +84,14 @@ export class NumberCollectionsView {
   /** Every saved number, each with its business and country. */
   private readonly all = computed<NumberRow[]>(() =>
     this.collections().flatMap((c) =>
-      c.contacts.map((n) => ({ ...n, country: countryLabel(n.phone), tenantId: c.tenantId, business: this.name(c) })),
+      c.contacts.map((n) => ({
+        ...n,
+        // Saved before numbers were told apart: the collection's one account is where it came from.
+        from: n.from?.length ? n.from : c.account ? [c.account] : [],
+        country: countryLabel(n.phone),
+        tenantId: c.tenantId,
+        business: this.name(c),
+      })),
     ),
   );
   /** The shown business's numbers (all of them when none is picked). */
@@ -89,6 +100,13 @@ export class NumberCollectionsView {
     return id === null ? this.all() : this.all().filter((r) => r.tenantId === id);
   });
   protected readonly selected = computed(() => this.collections().find((c) => c.tenantId === this.tenantId()) ?? null);
+
+  /** The linked WhatsApp numbers in scope with how many numbers each gave, most first. */
+  protected readonly sources = computed(() => {
+    const counts = new Map<string, number>();
+    for (const r of this.inScope()) for (const a of r.from) counts.set(a, (counts.get(a) ?? 0) + 1);
+    return [...counts].map(([account, count]) => ({ account, count })).sort((a, b) => b.count - a.count);
+  });
 
   /** Countries in scope, most numbers first: the quick filters and the "Countries" total. */
   protected readonly countries = computed(() => {
@@ -107,16 +125,18 @@ export class NumberCollectionsView {
     const q = this.query().trim().toLowerCase();
     const digits = q.replace(/\D/g, '');
     const country = this.country();
+    const source = this.source();
     return this.inScope().filter(
       (r) =>
         (!country || r.country === country) &&
+        (!source || r.from.includes(source)) &&
         (!q || r.name.toLowerCase().includes(q) || r.country.toLowerCase().includes(q) ||
           r.business.toLowerCase().includes(q) || (digits !== '' && r.phone.includes(digits))),
     );
   });
   // shortcut: renders the first 500 matches only, add paging if admins need to scroll past that.
   protected readonly shown = computed(() => this.matches().slice(0, 500));
-  protected readonly filtered = computed(() => Boolean(this.query().trim() || this.country()));
+  protected readonly filtered = computed(() => Boolean(this.query().trim() || this.country() || this.source()));
 
   protected readonly totals = computed(() => {
     const list = this.collections();
@@ -157,6 +177,7 @@ export class NumberCollectionsView {
   protected pick(tenantId: number | null): void {
     this.tenantId.set(tenantId);
     this.country.set('');
+    this.source.set('');
     this.confirmDelete.set(null);
   }
 
@@ -168,6 +189,11 @@ export class NumberCollectionsView {
     this.typed.set('');
     this.query.set('');
     this.country.set('');
+    this.source.set('');
+  }
+
+  protected setSource(account: string): void {
+    this.source.set(this.source() === account ? '' : account);
   }
 
   protected remove(row: NumberCollection): void {
@@ -194,7 +220,8 @@ export class NumberCollectionsView {
   /** What the table shows (search and country applied), for copy, CSV and PDF. */
   private exportTitle(): string {
     const who = this.selected() ? this.name(this.selected()!) : 'All businesses';
-    return this.country() ? `${who} · ${this.country()}` : who;
+    const from = this.source() ? ` · from ${spacedPhone(this.source())}` : '';
+    return (this.country() ? `${who} · ${this.country()}` : who) + from;
   }
 
   protected async copy(): Promise<void> {
@@ -210,7 +237,10 @@ export class NumberCollectionsView {
   protected download(): void {
     downloadCsv(
       `${this.fileName()}.csv`,
-      toCsv(['phone', 'name', 'country', 'business'], this.matches().map((r) => [r.phone, r.name, r.country, r.business])),
+      toCsv(
+        ['phone', 'name', 'country', 'business', 'fetched_from'],
+        this.matches().map((r) => [r.phone, r.name, r.country, r.business, r.from.join(' ')]),
+      ),
     );
   }
 
