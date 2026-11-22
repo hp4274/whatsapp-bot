@@ -465,6 +465,30 @@
   }
 }
 
+/* Campaigns waiting on a number that cannot send: a warn-toned note like the hints, each campaign a link. */
+.waiting {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-color);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+
+  p {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-weight: 500;
+    .ti { font-size: 16px; color: var(--warning); }
+  }
+  ul { margin: 0; padding-left: 24px; }
+  a { color: var(--text-strong); }
+  .muted { color: var(--text-muted); }
+}
+
 .hints {
   display: grid;
   gap: 6px;

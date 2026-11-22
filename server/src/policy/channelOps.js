@@ -10,6 +10,7 @@
 
 import { Channels } from '../channels.js';
 import { DailyQuota } from '../campaign/safety.js';
+import { HOLD, holdOnNumber } from '../campaigns/store.js';
 import { DEFAULTS, QR_TRANSPORTS, mergeConfig } from '../config.js';
 import { CHANNEL_POLICY } from './channels.js';
 import { applySendingPolicy } from './levels.js';
@@ -165,7 +166,9 @@ export function quotaLeft(tenantDb, channel, runtime, enforced = {}, sending = {
  * @param {import('../db.js').Database} o.db  the unscoped handle
  * @param {Map} o.runtimes  tenantId -> tenant runtime (app.js createTenantRuntime)
  */
-export function createChannelOps({ db, tenancy, runtimes, policy = new PolicyStore(db), now = () => Date.now() }) {
+export function createChannelOps({
+    db, tenancy, runtimes, policy = new PolicyStore(db), now = () => Date.now(), notify = null, alert = null,
+}) {
     const raw = db.db;
     raw.exec(TABLE);
     migrate(raw, stamp(now()));
@@ -202,6 +205,22 @@ export function createChannelOps({ db, tenancy, runtimes, policy = new PolicySto
         } catch (err) {
             console.error(`[channels] failover from number ${row.id} failed:`, err.message);
         }
+        // What failover did not move waits, saying so, rather than reading "Running" with nothing going out.
+        const held = holdOnNumber(db.forTenant(row.tenant_id).forChannel(row.id), Boolean(row.is_default), HOLD.numberPaused);
+        if (held.length) {
+            for (const { state } of runtimes.get(row.tenant_id)?.runtimes.values() ?? []) state.broadcast?.({ type: 'changed', topic: 'campaigns' });
+        }
+        // Nobody pressed anything: the platform's problems log gets it, like a ban (an admin's own pause is its audit row).
+        if (by === 'ban_guard') {
+            alert?.({ kind: 'number_paused', tenantId: row.tenant_id, channelId: row.id, number: row.phone_number || row.provider_account_id || '', text: reason });
+        }
+        // The platform or the ban guard paused it, not the business: its owner hears it from Wuzie's number, in calm
+        // words (the raw reason, "reported as spam" and the like, is on their WhatsApp page and in the admin's log).
+        notify?.(row.tenant_id, 'number_down', {
+            number: row.display_name || row.phone_number || 'Your WhatsApp number',
+            reason: 'Sending from it is on hold for now. Open the WhatsApp page in Wuzie to see what to do next.'
+                + `${held.length ? ` ${held.length} campaign${held.length === 1 ? ' waits' : 's wait'} for it.` : ''}`,
+        }, `number_down:${row.id}:${stamp(now()).slice(0, 13)}`);
     };
 
     /**

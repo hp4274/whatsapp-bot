@@ -71,7 +71,7 @@
           {{ c.status === 'running' || c.status === 'paused' || c.status === 'scheduled' ? 'Sending' : 'Sent' }}
           from {{ numbers().length }} numbers at once:
           @for (n of numbers(); track n.channelId; let last = $last) {
-            {{ n.label }}{{ last ? '' : ',' }}
+            {{ n.label }}@if (n.status === 'paused') {<span class="held"> (paused)</span>}{{ last ? '' : ',' }}
           }
         </p>
       }
@@ -91,6 +91,13 @@
         aria-hidden="true"
       ></i>
       <span class="grow">{{ reason }}</span>
+    </p>
+  }
+  @if (heldShare(); as held) {
+    <!-- One number of a shared campaign waits while the others send: the campaign itself reads running. -->
+    <p class="s-banner tone-warn" role="status">
+      <i class="ti ti-plug-connected-x" aria-hidden="true"></i>
+      <span class="grow">{{ held }}</span>
     </p>
   }
 
@@ -206,23 +213,24 @@
         class="progress"
         role="progressbar"
         aria-label="Sending progress"
-        [attr.aria-valuenow]="p.processed"
+        [attr.aria-valuenow]="p.done"
         aria-valuemin="0"
         [attr.aria-valuemax]="p.total"
       >
         <div class="track"><div class="fill" [style.width.%]="p.pct"></div></div>
         <div class="progress-text">
-          <span
-            ><span class="live-dot" aria-hidden="true"></span> {{ count(p.processed) }} /
-            {{ count(p.total) }} done ({{ pct(p.pct) }})</span
-          >
-          <span class="muted"
-            >{{ count(p.successful) }} sent · {{ count(p.failed) }} failed · {{ count(p.pending) }} waiting</span
-          >
-          @if (store.pacing(); as wait) {
-            @if (store.pacingLeft(); as left) {
-              <span class="muted">{{ wait.resting ? 'Short break, next in' : 'Next in' }} {{ left }}s</span>
+          <span>
+            @if (p.running) {
+              <span class="live-dot" aria-hidden="true"></span>
             }
+            {{ count(p.done) }} / {{ count(p.total) }} done ({{ pct(p.pct) }})
+          </span>
+          <span class="muted"
+            >{{ count(p.sent) }} sent · {{ count(p.failed) }} failed{{ p.skipped ? ' · ' + count(p.skipped) + ' skipped' : '' }}
+            · {{ count(p.waiting) }} waiting</span
+          >
+          @if (p.running && nextIn() > 0) {
+            <span class="muted">Next message in {{ nextIn() }}s</span>
           }
         </div>
       </div>
@@ -249,7 +257,12 @@
           <i class="ti ti-player-pause" aria-hidden="true"></i>Pause
         </button>
       }
-      @if (c.status === 'paused') {
+      @if (c.status === 'paused' && c.options.linkHold) {
+        <!-- Resume could only fail while its number cannot send: the way out is the number. -->
+        <a class="btn primary" routerLink="/whatsapp">
+          <i class="ti ti-plug-connected" aria-hidden="true"></i>Connect number
+        </a>
+      } @else if (c.status === 'paused') {
         <button type="button" class="btn primary" [disabled]="!!busy()" (click)="act('resume')">
           <i class="ti ti-player-play" aria-hidden="true"></i>Resume
         </button>
@@ -264,7 +277,7 @@
           (blur)="confirmCancel.set(false)"
         >
           <i class="ti ti-ban" aria-hidden="true"></i>
-          {{ confirmCancel() ? 'Click again to stop' : 'Stop sending the rest' }}
+          {{ confirmCancel() ? stopQuestion(live()?.waiting ?? 0) : 'Stop sending' }}
         </button>
       }
 
@@ -277,6 +290,44 @@
         <i class="ti ti-copy" aria-hidden="true"></i>Duplicate
       </a>
     </div>
+
+    @if (moveTargets(); as targets) {
+      @if (targets.length) {
+        <!-- Its number cannot send: the rest can go from another connected number, as the same campaign. -->
+        <div class="move" role="group" aria-labelledby="move-title">
+          <p id="move-title" class="move-title">Send the rest from another number</p>
+          <p class="muted move-hint">
+            People who have not got it yet get it from the number you pick. They have not heard from it before, so
+            keep the list to people who know your business.
+          </p>
+          <div class="move-row">
+            <label class="sr-only" for="move-to">Number</label>
+            <select id="move-to" (change)="moveTo.set(+$any($event.target).value)" [disabled]="!!busy()">
+              @for (ch of targets; track ch.id) {
+                <option [value]="ch.id" [selected]="(moveTo() ?? targets[0].id) === ch.id">
+                  {{ ch.displayName || ch.phoneNumber }}
+                </option>
+              }
+            </select>
+            <button type="button" class="btn" [disabled]="!!busy()" (click)="move()">
+              <i class="ti ti-arrows-exchange" aria-hidden="true"></i>Send from this number
+            </button>
+          </div>
+        </div>
+      }
+    }
+
+    @if (notice()) {
+      <p class="action-note" role="status">{{ notice() }}</p>
+    }
+    @if (actionError()) {
+      <p class="action-note bad" role="alert">
+        {{ actionError() }}
+        <button type="button" class="btn sm icon ghost" (click)="actionError.set('')" aria-label="Dismiss">
+          <i class="ti ti-x" aria-hidden="true"></i>
+        </button>
+      </p>
+    }
 
     <!-- Rarely needed, so folded away; it opens by itself when there are failures to retry. -->
     <details class="advanced" [open]="canRetry()">

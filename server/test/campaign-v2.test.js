@@ -265,7 +265,7 @@ describe('the campaign store', () => {
             options: { pacing: 'fast', fallbacks: { name: 'there' }, interactive: { type: 'buttons', buttons: [{ title: 'OK' }] } },
         });
         connected = false;
-        assert.throws(() => store.start(c.id), (err) => err.status === 409 && /Connect a transport/.test(err.message));
+        assert.throws(() => store.start(c.id), (err) => err.status === 409 && /not connected/.test(err.message));
         assert.equal(store.get(c.id).status, 'draft');
         connected = true;
         store.start(c.id);

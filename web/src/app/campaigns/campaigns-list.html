@@ -64,6 +64,17 @@
   </p>
 }
 
+@if (notice(); as n) {
+  <!-- What the last row button did, or why it could not: said here, where the person is looking. -->
+  <p class="s-banner" [class]="n.bad ? '' : 'tone-info'" [attr.role]="n.bad ? 'alert' : 'status'">
+    <i class="ti" [class]="n.bad ? 'ti-alert-circle' : 'ti-circle-check'" aria-hidden="true"></i>
+    <span class="grow">{{ n.text }}</span>
+    <button type="button" class="btn sm icon ghost" (click)="notice.set(null)" aria-label="Dismiss">
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
+  </p>
+}
+
 @if (!loaded()) {
   <section class="s-card" aria-busy="true" aria-label="Loading campaigns">
     @for (i of [1, 2, 3, 4, 5]; track i) {
@@ -144,6 +155,9 @@
                     ><i [style.width.%]="r.donePct"></i
                   ></span>
                   <span class="line">{{ count(r.done) }} of {{ count(r.total) }} done</span>
+                  @if (r.day) {
+                    <small class="rel">{{ r.day }}</small>
+                  }
                 } @else if (r.attempted) {
                   <span class="line"><b>{{ count(r.sent) }}</b> sent</span>
                 } @else if (c.status === 'done' || c.status === 'cancelled') {
@@ -180,7 +194,16 @@
                     <i class="ti ti-player-pause" aria-hidden="true"></i>Pause
                   </button>
                 }
-                @if (canResume(c.status)) {
+                @if (canResume(c.status) && c.options.linkHold) {
+                  <!-- Resume could only fail while its number cannot send: the way out is the number. -->
+                  <a
+                    class="btn sm primary a-run"
+                    routerLink="/whatsapp"
+                    [attr.aria-label]="'Connect the number of ' + c.name"
+                  >
+                    <i class="ti ti-plug-connected" aria-hidden="true"></i>Connect
+                  </a>
+                } @else if (canResume(c.status)) {
                   <button
                     type="button"
                     class="btn sm primary a-run"
@@ -200,11 +223,11 @@
                     (click)="act(c, 'cancel')"
                     (blur)="isConfirming(c.id, 'cancel') && confirming.set(null)"
                     [attr.aria-label]="
-                      isConfirming(c.id, 'cancel') ? 'Confirm cancel ' + c.name : 'Cancel ' + c.name
+                      isConfirming(c.id, 'cancel') ? 'Confirm stop sending ' + c.name : 'Stop sending ' + c.name
                     "
                   >
                     <i class="ti ti-ban" aria-hidden="true"></i>
-                    {{ isConfirming(c.id, 'cancel') ? 'Confirm?' : 'Cancel' }}
+                    {{ isConfirming(c.id, 'cancel') ? 'Stop?' : 'Stop' }}
                   </button>
                 }
                 @if (canDelete(c.status)) {

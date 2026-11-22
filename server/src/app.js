@@ -92,7 +92,10 @@ import { createStorageRouter } from './storage/routes.js';
 import { StorageError, safeName, sha256Of, uploadInfo } from './storage/store.js';
 import { createBillingRouter } from './billing/routes.js';
 import { createCampaignRouter } from './campaigns/routes.js';
-import { busyText, dueCampaigns, finishedCampaigns, openCampaigns, recurringTenants, runningSpreadCampaigns } from './campaigns/store.js';
+import {
+    CampaignError, HOLD, NOT_CONNECTED, busyText, dueCampaigns, finishedCampaigns, holdOnNumber, openCampaigns, recurringTenants,
+    runningSpreadCampaigns,
+} from './campaigns/store.js';
 import { LinkStore, followLink } from './links/store.js';
 import { DEFAULT_PLANS } from './billing/plans.js';
 import { PAYMENTS } from './billing/schema.js';
@@ -141,13 +144,13 @@ import {
 } from './tenancy.js';
 import { sendingTables, skipStartLevel, startLevelFor, suggestStart } from './policy/levels.js';
 import { PACING_PRESETS, bulkWindowOpen, sendingHours, speedRow } from './campaign/safety.js';
-import { auditCsv, createAdminOps } from './adminOps.js';
+import { PROBLEM_ACTIONS, auditCsv, createAdminOps } from './adminOps.js';
 import { lastBackup, runBackupIfDue } from './backup.js';
 import { encryptionStatus } from './security/keyGate.js';
 import { capMessage, createChannelOps, newNumberSafety, numberCap, overCap, providerBlocked, quotaLeft } from './policy/channelOps.js';
 import { TransportError } from './transports/base.js';
 import { SandboxTransport } from './transports/sandbox.js';
-import { BAN_TEXT, BaileysTransport, TOS_WARNING } from './transports/baileys.js';
+import { BaileysTransport, TOS_WARNING } from './transports/baileys.js';
 
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -159,13 +162,8 @@ const MAX_VIDEO_BYTES = 64 * 1024 * 1024;
 const MAX_MEDIA_BYTES = 16 * 1024 * 1024;
 /** Opt-outs per 100 sent in a week that count as a danger sign (the health panel's line). */
 const OPT_OUT_WARN_PERCENT = 2;
-/** Why a campaign paused when its number dropped out; a relink carries it on (campaigns/store.js relinked). */
-const UNLINKED_HOLD = 'Paused: the WhatsApp number was unlinked. Link it again on the WhatsApp page and sending carries on.';
-const BANNED_HOLD = 'Paused: WhatsApp banned this number. Its messages wait until a number is linked again.';
-const OFFLINE_HOLD = 'Paused: the WhatsApp number is not connected. Sending carries on by itself once it is back online.';
 /** How long a number may be offline before its campaigns read paused: a short drop reconnects by itself. */
 const OFFLINE_GRACE_MS = 30_000;
-const NOT_CONNECTED_RESUME = 'This WhatsApp number is not connected. Connect it on the WhatsApp page and sending carries on by itself.';
 const mediaUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: MAX_VIDEO_BYTES },
@@ -449,6 +447,13 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         })).catch((err) => logger.warn('ops alert failed', { error: err.message }));
     };
     manager.opsAlert = opsAlert;
+    /** The owner hears it from Wuzie's number (platform/notify.js): theirs is the one in trouble, or it is news to them. */
+    state.notifyOwner = (kind, vars, key) => deps.notifyOwner?.(kind, vars, key);
+    /** This number stopped sending on its own (not its owner's Disconnect): at most once an hour. */
+    const notifyDown = (reason) => state.notifyOwner('number_down', {
+        number: state.channel?.displayName || state.channel?.phoneNumber || 'Your WhatsApp number',
+        reason: reason.replace(/^Paused: (.)/, (_, first) => first.toUpperCase()),
+    }, `number_down:${state.channel?.id}:${new Date().toISOString().slice(0, 13)}`);
     // Bulk waits out the sending window instead of failing.
     manager.bulkWindowOpen = () => bulkWindowOpen(state.channel);
     manager.timezone = () => state.channel?.timezone;
@@ -570,6 +575,8 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             state.transport = null;
             state.info = null;
             state.qr = null;
+            // Queued messages would fail one after another on no transport: they wait for the next Connect instead.
+            holdForLink(HOLD.reconnect);
             manager.setTransport(new NullTransport());
             autoReply.setTransport(new NullTransport());
             broadcast(state, { type: 'connection', connected: false });
@@ -586,16 +593,20 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     });
 
     // --------------------------------------------------------- connection --
-    /** WhatsApp never says why it bans; this is the app's own evidence from the last 7 days. */
-    const banText = (detail) => {
+    /**
+     * WhatsApp never says why it stops a number; this is the app's own evidence from the last 7 days. The business
+     * reads it (its WhatsApp page, the sidebar): calm words, never "banned" (the state code and the log say it).
+     */
+    const banText = () => {
         const at = (ms) => new Date(Date.now() - ms).toISOString().replace(/\.\d{3}Z$/, '+00:00');
         const { reports, blocks } = manager.healthRates();
         const q = db.channelQuality(at(7 * 86_400_000), at(86_400_000));
         const done = q.sent7 + q.failed7;
-        const parts = [`${reports} report${reports === 1 ? '' : 's'}`, `${blocks} likely block${blocks === 1 ? '' : 's'}`];
+        const parts = [`${reports} spam report${reports === 1 ? '' : 's'}`,
+            `${blocks} ${blocks === 1 ? 'person' : 'people'} who may not want your messages`];
         if (done) parts.push(`${Math.round((q.failed7 / done) * 100)}% failed`);
         if (q.optOuts7) parts.push(`${q.optOuts7} opt-out${q.optOuts7 === 1 ? '' : 's'}`);
-        return `${detail} In the last 7 days: ${parts.join(', ')}.`;
+        return `Sending from this number is on hold for now. In the last 7 days: ${parts.join(', ')}.`;
     };
 
     app.get('/connection', (req, res) => res.json(connectionState(state)));
@@ -651,7 +662,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
                     connected: false,
                     account: state.info?.account ?? '',
                     detail: payload.detail ?? '',
-                    error: payload.state === 'banned' ? banText(payload.detail)
+                    error: payload.state === 'banned' ? banText()
                         : ['error', 'reconnect_failed', 'auth_failure', 'qr_expired'].includes(payload.state)
                             ? payload.detail ?? ''
                             : null,
@@ -690,7 +701,16 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
                 }
                 if (payload.state === 'auth_failure' || payload.state === 'banned') {
                     // Hold the rest QUEUED instead of failing each row on the NullTransport; relinking resumes it.
-                    holdForLink(payload.state === 'banned' ? BANNED_HOLD : UNLINKED_HOLD);
+                    const reason = payload.state === 'banned' ? HOLD.banned : HOLD.unlinked;
+                    holdForLink(reason);
+                    if (!transport.loggingOut) {
+                        // Removed from the phone, or a login WhatsApp will never take again: either way a QR scan.
+                        if (payload.state === 'auth_failure') {
+                            opsAlert({ kind: 'logout', text: 'The number was logged out unexpectedly.', detail: payload.detail ?? '' });
+                        }
+                        notifyDown(reason); // the owner's own Disconnect is no news to them
+                        state.downReported = true; // the ban / logout alert is this outage's; no second "offline" one
+                    }
                     manager.setTransport(new NullTransport());
                     autoReply.setTransport(new NullTransport());
                 }
@@ -699,14 +719,16 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             broadcast(state, { type: 'transportState', ...payload });
         });
         transport.events?.on('ready', (info) => {
+            let newPhone = false;
             // Remember which number scanned in, so linking a different one resets the sending level and inbox.
             if (info?.account) {
                 const before = state.channel?.numberSince;
                 const previous = state.channel?.providerAccountId || state.channel?.phoneNumber;
                 state.channel = linked(info.account);
+                newPhone = state.channel.numberSince !== before;
                 // A phone that answered on this channel before gets its answers back instead of the questions again.
-                if (state.channel.numberSince !== before) deps.switchChannelPhone?.(state.channel.id, previous, info.account);
-                if (state.scanned || state.channel.numberSince !== before) {
+                if (newPhone) deps.switchChannelPhone?.(state.channel.id, previous, info.account);
+                if (state.scanned || newPhone) {
                     // A fresh QR link: bulk rests first (unless the number's history says it is an old one).
                     state.scanned = false;
                     const { linkedAt } = state.save({ linkedAt: utcNow() });
@@ -721,17 +743,16 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             manager.setTransport(transport);
             autoReply.setTransport(transport);
             manager.start();
-            resumeHeld();
+            if (newPhone) {
+                // Mid-campaign, people would suddenly hear from a number they never saw: the held runs leave the queue
+                // (their rows stay QUEUED for each one's Resume) and wait for their owner; replies and OTPs carry on.
+                for (const key of manager.runKeys()) manager.dropRun(key);
+                if (manager.heldForLink) manager.resume();
+                manager.emit('event', { type: 'linkChanged', reason: HOLD.newPhone(digitsOf(info.account)) });
+            } else {
+                resumeHeld();
+            }
             broadcast(state, { type: 'connection', ...connectionState(state) });
-        });
-        transport.events?.on('disconnected', (detail) => {
-            state.transport = null;
-            state.info = null;
-            state.qr = null;
-            state.connecting = false;
-            manager.setTransport(new NullTransport());
-            autoReply.setTransport(new NullTransport());
-            broadcast(state, { type: 'connection', connected: false, detail });
         });
         transport.events?.on('receipt', ({ providerId, status, error }) => {
             manager.handleReceipt(providerId, status, error);
@@ -756,10 +777,6 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         // recordBrake raises the ops alert).
         transport.events?.on('unstable', ({ reconnects } = {}) => {
             manager.recordBrake('unstable', `The connection dropped ${reconnects} times in the last hour. Bulk and new chats wait 8 hours.`);
-        });
-        // The device was unlinked from the phone or WhatsApp ended the session, not a logout from here.
-        transport.events?.on('logged_out', ({ detail } = {}) => {
-            opsAlert({ kind: 'logout', text: 'The number was logged out unexpectedly.', detail: detail ?? '' });
         });
         transport.events?.on('inbound', (message) => {
             void handleInbound(state, message);
@@ -787,7 +804,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
                 connected: false,
                 account: '',
                 detail: err.message,
-                error: banned ? banText(BAN_TEXT) : err.message,
+                error: banned ? banText() : err.message,
                 code: banned ? 'WHATSAPP_BANNED' : (err.code ?? null),
                 realDelivery: Boolean(transport.realDelivery),
             };
@@ -814,29 +831,54 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         return { status: 200, body: connectionState(state) };
     };
     state.connect = connectChannel;
-    // Only the hold a ban / logged-out session put on; an operator's pause since then (it clears the flag) stays.
+    /**
+     * Linked again: campaigns held for the number carry on (records first, so a daily-limit hold the resume hits lands
+     * on them). Only the queue a hold or a daily limit paused resumes; an operator's pause (it clears both) stays.
+     */
     const resumeHeld = () => {
-        if (!manager.heldForLink) return;
-        // Records read running first, so a daily-limit hold the resume may hit lands on them.
-        manager.emit('event', { type: 'linkBack', reason: heldReason });
-        manager.resume();
+        manager.emit('event', { type: 'linkBack' });
+        if (manager.heldForLink || manager.pausedByQuota) manager.resume();
     };
-    /** The number is unlinked (or banned): hold its queue for the relink, and its campaigns read paused with `reason`. */
-    let heldReason = null;
+    /** The number cannot send: hold its queue, and its campaigns (in memory or only in the table) read paused with `reason`. */
     const holdForLink = (reason) => {
-        if (manager.queue.isPaused || manager.queue.isStopped) return;
-        manager.pause();
-        manager.heldForLink = true;
-        heldReason = reason;
+        if (!manager.queue.isPaused && !manager.queue.isStopped) {
+            manager.pause();
+            manager.heldForLink = true;
+        }
         manager.emit('event', { type: 'linkLost', reason });
     };
-    // Offline for longer than a drop (lost signal, a failed reconnect, not back after a restart) while it holds a
-    // campaign: hold it the same way. The next 'ready' carries it on (resumeHeld).
+    // Offline for longer than a drop (lost signal, a failed reconnect, another session took it, not back after a
+    // restart): once per outage, its campaigns (in memory or only in the table) are held the same way, the platform's
+    // log gets an `offline` problem and the owner hears it. A number switched off on purpose, with nothing waiting
+    // on it, is no problem. Back online, the log says so too. The next 'ready' carries the campaigns on.
     let offlineSince = null;
     state.offlineWatch = setInterval(() => {
-        if (state.transport?.isConnected?.()) return void (offlineSince = null);
+        if (state.transport?.isConnected?.()) {
+            if (state.downReported) {
+                const minutes = Math.max(1, Math.round((Date.now() - (offlineSince ?? Date.now())) / 60_000));
+                state.tenancy?.audit({
+                    tenantId: db.tenantId ?? null, userId: null, requestId: null, action: 'channel.back_online',
+                    target: `channel-${state.channel?.id}`, detail: offlineSince ? `${minutes} min offline` : '',
+                });
+            }
+            offlineSince = null;
+            state.downReported = false;
+            return;
+        }
         offlineSince ??= Date.now();
-        if (Date.now() - offlineSince >= OFFLINE_GRACE_MS && manager.runKeys().size) holdForLink(OFFLINE_HOLD);
+        if (state.downReported || Date.now() - offlineSince < OFFLINE_GRACE_MS) return;
+        const held = manager.runKeys().size || state.campaigns?.onNumber('running', state.channel?.isDefault).length || 0;
+        if (!held && !state.config.autoConnect) return;
+        const t = state.transport;
+        // Only a press of Connect brings these back; a plain drop reconnects by itself.
+        const reason = t?.replaced || t?.qrExpired || !state.config.autoConnect ? HOLD.reconnect : HOLD.offline;
+        if (held) holdForLink(reason);
+        const why = t?.replaced ? 'Another session took over this WhatsApp login. Press Connect to take it back.'
+            : t?.qrExpired ? 'The QR code ran out before anyone scanned it.'
+                : `Not connected for over ${OFFLINE_GRACE_MS / 1000} s${state.info?.detail ? ` (${state.info.detail})` : ''}.`;
+        opsAlert({ kind: 'offline', text: `${why}${held ? ` ${held} campaign${held === 1 ? '' : 's'} wait for it.` : ''}` });
+        notifyDown(reason);
+        state.downReported = true;
     }, 5000);
     state.offlineWatch.unref?.();
 
@@ -874,7 +916,7 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
         state.transport = null;
         state.info = null;
         state.qr = null;
-        holdForLink(UNLINKED_HOLD);
+        holdForLink(HOLD.unlinked);
         manager.setTransport(new NullTransport());
         autoReply.setTransport(new NullTransport());
         broadcast(state, { type: 'connection', connected: false, qr: null });
@@ -1983,9 +2025,9 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             errors: [manager.resumeRefusal ?? `Daily limit of ${manager.quota.limit} reached - resume after midnight.`],
             stats: manager.statsSnapshot(),
         });
-        // Unlinked: every message would fail on no connection. The relink carries the run on by itself.
-        if (action === 'resume' && manager.heldForLink) {
-            return res.status(409).json({ errors: [NOT_CONNECTED_RESUME], stats: manager.statsSnapshot() });
+        // Not connected: every message would fail at once. A number that comes back carries a held run on by itself.
+        if (action === 'resume' && !state.transport?.isConnected?.()) {
+            return res.status(409).json({ errors: [NOT_CONNECTED], stats: manager.statsSnapshot() });
         }
         if (record && ['running', 'paused'].includes(record.status)) {
             const store = state.campaigns;
@@ -2380,6 +2422,11 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
             // A disabled channel must stop sending now, not at the next restart.
             // Swapping provider rebuilds the transport for the same reason.
             if (channel.status !== 'active' || before?.provider !== channel.provider) await release(channel.id);
+            if (channel.status !== 'active' && before?.status === 'active') {
+                // Its engine is closed: its campaigns wait for it, saying so, instead of reading "Running" (holdOnNumber).
+                const held = holdOnNumber(db.forChannel(channel.id), channel.isDefault, HOLD.numberPaused);
+                if (held.length) for (const { state } of runtimes.values()) state.broadcast?.({ type: 'changed', topic: 'campaigns' });
+            }
             audit?.(req, 'channel.update', channel.id, channel.status);
             return res.json({ channel: publicChannel(channel) });
         } catch (err) {
@@ -2462,6 +2509,13 @@ function createTenantRuntime({ db, config, tenantDir, sessionDir, deps, audit, p
 
     app.delete('/channels/:id', async (req, res) => {
         try {
+            // Its campaigns would be left with no number to send from, unable to finish or be stopped.
+            const open = db.db.prepare(`SELECT name FROM campaigns WHERE tenant_id = ? AND channel_id = ?
+                AND status IN ('running', 'paused', 'scheduled')`).all(db.tenantId, Number(req.params.id));
+            if (open.length) {
+                const names = open.slice(0, 3).map((c) => `"${c.name}"`).join(', ') + (open.length > 3 ? ` and ${open.length - 3} more` : '');
+                return res.status(409).json({ errors: [`Campaigns still send from this number: ${names}. Stop them or send the rest from another number first.`] });
+            }
             const channel = channels.remove(req.params.id);
             // A deleted number is unlinked too, or the phone keeps listing this server as a linked device
             // and the saved login stays on disk. (Disabling a number only releases it, so it can resume.)
@@ -2545,6 +2599,8 @@ function channelHealth(channel, runtime) {
         accountType: state?.info?.accountType ?? null,
         detail: state?.info?.detail ?? '',
         error: state?.info?.error ?? null,
+        // Why it is down, as a code (WHATSAPP_BANNED…): the super admin's card words it exactly, the business's text stays calm.
+        code: state?.info?.code ?? null,
         withinSendingWindow: withinSendingWindow(channel),
         transport: channel.provider || channel.settings?.transport || '',
     };
@@ -2678,9 +2734,15 @@ export function createApp({
         });
     };
     /** An automatic email, kept in the Wuzie Email page's log. `label` is who it is about. */
+    let emailAlertAt = 0;
     const sendLogged = async (mail, label) => {
         const result = await mailer.send(mail);
         platformEmails.record(mail, label, result);
+        // The mail provider down or refusing the login (an outside service): a problem, once an hour, not per email.
+        if (!result.sent && mailer.configured && Date.now() - emailAlertAt > 3_600_000) {
+            emailAlertAt = Date.now();
+            void opsAlert({ kind: 'email_failed', tenantId: null, text: `${label}: ${result.reason ?? 'the email could not be sent'}` });
+        }
         return result;
     };
     /** One email per key, ever: recorded once it is sent, so a failed one is tried again by the next run. */
@@ -2794,6 +2856,8 @@ export function createApp({
                     channelStart: (channelId) => app.locals.channelOps?.startOf(channelId) ?? null,
                     setChannelStart: (channelId, level, answers) => app.locals.channelOps?.setStart(channelId, level, answers),
                     switchChannelPhone: (channelId, from, to) => app.locals.channelOps?.switchPhone(channelId, from, to) ?? false,
+                    // Wuzie's number tells the owner what their own number cannot (it stopped, a campaign paused or finished).
+                    notifyOwner: (kind, vars, key) => notifyTenant(kind, tenantId, vars, key),
                     publicBaseUrl,
                     adminFeed: (event) => adminFeed.fromRuntime(tenantId, event),
                 },
@@ -2812,6 +2876,43 @@ export function createApp({
         runtimes.delete(Number(tenantId));
     };
 
+    /**
+     * What is wrong at this business right now, worst first, for the super admin's card (a red sign there instead of
+     * a hunt through every business): numbers that should be up and are not, numbers the platform or the ban guard
+     * paused, campaigns that stopped by themselves or wait on a number, and how many problems were logged in 24 h.
+     */
+    const tenantProblems = (tenant, channels) => {
+        const out = [];
+        for (const ch of channels) {
+            const name = ch.displayName || ch.phoneNumber || `Number #${ch.id}`;
+            if (ch.status !== 'active') {
+                const paused = app.locals.channelOps?.pausedOf(ch.id); // the business's own pause is not a problem
+                if (paused) out.push({ level: 'bad', text: `${name} was paused: ${paused.reason}` });
+            } else if (ch.health.code === 'WHATSAPP_BANNED') out.push({ level: 'bad', text: `${name} was banned by WhatsApp` });
+            else if (ch.health.error) out.push({ level: 'bad', text: `${name}: ${ch.health.error}` });
+            else if (ch.autoConnect && !ch.health.connected && !ch.health.connecting) out.push({ level: 'bad', text: `${name} is not connected` });
+        }
+        let selfPaused = 0;
+        let held = 0;
+        let notStarted = 0;
+        for (const c of db.db.prepare("SELECT status, options FROM campaigns WHERE tenant_id = ? AND status IN ('paused', 'scheduled')").all(tenant.id)) {
+            let options = {};
+            try { options = JSON.parse(c.options || '{}'); } catch { /* a bad row reads as no reason */ }
+            if (c.status === 'paused' && options.linkHold) held += 1;
+            else if (c.status === 'paused' && /^Auto-paused/.test(options.statusReason ?? '')) selfPaused += 1;
+            else if (c.status === 'scheduled' && /^Not started yet/.test(options.statusReason ?? '')) notStarted += 1;
+        }
+        const many = (n, one) => `${n} campaign${n === 1 ? '' : 's'} ${one}`;
+        if (selfPaused) out.push({ level: 'bad', text: many(selfPaused, 'paused itself (too many failed)') });
+        if (held) out.push({ level: 'warn', text: many(held, 'waiting for its number') });
+        if (notStarted) out.push({ level: 'warn', text: many(notStarted, 'past its start time, not started') });
+        const since = new Date(Date.now() - 86_400_000).toISOString().replace(/\.\d{3}Z$/, '+00:00');
+        const logged = db.db.prepare(`SELECT COUNT(*) AS n FROM audit_logs WHERE tenant_id = ? AND created_at >= ?
+            AND action IN (${PROBLEM_ACTIONS.map(() => '?').join(', ')})`).get(tenant.id, since, ...PROBLEM_ACTIONS).n;
+        if (logged) out.push({ level: 'warn', text: `${logged} problem${logged === 1 ? '' : 's'} logged in the last 24 hours` });
+        return out.sort((a, b) => (a.level === b.level ? 0 : a.level === 'bad' ? -1 : 1));
+    };
+
     const tenantOverview = (tenant) => {
         const runtime = runtimes.get(tenant.id);
         const scoped = db.forTenant(tenant.id);
@@ -2825,6 +2926,8 @@ export function createApp({
                 status: channel.status,
                 capabilities: channel.capabilities,
                 isDefault: channel.isDefault,
+                // Meant to be up (its owner connected it): only then is "not connected" a problem.
+                autoConnect: Boolean(channel.settings?.autoConnect),
                 health,
             };
         });
@@ -2832,6 +2935,7 @@ export function createApp({
         const sub = new BillingStore(scoped).subscription();
         return {
             ...tenant,
+            problems: tenantProblems(tenant, channels),
             subscription: sub && {
                 planKey: sub.planKey,
                 planName: sub.plan.name,
@@ -2888,7 +2992,9 @@ export function createApp({
     };
 
     // --------------------------------------------------------- public --
-    app.get('/api/health', (req, res) => res.json({ ok: true, status: 'ready' }));
+    // `startedAt` (ms): when this process started. scripts/deploy.sh checks it is newer than the deploy, so an old
+    // process still holding the port (not restarted, or a stray copy) cannot pass for the new code.
+    app.get('/api/health', (req, res) => res.json({ ok: true, status: 'ready', startedAt: Math.round(Date.now() - process.uptime() * 1000) }));
 
     /**
      * A tracked campaign link (links/store.js): count the tap, then send the
@@ -4719,7 +4825,10 @@ export function createApp({
 
     // Ops pages (read only): plans vs usage, message volume, live channel health, audit search.
     const ops = createAdminOps({ db, tenancy, runtimes });
-    const channelOps = createChannelOps({ db, tenancy, runtimes, policy: policyStore });
+    const channelOps = createChannelOps({
+        db, tenancy, runtimes, policy: policyStore, notify: (tenantId, kind, vars, key) => notifyTenant(kind, tenantId, vars, key),
+        alert: (a) => void Promise.resolve(opsAlert(a)).catch(() => undefined),
+    });
     channelOps.register(admin, audit); // /api/admin/numbers/:channelId/{pause,resume,disconnect,move,level}
     app.locals.channelOps = channelOps;
     admin.get('/plans', (req, res) => res.json(ops.plans()));
@@ -5029,12 +5138,18 @@ export function createApp({
             // First, so a campaign waiting its turn (started on a busy number) does not jump ahead of it.
             for (const { id, tenantId, channelId } of openCampaigns(db)) {
                 try {
+                    // Its number was deleted: nothing can send it, so it says so instead of reading "Running" for ever.
+                    if (channelId != null && !runtimeFor(tenantId).channels.get(channelId)) {
+                        campaignsOn(tenantId, null)?.policyHalt(`camp-${id}`, 'paused', HOLD.gone);
+                        continue;
+                    }
                     campaignsOn(tenantId, channelId)?.recover(id);
                 } catch (err) {
                     const key = `recover:${tenantId}:${id}`;
                     if (!sweepWarned.has(key)) {
                         sweepWarned.add(key);
                         console.error(`[campaigns] ${id} could not resume after restart (will keep retrying):`, err.message);
+                        void opsAlert({ kind: 'campaign_stuck', tenantId, channelId, text: `Campaign #${id}: ${err.message}` });
                     }
                 }
             }
@@ -5057,13 +5172,23 @@ export function createApp({
                             detail: { name: campaign.name, scheduled: true, audience: started?.audience ?? null, queued: started?.queued ?? null } });
                     }
                 } catch (err) {
+                    // Past its time and still scheduled: it says why (no connection, an empty list...) unless the start
+                    // already left its own note (a plan limit it waits on).
+                    if (store && err instanceof CampaignError && (store.get(id)?.options?.statusReason ?? null) === before) {
+                        store.note(id, `Not started yet: ${err.message.charAt(0).toUpperCase()}${err.message.slice(1)}`);
+                    }
                     // A campaign waiting its turn that a plan limit still holds now says so (store.start): tell its
                     // open pages, once, when the note changed.
                     const campaign = store?.get(id);
-                    if (campaign && (campaign.options?.statusReason ?? null) !== before) {
+                    const reason = campaign?.options?.statusReason ?? null;
+                    if (campaign && reason !== before) {
                         const channel = runtimeFor(tenantId).channels.get(campaign.channelId ?? channelId);
                         (channel ? runtimeFor(tenantId).runtimeFor(channel).state : null)
                             ?.broadcast?.({ type: 'changed', topic: 'campaigns' });
+                        // Past its time for a reason (not a plan limit it waits its turn for): once, in the problems log.
+                        if (reason?.startsWith('Not started yet')) {
+                            void opsAlert({ kind: 'campaign_not_started', tenantId, channelId, text: `"${campaign.name}": ${reason.slice(17)}` });
+                        }
                     }
                     // An empty audience, a deleted template or a disconnected
                     // number must not stop the sweep for every other tenant. The
@@ -5291,6 +5416,11 @@ export function createApp({
         const jobs = new JobStore(db);
         const worker = new SchedulerWorker(jobs, { allTenants: true });
         worker.register(WEBHOOK_JOB_KIND, createWebhookDeliveryHandler({ db }));
+        // A business's own webhook receiver (outside the platform) refused every retry: its integration is broken.
+        worker.on('event', (event) => {
+            if (event.type !== 'jobDead' || event.job?.kind !== WEBHOOK_JOB_KIND) return;
+            void opsAlert({ kind: 'webhook_failed', tenantId: event.job.tenantId ?? null, text: event.job.lastError || 'no answer after every retry' });
+        });
         worker.start();
         app.locals.worker = worker;
 
@@ -5344,12 +5474,22 @@ export function createApp({
 
     // A thrown error is logged with its stack and answered as JSON, so the UI
     // shows the cause instead of "500 Internal Server Error".
+    const serverErrorAt = new Map(); // route -> ms of its last problem row
     app.use((err, req, res, next) => {
         if (res.headersSent) return next(err);
         // Multer errors carry a code, not a status: too big is 413, the rest the caller's fault.
         const multerStatus = err.name === 'MulterError' ? (err.code === 'LIMIT_FILE_SIZE' ? 413 : 400) : null;
         const status = multerStatus ?? (Number(err.status ?? err.statusCode) || 500);
-        if (status >= 500) logger.error('unhandled error', { path: req.path, error: err.message, stack: err.stack });
+        if (status >= 500) {
+            logger.error('unhandled error', { path: req.path, error: err.message, stack: err.stack });
+            // A bug or a broken dependency: in the problems log, once an hour per route (ids folded) so a loop cannot flood it.
+            const route = `${req.method} ${req.path.replace(/\/\d+(?=\/|$)/g, '/:id')}`;
+            if (Date.now() - (serverErrorAt.get(route) ?? 0) > 3_600_000) {
+                serverErrorAt.set(route, Date.now());
+                void Promise.resolve(opsAlert({ kind: 'server_error', tenantId: req.tenantId ?? null, text: `${route}: ${err.message}` }))
+                    .catch(() => undefined);
+            }
+        }
         return res.status(status).json({ errors: [status >= 500 ? `Server error: ${err.message}` : err.message] });
     });
     return app;

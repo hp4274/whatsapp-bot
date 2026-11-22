@@ -67,14 +67,15 @@ export const SAFETY_GROUPS: { title: string; fields: SafetyField[] }[] = [
  * Short names for the brakes a QR number can be under (server campaign/humanize.js levelFor), for
  * chips and pills; the server's `text` says the rest. An unknown code shows as itself.
  */
+/** What holds a number back, as its owner reads it: calm words, never "banned", "blocked" or "limited". */
 export const BRAKE_LABELS: Readonly<Record<string, string>> = {
   reply_rate: 'Few replies',
   reports: 'Spam reports',
-  blocks: 'Blocks',
+  blocks: 'Unwanted messages',
   failures: 'Failed sends',
-  restricted: 'Limited by WhatsApp',
+  restricted: 'New chats on hold',
   idle: 'Quiet for a few days',
-  ban: 'Recent ban',
+  ban: 'Sending on hold',
   delivery: 'Low delivery',
   stuck: 'Messages stuck on one tick',
   unstable: 'Unstable connection',

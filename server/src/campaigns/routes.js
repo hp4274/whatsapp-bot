@@ -45,6 +45,15 @@ export function createCampaignRouter({ db, state }) {
             action: campaign.status === 'done' ? 'campaign.done' : 'campaign.day_done', target: campaign.id,
             detail: { name: campaign.name, sent: stats.sent ?? 0, failed: stats.failed ?? 0, total: stats.total ?? 0 },
         });
+        // Its owner is rarely watching when a long run ends: once for the whole campaign, when its last number is done.
+        const root = campaign.options?.parentId ? campaigns.get(campaign.options.parentId) : campaign;
+        const all = campaign.status === 'done' && root ? whole(root) : null;
+        if (all?.status === 'done') {
+            const s = all.stats ?? {};
+            const skipped = (s.byStatus?.NOT_ON_WHATSAPP ?? 0) + (s.byStatus?.CANCELLED ?? 0);
+            state.notifyOwner?.('campaign_finished', { campaign: root.name, sent: s.sent ?? 0, failed: s.failed ?? 0, skipped },
+                `campaign_finished:${root.id}`);
+        }
     };
     // The last message of a run left the queue: close the record at once. The sweeper (`finishedCampaigns`) is
     // the fallback for runs that ended while the process was down.
@@ -110,14 +119,22 @@ export function createCampaignRouter({ db, state }) {
             }
             return;
         }
-        if (event.type === 'linkLost' || event.type === 'linkBack') {
-            // The number was unlinked (or linked again): every run it holds reads paused with the cause, then running.
-            for (const key of keys) {
-                const campaign = event.type === 'linkLost' ? campaigns.holdForLink(key, event.reason) : campaigns.relinked(key, event.reason);
+        if (['linkLost', 'linkBack', 'linkChanged'].includes(event.type)) {
+            // The number cannot send, or can again: each of its campaigns from the table, not only the runs in memory
+            // (a restart leaves those empty), reads paused with the cause, then carries on. A different phone linked
+            // keeps them paused for their owner to decide.
+            const lost = event.type === 'linkLost';
+            const ids = campaigns.onNumber(lost ? 'running' : 'paused', state.channel?.isDefault);
+            let moved = 0;
+            for (const id of ids) {
+                const campaign = lost ? campaigns.holdForLink(id, event.reason)
+                    : event.type === 'linkBack' ? campaigns.relinked(id) : campaigns.keepHeld(id, event.reason);
                 if (!campaign) continue;
+                moved += 1;
                 announce('campaignUpdated', campaign);
-                if (event.type === 'linkLost') engineAudit('campaign.auto_paused', campaign, { reason: event.reason, resumesByItself: true });
+                if (lost) engineAudit('campaign.auto_paused', campaign, { reason: event.reason, resumesByItself: true });
             }
+            if (moved) state.broadcast?.({ type: 'changed', topic: 'campaigns' });
             return;
         }
         const halt = { failureStop: 'paused', policyStop: 'cancelled' }[event.type];
@@ -128,6 +145,12 @@ export function createCampaignRouter({ db, state }) {
             if (!campaign) continue;
             announce('campaignUpdated', campaign);
             engineAudit(halt === 'paused' ? 'campaign.auto_paused' : 'campaign.auto_cancelled', campaign, { reason });
+            if (halt === 'paused') {
+                const why = reason.replace(/^Auto-paused: /, '');
+                state.notifyOwner?.('campaign_paused', { campaign: campaign.name, reason: why },
+                    `campaign_paused:${campaign.id}:${new Date().toISOString().slice(0, 13)}`);
+                state.manager?.opsAlert?.({ kind: 'campaign_paused', text: `"${campaign.name}": ${why}` });
+            }
         }
     });
 
@@ -213,7 +236,8 @@ export function createCampaignRouter({ db, state }) {
                 ?? (sending[0] ?? campaign).status,
             audienceSize: all.reduce((n, c) => n + (c.audienceSize ?? 0), 0),
             stats: addUp(all.map((c) => c.stats)),
-            numbers: all.map((c) => ({ channelId: c.channelId, status: c.status })),
+            // Each number's own share and why it waits, so one paused number is not hidden behind the others sending.
+            numbers: all.map((c) => ({ id: c.id, channelId: c.channelId, status: c.status, statusReason: c.options?.statusReason ?? null })),
         };
     };
     /** Run `act` on every copy; one that cannot (already finished, say) does not stop the rest. */
@@ -528,6 +552,39 @@ export function createCampaignRouter({ db, state }) {
             announce('campaignUpdated', result.own);
             userAudit(req, 'campaign.split', result.own, { numbers: 1 + result.copies.length, people: list.length });
             return res.json({ campaigns: [result.own, ...result.copies.map(({ copy }) => copy)] });
+        } catch (err) {
+            return fail(res, err);
+        }
+    });
+
+    /**
+     * Its number cannot send (unlinked, banned, paused, deleted): the rest goes from another connected number of the
+     * business, as a share of the same campaign (takeOver, as failover does), so the business still sees one campaign.
+     */
+    router.post('/campaigns/:id/move', (req, res) => {
+        try {
+            const campaign = campaigns.require(req.params.id);
+            if (!['running', 'paused', 'scheduled'].includes(campaign.status)) {
+                throw new CampaignError(`a ${campaign.status} campaign has nothing left to send`, 409);
+            }
+            const to = Number(req.body?.channelId);
+            const target = to && to !== campaign.channelId ? state.channelState?.(to) : null;
+            if (!target?.campaigns || target.channel?.status !== 'active' || !target.channel.capabilities?.includes('campaigns')
+                || !target.transport?.isConnected?.()) {
+                throw new CampaignError('Pick another of your numbers that is connected and sends campaigns.', 409);
+            }
+            // This number's engine lets go of the rows first, or it would send them too once it is back.
+            if (campaigns.owns(campaign)) state.manager?.dropRun?.(campaignKey(campaign.id));
+            const name = target.channel.displayName || target.channel.phoneNumber;
+            const result = target.campaigns.takeOver(campaign.id, (people) =>
+                `The remaining ${people} ${people === 1 ? 'person continues' : 'people continue'} from "${name}".`);
+            if (!result) throw new CampaignError('nobody is left to send to', 409);
+            target.broadcast?.({ type: 'campaignCreated', campaign: result.copy });
+            target.broadcast?.({ type: 'changed', topic: 'campaigns' });
+            announce('campaignUpdated', result.root);
+            state.broadcast?.({ type: 'changed', topic: 'campaigns' });
+            userAudit(req, 'campaign.move', result.root, { to, people: result.people });
+            return res.json({ campaign: whole(result.root), people: result.people });
         } catch (err) {
             return fail(res, err);
         }

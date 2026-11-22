@@ -50,8 +50,9 @@ export function channelUsage(channel, { db, config, sending = {}, pin = null, st
     if (waits) todayLimit = quota.status(new Date(Date.parse(waits) + 1000)).limit;
     const usage = { todayLimit, sentToday: status.used, planLimit: todayLimit, growing: false };
     const blocked = paused
-        || (has('ban') && status.level.resting.active ? 'WhatsApp banned this number. Bulk sending waits while it recovers.' : null)
-        || (has('restricted') ? 'WhatsApp is limiting messages from this number to people new to it.' : null)
+        // Calm words for the business: never "banned" or "limited" (the super admin's pages say exactly what it was).
+        || (has('ban') && status.level.resting.active ? 'Bulk sending is on hold for now while this number settles. It starts again by itself.' : null)
+        || (has('restricted') ? 'Messages to people new to this number are on hold for a while. People who already chat with you still get theirs.' : null)
         || (waits ? `A newly linked number waits before bulk sending. It starts ${startsAt(waits, channel.timezone)}.` : null);
     if (quota.qr && status.enabled) {
         Object.assign(usage, { planLimit: status.ceiling, growing: todayLimit < status.ceiling });

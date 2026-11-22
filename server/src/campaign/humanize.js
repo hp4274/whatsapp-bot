@@ -257,9 +257,10 @@ export function levelFor(ledger, {
         : (start == null || start <= 2) && have.delivered < b.restUntilDelivered);
     const active = rest && !pinned;
     const resting = { active, endsAt: active ? isoOf(endsAt) : null };
+    // Brake texts reach the business's own pages: calm words, never "banned", "blocked" or "limited" (the code says it).
     if (banAt && t - banAt < 30 * 86_400_000) {
-        brake('ban', banAt + 30 * 86_400_000, `WhatsApp banned this number on ${isoOf(banAt).slice(0, 10)}. Its sending history `
-            + `restarted from then${bans > 1 ? `, and ${bans} bans in 30 days make each rest longer` : ''}.`);
+        brake('ban', banAt + 30 * 86_400_000, `Sending from this number was put on hold on ${isoOf(banAt).slice(0, 10)}, so it starts `
+            + `again slowly from then${bans > 1 ? `, and with ${bans} holds in 30 days each wait is longer` : ''}.`);
     }
 
     const { reached = 0, replied = 0 } = ledger;
@@ -278,8 +279,8 @@ export function levelFor(ledger, {
     }
     const flagged = (ledger.blocks7d ?? 0) + (ledger.reports7d ?? 0);
     if ((ledger.delivered7d ?? 0) >= b.blockMinDelivered && pct(flagged, ledger.delivered7d) > b.blockMaxPercent) {
-        brake('blocks', null, `Blocks and reports this week (${flagged}) are ${pct(flagged, ledger.delivered7d)}% of the `
-            + `${ledger.delivered7d} messages delivered, over ${b.blockMaxPercent}%. Messages to people who never chatted with it wait until that drops.`);
+        brake('blocks', null, `This week ${flagged} of the ${ledger.delivered7d} people reached did not want these messages `
+            + `(${pct(flagged, ledger.delivered7d)}%, over ${b.blockMaxPercent}%). Messages to people who never chatted with it wait until that drops.`);
     }
     const tried = (ledger.ok24 ?? 0) + (ledger.failed24 ?? 0);
     if (tried >= b.failureMinSends && pct(ledger.failed24, tried) > b.failureMaxPercent) {
@@ -287,8 +288,9 @@ export function levelFor(ledger, {
             + `over ${b.failureMaxPercent}%). Messages to people who never chatted with it wait until failures drop: remove wrong numbers from the list.`);
     }
     if (ledger.restrictedUntil) {
-        brake('restricted', Date.parse(ledger.restrictedUntil), `WhatsApp is limiting messages from this number to new people`
-            + `${ledger.restrictCode ? ` (code ${ledger.restrictCode})` : ''}. New chats and number checks wait until it lifts.`);
+        brake('restricted', Date.parse(ledger.restrictedUntil), 'Messages to people new to this number are on hold for a while'
+            + `${ledger.restrictCode ? ` (code ${ledger.restrictCode})` : ''}. People who already chat with you still get theirs; `
+            + 'new chats start again by themselves.');
     }
     // A number that went quiet starts the day one level lower (never below 1), and one more for every further 3
     // quiet days, down to its starting level. A seeded start counts from its answer, so it is not stepped down

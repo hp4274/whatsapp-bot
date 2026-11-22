@@ -55,6 +55,19 @@ export const PLATFORM_EVENTS = Object.freeze([
         kind: 'plan_expired', label: 'Plan ended', when: 'The day a plan ends.',
         text: 'Hi {name}, the {plan} plan for {business} ended on {date}. Sending is paused after 7 days of grace. Reply here to renew.',
     },
+    // From Wuzie's number because the business's own is the one that stopped: nobody would hear it otherwise.
+    {
+        kind: 'number_down', label: 'Number stopped sending', when: "A business's number is unlinked, banned, paused or offline for long.",
+        text: 'Hi {name}, {number} for {business} stopped sending. {reason}',
+    },
+    {
+        kind: 'campaign_paused', label: 'Campaign paused itself', when: 'A campaign pauses itself because too many messages failed.',
+        text: 'Hi {name}, the campaign "{campaign}" for {business} paused itself. {reason}',
+    },
+    {
+        kind: 'campaign_finished', label: 'Campaign finished', when: 'A campaign has gone out to everyone on its list.',
+        text: 'Hi {name}, the campaign "{campaign}" for {business} has finished: {sent} sent, {failed} failed, {skipped} skipped.',
+    },
 ]);
 
 const EVENT = new Map(PLATFORM_EVENTS.map((e) => [e.kind, e]));

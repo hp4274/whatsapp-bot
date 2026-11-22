@@ -121,6 +121,11 @@ describe('closing a finished campaign', () => {
     });
 
     it('only a campaign\'s own number acts on it', () => {
+        const now = new Date().toISOString();
+        for (const id of [1, 2]) {
+            scoped.db.prepare(`INSERT OR IGNORE INTO whatsapp_channels (id, tenant_id, provider, display_name, created_at, updated_at)
+                VALUES (?, 1, 'sandbox', ?, ?, ?)`).run(id, `Number ${id}`, now, now);
+        }
         const one = new CampaignStore(scoped, { contacts: new ContactStore(scoped, '91'), canSend: () => true });
         const other = db.forTenant(1).forChannel(2);
         const two = new CampaignStore(other, { contacts: new ContactStore(other, '91'), canSend: () => true });
@@ -131,6 +136,13 @@ describe('closing a finished campaign', () => {
         }
         assert.equal(two.recover(campaign.id), false);
         assert.equal(one.get(campaign.id).status, 'running', 'untouched');
+
+        // Its number paused: no engine holds the run, so it can still be paused and stopped, but not sent from here.
+        scoped.db.prepare("UPDATE whatsapp_channels SET status = 'disabled' WHERE id = 1").run();
+        assert.equal(two.pause(campaign.id).status, 'paused');
+        assert.throws(() => two.resume(campaign.id), (err) => err.status === 409 && /paused or was removed/.test(err.message));
+        assert.equal(two.cancel(campaign.id).status, 'cancelled');
+        scoped.db.prepare("UPDATE whatsapp_channels SET status = 'active' WHERE id = 1").run();
     });
 
     it('a running campaign with messages still queued is left alone', () => {

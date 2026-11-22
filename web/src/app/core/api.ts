@@ -601,8 +601,9 @@ function toMessage(error: HttpErrorResponse) {
   const errors = error.error?.errors;
   const message =
     Array.isArray(errors) && errors.length
-      ? errors.join('\n')
+      ? errors.map((e: string) => String(e).charAt(0).toUpperCase() + String(e).slice(1)).join('\n')
       : error.error?.message || plainHttpError(error);
+  // Some server reasons start in lower case ("that audience is empty"): every screen shows a sentence.
   return throwError(() => new Error(message));
 }
 
@@ -1661,6 +1662,10 @@ export interface CampaignOptions {
   readonly previousId?: number;
   /** Server-set: why the repeat ended or could not be booked. */
   readonly recurrenceNote?: string;
+  /** Server-set: why it is paused, held or closed early ("Today's limit reached…"). */
+  readonly statusReason?: string | null;
+  /** Server-set: paused only because its number cannot send; the number coming back carries it on. */
+  readonly linkHold?: boolean;
 }
 
 export interface CampaignRecurrence {
@@ -1714,8 +1719,8 @@ export interface Campaign {
   number?: number;
   /** The number it sends from. */
   channelId: number | null;
-  /** Shared over several numbers: each number's status, this one first. Absent for a one-number campaign. */
-  numbers?: { channelId: number; status: CampaignStatus }[];
+  /** Shared over several numbers: each number's share (its own campaign id), status and why it waits, this one first. */
+  numbers?: { id: number; channelId: number; status: CampaignStatus; statusReason: string | null }[];
   name: string;
   status: CampaignStatus;
   templateId: number | null;
@@ -1934,6 +1939,13 @@ export class CampaignsApi {
   split(id: number, channelIds: number[]): Observable<{ campaigns: Campaign[] }> {
     return this.http
       .post<{ campaigns: Campaign[] }>(`/api/campaigns/${id}/split`, { channelIds })
+      .pipe(catchError(toMessage));
+  }
+
+  /** Its number cannot send: the people it has not reached go from `channelId` instead, as one campaign. */
+  move(id: number, channelId: number): Observable<{ campaign: Campaign; people: number }> {
+    return this.http
+      .post<{ campaign: Campaign; people: number }>(`/api/campaigns/${id}/move`, { channelId })
       .pipe(catchError(toMessage));
   }
 

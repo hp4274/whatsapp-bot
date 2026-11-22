@@ -8,7 +8,7 @@
 
 import { DestroyRef, Injectable, NgZone, computed, effect, inject, signal, untracked } from '@angular/core';
 
-import { Api, CampaignStats, ConnectionState, MessageStatus, SafetyStatus } from './api';
+import { Api, CampaignStats, ConnectionState, SafetyStatus } from './api';
 import { Auth } from './auth';
 
 /** `auto` follows the operating system. */
@@ -394,13 +394,13 @@ export class Store {
         if (connected) {
           this.connecting.set(false);
           this.qr.set(null);
-          this.setStatus(`Connected - ${event['name'] ?? 'transport'}`, 'primary');
+          this.setStatus(`Connected - ${event['name'] ?? 'WhatsApp'}`, 'primary');
         } else if (event['code'] === 'WHATSAPP_BANNED' || event['paused']) {
           // A ban or pause is not a plain disconnect: say why instead.
           this.connecting.set(false);
           this.qr.set(null);
-          const paused = event['paused'] as ConnectionState['paused'];
-          this.setStatus(String(paused?.reason ?? event['error'] ?? 'WhatsApp banned this number.'), 'danger');
+          // Short and calm on every page ("on hold", never "banned"): the WhatsApp page says why and what to do.
+          this.setStatus('Sending is on hold for now. See the WhatsApp page.', 'danger');
         } else if (event['error']) {
           this.connecting.set(false);
           // The last code ran out: leaving it on screen would invite a scan that can no longer work.
@@ -417,7 +417,8 @@ export class Store {
       }
       case 'connectionLost':
         this.connection.update((current) => ({ ...current, connected: false }));
-        this.setStatus(`Connection lost: ${event['error']}`, 'danger');
+        // The transport's own words ("Transport is reconnecting") mean nothing to a business owner.
+        this.setStatus('Connection lost. Reconnecting…', 'danger');
         break;
       case 'qr':
         this.qr.set((event['image'] as string) ?? null);
@@ -430,20 +431,13 @@ export class Store {
         }));
         this.setStatus('Scan the QR code to link WhatsApp.', 'primary');
         break;
+      // The sidebar line is the number's connection, nothing else: a transport's retry chatter and one message's
+      // failure (a raw id and error, red for hours) belong on the campaign and the island, which count them.
       case 'transportState':
-        if (event['detail']) this.setStatus(String(event['detail']), 'primary');
         break;
-      case 'status': {
-        const status = event['status'] as MessageStatus;
-        if (status === 'FAILED' && event['error']) {
-          this.setStatus(
-            `FAILED ${String(event['messageId']).slice(0, 8)}: ${event['error']}`,
-            'danger',
-          );
-        }
+      case 'status':
         this.historyRevision.update((n) => n + 1);
         break;
-      }
       case 'message':
       case 'receipt':
       case 'historyDirty':

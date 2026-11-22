@@ -1094,7 +1094,9 @@ export class CampaignManager extends EventEmitter {
         this.queue.pause();
         this.emit('event', {
             type: 'failureStop', failed: rates.blocks + rates.reports, processed: rates.sent7d,
-            message: `Paused: ${rates.blocks} blocks and ${rates.reports} reports from ${rates.sent7d} messages this week (limit ${rates.pauseAtPercent}%).`,
+            // The business reads this (campaign reason, its owner's notice): calm words, the counts stay on Health.
+            message: `Paused: ${rates.blocks + rates.reports} of the ${rates.sent7d} people reached this week did not want these messages `
+                + `(limit ${rates.pauseAtPercent}%). Check the list, then resume.`,
         });
         this.#emitStats();
         return true;

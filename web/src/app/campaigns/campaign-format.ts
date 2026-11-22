@@ -1,14 +1,15 @@
 /** Small formatting helpers shared by the campaign list and detail views. */
 
-import type { CampaignStatus } from '../core/api';
+import type { Campaign, CampaignStatus } from '../core/api';
 
+/** `cancelled` reads "Stopped": every screen's button for it is Stop, so people can tell it from Pause. */
 export const STATUS_LABEL: Record<CampaignStatus, string> = {
   draft: 'Draft',
   scheduled: 'Scheduled',
   running: 'Running',
   paused: 'Paused',
   done: 'Done',
-  cancelled: 'Cancelled',
+  cancelled: 'Stopped',
 };
 
 export function localTime(iso: string | null | undefined): string {
@@ -67,6 +68,45 @@ export function daysBetween(a: string, b: string): number {
 export function percent(part: number, whole: number): number {
   if (!whole || whole <= 0) return 0;
   return Math.max(0, Math.min(100, Math.round((part / whole) * 1000) / 10));
+}
+
+/**
+ * How far a campaign is, the same on the island, the list and its page: sent, failed, skipped (not on WhatsApp or
+ * stopped) and waiting add up to the total. A multi-day ("spread") campaign queues one day at a time, so its stored
+ * total is only the days queued so far; the whole list is `options.spread.total`, and `day`/`days` say where it is.
+ */
+export function progressOf(c: Campaign, now = Date.now()) {
+  const n = listCounts(c.stats);
+  const by = c.stats?.byStatus ?? {};
+  const spread = c.options?.spread;
+  const total = spread?.total || n.total || c.audienceSize || 0;
+  // No snapshot yet (`stats: {}` before the first write) means nothing has gone out, not everything.
+  const done = n.total ? Math.max(0, n.total - n.pending) : 0;
+  const days = spread ? daysBetween(spread.from, spread.to) + 1 : 0;
+  const day = spread
+    ? Math.min(days, Math.max(1, daysBetween(spread.from, dayKey(new Date(now), c.options.timezone)) + 1))
+    : 0;
+  return {
+    total,
+    done,
+    pct: percent(done, total),
+    sent: n.sent,
+    failed: n.failed,
+    skipped: (by['NOT_ON_WHATSAPP'] ?? 0) + (by['CANCELLED'] ?? 0),
+    waiting: Math.max(0, total - done),
+    day,
+    days,
+  };
+}
+
+/** Running, but held by a daily or monthly limit: it goes on by itself, yet nothing is going out right now. */
+export function waitingWhy(c: Campaign): string | null {
+  return c.status === 'running' ? (c.options?.statusReason ?? null) : null;
+}
+
+/** The second click of Stop says what it costs: stopping cannot be undone, unlike Pause. */
+export function stopQuestion(waiting: number): string {
+  return waiting > 0 ? `Stop? ${waiting.toLocaleString()} won't get it` : 'Stop sending?';
 }
 
 export function canStart(s: CampaignStatus) {
@@ -192,10 +232,12 @@ export interface Outcome {
   detail: string;
 }
 
+/** `held`: paused only because its number cannot send, so "Resume it" would be the wrong advice. */
 export function outcome(
   status: CampaignStatus,
   audience: number,
   c: ReportCounts & { pending?: number },
+  held = false,
 ): Outcome {
   const r = reportRates(c);
   const failed = c.failed ? ` · ${count(c.failed)} failed` : '';
@@ -226,9 +268,10 @@ export function outcome(
       tone: 'mute',
       icon: status === 'cancelled' ? 'ban' : status === 'paused' ? 'player-pause' : 'circle-check',
       // A done run with nothing attempted closed because every recipient was skipped; its reason says why.
-      title: status === 'cancelled' ? 'Cancelled before anything was sent'
+      title: status === 'cancelled' ? 'Stopped before anything was sent'
         : status === 'paused' ? 'Paused before anything was sent' : 'Finished: nothing needed sending',
-      detail: status === 'paused' ? 'Resume it to start sending.' : 'Nothing went out.',
+      detail: status !== 'paused' ? 'Nothing went out.'
+        : held ? 'It starts sending once its number can send again.' : 'Resume it to start sending.',
     };
   const mostlyFailed = (r.failed ?? 0) >= 50;
   return {
@@ -238,7 +281,7 @@ export function outcome(
     detail: [
       engagement,
       status === 'paused' && left ? `Paused with ${count(left)} still to send` : '',
-      status === 'cancelled' && left ? `Cancelled, ${count(left)} never sent` : '',
+      status === 'cancelled' && left ? `Stopped, ${count(left)} never sent` : '',
     ]
       .filter(Boolean)
       .join(' · ') || 'Read receipts appear here as recipients open the message.',

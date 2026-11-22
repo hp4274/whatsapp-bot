@@ -206,8 +206,13 @@ export class ReviewStep {
   });
   /** Only admins may open the WhatsApp page; agents are told to ask one. */
   protected readonly isAdmin = computed(() => this.auth.atLeast('admin'));
-  /** This number's queue still holds another campaign's messages: Send now joins it and they take turns. */
-  protected readonly numberBusy = computed(() => this.store.stats().pending > 0);
+  /** The numbers another campaign is sending from right now. */
+  private readonly sendingFrom = signal<ReadonlySet<number>>(new Set());
+  /**
+   * A number switched on here is already sending another campaign: Send now joins it and they take turns. Read from
+   * the campaigns themselves: the page's own engine stats are only the selected number's, and count replies too.
+   */
+  protected readonly numberBusy = computed(() => this.sendIds().some((id) => this.sendingFrom().has(id)));
 
   /** The business's numbers that may send campaigns. */
   protected readonly numbers = signal<Channel[]>([]);
@@ -325,6 +330,20 @@ export class ReviewStep {
     );
   }
 
+  private loadSending(): void {
+    this.campaignsApi.list().subscribe({
+      next: ({ campaigns }) =>
+        this.sendingFrom.set(
+          new Set(
+            campaigns.flatMap((c) =>
+              c.status !== 'running' ? [] : c.numbers?.length ? c.numbers.map((n) => n.channelId) : c.channelId !== null ? [c.channelId] : [],
+            ),
+          ),
+        ),
+      error: () => undefined, // only a hint: without it the step just does not say "they take turns"
+    });
+  }
+
   private loadNumbers(): void {
     this.channelsApi.list().subscribe({
       next: ({ channels }) => {
@@ -378,10 +397,10 @@ export class ReviewStep {
     if (this.sharedIds().length) return 0;
     if (this.held()) return 0;
     const s = this.current();
-    // What the number already has queued (another campaign sending) comes out of today's budget first.
-    return s && s.remaining !== null
-      ? Math.max(0, this.perNumber() - Math.max(0, s.remaining - this.store.stats().pending))
-      : 0;
+    // What the number already has queued (another campaign sending) comes out of today's budget first. The page's
+    // engine stats are its own number's: another sending number's queue is not known here, so it counts none.
+    const queued = this.ownId() === null || this.ownId() === this.homeId() ? this.store.stats().pending : 0;
+    return s && s.remaining !== null ? Math.max(0, this.perNumber() - Math.max(0, s.remaining - queued)) : 0;
   });
 
   /**
@@ -507,6 +526,8 @@ export class ReviewStep {
     this.policy.load();
     this.loadNumbers();
     this.store.watch(['channels', 'connection'], () => this.loadNumbers());
+    this.loadSending();
+    this.store.watch(['campaigns'], () => this.loadSending());
     // A draft from before the rules loaded (or changed) is pulled back inside them.
     effect(() => {
       const d = this.draft;
@@ -780,7 +801,8 @@ export class ReviewStep {
           policyNotes: notes,
           overQuota,
         });
-        if (res.stats) this.store.stats.set(res.stats);
+        // Those are the sending number's engine stats: only the page's own number may take them for its island.
+        if (res.stats && (campaign.channelId ?? this.homeId()) === this.homeId()) this.store.stats.set(res.stats);
         this.store.setStatus(
           `Campaign started: ${res.queued ?? 0} queued, ${res.skipped ?? 0} skipped${notes.length ? '. ' + notes.join(' ') : ''}`,
           'primary',

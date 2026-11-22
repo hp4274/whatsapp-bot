@@ -70,7 +70,7 @@
         <span
           >Pausing stops all sending from this number and unlinks it. To resume, you scan a new QR code.{{
             canDelete() ? '' : ' It is your only number, so nothing sends until then.'
-          }}</span
+          }}{{ campaignNote() }}</span
         >
         <button class="btn small" type="button" (click)="confirming.set(null)">Keep sending</button>
         <button class="btn small danger" type="button" (click)="toggleStatus()" [disabled]="busy()">
@@ -88,7 +88,17 @@
     }
 
     @if (canDelete()) {
-      @if (confirming() === 'delete') {
+      @if (confirming() === 'delete' && campaigns().length) {
+        <!-- Deleting it under its campaigns would leave them unable to finish or be stopped: the server refuses. -->
+        <div class="confirm danger-zone" role="group" aria-label="Cannot delete yet">
+          <span
+            >{{ campaigns().length === 1 ? 'A campaign still sends' : campaigns().length + ' campaigns still send' }}
+            from <strong>{{ channel().displayName }}</strong>. Stop
+            {{ campaigns().length === 1 ? 'it' : 'them' }}, or send the rest from another number, then delete it.</span
+          >
+          <button class="btn small" type="button" (click)="confirming.set(null)">OK</button>
+        </div>
+      } @else if (confirming() === 'delete') {
         <div class="confirm danger-zone" role="group" aria-label="Confirm delete">
           <span
             >Delete <strong>{{ channel().displayName }}</strong

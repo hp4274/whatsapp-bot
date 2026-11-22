@@ -260,6 +260,27 @@ const ACCOUNT_EMAILS = {
         rows: [['Plan', v.plan], ['Ended on', v.date]],
         footnote: 'Reply to this email and it reaches the Wuzie team.',
     }),
+    number_down: (v) => ({
+        subject: `${v.number} stopped sending`,
+        heading: 'Your WhatsApp number stopped sending',
+        intro: `<strong>${esc(v.number)}</strong> for <strong>${esc(v.business)}</strong> cannot send right now. ${esc(v.reason)}`,
+        rows: [['Number', v.number], ['Business', v.business]],
+        footnote: 'You get this email because your business uses Wuzie.',
+    }),
+    campaign_paused: (v) => ({
+        subject: `Campaign paused: ${v.campaign}`,
+        heading: 'A campaign paused itself',
+        intro: `The campaign <strong>${esc(v.campaign)}</strong> for <strong>${esc(v.business)}</strong> paused itself. ${esc(v.reason)}`,
+        rows: [['Campaign', v.campaign], ['Business', v.business]],
+        footnote: 'You get this email because your business uses Wuzie.',
+    }),
+    campaign_finished: (v) => ({
+        subject: `Campaign finished: ${v.campaign}`,
+        heading: 'Your campaign has finished',
+        intro: `The campaign <strong>${esc(v.campaign)}</strong> for <strong>${esc(v.business)}</strong> has gone out to everyone on its list.`,
+        rows: [['Sent', v.sent], ['Failed', v.failed], ['Skipped', v.skipped]],
+        footnote: 'You get this email because your business uses Wuzie.',
+    }),
 };
 
 /** The email for one account event, or null for an event that has none. */
@@ -350,6 +371,18 @@ export const AUTOMATIC_EMAILS = Object.freeze([
     { kind: 'payment_received', label: 'Payment received', when: 'You record a payment.', to: OWNER, sample: (appUrl) => accountEmail('payment_received', SAMPLE, appUrl) },
     { kind: 'plan_ending', label: 'Plan expires soon', when: '3 days before a plan ends.', to: OWNER, sample: (appUrl) => accountEmail('plan_ending', SAMPLE, appUrl) },
     { kind: 'plan_expired', label: 'Plan expired', when: 'The day a plan ends.', to: OWNER, sample: (appUrl) => accountEmail('plan_expired', SAMPLE, appUrl) },
+    {
+        kind: 'number_down', label: 'Number stopped sending', when: 'A number is unlinked, banned, paused or offline for long.', to: OWNER,
+        sample: (appUrl) => accountEmail('number_down', { ...SAMPLE, number: 'Shop number', reason: 'The WhatsApp number was unlinked.' }, appUrl),
+    },
+    {
+        kind: 'campaign_paused', label: 'Campaign paused itself', when: 'Too many of a campaign\'s messages failed.', to: OWNER,
+        sample: (appUrl) => accountEmail('campaign_paused', { ...SAMPLE, campaign: 'Diwali offer', reason: '40% of messages failed.' }, appUrl),
+    },
+    {
+        kind: 'campaign_finished', label: 'Campaign finished', when: 'A campaign has gone out to everyone on its list.', to: OWNER,
+        sample: (appUrl) => accountEmail('campaign_finished', { ...SAMPLE, campaign: 'Diwali offer', sent: '1,240', failed: '12', skipped: '26' }, appUrl),
+    },
     {
         kind: 'staff_welcome', label: 'Staff sign-in', when: 'You add someone to your platform staff.', to: 'The new staff member',
         sample: (appUrl) => staffWelcomeEmail({ ...SAMPLE_LOGIN, roleName: 'Support', loginUrl: appUrl && `${appUrl}/login` }),

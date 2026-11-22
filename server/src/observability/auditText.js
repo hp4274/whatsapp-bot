@@ -141,6 +141,7 @@ const RULES = {
     'channel.start_skip': (c) => [`Skipped the new-number questions for ${c.number()}: ${text(c.detail)}`, 'warn'],
     'channel.delete': (c) => [`Removed number ${quote(text(c.detail) || c.number())}`, 'warn'],
     'channel.ban_guard.pause': (c) => [`Ban guard paused ${c.number()}${c.at()}: ${text(c.detail).replace(/^Auto-paused: /, '')}`, 'danger'],
+    'channel.back_online': (c) => [`${c.number()}${c.at()} is connected again${text(c.detail) ? ` after ${text(c.detail)}` : ''}`, 'info'],
 
     // the platform admin on a number
     'channel.admin.pause': (c) => [`Super admin paused ${c.number()}${c.at()}${text(c.detail) ? `: ${text(c.detail)}` : ''}`, 'warn'],
@@ -287,12 +288,18 @@ const RULES = {
 };
 
 const ALERT_SEVERITY = { ban: 'danger', tenant_bans: 'danger', logout: 'danger', backup_failed: 'danger', reencrypt_failed: 'danger', encryption_key: 'danger',
-    unseen_buttons: 'danger', unseen_list: 'danger', unseen_cta: 'danger', unseen_carousel: 'danger' };
+    unseen_buttons: 'danger', unseen_list: 'danger', unseen_cta: 'danger', unseen_carousel: 'danger',
+    offline: 'danger', number_paused: 'danger', campaign_paused: 'danger', campaign_stuck: 'danger', email_failed: 'danger',
+    server_error: 'danger' };
 const ALERT_TITLE = {
     ban: 'WhatsApp banned', logout: 'Unexpected logout of', tenant_bans: 'Second ban in 30 days at', dead_man: 'Nothing sent for hours on',
     unstable: 'Unstable connection brake on', delivery: 'Delivery brake on', stuck: 'Stuck-messages brake on',
     backup_failed: 'Daily backup failed', reencrypt_failed: 'Re-encryption failed', encryption_key: 'Encryption key problem',
     held_back: 'Alerts held back',
+    // A number or a campaign that stopped by itself, and the outside services the platform leans on.
+    offline: 'Lost connection on', number_paused: 'Ban guard paused', campaign_paused: 'Campaign paused itself on',
+    campaign_not_started: 'Scheduled campaign not started at', campaign_stuck: 'Campaign could not resume at',
+    email_failed: 'Email not sent', webhook_failed: 'Webhook delivery failed at', server_error: 'Server error',
     // messaging/unseen.js: delivered, but nobody saw them on a phone.
     unseen_buttons: 'Reply buttons not showing on', unseen_list: 'List menus not showing on',
     unseen_cta: 'Call or link buttons not showing on', unseen_carousel: 'Carousels not showing on',

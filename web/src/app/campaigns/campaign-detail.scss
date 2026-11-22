@@ -218,6 +218,40 @@ a.btn { text-decoration: none; }
   small { font-size: 11.5px; line-height: 1.4; }
 }
 
+/* Its number cannot send: pick another to send the rest from. */
+.move {
+  display: grid;
+  gap: 6px;
+  margin-top: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: var(--surface-sunken);
+}
+.move-title { margin: 0; font-size: 13.5px; font-weight: 500; color: var(--text-strong); }
+.move-hint { margin: 0; font-size: 12.5px; line-height: 1.45; }
+.move-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: 4px;
+  select { min-width: 200px; flex: 1 1 200px; }
+}
+
+/* What the last button did (or why it could not), next to the buttons rather than off in the sidebar. */
+.action-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: var(--space-sm) 0 0;
+  font-size: 13px;
+  color: var(--primary-text);
+  &.bad { color: var(--danger-text); }
+}
+
+/* A shared campaign's number that waits while the others send. */
+.held { color: var(--warning); }
+
 // Retry and export: school-shared's "advanced" fold under the controls, laid out as a row.
 @include s.advanced;
 

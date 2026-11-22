@@ -18,14 +18,15 @@ import {
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 
-import { Api, Channel, ChannelsApi, TenancyApi } from '../core/api';
+import { Api, type Campaign, CampaignsApi, Channel, ChannelsApi, TenancyApi } from '../core/api';
+import { progressOf } from '../campaigns/campaign-format';
 import { ConfirmDialog } from '../core/confirm-dialog';
 import { Auth } from '../core/auth';
 import { PhoneInput } from '../core/phone-input';
 import { Store } from '../core/store';
 import { CatalogDrawer } from '../channels/catalog-drawer';
 import { CatalogLocked } from '../channels/catalog-locked';
-import { ChannelCard } from '../channels/channel-card';
+import { ChannelCard, type NumberCampaign } from '../channels/channel-card';
 import { liveState, localZone, plainError, timeZones, zoneLabel } from '../channels/channel-meta';
 import { LinkCard } from '../connection/link-card';
 import { NumberQuestions } from '../connection/number-questions';
@@ -86,6 +87,7 @@ const emptyDraft = () => ({
 })
 export class WhatsApp {
   private readonly api = inject(ChannelsApi);
+  private readonly campaignsApi = inject(CampaignsApi);
   private readonly connectionApi = inject(Api);
   private readonly tenancy = inject(TenancyApi);
   protected readonly store = inject(Store);
@@ -299,8 +301,42 @@ export class WhatsApp {
   /** WhatsApp's terms note for QR-linked numbers, from the server. */
   protected readonly warning = computed(() => this.warnings()['baileys'] ?? '');
 
+  /** Campaigns that have not finished, by the number each sends from (a shared one is on each of its numbers). */
+  protected readonly campaignsByNumber = computed(() => {
+    const by = new Map<number, NumberCampaign[]>();
+    for (const c of this.openCampaigns()) {
+      const shares = c.numbers?.length ? c.numbers : c.channelId !== null ? [{ channelId: c.channelId, status: c.status }] : [];
+      for (const s of shares) {
+        if (s.status === 'done' || s.status === 'cancelled' || s.status === 'draft') continue;
+        // A shared campaign's people per number are not in the list: only a one-number campaign says how many.
+        const waiting = c.numbers?.length ? null : progressOf(c).waiting;
+        by.set(s.channelId, [...(by.get(s.channelId) ?? []), { id: c.id, name: c.name, waiting }]);
+      }
+    }
+    return by;
+  });
+  private readonly openCampaigns = signal<Campaign[]>([]);
+  private loadCampaigns(): void {
+    this.campaignsApi.list().subscribe({
+      next: ({ campaigns }) => this.openCampaigns.set(campaigns.filter((c) => ['running', 'paused', 'scheduled'].includes(c.status))),
+      error: () => undefined, // only for the warnings: without it a confirm just says less
+    });
+  }
+
+  /** The Unlink confirm, with what it holds: campaigns sending from the number wait for it. */
+  protected unlinkText(ch: Channel): string {
+    const list = this.campaignsByNumber().get(ch.id) ?? [];
+    const base = `${ch.displayName} is signed out of WhatsApp here. Its campaigns and replies stop until you connect it again with a new QR code.`;
+    if (!list.length) return base;
+    const people = list.reduce((n, c) => n + (c.waiting ?? 0), 0);
+    return `${base} ${list.length === 1 ? `"${list[0].name}" is` : `${list.length} campaigns are`} sending from it`
+      + `${people ? ` (${people.toLocaleString()} people waiting)` : ''}: ${list.length === 1 ? 'it waits' : 'they wait'} for it.`;
+  }
+
   constructor() {
     this.refresh();
+    this.loadCampaigns();
+    this.store.watch(['campaigns'], () => this.loadCampaigns(), 1000);
     // The plan's number cap, again whenever the admin changes the plan or the limits ('tenant' / 'config'): an open
     // page must offer Add number the moment more numbers are allowed.
     const loadCap = () =>

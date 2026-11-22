@@ -44,7 +44,8 @@
 .s-banner .msg { flex: 1; min-width: 0; }
 .err { margin: 6px 0 0; color: var(--danger-text); font-size: 13px; }
 
-.toast-slot { position: fixed; z-index: 50; right: var(--space-xl); bottom: var(--space-xl); }
+// Above the send island when it shows (it sets --island-space), not under it in the same corner.
+.toast-slot { position: fixed; z-index: 50; right: var(--space-xl); bottom: calc(var(--space-xl) + var(--island-space, 0px)); }
 .toast {
   display: flex; align-items: center; gap: var(--space-sm); padding: 12px 18px; border-radius: var(--radius-md);
   background: var(--text-strong); color: var(--surface-card); font-size: 13.5px; font-weight: 500;
@@ -174,5 +175,5 @@
   .detail { grid-template-columns: 1fr; }
   .s-seg { display: flex; width: 100%; button { flex: 1; justify-content: center; padding: 9px 10px; } }
   .actions { width: 100%; justify-content: flex-end; }
-  .toast-slot { left: var(--space-lg); right: var(--space-lg); bottom: var(--space-lg); }
+  .toast-slot { left: var(--space-lg); right: var(--space-lg); bottom: calc(var(--space-lg) + var(--island-space, 0px)); }
 }

@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 
 import { Channel, ChannelPatch } from '../core/api';
+import type { NumberCampaign } from './channel-card';
 import { capabilityMeta } from './channel-meta';
 import { SendWindow } from './send-window';
 
@@ -22,6 +23,18 @@ export class ChannelSettings {
   readonly busy = input(false);
   /** The business has several numbers: only then is there a main number to choose. */
   readonly multi = input(false);
+  /** Campaigns sending from this number: pausing holds them, and it cannot be deleted under them (server refuses). */
+  readonly campaigns = input<readonly NumberCampaign[]>([]);
+
+  /** What pausing does to the campaigns on it, said before the click, not discovered after. */
+  protected readonly campaignNote = computed(() => {
+    const list = this.campaigns();
+    if (!list.length) return '';
+    const people = list.reduce((n, c) => n + (c.waiting ?? 0), 0);
+    const names = list.slice(0, 2).map((c) => `"${c.name}"`).join(', ') + (list.length > 2 ? ` and ${list.length - 2} more` : '');
+    return ` ${names} ${list.length === 1 ? 'sends' : 'send'} from it${people ? ` (${people.toLocaleString()} people waiting)` : ''}:`
+      + ` ${list.length === 1 ? 'it waits' : 'they wait'} until the number is back, or you send the rest from another number.`;
+  });
 
   readonly patch = output<ChannelPatch>();
   readonly makeDefault = output<void>();

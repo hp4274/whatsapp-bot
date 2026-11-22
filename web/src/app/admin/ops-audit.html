@@ -58,11 +58,12 @@
 
   <label class="f"
     ><span>Business</span>
+    <!-- [selected] per option: opened from a business card's sign, the filter is set before the names arrive. -->
     <select [value]="filter().tenant ?? ''" (change)="fromEvent('tenant', $event)">
       <option value="">All</option>
-      <option value="platform">Platform</option>
+      <option value="platform" [selected]="filter().tenant === 'platform'">Platform</option>
       @for (t of tenants(); track t.id) {
-        <option [value]="t.id">{{ t.name }}</option>
+        <option [value]="t.id" [selected]="filter().tenant === '' + t.id">{{ t.name }}</option>
       }
     </select>
   </label>

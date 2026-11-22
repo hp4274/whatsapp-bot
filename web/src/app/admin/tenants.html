@@ -182,6 +182,7 @@
     class="tenant"
     [class.suspended]="tenant.status === 'suspended'"
     [class.acting]="actingId() === tenant.id"
+    [class.trouble]="trouble(tenant) === 'bad'"
     [style.--i]="i < 12 ? i : 12"
   >
     <div class="top">
@@ -202,6 +203,21 @@
       <div class="tags">
         <!-- An active business whose plan ended can do nothing: it reads Inactive, not Active. -->
         <span class="s-pill {{ statusOf(tenant).tone }}">{{ statusOf(tenant).label }}</span>
+        <!-- Something wrong right now: a sign to spot at a glance, opening this business's problems in the logs. -->
+        @if (tenant.problems?.length) {
+          <a
+            class="s-pill problem-badge"
+            [class.tone-bad]="trouble(tenant) === 'bad'"
+            [class.tone-warn]="trouble(tenant) === 'warn'"
+            routerLink="/admin/audit-logs"
+            [queryParams]="{ tenant: tenant.id, problems: 1 }"
+            [title]="problemList(tenant)"
+            [attr.aria-label]="tenant.problems!.length + ' problems: ' + problemList(tenant)"
+          >
+            <i class="ti ti-alert-triangle" aria-hidden="true"></i>{{ tenant.problems!.length }}
+            {{ tenant.problems!.length === 1 ? 'problem' : 'problems' }}
+          </a>
+        }
         @if (tenant.pendingRequests) {
           <button class="s-pill tone-warn req-badge" type="button" (click)="openSettings(tenant, 'general')"
             [title]="'Limit requests waiting: open General to answer'">

@@ -18,7 +18,8 @@ import { RouterLink } from '@angular/router';
 import { catchError, forkJoin, map, of } from 'rxjs';
 
 import { WuzieFeed } from '../admin/wuzie-feed';
-import { Api, CampaignsApi, type Campaign, type CampaignStats, type MessageRecord, type QueuedNext } from './api';
+import { progressOf, stopQuestion, waitingWhy } from '../campaigns/campaign-format';
+import { Api, CampaignsApi, ChannelsApi, type Campaign, type CampaignStats, type MessageRecord, type QueuedNext } from './api';
 import { Auth } from './auth';
 import { Store } from './store';
 
@@ -26,8 +27,6 @@ import { Store } from './store';
 const AUTO_CLOSE_SECONDS = 10;
 /** How often the island looks for running campaigns on any of the business's numbers. */
 const RUNS_POLL_MS = 10_000;
-/** One island card's next messages and when its number sends again (ms epoch). */
-type CardQueue = [number, { rows: QueuedNext[]; until: number }];
 
 /** How many messages the card lists: the next ones while sending, the last ones after. */
 const RECENT_COUNT = 5;
@@ -70,40 +69,65 @@ function labelled(rows: readonly QueuedNext[]) {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (visible()) {
-      <div #island class="stack">
+      <div
+        #island
+        class="stack"
+        (mouseenter)="hold(true)"
+        (mouseleave)="hold(false)"
+        (focusin)="hold(true)"
+        (focusout)="hold(false)"
+      >
+      <!-- Screen readers hear a state change (paused and why, finished), not every send. -->
+      <p class="sr-only" aria-live="polite">{{ announcement() }}</p>
       @if (multi()) {
         <!-- Opened campaigns side by side, newest on the right; each opens and folds on its own. -->
         @for (c of order(); track c.id) {
           @if (isOpen(c.id)) {
-            @let total = c.stats.total ?? 0;
-            @let pending = c.stats.pending ?? 0;
-            <aside class="island slot" [attr.data-run]="c.id" role="status" [attr.aria-label]="c.name + ' progress'">
+            @let p = progressOf(c);
+            @let s = stateOf(c);
+            <aside class="island slot" [attr.data-run]="c.id" role="group" [attr.aria-label]="c.name">
               <header>
-                <i class="ti ti-{{ c.status === 'paused' ? 'player-pause' : 'send' }} lead" aria-hidden="true"></i>
+                <i class="ti ti-{{ s.icon }} lead" aria-hidden="true"></i>
                 <strong>{{ c.name }}</strong>
-                <button type="button" class="ic" (click)="toggleRun(c.id)" aria-label="Collapse" aria-expanded="true">
+                <button
+                  type="button"
+                  class="ic"
+                  (click)="toggleRun(c.id)"
+                  [attr.aria-label]="'Collapse ' + c.name"
+                  aria-expanded="true"
+                >
                   <i class="ti ti-chevron-down" aria-hidden="true"></i>
                 </button>
               </header>
-              <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="percentOf(c)">
-                <span [style.width.%]="percentOf(c)"></span>
+              <div
+                class="bar"
+                role="progressbar"
+                [attr.aria-label]="c.name + ' progress'"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                [attr.aria-valuenow]="p.pct"
+              >
+                <span [style.width.%]="p.pct"></span>
               </div>
               <div class="body">
                 <p class="line">
-                  <span>{{ total - pending }} of {{ total }} done</span>
-                  <b>{{ percentOf(c) }}%</b>
+                  <span>{{ p.done.toLocaleString() }} of {{ p.total.toLocaleString() }} done{{ p.days ? ' · Day ' + p.day + ' of ' + p.days : '' }}</span>
+                  <b>{{ p.pct }}%</b>
                 </p>
                 <ul class="counts">
-                  <li class="ok"><b>{{ c.stats.sent ?? 0 }}</b> sent</li>
-                  <li [class.bad]="(c.stats.failed ?? 0) > 0"><b>{{ c.stats.failed ?? 0 }}</b> failed</li>
-                  <li><b>{{ pending }}</b> waiting</li>
+                  <li class="ok"><b>{{ p.sent.toLocaleString() }}</b> sent</li>
+                  <li [class.bad]="p.failed > 0"><b>{{ p.failed.toLocaleString() }}</b> failed</li>
+                  @if (p.skipped) {
+                    <li title="Not on WhatsApp, or stopped before their turn"><b>{{ p.skipped.toLocaleString() }}</b> skipped</li>
+                  }
+                  <li><b>{{ p.waiting.toLocaleString() }}</b> waiting</li>
                 </ul>
                 <p class="line">
-                  <span class="st st-{{ c.status === 'paused' ? 'mute' : 'run' }}">{{ c.status === 'paused' ? 'Paused' : 'Sending' }}</span>
+                  <span class="st st-{{ s.tone }}">{{ s.label }}</span>
                   <a class="link" [routerLink]="['/campaigns', c.id]">Details</a>
                 </p>
-                @if (c.status === 'paused' && reasonOf(c); as why) {
-                  <p class="note">{{ why }}</p>
+                @if (s.why) {
+                  <p class="note">{{ s.why }}</p>
                 }
                 @let next = rowsFor(c.id);
                 @if (next.length) {
@@ -120,51 +144,74 @@ function labelled(rows: readonly QueuedNext[]) {
                     }
                   </ol>
                   <!-- The countdown is its own number's, read with its queue. -->
-                  @if (c.status !== 'paused') {
+                  @if (s.tone === 'run') {
                     <p class="note">{{ cardNote(c.id) }}</p>
                   }
                 }
                 @if (canControl()) {
                   <div class="actions">
-                    @if (c.status === 'paused') {
-                      <button type="button" class="b" (click)="actOn(c.id, 'resume')">Resume</button>
+                    @if (c.status === 'paused' && c.options.linkHold) {
+                      <!-- Resume could only fail while its number cannot send: the way out is the number. -->
+                      <a class="b" routerLink="/whatsapp">Connect number</a>
+                    } @else if (c.status === 'paused') {
+                      <button type="button" class="b" [disabled]="busyRun() === c.id" (click)="actOn(c, 'resume')">
+                        Resume
+                      </button>
                     } @else {
-                      <button type="button" class="b" (click)="actOn(c.id, 'pause')">Pause</button>
+                      <button type="button" class="b" [disabled]="busyRun() === c.id" (click)="actOn(c, 'pause')">
+                        Pause
+                      </button>
                     }
-                    <button type="button" class="b danger" (click)="stopRun(c.id)" (blur)="stopArmed.set(null)">
-                      {{ stopArmed() === c.id ? 'Stop sending?' : 'Stop' }}
+                    <button
+                      type="button"
+                      class="b danger"
+                      [disabled]="busyRun() === c.id"
+                      (click)="stopRun(c)"
+                      (blur)="stopArmed.set(null)"
+                    >
+                      {{ stopArmed() === c.id ? stopQuestion(p.waiting) : 'Stop' }}
                     </button>
                   </div>
                 }
                 @if (runError()?.id === c.id) {
-                  <p class="err">{{ runError()?.text }}</p>
+                  <p class="err" role="alert">{{ runError()?.text }}</p>
                 }
               </div>
             </aside>
           }
         }
-        <!-- Folded campaigns pile up on each other at the right edge; an opened one moves out beside the pile. -->
-        @if (folded().length) {
-          <div class="pile">
-            @for (c of folded(); track c.id) {
-                <button
-                  type="button"
-                  class="mini"
-                  [attr.data-run]="c.id"
-                  (click)="toggleRun(c.id)"
-                  [attr.aria-expanded]="false"
-                  [attr.aria-label]="'Show ' + c.name + ', ' + runLabel(c)"
-                >
-                  <i class="ti ti-{{ c.status === 'paused' ? 'player-pause' : 'send' }} lead" aria-hidden="true"></i>
-                  <span class="mini-name">{{ c.name }}</span>
-                  <span class="st st-{{ c.status === 'paused' ? 'mute' : 'run' }}">{{ runLabel(c) }}</span>
-                  <i class="ti ti-chevron-up mini-open" aria-hidden="true"></i>
-                  <span class="mini-bar" aria-hidden="true"><span [style.width.%]="percentOf(c)"></span></span>
-                </button>
-            }
-          </div>
-        }
-      } @else {
+      }
+      <!-- Folded campaigns pile up on each other at the right edge; an opened one moves out beside the pile. Just
+           finished ones wait there for a few seconds, saying how they ended. -->
+      @if (folded().length || ended().length) {
+        <div class="pile">
+          @for (e of ended(); track e.id) {
+            <a class="mini end" [class.stopped]="e.status !== 'done'" [routerLink]="['/campaigns', e.id]">
+              <i class="ti ti-{{ e.status === 'done' ? 'circle-check' : 'circle-x' }} lead" aria-hidden="true"></i>
+              <span class="mini-name">{{ e.name }}</span>
+              <span class="st st-{{ e.status === 'done' ? 'ok' : 'mute' }}">{{ endLabel(e) }}</span>
+            </a>
+          }
+          @for (c of folded(); track c.id) {
+            @let s = stateOf(c);
+            <button
+              type="button"
+              class="mini"
+              [attr.data-run]="c.id"
+              (click)="toggleRun(c.id)"
+              [attr.aria-expanded]="false"
+              [attr.aria-label]="'Show ' + c.name + ', ' + s.label + ', ' + progressOf(c).pct + '%'"
+            >
+              <i class="ti ti-{{ s.icon }} lead" aria-hidden="true"></i>
+              <span class="mini-name">{{ c.name }}</span>
+              <span class="st st-{{ s.tone }}">{{ s.label }} · {{ progressOf(c).pct }}%</span>
+              <i class="ti ti-chevron-up mini-open" aria-hidden="true"></i>
+              <span class="mini-bar" aria-hidden="true"><span [style.width.%]="progressOf(c).pct"></span></span>
+            </button>
+          }
+        </div>
+      }
+      @if (!multi() && cardVisible()) {
         <ng-container *ngTemplateOutlet="card" />
       }
       </div>
@@ -175,17 +222,18 @@ function labelled(rows: readonly QueuedNext[]) {
         class="island"
         [class.done]="phase() === 'done'"
         [class.bad]="phase() === 'stopped'"
-        role="status"
-        aria-live="polite"
+        role="group"
         [attr.aria-label]="wuzie() ? 'Wuzie WhatsApp sending' : 'Bulk message progress'"
-        (mouseenter)="hold(true)"
-        (mouseleave)="hold(false)"
-        (focusin)="hold(true)"
-        (focusout)="hold(false)"
       >
         <header>
           <i class="ti ti-{{ icon() }} lead" aria-hidden="true"></i>
-          <strong>{{ title() }}</strong>
+          <!-- Folded, the card still says which campaign and how far, like a folded bar. -->
+          <strong>{{ open() ? title() : (current()?.name || title()) }}</strong>
+          @if (!open()) {
+            <span class="st st-{{ phase() === 'sending' ? 'run' : phase() === 'done' ? 'ok' : 'mute' }}">
+              {{ phaseLabel() }} · {{ percent() }}%
+            </span>
+          }
           <button
             type="button"
             class="ic"
@@ -205,6 +253,7 @@ function labelled(rows: readonly QueuedNext[]) {
         <div
           class="bar"
           role="progressbar"
+          aria-label="Sending progress"
           aria-valuemin="0"
           aria-valuemax="100"
           [attr.aria-valuenow]="percent()"
@@ -231,6 +280,9 @@ function labelled(rows: readonly QueuedNext[]) {
               <li [class.bad]="stats().failed > 0">
                 <b>{{ stats().failed }}</b> failed
               </li>
+              @if (skipped()) {
+                <li title="Not on WhatsApp, or stopped before their turn"><b>{{ skipped() }}</b> skipped</li>
+              }
               <li>
                 <b>{{ stats().pending }}</b> waiting
               </li>
@@ -266,27 +318,31 @@ function labelled(rows: readonly QueuedNext[]) {
               <p class="note">{{ note() }}</p>
             }
             @if (closesIn() !== null) {
-              <p class="note">Closes in {{ closesIn() }}s · hover to keep it open</p>
+              <p class="note">Closes in {{ closesIn() }}s<span class="hover-hint"> · point at it to keep it open</span></p>
             }
             @if ((phase() === 'sending' || phase() === 'paused') && canControl()) {
               <div class="actions">
                 @if (phase() === 'sending') {
-                  <button type="button" class="b" (click)="act('pause')">Pause</button>
+                  <button type="button" class="b" [disabled]="busy()" (click)="act('pause')">Pause</button>
+                } @else if (currentRun()?.options?.linkHold) {
+                  <!-- Resume could only fail while its number cannot send: the way out is the number. -->
+                  <a class="b" routerLink="/whatsapp">Connect number</a>
                 } @else {
-                  <button type="button" class="b" (click)="act('resume')">Resume</button>
+                  <button type="button" class="b" [disabled]="busy()" (click)="act('resume')">Resume</button>
                 }
                 <button
                   type="button"
                   class="b danger"
+                  [disabled]="busy()"
                   (click)="stop()"
                   (blur)="confirmStop.set(false)"
                 >
-                  {{ confirmStop() ? 'Stop sending?' : 'Stop' }}
+                  {{ confirmStop() ? stopQuestion(stats().pending) : 'Stop' }}
                 </button>
               </div>
             }
             @if (error()) {
-              <p class="err">{{ error() }}</p>
+              <p class="err" role="alert">{{ error() }}</p>
             }
           </div>
         }
@@ -540,6 +596,11 @@ function labelled(rows: readonly QueuedNext[]) {
     .st-run { --tone: var(--info); }
     .st-bad { --tone: var(--danger-text); }
     .st-mute { --tone: var(--text-muted); }
+    .st-warn { --tone: var(--warning); }
+    header .st {
+      flex: none;
+      white-space: nowrap;
+    }
 
     .note,
     .err {
@@ -606,6 +667,27 @@ function labelled(rows: readonly QueuedNext[]) {
       border-color: color-mix(in srgb, var(--primary) 45%, var(--border-color));
       translate: 0 -1px;
     }
+    /* Just finished: a link to its page for a few seconds, then gone. */
+    .mini.end {
+      text-decoration: none;
+    }
+    .mini.end .lead {
+      color: var(--success);
+      background: var(--success-soft);
+    }
+    .mini.end.stopped .lead {
+      color: var(--text-muted);
+      background: var(--surface-sunken);
+    }
+    a.b {
+      display: inline-grid;
+      place-items: center;
+      text-decoration: none;
+    }
+    .b:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
     .mini:focus-visible {
       outline: 2px solid var(--primary);
       outline-offset: 2px;
@@ -643,12 +725,23 @@ function labelled(rows: readonly QueuedNext[]) {
       transition: width 400ms var(--ease);
     }
 
-    /* No room side by side: they stack upwards instead, newest at the bottom. */
+    /* A touch screen has no pointer to hold the card open with. */
+    @media (hover: none) {
+      .hover-hint {
+        display: none;
+      }
+    }
+
+    /* No room side by side: they stack upwards instead, newest at the bottom. Never taller than the screen: what does
+       not fit scrolls inside the stack rather than running off the top, out of reach. */
     @media (max-width: 900px) {
       .stack {
         flex-direction: column;
         align-items: stretch;
         width: min(360px, calc(100vw - 24px));
+        max-height: calc(100dvh - 24px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
       }
       .mini,
       .slot,
@@ -686,6 +779,7 @@ export class SendIsland {
   private readonly feed = inject(WuzieFeed);
   private readonly api = inject(Api);
   private readonly campaignsApi = inject(CampaignsApi);
+  private readonly channelsApi = inject(ChannelsApi);
   private readonly destroyRef = inject(DestroyRef);
   private readonly auth = inject(Auth);
 
@@ -706,10 +800,9 @@ export class SendIsland {
   /** Ticks each second while cards show, for their countdowns. */
   private readonly now = signal(Date.now());
 
-  /** One campaign's next messages, labelled on their own (its first waiting one is its "Next"). */
+  /** One campaign's next messages (already its own: loadRecent filters each share), its first waiting one "Next". */
   protected rowsFor(id: number) {
-    // Filtered here too: a server without the `campaign` filter answers with the whole number's queue.
-    return labelled((this.cardQueues().get(id)?.rows ?? []).filter((m) => m.campaign === id)).slice(0, 3);
+    return labelled(this.cardQueues().get(id)?.rows ?? []).slice(0, 3);
   }
 
   protected cardNote(id: number): string {
@@ -739,10 +832,24 @@ export class SendIsland {
   });
   /** The campaigns whose cards the user opened, any number at once; all start folded. */
   private readonly opened = signal<ReadonlySet<number>>(new Set());
-  /** The campaign whose Stop was clicked once; the second click stops it. */
+  /** The campaign whose Stop was clicked once; the second click stops it. Disarms by itself after a few seconds. */
   protected readonly stopArmed = signal<number | null>(null);
-  /** The last failed action, shown on its own card. */
-  protected readonly runError = signal<{ id: number; text: string } | null>(null);
+  /**
+   * The last failed action, shown on its own card until that campaign's state moves on (a refused Resume is old
+   * news once its number is back and it sends again).
+   */
+  protected readonly runError = signal<{ id: number; text: string; status: string } | null>(null);
+  /** The campaign whose Pause / Resume / Stop is in flight: its buttons wait, so a double click is one request. */
+  protected readonly busyRun = signal<number | null>(null);
+  /** The single card's action in flight. */
+  protected readonly busy = signal(false);
+  /** Campaigns that just finished or stopped while their cards showed: each says how it ended for a few seconds. */
+  protected readonly ended = signal<readonly Campaign[]>([]);
+  /** When each ended one leaves (ms epoch), held back while the pointer or focus is on the stack. */
+  private readonly endsAt = new Map<number, number>();
+  /** The business's numbers that are not connected right now (from the numbers list), for "Reconnecting…". */
+  private readonly offline = signal<ReadonlySet<number>>(new Set());
+  private disarm: ReturnType<typeof setTimeout> | undefined;
   /** Every running campaign in a fixed order, oldest first (left), newest on the right edge. */
   protected readonly order = computed(() => (this.multi() ? this.runs() : []));
   /** The folded ones, for the pile: newest on top. */
@@ -861,11 +968,27 @@ export class SendIsland {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') this.loadRuns();
     }, RUNS_POLL_MS);
     const tick = setInterval(() => {
-      if (this.multi()) this.now.set(Date.now());
+      const now = Date.now();
+      // A card's countdown just ran out: its number sent, so its next people and counts moved on. Read them now
+      // rather than at the next 10 s poll (another number's sends reach this page as no event).
+      const due = this.multi() && [...this.cardQueues().values()].some((q) => q.until && q.until <= now && q.until > this.now());
+      if (this.multi() || this.ended().length) this.now.set(now);
+      if (due) this.loadRuns();
+      // Finished ones leave once their time is up, unless the pointer or focus is on the stack.
+      if (this.ended().length && !this.held()) {
+        const keep = this.ended().filter((c) => (this.endsAt.get(c.id) ?? 0) > now);
+        if (keep.length !== this.ended().length) this.ended.set(keep);
+      }
     }, 1000);
+    // A refused action is old news once the run moves on (its number came back, someone else resumed it).
+    effect(() => {
+      this.phase();
+      untracked(() => this.error.set(''));
+    });
     this.destroyRef.onDestroy(() => {
       clearInterval(poll);
       clearInterval(tick);
+      clearTimeout(this.disarm);
     });
 
     // Every send bumps historyRevision; coalesce a burst into one small fetch.
@@ -878,7 +1001,7 @@ export class SendIsland {
 
     // Finished or stopped: count down and close, unless the pointer or focus is on the card.
     effect(() => {
-      const ended = this.visible() && (this.phase() === 'done' || this.phase() === 'stopped');
+      const ended = this.cardVisible() && (this.phase() === 'done' || this.phase() === 'stopped');
       this.stopCountdown();
       if (!ended || this.held()) return;
       // A run that finished before this page loaded is old news: do not pop it up on every reload.
@@ -915,9 +1038,11 @@ export class SendIsland {
     return s.state === 'PAUSED' ? 'paused' : 'sending';
   });
 
-  protected readonly visible = computed(() => {
-    // Several campaigns running: the stack stays while any of them does, whatever one card did.
-    if (this.multi()) return true;
+  /** The stack: while several campaigns show, the single card shows, or a just-finished one says how it ended. */
+  protected readonly visible = computed(() => this.multi() || this.ended().length > 0 || this.cardVisible());
+
+  /** The single card (one campaign, on the number this page streams). */
+  protected readonly cardVisible = computed(() => {
     // Only a campaign brings the card: auto-replies, OTPs and single messages go out without it.
     if (!this.wuzie() && !this.campaignSeen()) return false;
     const s = this.stats();
@@ -970,6 +1095,64 @@ export class SendIsland {
     return '';
   });
 
+  /** The single card's state in one word, for its folded header. */
+  protected readonly phaseLabel = computed(
+    () => ({ sending: 'Sending', paused: 'Paused', done: 'Done', stopped: 'Stopped' })[this.phase()],
+  );
+
+  /** Not on WhatsApp or opted out: done, but neither sent nor failed, so the counts add up to the total. */
+  protected readonly skipped = computed(() => {
+    const s = this.stats();
+    return Math.max(0, s.processed - s.successful - s.failed);
+  });
+
+  /** The single card's campaign as the list has it (its reason and whether it is held for its number). */
+  protected readonly currentRun = computed(() => this.runs().find((c) => c.id === this.current()?.id) ?? null);
+
+  /** What a screen reader hears: each campaign's state (and why), and how a finished one ended. Never the counts. */
+  protected readonly announcement = computed(() => {
+    const ended = this.ended().map((c) => `${c.name}: ${this.endLabel(c)}`);
+    if (!this.multi()) return [this.cardVisible() ? this.title() : '', ...ended].filter(Boolean).join('. ');
+    const live = this.runs().map((c) => {
+      const s = this.stateOf(c);
+      return `${c.name}: ${s.label}${s.why ? `. ${s.why}` : ''}`;
+    });
+    return [...live, ...ended].join('. ');
+  });
+
+  /**
+   * A card's state: paused (and why), waiting on a daily limit while it reads running, its number not connected
+   * (before the 30 s hold), one of its numbers held while the others send, or sending.
+   */
+  protected stateOf(c: Campaign): { label: string; tone: 'run' | 'mute' | 'warn'; icon: string; why: string | null } {
+    if (c.status === 'paused') return { label: 'Paused', tone: 'mute', icon: 'player-pause', why: this.reasonOf(c) };
+    const wait = waitingWhy(c);
+    if (wait) return { label: 'Waiting', tone: 'warn', icon: 'clock-pause', why: wait };
+    if (c.channelId !== null && this.offline().has(c.channelId)) {
+      return {
+        label: 'Reconnecting…',
+        tone: 'warn',
+        icon: 'plug-connected-x',
+        why: 'Its number is not connected right now. Sending carries on once it is back.',
+      };
+    }
+    const shares = c.numbers ?? [];
+    const held = shares.filter((n) => n.status === 'paused');
+    if (shares.length > 1 && held.length) {
+      const why = held[0].statusReason?.replace(/^Paused: /, '') ?? 'paused';
+      return { label: 'Sending', tone: 'warn', icon: 'send', why: `${held.length} of ${shares.length} numbers paused: ${why}` };
+    }
+    return { label: 'Sending', tone: 'run', icon: 'send', why: null };
+  }
+
+  /** How a just-finished campaign ended, from its last counts. */
+  protected endLabel(c: Campaign): string {
+    return c.status === 'done' ? `Finished · ${progressOf(c).sent.toLocaleString()} sent` : 'Stopped';
+  }
+
+  protected readonly progressOf = progressOf;
+  protected readonly stopQuestion = stopQuestion;
+
   /**
    * The campaigns running or paused now. With two or more, each one's counts are read fresh (the list keeps the
    * last saved ones), so every card is live.
@@ -982,11 +1165,16 @@ export class SendIsland {
           .filter((c) => c.status === 'running' || c.status === 'paused')
           .sort((a, b) => (a.startedAt ?? a.createdAt).localeCompare(b.startedAt ?? b.createdAt) || a.id - b.id);
         this.named.set(live[0] ?? null);
-        if (!live.length) return this.runs.set([]);
+        if (!live.length) return this.setRuns([], campaigns);
+        // Which numbers are down, for each card's "Reconnecting…" before its campaign is held.
+        this.channelsApi.list().subscribe({
+          next: ({ channels }) => this.offline.set(new Set(channels.filter((c) => !c.health?.connected).map((c) => c.id))),
+          error: () => undefined,
+        });
         // Each one's counts fresh (the list keeps the last saved ones), so every card is live.
         forkJoin(live.map((c) => this.campaignsApi.stats(c.id).pipe(map((r) => r.campaign), catchError(() => of(c))))).subscribe(
           (fresh) => {
-            this.runs.set(fresh.filter((c) => c.status === 'running' || c.status === 'paused'));
+            this.setRuns(fresh.filter((c) => c.status === 'running' || c.status === 'paused'), campaigns);
             // A campaign on another number bumps no history here: its cards' "Up next" refresh with their counts.
             if (this.multi()) this.loadRecent();
           },
@@ -996,44 +1184,77 @@ export class SendIsland {
     });
   }
 
+  /** The new running set; a card that left it says how it ended (from `all`, the whole list) instead of vanishing. */
+  private setRuns(next: Campaign[], all: Campaign[]): void {
+    if (this.multi()) {
+      const gone = this.runs()
+        .filter((r) => !next.some((c) => c.id === r.id))
+        .map((r) => all.find((c) => c.id === r.id))
+        .filter((c): c is Campaign => !!c && (c.status === 'done' || c.status === 'cancelled'));
+      if (gone.length) {
+        for (const c of gone) this.endsAt.set(c.id, Date.now() + AUTO_CLOSE_SECONDS * 1000);
+        this.ended.update((list) => [...list.filter((c) => !gone.some((g) => g.id === c.id)), ...gone]);
+      }
+    }
+    const failed = this.runError();
+    if (failed && next.find((c) => c.id === failed.id)?.status !== failed.status) this.runError.set(null);
+    this.runs.set(next);
+  }
+
   protected isOpen(id: number): boolean {
     return this.opened().has(id);
   }
 
-  /** Open or fold one campaign's card; the others stay as they are. */
+  /**
+   * Open or fold one campaign's card. Only as many stay open as the screen holds side by side (one on a phone,
+   * where they stack upwards): opening one more folds the one opened longest ago, instead of pushing cards off
+   * the screen's left edge, out of reach.
+   */
   protected toggleRun(id: number): void {
     const next = new Set(this.opened());
-    if (!next.delete(id)) next.add(id);
+    if (!next.delete(id)) {
+      next.add(id);
+      const width = typeof window === 'undefined' ? Infinity : window.innerWidth;
+      // A card is 360px and 12px apart; the folded pile (280px) takes its own room while anything stays folded.
+      const pile = this.order().length > next.size || this.ended().length ? 292 : 0;
+      const room = width <= 900 ? 1 : Math.max(1, Math.floor((width - 48 - pile + 12) / 372));
+      for (const oldest of [...next].slice(0, Math.max(0, next.size - room))) next.delete(oldest);
+    }
     this.opened.set(next);
   }
 
-  protected stopRun(id: number): void {
-    if (this.stopArmed() !== id) return this.stopArmed.set(id);
+  /** First click arms Stop (it cannot be undone, unlike Pause); the second stops. Disarms by itself after 4 s. */
+  protected stopRun(c: Campaign): void {
+    clearTimeout(this.disarm);
+    if (this.stopArmed() !== c.id) {
+      this.stopArmed.set(c.id);
+      this.disarm = setTimeout(() => this.stopArmed.set(null), 4000);
+      return;
+    }
     this.stopArmed.set(null);
-    this.actOn(id, 'stop');
+    this.actOn(c, 'stop');
   }
 
   /** Pause, resume or stop one campaign alone, not the whole number. */
-  protected actOn(id: number, action: 'pause' | 'resume' | 'stop'): void {
+  protected actOn(c: Campaign, action: 'pause' | 'resume' | 'stop'): void {
+    if (this.busyRun() !== null) return;
     this.runError.set(null);
-    this.campaignsApi.action(id, action === 'stop' ? 'cancel' : action).subscribe({
-      next: () => this.loadRuns(),
-      error: (err: Error) => this.runError.set({ id, text: err.message }),
+    this.busyRun.set(c.id);
+    this.campaignsApi.action(c.id, action === 'stop' ? 'cancel' : action).subscribe({
+      next: () => {
+        this.busyRun.set(null);
+        this.loadRuns();
+      },
+      error: (err: Error) => {
+        this.busyRun.set(null);
+        this.runError.set({ id: c.id, text: err.message, status: c.status });
+      },
     });
-  }
-
-  protected percentOf(c: Campaign): number {
-    const total = c.stats.total ?? 0;
-    return total > 0 ? Math.round(Math.min(1, (total - (c.stats.pending ?? 0)) / total) * 100) : 0;
   }
 
   /** Why the server paused or held it (its number unlinked, an auto-pause), or null. */
   protected reasonOf(c: Campaign): string | null {
-    return (c.options as { statusReason?: string | null } | undefined)?.statusReason ?? null;
-  }
-
-  protected runLabel(c: Campaign): string {
-    return `${c.status === 'paused' ? 'Paused' : 'Sending'} · ${this.percentOf(c)}%`;
+    return c.options?.statusReason ?? null;
   }
 
   protected hold(on: boolean): void {
@@ -1063,15 +1284,35 @@ export class SendIsland {
     // One HTTP call that completes on its own; failures just keep the last list.
     if (this.multi()) {
       // One card per campaign: its own next few and countdown, from its own number's queue (not the selected one's).
+      // A campaign shared over several numbers has a share (its own id) on each: every one of them is asked.
       const asked = Date.now();
+      // Only what is sending: a paused campaign (or share) has no "next", and a paused number refuses the ask (409).
+      const shares = this.runs()
+        .filter((c) => c.status === 'running')
+        .flatMap((c) =>
+          (c.numbers?.length ? c.numbers : [{ id: c.id, channelId: c.channelId, status: c.status }])
+            .filter((s) => s.status === 'running')
+            .map((s) => ({ run: c.id, id: s.id, channelId: s.channelId })),
+        );
+      // forkJoin of nothing never answers: nothing sending means no card lists anyone.
+      if (!shares.length) this.cardQueues.set(new Map());
       forkJoin(
-        this.runs().map((c) =>
-          this.api.queueNext(RECENT_COUNT, c.channelId, c.id).pipe(
-            map((r): CardQueue => [c.id, { rows: r.next, until: asked + (r.waitingSeconds ?? 0) * 1000 }]),
-            catchError(() => of<CardQueue>([c.id, { rows: [], until: 0 }])),
+        shares.map((s) =>
+          this.api.queueNext(RECENT_COUNT, s.channelId, s.id).pipe(
+            map((r) => ({ ...s, rows: r.next.filter((m) => m.campaign === s.id), until: asked + (r.waitingSeconds ?? 0) * 1000 })),
+            catchError(() => of({ ...s, rows: [] as QueuedNext[], until: 0 })),
           ),
         ),
-      ).subscribe((entries) => this.cardQueues.set(new Map(entries)));
+      ).subscribe((answers) => {
+        const cards = new Map<number, { rows: QueuedNext[]; until: number }>();
+        for (const a of answers) {
+          const card = cards.get(a.run) ?? { rows: [], until: 0 };
+          // The card counts down to the soonest of its numbers' next sends.
+          const soonest = card.until > asked ? Math.min(card.until, a.until > asked ? a.until : Infinity) : a.until;
+          cards.set(a.run, { rows: [...card.rows, ...a.rows], until: soonest });
+        }
+        this.cardQueues.set(cards);
+      });
     } else if (this.phase() === 'sending' || this.phase() === 'paused') {
       // Several campaigns share the queue in turns: ask for enough that each card gets its own next few.
       const limit = Math.min(20, RECENT_COUNT * Math.max(1, this.runs().length));
@@ -1111,8 +1352,10 @@ export class SendIsland {
   }
 
   protected stop(): void {
+    clearTimeout(this.disarm);
     if (!this.confirmStop()) {
       this.confirmStop.set(true);
+      this.disarm = setTimeout(() => this.confirmStop.set(false), 4000);
       return;
     }
     this.confirmStop.set(false);
@@ -1120,11 +1363,19 @@ export class SendIsland {
   }
 
   protected act(action: 'pause' | 'resume' | 'stop'): void {
+    if (this.busy()) return;
     this.error.set('');
+    this.busy.set(true);
     // One HTTP call that completes on its own; nothing to tear down.
     (this.wuzie() ? this.feed.action(action) : this.api.campaignAction(action)).subscribe({
-      next: ({ stats }) => (this.wuzie() ? this.feed.stats : this.store.stats).set(stats),
-      error: (err: Error) => this.error.set(err.message),
+      next: ({ stats }) => {
+        this.busy.set(false);
+        (this.wuzie() ? this.feed.stats : this.store.stats).set(stats);
+      },
+      error: (err: Error) => {
+        this.busy.set(false);
+        this.error.set(err.message);
+      },
     });
   }
 }

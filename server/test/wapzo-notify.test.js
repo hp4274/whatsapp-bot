@@ -62,7 +62,7 @@ describe('Wuzie WhatsApp number', () => {
         assert.equal(page.status, 200);
         systemId = page.body.tenantId;
         assert.ok(page.body.channelId);
-        assert.equal(page.body.messages.length, 8);
+        assert.equal(page.body.messages.length, 11); // number_down, campaign_paused and campaign_finished joined the list
         assert.deepEqual(kinds(), []);
         assert.equal((await call(sup, 'POST', '/api/admin/wapzo/test', { to: '98765 00000' })).status, 409);
     });

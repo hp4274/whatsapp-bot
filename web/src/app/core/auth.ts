@@ -60,6 +60,14 @@ export interface Tenant {
   balance?: { readonly charged: number; readonly paid: number; readonly due: number; readonly topupCharged?: number };
   /** Admin list only: limit increase requests waiting for an answer. */
   pendingRequests?: number;
+  /** Admin list only: what is wrong right now, worst first (a number down or paused, a campaign stuck...). */
+  problems?: readonly TenantProblem[];
+}
+
+/** One thing wrong at a business, for its card's error sign. */
+export interface TenantProblem {
+  readonly level: 'bad' | 'warn';
+  readonly text: string;
 }
 
 /** Flattened subscription the admin tenant list carries for each business. */

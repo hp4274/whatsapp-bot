@@ -191,10 +191,16 @@ td.num { font-variant-numeric: tabular-nums; }
 /* The reason under a paused, held or closed run's pill: one line, the rest in the tooltip. */
 /* Wraps rather than ending in "…": on a phone there is no hover to read the title. */
 .status .why {
-  display: block;
+  display: -webkit-box;
   max-width: 32ch;
   margin-top: 4px;
+  overflow: hidden;
   font-size: 12px;
   color: var(--text-muted);
+  // The table's cells do not wrap: a reason did, running under the next columns. Two lines here, all of it in the title.
+  white-space: normal;
   overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }

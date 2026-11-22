@@ -215,6 +215,23 @@
     </ul>
   }
 
+<!-- What waits on this number while it cannot send, so nobody has to cross-check the Campaigns page. -->
+@if (campaigns().length && state() !== 'connected') {
+  <div class="waiting" role="group" aria-label="Campaigns waiting on this number">
+    <p><i class="ti ti-clock-pause" aria-hidden="true"></i>Waiting on this number:</p>
+    <ul>
+      @for (c of campaigns(); track c.id) {
+        <li>
+          <a [routerLink]="['/campaigns', c.id]">{{ c.name }}</a>
+          @if (c.waiting) {
+            <span class="muted"> · {{ c.waiting.toLocaleString() }} people</span>
+          }
+        </li>
+      }
+    </ul>
+  </div>
+}
+
 <!-- The server's own words are for support; the business gets what to do about it. -->
 @if (ch.health?.error && state() !== 'connected' && ch.status === 'active') {
   <p class="alert" [title]="ch.health.error">
@@ -243,6 +260,7 @@
     <app-channel-settings
       [channel]="ch"
       [capabilities]="capabilities()"
+      [campaigns]="campaigns()"
       [canDelete]="canDelete()"
       [multi]="multi()"
       [busy]="busy()"

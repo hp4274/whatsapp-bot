@@ -195,7 +195,8 @@
   position: fixed;
   z-index: 50;
   right: var(--space-lg);
-  bottom: var(--space-lg);
+  // Above the send island when it shows (it sets --island-space), not under it in the same corner.
+  bottom: calc(var(--space-lg) + var(--island-space, 0px));
   display: grid;
   gap: var(--space-sm);
   width: min(380px, calc(100vw - 32px));

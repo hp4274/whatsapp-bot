@@ -29,11 +29,11 @@ const CAUSE_ICONS: Readonly<Record<string, string>> = {
 const BRAKE_ICONS: Readonly<Record<string, string>> = {
   reply_rate: 'ti-message-off',
   reports: 'ti-flag',
-  blocks: 'ti-ban',
+  blocks: 'ti-message-x',
   failures: 'ti-alert-triangle',
-  restricted: 'ti-lock-access',
+  restricted: 'ti-hourglass',
   idle: 'ti-zzz',
-  ban: 'ti-ban',
+  ban: 'ti-clock-pause',
   delivery: 'ti-truck-delivery',
   stuck: 'ti-clock-pause',
   unstable: 'ti-wifi-off',
@@ -177,14 +177,14 @@ export class SendingHealth {
 
   protected brakeText(b: SendingBrake): string {
     if (b.code === 'idle') return idleText(b.text);
-    // The server's ban text talks about rests; the brake lasts 30 days from the ban.
+    // The brake lasts 30 days from the hold. Calm words for the owner: never "banned".
     if (b.code === 'ban' && b.until) {
       const on = new Date(Date.parse(b.until) - BAN_BRAKE_MS).toLocaleDateString(undefined, {
         day: 'numeric',
         month: 'short',
         year: 'numeric',
       });
-      return `WhatsApp banned this number on ${on}. Its sending history restarted from then, and each further ban makes the wait before bulk sending longer.`;
+      return `Sending from this number was put on hold on ${on}, so it starts again slowly from then. Bulk sending picks up by itself as people reply.`;
     }
     return b.text;
   }

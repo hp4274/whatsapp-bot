@@ -39,6 +39,12 @@ function addTo(bucket, status, n) {
 // SQL function so the filter, the pagination and the label on each row can never disagree.
 const VERB_SQL = 'audit_verb(a.action)';
 export const AUDIT_VERBS = Object.freeze(['create', 'change', 'remove', 'other']);
+/**
+ * What "Problems only" lists, and what a business card's "problems logged" counts (app.js tenantProblems): the
+ * alerts, plus a number paused (by the platform or the ban guard) and a campaign the platform stopped. A card that
+ * says "paused" must lead to the entry that says why.
+ */
+export const PROBLEM_ACTIONS = Object.freeze(['ops.alert', 'channel.ban_guard.pause', 'channel.admin.pause', 'campaign.auto_cancelled']);
 /** `…1234`: how a number without a display name is named in an audit sentence. */
 const lastDigits = (s) => (String(s ?? '').replace(/\D/g, '').length >= 5 ? `…${String(s).replace(/\D/g, '').slice(-4)}` : '');
 
@@ -315,7 +321,7 @@ export function createAdminOps({ db, tenancy, runtimes, policy = new PolicyStore
         if (query.user) { where.push('user_id = ?'); args.push(Number(query.user)); }
         const WHO = { admin: "user_role = 'super_admin'", business: "user_role IN ('owner', 'admin', 'agent')", system: 'user_id IS NULL' };
         if (WHO[query.who]) where.push(WHO[query.who]);
-        if (query.problems === '1' || query.problems === 'true') where.push("action = 'ops.alert'");
+        if (query.problems === '1' || query.problems === 'true') where.push(`action IN (${PROBLEM_ACTIONS.map((a) => `'${a}'`).join(', ')})`);
         if (AUDIT_VERBS.includes(query.verb)) { where.push('verb = ?'); args.push(query.verb); }
         if (DATE_RE.test(query.from ?? '')) { where.push('created_at >= ?'); args.push(query.from); }
         if (DATE_RE.test(query.to ?? '')) {

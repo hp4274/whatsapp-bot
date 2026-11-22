@@ -130,14 +130,14 @@ export const whatsapp: Guide = {
       ],
     },
     {
-      title: 'If WhatsApp bans your number',
+      title: 'If sending is on hold on your number',
       steps: [
-        'Scroll to If WhatsApp bans your number and click Show the steps.',
-        'A temporary ban shows a countdown in WhatsApp - wait it out and do not reinstall.',
+        'Scroll to If sending is on hold on your number and click Show the steps.',
+        'If WhatsApp shows a countdown, wait for it to end and do not reinstall.',
         'On the phone, tap Request a review and explain your customers opted in.',
         'If that fails, use WhatsApp\'s contact form, and pause sending while the review runs.',
       ],
-      tip: 'WhatsApp decides every appeal. This app cannot unban a number.',
+      tip: 'WhatsApp decides every review. This app cannot bring a number back.',
     },
   ],
 };

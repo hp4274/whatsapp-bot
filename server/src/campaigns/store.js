@@ -34,6 +34,26 @@ const FINAL = Object.freeze(['done', 'cancelled']);
 /** The queue depth a campaign still has in flight, by message status. */
 const OPEN_STATUSES = Object.freeze(['QUEUED', 'SENDING']);
 
+/** Start, resume or retry with no connection: every message would fail at once. */
+export const NOT_CONNECTED = 'This WhatsApp number is not connected. Connect it on the WhatsApp page first.';
+/** Reached through another number's page: its own number is paused or was removed (app.js campaignChannel). */
+const NUMBER_UNAVAILABLE = "This campaign's WhatsApp number is paused or was removed, so it cannot send from there. "
+    + 'Send the rest from another number, or stop it.';
+
+/**
+ * Why a campaign is held for its number (holdForLink); the number coming back carries it on (relinked). Business
+ * owners read these: calm words, never "banned", "blocked" or "restricted" (the super admin's log says what it was).
+ */
+export const HOLD = Object.freeze({
+    unlinked: 'Paused: the WhatsApp number was unlinked. Link it again on the WhatsApp page and sending carries on.',
+    banned: 'Paused: sending from this number is on hold for now. It carries on by itself once sending is available again.',
+    offline: 'Paused: the WhatsApp number is not connected. Sending carries on by itself once it is back online.',
+    reconnect: 'Paused: the WhatsApp number is not connected. Open the WhatsApp page and press Connect to carry on.',
+    numberPaused: 'Paused: sending from this number is on hold for now. It carries on once the number is available again.',
+    newPhone: (phone) => `Paused: a different phone (+${phone}) was linked to this number. Resume to send the rest from it.`,
+    gone: 'Paused: its WhatsApp number was deleted. Send the rest from another number, or stop it.',
+});
+
 /** Funnel buckets, cumulative: a READ row was also delivered and sent. */
 const SENT_STATUSES = Object.freeze(['SENT', 'DELIVERED', 'READ', 'SANDBOX']);
 const DELIVERED_STATUSES = Object.freeze(['DELIVERED', 'READ']);
@@ -320,14 +340,14 @@ export class CampaignStore {
         const campaign = this.require(id);
         // Its own number sends it: another number's manager would send from the wrong phone.
         if (campaign.channelId != null && this.channelId != null && campaign.channelId !== this.channelId) {
-            throw new CampaignError('that campaign sends from another number; switch to it to start', 409);
+            throw new CampaignError(NUMBER_UNAVAILABLE, 409);
         }
         if (campaign.status === 'running') throw new CampaignError('that campaign is already running', 409);
         if (campaign.status === 'paused') throw new CampaignError('that campaign is paused; resume it', 409);
         if (FINAL.includes(campaign.status)) throw new CampaignError(`that campaign is ${campaign.status}`, 409);
         // No transport, no send - for the scheduler too: a scheduled campaign
         // simply stays `scheduled` and the next sweep tries again.
-        if (this.canSend && !this.canSend()) throw new CampaignError('Connect a transport first.', 409);
+        if (this.canSend && !this.canSend()) throw new CampaignError(NOT_CONNECTED, 409);
         this.#checkPolicy(campaign, { starting: true, except: campaign.id });
         const options = campaign.options ?? {};
         const spread = options.spread && Array.isArray(campaign.audience) ? options.spread : null;
@@ -475,13 +495,11 @@ export class CampaignStore {
     }
 
     resume(id) {
-        const campaign = this.#own(this.require(id));
+        const campaign = this.#own(this.require(id), { sends: true });
         if (campaign.status !== 'paused') throw new CampaignError(`a ${campaign.status} campaign cannot be resumed`, 409);
         const live = this.#isLive(campaign);
-        // Unlinked: every message would fail on no connection. The relink carries the run on by itself.
-        if (live && this.manager.heldForLink) {
-            throw new CampaignError('This WhatsApp number is not connected. Connect it on the WhatsApp page and sending carries on by itself.', 409);
-        }
+        // No connection: every message would fail at once. A number that comes back carries a held run on by itself.
+        if (this.canSend && !this.canSend()) throw new CampaignError(NOT_CONNECTED, 409);
         if (live) {
             // The manager refuses when today's budget is spent; that is its call.
             if (this.manager.resume() === false) {
@@ -550,30 +568,53 @@ export class CampaignStore {
         return this.#reason(id, reason);
     }
 
-    /** Its number was unlinked mid-run: the engine holds the rest until a relink, and the record reads paused, saying why. */
-    holdForLink(key, reason) {
-        const id = Number(/^camp-(\d+)$/.exec(String(key ?? ''))?.[1]);
-        const campaign = id ? this.get(id) : null;
-        if (campaign?.status !== 'running') return null;
+    /**
+     * Its number cannot send (unlinked, offline, banned, paused): the record reads paused and says why, marked
+     * `linkHold` so the number coming back carries it on (`relinked`), across a restart too. Null when not running.
+     */
+    holdForLink(id, reason) {
+        if (this.get(id)?.status !== 'running') return null;
         this.#set(id, { status: 'paused' });
+        return this.#reason(id, reason, { linkHold: true });
+    }
+
+    /** The number is back: a run paused only for it reads running again and carries on. Null when nothing changed. */
+    relinked(id) {
+        const campaign = this.get(id);
+        if (campaign?.status !== 'paused' || !campaign.options?.linkHold) return null;
+        this.#set(id, { status: 'running' });
+        const back = this.#reason(id, null);
+        // Held across a restart, the engine holds nothing for it yet (a live run carries on with the manager's resume).
+        if (!this.#isLive(back)) this.recover(back.id);
+        return back;
+    }
+
+    /** Still held, with a new reason (a different phone was linked): it waits for its owner's Resume instead. */
+    keepHeld(id, reason) {
+        const campaign = this.get(id);
+        if (campaign?.status !== 'paused' || !campaign.options?.linkHold) return null;
         return this.#reason(id, reason);
     }
 
-    /** Linked again and the engine carries on: a run paused only for the link (`reason`) reads running again. */
-    relinked(key, reason) {
-        const id = Number(/^camp-(\d+)$/.exec(String(key ?? ''))?.[1]);
-        const campaign = id ? this.get(id) : null;
-        if (campaign?.status !== 'paused' || campaign.options?.statusReason !== reason) return null;
-        this.#set(id, { status: 'running' });
-        return this.#reason(id, null);
+    /** This number's campaigns in `status`; one saved without a number runs on the main number, as the sweep does. */
+    onNumber(status, isDefault) {
+        return this.db.prepare(
+            'SELECT id FROM campaigns WHERE tenant_id = ? AND status = ? AND (channel_id = ? OR (channel_id IS NULL AND ?))')
+            .all(this.tenantId, status, this.channelId, isDefault ? 1 : 0).map((row) => row.id);
     }
 
-    /** A new note also ends an older version's `options.waiting` marker. */
-    #reason(id, reason) {
+    /** A scheduled campaign the sweep could not start says why, instead of sitting there past its time. */
+    note(id, reason) {
+        return this.get(id)?.status === 'scheduled' ? this.#reason(id, reason) : null;
+    }
+
+    /** A new note also ends an older version's `options.waiting` marker, and a link hold unless it is one. */
+    #reason(id, reason, { linkHold = false } = {}) {
         const campaign = this.get(id);
-        if ((campaign.options?.statusReason ?? null) === reason && !campaign.options?.waiting) return campaign;
-        const { waiting: _was, ...rest } = campaign.options ?? {};
-        const options = { ...rest, statusReason: reason };
+        const same = (campaign.options?.statusReason ?? null) === reason && Boolean(campaign.options?.linkHold) === linkHold;
+        if (same && !campaign.options?.waiting) return campaign;
+        const { waiting: _was, linkHold: _held, ...rest } = campaign.options ?? {};
+        const options = { ...rest, statusReason: reason, ...(linkHold ? { linkHold: true } : {}) };
         this.db.prepare('UPDATE campaigns SET options = ? WHERE id = ? AND tenant_id = ?')
             .run(JSON.stringify(options), campaign.id, this.tenantId);
         return this.get(id);
@@ -676,7 +717,7 @@ export class CampaignStore {
         if (campaign.status === 'paused' && stats.pending > 0) {
             throw new CampaignError('that campaign still has messages waiting; resume or cancel it first', 409);
         }
-        if (this.canSend && !this.canSend()) throw new CampaignError('Connect a transport first.', 409);
+        if (this.canSend && !this.canSend()) throw new CampaignError(NOT_CONNECTED, 409);
         if (!this.manager) throw new CampaignError('no campaign manager is configured', 500);
         // Another campaign sending: the retry joins it and they take turns, like a start. Else it resets the queue.
         const busy = this.#makeRoom(campaign);
@@ -902,7 +943,8 @@ export class CampaignStore {
     takeOver(id, note) {
         const campaign = this.require(id);
         const key = campaignKey(campaign.id);
-        const running = campaign.status === 'running';
+        // Paused too (its owner moves it off a number that cannot send): only who it has not reached yet goes.
+        const running = ['running', 'paused'].includes(campaign.status);
         const rows = (where) => this.db.prepare(`SELECT recipient, name FROM messages WHERE tenant_id = ? AND campaign_id = ? AND ${where}`)
             .all(this.tenantId, key).map((r) => this.#contactFor(campaign, r.recipient, r.name ?? ''));
         const audience = running ? rows("status = 'QUEUED' ORDER BY rowid") : this.resolveAudience(campaign);
@@ -1051,6 +1093,8 @@ export class CampaignStore {
         if (!campaign || !manager || !['running', 'paused'].includes(campaign.status)) return false;
         if (!this.owns(campaign)) return false;
         if (this.#isLive(campaign)) return false;
+        // Held for its number: `relinked` brings it back once the number is, not restored paused before that.
+        if (campaign.status === 'paused' && campaign.options?.linkHold) return false;
         // Another campaign sending: this one joins it. A paused one stays out of a queue others use until resumed.
         const join = Boolean(this.#busyWith(campaign));
         if (join && campaign.status === 'paused') return false;
@@ -1113,10 +1157,17 @@ export class CampaignStore {
      * Only the campaign's own number may act on its run: through another number's store, a pause would leave it
      * sending and a resume would queue it on this number too, so every message went out twice.
      */
-    #own(campaign, { queues = false } = {}) {
+    #own(campaign, { queues = false, sends = false } = {}) {
         // A draft or a closed run touches no engine; only a live run (or a retry, which queues rows here) must.
         if (!queues && !['running', 'paused'].includes(campaign.status)) return campaign;
-        if (!this.owns(campaign)) throw new CampaignError('that campaign sends from another number; switch to it first', 409);
+        if (this.owns(campaign)) return campaign;
+        // Its own number may be sending it: through this store a pause would leave that run going.
+        const active = this.db.prepare("SELECT 1 FROM whatsapp_channels WHERE id = ? AND tenant_id = ? AND status = 'active'")
+            .get(Number(campaign.channelId), this.tenantId);
+        if (active) throw new CampaignError('that campaign sends from another number; switch to it first', 409);
+        // Its number is paused or gone (app.js then routes here): no engine holds it, so pausing or stopping is the
+        // record and its rows alone. Sending from here is not.
+        if (queues || sends) throw new CampaignError(NUMBER_UNAVAILABLE, 409);
         return campaign;
     }
 
@@ -1147,7 +1198,10 @@ export class CampaignStore {
     busyWith(key = null) {
         const manager = this.manager;
         if (!manager) return null;
-        const other = [...this.#runs()].find((k) => k !== key);
+        // A stopped campaign whose last message is still in flight is no run to take turns with: joining its closed
+        // queue skipped everyone of the next campaign as "already in the queue".
+        const other = [...this.#runs()].find((k) => k !== key
+            && !FINAL.includes(this.get(/^camp-(\d+)$/.exec(String(k))?.[1] ?? 0)?.status));
         if (!other) return null;
         const id = /^camp-(\d+)$/.exec(String(other))?.[1];
         return (id && this.get(id)) || { name: null, status: manager.queue?.isPaused ? 'paused' : 'running' };
@@ -1318,6 +1372,15 @@ export function reopenWhenIdle(manager) {
         return;
     }
     setTimeout(() => reopenWhenIdle(manager), 100).unref?.();
+}
+
+/**
+ * A number was paused (by its business, the platform or the ban guard): its engine closes, so its running campaigns
+ * read paused with `reason` and carry on once it is back (`holdForLink`). `database` is the number's scoped handle.
+ */
+export function holdOnNumber(database, isDefault, reason) {
+    const store = new CampaignStore(database);
+    return store.onNumber('running', isDefault).map((id) => store.holdForLink(id, reason)).filter(Boolean);
 }
 
 /**

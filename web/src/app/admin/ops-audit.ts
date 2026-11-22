@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 
 import { TenancyApi } from '../core/api';
 import { AdminFeed } from './admin-feed';
@@ -39,6 +39,7 @@ export class OpsAudit {
   private readonly tenancy = inject(TenancyApi);
   private readonly feed = inject(AdminFeed);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
   private readonly more = viewChild<ElementRef<HTMLElement>>('more');
 
@@ -77,6 +78,14 @@ export class OpsAudit {
   private freshTimer?: ReturnType<typeof setTimeout>;
 
   constructor() {
+    // From a business card's error sign (?tenant=<id>&problems=1): open on that business's problems.
+    const q = this.route.snapshot.queryParamMap;
+    if (q.get('tenant') || q.get('problems')) {
+      this.filter.set({
+        ...(q.get('tenant') ? { tenant: q.get('tenant') ?? '' } : {}),
+        ...(q.get('problems') === '1' ? { problems: '1' } : {}),
+      });
+    }
     this.tenancy
       .tenants()
       .pipe(takeUntilDestroyed(this.destroyRef))

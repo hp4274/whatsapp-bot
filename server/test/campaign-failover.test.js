@@ -89,7 +89,10 @@ describe('campaign failover off a paused number', () => {
         assert.ok(left.some((r) => r.status === 'QUEUED'), 'people still waiting');
         assert.ok(left.every((r) => r.channel_id === numberC), 'every row stays on the paused number');
         const campaign = db.db.prepare('SELECT status, options FROM campaigns WHERE id = ?').get(id);
-        assert.equal(campaign.status, 'running');
+        // Nothing can send it while its number is paused: it says so, and carries on once the number is back.
+        assert.equal(campaign.status, 'paused');
+        assert.match(JSON.parse(campaign.options).statusReason, /on hold for now/);
+        assert.equal(JSON.parse(campaign.options).linkHold, true);
         assert.equal(JSON.parse(campaign.options).shares, undefined);
     });
 

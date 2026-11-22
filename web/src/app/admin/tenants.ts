@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { TenancyApi } from '../core/api';
 import { Auth, Tenant, type TenantSubscriptionSummary } from '../core/auth';
@@ -76,7 +76,7 @@ const VIEW_KEY = 'wsender.tenantView';
  */
 @Component({
   selector: 'app-admin-tenants',
-  imports: [ConfirmDialog, DatePipe, NgTemplateOutlet, Pager, TenantActivity, TenantNew, TenantSettings],
+  imports: [ConfirmDialog, DatePipe, NgTemplateOutlet, Pager, RouterLink, TenantActivity, TenantNew, TenantSettings],
   templateUrl: './tenants.html',
   styleUrl: './tenants.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -342,6 +342,17 @@ export class TenantsView {
   /** Not open yet: shown, but it cannot be switched. */
   protected soon(service: string): boolean {
     return SOON_SERVICES.has(service);
+  }
+
+  /** How bad the worst thing wrong at the business is right now (its card's error sign), or null when nothing is. */
+  protected trouble(tenant: Tenant): 'bad' | 'warn' | null {
+    const problems = tenant.problems ?? [];
+    return problems.some((p) => p.level === 'bad') ? 'bad' : problems.length ? 'warn' : null;
+  }
+
+  /** Every problem on its own line, for the sign's tooltip and screen-reader label. */
+  protected problemList(tenant: Tenant): string {
+    return (tenant.problems ?? []).map((p) => p.text).join('\n');
   }
 
   /** Pending, Suspended, Inactive (active but its plan ended) or Active, with its tone. */

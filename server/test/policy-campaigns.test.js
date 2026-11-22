@@ -304,6 +304,11 @@ describe('platform admin endpoints, kill switch scope and retention', () => {
     it('pauses, resumes and cancels a tenant campaign, audited', async () => {
         const id = insertCampaign('running');
         assert.equal((await call(sup, 'POST', `/api/admin/campaigns/${id}/pause`)).body.campaign.status, 'paused');
+        // Its number is not connected yet: resuming would only fail every message.
+        const early = await call(sup, 'POST', `/api/admin/campaigns/${id}/resume`);
+        assert.equal(early.status, 409);
+        assert.match(early.body.errors[0], /not connected/);
+        assert.equal((await call(owner, 'POST', '/api/connection/connect')).status, 200);
         assert.equal((await call(sup, 'POST', `/api/admin/campaigns/${id}/resume`)).body.campaign.status, 'running');
         const cancelled = await call(sup, 'POST', `/api/admin/campaigns/${id}/cancel`);
         assert.equal(cancelled.body.campaign.status, 'cancelled');

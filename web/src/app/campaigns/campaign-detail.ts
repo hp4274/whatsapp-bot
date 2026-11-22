@@ -15,6 +15,7 @@ import { RouterLink } from '@angular/router';
 import { finalize, type Observable } from 'rxjs';
 
 import {
+  Api,
   type Campaign,
   type CampaignAnalytics,
   CampaignsApi,
@@ -34,7 +35,9 @@ import {
   outcome,
   pct,
   percent,
+  progressOf,
   relativeTime,
+  stopQuestion,
 } from './campaign-format';
 import { CampaignInsights } from './campaign-insights';
 import { CampaignRecipients } from './campaign-recipients';
@@ -49,6 +52,13 @@ const RECEIPT_POLL_MS = 10_000;
 const SCHEDULED_POLL_MS = 30_000;
 /** Phones that stay off or unread for longer than this are not worth a poll. */
 const RECEIPT_WINDOW_MS = 7 * 86_400_000;
+/**
+ * Live events re-read the campaign at most this often: the answer lists every recipient, and a running send
+ * reports several events a second. Still well inside "updates live".
+ */
+const LIVE_GAP_MS = 3000;
+/** A paused campaign changes when someone acts on it (an event): this poll is only the backstop. */
+const PAUSED_POLL_MS = 30_000;
 
 /**
  * One campaign: its schedule, live progress and controls, then analytics.
@@ -78,14 +88,47 @@ export class CampaignDetailView {
   /** Route param, bound by withComponentInputBinding. */
   readonly id = input.required<string>();
 
+  private readonly engine = inject(Api);
+
   private readonly channels = signal<Channel[]>([]);
-  /** Shared over several numbers: one list per number, named as on the Numbers page. */
+  /** Shared over several numbers: one list per number, named as on the Numbers page, with its own state. */
   protected readonly numbers = computed(() =>
-    (this.campaign()?.numbers ?? []).map(({ channelId }) => {
+    (this.campaign()?.numbers ?? []).map(({ channelId, status, statusReason }) => {
       const c = this.channels().find((ch) => ch.id === channelId);
-      return { channelId, label: c?.displayName || c?.phoneNumber || `Number #${channelId}` };
+      return { channelId, status, statusReason, label: c?.displayName || c?.phoneNumber || `Number #${channelId}` };
     }),
   );
+  /** One number of a shared campaign is held while the others send: the campaign reads running, so say it here. */
+  protected readonly heldShare = computed(() => {
+    const held = this.numbers().filter((n) => n.status === 'paused');
+    if (this.status() !== 'running' || !held.length) return null;
+    return `${held.map((n) => n.label).join(', ')}: ${held[0].statusReason?.replace(/^Paused: /, '') ?? 'paused'}`;
+  });
+
+  /** Its number cannot send (held for it, paused or deleted): the numbers that could send the rest instead. */
+  protected readonly moveTargets = computed(() => {
+    const c = this.campaign();
+    if (c?.status !== 'paused') return [];
+    const own = this.channels().find((ch) => ch.id === c.channelId);
+    const stuck = !!c.options?.linkHold || !own || own.status !== 'active';
+    if (!stuck) return [];
+    return this.channels().filter(
+      (ch) => ch.id !== c.channelId && ch.status === 'active' && ch.health?.connected && ch.capabilities.includes('campaigns'),
+    );
+  });
+  protected readonly moveTo = signal<number | null>(null);
+
+  /** The last action's result, said next to the buttons (the sidebar line is off screen on a phone). */
+  protected readonly notice = signal('');
+  /** A refused action, next to the buttons: the page banner (with Try again) is for a page that failed to load. */
+  protected readonly actionError = signal('');
+  /** When the campaign's own number sends again (ms epoch): its countdown, not the selected number's. */
+  private readonly nextAt = signal(0);
+  protected readonly nextIn = computed(() => Math.ceil((this.nextAt() - this.store.now()) / 1000));
+  private noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  private throttle: ReturnType<typeof setTimeout> | undefined;
+  private disarm: ReturnType<typeof setTimeout> | undefined;
+  protected readonly stopQuestion = stopQuestion;
 
   /**
    * Why the platform paused or stopped this run (auto-pause on failures, the
@@ -181,27 +224,19 @@ export class CampaignDetailView {
     const c = this.campaign();
     if (!c) return null;
     const funnel = this.analytics()?.funnel;
-    return outcome(c.status, this.audience(), funnel ?? listCounts(c.stats));
+    return outcome(c.status, this.audience(), funnel ?? listCounts(c.stats), !!c.options?.linkHold);
   });
 
   /**
-   * Live progress from this campaign's own counts (re-read every few seconds while it runs). Not the selected
-   * number's engine totals: those miss a campaign on another number and mix campaigns sharing one.
+   * Progress from this campaign's own counts (re-read every few seconds while it runs), kept while it is paused
+   * so "230 of 2,598 done" does not vanish. Not the selected number's engine totals: those miss a campaign on
+   * another number and mix campaigns sharing one.
    */
   protected readonly live = computed(() => {
-    if (this.status() !== 'running') return null;
-    const s = this.campaign()?.stats;
-    const total = s?.total || this.audience();
-    const pending = s?.pending ?? total;
-    const processed = Math.max(0, total - pending);
-    return {
-      processed,
-      total,
-      successful: s?.sent ?? 0,
-      failed: s?.failed ?? 0,
-      pending,
-      pct: percent(processed, total),
-    };
+    const c = this.campaign();
+    if (!c || (c.status !== 'running' && c.status !== 'paused')) return null;
+    const p = progressOf(c, this.store.now());
+    return { ...p, total: p.total || this.audience(), running: c.status === 'running' };
   });
 
   /**
@@ -305,7 +340,7 @@ export class CampaignDetailView {
         this.reload();
       });
     });
-    this.store.watch(['campaigns', 'campaign', 'history', 'analytics'], () => this.reload(), 700);
+    this.store.watch(['campaigns', 'campaign', 'history', 'analytics'], () => this.reloadSoon(), 700);
     // Names only, for a shared campaign's lists: a failure leaves "Number #id".
     inject(ChannelsApi).list().subscribe({ next: ({ channels }) => this.channels.set(channels), error: () => {} });
     // Events sent while the stream was down are gone: read again once it is back.
@@ -316,18 +351,57 @@ export class CampaignDetailView {
       wasOnline = online;
     });
     // SSE can drop silently (proxy resets, sleeping tabs), so poll as a backstop: fast while a run
-    // is live, slowly while it waits for its start, and slowly once it is done for as long as
-    // Delivered / Read ticks can still arrive.
+    // is live, slowly while it is paused or waits for its start, and slowly once it is done for as
+    // long as Delivered / Read ticks can still arrive. A hidden tab asks nothing (onSeen catches up).
     const poll = setInterval(() => {
-      if (this.loading()) return;
+      if (this.loading() || document.visibilityState !== 'visible') return;
       const since = Date.now() - this.lastAsk;
-      const visible = document.visibilityState === 'visible';
-      if (['running', 'paused'].includes(this.status())) this.reload();
-      else if (this.status() === 'scheduled') {
-        if (visible && since >= SCHEDULED_POLL_MS) this.reload();
-      } else if (this.receiptsPending() && visible && since >= RECEIPT_POLL_MS) this.reload();
+      const status = this.status();
+      if (status === 'running') {
+        if (since >= LIVE_GAP_MS) this.reload();
+      } else if (status === 'paused') {
+        if (since >= PAUSED_POLL_MS) this.reload();
+      } else if (status === 'scheduled') {
+        if (since >= SCHEDULED_POLL_MS) this.reload();
+      } else if (this.receiptsPending() && since >= RECEIPT_POLL_MS) this.reload();
     }, 3000);
-    inject(DestroyRef).onDestroy(() => clearInterval(poll));
+    inject(DestroyRef).onDestroy(() => {
+      clearInterval(poll);
+      clearTimeout(this.throttle);
+      clearTimeout(this.noticeTimer);
+      clearTimeout(this.disarm);
+    });
+  }
+
+  /**
+   * A live event: re-read, at most once every LIVE_GAP_MS (the answer lists every recipient), and the last event
+   * of a burst always lands. A hidden tab waits for onSeen.
+   */
+  private reloadSoon(): void {
+    if (this.throttle || document.visibilityState !== 'visible') return;
+    const wait = Math.max(0, LIVE_GAP_MS - (Date.now() - this.lastAsk));
+    this.throttle = setTimeout(() => {
+      this.throttle = undefined;
+      this.reload();
+    }, wait);
+  }
+
+  /** "Next message in Xs" from the campaign's own number: the page's selected one may be another. */
+  private readNext(c: Campaign): void {
+    if (c.status !== 'running') return this.nextAt.set(0);
+    const asked = Date.now();
+    this.engine.queueNext(1, c.channelId, c.id).subscribe({
+      next: ({ waitingSeconds }) => this.nextAt.set(asked + (waitingSeconds ?? 0) * 1000),
+      error: () => this.nextAt.set(0),
+    });
+  }
+
+  /** Said next to the buttons for a few seconds. */
+  private say(text: string): void {
+    clearTimeout(this.noticeTimer);
+    this.actionError.set('');
+    this.notice.set(text);
+    this.noticeTimer = setTimeout(() => this.notice.set(''), 5000);
   }
 
   /**
@@ -374,6 +448,7 @@ export class CampaignDetailView {
           this.applied = ticket;
           this.analytics.set(data);
           this.campaign.set(data.campaign);
+          this.readNext(data.campaign);
           this.updatedAt.set(Date.now());
           this.error.set('');
           this.loading.set(false);
@@ -407,17 +482,18 @@ export class CampaignDetailView {
     // A fast double click lands before the disabled state renders; the second would 409.
     if (this.busy()) return;
     this.busy.set(label);
+    this.actionError.set('');
     call().subscribe({
       next: (res) => {
         this.busy.set(null);
         this.keep(res.campaign);
-        this.store.setStatus(typeof ok === 'string' ? ok : ok(res), 'primary');
+        this.say(typeof ok === 'string' ? ok : ok(res));
         this.reload();
       },
       error: (err: Error) => {
         this.busy.set(null);
-        this.error.set(err.message);
-        this.store.setStatus(err.message, 'danger');
+        this.notice.set('');
+        this.actionError.set(err.message);
       },
     });
   }
@@ -440,9 +516,12 @@ export class CampaignDetailView {
     );
   }
 
+  /** First click arms Stop (it cannot be undone, unlike Pause); the second stops. Disarms by itself after 4 s. */
   protected cancel(): void {
+    clearTimeout(this.disarm);
     if (!this.confirmCancel()) {
       this.confirmCancel.set(true);
+      this.disarm = setTimeout(() => this.confirmCancel.set(false), 4000);
       return;
     }
     this.confirmCancel.set(false);
@@ -450,6 +529,15 @@ export class CampaignDetailView {
       'cancel',
       () => this.api.action(this.numericId(), 'cancel'),
       'Campaign stopped. Messages not sent yet were cancelled.',
+    );
+  }
+
+  /** Its number cannot send: the people it has not reached get it from the picked number instead. */
+  protected move(): void {
+    const to = this.moveTo() ?? this.moveTargets()[0]?.id;
+    if (to === undefined) return;
+    this.run('move', () => this.api.move(this.numericId(), to), ({ people }) =>
+      `The remaining ${people.toLocaleString()} ${people === 1 ? 'person goes' : 'people go'} out from the other number now.`,
     );
   }
 
@@ -461,19 +549,17 @@ export class CampaignDetailView {
   protected retry(): void {
     if (this.busy()) return;
     this.busy.set('retry');
+    this.actionError.set('');
     this.api.retryFailed(this.numericId()).subscribe({
       next: ({ campaign, queued }) => {
         this.busy.set(null);
         this.keep(campaign);
-        this.store.setStatus(
-          `Re-queued ${queued} failed recipient${queued === 1 ? '' : 's'}.`,
-          'primary',
-        );
+        this.say(`Re-queued ${queued} failed recipient${queued === 1 ? '' : 's'}.`);
         this.reload();
       },
       error: (err: Error) => {
         this.busy.set(null);
-        this.error.set(err.message);
+        this.actionError.set(err.message);
       },
     });
   }

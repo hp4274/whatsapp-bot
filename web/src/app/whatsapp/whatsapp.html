@@ -254,6 +254,7 @@
           [multi]="multi()"
           [recommended]="recommendedId() === c.id"
           [duplicateOf]="duplicates()[c.id] ?? ''"
+          [campaigns]="campaignsByNumber().get(c.id) ?? []"
           [canDelete]="multi()"
           [linkBusy]="store.connecting()"
           (updated)="replace($event)"
@@ -274,7 +275,7 @@
 @if (unlinkAsk(); as ch) {
   <app-confirm
     heading="Unlink this number?"
-    [text]="ch.displayName + ' is signed out of WhatsApp here. Its campaigns and replies stop until you connect it again with a new QR code.'"
+    [text]="unlinkText(ch)"
     action="Unlink"
     [busy]="unlinking()"
     (confirm)="unlink(ch)"
@@ -370,8 +371,9 @@
     <header class="card-head">
       <span class="badge warn"><i class="ti ti-lifebuoy" aria-hidden="true"></i></span>
       <div>
-        <h3 id="recover-title">If WhatsApp bans your number</h3>
-        <p class="muted">A calm checklist for getting a restricted number reviewed and back in use.</p>
+        <!-- Calm words for the owner: "on hold", never "banned" or "blocked". -->
+        <h3 id="recover-title">If sending is on hold on your number</h3>
+        <p class="muted">A calm checklist for getting your number reviewed and sending again.</p>
       </div>
     </header>
 
@@ -382,10 +384,10 @@
           <li>
             <span class="num" aria-hidden="true">1</span>
             <span>
-              <strong>Know which ban you have</strong>
+              <strong>See what WhatsApp shows</strong>
               <small class="muted"
-                >A temporary ban shows a countdown in WhatsApp. Wait it out, and don't reinstall or switch apps,
-                because that can make it permanent.</small
+                >If WhatsApp shows a countdown, wait for it to end. Don't reinstall or switch apps meanwhile: it can
+                make the wait longer.</small
               >
             </span>
           </li>
@@ -418,7 +420,7 @@
               <strong>Pause here</strong>
               <small class="muted"
                 >Unlink this number and stop its campaigns while the review runs. Sending from another number
-                does not lift the ban.</small
+                does not bring this one back sooner.</small
               >
             </span>
           </li>
@@ -433,7 +435,7 @@
             </span>
           </li>
         </ol>
-        <p class="fine muted">WhatsApp decides every appeal. This app cannot unban a number.</p>
+        <p class="fine muted">WhatsApp decides every review. This app cannot bring a number back.</p>
       </div>
     </details>
   </section>

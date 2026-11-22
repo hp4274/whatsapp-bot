@@ -22,10 +22,11 @@
 @if (stop(); as kind) {
   <section class="stopped" role="alert" aria-labelledby="stopped-title">
     <header class="stopped-head">
-      <span class="badge bad"><i class="ti {{ kind === 'ban' ? 'ti-ban' : 'ti-hand-stop' }}" aria-hidden="true"></i></span>
+      <span class="badge bad"><i class="ti {{ kind === 'ban' ? 'ti-clock-pause' : 'ti-hand-stop' }}" aria-hidden="true"></i></span>
       <div>
+        <!-- Calm words for the owner: "on hold", never "banned" or "blocked". -->
         <h3 id="stopped-title">{{
-          kind === 'ban' ? 'WhatsApp banned this number'
+          kind === 'ban' ? 'Sending is on hold for now'
             : kind === 'ban_guard' ? guardTitle()
             : 'Our team paused this number'
         }}</h3>
@@ -65,7 +66,7 @@
           <button type="button" class="btn" (click)="resumeConfirm.set(false)">Cancel</button>
         }
       </div>
-      <p class="fine muted">Sending again before the cause is fixed can get the number banned for good.</p>
+      <p class="fine muted">Start again only once the cause is fixed, or sending may be put on hold for longer.</p>
     } @else {
       <p class="fine muted">Contact support to turn it back on.</p>
     }

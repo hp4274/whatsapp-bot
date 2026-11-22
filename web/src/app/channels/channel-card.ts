@@ -11,6 +11,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { Observable } from 'rxjs';
 
 import { Channel, ChannelPatch, ChannelsApi } from '../core/api';
@@ -34,9 +35,16 @@ const REDUCED =
  * status, today's sends, whether it is sending, and the one action that applies. Both keep the rarely used
  * settings in the Advanced fold.
  */
+/** A campaign sending from a number, as its card and confirms need it. `waiting`: people not reached yet, if known. */
+export interface NumberCampaign {
+  readonly id: number;
+  readonly name: string;
+  readonly waiting: number | null;
+}
+
 @Component({
   selector: 'app-channel-card',
-  imports: [ChannelSettings, PhoneInput],
+  imports: [ChannelSettings, PhoneInput, RouterLink],
   templateUrl: './channel-card.html',
   styleUrl: './channel-card.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -71,6 +79,8 @@ export class ChannelCard {
   readonly linkBusy = input(false);
   /** Another card on the page carries the same WhatsApp number (by digits, never by name): its name. */
   readonly duplicateOf = input('');
+  /** Campaigns that send from this number and have not finished (whatsapp.ts), for its warnings and waiting list. */
+  readonly campaigns = input<readonly NumberCampaign[]>([]);
 
   /** Saved: the server's copy of this number, so the page updates its list without reloading it. */
   readonly updated = output<Channel>();

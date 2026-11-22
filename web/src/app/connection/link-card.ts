@@ -114,10 +114,10 @@ export class LinkCard {
   protected readonly guardTitle = computed(() => {
     const reason = this.store.connection().paused?.reason ?? '';
     return /reported/i.test(reason)
-      ? 'Sending stopped: too many spam reports'
+      ? 'Sending is on hold: many spam reports'
       : /failed/i.test(reason)
-        ? 'Sending stopped: too many failed messages'
-        : 'Sending stopped to protect this number';
+        ? 'Sending is on hold: many messages failed'
+        : 'Sending is on hold to protect this number';
   });
   /** First click of "Start sending again" arms it; the second sends it. */
   protected readonly resumeConfirm = signal(false);

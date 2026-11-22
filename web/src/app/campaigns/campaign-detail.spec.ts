@@ -98,15 +98,28 @@ describe('CampaignDetailView freshness', () => {
     expect(view.analytics()?.funnel.read).toBe(6);
   });
 
-  it('reloads on a server event and counts requests in flight', () => {
+  it('reloads on a server event, at most every 3s, and counts requests in flight', () => {
     const { view, calls, fireEvent } = setup();
     calls[0].next(analytics(10, 2));
     expect(view.inflight()).toBe(0);
+    // A burst of events right after a read: one more read, once 3s have passed (it lists every recipient).
     fireEvent();
+    fireEvent();
+    expect(calls).toHaveLength(1);
+    vi.advanceTimersByTime(3_000);
     expect(calls).toHaveLength(2);
     expect(view.inflight()).toBe(1);
     calls[1].complete();
     expect(view.inflight()).toBe(0);
+  });
+
+  it('asks nothing for live events while the tab is hidden', () => {
+    const { calls, fireEvent } = setup();
+    calls[0].next(analytics(10, 2));
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    fireEvent();
+    vi.advanceTimersByTime(10_000);
+    expect(calls).toHaveLength(1);
   });
 
   it('keeps polling a finished campaign every ~10s while ticks are still missing', () => {

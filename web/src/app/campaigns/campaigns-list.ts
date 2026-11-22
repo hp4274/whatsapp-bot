@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { type Campaign, type CampaignStatus, CampaignsApi } from '../core/api';
@@ -13,7 +13,7 @@ import {
   listCounts,
   localTime,
   pct,
-  percent,
+  progressOf,
   relativeTime,
   reportRates,
 } from './campaign-format';
@@ -38,7 +38,7 @@ const FILTERS: readonly { key: Filter; label: string }[] = [
   { key: 'running', label: 'Running' },
   { key: 'paused', label: 'Paused' },
   { key: 'done', label: 'Done' },
-  { key: 'cancelled', label: 'Cancelled' },
+  { key: 'cancelled', label: 'Stopped' },
   { key: 'draft', label: 'Draft' },
 ];
 
@@ -68,12 +68,16 @@ export class CampaignsListView {
   protected readonly loading = signal(true);
   protected readonly loaded = signal(false);
   protected readonly error = signal('');
-  /** Row id + action awaiting its second click. */
+  /** Row id + action awaiting its second click. Disarms by itself after a few seconds. */
   protected readonly confirming = signal<{ id: number; action: RowAction } | null>(null);
   /** Rows with an action in flight; each row's buttons stay off until its own answer. */
   protected readonly busy = signal<ReadonlySet<number>>(new Set());
+  /** What the last row action did, or why it could not; next to the list, not in the sidebar. */
+  protected readonly notice = signal<{ text: string; bad: boolean } | null>(null);
   /** Bumped per list request, so a slow older answer never overwrites a newer one. */
   private loadSeq = 0;
+  private disarm: ReturnType<typeof setTimeout> | undefined;
+  private noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
   protected readonly counts = computed(() => {
     const out: Record<string, number> = { all: 0 };
@@ -117,7 +121,12 @@ export class CampaignsListView {
 
   constructor() {
     this.load();
-    this.store.watch(['campaigns', 'campaign', 'history'], () => this.load());
+    // Live updates arrive several times a second during a send: they refresh quietly, without the Refresh spinner.
+    this.store.watch(['campaigns', 'campaign', 'history'], () => this.load(true));
+    inject(DestroyRef).onDestroy(() => {
+      clearTimeout(this.disarm);
+      clearTimeout(this.noticeTimer);
+    });
   }
 
   protected goTo(page: number): void {
@@ -135,9 +144,10 @@ export class CampaignsListView {
     this.page.set(0);
   }
 
-  protected load(): void {
+  /** `quiet`: a live update, not the person asking; the spinner is for first load and Refresh only. */
+  protected load(quiet = false): void {
     const seq = ++this.loadSeq;
-    this.loading.set(true);
+    if (!quiet) this.loading.set(true);
     this.api.list().subscribe({
       next: ({ campaigns }) => {
         if (seq !== this.loadSeq) return;
@@ -150,8 +160,10 @@ export class CampaignsListView {
       },
       error: (err: Error) => {
         if (seq !== this.loadSeq) return;
-        this.error.set(err.message);
         this.loading.set(false);
+        // A live refresh that fails keeps the list on screen: the next update tries again.
+        if (quiet && this.loaded()) return;
+        this.error.set(err.message);
         this.loaded.set(true);
       },
     });
@@ -171,19 +183,19 @@ export class CampaignsListView {
   }
 
   protected result(c: Campaign) {
-    const n = listCounts(c.stats);
-    const total = n.total || c.audienceSize || 0;
-    // No snapshot yet (`stats: {}` before the first write) means nothing has gone out, not everything.
-    const done = n.total ? Math.max(0, n.total - n.pending) : 0;
-    const r = reportRates(n);
+    // progressOf: a multi-day campaign counts against its whole list, not the days queued so far.
+    const p = progressOf(c, this.store.now());
+    const r = reportRates(listCounts(c.stats));
     return {
-      sending: c.status === 'running',
-      total,
-      done,
-      donePct: percent(done, total),
+      // Paused keeps its bar too: "230 of 2,598" says how far it got.
+      sending: c.status === 'running' || c.status === 'paused',
+      total: p.total,
+      done: p.done,
+      donePct: p.pct,
+      day: p.days ? `Day ${p.day} of ${p.days}` : '',
       attempted: r.attempted,
-      sent: n.sent,
-      failed: n.failed,
+      sent: p.sent,
+      failed: p.failed,
       failedPct: r.failed,
     };
   }
@@ -208,9 +220,12 @@ export class CampaignsListView {
 
   protected act(c: Campaign, action: RowAction): void {
     if (this.isBusy(c.id)) return;
+    clearTimeout(this.disarm);
     const destructive = action === 'cancel' || action === 'delete';
     if (destructive && !this.isConfirming(c.id, action)) {
       this.confirming.set({ id: c.id, action });
+      // Stop and Delete cannot be undone: an armed button left alone must not take one stray click later.
+      this.disarm = setTimeout(() => this.confirming.set(null), 4000);
       return;
     }
     this.confirming.set(null);
@@ -220,16 +235,23 @@ export class CampaignsListView {
         this.setBusy(c.id, false);
         // A start says when it sends together with another campaign, or what goes out tomorrow.
         const notes = ('policyNotes' in res && res.policyNotes) || [];
-        this.store.setStatus([`Campaign "${c.name}" ${DONE[action]}`, ...notes].join(' '), 'primary');
-        this.load();
+        this.say([`Campaign "${c.name}" ${DONE[action]}.`, ...notes].join(' '), false);
+        this.load(true);
       },
+      // The page banner's Try again reloads the list; a refused action is said next to it instead.
       error: (err: Error) => {
         this.setBusy(c.id, false);
-        this.error.set(err.message);
-        this.store.setStatus(err.message, 'danger');
+        this.say(err.message, true);
       },
     };
     if (action === 'delete') this.api.remove(c.id).subscribe(done);
     else this.api.action(c.id, action).subscribe(done);
+  }
+
+  private say(text: string, bad: boolean): void {
+    clearTimeout(this.noticeTimer);
+    this.notice.set({ text, bad });
+    // A refusal stays until dismissed: it may need reading twice.
+    if (!bad) this.noticeTimer = setTimeout(() => this.notice.set(null), 6000);
   }
 }
