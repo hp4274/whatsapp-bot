@@ -28,8 +28,11 @@ const AUTO_CLOSE_SECONDS = 10;
 /** How often the island looks for running campaigns on any of the business's numbers. */
 const RUNS_POLL_MS = 10_000;
 
-/** How many messages the card lists: the next ones while sending, the last ones after. */
+/** How many of the last messages the card lists once a run is over. */
 const RECENT_COUNT = 5;
+
+/** How many of the next messages a card lists while a run is live, in a list that scrolls (the server sends at most 20). */
+const UP_NEXT_COUNT = 20;
 
 /** Queue rows with their tag: the one in flight, then the first waiting one is Next, the rest Queued or Later. */
 function labelled(rows: readonly QueuedNext[]) {
@@ -131,7 +134,7 @@ function labelled(rows: readonly QueuedNext[]) {
                 }
                 @let next = rowsFor(c.id);
                 @if (next.length) {
-                  <ol class="recent" aria-label="Up next">
+                  <ol class="recent next" aria-label="Up next" tabindex="0">
                     @for (m of next; track m.messageId) {
                       <li>
                         <span class="av" aria-hidden="true">{{ initials(m) }}</span>
@@ -150,7 +153,7 @@ function labelled(rows: readonly QueuedNext[]) {
                 }
                 @if (canControl()) {
                   <div class="actions">
-                    @if (c.status === 'paused' && c.options.linkHold) {
+                    @if (c.status === 'paused' && (c.options.linkHold || numberDown(c))) {
                       <!-- Resume could only fail while its number cannot send: the way out is the number. -->
                       <a class="b" routerLink="/whatsapp">Connect number</a>
                     } @else if (c.status === 'paused') {
@@ -288,7 +291,7 @@ function labelled(rows: readonly QueuedNext[]) {
               </li>
             </ul>
             @if (upNextRows().length) {
-              <ol class="recent" aria-label="Up next">
+              <ol class="recent next" aria-label="Up next" tabindex="0">
                 @for (m of upNextRows(); track m.messageId) {
                   <li>
                     <span class="av" aria-hidden="true">{{ initials(m) }}</span>
@@ -324,7 +327,7 @@ function labelled(rows: readonly QueuedNext[]) {
               <div class="actions">
                 @if (phase() === 'sending') {
                   <button type="button" class="b" [disabled]="busy()" (click)="act('pause')">Pause</button>
-                } @else if (currentRun()?.options?.linkHold) {
+                } @else if (needsNumber()) {
                   <!-- Resume could only fail while its number cannot send: the way out is the number. -->
                   <a class="b" routerLink="/whatsapp">Connect number</a>
                 } @else {
@@ -552,6 +555,17 @@ function labelled(rows: readonly QueuedNext[]) {
     }
     .recent li + li {
       border-top: 1px solid var(--border-color);
+    }
+    /* Up next scrolls: about four and a half rows show, and the cut-off one says there are more below. */
+    .recent.next {
+      max-height: 216px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-width: thin;
+    }
+    .recent.next:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
     }
     .av {
       display: grid;
@@ -802,7 +816,7 @@ export class SendIsland {
 
   /** One campaign's next messages (already its own: loadRecent filters each share), its first waiting one "Next". */
   protected rowsFor(id: number) {
-    return labelled(this.cardQueues().get(id)?.rows ?? []).slice(0, 3);
+    return labelled(this.cardQueues().get(id)?.rows ?? []);
   }
 
   protected cardNote(id: number): string {
@@ -959,9 +973,10 @@ export class SendIsland {
       if (this.wuzie()) return this.named.set({ id: 0, name: 'Wuzie WhatsApp' });
       untracked(() => this.loadRuns());
     });
-    // Every campaign's sends and state changes (any number of the business), at most every 1.5 s.
+    // Every campaign's sends and state changes (any number of the business), at most every 1.5 s, and a number
+    // dropping or coming back ('channels'), which moves a card between Resume and Connect number.
     // (Wuzie's island skips it: loadRuns checks, as inputs are not set yet here.)
-    this.store.watch(['campaign', 'campaigns'], () => this.loadRuns(), 1500);
+    this.store.watch(['campaign', 'campaigns', 'channels'], () => this.loadRuns(), 1500);
     // A campaign on another number sends no events to this page: look for running campaigns now and then too.
     this.loadRuns();
     const poll = setInterval(() => {
@@ -1108,6 +1123,18 @@ export class SendIsland {
 
   /** The single card's campaign as the list has it (its reason and whether it is held for its number). */
   protected readonly currentRun = computed(() => this.runs().find((c) => c.id === this.current()?.id) ?? null);
+  /**
+   * The single card's run waits on its number: held for it, or that number (the one this page streams) is not
+   * connected now. A run paused before its number dropped is not held, and its Resume would only be refused.
+   */
+  protected readonly needsNumber = computed(
+    () => !this.wuzie() && (!!this.currentRun()?.options?.linkHold || !this.store.connection().connected),
+  );
+
+  /** A card's number is not connected right now (from the numbers list). */
+  protected numberDown(c: Campaign): boolean {
+    return c.channelId !== null && this.offline().has(c.channelId);
+  }
 
   /** What a screen reader hears: each campaign's state (and why), and how a finished one ended. Never the counts. */
   protected readonly announcement = computed(() => {
@@ -1128,7 +1155,7 @@ export class SendIsland {
     if (c.status === 'paused') return { label: 'Paused', tone: 'mute', icon: 'player-pause', why: this.reasonOf(c) };
     const wait = waitingWhy(c);
     if (wait) return { label: 'Waiting', tone: 'warn', icon: 'clock-pause', why: wait };
-    if (c.channelId !== null && this.offline().has(c.channelId)) {
+    if (this.numberDown(c)) {
       return {
         label: 'Reconnecting…',
         tone: 'warn',
@@ -1298,7 +1325,7 @@ export class SendIsland {
       if (!shares.length) this.cardQueues.set(new Map());
       forkJoin(
         shares.map((s) =>
-          this.api.queueNext(RECENT_COUNT, s.channelId, s.id).pipe(
+          this.api.queueNext(UP_NEXT_COUNT, s.channelId, s.id).pipe(
             map((r) => ({ ...s, rows: r.next.filter((m) => m.campaign === s.id), until: asked + (r.waitingSeconds ?? 0) * 1000 })),
             catchError(() => of({ ...s, rows: [] as QueuedNext[], until: 0 })),
           ),
@@ -1314,9 +1341,7 @@ export class SendIsland {
         this.cardQueues.set(cards);
       });
     } else if (this.phase() === 'sending' || this.phase() === 'paused') {
-      // Several campaigns share the queue in turns: ask for enough that each card gets its own next few.
-      const limit = Math.min(20, RECENT_COUNT * Math.max(1, this.runs().length));
-      (this.wuzie() ? this.feed.queueNext(RECENT_COUNT) : this.api.queueNext(limit)).subscribe({
+      (this.wuzie() ? this.feed.queueNext(UP_NEXT_COUNT) : this.api.queueNext(UP_NEXT_COUNT)).subscribe({
         next: ({ next }) => this.upNext.set(next),
         error: () => undefined,
       });

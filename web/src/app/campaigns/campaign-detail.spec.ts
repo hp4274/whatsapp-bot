@@ -1,10 +1,10 @@
-import { signal } from '@angular/core';
+import { type WritableSignal, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { Subject, take } from 'rxjs';
+import { Subject, of, take } from 'rxjs';
 
 import { CampaignPolicy } from '../campaign/policy-api';
-import { type Campaign, type CampaignAnalytics, CampaignsApi } from '../core/api';
+import { type Campaign, type CampaignAnalytics, CampaignsApi, type Channel, ChannelsApi } from '../core/api';
 import { Store } from '../core/store';
 import { CampaignDetailView } from './campaign-detail';
 
@@ -28,7 +28,9 @@ function analytics(
 function setup() {
   const calls: Subject<CampaignAnalytics>[] = [];
   const streamOnline = signal(true);
-  let onEvent: () => void = () => undefined;
+  let numbers: Channel[] = [];
+  // The page's reloaders by their first topic: 'campaigns' for the campaign, 'channels' for its numbers.
+  const reloaders = new Map<string, () => void>();
   TestBed.configureTestingModule({
     providers: [
       provideRouter([]),
@@ -45,12 +47,13 @@ function setup() {
         },
       },
       { provide: CampaignPolicy, useValue: { load: () => undefined } },
+      { provide: ChannelsApi, useValue: { list: () => of({ channels: numbers }) } },
       {
         provide: Store,
         useValue: {
           streamOnline,
           now: signal(Date.now()),
-          watch: (_topics: string[], reload: () => void) => (onEvent = reload),
+          watch: (topics: string[], reload: () => void) => reloaders.set(topics[0], reload),
         },
       },
     ],
@@ -65,7 +68,11 @@ function setup() {
     inflight: () => number;
     reload: () => void;
   };
-  return { view: state, calls, streamOnline, fireEvent: () => onEvent() };
+  const setNumbers = (list: Channel[]) => {
+    numbers = list;
+    reloaders.get('channels')?.();
+  };
+  return { view: state, page: view, calls, streamOnline, setNumbers, fireEvent: () => reloaders.get('campaigns')?.() };
 }
 
 describe('CampaignDetailView freshness', () => {
@@ -182,5 +189,20 @@ describe('CampaignDetailView freshness', () => {
     streamOnline.set(true);
     TestBed.tick();
     expect(calls).toHaveLength(2);
+  });
+});
+
+describe('CampaignDetailView numbers', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('offers Connect number for a paused run while its number is down, held for it or not, and Resume once back', () => {
+    const { page, setNumbers } = setup();
+    const view = page as unknown as { campaign: WritableSignal<Campaign | null>; numberDown: () => boolean };
+    // Paused by its owner before the number dropped: not held for it, yet its Resume would be refused.
+    view.campaign.set({ id: 7, channelId: 2, status: 'paused', options: {} } as unknown as Campaign);
+    setNumbers([{ id: 2, status: 'active', health: { connected: false } } as unknown as Channel]);
+    expect(view.numberDown()).toBe(true);
+    setNumbers([{ id: 2, status: 'active', health: { connected: true } } as unknown as Channel]);
+    expect(view.numberDown()).toBe(false);
   });
 });

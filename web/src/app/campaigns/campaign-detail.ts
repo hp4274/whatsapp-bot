@@ -105,6 +105,12 @@ export class CampaignDetailView {
     return `${held.map((n) => n.label).join(', ')}: ${held[0].statusReason?.replace(/^Paused: /, '') ?? 'paused'}`;
   });
 
+  /** Its own number is not connected now: Resume would be refused, even for a run paused before the number dropped. */
+  protected readonly numberDown = computed(() => {
+    const own = this.channels().find((ch) => ch.id === this.campaign()?.channelId);
+    return own?.status === 'active' && !own.health?.connected;
+  });
+
   /** Its number cannot send (held for it, paused or deleted): the numbers that could send the rest instead. */
   protected readonly moveTargets = computed(() => {
     const c = this.campaign();
@@ -341,8 +347,12 @@ export class CampaignDetailView {
       });
     });
     this.store.watch(['campaigns', 'campaign', 'history', 'analytics'], () => this.reloadSoon(), 700);
-    // Names only, for a shared campaign's lists: a failure leaves "Number #id".
-    inject(ChannelsApi).list().subscribe({ next: ({ channels }) => this.channels.set(channels), error: () => {} });
+    // Names for a shared campaign's lists (a failure leaves "Number #id"), and whether its number is connected: a
+    // number dropping or coming back moves Resume / Connect number (connection events notify 'channels').
+    const numbersApi = inject(ChannelsApi);
+    const loadNumbers = () => numbersApi.list().subscribe({ next: ({ channels }) => this.channels.set(channels), error: () => {} });
+    loadNumbers();
+    this.store.watch(['channels'], loadNumbers, 1000);
     // Events sent while the stream was down are gone: read again once it is back.
     let wasOnline = this.store.streamOnline();
     effect(() => {

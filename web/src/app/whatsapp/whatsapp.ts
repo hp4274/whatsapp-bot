@@ -573,10 +573,27 @@ export class WhatsApp {
     afterNextRender(() => this.closePop()?.nativeElement.focus(), { injector: this.injector });
   }
 
-  /** The popup closed (X, Escape, outside, or the link was called off): back to the number before. */
+  /**
+   * The popup closed (X, Escape, outside, or the link was called off): back to the number before. A code left
+   * unscanned is called off, so the card reads Not linked with its Connect again (the server keeps a scan that landed).
+   */
   protected closeLink() {
+    const ch = this.linkFor();
     this.linkFor.set(null);
     this.goBack();
+    if (!ch) return;
+    this.connectionApi.cancelLink(ch.id).subscribe({
+      next: (state) => {
+        // Still this number's stream: the logout's event says unlinked, but leaves the old code and "Connecting".
+        if (ch.id === this.activeId() && !state.connected && !state.connecting) {
+          this.store.connection.set(state);
+          this.store.connecting.set(false);
+          this.store.qr.set(null);
+        }
+        this.refresh();
+      },
+      error: () => this.refresh(),
+    });
   }
 
   /** The selected number just linked: ask its 2 questions, then go back if this was a detour. */

@@ -194,7 +194,7 @@
                     <i class="ti ti-player-pause" aria-hidden="true"></i>Pause
                   </button>
                 }
-                @if (canResume(c.status) && c.options.linkHold) {
+                @if (canResume(c.status) && (c.options.linkHold || numberDown(c))) {
                   <!-- Resume could only fail while its number cannot send: the way out is the number. -->
                   <a
                     class="btn sm primary a-run"

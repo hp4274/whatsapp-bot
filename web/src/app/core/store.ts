@@ -145,12 +145,16 @@ export class Store {
    */
   start() {
     if (this.source) return;
+    // An answer for a number the page has since left is dropped: one number's "connected" painted onto the next
+    // closed its link popup mid-link (the link card read it as "this number linked").
+    const at = this.channelId();
     this.api.connection().subscribe({
       next: (state) => {
+        if (this.channelId() !== at) return;
         this.connection.set(state);
         if (state.qr) this.qr.set(state.qr);
       },
-      error: () => this.setStatus('Backend not reachable', 'danger'),
+      error: () => this.channelId() === at && this.setStatus('Backend not reachable', 'danger'),
     });
     this.refreshStats();
     this.listen();
@@ -159,8 +163,10 @@ export class Store {
 
   /** A send keeps running on the server after a tab closes, so ask where it got to. */
   refreshStats() {
+    const at = this.channelId();
     this.api.stats().subscribe({
-      next: ({ stats }) => this.takeStats(stats),
+      // Another number's counts would show as this one's (the island, the wizard's estimates).
+      next: ({ stats }) => this.channelId() === at && this.takeStats(stats),
       error: () => undefined,
     });
   }

@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { type Campaign, type CampaignStatus, CampaignsApi } from '../core/api';
+import { type Campaign, type CampaignStatus, CampaignsApi, ChannelsApi } from '../core/api';
 import { Store } from '../core/store';
 import {
   canCancel,
@@ -119,10 +119,25 @@ export class CampaignsListView {
   protected readonly count = count;
   protected readonly pct = pct;
 
+  /** The business's numbers that are not connected now: a paused run on one offers Connect, as its Resume would be refused. */
+  private readonly down = signal<ReadonlySet<number>>(new Set());
+  protected numberDown(c: Campaign): boolean {
+    return c.channelId !== null && this.down().has(c.channelId);
+  }
+
   constructor() {
     this.load();
     // Live updates arrive several times a second during a send: they refresh quietly, without the Refresh spinner.
     this.store.watch(['campaigns', 'campaign', 'history'], () => this.load(true));
+    const numbersApi = inject(ChannelsApi);
+    const loadNumbers = () =>
+      numbersApi.list().subscribe({
+        next: ({ channels }) => this.down.set(new Set(channels.filter((ch) => ch.status === 'active' && !ch.health?.connected).map((ch) => ch.id))),
+        error: () => undefined, // without it a paused run offers Resume, as before
+      });
+    loadNumbers();
+    // A number dropping or coming back (connection events notify 'channels').
+    this.store.watch(['channels'], loadNumbers, 1000);
     inject(DestroyRef).onDestroy(() => {
       clearTimeout(this.disarm);
       clearTimeout(this.noticeTimer);

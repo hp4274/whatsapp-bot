@@ -362,6 +362,13 @@ export class Api {
       .pipe(catchError(toMessage));
   }
 
+  /** The link popup closed: the server calls off a link only while its code waits unscanned (a scan is kept). */
+  cancelLink(channelId: number): Observable<ConnectionState> {
+    return this.http
+      .post<ConnectionState>('/api/connection/cancel', {}, { headers: { 'x-channel-id': String(channelId) } })
+      .pipe(catchError(toMessage));
+  }
+
   resumeConnection(): Observable<ConnectionState> {
     return this.http
       .post<ConnectionState>('/api/connection/resume', {})

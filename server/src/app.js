@@ -865,6 +865,11 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
             state.downReported = false;
             return;
         }
+        // Linking is no outage: a code up for its scan, or a Connect still opening. An abandoned link gets its own grace.
+        if (state.qr || state.connectRun) {
+            if (!state.downReported) offlineSince = null;
+            return;
+        }
         offlineSince ??= Date.now();
         if (state.downReported || Date.now() - offlineSince < OFFLINE_GRACE_MS) return;
         const held = manager.runKeys().size || state.campaigns?.onNumber('running', state.channel?.isDefault).length || 0;
@@ -924,6 +929,14 @@ function createChannelRuntime({ db, channel, config, save, linked = () => channe
     };
     app.post('/connection/disconnect', logout);
     app.post('/connection/logout', logout);
+    // The link popup closed: a link nobody scanned is called off, so the number reads "Not linked" again, not
+    // "Connecting" for minutes with its code shown to no one. Only while a code still waits once a Connect in flight
+    // settles: a scan clears it (the 515 restart) and a saved login shows none, so closing then keeps the link.
+    app.post('/connection/cancel', async (req, res) => {
+        await state.connectRun?.catch(() => undefined);
+        if (!state.qr || state.transport?.isConnected?.()) return res.json(connectionState(state));
+        return logout(req, res);
+    });
 
     // ----------------------------------------------------------- messages --
     app.post('/messages', async (req, res) => {

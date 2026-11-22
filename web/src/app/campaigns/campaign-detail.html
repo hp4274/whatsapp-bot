@@ -257,7 +257,7 @@
           <i class="ti ti-player-pause" aria-hidden="true"></i>Pause
         </button>
       }
-      @if (c.status === 'paused' && c.options.linkHold) {
+      @if (c.status === 'paused' && (c.options.linkHold || numberDown())) {
         <!-- Resume could only fail while its number cannot send: the way out is the number. -->
         <a class="btn primary" routerLink="/whatsapp">
           <i class="ti ti-plug-connected" aria-hidden="true"></i>Connect number
