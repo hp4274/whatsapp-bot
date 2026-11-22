@@ -181,8 +181,8 @@ describe('pacing on a QR number', () => {
         const db = freshDb();
         const transport = new FakeLive();
         const manager = new CampaignManager(db, transport, qr({ pacingMode: 'adaptive', humanTiming: false }));
-        // No gap at all, a rest every 2 sends (±30%: 1-3), a rest of about 2s: longer than the moment between two
-        // campaigns, so a due rest is still owed (and announced) when the next one starts.
+        // No gap at all, a break after every 1-3 sends (restEvery 2), a break of 1-6s: longer than the moment between
+        // two campaigns, so a due break is still owed (and announced) when the next one starts.
         awake(manager, LEVELS.map((r) => ({ ...r, minSeconds: 0, maxSeconds: 0, restEvery: 2, restMinMinutes: 0.03, restMaxMinutes: 0.035 })));
         const rests = [];
         manager.on('event', (e) => { if (e.type === 'pacing' && e.resting) rests.push(e); });
@@ -204,16 +204,17 @@ describe('pacing on a QR number', () => {
         const db = freshDb();
         const transport = new FakeLive();
         const manager = new CampaignManager(db, transport, qr({ pacingMode: 'adaptive', humanTiming: false }));
-        // A gap of about 1.5s between messages, no rests.
+        // A gap of about 1.5s between messages and no rests: with no typing (humanTiming off) the wait also holds the
+        // 4 s of typing room the speed counts, so about 5 s in all.
         awake(manager, LEVELS.map((r) => ({ ...r, minSeconds: 1.5, maxSeconds: 1.5, restEvery: 1000 })));
         try {
             manager.enqueueContacts(people(['919811111201', '919811111202']), 'Hi {name}', { campaignId: 'gap' });
             manager.start();
             assert.ok(await until(() => transport.sent.length === 1, 6000), 'the first one goes');
             manager.pause(); // now, inside the gap before the second
-            await sleep(3500);
+            assert.ok(await until(() => manager.queue.pending === 1, 12_000), 'the second is back in the queue, first in line');
+            await sleep(500);
             assert.equal(transport.sent.length, 1, 'nothing more went out after the pause');
-            assert.equal(manager.queue.pending, 1, 'the second is back in the queue, first in line');
         } finally {
             await manager.shutdown();
             db.close();

@@ -373,8 +373,10 @@
                 @if (speed(); as sp) {
                   <p class="muted compact" role="status">
                     About <strong>{{ sp.perHour | number }} an hour</strong> per number: a message every
-                    {{ sp.gapSeconds[0] }}-{{ sp.gapSeconds[1] }} seconds, and a {{ sp.restMinutes[0] }}-{{ sp.restMinutes[1] }}
-                    minute rest about every {{ sp.restEvery }} messages. Gaps stay random, and the ban brakes stay on.
+                    {{ sp.perMessage }} seconds on average (waits of {{ sp.gapSeconds[0] }}-{{ sp.gapSeconds[1] }} s, typing
+                    included), in sittings of {{ sp.sitting[0] }}-{{ sp.sitting[1] }} messages with a
+                    {{ sp.restMinutes[0] }}-{{ sp.restMinutes[1] }} minute break after each. Every campaign gets its own random
+                    rhythm at this speed, and the ban brakes stay on.
                   </p>
                   @if (followDay()) {
                     <!-- The plan's day: the limit is each number's warm-up level's, so there is no one day to compare with. -->

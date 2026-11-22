@@ -375,15 +375,22 @@ export function wallClock(at = new Date(), zone = null) {
 export const localDayKey = (at = new Date(), zone = null) => wallClock(at, zone).day;
 
 /**
- * Today's rhythm for one number: every day draws a different gap multiplier, so no two days repeat the same
- * timing. Deterministic per (seed, day) so a restart does not re-roll mid-day.
+ * Today's rhythm for one number: every day draws a different `factor`, how much longer or shorter its sittings (and
+ * so their breaks) run today (rhythm.js nextSitting), so no two days look alike while the speed stays the same.
+ * Deterministic per (seed, day) so a restart does not re-roll mid-day.
  */
 export function dayPlan(seed, at = new Date(), zone = null) {
     const random = seeded(`${seed}|${localDayKey(at, zone)}`);
-    return { gapFactor: 0.8 + random() * 0.5, zone };
+    return { factor: 0.8 + random() * 0.5, zone };
 }
 
 // -------------------------------------------------------------------- typing --
+
+/**
+ * The typing a row's gaps leave room for (safety.js speedRow): a number sends a message every gap + this on
+ * average. A message's real typing (typingMs) and send come out of its wait (rhythm.js gapSeconds), so the speed holds.
+ */
+export const TYPING_SECONDS = 4;
 
 /**
  * How long to show "typing..." before a message goes out: 2-3 seconds at

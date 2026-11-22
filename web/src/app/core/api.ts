@@ -783,9 +783,14 @@ export interface SendingSpeed {
   /** What one number can really send in a day at this spacing. */
   readonly reachable: number;
   readonly perHour: number;
+  /** A message every this many seconds on average, typing included (server campaign/rhythm.js). */
+  readonly perMessage: number;
+  /** The shortest and longest wait between two messages. */
   readonly gapSeconds: readonly [number, number];
   readonly restEvery: number;
+  /** The shortest and longest break, and how many messages a sitting before one runs. */
   readonly restMinutes: readonly [number, number];
+  readonly sitting: readonly [number, number];
   /** Hours a day bulk may go out: 24, or the length of the business's own sending window. */
   readonly hours: number;
   /** That sending window (the bulk rules), when the business has one. */

@@ -11,14 +11,13 @@ import { after, before, describe, it } from 'node:test';
 
 import { closeApp } from '../src/app.js';
 import { createTestApp as createApp } from './helpers.js';
-import { LEVELS } from '../src/campaign/humanize.js';
+import { LEVELS, TYPING_SECONDS } from '../src/campaign/humanize.js';
 import { CampaignManager } from '../src/campaign/manager.js';
 import {
     DailyQuota,
     dayEnd,
     dayStart,
     estimateSeconds,
-    nextDelay,
     paceFor,
 } from '../src/campaign/safety.js';
 import { DEFAULTS, TRANSPORT_SANDBOX } from '../src/config.js';
@@ -44,33 +43,6 @@ describe('adaptive pacing', () => {
             'a lower level waits longer');
     });
 
-    it('varies the gap instead of using a fixed interval', () => {
-        const pace = paceFor(100, config(), 'balanced', LEVELS[3]);
-        const gaps = new Set();
-        for (let i = 1; i <= 20; i += 1) {
-            const { seconds, resting } = nextDelay(pace, i);
-            if (resting) continue;
-            assert.ok(seconds >= pace.minSeconds && seconds <= pace.maxSeconds,
-                `${seconds} outside [${pace.minSeconds}, ${pace.maxSeconds}]`);
-            gaps.add(Math.round(seconds * 1000));
-        }
-        assert.ok(gaps.size > 10, 'a predictable metronome is exactly what gets flagged');
-    });
-
-    it('sends the first message immediately, then paces', () => {
-        const pace = paceFor(50, config(), 'balanced', LEVELS[3]);
-        assert.equal(nextDelay(pace, 0).seconds, 0);
-        assert.ok(nextDelay(pace, 1).seconds > 0);
-    });
-
-    it('takes a long rest every N messages', () => {
-        const pace = paceFor(100, config({ restEvery: 10, restMinMinutes: 2, restMaxMinutes: 3 }));
-        const rest = nextDelay(pace, 10);
-        assert.equal(rest.resting, true);
-        assert.ok(rest.seconds >= 120 && rest.seconds <= 180, `${rest.seconds}s`);
-        assert.equal(nextDelay(pace, 11).resting, false);
-    });
-
     it('honours an explicit override of the tier', () => {
         const pace = paceFor(1000, config({ minDelaySeconds: 3, maxDelaySeconds: 4 }));
         assert.deepEqual([pace.minSeconds, pace.maxSeconds], [3, 4]);
@@ -79,8 +51,9 @@ describe('adaptive pacing', () => {
     it('estimates how long a batch will take', () => {
         const pace = { ...paceFor(100, config(), 'balanced', LEVELS[3]), restEvery: 0 };
         const estimate = estimateSeconds(100, pace);
-        assert.equal(estimate.min, 99 * pace.minSeconds);
-        assert.equal(estimate.max, 99 * pace.maxSeconds);
+        // Each message: its gap and the typing the row leaves room for, which the engine holds it to.
+        assert.equal(estimate.min, 99 * (pace.minSeconds + TYPING_SECONDS));
+        assert.equal(estimate.max, 99 * (pace.maxSeconds + TYPING_SECONDS));
         assert.ok(estimate.typical > estimate.min && estimate.typical < estimate.max);
         assert.equal(estimateSeconds(1, pace).typical, 0, 'one message waits for nothing');
     });

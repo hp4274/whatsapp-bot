@@ -144,6 +144,7 @@ import {
 } from './tenancy.js';
 import { sendingTables, skipStartLevel, startLevelFor, suggestStart } from './policy/levels.js';
 import { PACING_PRESETS, bulkWindowOpen, sendingHours, speedRow } from './campaign/safety.js';
+import { rhythmSpans } from './campaign/rhythm.js';
 import { PROBLEM_ACTIONS, auditCsv, createAdminOps } from './adminOps.js';
 import { lastBackup, runBackupIfDue } from './backup.js';
 import { encryptionStatus } from './security/keyGate.js';
@@ -4719,9 +4720,12 @@ export function createApp({
         const { levels, bulkWindow } = sendingTables(policyStore.resolve(tenant.id).values);
         const hours = sendingHours(bulkWindow);
         const row = speed ? speedRow(levels.at(-1), speed, hours, true) : speedRow(levels.at(-1), perDay, hours);
+        // What the sending rhythm makes of the row (campaign/rhythm.js): a message every `perMessage` seconds on average,
+        // each wait in `gapSeconds`, sittings of `sitting` messages with a `restMinutes` break after each.
+        const { perMessage, gapSeconds, restMinutes, sitting } = rhythmSpans(row);
         return res.json({
             speed, perDay: Number.isFinite(perDay) ? perDay : null, reachable: row.reachable, perHour: row.perHour,
-            gapSeconds: [row.minSeconds, row.maxSeconds], restEvery: row.restEvery, restMinutes: [row.restMinMinutes, row.restMaxMinutes],
+            perMessage, gapSeconds, restEvery: row.restEvery, restMinutes, sitting,
             hours, window: bulkWindow,
         });
     });

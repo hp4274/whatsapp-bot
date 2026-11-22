@@ -6,9 +6,9 @@
  * the easiest pattern to spot: 300 messages, exactly 5.0s apart, is not a
  * person.  Two controls cover it:
  *
- *   1. Adaptive pacing - the gap between messages is drawn at random from the
- *      number's level range (humanize.js LEVELS).  Every so often the run
- *      takes a longer rest, the way a person putting a phone down would.
+ *   1. Adaptive pacing - the number's level row (humanize.js LEVELS) sets the
+ *      pace, and rhythm.js shapes it like a person: every campaign its own
+ *      rhythm, sittings of a random length, gaps and breaks of no fixed size.
  *   2. A daily cap - the level's day, and no more than 35% over the best
  *      recent clean day (growthFrom).  When it is reached the campaign PAUSES
  *      rather than failing: the queued rows stay QUEUED and the run can
@@ -23,7 +23,7 @@ import { withinSendingWindow } from '../channels.js';
 import { QR_TRANSPORTS } from '../config.js';
 import { SUCCESS_STATUSES } from '../protocol.js';
 import {
-    BLOCK_PAUSE_MIN_SENT, BLOCK_PAUSE_PERCENT, BRAKES, HALTING_BRAKES, LEVELS, levelFor, wallClock,
+    BLOCK_PAUSE_MIN_SENT, BLOCK_PAUSE_PERCENT, BRAKES, HALTING_BRAKES, LEVELS, TYPING_SECONDS, levelFor, wallClock,
 } from './humanize.js';
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -156,31 +156,20 @@ export function paceFor(batchSize, config = {}, preset = 'balanced', sendTier = 
 }
 
 /**
- * How long to wait before sending message number `sentInRun + 1`.
- * Returns {seconds, resting} - `resting` marks the long pause, so the UI can
- * say why nothing is moving.
+ * Rough wall-clock cost of a batch, for the estimate shown before Start. A paced message takes its gap and the typing
+ * the row leaves room for (TYPING_SECONDS): the engine holds every message to that, so the estimate is the speed's.
  */
-export function nextDelay(pace, sentInRun, random = Math.random) {
-    if (sentInRun <= 0) return { seconds: 0, resting: false }; // first one goes now
-    if (pace.restEvery > 0 && sentInRun % pace.restEvery === 0) {
-        const span = Math.max(0, pace.restMaxSeconds - pace.restMinSeconds);
-        return { seconds: pace.restMinSeconds + random() * span, resting: true };
-    }
-    const span = Math.max(0, pace.maxSeconds - pace.minSeconds);
-    return { seconds: pace.minSeconds + random() * span, resting: false };
-}
-
-/** Rough wall-clock cost of a batch, for the estimate shown before Start. */
 export function estimateSeconds(count, pace) {
     if (count <= 1) return { min: 0, max: 0, typical: 0 };
     const gaps = count - 1;
     const rests = pace.restEvery > 0 ? Math.floor(gaps / pace.restEvery) : 0;
     const normal = gaps - rests;
     const restAvg = (pace.restMinSeconds + pace.restMaxSeconds) / 2;
+    const typing = pace.maxSeconds > 0 ? TYPING_SECONDS : 0;
     return {
-        min: normal * pace.minSeconds + rests * pace.restMinSeconds,
-        max: normal * pace.maxSeconds + rests * pace.restMaxSeconds,
-        typical: normal * ((pace.minSeconds + pace.maxSeconds) / 2) + rests * restAvg,
+        min: normal * (pace.minSeconds + typing) + rests * pace.restMinSeconds,
+        max: normal * (pace.maxSeconds + typing) + rests * pace.restMaxSeconds,
+        typical: normal * ((pace.minSeconds + pace.maxSeconds) / 2 + typing) + rests * restAvg,
     };
 }
 
@@ -207,39 +196,45 @@ export function dayEnd(at = new Date(), zone = null) {
     return end;
 }
 
-/** The typing shown before each message (humanize.js typingMs), on top of the gap: about this long. */
-const TYPING_SECONDS = 4;
 /** The gap no speed goes under: the system number's own small delay (manager.js PLATFORM_LANE). */
 const FASTEST_GAP = Object.freeze({ minSeconds: 2, maxSeconds: 5 });
+/** A sitting under a business's own speed: about this much sending before a break, like a person's (rhythm.js varies it). */
+const SITTING_SECONDS = 25 * 60;
+/** The shortest a sitting's break runs on average, at any speed: the phone still gets put down. */
+const BREAK_SECONDS = 90;
 
 /**
  * The top level's row re-spaced so a business's own day (set by the super admin) can really be sent inside the
- * day: gaps, rests and the hour follow it. Only ever faster than `top`, and never under
+ * day: gaps, breaks and the hour follow it. Only ever faster than `top`, and never under
  * FASTEST_GAP: a day beyond that is not reachable on one number, and `reachable` says what is.
- * Gaps stay random (0.6-1.4 of their mean) and the rests stay: 1-2 minutes after about every 10 minutes of sending.
+ * Sent like a person: sittings of about 25 minutes, each ending in a break of a few minutes (never under 1.5 on
+ * average), all of it varied by rhythm.js. Each message's share of the day is 85% its gap and typing, 14% its
+ * sitting's break and 1% to spare, so the speed is what the day really gets.
  * `perDay` Infinity (no limit) is the fastest spacing. `hours`: the hours a day bulk may go out (sendingHours).
  * `exact` (a speed the super admin set, apart from the day): the row is spaced to it both ways, slower too.
  */
 export function speedRow(top, perDay, hours = sendingHours(), exact = false) {
     const window = Math.max(1, hours) * 3600;
-    // What one message costs in seconds: its gap, its typing, and its share of the rests.
-    const cost = (row) => (row.minSeconds + row.maxSeconds) / 2 + TYPING_SECONDS
-        + (row.restEvery > 0 ? ((row.restMinMinutes + row.restMaxMinutes) * 30) / row.restEvery : 0);
+    // What one message costs in seconds: its gap and typing (`sending`), and with them its share of the breaks.
+    const sending = (row) => (row.minSeconds + row.maxSeconds) / 2 + TYPING_SECONDS;
+    const cost = (row) => sending(row) + (row.restEvery > 0 ? ((row.restMinMinutes + row.restMaxMinutes) * 30) / row.restEvery : 0);
     const reach = (row) => Math.floor(window / cost(row));
     if (!exact && !(perDay > reach(top))) return { ...top, reachable: reach(top) };
-    // 85% of each message's share of the day is its gap and typing; the rest of it goes to the rests.
-    const mean = Math.max((FASTEST_GAP.minSeconds + FASTEST_GAP.maxSeconds) / 2, (window / perDay) * 0.85 - TYPING_SECONDS);
+    const share = window / perDay;
+    const mean = Math.max((FASTEST_GAP.minSeconds + FASTEST_GAP.maxSeconds) / 2, share * 0.85 - TYPING_SECONDS);
+    const restEvery = Math.max(1, Math.round(SITTING_SECONDS / (mean + TYPING_SECONDS)));
+    const rest = Math.max(BREAK_SECONDS, restEvery * share * 0.14) / 60;
     const tenth = (n) => Math.round(n * 10) / 10;
     const row = {
         ...top,
         minSeconds: Math.max(FASTEST_GAP.minSeconds, tenth(mean * 0.6)),
         maxSeconds: Math.max(FASTEST_GAP.maxSeconds, tenth(mean * 1.4)),
-        restEvery: Math.max(top.restEvery, Math.round(600 / (mean + TYPING_SECONDS))),
-        restMinMinutes: 1,
-        restMaxMinutes: 2,
+        restEvery,
+        restMinMinutes: tenth(rest * 0.6),
+        restMaxMinutes: tenth(rest * 1.4),
     };
-    // The hour cap bounds a burst, with room so it never bites before the spacing does.
-    return { ...row, perHour: Math.ceil((3600 / cost(row)) * 1.1), reachable: reach(row) };
+    // The hour cap bounds a burst inside a sitting, with room so it never bites before the spacing does.
+    return { ...row, perHour: Math.ceil((3600 / sending(row)) * 1.1), reachable: reach(row) };
 }
 
 /**

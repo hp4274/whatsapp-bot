@@ -11,7 +11,7 @@ describe('day plan', () => {
         const a = dayPlan('t:1', new Date(2026, 5, 1, 10));
         assert.deepEqual(a, dayPlan('t:1', new Date(2026, 5, 1, 23)));
         const days = new Set();
-        for (let d = 1; d <= 14; d += 1) days.add(dayPlan('t:1', new Date(2026, 5, d)).gapFactor.toFixed(4));
+        for (let d = 1; d <= 14; d += 1) days.add(dayPlan('t:1', new Date(2026, 5, d)).factor.toFixed(4));
         assert.ok(days.size > 10, 'no two days share a rhythm');
     });
 

@@ -23,9 +23,10 @@ import { NOT_ON_WHATSAPP_CODE, TransportConnectionError, TransportError } from '
 import { RateLimiter, RetryPolicy, interruptibleSleep } from './limits.js';
 import { MessageQueue, QueueState, queueItem } from './queue.js';
 import {
-    DailyQuota, SafetyError, estimateSeconds, nextDelay, paceFor, pickPreset,
+    DailyQuota, SafetyError, estimateSeconds, paceFor, pickPreset,
     qrVaryAbove, variationError,
 } from './safety.js';
+import { breakSeconds, campaignRhythm, cycleSeconds, gapSeconds, nextSitting, rescaled, samePace } from './rhythm.js';
 import { capReachedText } from '../policy/campaignOps.js';
 import { logger, runDetached } from '../observability/logger.js';
 import {
@@ -119,7 +120,10 @@ export class CampaignManager extends EventEmitter {
         // Real sends since this number last rested, across runs (#restartRestCount): back-to-back small campaigns
         // must still take the long pause. Named for the run it once was.
         this.sentInRun = 0;
-        this.nextRestAt = null;     // sentInRun at which the next long rest starts (jittered)
+        this.sitting = null;        // the sitting under way (rhythm.js): { endsAt: sentInRun at its break, size, tempo }
+        this.overhead = 1;          // seconds a send takes beyond its typing (lookup, upload), learned as it sends (#measureWork)
+        this.owed = 0;              // seconds the last waits ran over their draw (held at the floor): the next ones make it up
+        this.rhythms = new Map();   // each campaign's own rhythm on this number (#rhythmOf)
         this.restDay = null;        // the local day sentInRun counts in
         this.afterReconnect = false;
         this.lastHealthScan = 0;
@@ -155,7 +159,7 @@ export class CampaignManager extends EventEmitter {
         this.retryPolicy = RetryPolicy.fromConfig(config);
         this.quota.config = config;
         this.quota.invalidate();
-        this.pace = this.#paceFor(this.pace.batchSize, this.pacePreset);
+        this.#follow(this.#paceFor(this.pace.batchSize, this.pacePreset));
     }
 
     /** Whether WhatsApp restricts this number now; read at most every 30s (`restrictedCache = null` re-reads). */
@@ -199,7 +203,7 @@ export class CampaignManager extends EventEmitter {
     /** Change the speed preset of the current run (live): recomputes the gap range. */
     setPace(preset, batchSize = this.pace.batchSize) {
         this.pacePreset = pickPreset(preset);
-        this.pace = this.#paceFor(batchSize, this.pacePreset);
+        this.#follow(this.#paceFor(batchSize, this.pacePreset));
         this.#emitStats();
         return this.pace;
     }
@@ -434,7 +438,7 @@ export class CampaignManager extends EventEmitter {
         let skippedFrequency = 0;
         const batch = Array.isArray(contacts) ? contacts.length : 0;
         this.pacePreset = pickPreset(pacing);
-        this.pace = this.#paceFor(batch, this.pacePreset);
+        this.#follow(this.#paceFor(batch, this.pacePreset));
         // The rest count carries on from the last run: it restarts only after a real rest (#restartRestCount).
         let queued = 0;
         let skipped = 0;
@@ -903,6 +907,16 @@ export class CampaignManager extends EventEmitter {
 
         const { seconds, resting } = this.#nextGap(item);
         if (seconds <= 0) return true;
+        this.#announceWait(seconds, resting);
+        // Not always online: during a long gap, go offline now and then (the
+        // transport comes back online when the next message starts typing).
+        if (seconds > 25 && Math.random() < 0.6) void this.transport.setPresence?.('unavailable');
+        const finished = await this.#waitOut(seconds, resting, !this.#onLane(item));
+        this.waitingUntil = null;
+        return finished;
+    }
+
+    #announceWait(seconds, resting) {
         this.waitingUntil = Date.now() + seconds * 1000;
         this.emit('event', {
             type: 'pacing',
@@ -911,18 +925,50 @@ export class CampaignManager extends EventEmitter {
             reason: resting ? 'resting between batches' : 'spacing messages',
         });
         this.#emitStats();
-        // Not always online: during a long gap, go offline now and then (the
-        // transport comes back online when the next message starts typing).
-        if (seconds > 25 && Math.random() < 0.6) void this.transport.setPresence?.('unavailable');
-        const finished = await interruptibleSleep(seconds, () => this.#stopped());
-        this.waitingUntil = null;
-        return finished;
     }
 
     /**
-     * The gap before this send. Drawn at random from the tier's range, scaled
-     * by today's multiplier (so no two days have the same rhythm), stretched
-     * for media, and every so often a long rest at a jittered interval.
+     * Sleep out a gap or a break, re-planned while it runs: when the number's row changes (the super admin set another
+     * speed, or the level moved), the time left and the sitting follow the new pace at once, not after this wait.
+     * `replan` false: the system number's own short gap (PLATFORM_LANE), which no row spaces.
+     */
+    async #waitOut(seconds, resting, replan = true) {
+        let end = Date.now() + seconds * 1000;
+        let planned = this.pace; // the row this wait was drawn for (a config change may swap this.pace meanwhile)
+        for (;;) {
+            const left = (end - Date.now()) / 1000;
+            if (left <= 0) return !this.#stopped();
+            if (!await interruptibleSleep(Math.min(2, left), () => this.#stopped())) return false;
+            if (!replan || !this.#onLevels() || Date.now() >= end) continue;
+            const to = this.#paceFor(this.pace.batchSize, this.pacePreset);
+            if (samePace(planned, to)) continue;
+            this.#follow(to);
+            const rest = rescaled((end - Date.now()) / 1000, resting, planned, to);
+            planned = to;
+            end = Date.now() + rest * 1000;
+            this.#announceWait(rest, resting);
+        }
+    }
+
+    /** Take a new row (its level's or its speed's): the sitting under way is re-sized to it, so a slow row never keeps a fast one's long sitting. */
+    #follow(pace) {
+        const from = this.pace;
+        this.pace = pace;
+        if (!this.sitting || samePace(from, pace)) return;
+        if (!(from.restEvery > 0) || !(pace.restEvery > 0) || !Number.isFinite(this.sitting.endsAt)) {
+            this.sitting = null; // drawn again for the new row at the next send
+            return;
+        }
+        const ratio = pace.restEvery / from.restEvery;
+        const left = Math.max(0, this.sitting.endsAt - this.sentInRun);
+        this.sitting = { ...this.sitting, endsAt: this.sentInRun + Math.round(left * ratio), size: Math.max(1, Math.round(this.sitting.size * ratio)) };
+    }
+
+    /**
+     * The gap before this send, in a person's rhythm (rhythm.js) held to the number's speed: the item's campaign has
+     * its own shape, each sitting runs a random number of messages at its own tempo, then a break that grows with it.
+     * The message's own time (its typing, and the lookup and send the last ones took) comes out of the gap, so the
+     * speed is what the row says; media is stretched. The sitting count is the number's, across campaigns.
      * On a QR number it counts from the number's last real send or lookup, not
      * from the run: a new run, a restore or a restart does not fire at once,
      * and one send after a quiet spell still goes straight away.
@@ -930,29 +976,69 @@ export class CampaignManager extends EventEmitter {
     #nextGap(item) {
         if (this.#onLane(item)) return this.#laneGap();
         const levels = this.#onLevels();
-        // A level moves mid-run (a brake, a level-up): its pace follows on every send.
-        if (levels) this.pace = this.#paceFor(this.pace.batchSize, this.pacePreset);
+        // A level or a speed moves mid-run (a brake, a level-up, the super admin): its pace follows on every send.
+        if (levels) this.#follow(this.#paceFor(this.pace.batchSize, this.pacePreset));
         const pace = this.pace;
         this.#restartRestCount(pace);
         if (this.sentInRun <= 0 && !levels) return { seconds: 0, resting: false };
-        let gap = null;
-        if (pace.restEvery > 0 && this.sentInRun > 0) {
-            this.nextRestAt ??= this.sentInRun + Math.max(1, Math.round(pace.restEvery * between(0.7, 1.3)));
-            if (this.sentInRun >= this.nextRestAt) {
-                this.nextRestAt = this.sentInRun + Math.max(1, Math.round(pace.restEvery * between(0.7, 1.3)));
-                gap = { seconds: between(pace.restMinSeconds, pace.restMaxSeconds), resting: true };
-            }
-        }
-        if (!gap) {
-            let { seconds } = nextDelay({ ...pace, restEvery: 0 }, Math.max(1, this.sentInRun));
-            seconds *= this.#dayPlan()?.gapFactor ?? 1;
+        const rhythm = this.#rhythmOf(item);
+        item.typing = this.#typingFor(item);
+        this.sitting ??= this.#sitDown(pace, rhythm);
+        let gap;
+        if (this.sentInRun > 0 && this.sentInRun >= this.sitting.endsAt) {
+            // The break also settles what the last gaps owed.
+            gap = { seconds: Math.max(0, breakSeconds(pace, rhythm, this.sitting.size) - this.owed), resting: true };
+            this.owed = 0;
+            this.sitting = this.#sitDown(pace, rhythm);
+        } else {
+            const next = gapSeconds(pace, rhythm, this.sitting, { work: item.typing / 1000 + this.overhead, owed: this.owed });
+            this.owed = next.owed;
             // A carousel goes out as several captioned images: as heavy as media.
-            if (item.media || item.interactive?.type === 'carousel') seconds *= MEDIA_GAP_FACTOR;
-            gap = { seconds, resting: false };
+            const heavy = item.media || item.interactive?.type === 'carousel';
+            gap = { seconds: heavy ? next.seconds * MEDIA_GAP_FACTOR : next.seconds, resting: false };
         }
         if (!levels) return gap;
         const last = Math.max(Date.parse(this.quota.allowance().lastSentAt ?? '') || 0, this.lastActionAt ?? 0);
         return { ...gap, seconds: Math.max(0, gap.seconds - (Date.now() - last) / 1000) };
+    }
+
+    /** A sitting from the next send on: its break comes after a random number of messages, at its own tempo. */
+    #sitDown(pace, rhythm) {
+        const { size, tempo } = nextSitting(pace, rhythm, this.#dayPlan()?.factor ?? 1);
+        return { endsAt: this.sentInRun + size, size, tempo };
+    }
+
+    /**
+     * How long "typing..." shows before this message (ms; 0 when the number does not type). It fits the speed: never
+     * over half of a message's time at it (a person that fast pastes rather than types), so a fast speed is reached,
+     * and never under typingMs's 2 s. A row without gaps sets no speed to fit.
+     */
+    #typingFor(item) {
+        if (!(this.transport?.realDelivery && this.config.safetyEnabled && this.config.humanTiming !== false)) return 0;
+        const cycle = cycleSeconds(this.pace);
+        return Math.min(typingMs(item.message, { media: Boolean(item.media) }), cycle > 0 ? Math.max(2000, cycle * 500) : Infinity);
+    }
+
+    /**
+     * What a message took beyond its typing (its lookup, the rate limit, the send or upload), from the end of its wait:
+     * the next waits leave room for it. A moving average, each send counted up to 5 s so one slow upload cannot empty them.
+     */
+    #measureWork(from, typing) {
+        const spent = (Date.now() - from - typing) / 1000;
+        this.overhead = this.overhead * 0.8 + Math.min(5, Math.max(0, spent)) * 0.2;
+    }
+
+    /** The item's campaign's rhythm on this number (rhythm.js): drawn once, and the same again after a restart. */
+    #rhythmOf(item) {
+        const key = `${this.seed}|${item?.campaignId || item?.messageType || ''}`;
+        let rhythm = this.rhythms.get(key);
+        if (!rhythm) {
+            // shortcut: emptied past 100 campaigns (each is drawn the same again, seeded); a clean-up per run is not worth it.
+            if (this.rhythms.size >= 100) this.rhythms.clear();
+            rhythm = campaignRhythm(key);
+            this.rhythms.set(key, rhythm);
+        }
+        return rhythm;
     }
 
     /**
@@ -967,7 +1053,8 @@ export class CampaignManager extends EventEmitter {
         // At least a minute, so a rate-limiter wait or a slow send never passes for a rest.
         if (day !== this.restDay || idle >= Math.max(60, pace.restMinSeconds)) {
             this.sentInRun = 0;
-            this.nextRestAt = null;
+            this.sitting = null;
+            this.owed = 0;
         }
         this.restDay = day;
     }
@@ -1288,6 +1375,7 @@ export class CampaignManager extends EventEmitter {
                 this.#interrupted(item);   // stopped while pacing
                 return;
             }
+            const workFrom = Date.now(); // the message's own time starts: lookup, rate limit, typing, send (#measureWork)
             if (levels && await this.#notOnWhatsapp(item)) return;
             // Rate limit sits between the queue and the transport.
             if (!await this.rateLimiter.acquire(() => this.#stopped())) {
@@ -1334,9 +1422,8 @@ export class CampaignManager extends EventEmitter {
             let errorText = '';
             let dropped = false;
             try {
-                // A person types before sending: the transport shows "typing..." for this long.
-                const typing = this.transport?.realDelivery && this.config.safetyEnabled && this.config.humanTiming !== false
-                    ? typingMs(item.message, { media: Boolean(item.media) }) : 0;
+                // A person types before sending: the transport shows "typing..." for this long (its gap left room for it).
+                const typing = item.typing ?? this.#typingFor(item);
                 // Someone this QR number already talks to is on WhatsApp: the transport need not look them up.
                 const registered = this.#registered(item.recipient) === true || (levels && item.cold === false);
                 const result = await this.transport.sendMessage(item.recipient, item.message,
@@ -1353,6 +1440,7 @@ export class CampaignManager extends EventEmitter {
                             },
                         } : {}) });
                 this.lastActionAt = Date.now();
+                this.#measureWork(workFrom, typing);
                 // A carousel goes out as several WhatsApp messages (`parts`); the rests and the budgets count each.
                 if (this.transport?.realDelivery) this.sentInRun += result.parts ?? 1;
                 this.db.updateStatus(item.messageId, result.status, {

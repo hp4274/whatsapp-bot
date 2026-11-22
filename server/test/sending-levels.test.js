@@ -430,8 +430,8 @@ describe('pacing', () => {
             assert.equal(transport.sent.length, 0);
             assert.equal(transport.checks.length, 0, 'a stranger is looked up after the gap, not before');
             const wait = events.find((e) => e.type === 'pacing').seconds;
-            // Level 1: 90-300s, times the day's 0.8-1.3 rhythm, less the 10s already gone.
-            assert.ok(wait >= 60 && wait <= 380, `waits ${wait}s`);
+            // Level 1 (90-300s): the rhythm draws from 0.8x its shortest to 3x its longest, less the 10s already gone.
+            assert.ok(wait >= 60 && wait <= 890, `waits ${wait}s`);
         } finally {
             await manager.shutdown();
             db.close();
