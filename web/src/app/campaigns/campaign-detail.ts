@@ -21,10 +21,16 @@ import {
   CampaignsApi,
   type Channel,
   ChannelsApi,
+  type Contact,
   ContactsApi,
   type PacingPreset,
 } from '../core/api';
 import { Store } from '../core/store';
+import type { DraftAttachment, VariantKey } from '../campaign/draft';
+import type { InteractiveDraft } from '../campaign/interactive/interactive.model';
+import { PhonePreview } from '../campaign/phone-preview';
+import { CampaignPolicy } from '../campaign/policy-api';
+import { TemplatesApi } from '../templates/templates-api';
 import {
   canCancel,
   count,
@@ -59,6 +65,8 @@ const RECEIPT_WINDOW_MS = 7 * 86_400_000;
 const LIVE_GAP_MS = 3000;
 /** A paused campaign changes when someone acts on it (an event): this poll is only the backstop. */
 const PAUSED_POLL_MS = 30_000;
+/** Nobody to show yet (a contact filter not sent): the composer's sample person (campaign/draft.ts SAMPLE). */
+const PREVIEW_SAMPLE: Record<string, string> = { name: 'Asha', phone: '919876543210' };
 
 /**
  * One campaign: its schedule, live progress and controls, then analytics.
@@ -70,7 +78,7 @@ const PAUSED_POLL_MS = 30_000;
  */
 @Component({
   selector: 'app-campaign-detail',
-  imports: [RouterLink, CampaignStatusPill, CampaignInsights, CampaignRecipients],
+  imports: [RouterLink, CampaignStatusPill, CampaignInsights, CampaignRecipients, PhonePreview],
   templateUrl: './campaign-detail.html',
   styleUrl: './campaign-detail.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -104,6 +112,46 @@ export class CampaignDetailView {
     if (this.status() !== 'running' || !held.length) return null;
     return `${held.map((n) => n.label).join(', ')}: ${held[0].statusReason?.replace(/^Paused: /, '') ?? 'paused'}`;
   });
+
+  /** The phone preview, as the composer shows it: the person shown, the word choices drawn, the A/B version. */
+  protected readonly previewAt = signal(0);
+  protected readonly previewSeed = signal(1);
+  protected readonly previewVersion = signal<VariantKey>('A');
+  /** Who it goes to, each filled in as sent: the list it was given (with its columns), else who it was sent to. */
+  private readonly previewPeople = computed<Record<string, string>[]>(() => {
+    const audience = this.campaign()?.audience;
+    if (Array.isArray(audience) && audience.length) {
+      return (audience as Contact[]).map((p) => ({ name: p.name ?? '', phone: p.phone ?? '', ...(p.extra ?? {}) }));
+    }
+    return (this.analytics()?.recipients ?? []).map((r) => ({ name: r.name, phone: r.phone }));
+  });
+  protected readonly preview = computed(() => {
+    const c = this.campaign();
+    if (!c) return null;
+    const o = c.options ?? {};
+    const versions = o.variants ?? [];
+    const text = versions.find((v) => v.key === this.previewVersion())?.body ?? versions[0]?.body ?? c.body;
+    // A campaign that only names a saved template has no text of its own to show.
+    if (!text.trim() && !c.mediaId) return null;
+    const people = this.previewPeople();
+    const index = people.length ? this.previewAt() % people.length : 0;
+    return {
+      text,
+      context: people[index] ?? PREVIEW_SAMPLE,
+      sample: !people.length,
+      index,
+      total: Math.max(1, people.length),
+      versions: versions.map((v) => v.key),
+      fallbacks: o.fallbacks ?? {},
+      interactive: (o.interactive ?? null) as InteractiveDraft | null,
+    };
+  });
+  protected movePreview(step: number): void {
+    const total = this.preview()?.total ?? 1;
+    this.previewAt.update((i) => (i + step + total) % total);
+  }
+  /** Its attachment, fetched once with the token (a plain src cannot send it) for the phone to show. */
+  protected readonly previewFile = signal<DraftAttachment | null>(null);
 
   /** Its own number is not connected now: Resume would be refused, even for a run paused before the number dropped. */
   protected readonly numberDown = computed(() => {
@@ -318,7 +366,34 @@ export class CampaignDetailView {
     });
   }
 
+  protected readonly policy = inject(CampaignPolicy);
+  private readonly templatesApi = inject(TemplatesApi);
+  /** Its own signal, so the campaign's reloads (every few seconds while it sends) never fetch the file again. */
+  private readonly mediaId = computed(() => this.campaign()?.mediaId ?? null);
+
   constructor() {
+    this.policy.load();
+    effect((onCleanup) => {
+      const id = this.mediaId();
+      const meta = untracked(() => this.campaign()?.options?.mediaMeta) ?? null;
+      if (!id) return this.previewFile.set(null);
+      const file: DraftAttachment = { mediaId: id, filename: meta?.filename || 'Attachment', mimetype: meta?.mimetype ?? '', size: meta?.size ?? 0, previewUrl: '' };
+      this.previewFile.set(file);
+      // A document shows its name and size; only a picture or a video (or a file of unknown type) is fetched.
+      if (file.mimetype && !/^(image|video)\//.test(file.mimetype)) return;
+      let url = '';
+      const sub = this.templatesApi.mediaBlob(id).subscribe({
+        next: (blob) => {
+          url = URL.createObjectURL(blob);
+          this.previewFile.set({ ...file, mimetype: file.mimetype || blob.type, size: file.size || blob.size, previewUrl: url });
+        },
+        error: () => undefined, // the phone shows the text without the picture
+      });
+      onCleanup(() => {
+        sub.unsubscribe();
+        if (url) URL.revokeObjectURL(url);
+      });
+    });
     effect(() => {
       const segmentId = this.countedSegment();
       if (segmentId === null) {

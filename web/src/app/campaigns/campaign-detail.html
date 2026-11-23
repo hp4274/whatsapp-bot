@@ -119,6 +119,10 @@
     </section>
   }
 
+  <!-- The campaign card, and beside it what it sends on a phone, as the composer showed it. -->
+  <div class="split" [class.solo]="!preview()">
+  <!-- The campaign, then how it went: one column beside the phone, so no space sits empty under a short card. -->
+  <div class="main-col">
   <section class="s-card overview s-enter" style="--i: 1" aria-label="Campaign overview">
     <dl class="meta">
       <div>
@@ -382,4 +386,31 @@
     />
     <app-campaign-recipients [recipients]="a.recipients" [failures]="a.failures" [numbers]="numbers()" />
   }
+  </div>
+
+  @if (preview(); as p) {
+    <aside class="phone-side s-enter" style="--i: 2" aria-label="Message preview">
+      <app-phone-preview
+        [text]="p.text"
+        [context]="p.context"
+        [fallbacks]="p.fallbacks"
+        [attachment]="previewFile()"
+        [interactive]="p.interactive"
+        [textMenu]="true"
+        [carouselImages]="policy.carouselImages()"
+        [index]="p.index"
+        [total]="p.total"
+        [contactLabel]="p.context['phone'] ?? ''"
+        [seed]="previewSeed()"
+        [sample]="p.sample"
+        [versions]="p.versions"
+        [version]="previewVersion()"
+        (versionChange)="previewVersion.set($event)"
+        (prev)="movePreview(-1)"
+        (next)="movePreview(1)"
+        (shuffle)="previewSeed.set(previewSeed() + 1)"
+      />
+    </aside>
+  }
+  </div>
 }

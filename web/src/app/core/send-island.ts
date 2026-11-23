@@ -1326,7 +1326,8 @@ export class SendIsland {
       forkJoin(
         shares.map((s) =>
           this.api.queueNext(UP_NEXT_COUNT, s.channelId, s.id).pipe(
-            map((r) => ({ ...s, rows: r.next.filter((m) => m.campaign === s.id), until: asked + (r.waitingSeconds ?? 0) * 1000 })),
+            // No wait (typing, sending, a held hour): no countdown, or every tick would read it as just run out and reload.
+            map((r) => ({ ...s, rows: r.next.filter((m) => m.campaign === s.id), until: r.waitingSeconds ? asked + r.waitingSeconds * 1000 : 0 })),
             catchError(() => of({ ...s, rows: [] as QueuedNext[], until: 0 })),
           ),
         ),

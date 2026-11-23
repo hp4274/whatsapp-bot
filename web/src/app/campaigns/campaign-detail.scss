@@ -80,9 +80,13 @@ a.btn { text-decoration: none; }
 
 .overview { display: grid; @include s.fit-grid; gap: var(--space-xl); }
 
+// Four dates in a row while the card is wide, else two by two: never three and one left alone.
+.overview { container-type: inline-size; }
 .meta {
   @include s.stat-grid(150px);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0;
+  @container (min-width: 600px) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
   div {
     min-width: 0;
@@ -314,4 +318,32 @@ details.advanced > .more-actions {
     font-variant-numeric: tabular-nums;
   }
   p { margin: 4px 0 0; font-size: 13.5px; color: var(--text-muted); }
+}
+
+// The campaign card, and beside it the phone showing what it sends (the composer's preview). Stacked when narrow.
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-lg);
+  @media (min-width: 1100px) {
+    grid-template-columns: minmax(0, 1fr) 360px;
+    &.solo { grid-template-columns: minmax(0, 1fr); }
+  }
+}
+.main-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-lg);
+  min-width: 0;
+}
+.phone-side {
+  display: grid;
+  justify-items: center;
+  min-width: 0;
+  // Stays in view beside a long card.
+  @media (min-width: 1100px) {
+    position: sticky;
+    top: var(--space-lg);
+  }
 }
