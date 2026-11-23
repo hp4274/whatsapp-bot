@@ -296,6 +296,9 @@
   <!-- Until the business links its first number, nothing else works: a popup that only connecting or signing out ends. -->
   <app-connect-gate (signOut)="signOut()" />
 
+  <!-- A campaign's "Connect number": the QR popup for its numbers that are not connected. -->
+  <app-link-popup />
+
   <!-- Sign-out asks first; the same confirm dialog as deleting a tenant. -->
   @if (confirmSignOut()) {
     <app-confirm

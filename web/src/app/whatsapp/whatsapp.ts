@@ -182,11 +182,11 @@ export class WhatsApp {
   protected readonly detourSending = signal(false);
   /** The number whose link card should start linking by itself (its "Link with QR code" was the click). */
   protected readonly autoLink = signal<number | null>(null);
-  /** "Link with QR code" while a send runs on the selected number: waiting for the inline confirm. */
-  protected readonly confirmLink = signal<Channel | null>(null);
-  /** The number whose link popup is open (its QR, or who it is linked as and Unlink); null = closed. */
+  /** Connect, or a click on another card, while a send runs on the selected number: waiting for the inline confirm. */
+  protected readonly confirmLink = signal<{ ch: Channel; start: boolean } | null>(null);
+  /** The number whose link panel shows under the cards (its QR, or who it is linked as and Unlink); null = none. */
   protected readonly linkFor = signal<Channel | null>(null);
-  private readonly closePop = viewChild<ElementRef<HTMLButtonElement>>('closePop');
+  private readonly linkPanel = viewChild<ElementRef<HTMLElement>>('linkPanel');
   /** One status line after switching back ("Back on Sales desk"). */
   protected readonly notice = signal('');
   /** The number whose Catalog button was clicked: its drawer, or the WhatsApp Business explanation. */
@@ -522,26 +522,36 @@ export class WhatsApp {
     this.store.useChannel(channel.id);
   }
 
-  /** "Link with QR code" on another number: ask first when that hides a running send. */
-  protected link(channel: Channel) {
-    if (this.sendRunning()) {
-      this.confirmLink.set(channel);
+  /** A click on a card, not on one of its controls: show that number's link panel (its QR, or that it is linked). */
+  protected pick(channel: Channel, event: MouseEvent) {
+    const hit = event.target as HTMLElement | null;
+    if (hit?.closest('button, a, input, select, textarea, label, summary, details') || this.linkFor()?.id === channel.id) return;
+    this.link(channel, false);
+  }
+
+  /** Connect (start = true) or a card click on a number: ask first when switching hides a running send. */
+  protected link(channel: Channel, start = true) {
+    if (this.sendRunning() && channel.id !== this.activeId()) {
+      this.confirmLink.set({ ch: channel, start });
       // An alertdialog takes focus, or a keyboard user is left on a card that no longer did anything.
       afterNextRender(() => this.confirmGo()?.nativeElement.focus(), { injector: this.injector });
       return;
     }
-    this.startLink(channel);
+    this.startLink(channel, start);
   }
 
-  protected startLink(channel: Channel) {
+  /** Connect is a detour that goes back to the number before once linked; a card click just selects the number. */
+  protected startLink(channel: Channel, start = true) {
     this.confirmLink.set(null);
+    // Another number's panel was open: its unscanned code is called off first (closeLink).
+    if (this.linkFor() && this.linkFor()?.id !== channel.id) this.closeLink();
     this.notice.set('');
     const previous = this.activeId();
     this.detourSending.set(this.sendRunning());
-    this.returnTo.set(previous !== channel.id ? previous : null);
-    this.autoLink.set(channel.id);
+    this.returnTo.set(start && previous !== channel.id ? previous : null);
+    this.autoLink.set(start ? channel.id : null);
     this.store.useChannel(channel.id);
-    this.openPop(channel);
+    this.openPanel(channel);
   }
 
   /** The number whose Unlink is waiting on its confirm. */
@@ -568,13 +578,21 @@ export class WhatsApp {
     });
   }
 
-  private openPop(channel: Channel) {
+  /** Show the panel and bring it into view; focus goes to it so a keyboard user lands on the steps. */
+  private openPanel(channel: Channel) {
     this.linkFor.set(channel);
-    afterNextRender(() => this.closePop()?.nativeElement.focus(), { injector: this.injector });
+    afterNextRender(
+      () => {
+        const el = this.linkPanel()?.nativeElement;
+        el?.focus({ preventScroll: true });
+        el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      },
+      { injector: this.injector },
+    );
   }
 
   /**
-   * The popup closed (X, Escape, outside, or the link was called off): back to the number before. A code left
+   * The panel closed (its X, or the link was called off): back to the number before. A code left
    * unscanned is called off, so the card reads Not linked with its Connect again (the server keeps a scan that landed).
    */
   protected closeLink() {
@@ -596,11 +614,14 @@ export class WhatsApp {
     });
   }
 
-  /** The selected number just linked: ask its 2 questions, then go back if this was a detour. */
+  /**
+   * The selected number just linked: ask its questions. A detour goes back to the number before (the panel closes,
+   * as it would show the other number); otherwise the panel stays and reads connected.
+   */
   protected linked() {
     const id = this.activeId();
-    this.linkFor.set(null);
     if (id !== null) this.ask(id);
+    if (this.returnTo() !== null) this.linkFor.set(null);
     this.goBack();
   }
 
@@ -622,7 +643,7 @@ export class WhatsApp {
     this.catalogFor.set(null);
     if (channel.id !== this.activeId()) this.use(channel);
     this.relinkAsk.set({ id: channel.id, n: (this.relinkAsk()?.n ?? 0) + 1 });
-    this.openPop(channel);
+    this.openPanel(channel);
   }
 
   protected relinkFor(id: number): number {

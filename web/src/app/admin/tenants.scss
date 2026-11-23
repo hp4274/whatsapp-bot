@@ -161,7 +161,7 @@
 .tags { grid-column: 2 / -1; display: flex; gap: 6px; min-width: 0; > * { flex: none; } .plan-badge { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; } }
 .pay { font-weight: 400; }
 
-.menu-wrap { position: relative; }
+.menu-wrap { position: relative; display: flex; align-items: center; }
 
 .icon-btn {
   display: grid;
@@ -541,5 +541,27 @@ $list-cols: minmax(300px, 3fr) repeat(4, minmax(52px, 0.5fr)) minmax(116px, 1fr)
 
 // A card's waiting limit requests, beside its status: one click to answer them under General.
 .req-badge { border: 0; cursor: pointer; .ti { font-size: 12px; } &::before { display: none; } }
-.problem-badge { text-decoration: none; .ti { font-size: 12px; } &::before { display: none; } }
+// The problem sign: a pulsing dot left of the menu button, in a 32px target; amber when nothing is bad.
+.problem-dot {
+  --dot: var(--danger);
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  &.warn { --dot: var(--warning); }
+  &::before {
+    content: '';
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--dot);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot) 22%, transparent);
+    animation: dot-pulse 2s var(--ease) infinite;
+  }
+  &:hover { background: var(--surface-sunken); }
+  &:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+}
+@keyframes dot-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--dot) 0%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .problem-dot::before { animation: none; } }
 .opt-list .soon { margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--surface-sunken); color: var(--text-muted); font-size: 11px; font-weight: 500; }

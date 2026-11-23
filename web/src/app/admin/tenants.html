@@ -203,21 +203,6 @@
       <div class="tags">
         <!-- An active business whose plan ended can do nothing: it reads Inactive, not Active. -->
         <span class="s-pill {{ statusOf(tenant).tone }}">{{ statusOf(tenant).label }}</span>
-        <!-- Something wrong right now: a sign to spot at a glance, opening this business's problems in the logs. -->
-        @if (tenant.problems?.length) {
-          <a
-            class="s-pill problem-badge"
-            [class.tone-bad]="trouble(tenant) === 'bad'"
-            [class.tone-warn]="trouble(tenant) === 'warn'"
-            routerLink="/admin/audit-logs"
-            [queryParams]="{ tenant: tenant.id, problems: 1 }"
-            [title]="problemList(tenant)"
-            [attr.aria-label]="tenant.problems!.length + ' problems: ' + problemList(tenant)"
-          >
-            <i class="ti ti-alert-triangle" aria-hidden="true"></i>{{ tenant.problems!.length }}
-            {{ tenant.problems!.length === 1 ? 'problem' : 'problems' }}
-          </a>
-        }
         @if (tenant.pendingRequests) {
           <button class="s-pill tone-warn req-badge" type="button" (click)="openSettings(tenant, 'general')"
             [title]="'Limit requests waiting: open General to answer'">
@@ -369,6 +354,17 @@
   <!-- Open and Settings for every admin; suspend, activate and demo data change the business; Delete last. -->
   @if (true) {
     <div class="menu-wrap">
+      <!-- Something wrong right now: a dot beside the menu, opening this business's problems in the logs. -->
+      @if (tenant.problems?.length) {
+        <a
+          class="problem-dot"
+          [class.warn]="trouble(tenant) === 'warn'"
+          routerLink="/admin/audit-logs"
+          [queryParams]="{ tenant: tenant.id, problems: 1 }"
+          [title]="problemList(tenant)"
+          [attr.aria-label]="tenant.problems!.length + (tenant.problems!.length === 1 ? ' problem: ' : ' problems: ') + problemList(tenant)"
+        ></a>
+      }
       <button
         class="icon-btn"
         type="button"

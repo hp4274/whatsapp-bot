@@ -263,9 +263,9 @@
       }
       @if (c.status === 'paused' && (c.options.linkHold || numberDown())) {
         <!-- Resume could only fail while its number cannot send: the way out is the number. -->
-        <a class="btn primary" routerLink="/whatsapp">
+        <button type="button" class="btn primary" aria-haspopup="dialog" (click)="connectNumber(c)">
           <i class="ti ti-plug-connected" aria-hidden="true"></i>Connect number
-        </a>
+        </button>
       } @else if (c.status === 'paused') {
         <button type="button" class="btn primary" [disabled]="!!busy()" (click)="act('resume')">
           <i class="ti ti-player-play" aria-hidden="true"></i>Resume

@@ -89,6 +89,18 @@ export class Store {
   private publicPage = isBare(location.pathname);
   /** Which WhatsApp number the UI is working on; owned by Auth, mirrored here. */
   readonly channelId = this.auth.channelId;
+  /** The numbers the QR popup (core/link-popup.ts) links one after another; null = closed. */
+  readonly linkAsk = signal<readonly number[] | null>(null);
+
+  /**
+   * A campaign's "Connect number": the QR popup for its numbers that are not connected, or its own number when
+   * none reads down (held for it all the same).
+   */
+  linkCampaign(c: { channelId: number | null; numbers?: readonly { channelId: number }[] }, isDown: (id: number) => boolean) {
+    const ids = [...new Set([c.channelId, ...(c.numbers ?? []).map((n) => n.channelId)])].filter((id): id is number => id !== null);
+    const down = ids.filter(isDown);
+    if (ids.length) this.linkAsk.set(down.length ? down : ids.slice(0, 1));
+  }
 
   /** Whole seconds left of the current wait between messages; 0 once it is over. */
   readonly pacingLeft = computed(() => {

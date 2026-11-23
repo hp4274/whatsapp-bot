@@ -121,6 +121,11 @@ export class CampaignsListView {
 
   /** The business's numbers that are not connected now: a paused run on one offers Connect, as its Resume would be refused. */
   private readonly down = signal<ReadonlySet<number>>(new Set());
+  /** "Connect": the QR popup for its numbers that are not connected (core/link-popup.ts). */
+  protected connectNumber(c: Campaign): void {
+    this.store.linkCampaign(c, (id) => this.down().has(id));
+  }
+
   protected numberDown(c: Campaign): boolean {
     return c.channelId !== null && this.down().has(c.channelId);
   }

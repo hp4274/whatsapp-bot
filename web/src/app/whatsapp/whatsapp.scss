@@ -427,13 +427,12 @@ h3 {
   }
 }
 
-/* The link popup: the link card in a dimmed dialog, wide enough for the steps beside the QR phone. */
-@include s.confirm;
-.link-pop .dialog {
-  width: min(880px, 100%);
-  max-height: calc(100vh - 48px);
-  overflow-y: auto;
+/* The link panel under the cards: the link card for the number clicked, wide enough for the steps beside the QR phone. */
+.link-panel {
   padding: var(--space-lg);
+  scroll-margin-top: var(--space-lg);
+  animation: s-pop 280ms var(--ease) both;
+  &:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 }
 .pop-head {
   display: flex;

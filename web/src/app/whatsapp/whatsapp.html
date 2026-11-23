@@ -237,7 +237,7 @@
       <span class="grow" id="confirm-link-text"
         >Your send on {{ selectedName() }} keeps going. Its live progress shows again when you switch back.</span
       >
-      <button #confirmGo class="btn sm primary" type="button" (click)="startLink(target)">Link {{ target.displayName }}</button>
+      <button #confirmGo class="btn sm primary" type="button" (click)="startLink(target.ch, target.start)">{{ target.start ? 'Link' : 'Show' }} {{ target.ch.displayName }}</button>
       <button class="btn sm" type="button" (click)="confirmLink.set(null)">Cancel</button>
     </div>
   }
@@ -260,6 +260,8 @@
           (updated)="replace($event)"
           (changed)="refresh()"
           (removed)="removed(c)"
+          [class.picked]="linkFor()?.id === c.id"
+          (click)="pick(c, $event)"
           (connect)="link(c)"
           (unlink)="unlinkAsk.set(c)"
           (ask)="ask(c.id)"
@@ -268,6 +270,28 @@
         />
       }
     </div>
+  }
+
+  <!-- A card's Connect, or a click on the card, shows its link steps here under the cards: the QR code while
+       linking, "connected" once linked. Keyed on the number, so a switch builds it afresh. -->
+  @if (linkFor(); as ch) {
+    <section #linkPanel class="card link-panel" tabindex="-1" [attr.aria-label]="'Link ' + ch.displayName">
+      <header class="pop-head">
+        <span class="pop-title"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i>{{ ch.displayName }}</span>
+        <button type="button" class="btn sm icon ghost" aria-label="Close" (click)="closeLink()">
+          <i class="ti ti-x" aria-hidden="true"></i>
+        </button>
+      </header>
+      @for (id of [ch.id]; track id) {
+        <app-link-card
+          [autoStart]="autoLink() === ch.id"
+          [relink]="relinkFor(ch.id)"
+          (linked)="linked()"
+          (cancelled)="closeLink()"
+          (recover)="openRecover()"
+        />
+      }
+    </section>
   }
 
 }
@@ -281,37 +305,6 @@
     (confirm)="unlink(ch)"
     (cancel)="unlinkAsk.set(null)"
   />
-}
-
-<!-- Connect on a card opens the link steps here, as a popup. Keyed on the number, so a switch builds it afresh
-     instead of showing the last number's state. -->
-@if (linkFor(); as ch) {
-  <div class="dialog-wrap link-pop" (click)="closeLink()">
-    <div
-      class="dialog"
-      role="dialog"
-      aria-modal="true"
-      [attr.aria-label]="'Link ' + ch.displayName"
-      (click)="$event.stopPropagation()"
-      (keydown.escape)="closeLink()"
-    >
-      <header class="pop-head">
-        <span class="pop-title"><i class="ti ti-brand-whatsapp" aria-hidden="true"></i>{{ ch.displayName }}</span>
-        <button #closePop type="button" class="btn sm icon ghost" aria-label="Close" (click)="closeLink()">
-          <i class="ti ti-x" aria-hidden="true"></i>
-        </button>
-      </header>
-      @for (id of [ch.id]; track id) {
-        <app-link-card
-          [autoStart]="autoLink() === ch.id"
-          [relink]="relinkFor(ch.id)"
-          (linked)="linked()"
-          (cancelled)="closeLink()"
-          (recover)="closeLink(); openRecover()"
-        />
-      }
-    </div>
-  </div>
 }
 
 <!-- The one questions popup on the page: it asks after a link here, from a card's "Answer 4 questions", or again

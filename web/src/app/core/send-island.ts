@@ -155,7 +155,7 @@ function labelled(rows: readonly QueuedNext[]) {
                   <div class="actions">
                     @if (c.status === 'paused' && (c.options.linkHold || numberDown(c))) {
                       <!-- Resume could only fail while its number cannot send: the way out is the number. -->
-                      <a class="b" routerLink="/whatsapp">Connect number</a>
+                      <button type="button" class="b" (click)="connectNumber(c)">Connect number</button>
                     } @else if (c.status === 'paused') {
                       <button type="button" class="b" [disabled]="busyRun() === c.id" (click)="actOn(c, 'resume')">
                         Resume
@@ -329,7 +329,7 @@ function labelled(rows: readonly QueuedNext[]) {
                   <button type="button" class="b" [disabled]="busy()" (click)="act('pause')">Pause</button>
                 } @else if (needsNumber()) {
                   <!-- Resume could only fail while its number cannot send: the way out is the number. -->
-                  <a class="b" routerLink="/whatsapp">Connect number</a>
+                  <button type="button" class="b" (click)="connectNumber(currentRun())">Connect number</button>
                 } @else {
                   <button type="button" class="b" [disabled]="busy()" (click)="act('resume')">Resume</button>
                 }
@@ -1130,6 +1130,11 @@ export class SendIsland {
   protected readonly needsNumber = computed(
     () => !this.wuzie() && (!!this.currentRun()?.options?.linkHold || !this.store.connection().connected),
   );
+
+  /** "Connect number": the QR popup for the run's numbers that are not connected (core/link-popup.ts). */
+  protected connectNumber(c: Campaign | null): void {
+    if (c) this.store.linkCampaign(c, (id) => this.offline().has(id));
+  }
 
   /** A card's number is not connected right now (from the numbers list). */
   protected numberDown(c: Campaign): boolean {

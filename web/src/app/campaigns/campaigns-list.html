@@ -196,13 +196,15 @@
                 }
                 @if (canResume(c.status) && (c.options.linkHold || numberDown(c))) {
                   <!-- Resume could only fail while its number cannot send: the way out is the number. -->
-                  <a
+                  <button
+                    type="button"
                     class="btn sm primary a-run"
-                    routerLink="/whatsapp"
+                    aria-haspopup="dialog"
                     [attr.aria-label]="'Connect the number of ' + c.name"
+                    (click)="connectNumber(c)"
                   >
                     <i class="ti ti-plug-connected" aria-hidden="true"></i>Connect
-                  </a>
+                  </button>
                 } @else if (canResume(c.status)) {
                   <button
                     type="button"

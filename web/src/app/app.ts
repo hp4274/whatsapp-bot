@@ -19,6 +19,7 @@ import { TenancyApi } from './core/api';
 import { Auth, Role, Tenant } from './core/auth';
 import { AccountDialog } from './core/account-dialog';
 import { ConnectGate } from './core/connect-gate';
+import { LinkPopup } from './core/link-popup';
 import { ConfirmDialog } from './core/confirm-dialog';
 import { SendIsland } from './core/send-island';
 import { AdminNotifications } from './admin/admin-notifications';
@@ -156,7 +157,7 @@ function readGuideOpen(): boolean {
  */
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, SendIsland, AccountDialog, ConfirmDialog, AdminNotifications, ConnectGate, PageGuide],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, SendIsland, AccountDialog, ConfirmDialog, AdminNotifications, ConnectGate, LinkPopup, PageGuide],
   templateUrl: './app.html',
   styleUrl: './app.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

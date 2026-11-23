@@ -153,6 +153,12 @@ export class CampaignDetailView {
   /** Its attachment, fetched once with the token (a plain src cannot send it) for the phone to show. */
   protected readonly previewFile = signal<DraftAttachment | null>(null);
 
+  /** "Connect number": the QR popup for its numbers that are not connected (core/link-popup.ts). */
+  protected connectNumber(c: Campaign): void {
+    const down = new Set(this.channels().filter((ch) => ch.status === 'active' && !ch.health?.connected).map((ch) => ch.id));
+    this.store.linkCampaign(c, (id) => down.has(id));
+  }
+
   /** Its own number is not connected now: Resume would be refused, even for a run paused before the number dropped. */
   protected readonly numberDown = computed(() => {
     const own = this.channels().find((ch) => ch.id === this.campaign()?.channelId);
