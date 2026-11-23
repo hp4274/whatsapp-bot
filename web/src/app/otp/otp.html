@@ -259,7 +259,18 @@
 
     <!-- Code samples -->
     <section class="s-card" aria-labelledby="otp-code">
-      <h3 id="otp-code"><i class="ti ti-terminal-2" aria-hidden="true"></i> For your developer</h3>
+      <div class="dev-head">
+        <h3 id="otp-code"><i class="ti ti-terminal-2" aria-hidden="true"></i> For your developer</h3>
+        <div class="dev-actions">
+          <!-- Open to anyone: the link to send a developer who has no Wuzie login. -->
+          <a class="btn sm" routerLink="/docs/whatsapp-otp-api" target="_blank" rel="noopener">
+            <i class="ti ti-external-link" aria-hidden="true"></i> Open public guide
+          </a>
+          <button type="button" class="btn sm" (click)="downloadGuide()">
+            <i class="ti ti-download" aria-hidden="true"></i> Download API guide (PDF)
+          </button>
+        </div>
+      </div>
       <p class="lede">
         Send a code, then check what the customer typed. Replace <code>YOUR_API_KEY</code> with a key from above.
         The send answer has an <code>id</code>; pass it to verify, which answers <code>{{ '{ "valid": true }' }}</code> or
@@ -285,6 +296,116 @@
           {{ copied() === 'sample' ? 'Copied' : 'Copy' }}
         </button>
         <pre tabindex="0"><code>{{ sample() }}</code></pre>
+      </div>
+
+      <!-- The full reference: everything a developer needs to connect without asking. -->
+      <h4>Connect</h4>
+      <dl class="facts">
+        <div>
+          <dt>Address</dt>
+          <dd><code>{{ apiBase }}</code></dd>
+        </div>
+        <div>
+          <dt>Key</dt>
+          <dd>
+            Send it in the header <code>Authorization: Bearer YOUR_API_KEY</code> (or <code>X-API-Key</code>). Keys
+            start with <code>wsk_</code>. Only keys made on this page can send codes. Keep the key on your server,
+            never in an app or web page.
+          </dd>
+        </div>
+        <div>
+          <dt>Format</dt>
+          <dd>JSON in, JSON out (<code>Content-Type: application/json</code>). Errors answer <code>error</code> and <code>message</code>.</dd>
+        </div>
+        <div>
+          <dt>Safe retries</dt>
+          <dd>
+            Add an <code>Idempotency-Key</code> header (any unique text) to a send: if your request times out and you
+            send it again, you get the first answer back instead of a second code.
+          </dd>
+        </div>
+        @if (limits()) {
+          <div>
+            <dt>Your limits</dt>
+            <dd>{{ limits() }}.</dd>
+          </div>
+        }
+      </dl>
+
+      @for (e of endpoints; track e.path) {
+        <article class="endpoint" [attr.aria-label]="e.method + ' ' + e.path">
+          <h4>
+            <span class="verb" [class.get]="e.method === 'GET'">{{ e.method }}</span>
+            <code>/api/v1{{ e.path }}</code>
+          </h4>
+          <p class="about">{{ e.summary }}</p>
+          @if (e.fields.length) {
+            <div class="s-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Field</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Required</th>
+                    <th scope="col">What it does</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (f of e.fields; track f[0]) {
+                    <tr>
+                      <td><code>{{ f[0] }}</code></td>
+                      <td>{{ f[1] }}</td>
+                      <td>{{ f[2] ? 'Yes' : 'No' }}</td>
+                      <td class="wrap">{{ f[3] }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+          <p class="answer">Answer <span>{{ e.status }}</span></p>
+          <pre tabindex="0" class="json"><code>{{ e.answer }}</code></pre>
+        </article>
+      }
+
+      <h4>When a verify says no</h4>
+      <div class="s-table">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">reason</th>
+              <th scope="col">Means</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (r of reasons; track r[0]) {
+              <tr>
+                <td><code>{{ r[0] }}</code></td>
+                <td class="wrap">{{ r[1] }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Code status</h4>
+      <div class="s-table">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">status</th>
+              <th scope="col">Means</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (s of statuses; track s[0]) {
+              <tr>
+                <td><code>{{ s[0] }}</code></td>
+                <td class="wrap">{{ s[1] }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
       </div>
 
       <h4>Errors</h4>

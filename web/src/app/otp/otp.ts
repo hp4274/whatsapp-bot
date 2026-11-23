@@ -9,7 +9,19 @@ import { PhoneInput } from '../core/phone-input';
 import { Store } from '../core/store';
 import type { ApiKey, CreatedApiKey } from '../developer/developer-api';
 import { OtpApi, OtpRow, OtpSettings, OtpState, OtpStatus, VerifyResult } from './otp-api';
-import { OTP_PLACEHOLDERS, SampleLang, codeSamples, renderOtp, sampleCode } from './otp-text';
+import {
+  OTP_ENDPOINTS,
+  OTP_ERRORS,
+  OTP_LANGS,
+  OTP_PLACEHOLDERS,
+  OTP_STATUSES,
+  SampleLang,
+  VERIFY_REASONS,
+  codeSamples,
+  printOtpGuide,
+  renderOtp,
+  sampleCode,
+} from './otp-text';
 
 /** How each status reads, and its pill tone. */
 const STATUS: Record<OtpStatus, { label: string; tone: string }> = {
@@ -20,12 +32,6 @@ const STATUS: Record<OtpStatus, { label: string; tone: string }> = {
   blocked: { label: 'Blocked', tone: 'var(--warning)' },
 };
 
-const LANGS: readonly { readonly id: SampleLang; readonly label: string }[] = [
-  { id: 'curl', label: 'cURL' },
-  { id: 'node', label: 'Node.js' },
-  { id: 'python', label: 'Python' },
-  { id: 'php', label: 'PHP' },
-];
 
 /** What a failed verify means, in the words the page shows. */
 const VERIFY_TEXT: Record<NonNullable<VerifyResult['reason']>, string> = {
@@ -36,22 +42,6 @@ const VERIFY_TEXT: Record<NonNullable<VerifyResult['reason']>, string> = {
   not_found: 'There is no code to check. Send a new one.',
 };
 
-/** The public API's error answers, for the developer reading the samples. */
-const ERRORS: readonly (readonly [number, string, string])[] = [
-  [400, 'invalid_phone', 'The number is not a valid phone number.'],
-  [400, 'invalid_code', 'Your own `code` must be 4 to 8 digits; a verify needs a code.'],
-  [400, 'invalid_request', '`length` or `ttlMinutes` is not a whole number.'],
-  [403, 'otp_not_enabled', 'WhatsApp OTP is not on your plan.'],
-  [403, 'tenant_blocked', 'Sending is switched off for your account.'],
-  [403, 'insufficient_scope', 'The key cannot send codes. Use a key made on this page.'],
-  [403, 'custom_code_not_allowed', 'You sent your own `code`, which your plan does not allow.'],
-  [409, 'channel_unavailable', 'Your number is paused, outside its sending hours, or cannot send this.'],
-  [422, 'send_failed', 'The code was made but WhatsApp would not take it (e.g. the number opted out). `id` says which.'],
-  [429, 'resend_too_soon', 'Asked again too quickly. Wait `retryAfter` seconds.'],
-  [429, 'phone_rate_limited', 'Too many codes to this number in the last hour.'],
-  [429, 'monthly_limit', 'This month\'s codes are used up.'],
-  [503, 'whatsapp_not_connected', 'Your WhatsApp number is offline. Link it again.'],
-];
 
 /**
  * WhatsApp OTP: the business's own backend sends a one-time code to a customer's WhatsApp through our API and
@@ -108,11 +98,30 @@ export class OtpView {
   protected readonly liveKeys = computed(() => (this.state()?.keys ?? []).filter((k) => !k.revokedAt));
 
   // Samples
-  protected readonly langs = LANGS;
-  protected readonly errors = ERRORS;
+  protected readonly langs = OTP_LANGS;
+  protected readonly errors = OTP_ERRORS;
   protected readonly lang = signal<SampleLang>('curl');
   private readonly origin = typeof location === 'undefined' ? '' : location.origin;
   protected readonly sample = computed(() => codeSamples(this.origin)[this.lang()]);
+
+  /** The full reference for the developer: where to call, the three calls, and what the answers mean. */
+  protected readonly apiBase = `${this.origin}/api/v1`;
+  protected readonly endpoints = OTP_ENDPOINTS;
+  protected readonly reasons = VERIFY_REASONS;
+  protected readonly statuses = OTP_STATUSES;
+  /** This account's own limits, as the server applies them to every send. */
+  protected readonly limits = computed(() => {
+    const s = this.state();
+    if (!s) return '';
+    const parts = [
+      `a code works ${Math.min(s.settings.ttlMinutes, s.rules.maxTtlMinutes)} minutes and allows ${s.settings.maxAttempts} tries`,
+      `${s.settings.resendSeconds} seconds between codes to one number`,
+      ...(s.rules.maxPerPhoneHour !== null ? [`${s.rules.maxPerPhoneHour} codes per number per hour`] : []),
+      ...(s.rules.maxPerMonth !== null ? [`${s.rules.maxPerMonth.toLocaleString()} codes a month`] : []),
+      s.rules.allowCustomCode ? 'your own code allowed' : 'your own code not allowed',
+    ];
+    return parts.join(', ');
+  });
   protected readonly copied = signal('');
 
   // Test
@@ -310,6 +319,11 @@ export class OtpView {
   }
 
   // Misc ----------------------------------------------------------------------
+  /** The developer guide as a PDF, with this account's name and limits (otp-text.ts printOtpGuide). */
+  protected downloadGuide(): void {
+    printOtpGuide({ base: this.origin, business: this.auth.tenant()?.name ?? '', limits: this.limits() });
+  }
+
   protected async copy(id: string, text: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(text);

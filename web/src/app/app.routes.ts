@@ -20,6 +20,12 @@ export const routes: Routes = [
     path: 'blog/:slug',
     loadComponent: () => import('./blog/blog-post').then((m) => m.BlogPost),
   },
+  // The WhatsApp OTP API guide: public like the blog, so a business can send its developer one link.
+  {
+    path: 'docs/whatsapp-otp-api',
+    title: 'WhatsApp OTP API - Wuzie',
+    loadComponent: () => import('./otp/otp-docs').then((m) => m.OtpDocs),
+  },
   {
     path: 'login',
     title: 'Sign in - Wuzie',

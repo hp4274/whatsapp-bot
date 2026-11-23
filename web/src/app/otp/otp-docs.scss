@@ -1,0 +1,230 @@
+// The reference under the blog's header and reading column (blog.scss): sections, facts, code, tables, calls.
+.docs {
+  padding-top: clamp(32px, 5vw, 56px);
+  padding-bottom: clamp(48px, 7vw, 96px);
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--text-color);
+
+  section + section {
+    margin-top: clamp(40px, 5vw, 56px);
+  }
+
+  h2 {
+    margin: 0 0 16px;
+    font-size: clamp(22px, 2.2vw, 28px);
+    line-height: 1.2;
+    letter-spacing: -0.03em;
+    font-weight: 500;
+    color: var(--text-strong);
+  }
+
+  h3 {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 16px;
+    overflow-wrap: anywhere;
+  }
+
+  p {
+    margin: 0;
+  }
+
+  code {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--surface-sunken);
+    font-family: var(--mono);
+    font-size: 0.86em;
+    color: var(--text-strong);
+    overflow-wrap: anywhere;
+  }
+}
+
+.steps {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+// Label left, value right while there is room; stacked on a phone.
+.facts {
+  display: grid;
+  margin: 0;
+
+  div {
+    display: grid;
+    grid-template-columns: 130px minmax(0, 1fr);
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-color);
+
+    @media (max-width: 560px) {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 2px;
+    }
+  }
+
+  dt {
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+
+  dd {
+    margin: 0;
+    color: var(--text-muted);
+  }
+}
+
+// Language tabs over the sample, the selected one filled.
+.tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+
+  button {
+    padding: 6px 14px;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+
+    &[aria-selected='true'] {
+      background: var(--surface-card);
+      color: var(--text-strong);
+      box-shadow: 0 1px 2px color-mix(in srgb, var(--text-strong) 10%, transparent);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+  }
+}
+
+.code {
+  position: relative;
+
+  .copy {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--surface-card);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-strong);
+    cursor: pointer;
+
+    &:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+  }
+
+  pre {
+    padding-top: 48px;
+  }
+}
+
+pre {
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+
+  code {
+    padding: 0;
+    background: none;
+    font-size: inherit;
+  }
+}
+
+.endpoint {
+  display: grid;
+  gap: 12px;
+
+  & + .endpoint {
+    margin-top: 36px;
+  }
+
+  .answer {
+    font-size: 14px;
+    color: var(--text-muted);
+
+    span {
+      margin-left: 4px;
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--success);
+    }
+  }
+}
+
+// The method as a small tag: POST in the success green, GET in the info blue.
+.verb {
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+
+  &.get {
+    color: var(--info);
+    background: color-mix(in srgb, var(--info) 12%, transparent);
+  }
+}
+
+.table {
+  overflow-x: auto;
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14.5px;
+  }
+
+  th,
+  td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-color);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  td:first-child {
+    white-space: nowrap;
+  }
+}

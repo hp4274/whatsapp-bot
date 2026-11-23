@@ -1,0 +1,182 @@
+<!--
+  The public OTP API guide: the ink header panel (what it is, download, get a key), then the reference in a reading
+  column: getting a key, connecting, a quick start, the three calls, and what every answer means.
+-->
+<a class="skip-to-content" href="#main" (click)="skip($event)">Skip to content</a>
+
+<app-landing-nav [inPage]="false" />
+
+<main id="main" tabindex="-1">
+  <header class="head field">
+    <div class="wrap narrow">
+      <p class="eyebrow">Developer docs</p>
+      <h1>WhatsApp OTP API</h1>
+      <p class="lede">
+        Send a one-time code to your customer's WhatsApp from your own app or website, then check the code they
+        type. Three calls, a key in a header, JSON in and out.
+      </p>
+      <div class="head-actions">
+        <button type="button" class="btn go" (click)="download()">
+          <i class="ti ti-download" aria-hidden="true"></i> Download PDF
+        </button>
+        <a class="btn ghost" routerLink="/login">Get an API key</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap narrow docs">
+    <section aria-labelledby="d-start">
+      <h2 id="d-start">Before you start</h2>
+      <ol class="steps">
+        <li>Sign in to Wuzie and open <strong>WhatsApp OTP</strong>. Your WhatsApp number must be linked.</li>
+        <li>Make an API key there. It is shown once: keep it on your server, never in an app or a web page.</li>
+        <li>Send a code with <code>/otp/send</code>, then check what the customer typed with <code>/otp/verify</code>.</li>
+      </ol>
+    </section>
+
+    <section aria-labelledby="d-connect">
+      <h2 id="d-connect">Connect</h2>
+      <dl class="facts">
+        <div>
+          <dt>Address</dt>
+          <dd><code>{{ apiBase }}</code></dd>
+        </div>
+        <div>
+          <dt>Key</dt>
+          <dd>
+            Send it in the header <code>Authorization: Bearer YOUR_API_KEY</code> (or <code>X-API-Key</code>). Keys
+            start with <code>wsk_</code>. Only keys made on the WhatsApp OTP page can send codes.
+          </dd>
+        </div>
+        <div>
+          <dt>Format</dt>
+          <dd>JSON in, JSON out (<code>Content-Type: application/json</code>). Errors answer <code>error</code> and <code>message</code>.</dd>
+        </div>
+        <div>
+          <dt>Safe retries</dt>
+          <dd>
+            Add an <code>Idempotency-Key</code> header (any unique text) to a send: if your request times out and you
+            send it again, you get the first answer back instead of a second code.
+          </dd>
+        </div>
+        <div>
+          <dt>Limits</dt>
+          <dd>How long a code works, its tries and how often one number may get one are set per account; the account's WhatsApp OTP page shows them.</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section aria-labelledby="d-quick">
+      <h2 id="d-quick">Quick start</h2>
+      <div class="tabs" role="tablist" aria-label="Language">
+        @for (l of langs; track l.id) {
+          <button
+            type="button"
+            role="tab"
+            [id]="'d-tab-' + l.id"
+            [attr.aria-selected]="lang() === l.id"
+            aria-controls="d-sample"
+            (click)="lang.set(l.id)"
+          >
+            {{ l.label }}
+          </button>
+        }
+      </div>
+      <div class="code" role="tabpanel" id="d-sample" [attr.aria-labelledby]="'d-tab-' + lang()">
+        <button type="button" class="copy" (click)="copy()">
+          <i class="ti ti-{{ copied() ? 'check' : 'copy' }}" aria-hidden="true"></i> {{ copied() ? 'Copied' : 'Copy' }}
+        </button>
+        <pre tabindex="0"><code>{{ sample() }}</code></pre>
+      </div>
+    </section>
+
+    <section aria-labelledby="d-calls">
+      <h2 id="d-calls">Calls</h2>
+      @for (e of endpoints; track e.path) {
+        <article class="endpoint" [attr.aria-label]="e.method + ' ' + e.path">
+          <h3>
+            <span class="verb" [class.get]="e.method === 'GET'">{{ e.method }}</span>
+            <code>/api/v1{{ e.path }}</code>
+          </h3>
+          <p>{{ e.summary }}</p>
+          @if (e.fields.length) {
+            <div class="table">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Field</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Required</th>
+                    <th scope="col">What it does</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (f of e.fields; track f[0]) {
+                    <tr>
+                      <td><code>{{ f[0] }}</code></td>
+                      <td>{{ f[1] }}</td>
+                      <td>{{ f[2] ? 'Yes' : 'No' }}</td>
+                      <td>{{ f[3] }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+          <p class="answer">Answer <span>{{ e.status }}</span></p>
+          <pre tabindex="0" class="json"><code>{{ e.answer }}</code></pre>
+        </article>
+      }
+    </section>
+
+    <section aria-labelledby="d-reasons">
+      <h2 id="d-reasons">When a verify says no</h2>
+      <div class="table">
+        <table>
+          <thead>
+            <tr><th scope="col">reason</th><th scope="col">Means</th></tr>
+          </thead>
+          <tbody>
+            @for (r of reasons; track r[0]) {
+              <tr><td><code>{{ r[0] }}</code></td><td>{{ r[1] }}</td></tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section aria-labelledby="d-status">
+      <h2 id="d-status">Code status</h2>
+      <div class="table">
+        <table>
+          <thead>
+            <tr><th scope="col">status</th><th scope="col">Means</th></tr>
+          </thead>
+          <tbody>
+            @for (s of statuses; track s[0]) {
+              <tr><td><code>{{ s[0] }}</code></td><td>{{ s[1] }}</td></tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section aria-labelledby="d-errors">
+      <h2 id="d-errors">Errors</h2>
+      <div class="table">
+        <table>
+          <thead>
+            <tr><th scope="col">HTTP</th><th scope="col">error</th><th scope="col">Means</th></tr>
+          </thead>
+          <tbody>
+            @for (e of errors; track e[1]) {
+              <tr><td>{{ e[0] }}</td><td><code>{{ e[1] }}</code></td><td>{{ e[2] }}</td></tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</main>
+
+<app-landing-footer [inPage]="false" />

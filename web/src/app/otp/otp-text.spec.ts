@@ -33,3 +33,29 @@ describe('codeSamples', () => {
     }
   });
 });
+
+describe('otpGuideHtml', () => {
+  it('holds the address, every call, the limits and the errors, with every text escaped', async () => {
+    const { otpGuideHtml } = await import('./otp-text');
+    const page = otpGuideHtml({
+      base: 'https://app.example',
+      business: 'Asha <Bakery>',
+      limits: 'a code works 10 minutes',
+    });
+    expect(page).toContain('<title>WhatsApp OTP API guide - Asha &lt;Bakery&gt;</title>');
+    expect(page).toContain('<code>https://app.example/api/v1</code>');
+    for (const path of ['/api/v1/otp/send', '/api/v1/otp/verify', '/api/v1/otp/{id}']) expect(page).toContain(`<code>${path}</code>`);
+    expect(page).toContain('a code works 10 minutes.');
+    expect(page).toContain('<td><code>invalid_api_key</code></td>');
+    // A sample keeps its own backticks (JS template literals) and its PHP tag as text.
+    expect(page).toContain('`Bearer ${KEY}`');
+    expect(page).toContain('&lt;?php');
+  });
+
+  it('reads as a public guide without an account name or limits', async () => {
+    const { otpGuideHtml } = await import('./otp-text');
+    const page = otpGuideHtml({ base: 'https://app.example' });
+    expect(page).toContain('<title>WhatsApp OTP API guide</title>');
+    expect(page).not.toContain('Your limits');
+  });
+});
