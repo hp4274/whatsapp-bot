@@ -113,7 +113,7 @@ export class AdminWaiting {
   }
 
   private key(): string {
-    return `wapzo.bell.${this.auth.user()?.id ?? 'admin'}`;
+    return `wuzie.bell.${this.auth.user()?.id ?? 'admin'}`;
   }
 
   private stored(): Marks {

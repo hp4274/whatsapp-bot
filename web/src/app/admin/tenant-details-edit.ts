@@ -54,7 +54,7 @@ export class TenantDetailsEdit implements OnInit {
     name: '',
     slug: '',
     contactPhone: '',
-    wapzoUpdates: true,
+    wuzieUpdates: true,
     ownerName: '',
     ownerEmail: '',
   });
@@ -73,7 +73,7 @@ export class TenantDetailsEdit implements OnInit {
       name: t.name,
       slug: t.slug,
       contactPhone: t.contactPhone ?? '',
-      wapzoUpdates: t.wapzoUpdates !== false,
+      wuzieUpdates: t.wuzieUpdates !== false,
       ownerName: '',
       ownerEmail: '',
     });

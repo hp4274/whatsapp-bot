@@ -337,7 +337,9 @@ function addTenantControlColumns(db) {
     if (!cols.includes('last_sender_id')) db.exec('ALTER TABLE tenants ADD COLUMN last_sender_id INTEGER');
     // The business's WhatsApp number for Wuzie's own messages (platform/notify.js), and whether it gets them.
     if (!cols.includes('contact_phone')) db.exec("ALTER TABLE tenants ADD COLUMN contact_phone TEXT NOT NULL DEFAULT ''");
-    if (!cols.includes('wapzo_updates')) db.exec('ALTER TABLE tenants ADD COLUMN wapzo_updates INTEGER NOT NULL DEFAULT 1');
+    // The column kept the brand's old name until 2026-11-24: renamed, so every business keeps its choice.
+    if (cols.includes('wapzo_updates')) db.exec('ALTER TABLE tenants RENAME COLUMN wapzo_updates TO wuzie_updates');
+    else if (!cols.includes('wuzie_updates')) db.exec('ALTER TABLE tenants ADD COLUMN wuzie_updates INTEGER NOT NULL DEFAULT 1');
     // The business on paper: legal name, GSTIN, PAN, address and so on (tenancy.js PROFILE_FIELDS), as JSON.
     if (!cols.includes('profile')) db.exec("ALTER TABLE tenants ADD COLUMN profile TEXT NOT NULL DEFAULT '{}'");
     // A platform user's staff role (adminRoles.js); null is a full super admin.
@@ -638,6 +640,13 @@ export class Database {
         once(this.db, 'brand-wuzie', () => this.db.exec(
             `UPDATE platform_messages SET text = REPLACE(text, 'Wapzo', 'Wuzie') WHERE text LIKE '%Wapzo%';
              UPDATE tenants SET name = 'Wuzie' WHERE status = 'system' AND name = 'Wapzo';`));
+        // Then the old name left the code too: the ids saved under it follow.
+        once(this.db, 'brand-wuzie-ids', () => this.db.exec(
+            `UPDATE admin_roles SET sections = REPLACE(sections, '"wapzo"', '"wuzie"') WHERE sections LIKE '%"wapzo"%';
+             UPDATE audit_logs SET action = 'wuzie.' || substr(action, 7) WHERE action LIKE 'wapzo.%';
+             UPDATE messages SET campaign_id = 'wuzie:' || substr(campaign_id, 7) WHERE campaign_id LIKE 'wapzo:%';
+             UPDATE tenants SET slug = 'wuzie-system' WHERE status = 'system' AND slug = 'wapzo-system'
+                 AND NOT EXISTS (SELECT 1 FROM tenants WHERE slug = 'wuzie-system');`));
         // Seeded numbers got UTC, never a choice: blank it so the owner's browser zone is picked up (timezoneAuto).
         once(this.db, 'channel-utc-to-browser-zone', () => this.db.exec("UPDATE whatsapp_channels SET timezone = '' WHERE timezone = 'UTC'"));
         this.db.prepare(`INSERT OR IGNORE INTO tenants (id, name, slug, status, created_at)

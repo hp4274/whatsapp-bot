@@ -16,6 +16,7 @@ import express from 'express';
 
 import { withinSendingWindow } from '../channels.js';
 import { dayEnd, dayStart } from '../campaign/safety.js';
+import { PROVIDERS, VariationError, listModels, publicAiSettings, readAiSettings, saveAiSettings } from '../campaign/variations.js';
 /** Same as campaigns/store.js campaignKey; local so the two modules do not import each other. */
 const campaignKey = (id) => `camp-${Number(id)}`;
 import { SUCCESS_STATUSES } from '../protocol.js';
@@ -341,6 +342,56 @@ export function createCampaignOpsRouter({ db, runtimes, runtimeFor, tenancy, pol
                 };
             }),
         });
+    });
+
+    // The AI behind "Make variations": its API key (never sent back, only its last 4 characters) and model.
+    router.get('/campaigns/ai', (req, res) => res.json(publicAiSettings(readAiSettings(db.db))));
+    router.put('/campaigns/ai', (req, res) => {
+        const { provider, apiKey, model, baseUrl, enabled } = req.body ?? {};
+        if ([provider, apiKey, model, baseUrl].some((v) => v !== undefined && typeof v !== 'string')) {
+            return res.status(400).json({ errors: ['provider, apiKey, model and baseUrl must be text'] });
+        }
+        if (enabled !== undefined && typeof enabled !== 'boolean') {
+            return res.status(400).json({ errors: ['enabled must be true or false'] });
+        }
+        if (provider !== undefined && !Object.hasOwn(PROVIDERS, provider)) {
+            return res.status(400).json({ errors: ['Pick a provider from the list.'] });
+        }
+        if (model !== undefined && !/^[\w.:/@-]{0,120}$/.test(model.trim())) {
+            return res.status(400).json({ errors: ['That is not a model name.'] });
+        }
+        if (baseUrl?.trim() && !/^https?:\/\/\S+$/i.test(baseUrl.trim())) {
+            return res.status(400).json({ errors: ['The API address must start with https://'] });
+        }
+        const saved = saveAiSettings(db.db, { provider, apiKey: apiKey?.trim(), model: model?.trim(), baseUrl: baseUrl?.trim(), enabled });
+        audit(req, 'campaign.ai_settings', 'platform', {
+            provider: saved.provider, model: saved.model, key: apiKey === undefined ? 'kept' : apiKey ? 'set' : 'removed',
+            enabled: saved.enabled,
+        });
+        // Open campaign editors re-read /api/policy, so the buttons show or hide at once.
+        if (enabled !== undefined) req.app.locals.touchTenants?.(null, ['policy']);
+        return res.json(publicAiSettings(saved));
+    });
+
+    // The model picker: what the typed key (or the saved one, for the saved service) can use. Before /:id/:action.
+    router.post('/campaigns/ai/models', async (req, res) => {
+        const { provider, apiKey, baseUrl } = req.body ?? {};
+        if (typeof provider !== 'string' || !Object.hasOwn(PROVIDERS, provider)) {
+            return res.status(400).json({ errors: ['Pick a provider from the list.'] });
+        }
+        const saved = readAiSettings(db.db);
+        const key = typeof apiKey === 'string' && apiKey.trim() ? apiKey.trim() : provider === saved.provider ? saved.apiKey : '';
+        const url = typeof baseUrl === 'string' ? baseUrl.trim() : '';
+        if (!key) return res.status(400).json({ errors: ['Paste the API key first.'] });
+        if (provider === 'custom' && !/^https?:\/\/\S+$/i.test(url)) {
+            return res.status(400).json({ errors: ['Type the API address first.'] });
+        }
+        try {
+            return res.json({ models: await listModels({ provider, apiKey: key, baseUrl: url }) });
+        } catch (err) {
+            if (!(err instanceof VariationError)) throw err;
+            return res.status(err.status).json({ errors: [err.message] });
+        }
     });
 
     router.post('/campaigns/:id/:action', (req, res) => {

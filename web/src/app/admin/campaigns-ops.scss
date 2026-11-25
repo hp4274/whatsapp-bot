@@ -11,6 +11,7 @@
 @include s.skeleton;
 @include s.banner;
 @include s.buttons;
+@include s.switch;
 
 :host { display: block; }
 
@@ -67,6 +68,94 @@
 }
 
 .kill-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+
+// The AI card: the kill card's shape in the brand tone, with its two fields side by side on wide screens.
+@include s.field;
+
+.ai {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--primary) 7%, transparent), transparent 60%),
+    var(--surface-card);
+  animation: s-rise 520ms var(--ease) both;
+
+  .badge {
+    @extend %badge;
+    --tone: var(--primary-text);
+    width: 52px;
+    height: 52px;
+    font-size: 26px;
+  }
+
+  @media (max-width: 560px) {
+    padding: 20px;
+    .badge { display: none; }
+  }
+}
+
+// The show/hide switch for Make variations: one slim row above the AI card it governs.
+.ai-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 14px var(--space-xl);
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  background: var(--surface-card);
+  animation: s-rise 520ms var(--ease) both;
+
+  .switch { flex: none; margin-left: auto; }
+  &.off .ai-switch-icon { --tone: var(--hint); }
+
+  @media (max-width: 560px) { padding: 12px 16px; }
+}
+
+.ai-switch-icon {
+  @extend %badge;
+  --tone: var(--primary-text);
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  font-size: 18px;
+}
+
+.ai-switch-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+
+  strong { font-size: 14px; font-weight: 500; color: var(--text-strong); }
+  span { font-size: 12.5px; color: var(--text-muted); }
+}
+
+.ai-body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: var(--space-md);
+
+  h3 { margin: 0; font-size: 17px; font-weight: 500; color: var(--text-strong); }
+  > p { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--text-muted); }
+}
+
+.ai-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-md);
+}
+
+.ai-acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  .btn .ti { margin-right: 6px; }
+}
 
 .head {
   display: flex;
@@ -161,5 +250,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .dlg[open],
-  .kill { animation: none; }
+  .kill,
+  .ai-switch,
+  .ai { animation: none; }
 }

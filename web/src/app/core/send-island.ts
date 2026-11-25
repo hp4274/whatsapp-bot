@@ -269,7 +269,7 @@ function labelled(rows: readonly QueuedNext[]) {
             @if (current(); as c) {
               <p class="line">
                 <span class="cname">{{ c.name }}</span>
-                <a class="link" [routerLink]="wuzie() ? '/admin/wapzo' : ['/campaigns', c.id]">Details</a>
+                <a class="link" [routerLink]="wuzie() ? '/admin/wuzie' : ['/campaigns', c.id]">Details</a>
               </p>
             }
             <p class="line">

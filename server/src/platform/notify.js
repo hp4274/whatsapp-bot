@@ -141,7 +141,7 @@ export function createNotifier({ tenancy, runtimeFor, templates }) {
             if (!state?.transport?.isConnected?.()) return { sent: false, reason: 'The Wuzie WhatsApp number is not linked.' };
             const recipient = normalizePhone(to, state.config.defaultCountryCode || '91');
             const outcome = state.messages.send({
-                messageType, recipient, text, media, idempotencyKey: key, campaignId: `wapzo:${kind}`,
+                messageType, recipient, text, media, idempotencyKey: key, campaignId: `wuzie:${kind}`,
             });
             if (outcome.accepted) state.manager.start();
             return outcome.accepted
@@ -149,7 +149,7 @@ export function createNotifier({ tenancy, runtimeFor, templates }) {
                 : { sent: false, reason: outcome.reason === 'duplicate' ? 'Already sent.' : outcome.reason, recipient };
         } catch (err) {
             if (err instanceof PhoneError || err instanceof MessageJobError) return { sent: false, reason: err.message };
-            console.warn(`[wapzo] ${kind} to ${to} failed: ${err.message}`);
+            console.warn(`[wuzie] ${kind} to ${to} failed: ${err.message}`);
             return { sent: false, reason: 'Could not send.' };
         }
     };
@@ -161,7 +161,7 @@ export function createNotifier({ tenancy, runtimeFor, templates }) {
     const event = (kind, { to, vars = {}, tenantId = null, key }) => {
         const message = templates.get(kind);
         if (!message?.enabled) return { sent: false, reason: 'This message is switched off.' };
-        if (tenantId != null && tenancy.getTenant(tenantId)?.wapzoUpdates === false) {
+        if (tenantId != null && tenancy.getTenant(tenantId)?.wuzieUpdates === false) {
             return { sent: false, reason: 'This business does not get Wuzie updates.' };
         }
         return send({ to, text: renderText(message.text, vars), key, kind });

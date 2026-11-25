@@ -423,7 +423,7 @@ export class App {
     { path: '/admin/plans', label: 'Plans & billing', icon: ICONS.plans, section: 'plans' },
     { path: '/admin/payments', label: 'Payments', icon: 'cash', section: 'payments' },
     { path: '/admin/referrals', label: 'Referrals', icon: 'affiliate', section: 'referrals' },
-    { path: '/admin/wapzo', label: 'Wuzie WhatsApp', icon: 'brand-whatsapp', section: 'wapzo' },
+    { path: '/admin/wuzie', label: 'Wuzie WhatsApp', icon: 'brand-whatsapp', section: 'wuzie' },
     { path: '/admin/usage', label: 'Usage', icon: ICONS.usage, section: 'usage' },
     { path: '/admin/health', label: 'Health', icon: ICONS.health, section: 'health' },
     { path: '/admin/number-collections', label: 'Number collections', icon: 'address-book', section: 'number_collections' },

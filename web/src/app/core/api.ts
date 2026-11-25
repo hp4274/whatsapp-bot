@@ -764,7 +764,7 @@ export interface TenantDetails {
   name?: string;
   slug?: string;
   contactPhone?: string;
-  wapzoUpdates?: boolean;
+  wuzieUpdates?: boolean;
   ownerName?: string;
   ownerEmail?: string;
   /** Business details (legal name, GSTIN, address...): keys sent replace those; '' clears one. */
@@ -1668,6 +1668,8 @@ export interface CampaignOptions {
   extraNumbers?: { phone: string; name: string }[] | null;
   /** 2-3 versions of the message, split evenly between recipients. */
   variants?: CampaignVariant[] | null;
+  /** Other wordings of the main message: each person gets it or one of these at random. */
+  variations?: string[] | null;
   /** Server-set on a finished recurring run: the next run's campaign id. */
   readonly nextId?: number;
   /** Server-set on a spawned run: the run it repeats. */
@@ -2014,6 +2016,13 @@ export class CampaignsApi {
         params: new HttpParams().set('contacts', contacts).set('pacing', pacing),
         headers: channelId ? { 'x-channel-id': String(channelId) } : undefined,
       })
+      .pipe(catchError(toMessage));
+  }
+
+  /** Up to 10 AI rewordings of `text`; the server drops any that change a placeholder, link, number or emoji. */
+  makeVariations(text: string): Observable<{ variations: string[] }> {
+    return this.http
+      .post<{ variations: string[] }>('/api/campaigns/variations', { text })
       .pipe(catchError(toMessage));
   }
 

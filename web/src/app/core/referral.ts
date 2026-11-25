@@ -4,7 +4,9 @@
  * know, so nothing here checks it.
  */
 
-const KEY = 'wapzo.ref';
+const KEY = 'wuzie.ref';
+/** Where codes were kept before 2026-11-24: still read, so a link followed before then keeps counting. */
+const OLD_KEY = 'wapzo.ref';
 const DAYS = 30;
 
 /** Keep the `ref` of a URL's query, if it has one; a newer link replaces an older one. */
@@ -21,7 +23,8 @@ export function rememberReferral(search: string, now = Date.now()): void {
 /** The code kept, while it is fresh; '' for none. */
 export function referralCode(now = Date.now()): string {
   try {
-    const kept = JSON.parse(localStorage.getItem(KEY) ?? 'null') as { code?: string; until?: number } | null;
+    const raw = localStorage.getItem(KEY) ?? localStorage.getItem(OLD_KEY);
+    const kept = JSON.parse(raw ?? 'null') as { code?: string; until?: number } | null;
     return kept?.code && (kept.until ?? 0) > now ? kept.code : '';
   } catch {
     return '';

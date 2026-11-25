@@ -192,10 +192,10 @@ export const routes: Routes = [
     loadComponent: () => import('./admin/referrals').then((m) => m.ReferralsView),
   },
   {
-    path: 'admin/wapzo',
+    path: 'admin/wuzie',
     title: 'Wuzie WhatsApp - Wuzie',
-    canActivate: [roleGuard('super_admin'), sectionGuard('wapzo')],
-    loadComponent: () => import('./admin/wapzo').then((m) => m.Wuzie),
+    canActivate: [roleGuard('super_admin'), sectionGuard('wuzie')],
+    loadComponent: () => import('./admin/wuzie').then((m) => m.Wuzie),
   },
   {
     path: 'admin/usage',

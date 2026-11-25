@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input
 
 import { ConfirmDialog } from '../core/confirm-dialog';
 import { AudiencePicker, insertWord } from './audience-picker';
-import { WapzoApi, WapzoBroadcastResult } from './wapzo-api';
+import { WuzieApi, WuzieBroadcastResult } from './wuzie-api';
 
 /** The image beside the text: uploaded at once, shown from the file the admin picked. */
 interface Attachment {
@@ -11,7 +11,7 @@ interface Attachment {
   readonly mediaId: string | null;
 }
 
-/** The words a message to many fills in, per business (server app.js /wapzo/broadcast). */
+/** The words a message to many fills in, per business (server app.js /wuzie/broadcast). */
 const WORDS: readonly string[] = ['name', 'business'];
 
 /**
@@ -19,14 +19,14 @@ const WORDS: readonly string[] = ['name', 'business'];
  * queues as bulk traffic on the server, so it goes out paced like a bulk send.
  */
 @Component({
-  selector: 'app-wapzo-broadcast',
+  selector: 'app-wuzie-broadcast',
   imports: [AudiencePicker, ConfirmDialog],
-  templateUrl: './wapzo-broadcast.html',
-  styleUrl: './wapzo-broadcast.scss',
+  templateUrl: './wuzie-broadcast.html',
+  styleUrl: './wuzie-broadcast.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class WapzoBroadcast {
-  private readonly api = inject(WapzoApi);
+export class WuzieBroadcast {
+  private readonly api = inject(WuzieApi);
 
   /** Sending needs the number linked. */
   readonly linked = input(false);
@@ -39,7 +39,7 @@ export class WapzoBroadcast {
   protected readonly busy = signal(false);
   protected readonly confirming = signal(false);
   protected readonly error = signal('');
-  protected readonly result = signal<WapzoBroadcastResult | null>(null);
+  protected readonly result = signal<WuzieBroadcastResult | null>(null);
   protected readonly image = signal<Attachment | null>(null);
   protected readonly uploading = computed(() => !!this.image() && !this.image()!.mediaId);
 

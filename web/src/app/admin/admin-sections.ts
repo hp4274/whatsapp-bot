@@ -5,7 +5,7 @@ export type AdminSection =
   | 'plans'
   | 'payments'
   | 'referrals'
-  | 'wapzo'
+  | 'wuzie'
   | 'usage'
   | 'health'
   | 'number_collections'
@@ -107,10 +107,10 @@ export const ADMIN_SECTIONS: readonly AdminSectionMeta[] = [
     ],
   },
   {
-    key: 'wapzo',
+    key: 'wuzie',
     label: 'Wuzie WhatsApp',
     icon: 'brand-whatsapp',
-    path: '/admin/wapzo',
+    path: '/admin/wuzie',
     hint: 'Messages from Wuzie’s own number',
     actions: [
       view('See the messages and the number'),

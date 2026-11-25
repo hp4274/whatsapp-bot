@@ -85,29 +85,6 @@
     </div>
   }
 
-  @if (d.versionKeys().length; as n) {
-    <div class="vtabs" role="group" aria-label="Message version">
-      @for (k of d.versionKeys(); track k) {
-        <button
-          type="button"
-          [attr.aria-pressed]="d.shownVersion() === k"
-          (click)="d.activeVersion.set(k)"
-        >
-          Version {{ k }}
-        </button>
-      }
-      @if (n < 3) {
-        <button type="button" class="add" (click)="addVersionC()">
-          <i class="ti ti-plus" aria-hidden="true"></i> Add version C
-        </button>
-      } @else if (d.shownVersion() === 'C') {
-        <button type="button" class="add" (click)="removeVersionC()">
-          <i class="ti ti-x" aria-hidden="true"></i> Remove version C
-        </button>
-      }
-    </div>
-  }
-
   <div class="editor">
     <div class="toolbar" role="toolbar" aria-label="Formatting">
       @for (f of formats; track f.marker) {
@@ -121,14 +98,30 @@
           <i class="ti ti-{{ f.icon }}" aria-hidden="true"></i>
         </button>
       }
+      @if (policy.aiVariations()) {
+        <span class="sep" aria-hidden="true"></span>
+        <button
+          type="button"
+          class="tb wide ai"
+          (click)="makeVariations()"
+          [disabled]="varying() || !d.message().trim() || d.variations().length >= maxVariations"
+          [attr.aria-busy]="varying()"
+          aria-controls="variations"
+          title="Writes 5 other ways to say the message, in its own language, keeping every name, number and link"
+        >
+          @if (varying()) {
+            <span class="spinner" aria-hidden="true"></span> Making 5 variations...
+          } @else {
+            <i class="ti ti-sparkles" aria-hidden="true"></i> Make 5 variations
+          }
+        </button>
+      }
       <span class="count" [class.over]="d.activeMessage().length > 1024"
         >{{ d.activeMessage().length }} / 1024</span
       >
     </div>
 
-    <label class="sr" for="msg"
-      >Message{{ d.versionKeys().length ? ', version ' + d.shownVersion() : '' }}</label
-    >
+    <label class="sr" for="msg">Message</label>
     <textarea
       #editor
       id="msg"
@@ -136,7 +129,7 @@
       [ngModel]="d.activeMessage()"
       (ngModelChange)="d.setActiveMessage($event)"
       (keydown)="onKey($event)"
-      [placeholder]="d.shownVersion() === 'A' ? 'Hi {name}, ...' : 'Another way to say it...'"
+      placeholder="Hi {name}, ..."
     ></textarea>
 
     <div class="chips" aria-label="Insert a variable">
@@ -154,6 +147,110 @@
     </div>
   </div>
 
+  <!-- Other wordings of the message: made by AI or written by hand, each editable and deletable. -->
+  <section id="variations" class="vars" aria-labelledby="vars-title" [attr.aria-busy]="varying()">
+    <header class="vars-head">
+      <span class="vars-badge" aria-hidden="true"><i class="ti ti-sparkles"></i></span>
+      <div class="vars-title">
+        <h4 id="vars-title">
+          Variations
+          @if (d.variations().length) {
+            <span class="vars-count">{{ d.variations().length }}</span>
+          }
+        </h4>
+        <p class="muted">
+          Each person gets the message above or one of these, picked at random, so not everyone gets the same
+          text.
+        </p>
+      </div>
+      @if (d.variations().length) {
+        <button type="button" class="btn small danger-ghost" [disabled]="varying()" (click)="clearVariations()">
+          <i class="ti ti-trash" aria-hidden="true"></i> Delete all
+        </button>
+      }
+    </header>
+
+    @if (d.variations().length) {
+      <ol class="vlist">
+        @for (v of d.variations(); track $index; let i = $index) {
+          <li class="vitem" [style.--i]="i % 10">
+            <span class="vnum" aria-hidden="true">{{ i + 1 }}</span>
+            <label class="sr" [for]="'var-' + i">Variation {{ i + 1 }}</label>
+            <textarea
+              [id]="'var-' + i"
+              [rows]="rowsFor(v)"
+              [value]="v"
+              (input)="editVariation(i, $any($event.target).value)"
+            ></textarea>
+            <button
+              type="button"
+              class="vdel"
+              [attr.aria-label]="'Delete variation ' + (i + 1)"
+              title="Delete"
+              (click)="removeVariation(i)"
+            >
+              <i class="ti ti-trash" aria-hidden="true"></i>
+            </button>
+          </li>
+        }
+      </ol>
+    }
+
+    @if (!d.variations().length && !varying()) {
+      <p class="vempty">
+        No variations yet.
+        {{ policy.aiVariations() ? 'Make 5 with AI from the message above, or write your own.' : 'Write your own.' }}
+      </p>
+    }
+
+    @if (varying()) {
+      <div class="vskel" aria-hidden="true">
+        @for (i of [1, 2, 3]; track i) {
+          <span></span>
+        }
+      </div>
+      <p class="sr" role="status">Making 5 variations...</p>
+    }
+
+    @if (varyError()) {
+      <div class="error" role="alert">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i>
+        <span>{{ varyError() }}</span>
+        <button type="button" class="btn small" [disabled]="varying()" (click)="makeVariations()">
+          <i class="ti ti-refresh" aria-hidden="true"></i> Try again
+        </button>
+      </div>
+    }
+
+    <footer class="vars-foot">
+      @if (varyNote()) {
+        <span class="muted" role="status">{{ varyNote() }}</span>
+      }
+      @if (d.variations().length >= maxVariations) {
+        <span class="muted">Up to {{ maxVariations }} variations.</span>
+      }
+      <button
+        type="button"
+        class="btn small"
+        [disabled]="d.variations().length >= maxVariations"
+        (click)="addOwnVariation()"
+      >
+        <i class="ti ti-pencil-plus" aria-hidden="true"></i> Write your own
+      </button>
+      @if (policy.aiVariations()) {
+        <button
+          type="button"
+          class="btn small primary"
+          [disabled]="varying() || !d.message().trim() || d.variations().length >= maxVariations"
+          (click)="makeVariations()"
+        >
+          <i class="ti ti-sparkles" aria-hidden="true"></i>
+          {{ d.variations().length ? 'Make 5 more' : 'Make 5 with AI' }}
+        </button>
+      }
+    </footer>
+  </section>
+
   <label class="check">
     <input type="checkbox" [ngModel]="d.optOutLine()" (ngModelChange)="d.optOutLine.set($event)" />
     Add opt-out line ("Reply STOP to stop messages")
@@ -165,7 +262,7 @@
     </p>
   }
 
-  <!-- Word choices, the A/B test and link tracking: rarely needed, so folded away. Opens by
+  <!-- Word choices and link tracking: rarely needed, so folded away. Opens by
        itself when the draft already uses one, so nothing chosen is ever hidden. -->
   <details class="advanced" [open]="advancedOpen">
     <summary>More options</summary>
@@ -181,21 +278,6 @@
           the preview to see other versions.
         </p>
       </div>
-
-      <label class="check">
-        <input
-          type="checkbox"
-          [ngModel]="d.variantB() !== null"
-          (ngModelChange)="setAb($event)"
-        />
-        Test two versions (A/B)
-      </label>
-      @if (d.variantB() !== null) {
-        <p class="note">
-          Version A is the message above. Recipients are split evenly between the versions, and the
-          results are compared once it has been sent.
-        </p>
-      }
 
       @if (d.hasLink() && !d.qrNumber()) {
         <label class="check" [class.off]="!policy.linkTracking()">
@@ -222,8 +304,9 @@
     <p class="banner" [class.danger]="d.qrNumber()" role="status">
       <i class="ti ti-alert-{{ d.qrNumber() ? 'circle' : 'triangle' }}" aria-hidden="true"></i>
       <span
-        >Identical text to {{ d.estimatedSize() }} people is a spam signal - add {{ '{name}' }} or
-        {{ '{Hi|Hello}' }}.{{
+        >Identical text to {{ d.estimatedSize() }} people is a spam signal -
+        {{ policy.aiVariations() ? 'press Make 5 variations' : 'write a few variations' }}, or add
+        {{ '{name}' }} or {{ '{Hi|Hello}' }}.{{
           d.qrNumber() ? ' A QR-linked number sends identical text to at most ' + d.varyAbove() + '.' : ''
         }}</span
       >

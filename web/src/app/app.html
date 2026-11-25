@@ -282,7 +282,7 @@
 
   @if (auth.user()) {
     <!-- On the platform view the island follows Wuzie's own number; inside a business, that business's. -->
-    @if (platformView() && auth.can('wapzo')) {
+    @if (platformView() && auth.can('wuzie')) {
       <app-send-island wuzie />
     } @else {
       <app-send-island />

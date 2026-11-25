@@ -16,6 +16,7 @@
     "node": ">=22.5.0"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.13.0",
     "@cacheable/node-cache": "^1.7.6",
     "@whiskeysockets/baileys": "7.0.0-rc14",
     "express": "^5.1.0",

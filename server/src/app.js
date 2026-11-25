@@ -22,6 +22,7 @@ import { AutoReplyStore } from './autoreply/store.js';
 import { processOptOut } from './autoreply/optout.js';
 import { COMPLAINT_WORDS } from './campaign/humanize.js';
 import { CampaignManager, NOT_ON_WHATSAPP_TEXT } from './campaign/manager.js';
+import { readAiSettings } from './campaign/variations.js';
 import { auditRows, cleanCountryCode, guessMapping, parseSheet } from './campaign/importer.js';
 import { channelInputProblems, channelUsage } from './channelUsage.js';
 import {
@@ -3168,7 +3169,7 @@ export function createApp({
         const header = req.get('authorization') ?? '';
         // EventSource cannot set headers, so the stream alone takes ?token=.
         const token = header.startsWith('Bearer ') ? header.slice(7)
-            : (req.path === '/events' || req.path === '/admin/events' || req.path === '/admin/wapzo/api/events' ? req.query.token : null);
+            : (req.path === '/events' || req.path === '/admin/events' || req.path === '/admin/wuzie/api/events' ? req.query.token : null);
         const user = tenancy.resolveSession(token);
         if (!user) return res.status(401).json({ errors: ['Sign in to continue.'] });
         // Staff (adminRoles.js) carry what their role may do, per section; a full super admin carries nothing.
@@ -3884,7 +3885,7 @@ export function createApp({
     };
 
     /** The page's data: which number, the messages it sends, and the last 50 it sent. */
-    admin.get('/wapzo', (req, res) => {
+    admin.get('/wuzie', (req, res) => {
         const { system, runtime } = systemRuntime();
         const channel = runtime.channels.getDefault();
         const log = db.db.prepare(
@@ -3897,25 +3898,25 @@ export function createApp({
             messages: platformMessages.list(),
             log: log.map((m) => ({
                 id: m.message_id, to: m.recipient, text: m.message, status: m.status, error: m.error ?? null,
-                kind: String(m.campaign_id ?? '').replace(/^wapzo:/, '') || 'message', createdAt: m.created_at, sentAt: m.sent_at,
+                kind: String(m.campaign_id ?? '').replace(/^wuzie:/, '') || 'message', createdAt: m.created_at, sentAt: m.sent_at,
             })),
         });
     });
 
     /** One message's switch and/or text (an empty text goes back to the default). */
-    admin.put('/wapzo/messages/:kind', (req, res) => {
+    admin.put('/wuzie/messages/:kind', (req, res) => {
         const saved = platformMessages.save(req.params.kind, req.body ?? {});
         if (!saved) return res.status(404).json({ errors: ['unknown message'] });
-        audit(req, 'wapzo.message', saved.kind, { enabled: saved.enabled });
+        audit(req, 'wuzie.message', saved.kind, { enabled: saved.enabled });
         return res.json({ message: saved });
     });
 
     /** A test message to any number, to check the link end to end. */
-    admin.post('/wapzo/test', (req, res) => {
+    admin.post('/wuzie/test', (req, res) => {
         const text = String(req.body?.text ?? '').trim() || 'This is a test message from Wuzie.';
         const result = notifier.send({ to: req.body?.to, text, key: `test:${Date.now()}`, kind: 'test' });
         if (!result.sent) return res.status(409).json({ errors: [result.reason] });
-        audit(req, 'wapzo.test', result.recipient);
+        audit(req, 'wuzie.test', result.recipient);
         return res.json(result);
     });
 
@@ -3924,7 +3925,7 @@ export function createApp({
      * campaign traffic, so it is paced like a bulk send and never holds up a client's update. {name} and {business}
      * are filled per business. "All" leaves out archived businesses and those that switched Wuzie updates off.
      */
-    admin.post('/wapzo/broadcast', (req, res) => {
+    admin.post('/wuzie/broadcast', (req, res) => {
         const body = req.body ?? {};
         const text = String(body.text ?? '').trim();
         if (!text && !body.mediaId) return res.status(400).json({ errors: ['Write the message or add an image.'] });
@@ -3935,7 +3936,7 @@ export function createApp({
             .map((n) => String(n).trim()).filter(Boolean);
         if (numbers.length > 500) return res.status(400).json({ errors: ['Send to 500 typed numbers at most.'] });
         const tenants = all
-            ? tenancy.listTenants().filter((t) => t.status !== 'archived' && t.wapzoUpdates !== false)
+            ? tenancy.listTenants().filter((t) => t.status !== 'archived' && t.wuzieUpdates !== false)
             : ids.map((id) => tenancy.getTenant(id)).filter((t) => t && t.status !== 'system');
         // Open account requests only: a lead accepted or dismissed meanwhile is left out.
         const openLeads = (Array.isArray(body.leads) ? body.leads : []).slice(0, 1000)
@@ -3943,7 +3944,7 @@ export function createApp({
         if (!tenants.length && !openLeads.length && !numbers.length) return res.status(400).json({ errors: ['Choose who gets it.'] });
         const state = notifier.systemState();
         if (!state?.transport?.isConnected?.()) return res.status(409).json({ errors: ['The Wuzie WhatsApp number is not linked.'] });
-        // An image uploaded through the number's own API (/wapzo/api/media/upload), so it is the system tenant's.
+        // An image uploaded through the number's own API (/wuzie/api/media/upload), so it is the system tenant's.
         const media = body.mediaId ? state.media.get(String(body.mediaId)) : null;
         if (body.mediaId && !media) return res.status(404).json({ errors: ['The image was not found. Add it again.'] });
 
@@ -3977,12 +3978,12 @@ export function createApp({
             one(lead.phone, label, { name: lead.name, business: lead.business });
         }
         for (const number of numbers) one(number, number, {});
-        audit(req, 'wapzo.broadcast', String(queued.length), { queued: queued.length, skipped: skipped.length, leads: openLeads.length });
+        audit(req, 'wuzie.broadcast', String(queued.length), { queued: queued.length, skipped: skipped.length, leads: openLeads.length });
         return res.json({ queued: queued.length, skipped });
     });
 
     // ---- Wuzie's own email (mail/mailer.js): written and sent from the same page ----
-    admin.get('/wapzo/email', (req, res) => res.json({
+    admin.get('/wuzie/email', (req, res) => res.json({
         configured: mailer.configured,
         from: mailer.from,
         templates: platformEmails.templates(),
@@ -3991,7 +3992,7 @@ export function createApp({
     }));
 
     /** One automatic email, with sample details. */
-    admin.get('/wapzo/email/automatic/:kind', (req, res) => {
+    admin.get('/wuzie/email/automatic/:kind', (req, res) => {
         const item = AUTOMATIC_EMAILS.find((e) => e.kind === req.params.kind);
         if (!item) return res.status(404).json({ errors: ['unknown email'] });
         const { subject, html } = item.sample(publicBaseUrl);
@@ -3999,7 +4000,7 @@ export function createApp({
     });
 
     /** The email as a client will get it, with sample words. */
-    admin.post('/wapzo/email/preview', (req, res) => {
+    admin.post('/wuzie/email/preview', (req, res) => {
         const vars = { name: 'Priya', business: String(req.body?.business ?? '') || 'Sunrise Traders', email: 'priya@example.com' };
         const subject = renderText(String(req.body?.subject ?? ''), vars);
         return res.json({ html: withInlineLogo(customEmail({ subject, body: renderText(String(req.body?.body ?? ''), vars) }).html) });
@@ -4009,7 +4010,7 @@ export function createApp({
      * One email to many: every business's owner, the ones chosen, open leads and/or typed addresses, each address
      * once. "All" leaves out archived businesses and those that switched Wuzie updates off, as the WhatsApp send does.
      */
-    admin.post('/wapzo/email/send', (req, res) => {
+    admin.post('/wuzie/email/send', (req, res) => {
         try {
             if (!mailer.configured) throw new EmailError('Email is not set up on this server.', 409);
             const body = req.body ?? {};
@@ -4020,7 +4021,7 @@ export function createApp({
             const all = body.tenants === 'all';
             const ids = all ? [] : (Array.isArray(body.tenants) ? body.tenants.map(Number).filter(Number.isInteger) : []);
             const tenants = all
-                ? tenancy.listTenants().filter((t) => t.status !== 'archived' && t.wapzoUpdates !== false)
+                ? tenancy.listTenants().filter((t) => t.status !== 'archived' && t.wuzieUpdates !== false)
                 : ids.map((id) => tenancy.getTenant(id)).filter((t) => t && t.status !== 'system');
             const openLeads = (Array.isArray(body.leads) ? body.leads : []).slice(0, 1000)
                 .map((id) => leads.get(id)).filter((l) => l && (l.status === 'new' || l.status === 'hold'));
@@ -4045,7 +4046,7 @@ export function createApp({
             for (const address of typed) one(address, address, {});
             platformEmails.enqueue(items);
             adminFeed.publish('wuzie_email', null);
-            audit(req, 'wapzo.email', String(items.length), { queued: items.length, skipped: skipped.length, subject: message.subject });
+            audit(req, 'wuzie.email', String(items.length), { queued: items.length, skipped: skipped.length, subject: message.subject });
             return res.json({ queued: items.length, skipped });
         } catch (err) {
             return fail(res, err);
@@ -4055,18 +4056,18 @@ export function createApp({
     const saveEmailTemplate = (req, res, id) => {
         try {
             const template = platformEmails.saveTemplate(id, req.body ?? {});
-            audit(req, 'wapzo.email_template', template.name);
+            audit(req, 'wuzie.email_template', template.name);
             adminFeed.publish('wuzie_email', null);
             return res.json({ template });
         } catch (err) {
             return fail(res, err);
         }
     };
-    admin.post('/wapzo/email/templates', (req, res) => saveEmailTemplate(req, res, null));
-    admin.put('/wapzo/email/templates/:id', (req, res) => saveEmailTemplate(req, res, Number(req.params.id)));
-    admin.delete('/wapzo/email/templates/:id', (req, res) => {
+    admin.post('/wuzie/email/templates', (req, res) => saveEmailTemplate(req, res, null));
+    admin.put('/wuzie/email/templates/:id', (req, res) => saveEmailTemplate(req, res, Number(req.params.id)));
+    admin.delete('/wuzie/email/templates/:id', (req, res) => {
         if (!platformEmails.deleteTemplate(Number(req.params.id))) return res.status(404).json({ errors: ['That template no longer exists.'] });
-        audit(req, 'wapzo.email_template', req.params.id, { deleted: true });
+        audit(req, 'wuzie.email_template', req.params.id, { deleted: true });
         adminFeed.publish('wuzie_email', null);
         return res.json({ ok: true });
     });
@@ -4075,7 +4076,7 @@ export function createApp({
      * Everything else (connection, QR, config, level, safety) is the number's own API, as a business's Connection
      * page uses it, addressed to the system tenant's number whatever tenant or number the browser last had open.
      */
-    admin.use('/wapzo/api', (req, res, next) => {
+    admin.use('/wuzie/api', (req, res, next) => {
         const { system, runtime } = systemRuntime();
         req.tenantId = system.id;
         delete req.headers['x-channel-id'];
@@ -4361,7 +4362,7 @@ export function createApp({
                 await tenancy.setOwner(before.id, { name: body.ownerName, email });
             }
             audit(req, 'tenant.details', tenant.id, {
-                name: tenant.name, slug: tenant.slug, contactPhone: tenant.contactPhone, wapzoUpdates: tenant.wapzoUpdates,
+                name: tenant.name, slug: tenant.slug, contactPhone: tenant.contactPhone, wuzieUpdates: tenant.wuzieUpdates,
                 profile: tenant.profile,
                 // Only a changed sign-in is worth a line in the log.
                 ...(email !== undefined && email !== ownerBefore ? { ownerEmail: email } : {}),
@@ -5087,7 +5088,10 @@ export function createApp({
     app.get('/api/policy', withTenant, (req, res) => {
         const { planKey, values, sources } = policyStore.resolve(req.tenantId);
         const visible = (map) => Object.fromEntries(Object.entries(map).filter(([key]) => !key.startsWith('security.')));
-        return res.json({ planKey, values: visible(values), sources: visible(sources), linkTracking: Boolean(publicBaseUrl) });
+        return res.json({
+            planKey, values: visible(values), sources: visible(sources), linkTracking: Boolean(publicBaseUrl),
+            aiVariations: readAiSettings(db.db).enabled,
+        });
     });
 
     app.use('/api', withTenant, (req, res, next) => {

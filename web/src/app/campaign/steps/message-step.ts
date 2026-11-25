@@ -9,8 +9,9 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
-import { Api, type UploadedMedia } from '../../core/api';
+import { Api, CampaignsApi, type UploadedMedia } from '../../core/api';
 import { Auth } from '../../core/auth';
+import { Store } from '../../core/store';
 import { ReusePicker } from '../../storage/reuse-picker';
 import { StorageApi, type StorageUse } from '../../storage/storage-api';
 import { shortDate } from '../../storage/storage-format';
@@ -42,6 +43,8 @@ function readTestPhone(): string {
     return '';
   }
 }
+/** Variations a campaign can hold; the server allows the same. */
+const MAX_VARIATIONS = 50;
 /** Inserted by the Spintax button: a working example the user edits in place. */
 const SPIN_SAMPLE = '{Hi|Hello|Hey}';
 
@@ -75,7 +78,7 @@ export class MessageStep {
    * The folds start open only when the draft already uses what they hold. Read once: a live
    * binding would snap a fold shut the moment the user switched its option back off.
    */
-  protected readonly advancedOpen = this.draft.variantB() !== null || this.draft.trackLinks();
+  protected readonly advancedOpen = this.draft.trackLinks();
   protected readonly rulesOpen = this.draft.replyRules().length > 0;
 
   protected readonly uploading = signal(false);
@@ -94,12 +97,21 @@ export class MessageStep {
   protected readonly savingName = signal<string | null>(null);
   protected readonly saving = signal(false);
 
+  private readonly campaignsApi = inject(CampaignsApi);
+  protected readonly varying = signal(false);
+  protected readonly varyError = signal('');
+  /** What the last press added, e.g. "Added 5 variations." */
+  protected readonly varyNote = signal('');
+  protected readonly maxVariations = MAX_VARIATIONS;
+
   protected readonly testPhone = signal(readTestPhone());
   protected readonly testing = signal(false);
   protected readonly testResult = signal<{ ok: boolean; text: string } | null>(null);
 
   constructor() {
     this.policy.load();
+    // The super admin switching Make variations on or off shows here at once.
+    inject(Store).watch(['policy'], () => this.policy.load(true));
     this.loadSaved();
   }
 
@@ -242,6 +254,64 @@ export class MessageStep {
     this.insert(SPIN_SAMPLE);
   }
 
+  /**
+   * Ten AI rewordings of the main message, added under the editor where they can be edited or deleted.
+   * The server drops any that change a placeholder, link, number or emoji.
+   */
+  protected makeVariations(): void {
+    const d = this.draft;
+    const text = d.message();
+    if (!text.trim() || this.varying() || d.variations().length >= MAX_VARIATIONS) return;
+    this.varying.set(true);
+    this.varyError.set('');
+    this.varyNote.set('');
+    this.campaignsApi.makeVariations(text).subscribe({
+      next: ({ variations }) => {
+        this.varying.set(false);
+        const have = new Set([text, ...d.variations()].map((v) => v.trim()));
+        const fresh = variations.filter((v) => !have.has(v.trim())).slice(0, MAX_VARIATIONS - d.variations().length);
+        d.variations.update((list) => [...list, ...fresh]);
+        this.varyNote.set(
+          fresh.length
+            ? `Added ${fresh.length} variation${fresh.length === 1 ? '' : 's'}.`
+            : 'No new wordings this time. Try again.',
+        );
+      },
+      error: (err: Error) => {
+        this.varying.set(false);
+        this.varyError.set(err.message);
+      },
+    });
+  }
+
+  protected editVariation(index: number, text: string): void {
+    this.draft.variations.update((list) => list.map((v, i) => (i === index ? text : v)));
+  }
+
+  /** An empty card for the user's own wording, focused to type straight away. */
+  protected addOwnVariation(): void {
+    const index = this.draft.variations().length;
+    if (index >= MAX_VARIATIONS) return;
+    this.draft.variations.update((list) => [...list, '']);
+    queueMicrotask(() => document.getElementById(`var-${index}`)?.focus());
+  }
+
+  protected removeVariation(index: number): void {
+    this.draft.variations.update((list) => list.filter((_, i) => i !== index));
+    this.varyNote.set('');
+  }
+
+  protected clearVariations(): void {
+    this.draft.variations.set([]);
+    this.varyNote.set('');
+    this.varyError.set('');
+  }
+
+  /** Grows with the text, up to 8 lines; then it scrolls. */
+  protected rowsFor(text: string): number {
+    return Math.min(8, Math.max(2, text.split('\n').length + Math.floor(text.length / 70)));
+  }
+
   private apply(next: string, from: number, to: number): void {
     this.draft.setActiveMessage(next);
     const el = this.editor()?.nativeElement;
@@ -251,24 +321,6 @@ export class MessageStep {
       el.focus();
       el.setSelectionRange(from, to);
     });
-  }
-
-  /** Turn the A/B test on (and start writing version B) or off (version A, the main message, stays). */
-  protected setAb(on: boolean): void {
-    const d = this.draft;
-    d.variantB.set(on ? '' : null);
-    d.variantC.set(null);
-    d.activeVersion.set(on ? 'B' : 'A');
-  }
-
-  protected addVersionC(): void {
-    this.draft.variantC.set('');
-    this.draft.activeVersion.set('C');
-  }
-
-  protected removeVersionC(): void {
-    this.draft.variantC.set(null);
-    this.draft.activeVersion.set('B');
   }
 
   protected onKey(event: KeyboardEvent): void {

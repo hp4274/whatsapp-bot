@@ -14,6 +14,7 @@ import express from 'express';
 
 import { buildContacts, cleanCountryCode, renderMessage, withFallbacks } from '../campaign/importer.js';
 import { SafetyError } from '../campaign/safety.js';
+import { VariationError, makeVariations, readAiSettings } from '../campaign/variations.js';
 import { InteractiveError } from '../messaging/interactive.js';
 import { contactContext } from '../protocol.js';
 import { RECIPES, getRecipe, installRecipe } from '../recipes/index.js';
@@ -309,6 +310,20 @@ export function createCampaignRouter({ db, state }) {
             if (number?.db) warm[id] = phones.filter((p) => !number.db.isCold(p)).length;
         }
         return res.json({ checked: phones.length, warm });
+    });
+
+    // "Make variations": word choices from the AI model the super admin set up, checked to keep the meaning.
+    router.post('/campaigns/variations', async (req, res) => {
+        const text = typeof req.body?.text === 'string' ? req.body.text : '';
+        if (!text.trim() || text.length > 4096) {
+            return res.status(400).json({ errors: ['Write a message first (up to 4096 characters).'] });
+        }
+        try {
+            return res.json({ variations: await makeVariations(text, { settings: readAiSettings(db.db) }) });
+        } catch (err) {
+            if (!(err instanceof VariationError)) throw err;
+            return res.status(err.status).json({ errors: [err.message] });
+        }
     });
 
     router.post('/campaigns', (req, res) => {

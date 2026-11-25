@@ -39,7 +39,7 @@ const call = async (token, method, url, body) => {
 };
 const sendAll = async (body) => {
     outbox.length = 0;
-    const res = await call(sup, 'POST', '/api/admin/wapzo/email/send', { subject: 'News', body: 'Hello', ...body });
+    const res = await call(sup, 'POST', '/api/admin/wuzie/email/send', { subject: 'News', body: 'Hello', ...body });
     await app.locals.platformEmails.running;
     return res;
 };
@@ -76,7 +76,7 @@ describe('Wuzie email', () => {
         const tenancy = app.locals.tenancy;
         const { tenant: on } = await tenancy.createTenantWithOwner({ name: 'On Ltd', owner: { email: 'on@test.dev', name: 'On', password: 'password123' } });
         const { tenant: off } = await tenancy.createTenantWithOwner({ name: 'Off Ltd', owner: { email: 'off@test.dev', name: 'Off', password: 'password123' } });
-        tenancy.updateDetails(off.id, { wapzoUpdates: false });
+        tenancy.updateDetails(off.id, { wuzieUpdates: false });
         await sendAll({ body: 'Hi {name} of {business}', tenants: 'all' });
         const mine = outbox.filter((m) => m.to === 'on@test.dev' || m.to === 'off@test.dev');
         assert.deepEqual(mine.map((m) => m.to), ['on@test.dev']);
@@ -85,7 +85,7 @@ describe('Wuzie email', () => {
 
     it('records a failed email in the log', async () => {
         await sendAll({ subject: 'Bounce', emails: ['bounce@test.dev'] });
-        const { body } = await call(sup, 'GET', '/api/admin/wapzo/email');
+        const { body } = await call(sup, 'GET', '/api/admin/wuzie/email');
         assert.equal(body.configured, true);
         const entry = body.log.find((e) => e.to === 'bounce@test.dev');
         assert.equal(entry.status, 'failed');
@@ -98,31 +98,31 @@ describe('Wuzie email', () => {
     });
 
     it('saves, updates and deletes a template', async () => {
-        const created = await call(sup, 'POST', '/api/admin/wapzo/email/templates', { name: 'Offer', subject: 'S', body: 'B' });
+        const created = await call(sup, 'POST', '/api/admin/wuzie/email/templates', { name: 'Offer', subject: 'S', body: 'B' });
         assert.equal(created.status, 200);
         const { id } = created.body.template;
-        const updated = await call(sup, 'PUT', `/api/admin/wapzo/email/templates/${id}`, { name: 'Offer 2', subject: 'S', body: 'B' });
+        const updated = await call(sup, 'PUT', `/api/admin/wuzie/email/templates/${id}`, { name: 'Offer 2', subject: 'S', body: 'B' });
         assert.equal(updated.body.template.name, 'Offer 2');
-        assert.equal((await call(sup, 'POST', '/api/admin/wapzo/email/templates', { name: '', subject: 'S', body: 'B' })).status, 400);
-        assert.equal((await call(sup, 'DELETE', `/api/admin/wapzo/email/templates/${id}`)).status, 200);
-        assert.equal((await call(sup, 'DELETE', `/api/admin/wapzo/email/templates/${id}`)).status, 404);
+        assert.equal((await call(sup, 'POST', '/api/admin/wuzie/email/templates', { name: '', subject: 'S', body: 'B' })).status, 400);
+        assert.equal((await call(sup, 'DELETE', `/api/admin/wuzie/email/templates/${id}`)).status, 200);
+        assert.equal((await call(sup, 'DELETE', `/api/admin/wuzie/email/templates/${id}`)).status, 404);
     });
 
     it('is the super admin\'s alone', async () => {
         const owner = sessionFor(app, { role: 'owner' });
-        assert.equal((await call(owner, 'POST', '/api/admin/wapzo/email/send', { subject: 'S', body: 'B', emails: ['a@test.dev'] })).status, 403);
+        assert.equal((await call(owner, 'POST', '/api/admin/wuzie/email/send', { subject: 'S', body: 'B', emails: ['a@test.dev'] })).status, 403);
     });
 
     it('lists every automatic email with a sample that renders', async () => {
-        const { body } = await call(sup, 'GET', '/api/admin/wapzo/email');
+        const { body } = await call(sup, 'GET', '/api/admin/wuzie/email');
         assert.deepEqual(body.automatic.map((a) => a.kind), AUTOMATIC_EMAILS.map((a) => a.kind));
         for (const { kind } of body.automatic) {
-            const sample = await call(sup, 'GET', `/api/admin/wapzo/email/automatic/${kind}`);
+            const sample = await call(sup, 'GET', `/api/admin/wuzie/email/automatic/${kind}`);
             assert.equal(sample.status, 200, kind);
             assert.ok(sample.body.subject && sample.body.html.includes('wuzie'), kind);
             assert.ok(!/undefined|null|NaN/.test(sample.body.subject + sample.body.html.replace(/<[^>]+>/g, '')), kind);
         }
-        assert.equal((await call(sup, 'GET', '/api/admin/wapzo/email/automatic/nope')).status, 404);
+        assert.equal((await call(sup, 'GET', '/api/admin/wuzie/email/automatic/nope')).status, 404);
     });
 
     it('logs an automatic email without keeping its body', async () => {
@@ -133,7 +133,7 @@ describe('Wuzie email', () => {
         });
         assert.equal(res.status, 201);
         await new Promise((resolve) => setTimeout(resolve, 30));
-        const { body } = await call(sup, 'GET', '/api/admin/wapzo/email');
+        const { body } = await call(sup, 'GET', '/api/admin/wuzie/email');
         const entry = body.log.find((e) => e.to === 'asha@test.dev');
         assert.equal(entry.subject, 'We got your request for Wuzie');
         assert.equal(entry.status, 'sent');
@@ -146,7 +146,7 @@ describe('Wuzie email', () => {
     it('carries the logo inside the email, and shows it in previews', async () => {
         assert.equal(LOGO_PNG.subarray(1, 4).toString(), 'PNG');
         assert.ok(customEmail({ subject: 'S', body: 'B' }).html.includes(`cid:${LOGO_CID}`));
-        const sample = await call(sup, 'GET', '/api/admin/wapzo/email/automatic/plan_ending');
+        const sample = await call(sup, 'GET', '/api/admin/wuzie/email/automatic/plan_ending');
         assert.ok(sample.body.html.includes('src="data:image/png;base64,'));
         assert.ok(!sample.body.html.includes('cid:'));
         // The real mailer, against a server that will not answer: the attachment must not be what breaks it.

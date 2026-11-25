@@ -6,7 +6,7 @@ import type { ConnectionState, MessageStatus, UploadedMedia } from '../core/api'
 import { toMessage } from './plans-api';
 
 /** One event Wuzie writes to a client about (server platform/notify.js PLATFORM_EVENTS), with its saved text. */
-export interface WapzoMessage {
+export interface WuzieMessage {
   readonly kind: string;
   readonly label: string;
   /** When it goes out, in a sentence. */
@@ -17,7 +17,7 @@ export interface WapzoMessage {
 }
 
 /** A message the Wuzie number sent; `kind` is the event, or 'test'. */
-export interface WapzoLogEntry {
+export interface WuzieLogEntry {
   readonly id: string;
   readonly to: string;
   readonly text: string;
@@ -28,25 +28,25 @@ export interface WapzoLogEntry {
   readonly sentAt: string | null;
 }
 
-export interface WapzoOverview {
+export interface WuzieOverview {
   readonly tenantId: number;
   /** Null until the hidden tenant has a number. */
   readonly channelId: number | null;
   /** 'sandbox' is offered only on a test server. */
   readonly transports: readonly string[];
-  readonly messages: readonly WapzoMessage[];
+  readonly messages: readonly WuzieMessage[];
   /** The last 50 messages, newest first. */
-  readonly log: readonly WapzoLogEntry[];
+  readonly log: readonly WuzieLogEntry[];
 }
 
 /** The two config keys this page touches; the rest of the number's config is left as it is. */
-export interface WapzoConfig {
+export interface WuzieConfig {
   readonly transport: string;
   readonly defaultCountryCode: string;
 }
 
 /** A message to many: how many were queued, and who was skipped and why. */
-export interface WapzoBroadcastResult {
+export interface WuzieBroadcastResult {
   readonly queued: number;
   readonly skipped: readonly { readonly to: string; readonly reason: string }[];
 }
@@ -91,29 +91,29 @@ export interface EmailOverview {
   readonly automatic: readonly AutomaticEmail[];
 }
 
-export type WapzoTestResult = { readonly sent: true; readonly messageId: string; readonly recipient: string };
+export type WuzieTestResult = { readonly sent: true; readonly messageId: string; readonly recipient: string };
 
 /** The number's own API (as a business's Connection page uses it), routed to Wuzie's hidden tenant. */
-const NUMBER = '/api/admin/wapzo/api';
+const NUMBER = '/api/admin/wuzie/api';
 
 /** Super admin: Wuzie's own WhatsApp number, the messages it sends clients, and what it sent. */
 @Injectable({ providedIn: 'root' })
-export class WapzoApi {
+export class WuzieApi {
   private readonly http = inject(HttpClient);
 
-  overview(): Observable<WapzoOverview> {
-    return this.http.get<WapzoOverview>('/api/admin/wapzo').pipe(catchError(toMessage));
+  overview(): Observable<WuzieOverview> {
+    return this.http.get<WuzieOverview>('/api/admin/wuzie').pipe(catchError(toMessage));
   }
 
   /** An empty `text` puts the default back. */
-  saveMessage(kind: string, body: { enabled?: boolean; text?: string }): Observable<{ message: WapzoMessage }> {
+  saveMessage(kind: string, body: { enabled?: boolean; text?: string }): Observable<{ message: WuzieMessage }> {
     return this.http
-      .put<{ message: WapzoMessage }>(`/api/admin/wapzo/messages/${encodeURIComponent(kind)}`, body)
+      .put<{ message: WuzieMessage }>(`/api/admin/wuzie/messages/${encodeURIComponent(kind)}`, body)
       .pipe(catchError(toMessage));
   }
 
-  sendTest(to: string, text: string): Observable<WapzoTestResult> {
-    return this.http.post<WapzoTestResult>('/api/admin/wapzo/test', { to, text }).pipe(catchError(toMessage));
+  sendTest(to: string, text: string): Observable<WuzieTestResult> {
+    return this.http.post<WuzieTestResult>('/api/admin/wuzie/test', { to, text }).pipe(catchError(toMessage));
   }
 
   /** `tenants`: 'all' (less archived and opted-out ones) or the ids picked; `leads`: open lead ids; `numbers` as typed. */
@@ -123,21 +123,21 @@ export class WapzoApi {
     leads?: readonly number[];
     numbers: readonly string[];
     mediaId?: string | null;
-  }): Observable<WapzoBroadcastResult> {
-    return this.http.post<WapzoBroadcastResult>('/api/admin/wapzo/broadcast', body).pipe(catchError(toMessage));
+  }): Observable<WuzieBroadcastResult> {
+    return this.http.post<WuzieBroadcastResult>('/api/admin/wuzie/broadcast', body).pipe(catchError(toMessage));
   }
 
   emailOverview(): Observable<EmailOverview> {
-    return this.http.get<EmailOverview>('/api/admin/wapzo/email').pipe(catchError(toMessage));
+    return this.http.get<EmailOverview>('/api/admin/wuzie/email').pipe(catchError(toMessage));
   }
 
   /** One automatic email, filled with sample details. */
   automaticEmail(kind: string): Observable<{ subject: string; html: string }> {
-    return this.http.get<{ subject: string; html: string }>(`/api/admin/wapzo/email/automatic/${encodeURIComponent(kind)}`).pipe(catchError(toMessage));
+    return this.http.get<{ subject: string; html: string }>(`/api/admin/wuzie/email/automatic/${encodeURIComponent(kind)}`).pipe(catchError(toMessage));
   }
 
   emailPreview(body: { subject: string; body: string; business: string }): Observable<{ html: string }> {
-    return this.http.post<{ html: string }>('/api/admin/wapzo/email/preview', body).pipe(catchError(toMessage));
+    return this.http.post<{ html: string }>('/api/admin/wuzie/email/preview', body).pipe(catchError(toMessage));
   }
 
   sendEmail(body: {
@@ -146,20 +146,20 @@ export class WapzoApi {
     tenants: 'all' | readonly number[];
     leads: readonly number[];
     emails: readonly string[];
-  }): Observable<WapzoBroadcastResult> {
-    return this.http.post<WapzoBroadcastResult>('/api/admin/wapzo/email/send', body).pipe(catchError(toMessage));
+  }): Observable<WuzieBroadcastResult> {
+    return this.http.post<WuzieBroadcastResult>('/api/admin/wuzie/email/send', body).pipe(catchError(toMessage));
   }
 
   /** A null `id` adds a new one. */
   saveEmailTemplate(id: number | null, body: { name: string; subject: string; body: string }): Observable<{ template: EmailTemplate }> {
-    const url = '/api/admin/wapzo/email/templates';
+    const url = '/api/admin/wuzie/email/templates';
     return (id === null ? this.http.post<{ template: EmailTemplate }>(url, body) : this.http.put<{ template: EmailTemplate }>(`${url}/${id}`, body)).pipe(
       catchError(toMessage),
     );
   }
 
   deleteEmailTemplate(id: number): Observable<{ ok: true }> {
-    return this.http.delete<{ ok: true }>(`/api/admin/wapzo/email/templates/${id}`).pipe(catchError(toMessage));
+    return this.http.delete<{ ok: true }>(`/api/admin/wuzie/email/templates/${id}`).pipe(catchError(toMessage));
   }
 
   /** An image stored as the Wuzie number's own, for a message to many. */
@@ -182,12 +182,12 @@ export class WapzoApi {
     return this.http.post<ConnectionState>(`${NUMBER}/connection/logout`, {}).pipe(catchError(toMessage));
   }
 
-  config(): Observable<{ config: WapzoConfig }> {
-    return this.http.get<{ config: WapzoConfig }>(`${NUMBER}/config`).pipe(catchError(toMessage));
+  config(): Observable<{ config: WuzieConfig }> {
+    return this.http.get<{ config: WuzieConfig }>(`${NUMBER}/config`).pipe(catchError(toMessage));
   }
 
-  saveConfig(update: Partial<WapzoConfig>): Observable<{ config: WapzoConfig }> {
-    return this.http.put<{ config: WapzoConfig }>(`${NUMBER}/config`, update).pipe(catchError(toMessage));
+  saveConfig(update: Partial<WuzieConfig>): Observable<{ config: WuzieConfig }> {
+    return this.http.put<{ config: WuzieConfig }>(`${NUMBER}/config`, update).pipe(catchError(toMessage));
   }
 
 }

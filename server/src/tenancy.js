@@ -277,8 +277,8 @@ export class Tenancy {
     systemTenant({ create = false } = {}) {
         const row = this.db.prepare("SELECT * FROM tenants WHERE status = 'system' ORDER BY id LIMIT 1").get();
         if (row || !create) return row ? toTenant(row) : null;
-        const slug = this.freeSlug('wapzo-system');
-        this.db.prepare(`INSERT INTO tenants (name, slug, status, wapzo_updates, created_at)
+        const slug = this.freeSlug('wuzie-system');
+        this.db.prepare(`INSERT INTO tenants (name, slug, status, wuzie_updates, created_at)
                          VALUES ('Wuzie', ?, 'system', 0, ?)`).run(slug, utcNow());
         return this.systemTenant();
     }
@@ -287,15 +287,15 @@ export class Tenancy {
      * A business's own details, from Tenant settings > Edit: name, ID (slug), contact WhatsApp and whether Wuzie
      * messages it there. Fields left out stay as they are.
      */
-    updateDetails(id, { name, slug, contactPhone, wapzoUpdates, profile } = {}) {
+    updateDetails(id, { name, slug, contactPhone, wuzieUpdates, profile } = {}) {
         const before = this.getTenant(id);
         if (!before || ['archived', 'system'].includes(before.status)) throw new TenancyError('tenant not found', 404);
         const { cleanName, cleanSlug } = cleanTenantInput(name ?? before.name, slug ?? before.slug);
         const phone = contactPhone === undefined ? before.contactPhone : cleanContactPhone(contactPhone);
-        const updates = wapzoUpdates === undefined ? before.wapzoUpdates : Boolean(wapzoUpdates);
+        const updates = wuzieUpdates === undefined ? before.wuzieUpdates : Boolean(wuzieUpdates);
         const paper = profile === undefined ? before.profile : cleanProfile({ ...before.profile, ...profile });
         try {
-            this.db.prepare('UPDATE tenants SET name = ?, slug = ?, contact_phone = ?, wapzo_updates = ?, profile = ? WHERE id = ?')
+            this.db.prepare('UPDATE tenants SET name = ?, slug = ?, contact_phone = ?, wuzie_updates = ?, profile = ? WHERE id = ?')
                 .run(cleanName, cleanSlug, phone, updates ? 1 : 0, JSON.stringify(paper), Number(id));
         } catch (err) {
             if (/UNIQUE/.test(err.message)) throw new TenancyError('Another business already uses that ID.', 409);
@@ -963,7 +963,7 @@ function toTenant(row) {
         customSafety: parseJson(row.custom_safety, {}),
         safetyExit: parseJson(row.safety_exit, null),
         contactPhone: row.contact_phone ?? '',
-        wapzoUpdates: row.wapzo_updates === undefined ? true : Boolean(row.wapzo_updates),
+        wuzieUpdates: row.wuzie_updates === undefined ? true : Boolean(row.wuzie_updates),
         profile: parseJson(row.profile, {}) ?? {},
         createdAt: row.created_at,
     };

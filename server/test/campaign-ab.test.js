@@ -81,6 +81,28 @@ describe('the engine', () => {
         }
     });
 
+    it('sends each person the message or one of its rewordings, and counts them as varied text', async () => {
+        const sent = [];
+        const transport = {
+            name: 'fake', realDelivery: true, isConnected: () => true, getStatus: () => null, async disconnect() {},
+            sendMessage: async (to, text) => {
+                sent.push(text);
+                return { providerId: `v${sent.length}`, status: Status.SENT };
+            },
+        };
+        // Identical text to this many people is refused unless it varies: the rewordings are the variation.
+        const manager = new CampaignManager(db, transport, { ...engineConfig, requireVariationAbove: 5 });
+        const variations = ['Our sale ends Sunday, see you there!', 'The sale finishes on Sunday - come by!'];
+        assert.throws(() => manager.enqueueContacts(people(30, '9198000007'), 'The sale ends on Sunday, visit us!'), SafetyError);
+        manager.enqueueContacts(people(30, '9198000008'), 'The sale ends on Sunday, visit us!', { campaignId: 'camp-reword', variations });
+        manager.start();
+        assert.ok(await waitFor(() => sent.length === 30));
+        await manager.shutdown();
+        const texts = new Set(sent);
+        assert.ok([...texts].every((t) => t === 'The sale ends on Sunday, visit us!' || variations.includes(t)));
+        assert.ok(texts.size >= 2, 'more than one wording went out');
+    });
+
     it('runs the content checks on every version', () => {
         const manager = new CampaignManager(db, null, engineConfig);
         assert.throws(() => manager.enqueueContacts(people(2, '9198000004'), 'fine', {

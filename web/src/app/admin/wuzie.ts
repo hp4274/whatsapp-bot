@@ -4,8 +4,8 @@ import { DatePipe } from '@angular/common';
 import type { ConnectionState, MessageStatus } from '../core/api';
 import { ConfirmDialog } from '../core/confirm-dialog';
 import { AdminFeed } from './admin-feed';
-import { WapzoApi, WapzoLogEntry, WapzoMessage } from './wapzo-api';
-import { WapzoBroadcast } from './wapzo-broadcast';
+import { WuzieApi, WuzieLogEntry, WuzieMessage } from './wuzie-api';
+import { WuzieBroadcast } from './wuzie-broadcast';
 import { WuzieEmail } from './wuzie-email';
 import { PhoneInput } from '../core/phone-input';
 
@@ -52,18 +52,18 @@ type Busy = 'link' | 'unlink' | 'country' | 'test' | null;
 /**
  * Wuzie's own WhatsApp number: it writes to clients when they ask for an account, when it is ready, and about
  * their plan and payments. It is linked and run like a business's number, on a hidden tenant, through the same
- * API (`/api/admin/wapzo/api`); this page adds the texts it sends and a log of what went out.
+ * API (`/api/admin/wuzie/api`); this page adds the texts it sends and a log of what went out.
  */
 @Component({
-  selector: 'app-admin-wapzo',
-  imports: [ConfirmDialog, DatePipe, WapzoBroadcast, WuzieEmail, PhoneInput],
-  templateUrl: './wapzo.html',
-  styleUrl: './wapzo.scss',
+  selector: 'app-admin-wuzie',
+  imports: [ConfirmDialog, DatePipe, WuzieBroadcast, WuzieEmail, PhoneInput],
+  templateUrl: './wuzie.html',
+  styleUrl: './wuzie.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:keydown.escape)': 'viewingId.set(null)' },
 })
 export class Wuzie {
-  private readonly api = inject(WapzoApi);
+  private readonly api = inject(WuzieApi);
 
   protected readonly tab = signal<'whatsapp' | 'email'>('whatsapp');
   protected readonly loading = signal(true);
@@ -75,8 +75,8 @@ export class Wuzie {
   protected readonly confirmUnlink = signal(false);
 
   protected readonly transports = signal<readonly string[]>(['baileys']);
-  protected readonly messages = signal<readonly WapzoMessage[]>([]);
-  protected readonly log = signal<readonly WapzoLogEntry[]>([]);
+  protected readonly messages = signal<readonly WuzieMessage[]>([]);
+  protected readonly log = signal<readonly WuzieLogEntry[]>([]);
   protected readonly connection = signal<ConnectionState | null>(null);
   /** The sent message open in the side drawer; read from the log, so its status updates live while open. */
   protected readonly viewingId = signal<string | null>(null);
@@ -124,7 +124,7 @@ export class Wuzie {
     // The drawer takes focus when it opens, so Escape and Tab start inside it.
     effect(() => this.closeView()?.nativeElement.focus());
     // A sent message, a new link or another admin's edit shows here at once.
-    inject(AdminFeed).watch(['channels', 'wapzo', 'campaigns', 'usage'], () => this.reload(true));
+    inject(AdminFeed).watch(['channels', 'wuzie', 'campaigns', 'usage'], () => this.reload(true));
     // Only while linking: the QR code changes every few seconds and the countdown ticks. Cleared on destroy too.
     effect((onCleanup) => {
       if (!this.linking()) return;
@@ -236,7 +236,7 @@ export class Wuzie {
     });
   }
 
-  protected draftOf(message: WapzoMessage): string {
+  protected draftOf(message: WuzieMessage): string {
     return this.drafts()[message.kind] ?? message.text;
   }
 
@@ -244,7 +244,7 @@ export class Wuzie {
     this.drafts.update((drafts) => ({ ...drafts, [kind]: text }));
   }
 
-  protected changed(message: WapzoMessage): boolean {
+  protected changed(message: WuzieMessage): boolean {
     return this.draftOf(message).trim() !== message.text;
   }
 
@@ -253,7 +253,7 @@ export class Wuzie {
   }
 
   /** Put `{word}` where the cursor was (the textarea keeps its selection after the chip takes focus). */
-  protected insert(message: WapzoMessage, box: HTMLTextAreaElement, word: string): void {
+  protected insert(message: WuzieMessage, box: HTMLTextAreaElement, word: string): void {
     const token = `{${word}}`;
     const start = box.selectionStart ?? box.value.length;
     const end = box.selectionEnd ?? start;
@@ -264,20 +264,20 @@ export class Wuzie {
     box.setSelectionRange(start + token.length, start + token.length);
   }
 
-  protected toggle(message: WapzoMessage): void {
+  protected toggle(message: WuzieMessage): void {
     this.saveMessage(message, { enabled: !message.enabled }, message.enabled ? `${message.label} is off.` : `${message.label} is on.`);
   }
 
-  protected saveText(message: WapzoMessage): void {
+  protected saveText(message: WuzieMessage): void {
     this.saveMessage(message, { text: this.draftOf(message).trim() }, `${message.label} saved.`);
   }
 
   /** An empty text is the server's "back to the default". */
-  protected resetText(message: WapzoMessage): void {
+  protected resetText(message: WuzieMessage): void {
     this.saveMessage(message, { text: '' }, `${message.label} is back to the default text.`);
   }
 
-  private saveMessage(message: WapzoMessage, body: { enabled?: boolean; text?: string }, done: string): void {
+  private saveMessage(message: WuzieMessage, body: { enabled?: boolean; text?: string }, done: string): void {
     this.savingKind.set(message.kind);
     this.error.set('');
     this.notice.set('');
@@ -301,11 +301,11 @@ export class Wuzie {
     });
   }
 
-  protected eventLabel(entry: WapzoLogEntry): string {
+  protected eventLabel(entry: WuzieLogEntry): string {
     return this.labels().get(entry.kind) ?? 'Other';
   }
 
-  protected status(entry: WapzoLogEntry): { readonly label: string; readonly tone: string } {
+  protected status(entry: WuzieLogEntry): { readonly label: string; readonly tone: string } {
     return STATUS[entry.status] ?? { label: entry.status, tone: 'tone-mute' };
   }
 

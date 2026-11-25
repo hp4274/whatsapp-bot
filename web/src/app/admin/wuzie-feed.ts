@@ -7,8 +7,8 @@ import { Auth } from '../core/auth';
 import { EMPTY_STATS } from '../core/store';
 import { toMessage } from './plans-api';
 
-/** Wuzie's own number, through its own API (server app.js /api/admin/wapzo/api, the system tenant's runtime). */
-const BASE = '/api/admin/wapzo/api';
+/** Wuzie's own number, through its own API (server app.js /api/admin/wuzie/api, the system tenant's runtime). */
+const BASE = '/api/admin/wuzie/api';
 
 /**
  * What the send island needs from Wuzie's own number, live: its send counters, the wait between messages and a

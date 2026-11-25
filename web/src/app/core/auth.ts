@@ -43,7 +43,7 @@ export interface Tenant {
   /** The business's WhatsApp, where Wuzie's own number writes to it ('' for none). Admin list only. */
   contactPhone?: string;
   /** Whether Wuzie messages the business about its account and plan. */
-  wapzoUpdates?: boolean;
+  wuzieUpdates?: boolean;
   /** The business on paper (server tenancy.js PROFILE_FIELDS); a missing key is not given. */
   profile?: Readonly<Record<string, string>>;
   controls: TenantControls;

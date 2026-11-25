@@ -413,6 +413,7 @@ export class CampaignStore {
                 fallbacks: options.fallbacks ?? {},
                 pacing: options.pacing ?? 'balanced',
                 variants: options.variants ?? null,
+                variations: options.variations ?? null,
                 trackLinks: options.trackLinks === true,
             });
         } catch (err) {
@@ -1538,6 +1539,7 @@ export function normalizeOptions(input) {
     }
     if (src.extraNumbers !== undefined) out.extraNumbers = normalizeExtraNumbers(src.extraNumbers);
     if (src.variants !== undefined) out.variants = normalizeVariants(src.variants);
+    if (src.variations !== undefined) out.variations = normalizeVariations(src.variations);
     return out;
 }
 
@@ -1576,6 +1578,17 @@ function normalizeVariants(input) {
         if (body.length > 4096) throw new CampaignError(`version ${key} is longer than 4096 characters`);
         return { key, body };
     });
+}
+
+/** Other wordings of the main message ("Make variations"): each person gets the message or one of these at random. */
+const MAX_VARIATIONS = 50;
+function normalizeVariations(input) {
+    if (input == null) return null;
+    if (!Array.isArray(input)) throw new CampaignError('variations must be a list of messages');
+    const list = input.map((v) => String(v ?? '').trim()).filter(Boolean);
+    if (list.length > MAX_VARIATIONS) throw new CampaignError(`a campaign can have up to ${MAX_VARIATIONS} variations`);
+    if (list.some((v) => v.length > 4096)) throw new CampaignError('a variation is longer than 4096 characters');
+    return list.length ? list : null;
 }
 
 /** `{from, to, startTime}` for spread sending; the counters are the server's, not the client's. */

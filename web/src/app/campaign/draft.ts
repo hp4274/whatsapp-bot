@@ -318,6 +318,8 @@ export class CampaignDraft {
   readonly variantB = signal<string | null>(null);
   /** Optional third version; only meaningful while `variantB` is on. */
   readonly variantC = signal<string | null>(null);
+  /** Other wordings of the main message ("Make variations"): each person gets it or one of these at random. */
+  readonly variations = signal<string[]>([]);
   /** The version the editor and the phone preview are showing. Not autosaved. */
   readonly activeVersion = signal<VariantKey>('A');
 
@@ -385,6 +387,7 @@ export class CampaignDraft {
     trackLinks: this.trackLinks,
     variantB: this.variantB,
     variantC: this.variantC,
+    variations: this.variations,
     editingId: this.editingId,
     pacing: this.pacing,
     scheduleMode: this.scheduleMode,
@@ -570,8 +573,16 @@ export class CampaignDraft {
     const known = this.validContacts().length ? [] : this.variables();
     return this.rendered().missing.filter((k) => !known.includes(k));
   });
-  /** Every version varies per recipient: the server checks each A/B body on its own. */
-  readonly hasVariation = computed(() => this.bodies().every((b) => hasVariation(b)));
+  /** The variations that go out (blank ones are dropped), with the opt-out line like the message. */
+  readonly outgoingVariations = computed(() =>
+    this.variations()
+      .filter((v) => v.trim())
+      .map((v) => (this.optOutLine() ? withOptOut(v) : v)),
+  );
+  /** Every version varies per recipient: the server checks each A/B body on its own; rewordings vary version A. */
+  readonly hasVariation = computed(() =>
+    this.bodies().every((b, i) => (i === 0 && this.outgoingVariations().length > 0) || hasVariation(b)),
+  );
   /** Plain placeholders in any version that goes out. */
   private readonly placeholderKeys = computed(() => [
     ...new Set(this.bodies().flatMap((b) => plainPlaceholders(b))),
@@ -625,7 +636,7 @@ export class CampaignDraft {
     if (size > this.varyAbove() && !this.hasVariation()) {
       out.push({
         tone: 'warning',
-        text: `Identical text to ${size} people is a spam signal - add {name} or {Hi|Hello}.`,
+        text: `Identical text to ${size} people is a spam signal - press Make 5 variations, or add {name} or {Hi|Hello}.`,
       });
     }
     for (const e of this.interactiveErrors()) out.push({ tone: 'danger', text: `Buttons: ${e}` });
@@ -880,6 +891,7 @@ export class CampaignDraft {
         trackLinks: this.trackLinks() && !this.qrNumber(),
         // Always sent, so an edit that turns the test or the repeat off clears the stored one.
         variants: this.versions().length ? this.versions() : null,
+        variations: this.outgoingVariations().length ? this.outgoingVariations() : null,
         recurrence: null,
         // A file merges typed numbers into its own list; other audiences resolve at send time.
         extraNumbers:
@@ -1092,11 +1104,11 @@ export class CampaignDraft {
     }
     this.interactive.set((options.interactive as InteractiveDraft | null) ?? null);
     this.trackLinks.set(options.trackLinks === true);
-    const [, b, c] = options.variants ?? [];
-    if (b) {
-      this.variantB.set(withoutOptOut(b.body).text);
-      this.variantC.set(c ? withoutOptOut(c.body).text : null);
-    }
+    // An older A/B campaign: its B and C versions become variations (the editor has no A/B any more).
+    const [, ...others] = options.variants ?? [];
+    this.variations.set(
+      [...others.map((v) => v.body), ...(options.variations ?? [])].map((v) => withoutOptOut(v).text),
+    );
     if (options.extraNumbers?.length) {
       this.extraNumbers.set(
         options.extraNumbers.map((e) => (e.name ? `${e.phone}, ${e.name}` : e.phone)).join('\n'),
@@ -1178,6 +1190,7 @@ export class CampaignDraft {
     this.trackLinks.set(false);
     this.variantB.set(null);
     this.variantC.set(null);
+    this.variations.set([]);
     this.activeVersion.set('A');
     this.editingId.set(null);
     this.pacing.set('balanced');
@@ -1208,6 +1221,11 @@ export class CampaignDraft {
     if (!snap) return of(undefined);
     this.reset();
     for (const [key, value] of Object.entries(snap.signals)) this.kept[key]?.set(value);
+    // A draft saved while A/B existed: its versions B and C become variations.
+    const older = [this.variantB(), this.variantC()].filter((v): v is string => !!v?.trim());
+    if (older.length) this.variations.update((list) => [...older, ...list]);
+    this.variantB.set(null);
+    this.variantC.set(null);
     if (snap.attachment) {
       this.setAttachment({ ...snap.attachment, previewUrl: '' });
       this.loadPreview(snap.attachment.mediaId);

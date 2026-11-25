@@ -334,17 +334,17 @@ describe('CampaignDraft.applyCampaign', () => {
       'edit',
     );
     expect(draft.message()).toBe('Hi {name}');
-    expect(draft.variantB()).toBe('Hello {name}');
-    expect(draft.variantC()).toBeNull();
+    // The editor has no A/B any more: an old version B comes back as a variation, without its opt-out line.
+    expect(draft.variantB()).toBeNull();
+    expect(draft.variations()).toEqual(['Hello {name}']);
     expect(draft.trackLinks()).toBe(true);
     expect(draft.repeatEvery()).toBe('month');
     expect(draft.repeatUntil()).toBe('2027-06-30');
 
     const options = draft.buildCreate().options;
-    expect(options?.variants?.map((v) => v.body)).toEqual([
-      `Hi {name}\n\n${OPT_OUT_TEXT}`,
-      `Hello {name}\n\n${OPT_OUT_TEXT}`,
-    ]);
+    // Saved back as a variation (the opt-out line added again), no A/B split.
+    expect(options?.variants).toBeNull();
+    expect(options?.variations).toEqual([`Hello {name}\n\n${OPT_OUT_TEXT}`]);
     expect(options?.recurrence).toEqual({ every: 'month', until: '2027-06-30' });
     expect(options?.trackLinks).toBe(true);
   });

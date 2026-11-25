@@ -1,6 +1,6 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, catchError, throwError } from 'rxjs';
+import { Observable, catchError, map, throwError } from 'rxjs';
 
 export type CampaignStatus = 'draft' | 'scheduled' | 'running' | 'paused' | 'done' | 'cancelled';
 export type CampaignFilter = 'all' | 'running' | 'paused' | 'scheduled' | 'done' | 'cancelled';
@@ -37,6 +37,18 @@ export interface StopAllResult {
   readonly killSwitch: boolean;
 }
 
+/** The AI behind the campaign editor's "Make variations" (server: /api/admin/campaigns/ai). Never holds the key. */
+export interface AiSettings {
+  readonly provider: string;
+  readonly baseUrl: string;
+  readonly model: string;
+  /** Whether businesses see the Make variations buttons at all. */
+  readonly enabled: boolean;
+  readonly hasKey: boolean;
+  /** Last 4 characters of the saved key, so the admin can tell which one it is. */
+  readonly keyEnd: string;
+}
+
 const toMessage = (error: HttpErrorResponse) => {
   const errors = error.error?.errors;
   return throwError(
@@ -59,6 +71,28 @@ export class CampaignsOpsApi {
     return this.http
       .post<CampaignActionResult>(`/api/admin/campaigns/${id}/${action}`, {})
       .pipe(catchError(toMessage));
+  }
+
+  aiSettings(): Observable<AiSettings> {
+    return this.http.get<AiSettings>('/api/admin/campaigns/ai').pipe(catchError(toMessage));
+  }
+
+  /** Chat models the key (or the saved key, when left out) can use on `provider`. */
+  aiModels(ask: { provider: string; apiKey?: string; baseUrl?: string }): Observable<string[]> {
+    return this.http
+      .post<{ models: string[] }>('/api/admin/campaigns/ai/models', ask)
+      .pipe(map((r) => r.models), catchError(toMessage));
+  }
+
+  /** `apiKey`: a new key, '' to remove it, left out to keep it. */
+  saveAiSettings(patch: {
+    provider?: string;
+    apiKey?: string;
+    model?: string;
+    baseUrl?: string;
+    enabled?: boolean;
+  }): Observable<AiSettings> {
+    return this.http.put<AiSettings>('/api/admin/campaigns/ai', patch).pipe(catchError(toMessage));
   }
 
   stopAll(): Observable<StopAllResult> {

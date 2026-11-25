@@ -1,7 +1,7 @@
 import { referralCode, rememberReferral } from './referral';
 
 describe('referral link', () => {
-  beforeEach(() => localStorage.removeItem('wapzo.ref'));
+  beforeEach(() => localStorage.removeItem('wuzie.ref'));
 
   it('keeps the code for 30 days, a newer link replacing it', () => {
     rememberReferral('?ref=RAVI-42', 0);

@@ -26,6 +26,128 @@
     </button>
   </article>
 
+  @if (ai(); as a) {
+    <div class="ai-switch" [class.off]="!a.enabled">
+      <span class="ai-switch-icon" aria-hidden="true"><i class="ti" [class.ti-eye]="a.enabled" [class.ti-eye-off]="!a.enabled"></i></span>
+      <div class="ai-switch-text">
+        <strong id="ai-show-label">Show Make variations to businesses</strong>
+        <span>
+          {{ a.enabled ? 'The AI button shows in every campaign editor.' : 'Hidden everywhere. Businesses can still write their own variations.' }}
+        </span>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        class="switch"
+        aria-labelledby="ai-show-label"
+        [attr.aria-checked]="a.enabled"
+        [disabled]="aiSaving()"
+        (click)="toggleAi(!a.enabled)"
+      >
+        <span class="thumb"></span>
+      </button>
+    </div>
+  }
+
+  <article class="ai" aria-labelledby="ai-title">
+    <span class="badge" aria-hidden="true"><i class="ti ti-sparkles"></i></span>
+    <form class="ai-body" (submit)="$event.preventDefault(); saveAi()">
+      <div class="kill-top">
+        <h3 id="ai-title">AI for Make variations</h3>
+        @if (ai(); as a) {
+          <span class="s-pill" [class.tone-ok]="a.hasKey" [class.tone-warn]="!a.hasKey">
+            {{ a.hasKey ? 'On - ' + (a.model || 'no model set') + ', key ending ' + a.keyEnd : 'Off - no API key' }}
+          </span>
+        }
+      </div>
+      <p>
+        Businesses press Make variations in the campaign editor to get other wordings of their message, in its own
+        language. Any message the AI changes in meaning is thrown away, so only safe wordings are added.
+      </p>
+      <div class="ai-fields">
+        <div class="s-field">
+          <label for="ai-key">API key</label>
+          <input
+            id="ai-key"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            [class.invalid]="needsKey()"
+            [attr.aria-invalid]="needsKey()"
+            [attr.aria-describedby]="needsKey() ? 'ai-key-err' : 'ai-key-hint'"
+            [placeholder]="ai()?.hasKey && !needsKey() ? 'Saved - type a new key to replace it' : provider().keyStart"
+            [value]="aiKey()"
+            (input)="typeKey($any($event.target).value)"
+          />
+          @if (needsKey()) {
+            <span id="ai-key-err" class="err">A new service needs its own key.</span>
+          } @else {
+            <span id="ai-key-hint" class="hint">From {{ provider().keyHint }}. Stored encrypted and never shown again.</span>
+          }
+        </div>
+        <div class="s-field">
+          <label for="ai-provider">AI service</label>
+          <select id="ai-provider" [value]="aiProvider()" (change)="pickProvider($any($event.target).value)">
+            @for (p of providers; track p.id) {
+              <option [value]="p.id">{{ p.label }}</option>
+            }
+          </select>
+          <span class="hint">Picked from your key when you paste it. Change it if it is wrong.</span>
+        </div>
+        @if (aiProvider() === 'custom') {
+          <div class="s-field">
+            <label for="ai-url">API address</label>
+            <input
+              id="ai-url"
+              type="url"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="https://api.example.com/v1"
+              [value]="aiBaseUrl()"
+              (input)="typeBaseUrl($any($event.target).value)"
+            />
+            <span class="hint">The address before /chat/completions, from the service's docs.</span>
+          </div>
+        }
+        <div class="s-field">
+          <label for="ai-model">Model</label>
+          <select
+            id="ai-model"
+            [disabled]="modelsLoading() || !modelOptions().length"
+            [class.invalid]="!!modelsError()"
+            [attr.aria-invalid]="!!modelsError()"
+            [attr.aria-describedby]="modelsError() ? 'ai-model-err' : 'ai-model-hint'"
+            (change)="aiModel.set($any($event.target).value)"
+          >
+            @if (!modelOptions().length) {
+              <option value="">{{ modelsLoading() ? 'Loading models…' : 'Paste the API key to see models' }}</option>
+            }
+            @for (m of modelOptions(); track m) {
+              <option [value]="m" [selected]="m === aiModel()">{{ m }}</option>
+            }
+          </select>
+          @if (modelsError(); as e) {
+            <span id="ai-model-err" class="err">{{ e }}</span>
+          } @else {
+            <span id="ai-model-hint" class="hint">
+              {{ modelsLoading() ? 'Asking ' + provider().label + ' for its models…' : 'The models your key can use, from ' + provider().label + '.' }}
+            </span>
+          }
+        </div>
+      </div>
+      <div class="ai-acts">
+        @if (ai()?.hasKey) {
+          <button type="button" class="btn sm danger-ghost" [disabled]="aiSaving()" (click)="removeAiKey()">
+            <i class="ti ti-trash" aria-hidden="true"></i>Remove key
+          </button>
+        }
+        <button type="submit" class="btn primary" [disabled]="aiSaving() || !aiChanged() || needsKey() || !aiModel()">
+          <i class="ti ti-device-floppy" aria-hidden="true"></i>{{ aiSaving() ? 'Saving…' : 'Save' }}
+        </button>
+      </div>
+    </form>
+  </article>
+
   <header class="head">
     <div>
       <p class="eyebrow">Bulk campaigns</p>

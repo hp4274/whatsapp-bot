@@ -82,7 +82,7 @@ export class AudiencePicker {
   /** Archived businesses get nothing. */
   private readonly live = computed(() => this.tenants().filter((t) => t.status !== 'archived'));
   /** "All" leaves out those that switched Wuzie updates off, as the server does. */
-  protected readonly everyone = computed(() => this.live().filter((t) => t.wapzoUpdates !== false));
+  protected readonly everyone = computed(() => this.live().filter((t) => t.wuzieUpdates !== false));
   protected readonly optedOut = computed(() => this.live().length - this.everyone().length);
   /** Only requests still waiting on us: new or on hold. Converted ones are businesses; dismissed ones said no. */
   protected readonly openLeads = computed(() => this.leads().filter((l) => l.status === 'new' || l.status === 'hold'));

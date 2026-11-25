@@ -20,7 +20,7 @@ let base;
 let sup;
 /** A stand-in mailer: what would have been emailed, in order. */
 const outbox = [];
-const mailer = { configured: true, notifyTo: 'team@wapzo.test', send: async (mail) => { outbox.push(mail); return { sent: true }; } };
+const mailer = { configured: true, notifyTo: 'team@wuzie.test', send: async (mail) => { outbox.push(mail); return { sent: true }; } };
 
 const call = async (token, method, url, body) => {
     const res = await fetch(base + url, {
@@ -37,7 +37,7 @@ const call = async (token, method, url, body) => {
 before(async () => {
     db = new Database(path.join(tmp, 'leads.db'));
     app = createTestApp({
-        db, dataDir: tmp, mailer, publicBaseUrl: 'https://app.wapzo.test',
+        db, dataDir: tmp, mailer, publicBaseUrl: 'https://app.wuzie.test',
         config: { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000 },
     });
     server = app.listen(0, '127.0.0.1');
@@ -62,9 +62,9 @@ describe('leads', () => {
         outbox.length = 0;
         assert.equal((await call(null, 'POST', '/api/leads', lead)).status, 201);
         // A confirmation to the visitor and an alert to the team, which replies straight to the visitor.
-        assert.deepEqual(outbox.map((m) => m.to), ['asha@shop.test', 'team@wapzo.test']);
+        assert.deepEqual(outbox.map((m) => m.to), ['asha@shop.test', 'team@wuzie.test']);
         assert.equal(outbox[1].replyTo, 'asha@shop.test');
-        assert.ok(outbox[1].html.includes('https://app.wapzo.test/admin/leads'));
+        assert.ok(outbox[1].html.includes('https://app.wuzie.test/admin/leads'));
         assert.ok(outbox[0].html.includes('Asha &lt;Sarees&gt;') && !outbox[0].html.includes('<Sarees>'), 'what a visitor typed is escaped');
         assert.ok(outbox[0].text.includes('Asha <Sarees>'));
         assert.equal((await call(null, 'POST', '/api/leads', { ...lead, message: 'again', source: 'login' })).status, 201);
@@ -133,7 +133,7 @@ describe('leads', () => {
         assert.equal(outbox.length, mailsBefore + 1);
         const welcome = outbox.at(-1);
         assert.equal(welcome.to, 'asha@shop.test');
-        assert.ok(welcome.html.includes('password123') && welcome.html.includes('https://app.wapzo.test/login'));
+        assert.ok(welcome.html.includes('password123') && welcome.html.includes('https://app.wuzie.test/login'));
         assert.equal((await call(sup, 'POST', activateUrl, { password: 'password123' })).status, 409, 'only a pending one');
         const ok = await call(null, 'POST', '/api/auth/login', { email: 'asha@shop.test', password: 'password123' });
         assert.equal(ok.status, 200);
@@ -150,7 +150,7 @@ describe('leads', () => {
         const confirmed = outbox.at(-1);
         assert.equal(confirmed.to, 'asha@shop.test');
         assert.equal(confirmed.subject, 'Your Starter plan is confirmed');
-        assert.equal(confirmed.replyTo, 'team@wapzo.test');
+        assert.equal(confirmed.replyTo, 'team@wuzie.test');
         assert.ok(confirmed.html.includes('Asha &lt;Sarees&gt;') && confirmed.text.includes('Renews on:'));
         const paid = await call(sup, 'POST', `/api/admin/tenants/${tenant.id}/payments`, { amount: 999, method: 'upi' });
         assert.equal(paid.status, 201, JSON.stringify(paid.body));

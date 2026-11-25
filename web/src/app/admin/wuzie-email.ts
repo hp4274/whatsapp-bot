@@ -7,10 +7,10 @@ import type { Subscription } from 'rxjs';
 import { ConfirmDialog } from '../core/confirm-dialog';
 import { AdminFeed } from './admin-feed';
 import { AudiencePicker, insertWord } from './audience-picker';
-import { WapzoApi } from './wapzo-api';
-import type { AutomaticEmail, EmailLogEntry, EmailTemplate, WapzoBroadcastResult } from './wapzo-api';
+import { WuzieApi } from './wuzie-api';
+import type { AutomaticEmail, EmailLogEntry, EmailTemplate, WuzieBroadcastResult } from './wuzie-api';
 
-/** The words an email fills in per person (server app.js /wapzo/email/send). */
+/** The words an email fills in per person (server app.js /wuzie/email/send). */
 const WORDS: readonly string[] = ['name', 'business', 'email'];
 
 const STATUS: Readonly<Record<EmailLogEntry['status'], { readonly label: string; readonly tone: string }>> = {
@@ -44,7 +44,7 @@ interface Draft {
   host: { '(document:keydown.escape)': 'closeDrawers()' },
 })
 export class WuzieEmail {
-  private readonly api = inject(WapzoApi);
+  private readonly api = inject(WuzieApi);
   private readonly sanitizer = inject(DomSanitizer);
 
   protected readonly picker = viewChild.required(AudiencePicker);
@@ -73,7 +73,7 @@ export class WuzieEmail {
   protected readonly busy = signal(false);
   protected readonly confirming = signal(false);
   protected readonly error = signal('');
-  protected readonly result = signal<WapzoBroadcastResult | null>(null);
+  protected readonly result = signal<WuzieBroadcastResult | null>(null);
 
   protected readonly editing = signal<Draft | null>(null);
   protected readonly saving = signal(false);

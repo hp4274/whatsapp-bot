@@ -372,6 +372,8 @@ export class CampaignManager extends EventEmitter {
         fallbacks = null, pacing = 'balanced',
         // A/B bodies [{key, body}] split evenly over the batch; tracked links (see links/store.js).
         variants = null, trackLinks = false,
+        // Other wordings of the main message (version A): each person gets it or one of these at random.
+        variations = null,
         // A fresh run: queue.reset() options. Applied only after every refusal below, so a refused send keeps the live queue.
         reset = null,
         // Another run is sending on this number: this one joins the queue and they take turns (no reset).
@@ -407,16 +409,18 @@ export class CampaignManager extends EventEmitter {
             }
         }
         const bodies = versions ? versions.map((v) => v.body) : [template];
+        const rewordings = Array.isArray(variations) ? variations.filter((v) => typeof v === 'string' && v.trim()) : [];
         // A QR number's level sets how much a campaign must vary.
         const levels = this.quota.qr && this.config.safetyEnabled !== false;
         const tables = this.quota.tables();
         const vary = levels ? { ...this.config, requireVariationAbove: qrVaryAbove(this.config, tables.qrVaryAbove) } : this.config;
         const unvaried = this.config.safetyEnabled === false ? null
-            : bodies.map((body) => variationError(body, contacts, vary)).find(Boolean);
+            // The main message varies by its rewordings even when its own text has no {name} or {a|b}.
+            : bodies.map((body, i) => (i === 0 && rewordings.length ? null : variationError(body, contacts, vary))).find(Boolean);
         if (unvaried) throw new SafetyError(unvaried);
         if (this.config.safetyEnabled !== false) {
             const own = (c) => String(c?.extra?.message ?? c?.extra?.custom_message ?? '');
-            const texts = [...bodies, ...(Array.isArray(contacts) ? contacts.map(own) : [])];
+            const texts = [...bodies, ...rewordings, ...(Array.isArray(contacts) ? contacts.map(own) : [])];
             const refused = texts.map(contentError).find(Boolean);
             if (refused) throw new SafetyError(refused);
         }
@@ -500,7 +504,12 @@ export class CampaignManager extends EventEmitter {
                 const own = String(contact.extra?.message ?? contact.extra?.custom_message ?? '').trim();
                 // Round-robin over the (already shuffled) batch: an even split. A sheet's own text is no version.
                 const version = versions && !own ? versions[split % versions.length] : null;
-                let message = renderMessage(own || (version?.body ?? template), contact, fallbacks ?? {});
+                let body = version?.body ?? template;
+                if (!own && rewordings.length && (!version || version.key === 'A')) {
+                    const pool = [body, ...rewordings];
+                    body = pool[Math.floor(Math.random() * pool.length)];
+                }
+                let message = renderMessage(own || body, contact, fallbacks ?? {});
                 // Rewritten here, before the row is written: a retry or a restart resends the stored text, same codes.
                 const tracked = tracking ? this.links.rewrite(message) : null;
                 if (tracked) message = tracked.text;

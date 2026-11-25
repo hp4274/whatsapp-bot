@@ -12,7 +12,7 @@ import { Database } from '../src/db.js';
 import { renderText } from '../src/platform/notify.js';
 import { createTestApp, sessionFor } from './helpers.js';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-wapzo-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wsender-wuzie-'));
 let db;
 let app;
 let server;
@@ -31,11 +31,11 @@ const call = async (token, method, url, body) => {
 /** What the Wuzie number queued or sent, as [kind, recipient, text], oldest first. */
 const sent = () => db.db.prepare(
     "SELECT campaign_id, recipient, message FROM messages WHERE tenant_id = ? AND direction = 'outbound' ORDER BY rowid")
-    .all(systemId).map((m) => [m.campaign_id.replace('wapzo:', ''), m.recipient, m.message]);
+    .all(systemId).map((m) => [m.campaign_id.replace('wuzie:', ''), m.recipient, m.message]);
 const kinds = () => sent().map(([kind]) => kind);
 
 before(async () => {
-    db = new Database(path.join(tmp, 'wapzo.db'));
+    db = new Database(path.join(tmp, 'wuzie.db'));
     app = createTestApp({ db, dataDir: tmp, config: { ...DEFAULTS, transport: TRANSPORT_SANDBOX, rateLimitPerSecond: 1000 } });
     server = app.listen(0, '127.0.0.1');
     await new Promise((resolve) => server.once('listening', resolve));
@@ -58,21 +58,21 @@ describe('Wuzie WhatsApp number', () => {
     it('sends nothing, and fails nothing, before the number is linked', async () => {
         const res = await call(null, 'POST', '/api/leads', { name: 'Early', business: 'Early Shop', email: 'early@shop.test', phone: '98765 11111' });
         assert.equal(res.status, 201);
-        const page = await call(sup, 'GET', '/api/admin/wapzo');
+        const page = await call(sup, 'GET', '/api/admin/wuzie');
         assert.equal(page.status, 200);
         systemId = page.body.tenantId;
         assert.ok(page.body.channelId);
         assert.equal(page.body.messages.length, 11); // number_down, campaign_paused and campaign_finished joined the list
         assert.deepEqual(kinds(), []);
-        assert.equal((await call(sup, 'POST', '/api/admin/wapzo/test', { to: '98765 00000' })).status, 409);
+        assert.equal((await call(sup, 'POST', '/api/admin/wuzie/test', { to: '98765 00000' })).status, 409);
     });
 
     it('links like any number, through its own API, and sends a test', async () => {
-        assert.equal((await call(sup, 'PUT', '/api/admin/wapzo/api/config', { transport: 'sandbox', defaultCountryCode: '91' })).status, 200);
-        const up = await call(sup, 'POST', '/api/admin/wapzo/api/connection/connect');
+        assert.equal((await call(sup, 'PUT', '/api/admin/wuzie/api/config', { transport: 'sandbox', defaultCountryCode: '91' })).status, 200);
+        const up = await call(sup, 'POST', '/api/admin/wuzie/api/connection/connect');
         assert.equal(up.status, 200, JSON.stringify(up.body));
-        assert.equal((await call(sup, 'GET', '/api/admin/wapzo/api/connection')).body.connected, true);
-        const test = await call(sup, 'POST', '/api/admin/wapzo/test', { to: '98765 00000', text: 'Checking the link' });
+        assert.equal((await call(sup, 'GET', '/api/admin/wuzie/api/connection')).body.connected, true);
+        const test = await call(sup, 'POST', '/api/admin/wuzie/test', { to: '98765 00000', text: 'Checking the link' });
         assert.equal(test.status, 200, JSON.stringify(test.body));
         assert.deepEqual(sent().at(-1), ['test', '919876500000', 'Checking the link']);
         // Not a business: never in the tenant list.
@@ -87,15 +87,15 @@ describe('Wuzie WhatsApp number', () => {
         assert.equal(kind, 'lead_received');
         assert.equal(to, '919876522222');
         assert.match(text, /^Hi Asha, thanks for asking for a Wuzie account for Asha Sarees\./);
-        const off = await call(sup, 'PUT', '/api/admin/wapzo/messages/lead_received', { enabled: false });
+        const off = await call(sup, 'PUT', '/api/admin/wuzie/messages/lead_received', { enabled: false });
         assert.equal(off.body.message.enabled, false);
         await call(null, 'POST', '/api/leads', { name: 'Ravi', business: 'Ravi Tutors', email: 'ravi@t.test', phone: '98765 33333' });
         assert.notEqual(sent().at(-1)[1], '919876533333');
         // Its own words, with the same fill-ins; empty text goes back to the default.
-        await call(sup, 'PUT', '/api/admin/wapzo/messages/lead_received', { enabled: true, text: 'Namaste {name} from {business}!' });
+        await call(sup, 'PUT', '/api/admin/wuzie/messages/lead_received', { enabled: true, text: 'Namaste {name} from {business}!' });
         await call(null, 'POST', '/api/leads', { name: 'Meena', business: 'Meena Foods', email: 'meena@f.test', phone: '98765 44444' });
         assert.equal(sent().at(-1)[2], 'Namaste Meena from Meena Foods!');
-        const reset = await call(sup, 'PUT', '/api/admin/wapzo/messages/lead_received', { text: '' });
+        const reset = await call(sup, 'PUT', '/api/admin/wuzie/messages/lead_received', { text: '' });
         assert.match(reset.body.message.text, /thanks for asking/);
     });
 
@@ -127,26 +127,26 @@ describe('Wuzie WhatsApp number', () => {
         assert.deepEqual(app.locals.notifyPlanEnds(new Date(Date.now() + 3 * 864e5)).map((s) => s.kind), ['plan_expired']);
 
         // The business asked for no WhatsApp updates.
-        await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/details`, { wapzoUpdates: false });
+        await call(sup, 'PUT', `/api/admin/tenants/${tenant.id}/details`, { wuzieUpdates: false });
         const before = sent().length;
         await call(sup, 'POST', `/api/admin/tenants/${tenant.id}/payments`, { amount: 100, method: 'cash' });
         assert.equal(sent().length, before);
 
-        const page = (await call(sup, 'GET', '/api/admin/wapzo')).body;
+        const page = (await call(sup, 'GET', '/api/admin/wuzie')).body;
         assert.equal(page.log[0].kind, 'plan_expired');
         assert.ok(page.log.some((m) => m.kind === 'test'));
     });
 
     it('sends one message to many: all businesses, chosen ones or typed numbers, paced as bulk', async () => {
         const asha = (await call(sup, 'GET', '/api/admin/tenants')).body.tenants.find((t) => t.name === 'Asha Sarees');
-        assert.equal((await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: 'all', text: '' })).status, 400);
-        assert.equal((await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: [], text: 'Hi' })).status, 400);
+        assert.equal((await call(sup, 'POST', '/api/admin/wuzie/broadcast', { tenants: 'all', text: '' })).status, 400);
+        assert.equal((await call(sup, 'POST', '/api/admin/wuzie/broadcast', { tenants: [], text: 'Hi' })).status, 400);
         // All: Asha switched Wuzie updates off, so she is left out.
-        const all = await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: 'all', text: 'Hi {name}' });
+        const all = await call(sup, 'POST', '/api/admin/wuzie/broadcast', { tenants: 'all', text: 'Hi {name}' });
         assert.equal(all.status, 200, JSON.stringify(all.body));
         assert.ok(!sent().some(([kind, to]) => kind === 'broadcast' && to === '919876522222'));
         // Chosen by name, filled in per business; a typed number counted once however it is written.
-        const res = await call(sup, 'POST', '/api/admin/wapzo/broadcast', {
+        const res = await call(sup, 'POST', '/api/admin/wuzie/broadcast', {
             tenants: [asha.id], numbers: '98765 55555\n+91 98765 55555, abc', text: 'Hi {name} of {business}, we are live.',
         });
         assert.equal(res.status, 200, JSON.stringify(res.body));
@@ -156,7 +156,7 @@ describe('Wuzie WhatsApp number', () => {
         assert.deepEqual(out.map(([, to]) => to), ['919876522222', '919876555555']);
         assert.equal(out[0][2], 'Hi Asha of Asha Sarees, we are live.');
         assert.equal(out[1][2], 'Hi of, we are live.', 'a typed number has no business to fill in');
-        const types = db.db.prepare("SELECT DISTINCT message_type FROM messages WHERE campaign_id = 'wapzo:broadcast'").all();
+        const types = db.db.prepare("SELECT DISTINCT message_type FROM messages WHERE campaign_id = 'wuzie:broadcast'").all();
         assert.deepEqual(types.map((r) => r.message_type), ['campaign']);
     });
 
@@ -166,7 +166,7 @@ describe('Wuzie WhatsApp number', () => {
         await call(sup, 'PATCH', `/api/admin/leads/${by('ravi@t.test').id}`, { status: 'hold' });
         await call(sup, 'PATCH', `/api/admin/leads/${by('meena@f.test').id}`, { status: 'dismissed' });
         const ids = ['early@shop.test', 'ravi@t.test', 'meena@f.test', 'asha@shop.test'].map((e) => by(e).id);
-        const res = await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: [], leads: ids, text: 'Hi {name} of {business}' });
+        const res = await call(sup, 'POST', '/api/admin/wuzie/broadcast', { tenants: [], leads: ids, text: 'Hi {name} of {business}' });
         assert.equal(res.status, 200, JSON.stringify(res.body));
         assert.equal(res.body.queued, 2);
         const out = sent().filter(([kind]) => kind === 'broadcast').slice(-2);
@@ -175,20 +175,20 @@ describe('Wuzie WhatsApp number', () => {
             ['919876533333', 'Hi Ravi of Ravi Tutors'],
         ]);
         const closed = ids.slice(2);
-        assert.equal((await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: [], leads: closed, text: 'Hi' })).status, 400);
+        assert.equal((await call(sup, 'POST', '/api/admin/wuzie/broadcast', { tenants: [], leads: closed, text: 'Hi' })).status, 400);
     });
 
     it('sends an image, alone or with text, to every business and typed numbers together', async () => {
         const form = new FormData();
         form.set('file', new Blob([Buffer.from('89504e470d0a1a0a0000', 'hex')], { type: 'image/png' }), 'offer.png');
-        const up = await fetch(`${base}/api/admin/wapzo/api/media/upload`, {
+        const up = await fetch(`${base}/api/admin/wuzie/api/media/upload`, {
             method: 'POST', headers: { authorization: `Bearer ${sup}` }, body: form,
         });
         assert.equal(up.status, 201);
         const { mediaId } = await up.json();
-        assert.equal((await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: 'all', mediaId: 'med_nope' })).status, 404);
+        assert.equal((await call(sup, 'POST', '/api/admin/wuzie/broadcast', { tenants: 'all', mediaId: 'med_nope' })).status, 404);
         const before = sent().length;
-        const res = await call(sup, 'POST', '/api/admin/wapzo/broadcast', { tenants: 'all', numbers: ['98765 66666', '+971 50 123 4567'], mediaId });
+        const res = await call(sup, 'POST', '/api/admin/wuzie/broadcast', { tenants: 'all', numbers: ['98765 66666', '+971 50 123 4567'], mediaId });
         assert.equal(res.status, 200, JSON.stringify(res.body));
         const out = sent().slice(before);
         assert.ok(out.some(([, to]) => to === '919876566666'), 'the typed number, beside every business');

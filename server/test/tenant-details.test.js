@@ -68,20 +68,20 @@ describe('tenant details', () => {
     it('edits the name, ID, contact number, Wuzie updates and the owner', async () => {
         const url = `/api/admin/tenants/${id}/details`;
         const res = await call(sup, 'PUT', url, {
-            name: 'Kiran Eye Care', slug: 'Kiran Eye Care', contactPhone: '98765 43210', wapzoUpdates: false,
+            name: 'Kiran Eye Care', slug: 'Kiran Eye Care', contactPhone: '98765 43210', wuzieUpdates: false,
             ownerName: 'Kiran Rao', ownerEmail: 'Rao@Optic.test',
         });
         assert.equal(res.status, 200, JSON.stringify(res.body));
         assert.equal(res.body.tenant.name, 'Kiran Eye Care');
         assert.equal(res.body.tenant.slug, 'kiran-eye-care');
         assert.equal(res.body.tenant.contactPhone, '98765 43210');
-        assert.equal(res.body.tenant.wapzoUpdates, false);
+        assert.equal(res.body.tenant.wuzieUpdates, false);
         assert.equal(res.body.owner.email, 'rao@optic.test');
         assert.equal(res.body.owner.name, 'Kiran Rao');
         // Only what is sent changes.
-        const again = await call(sup, 'PUT', url, { wapzoUpdates: true });
+        const again = await call(sup, 'PUT', url, { wuzieUpdates: true });
         assert.equal(again.body.tenant.name, 'Kiran Eye Care');
-        assert.equal(again.body.tenant.wapzoUpdates, true);
+        assert.equal(again.body.tenant.wuzieUpdates, true);
         const log = (await call(sup, 'GET', `/api/admin/audit-logs?tenant=${id}&actions=tenant.details`)).body.logs.at(-1);
         assert.match(log.summary, /Changed the details of .*rao@optic\.test/);
     });
