@@ -36,11 +36,15 @@ main() {
   npm --prefix server audit --omit=dev --audit-level=high \
     || echo "WARNING: npm audit reports high-severity issues (or could not run). Review them after this deploy."
 
-  # The frontend only needs a rebuild when web/ changed (or was never built).
-  if [ ! -d web/dist ] || ! git diff --quiet "$before" HEAD -- web/; then
+  # The frontend only needs a rebuild when web/ differs from what the current build was made from. Compared with a
+  # stamp, not with this run's pull: a run that pulled but died before building must not leave an old build forever.
+  local web_tree
+  web_tree=$(git rev-parse HEAD:web)
+  if [ "$(cat web/dist/.web-tree 2>/dev/null)" != "$web_tree" ]; then
     echo "Building frontend..."
     npm --prefix web ci
     npm run build
+    echo "$web_tree" > web/dist/.web-tree
   else
     echo "web/ unchanged: keeping the current build."
   fi
