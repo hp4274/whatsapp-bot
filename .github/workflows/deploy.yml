@@ -58,5 +58,5 @@ jobs:
           script: |
             set -e
             sudo -u whatsapp git -C /var/www/whatsapp-bot fetch origin master
-            sudo -u whatsapp git -C /var/www/whatsapp-bot checkout master
+            sudo -u whatsapp git -C /var/www/whatsapp-bot checkout -B master origin/master
             sudo -u whatsapp bash /var/www/whatsapp-bot/scripts/deploy.sh
