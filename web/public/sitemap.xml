@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- The copy for a build made without `npm run build`'s SEO step, which writes this file from the posts (web/scripts/seo.mjs). -->
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://wuzie.in/</loc></url>
-  <url><loc>https://wuzie.in/blog</loc></url>
-  <url><loc>https://wuzie.in/blog/bulk-whatsapp-messages-customers-want</loc><lastmod>2026-11-13</lastmod></url>
-  <url><loc>https://wuzie.in/blog/keep-your-whatsapp-number-safe</loc><lastmod>2026-11-13</lastmod></url>
-  <url><loc>https://wuzie.in/blog/whatsapp-auto-replies-numbered-menus</loc><lastmod>2026-11-13</lastmod></url>
-</urlset>
